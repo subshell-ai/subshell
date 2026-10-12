@@ -69,7 +69,7 @@ export default function SignIn() {
           captionColor={colors.destructive}
         />
         <PrimaryButton
-          disabledReason="Enter your email and password first."
+          disabledReason="Enter your e-mail and password first."
           onPress={() => void submit()}
           label="Sign in"
           disabled={!email || !password}

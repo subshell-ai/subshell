@@ -109,8 +109,11 @@ export function ExplainedButton({ disabledReason, ...props }: ButtonPrimitive.Pr
     />
   );
   // Closed tooltip stores still subscribe and run effects. Ordinary actions
-  // need no explanation. Keep the tree stable for controls
-  // that do explain a blocker, so enabling them preserves focus and DOM refs.
+  // need no explanation, so a control that never carries one renders bare.
+  // Once a reason appears the tree stays wrapped, so enabling a control
+  // preserves focus and DOM refs; a control whose reason appears only while
+  // busy remounts at that flip, which is where a native disabled button
+  // used to drop focus anyway.
   if (!hasExplanation.current) return button;
 
   // Keep the button itself in the layout and tab order. Base UI blocks activation

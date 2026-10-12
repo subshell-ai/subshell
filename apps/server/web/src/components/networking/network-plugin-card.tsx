@@ -292,7 +292,6 @@ export function NetworkPluginCard({
    * rather than discovered as a 409 naming the page the press came from.
    */
   const blocker = connectBlocker(row);
-  const blockerId = `network-${row.id}-connect-blocker`;
 
   /**
    * Whether a joined/published row STORES its setup fields below its acts,
@@ -658,11 +657,7 @@ export function NetworkPluginCard({
                 {row.interactiveLogin ? null : credentialBox}
                 {/* Keep the prerequisite visible. Each button also explains its
                     current blocker through the shared disabled tooltip. */}
-                {blocker && (
-                  <p id={blockerId} className="text-detail text-muted-foreground">
-                    {blocker}
-                  </p>
-                )}
+                {blocker && <p className="text-detail text-muted-foreground">{blocker}</p>}
                 {row.interactiveLogin && joinMode === "signin" ? (
                   <div className="space-y-1.5">
                     {/* Not "opens … in a new tab": nothing here opens a tab. The

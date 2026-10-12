@@ -106,9 +106,11 @@ admitted here.
   documentation or pack it into a run-on sentence to meet a quota. Move
   optional background into documentation or a disclosure. UI copy uses no em
   dashes. An absence placeholder in a table isn't prose.
-- **Help text**: everything a control says about itself is `detail`, at ONE
-  size: its hint, "set by the environment", a saved-vs-running note, a
-  validation error, the same role metadata uses, so a field never mixes sizes.
+- **Help text**: every INLINE explanation a control gives about itself is
+  `detail`, at ONE size: its hint, "set by the environment", a saved-vs-running
+  note, a validation error, the same role metadata uses, so a field never mixes
+  sizes. A tooltip popup is the floating-surface exception and carries `body`;
+  see **Tooltip**.
   `body` is for running text that is not attached to a control. *(One screen explained a toggle at 13 and the field below it at
   12; a plugin's description was 12 in one card and 14 in the other; the
   assistant's `.hint` was 14. Three sizes for one idea, because the table used

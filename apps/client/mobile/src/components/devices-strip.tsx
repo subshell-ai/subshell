@@ -60,7 +60,7 @@ export function DevicesStrip({
               <ExplainedPressable
                 key={viewer.id}
                 disabled={!mayResize}
-                disabledReason={"You have view-only access. Terminal sizing needs input access."}
+                disabledReason={"Terminal sizing needs input access."}
                 // Tapping a device pins the pane to it; tapping the pinned one
                 // again releases it. Without a way back, pinning would be a
                 // one-way door out of the default.
