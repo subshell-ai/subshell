@@ -1,5 +1,6 @@
 import type { Node } from "@internal/node-admin";
 import { Button, confirmAction, errMessage, Input, NODES_QUERY_KEY } from "@internal/node-admin";
+import { LIST_SEARCH_MAX } from "@internal/subshell-protocol";
 import { createFileRoute } from "@tanstack/react-router";
 import { KeyRound, List, Plus, Server } from "lucide-react";
 import { useState } from "react";
@@ -146,6 +147,7 @@ function NodesPage() {
             value={filters.query}
             onChange={(e) => setFilters((f) => ({ ...f, query: e.target.value }))}
             placeholder="Search by name or hostname…"
+            maxLength={LIST_SEARCH_MAX.nodes}
             aria-label="Search nodes"
             className="max-w-sm"
           />

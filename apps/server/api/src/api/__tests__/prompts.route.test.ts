@@ -155,6 +155,29 @@ describe("/api/prompts (spec 2026-09-28)", () => {
     expect((scoped.json as unknown as { shared: PromptView[] }).shared).toEqual([]);
   });
 
+  it("bounds searches and rejects invalid scope without weakening authentication or permissions", async () => {
+    const query = (q: string) => `?${new URLSearchParams({ q })}`;
+    expect((await call(query("x".repeat(20000)), { cookie: ownerCookie })).status).toBe(200);
+    expect((await call(query("x".repeat(20001)), { cookie: ownerCookie })).status).toBe(400);
+    expect((await call(query("🦊".repeat(10001)), { cookie: ownerCookie })).status).toBe(400);
+    expect((await call("?scope=everyone", { cookie: ownerCookie })).status).toBe(400);
+    expect((await call(query("private"))).status).toBe(401);
+    const key = await mintKey(ownerId, { subshells: ["read"] });
+    expect((await call(query("private"), { bearer: key })).status).toBe(403);
+    for (const q of ["' OR 1=1 --", "(a+)+$", "<script>alert(1)</script>", "%_"]) {
+      const response = await call(query(q), { cookie: readerCookie });
+      expect(response.status).toBe(200);
+      // SQL/regex syntax is a substring, never an instruction or wildcard.
+      const view = response.json as unknown as { own: PromptView[]; shared: PromptView[] };
+      expect(
+        [...view.own, ...view.shared].every(
+          (p) =>
+            p.body.toLowerCase().includes(q.toLowerCase()) || p.description.toLowerCase().includes(q.toLowerCase()),
+        ),
+      ).toBe(true);
+    }
+  });
+
   it("refuses an empty or whitespace description and an empty body", async () => {
     for (const body of [
       { description: "", body: "x" },

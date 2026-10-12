@@ -1,7 +1,9 @@
 import { apiFetch, cn, confirmAction, ExplainedButton, errMessage, Input } from "@internal/node-admin";
+import { LIST_SEARCH_MAX } from "@internal/subshell-protocol";
 import { Link, useLocation } from "@tanstack/react-router";
 import { ChevronDown, Trash2 } from "lucide-react";
 import { type JSX, type ReactNode, useCallback, useState } from "react";
+import { ListLoadError } from "@/components/list-load-error";
 import { TippedIconButton } from "@/components/tipped-icon-button";
 import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
@@ -261,6 +263,7 @@ export function WorkspacesSection(): JSX.Element | null {
           value={workspaceQuery}
           onChange={(e) => setWorkspaceQuery(e.target.value)}
           placeholder="Filter workspaces…"
+          maxLength={LIST_SEARCH_MAX.workspaces}
           aria-label="Filter workspaces"
           className="h-7 text-detail"
         />
@@ -310,7 +313,13 @@ export function WorkspacesSection(): JSX.Element | null {
       )}
       {wsActionError && <p className="px-3 py-1 text-destructive text-detail">{wsActionError}</p>}
       {(results.isError || draftResults.isError) && (
-        <p className="px-3 py-1 text-destructive text-detail">Couldn’t load workspaces.</p>
+        <ListLoadError
+          message="Couldn’t load workspaces."
+          retry={() =>
+            Promise.all([results.isError && results.refetch(), draftResults.isError && draftResults.refetch()])
+          }
+          busy={results.isFetching || draftResults.isFetching}
+        />
       )}
       {(results.isLoading || draftResults.isLoading) && (
         <p className="px-3 py-1 text-detail text-muted-foreground">Loading…</p>

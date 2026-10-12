@@ -1,4 +1,5 @@
 import { Button, confirmAction, errMessage, Input } from "@internal/node-admin";
+import { LIST_SEARCH_MAX } from "@internal/subshell-protocol";
 import { createFileRoute } from "@tanstack/react-router";
 import { Copy, Layers, MessageSquareText, Pencil, Plus, Share2, ShieldOff, Trash2 } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
@@ -543,6 +544,7 @@ function PromptsPage() {
       <div className="flex flex-wrap items-center gap-3">
         <Input
           value={query}
+          maxLength={LIST_SEARCH_MAX.prompts}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={
             activeView === "all"
@@ -667,7 +669,7 @@ function PromptsPage() {
           }
         />
       )}
-      {!isLoading && emptyFiltered && (
+      {!isLoading && !isError && emptyFiltered && (
         <p className="text-muted-foreground text-sm">
           {emptyByFilter
             ? query.trim() !== ""

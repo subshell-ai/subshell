@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
+import { Elysia } from "elysia";
 import { workspaceRoutes } from "@/api/workspaces/index.js";
 import { authDatabase } from "@/auth/database.js";
 import { db } from "@/db/index.js";
@@ -7,6 +8,7 @@ import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
@@ -78,6 +80,24 @@ describe("workspaces route", () => {
     await db.deleteFrom("userMeta").where("userId", "=", otherId).execute();
     await deleteUserByEmailOrId(ownerEmail);
     await deleteUserByEmailOrId(otherEmail);
+  });
+
+  it("validates search and auxiliary inputs even without a draft search", async () => {
+    const app = new Elysia().use(errorHandlerPlugin).use(workspaceRoutes);
+    const token = await signIn(ownerEmail, password);
+    for (const [params, expected] of [
+      [{ q: "x".repeat(120) }, 200],
+      [{ q: "x".repeat(121) }, 400],
+      [{ subshellId: "x".repeat(129) }, 400],
+      [{ locale: "bad_locale" }, 400],
+      [{ timeZone: "bad/timezone" }, 400],
+      [{ locale: "x".repeat(129) }, 400],
+      [{ timeZone: "x".repeat(129) }, 400],
+      [{ drafts: "all" }, 400],
+    ] as const) {
+      const response = await app.fetch(authedRequest(`/api/workspaces?${new URLSearchParams(params)}`, token));
+      expect(response.status).toBe(expected);
+    }
   });
 
   it("searches saved workspaces within the owner's list", async () => {

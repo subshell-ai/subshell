@@ -1,3 +1,4 @@
+import { LIST_SEARCH_MAX } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
 import { matchesListQuery } from "@/api/list-filter.js";
@@ -148,7 +149,7 @@ export const promptsRoutes = new Elysia({ prefix: "/api/prompts" })
     },
     {
       query: t.Object({
-        q: t.Optional(t.String()),
+        q: t.Optional(t.String({ maxLength: LIST_SEARCH_MAX.prompts })),
         scope: t.Optional(t.Union([t.Literal("own"), t.Literal("shared")])),
       }),
       response: PromptsListSchema,

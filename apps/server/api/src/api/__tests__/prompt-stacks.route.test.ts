@@ -158,6 +158,18 @@ describe("/api/prompts/stacks (spec 2026-09-29)", () => {
     expect((await call("/stacks")).status).toBe(401); // gated, not absent
   });
 
+  it("validates search length and select filters", async () => {
+    for (const [params, expected] of [
+      [{ q: "x".repeat(20000) }, 200],
+      [{ q: "x".repeat(20001) }, 400],
+      [{ empty: "all" }, 400],
+      [{ scope: "everyone" }, 400],
+    ] as const) {
+      const response = await callJson(`/stacks?${new URLSearchParams(params)}`, { cookie: ownerCookie });
+      expect(response.status).toBe(expected);
+    }
+  });
+
   it("searches only visible members and filters empty owned stacks", async () => {
     const needle = unique("member-search");
     const promptId = await mkPrompt(readerCookie, "Member", needle, true);

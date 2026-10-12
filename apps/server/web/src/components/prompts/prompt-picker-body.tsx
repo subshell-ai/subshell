@@ -1,8 +1,10 @@
 import { Button, errMessage, Input, Label, Switch } from "@internal/node-admin";
+import { LIST_SEARCH_MAX } from "@internal/subshell-protocol";
 import { useStore } from "@tanstack/react-form";
 import { Layers, PenLine } from "lucide-react";
 import { useEffect, useState } from "react";
 import { z } from "zod";
+import { ListLoadError } from "@/components/list-load-error";
 import { type ComboboxOption, SearchableSelect } from "@/components/ui/combobox";
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Segmented } from "@/components/ui/segmented";
@@ -114,7 +116,7 @@ export function PromptPickerBody({
   const scope = draftScope ?? "";
   const [tab, setTab] = useState<"own" | "shared">("own");
   const [search, setSearch] = useState("");
-  const { data, isLoading, isError } = usePrompts(search, tab);
+  const { data, isLoading, isError, isFetching, refetch } = usePrompts(search, tab);
   // The editor (allowStacks=false) can never render a stack, so it does not
   // ask for any: no cold-cache request rides a list that cannot nest.
   const stacksQ = usePromptStacks({ enabled: allowStacks, search, scope: tab });
@@ -269,7 +271,7 @@ export function PromptPickerBody({
     ) : isError || (allowStacks && stacksQ.isError) ? (
       // The one sentence that is not neutral: the page's rule (a failure
       // never reads as "none yet") keeps the destructive colour too.
-      <span className="text-destructive">The prompts could not be loaded.</span>
+      <span className="text-destructive">Couldn’t load all search results.</span>
     ) : totalRows === 0 && !search.trim() ? (
       tab === "own" ? (
         `No ${kinds} yet`
@@ -408,6 +410,7 @@ export function PromptPickerBody({
             <SearchableSelect
               id="prompt-picker-search"
               onSearchChange={setSearch}
+              maxLength={LIST_SEARCH_MAX.prompts}
               value=""
               // The list answers both kinds when stacks are on offer (the
               // editor's picker is prompts-only, and would promise a search
@@ -430,6 +433,13 @@ export function PromptPickerBody({
               }}
             />
           </div>
+          {(isError || (allowStacks && stacksQ.isError)) && (
+            <ListLoadError
+              message="Couldn’t load all search results."
+              retry={() => Promise.all([isError && refetch(), allowStacks && stacksQ.isError && stacksQ.refetch()])}
+              busy={isFetching || (allowStacks && stacksQ.isFetching)}
+            />
+          )}
           <button
             type="button"
             className="flex w-full items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-left text-label hover:bg-accent/40"

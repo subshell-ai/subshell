@@ -160,6 +160,31 @@ describe("/prompts views", () => {
 });
 
 describe("/prompts error unions", () => {
+  it("offers retry for failed searches without claiming no matches", async () => {
+    const original = globalThis.fetch;
+    let failSearch = true;
+    globalThis.fetch = ((input: unknown) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.searchParams.has("q") && failSearch) return Promise.resolve(new Response("{}", { status: 500 }));
+      return Promise.resolve(
+        new Response(JSON.stringify(url.pathname.endsWith("/stacks") ? DEFAULT_STACKS : DEFAULT_PROMPTS)),
+      );
+    }) as typeof fetch;
+    try {
+      renderPage("/prompts?view=single");
+      await screen.findByText("Kickoff");
+      fireEvent.change(screen.getByPlaceholderText("Search prompts"), { target: { value: "kick" } });
+      await screen.findByText("Couldn't load prompts.");
+      expect(screen.queryByText("No prompts match the search.") === null).toBe(true);
+      failSearch = false;
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      await waitFor(() => expect(screen.queryByText("Couldn't load prompts.") === null).toBe(true));
+      expect(screen.getByText("Kickoff")).toBeDefined();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("Stacked fails on the list it shows and names the prompt-list degradation", async () => {
     const { restore } = mockFetch({ failStacks: true });
     try {

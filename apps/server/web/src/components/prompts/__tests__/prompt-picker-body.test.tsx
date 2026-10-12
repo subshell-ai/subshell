@@ -581,3 +581,32 @@ describe("PromptPickerBody — stack reason line (no dangling separator)", () =>
     expect(reason).not.toContain(" · ");
   });
 });
+
+it("retries a failed prompt search from outside the combobox", async () => {
+  const original = globalThis.fetch;
+  let failSearch = true;
+  let requests = 0;
+  globalThis.fetch = ((input: unknown) => {
+    const url = new URL(String(input), "http://localhost");
+    if (url.pathname === "/api/prompts") {
+      requests++;
+      return Promise.resolve(
+        failSearch ? new Response("{}", { status: 500 }) : new Response(JSON.stringify({ own: [ownRow], shared: [] })),
+      );
+    }
+    return Promise.resolve(new Response(JSON.stringify({ own: [], shared: [] })));
+  }) as typeof fetch;
+  try {
+    renderPicker({ onPick: () => {}, allowStacks: false });
+    await screen.findByRole("alert");
+    failSearch = false;
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(screen.queryByRole("alert") === null).toBe(true));
+    expect(requests).toBe(2);
+    openSearch();
+    expect(await screen.findByRole("option", { name: /Kickoff/ })).toBeDefined();
+    expect((screen.getByRole("combobox") as HTMLInputElement).maxLength).toBe(20000);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

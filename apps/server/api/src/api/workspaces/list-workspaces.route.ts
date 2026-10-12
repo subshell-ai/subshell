@@ -1,3 +1,4 @@
+import { LIST_SEARCH_MAX } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, HttpError } from "@/api/auth-guard.js";
 import { matchesListQuery } from "@/api/list-filter.js";
@@ -7,12 +8,13 @@ import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 
 const ListWorkspacesQuerySchema = t.Object({
-  q: t.Optional(t.String()),
-  locale: t.Optional(t.String()),
-  timeZone: t.Optional(t.String()),
+  q: t.Optional(t.String({ maxLength: LIST_SEARCH_MAX.workspaces })),
+  locale: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+  timeZone: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
   subshellId: t.Optional(
     t.String({
       minLength: 1,
+      maxLength: 128,
       description:
         "Restrict to the caller's workspaces holding a pane for this subshell, most recently updated first, unsaved drafts INCLUDED (the unfiltered list excludes them)",
     }),
@@ -33,11 +35,6 @@ export const listWorkspacesRoute = new Elysia()
     "/",
     async ({ query, actor, user, ctx }) => {
       requireCookieActor(actor);
-      const rows = await ctx.services.workspaces.listWorkspaces(user.id, {
-        subshellId: query.subshellId,
-        draftsOnly: query.drafts === "only",
-      });
-      if (query.drafts !== "only" || !query.q?.trim()) return rows.filter((w) => matchesListQuery(query.q, w.name));
       let formatter: Intl.DateTimeFormat;
       try {
         formatter = new Intl.DateTimeFormat(query.locale, {
@@ -50,6 +47,11 @@ export const listWorkspacesRoute = new Elysia()
       } catch {
         throw new HttpError(400, "Choose a valid locale and time zone.");
       }
+      const rows = await ctx.services.workspaces.listWorkspaces(user.id, {
+        subshellId: query.subshellId,
+        draftsOnly: query.drafts === "only",
+      });
+      if (query.drafts !== "only" || !query.q?.trim()) return rows.filter((w) => matchesListQuery(query.q, w.name));
       const labels = new Map<string, number>();
       return rows
         .slice()

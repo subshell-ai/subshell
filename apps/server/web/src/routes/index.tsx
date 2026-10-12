@@ -254,7 +254,7 @@ function SubshellsPage() {
           HTTP failures and the impatient. */}
       {(isError || results.isError) && (
         <ErrorBanner
-          message="Couldn't load subshells, retrying…"
+          message="Couldn't load subshells."
           action={
             <Button
               variant="link"

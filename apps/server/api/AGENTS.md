@@ -640,3 +640,9 @@ accept `empty=only` for owned stacks. Prompts and stacks also accept
 `scope=own|shared`. Search stack members only after dropping
 references the caller cannot see. Workspace draft searches receive the browser's
 `locale` and `timeZone` to match the labels rendered in the sidebar.
+
+Search lengths come from `LIST_SEARCH_MAX` in the protocol package; use the
+same constants for browser input limits. Keep identifier/locale/time-zone
+filters bounded, validate locale and time zone before reading workspace rows,
+and retain enum validation for select filters. See `docs/security.md`'s
+Dashboard list search inputs section for the security constraints.

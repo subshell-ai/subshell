@@ -74,6 +74,8 @@ export interface SearchableSelectProps {
   consumed?: boolean;
   /** Server-backed consumers own matching; fixed option lists keep local search. */
   onSearchChange?: (query: string) => void;
+  /** Maximum search input length, matching the resource API. */
+  maxLength?: number;
 }
 
 /**
@@ -95,6 +97,7 @@ export function SearchableSelect({
   emptyText = "No matches",
   consumed,
   onSearchChange,
+  maxLength,
 }: SearchableSelectProps): JSX.Element {
   // Item values are the option objects; the external contract stays the
   // plain id string. Object identity would break under rebuilt arrays, so
@@ -170,6 +173,7 @@ export function SearchableSelect({
     >
       <ComboboxPrimitive.Input
         id={id}
+        maxLength={maxLength}
         aria-describedby={describedBy}
         placeholder={placeholder}
         onPointerDownCapture={() => {

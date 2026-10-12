@@ -1,3 +1,4 @@
+import { LIST_SEARCH_MAX } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
 import { matchesListQuery } from "@/api/list-filter.js";
@@ -97,7 +98,7 @@ export const listNodesRoute = new Elysia()
     },
     {
       query: t.Object({
-        q: t.Optional(t.String()),
+        q: t.Optional(t.String({ maxLength: LIST_SEARCH_MAX.nodes })),
         status: t.Optional(t.Union([t.Literal("online"), t.Literal("offline")])),
         access: t.Optional(t.Union([t.Literal("yours"), t.Literal("shared")])),
       }),

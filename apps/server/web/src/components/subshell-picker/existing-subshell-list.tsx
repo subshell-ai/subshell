@@ -1,9 +1,10 @@
 import { cn, ExplainedButton, relativeElapsed } from "@internal/node-admin";
 import { Check } from "lucide-react";
 import type { JSX } from "react";
+import { ListLoadError } from "@/components/list-load-error";
 import { SubshellSearch } from "@/components/subshell-search";
 import { RowStatusBadges } from "@/components/subshell-status";
-import { useFilteredSubshells } from "@/hooks/use-subshells";
+import { useFilteredSubshells, useInvalidateSubshells } from "@/hooks/use-subshells";
 import { priorityRunning } from "@/lib/subshell-order";
 import type { SubshellView } from "@/types/subshell";
 
@@ -70,6 +71,7 @@ export function ExistingSubshellList({
 }): JSX.Element {
   const multi = selected !== undefined && onToggle !== undefined;
   const results = useFilteredSubshells(query, nodeId);
+  const retry = useInvalidateSubshells();
   // Workspace membership is a local selection constraint, not a search predicate.
   const available = new Set(subshells.map((s) => s.id));
   const filtered = priorityRunning((results.data ?? []).filter((s) => available.has(s.id)));
@@ -80,7 +82,7 @@ export function ExistingSubshellList({
 
       <div className="max-h-80 min-h-32 overflow-y-auto rounded-md border">
         {loadFailed || results.isError ? (
-          <p className="p-3 text-destructive text-detail">Couldn't load subshells.</p>
+          <ListLoadError message="Couldn't load subshells." retry={retry} busy={loading || results.isFetching} />
         ) : loading || results.isLoading ? (
           <p className="p-3 text-muted-foreground text-sm">Loading subshells…</p>
         ) : subshells.length === 0 ? (

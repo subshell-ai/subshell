@@ -1,3 +1,4 @@
+import { LIST_SEARCH_MAX } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
 import { matchesListQuery } from "@/api/list-filter.js";
@@ -26,7 +27,10 @@ export const listSubshellsRoute = new Elysia()
       );
     },
     {
-      query: t.Object({ q: t.Optional(t.String()), nodeId: t.Optional(t.String()) }),
+      query: t.Object({
+        q: t.Optional(t.String({ maxLength: LIST_SEARCH_MAX.subshells })),
+        nodeId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+      }),
       response: {
         200: t.Array(SubshellSchema, { description: "User's subshells" }),
         401: "ApiErrorResponse",

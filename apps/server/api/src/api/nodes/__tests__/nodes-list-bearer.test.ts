@@ -137,6 +137,19 @@ describe("GET /api/nodes bearer visibility (enumerate-ok / act-denied)", () => {
     harnesses: { harnessId: string; installed: boolean }[];
   };
 
+  it("validates node search length and select filters", async () => {
+    for (const [params, expected] of [
+      [{ q: "x".repeat(128) }, 200],
+      [{ q: "x".repeat(129) }, 400],
+      [{ q: "🦊".repeat(65) }, 400],
+      [{ status: "broken" }, 400],
+      [{ access: "admin" }, 400],
+    ] as const) {
+      const response = await app.fetch(authedRequest(`/api/nodes?${new URLSearchParams(params)}`, bobCookie));
+      expect(response.status).toBe(expected);
+    }
+  });
+
   it("combines search, status and access without widening bearer visibility", async () => {
     const list = async (params: Record<string, string>, bearer = false) => {
       const response = await app.fetch(

@@ -1,7 +1,9 @@
 import { Input } from "@internal/node-admin";
+import { LIST_SEARCH_MAX } from "@internal/subshell-protocol";
 import { useLocation } from "@tanstack/react-router";
 import { ChevronsDownUp, ChevronsUpDown, Grid3x3, LayoutGrid, List } from "lucide-react";
 import { type RefObject, useCallback, useMemo, useState } from "react";
+import { ListLoadError } from "@/components/list-load-error";
 import { SubshellNodeGroup } from "@/components/sidebar/SubshellNodeGroup";
 import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
 import { flatCellRows, nodeTintBucket, paneInitial, SubshellCellGrid } from "@/components/sidebar/subshell-cell-grid";
@@ -393,11 +395,14 @@ export function RailSubshells({
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
           placeholder="Filter subshells…"
+          maxLength={LIST_SEARCH_MAX.subshells}
           aria-label="Filter subshells"
           className="h-7 text-detail"
         />
       </div>
-      {results.isError && <p className="px-3 py-1 text-destructive text-detail">Couldn’t load subshells.</p>}
+      {results.isError && (
+        <ListLoadError message="Couldn’t load subshells." retry={results.refetch} busy={results.isFetching} />
+      )}
       {results.isLoading && <p className="px-3 py-1 text-detail text-muted-foreground">Loading…</p>}
       {q !== "" && !results.isLoading && !results.isError && listedCount === 0 && (
         <p className="px-3 py-1 text-detail text-muted-foreground">No matches.</p>

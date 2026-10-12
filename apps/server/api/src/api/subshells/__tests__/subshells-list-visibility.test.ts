@@ -1,10 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
+import { Elysia } from "elysia";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { db } from "@/db/index.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
@@ -98,6 +100,23 @@ describe("GET /api/subshells visibility + access", () => {
       }),
     );
   }
+
+  it("bounds search text and node identifiers", async () => {
+    const app = new Elysia().use(errorHandlerPlugin).use(subshellRoutes);
+    for (const [params, expected] of [
+      [{ q: "x".repeat(4096) }, 200],
+      [{ q: "x".repeat(4097) }, 400],
+      [{ nodeId: "x".repeat(129) }, 400],
+      [{ nodeId: "" }, 400],
+    ] as const) {
+      const response = await app.fetch(
+        new Request(`http://localhost/api/subshells?${new URLSearchParams(params)}`, {
+          headers: { cookie: `better-auth.session_token=${bobCookie}` },
+        }),
+      );
+      expect(response.status).toBe(expected);
+    }
+  });
 
   it("filters the authorized list by text and node, including bearer reads", async () => {
     const listFiltered = async (q: string, nodeId: string, bearer = false) => {
