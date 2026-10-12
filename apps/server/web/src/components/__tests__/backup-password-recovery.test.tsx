@@ -25,9 +25,11 @@ describe("temporary restore password form", () => {
     expect(screen.queryByText("The new passwords do not match.")).toBeNull();
     fireEvent.blur(screen.getByLabelText("Confirm new password"));
     await waitFor(() => expect(screen.getByText("The new passwords do not match.")).toBeTruthy());
-    expect((screen.getByRole("button", { name: "Change password and sign in" }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
+    expect(
+      (screen.getByRole("button", { name: "Change password and sign in" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
     await act(async () => {
       fireEvent.submit(form);
     });
@@ -44,7 +46,7 @@ describe("temporary restore password form", () => {
     const submit = screen.getByRole("button", { name: "Change password and sign in" }) as HTMLButtonElement;
     const form = submit.closest("form");
     if (!form) throw new Error("Recovery form missing");
-    expect(submit.disabled).toBe(true);
+    expect(submit.matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(screen.queryByRole("alert")).toBeNull();
     await act(async () => {
       fireEvent.submit(form);
@@ -53,16 +55,16 @@ describe("temporary restore password form", () => {
     for (const invalid of ["short", "temporary-password", "p".repeat(4097)]) {
       for (const label of ["New password", "Confirm new password"])
         fireEvent.change(screen.getByLabelText(label), { target: { value: invalid } });
-      expect(submit.disabled).toBe(true);
+      expect(submit.matches(":disabled, [aria-disabled=true]")).toBe(true);
       await act(async () => {
         fireEvent.submit(form);
       });
     }
     for (const label of ["New password", "Confirm new password"])
       fireEvent.change(screen.getByLabelText(label), { target: { value: "p".repeat(4096) } });
-    expect(submit.disabled).toBe(false);
+    expect(submit.matches(":disabled, [aria-disabled=true]")).toBe(false);
     fireEvent.change(screen.getByLabelText("Temporary password"), { target: { value: "" } });
-    expect(submit.disabled).toBe(true);
+    expect(submit.matches(":disabled, [aria-disabled=true]")).toBe(true);
     await act(async () => {
       fireEvent.submit(form);
     });
@@ -82,8 +84,10 @@ describe("temporary restore password form", () => {
       fireEvent.submit(form);
     });
     await waitFor(() => expect(screen.getByText(/The current password is incorrect/)).toBeTruthy());
-    expect((screen.getByRole("button", { name: "Change password and sign in" }) as HTMLButtonElement).disabled).toBe(
-      false,
-    );
+    expect(
+      (screen.getByRole("button", { name: "Change password and sign in" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(false);
   });
 });

@@ -132,7 +132,7 @@ describe("NodeServiceCard", () => {
     for (const label of ["Restart", "Stop", "Uninstall service"]) {
       expect(verbButton(label)).toBeTruthy();
     }
-    expect(verbButton("Restart").disabled).toBe(true);
+    expect(verbButton("Restart").matches(":disabled, [aria-disabled=true]")).toBe(true);
   });
 
   /**
@@ -143,10 +143,10 @@ describe("NodeServiceCard", () => {
    */
   it("disables stop and uninstall for anyone but the owner", async () => {
     await renderServiceCard({ ...base, access: "edit", runtime: runtime() });
-    expect(verbButton("Stop").disabled).toBe(true);
-    expect(verbButton("Uninstall service").disabled).toBe(true);
+    expect(verbButton("Stop").matches(":disabled, [aria-disabled=true]")).toBe(true);
+    expect(verbButton("Uninstall service").matches(":disabled, [aria-disabled=true]")).toBe(true);
     // The reachable verbs stay available to the same grantee.
-    expect(verbButton("Restart").disabled).toBe(false);
+    expect(verbButton("Restart").matches(":disabled, [aria-disabled=true]")).toBe(false);
     expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Install service" })).toBeNull();
   });
@@ -154,8 +154,8 @@ describe("NodeServiceCard", () => {
   it("disables actions when the service state is unknown", async () => {
     await renderServiceCard({ ...base, runtime: runtime({ service: { ...killing(), state: "unknown" } }) });
     for (const label of ["Restart", "Start", "Uninstall service"]) {
-      expect(verbButton(label).disabled).toBe(true);
-      expect(verbButton(label).title).toContain("couldn't check the service status");
+      expect(verbButton(label).matches(":disabled, [aria-disabled=true]")).toBe(true);
+      expect(verbButton(label).getAttribute("aria-description")).toContain("couldn't check the service status");
     }
   });
 
@@ -231,7 +231,7 @@ describe("NodeServiceCard", () => {
       ...base,
       runtime: runtime({ service: { ...killing(), installed: false, state: "not-installed" } }),
     });
-    expect(verbButton("Start").disabled).toBe(true);
+    expect(verbButton("Start").matches(":disabled, [aria-disabled=true]")).toBe(true);
     fireEvent.click(verbButton("Install service"));
     await waitFor(() => expect(asked).toHaveLength(1));
     expect(asked[0]).toContain("comes back on its own");
@@ -256,7 +256,7 @@ describe("NodeServiceCard", () => {
 
     await renderServiceCard({ ...base, runtime: runtime() });
     fireEvent.click(verbButton("Restart"));
-    await waitFor(() => expect(verbButton("Restart").disabled).toBe(false));
+    await waitFor(() => expect(verbButton("Restart").matches(":disabled, [aria-disabled=true]")).toBe(false));
     expect(posted).toEqual([]);
   });
   for (const label of ["Restart", "Stop", "Uninstall service"]) {
@@ -286,9 +286,9 @@ describe("NodeServiceCard", () => {
       fireEvent.click(verbButton(label));
       await waitFor(() => expect(answer).toBeDefined());
       expect(posted).toEqual([]);
-      expect(verbButton(label).disabled).toBe(true);
+      expect(verbButton(label).matches(":disabled, [aria-disabled=true]")).toBe(true);
       answer?.(false);
-      await waitFor(() => expect(verbButton(label).disabled).toBe(false));
+      await waitFor(() => expect(verbButton(label).matches(":disabled, [aria-disabled=true]")).toBe(false));
       expect(posted).toEqual([]);
     });
   }

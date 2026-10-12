@@ -124,8 +124,12 @@ describe("AuditTrailCard paging", () => {
     expect(seen[0].get("limit")).toBe("25");
     expect(seen[0].get("beforeCreatedAt")).toBeNull();
     // A full page means more may exist: Older is live, Newer cannot be.
-    expect((screen.getByRole("button", { name: "Older" }) as HTMLButtonElement).disabled).toBe(false);
-    expect((screen.getByRole("button", { name: "Newer" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Older" }) as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+    ).toBe(false);
+    expect(
+      (screen.getByRole("button", { name: "Newer" }) as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+    ).toBe(true);
   });
 
   it("a single short page is the whole trail — no pager at all", async () => {
@@ -147,7 +151,9 @@ describe("AuditTrailCard paging", () => {
     fireEvent.click(screen.getByRole("button", { name: "Older" }));
     await waitFor(() => expect(screen.getByText("Page 2")).toBeDefined());
     expect(screen.queryByText("No events recorded yet.")).toBeNull();
-    expect((screen.getByRole("button", { name: "Older" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Older" }) as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+    ).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Newer" }));
     await waitFor(() => expect(screen.getByText("Page 1")).toBeDefined());
   });
@@ -163,9 +169,13 @@ describe("AuditTrailCard paging", () => {
     // alone would skip or repeat events sharing its millisecond.
     expect(seen[1].get("beforeCreatedAt")).toBe(last.createdAt);
     expect(seen[1].get("beforeId")).toBe(last.id);
-    expect((screen.getByRole("button", { name: "Newer" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(
+      (screen.getByRole("button", { name: "Newer" }) as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+    ).toBe(false);
     // A short page is the server saying there is nothing older.
-    expect((screen.getByRole("button", { name: "Older" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Older" }) as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+    ).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Newer" }));
     await waitFor(() => expect(screen.getByText("Page 1")).toBeDefined());
   });

@@ -202,8 +202,8 @@ describe("SwitchPresetDialog", () => {
     try {
       await renderDialog(makeSubshell({ presetId: "preset-1" }));
       expect(trigger().textContent).toContain("preset-1");
-      expect(trigger().hasAttribute("disabled")).toBe(true);
-      expect(confirmButton().hasAttribute("disabled")).toBe(true);
+      expect(trigger().matches(":disabled, [aria-disabled=true]")).toBe(true);
+      expect(confirmButton().matches(":disabled, [aria-disabled=true]")).toBe(true);
     } finally {
       restore();
     }
@@ -216,8 +216,8 @@ describe("SwitchPresetDialog", () => {
       // The errored posture looks like the in-flight one (data stays
       // undefined); the sentence is what separates them.
       expect(await screen.findByText(/couldn't load your presets/i)).toBeDefined();
-      expect(trigger().hasAttribute("disabled")).toBe(true);
-      expect(confirmButton().hasAttribute("disabled")).toBe(true);
+      expect(trigger().matches(":disabled, [aria-disabled=true]")).toBe(true);
+      expect(confirmButton().matches(":disabled, [aria-disabled=true]")).toBe(true);
     } finally {
       restore();
     }
@@ -335,8 +335,8 @@ describe("SwitchPresetDialog", () => {
       await renderDialog(makeSubshell(), (o) => openArgs.push(o));
       fireEvent.click(confirmButton());
       await waitFor(() => expect(screen.getByText("Switching…")).toBeDefined());
-      expect(confirmButton().hasAttribute("disabled")).toBe(true);
-      expect(screen.getByRole("button", { name: "Cancel" }).hasAttribute("disabled")).toBe(true);
+      expect(confirmButton().matches(":disabled, [aria-disabled=true]")).toBe(true);
+      expect(screen.getByRole("button", { name: "Cancel" }).matches(":disabled, [aria-disabled=true]")).toBe(true);
       expect(openArgs).not.toContain(false);
       release();
       await waitFor(() => expect(openArgs).toContain(false));

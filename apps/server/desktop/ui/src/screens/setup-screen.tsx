@@ -324,7 +324,12 @@ export function SetupScreen(props: {
         strings={props.strings}
         entranceKey={props.entranceKey}
         barRight={
-          <Button type="button" disabled={busy || running} onClick={props.onStartSetup}>
+          <Button
+            type="button"
+            disabled={busy || running}
+            disabledReason={"Wait for setup to finish."}
+            onClick={props.onStartSetup}
+          >
             Try Again
           </Button>
         }
@@ -355,7 +360,12 @@ export function SetupScreen(props: {
               will not come back on its own. An empty reason means busy: a spinner is
               already on screen. */}
           {!gate.ok && gate.reason && <span className="reason">{gate.reason}</span>}
-          <Button type="button" disabled={!gate.ok} onClick={props.onStartSetup}>
+          <Button
+            type="button"
+            disabled={!gate.ok}
+            disabledReason={gate.ok ? undefined : gate.reason}
+            onClick={props.onStartSetup}
+          >
             Set Up
           </Button>
         </>

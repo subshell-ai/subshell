@@ -196,7 +196,11 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
               variant="outline"
               size="sm"
               disabled={recheck.isPending || !recheckReachable}
-              title={recheckReachable ? undefined : "The machine is not connected, so a re-check cannot run"}
+              disabledReason={
+                !recheckReachable
+                  ? "The node is offline. Wait for it to reconnect before checking."
+                  : "Wait for the current check to finish."
+              }
               onClick={() => recheck.mutate()}
             >
               <RefreshCw /> {recheck.isPending ? "Re-checking…" : "Re-check"}
@@ -275,6 +279,7 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                     // install 409, so a second button that could be pressed
                     // would only produce a refusal.
                     disabled={install.isPending}
+                    disabledReason={"Wait for installation to finish."}
                     onClick={() => install.mutate(h.harnessId)}
                   >
                     {installingId === h.harnessId && <LoaderCircle aria-hidden className="motion-safe:animate-spin" />}

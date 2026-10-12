@@ -76,7 +76,7 @@ export function NodeAllowedDirs({
               To change these rules, open this node’s page in the control plane.
             </p>
           ) : !node.canManage ? (
-            <p className="text-detail text-muted-foreground">
+            <p className="text-detail text-warning">
               {node.kind === "local"
                 ? "Only a server admin can change these rules."
                 : "Only the node owner can change these rules."}
@@ -97,6 +97,7 @@ export function NodeAllowedDirs({
                       size="sm"
                       aria-label={`Remove ${dir}`}
                       disabled={setDirs.isPending}
+                      disabledReason={"Wait for the directory rules to save."}
                       onClick={() => void save(dirs.filter((d) => d !== dir))}
                     >
                       <Trash2 className="h-3 w-3" />
@@ -119,6 +120,9 @@ export function NodeAllowedDirs({
                   <Button
                     size="sm"
                     disabled={!draft.trim() || setDirs.isPending}
+                    disabledReason={
+                      setDirs.isPending ? "Wait for the directory rules to save." : "Enter a directory first."
+                    }
                     onClick={() => void save([...dirs, draft.trim()])}
                   >
                     Add directory
@@ -127,6 +131,7 @@ export function NodeAllowedDirs({
                     size="sm"
                     variant="ghost"
                     disabled={setDirs.isPending}
+                    disabledReason={"Wait for the directory rules to save."}
                     onClick={() => {
                       setAdding(false);
                       setDraft("");
@@ -138,7 +143,13 @@ export function NodeAllowedDirs({
                 </div>
               </div>
             ) : (
-              <Button size="sm" variant="outline" disabled={setDirs.isPending} onClick={() => setAdding(true)}>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={setDirs.isPending}
+                disabledReason={"Wait for the directory rules to save."}
+                onClick={() => setAdding(true)}
+              >
                 <Plus className="h-3 w-3" /> Add directory
               </Button>
             ))}

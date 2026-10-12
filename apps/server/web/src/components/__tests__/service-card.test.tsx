@@ -46,7 +46,7 @@ describe("ServiceCard", () => {
   it("says who supervises the process and offers Restart", () => {
     render(<ServiceCard view={deploymentView()} restart={idleRestart} />);
     expect(screen.getByText(/Running under launchd as pid 1/)).toBeTruthy();
-    expect(restartButton().disabled).toBe(false);
+    expect(restartButton().matches(":disabled, [aria-disabled=true]")).toBe(false);
   });
 
   it("disables Restart with the reason when not supervised", () => {
@@ -57,7 +57,7 @@ describe("ServiceCard", () => {
       reason: "This server is not running under a service manager; restart it where you started it.",
     };
     render(<ServiceCard view={view} restart={idleRestart} />);
-    expect(restartButton().disabled).toBe(true);
+    expect(restartButton().matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(screen.getByText(/not running under a service manager/)).toBeTruthy();
   });
 
@@ -81,7 +81,7 @@ describe("ServiceCard", () => {
     expect(screen.getByText(/Restarting… waiting for the server to come back/)).toBeTruthy();
     // The claim it contradicts is GONE, not merely styled differently.
     expect(screen.queryByText(/Running under launchd/)).toBeNull();
-    expect(restartButton().disabled).toBe(true);
+    expect(restartButton().matches(":disabled, [aria-disabled=true]")).toBe(true);
   });
 
   it("confirms a finished restart with the line itself, not a banner", () => {
@@ -94,7 +94,7 @@ describe("ServiceCard", () => {
     expect(screen.getByText(/Running under launchd as pid 4242/)).toBeTruthy();
     expect(screen.queryByText("Back.")).toBeNull();
     expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
-    expect(restartButton().disabled).toBe(false);
+    expect(restartButton().matches(":disabled, [aria-disabled=true]")).toBe(false);
   });
 
   it("still says so when the restart failed or never landed", () => {

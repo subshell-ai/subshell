@@ -243,7 +243,11 @@ describe("CreatePresetDialog — unlocked (/presets page)", () => {
       expect(dialog.textContent).toContain("Which agent CLI subshells started with this preset will run.");
       // No agent and no name yet → no second description sentence, and no submit.
       expect(screen.queryByText("Every subshell you start with it launches Claude Code this way.")).toBeNull();
-      expect((screen.getByRole("button", { name: "Create preset" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(
+        (screen.getByRole("button", { name: "Create preset" }) as HTMLButtonElement).matches(
+          ":disabled, [aria-disabled=true]",
+        ),
+      ).toBe(true);
       void container;
     } finally {
       m.restore();
@@ -273,7 +277,9 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
       // amber (the warning colour), and the switch cannot arm (migration 0043).
       expect(Array.from(dialog.querySelectorAll("li"))).toHaveLength(2);
       expect((dialog.querySelectorAll("li")[0] as HTMLElement).className).toContain("text-amber-600");
-      expect((dialog.querySelector("#preset-cross-comm") as HTMLButtonElement).disabled).toBe(true);
+      expect(
+        (dialog.querySelector("#preset-cross-comm") as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+      ).toBe(true);
     } finally {
       m.restore();
     }
@@ -304,8 +310,8 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
       const first = dialog.querySelector("#preset-cross-comm-gaps li") as HTMLLIElement;
       expect(first.textContent).toBe("A machine");
       expect(first.className).toContain("text-amber-600");
-      expect(toggle().disabled).toBe(true);
-      expect(save().disabled).toBe(false);
+      expect(toggle().matches(":disabled, [aria-disabled=true]")).toBe(true);
+      expect(save().matches(":disabled, [aria-disabled=true]")).toBe(false);
     } finally {
       m.restore();
     }
@@ -375,13 +381,17 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
       await waitFor(() =>
         expect(dialog.querySelector("#preset-cross-comm-gaps")?.textContent).toBe("A working directory"),
       );
-      expect((dialog.querySelector("#preset-cross-comm") as HTMLButtonElement).disabled).toBe(true); // dir still missing
+      expect(
+        (dialog.querySelector("#preset-cross-comm") as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+      ).toBe(true); // dir still missing
       fireEvent.change(dialog.querySelector("#preset-launch-dir") as HTMLInputElement, {
         target: { value: "/srv/app" },
       });
       // Both met: the list empties and the switch arms.
       await waitFor(() => expect(dialog.querySelector("#preset-cross-comm-gaps")).toBeNull());
-      expect((dialog.querySelector("#preset-cross-comm") as HTMLButtonElement).disabled).toBe(false);
+      expect(
+        (dialog.querySelector("#preset-cross-comm") as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+      ).toBe(false);
     } finally {
       m.restore();
     }
@@ -414,7 +424,7 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
       fireEvent.pointerUp(option);
       fireEvent.click(option);
       const toggle = () => dialog.querySelector("#preset-cross-comm") as HTMLButtonElement;
-      await waitFor(() => expect(toggle().disabled).toBe(false));
+      await waitFor(() => expect(toggle().matches(":disabled, [aria-disabled=true]")).toBe(false));
       fireEvent.click(toggle());
       fireEvent.click(screen.getByRole("button", { name: "Create preset" }));
       await waitFor(() =>
@@ -439,7 +449,7 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
       const dialog = await screen.findByRole("dialog");
       const save = () => screen.getByRole("button", { name: "Create preset" }) as HTMLButtonElement;
       const name = () => dialog.querySelector("#preset-name") as HTMLInputElement;
-      expect(save().disabled).toBe(true);
+      expect(save().matches(":disabled, [aria-disabled=true]")).toBe(true);
       // At rest the field is marked required (the gold star); the sentence
       // waits for the caret to leave an empty field (ruling 2026-09-30).
       expect(dialog.querySelector('label[for="preset-name"]')).not.toBeNull();
@@ -447,11 +457,11 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
       expect(dialog.textContent).toContain("A name is required.");
       fireEvent.change(name(), { target: { value: "   " } });
       fireEvent.blur(name());
-      expect(save().disabled).toBe(true);
+      expect(save().matches(":disabled, [aria-disabled=true]")).toBe(true);
       expect(dialog.textContent).toContain("A name is required.");
       fireEvent.change(name(), { target: { value: "Fast" } });
       fireEvent.blur(name());
-      expect(save().disabled).toBe(false);
+      expect(save().matches(":disabled, [aria-disabled=true]")).toBe(false);
       expect(dialog.textContent).not.toContain("A name is required.");
     } finally {
       m.restore();

@@ -135,7 +135,12 @@ export function UpdateScreen(props: {
               machine has no rail, and there this is still the only way out.
               Check Again stays regardless: it is a refresh, not a leave. */}
           {props.rail === undefined && (
-            <Button type="button" disabled={leaveHeld({ busy, state: props.state })} onClick={props.onClose}>
+            <Button
+              type="button"
+              disabled={leaveHeld({ busy, state: props.state })}
+              disabledReason={"Wait for the update to finish."}
+              onClick={props.onClose}
+            >
               Close
             </Button>
           )}
@@ -232,6 +237,7 @@ export function UpdateScreen(props: {
             type="button"
             className="w-full"
             disabled={!view.press.enabled}
+            disabledReason={locked ? "Wait for the update to finish." : "Select an available update first."}
             onClick={() => props.onPress(view.press as UpdateActPress)}
           >
             {view.press.label}

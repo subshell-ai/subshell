@@ -62,6 +62,7 @@ export function CopyCommandRow({ text, label, disabled }: { text: string; label?
         size="icon-sm"
         aria-label={name}
         disabled={disabled}
+        disabledReason={"Generate a setup key before copying this command."}
         onClick={() => void copy()}
       >
         {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}

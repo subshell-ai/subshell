@@ -133,7 +133,11 @@ export function AddNodeDialog({
             created === null ? (
               <div className="space-y-2">
                 {formError && <p className="text-destructive text-detail">{formError}</p>}
-                <Button onClick={() => void mint()} disabled={create.isPending}>
+                <Button
+                  onClick={() => void mint()}
+                  disabled={create.isPending}
+                  disabledReason={"Wait for the setup key to be generated."}
+                >
                   {create.isPending ? "Generating…" : "Generate setup key"}
                 </Button>
               </div>

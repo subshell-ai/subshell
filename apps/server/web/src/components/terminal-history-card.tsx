@@ -133,7 +133,11 @@ export function TerminalHistoryCard({
             items={OPTIONS}
             disabled={stored === undefined}
           >
-            <SelectTrigger id="terminal-history-lines" className="w-full min-w-0">
+            <SelectTrigger
+              disabledReason={"Wait for the history settings to load."}
+              id="terminal-history-lines"
+              className="w-full min-w-0"
+            >
               <SelectValue placeholder={stored === undefined ? "Loading…" : undefined} />
             </SelectTrigger>
             <SelectContent>
@@ -150,7 +154,13 @@ export function TerminalHistoryCard({
             {error}
           </p>
         ) : null}
-        <Button onClick={() => void save()} disabled={busy || !dirty}>
+        <Button
+          onClick={() => void save()}
+          disabled={busy || !dirty}
+          disabledReason={
+            busy ? "Wait for the history settings to save." : "Change the history settings before saving."
+          }
+        >
           {busy ? "Saving…" : "Save"}
         </Button>
       </CardContent>

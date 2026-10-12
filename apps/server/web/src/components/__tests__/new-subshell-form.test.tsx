@@ -1179,7 +1179,7 @@ describe("NewSubshellForm Add prompts (spec 2026-09-28, shared section 2026-09-3
       // Stack controls: reorder the second up (row 2's button, the first is
       // already disabled at the top), then remove the first.
       const ups = screen.getAllByLabelText("Move prompt up");
-      expect((ups[0] as HTMLButtonElement).disabled).toBe(true);
+      expect((ups[0] as HTMLButtonElement).matches(":disabled, [aria-disabled=true]")).toBe(true);
       fireEvent.click(ups[1]);
       await settle();
       expect(latest().promptBlocks.map((b) => b.description)).toEqual(["Review", "Kickoff"]);

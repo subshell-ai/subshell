@@ -214,7 +214,13 @@ export function SharingDialogCore({
             Cancel
           </Button>
           {canManage && (
-            <Button onClick={() => void save()} disabled={saving || (isLoading && draft === null)}>
+            <Button
+              onClick={() => void save()}
+              disabled={saving || (isLoading && draft === null)}
+              disabledReason={
+                saving ? "Wait for sharing changes to save." : "Wait for the current sharing settings to load."
+              }
+            >
               {saving ? "Saving…" : "Save"}
             </Button>
           )}

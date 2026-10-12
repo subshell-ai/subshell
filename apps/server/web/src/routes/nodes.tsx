@@ -10,7 +10,6 @@ import { NodeTable } from "@/components/nodes/node-table";
 import { SetupKeysSection } from "@/components/nodes/setup-keys-section";
 import { PageHeader } from "@/components/page-header";
 import { Segmented } from "@/components/ui/segmented";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useDeleteNode, useNodes } from "@/hooks/use-nodes";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { canAddNode, NODE_ENROLLMENT_OFF_COPY } from "@/lib/node-enrollment";
@@ -94,30 +93,9 @@ function NodesPage() {
               <Plus /> Add node
             </Button>
           ) : (
-            <TooltipProvider delay={300}>
-              <Tooltip>
-                {/* Review finding I-1 (2026-09-24): hover alone is not a
-                    carrier. A disabled <button> is not focusable, so the
-                    SPAN takes the tab stop (the dead button cannot receive
-                    focus, the span can, and focus opens the tooltip), and
-                    `aria-describedby` names the sr-only copy for readers —
-                    Base UI marks the trigger element, it does not wire the
-                    association itself. */}
-                {/* biome-ignore lint/a11y/noNoninteractiveTabindex: the real control is a disabled <button>, which HTML removes from the tab order — without this wrapper's tab stop, a keyboard user cannot open the tooltip explaining WHY the button is dead. The span is a trigger carrier, not content. */}
-                <TooltipTrigger render={<span className="inline-flex" tabIndex={0} aria-describedby="add-node-why" />}>
-                  <Button disabled>
-                    <Plus /> Add node
-                  </Button>
-                </TooltipTrigger>
-                {/* Same words the launch form uses for this gate (see
-                    `NODE_ENROLLMENT_OFF_COPY`) — the tooltip is the Nodes
-                    page's copy of that sentence, not a new one. */}
-                <TooltipContent>{NODE_ENROLLMENT_OFF_COPY}</TooltipContent>
-              </Tooltip>
-              <span id="add-node-why" className="sr-only">
-                {NODE_ENROLLMENT_OFF_COPY}
-              </span>
-            </TooltipProvider>
+            <Button disabled disabledReason={NODE_ENROLLMENT_OFF_COPY}>
+              <Plus /> Add node
+            </Button>
           )
         }
       />

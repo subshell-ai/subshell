@@ -148,15 +148,19 @@ describe("PendingUsersTable", () => {
       renderTable([row({ id: "a6" })]);
       fireEvent.click(screen.getByRole("button", { name: "Approve a6@example.com" }));
       await waitFor(() =>
-        expect((screen.getByRole("button", { name: "Reject a6@example.com" }) as HTMLButtonElement).disabled).toBe(
-          true,
-        ),
+        expect(
+          (screen.getByRole("button", { name: "Reject a6@example.com" }) as HTMLButtonElement).matches(
+            ":disabled, [aria-disabled=true]",
+          ),
+        ).toBe(true),
       );
       release?.();
       await waitFor(() =>
-        expect((screen.getByRole("button", { name: "Approve a6@example.com" }) as HTMLButtonElement).disabled).toBe(
-          false,
-        ),
+        expect(
+          (screen.getByRole("button", { name: "Approve a6@example.com" }) as HTMLButtonElement).matches(
+            ":disabled, [aria-disabled=true]",
+          ),
+        ).toBe(false),
       );
     } finally {
       globalThis.fetch = original;

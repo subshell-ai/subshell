@@ -125,6 +125,8 @@ describe("the Setting Up checklist", () => {
   // be dropped is a press that should not be offered.
   it("disables the press while an act is in flight", () => {
     show({ rows: rows(["done", "failed", "pending"]), failureOutput: "boom", busy: true });
-    expect((screen.getByRole("button", { name: "Retry" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Retry" }) as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+    ).toBe(true);
   });
 });

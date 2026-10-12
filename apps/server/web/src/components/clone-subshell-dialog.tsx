@@ -148,10 +148,19 @@ export function CloneSubshellDialog({
           )}
         </div>
         <DialogFooter>
-          <Button variant="outline" disabled={create.isPending} onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            disabled={create.isPending}
+            disabledReason={"Wait for the clone to start."}
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
-          <Button disabled={create.isPending} onClick={() => void launch()}>
+          <Button
+            disabled={create.isPending}
+            disabledReason={"Wait for the clone to start."}
+            onClick={() => void launch()}
+          >
             {create.isPending ? "Starting…" : "Launch clone"}
           </Button>
         </DialogFooter>

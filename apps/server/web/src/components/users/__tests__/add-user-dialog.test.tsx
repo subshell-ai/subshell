@@ -59,13 +59,13 @@ describe("AddUserDialog", () => {
     const { restore } = mockFetch(() => new Response(JSON.stringify({})));
     try {
       renderDialog();
-      expect(submit().hasAttribute("disabled")).toBe(true);
+      expect(submit().matches(":disabled, [aria-disabled=true]")).toBe(true);
       // A mismatched confirmation is still incomplete — the gate is the
       // shared rule, not "the boxes have text in them".
       fillForm({ confirm: "something-else" });
-      expect(submit().hasAttribute("disabled")).toBe(true);
+      expect(submit().matches(":disabled, [aria-disabled=true]")).toBe(true);
       fillForm();
-      expect(submit().hasAttribute("disabled")).toBe(false);
+      expect(submit().matches(":disabled, [aria-disabled=true]")).toBe(false);
     } finally {
       restore();
     }

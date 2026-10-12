@@ -203,7 +203,11 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
               { value: "oidc", label: "Generic OIDC" },
             ]}
           >
-            <SelectTrigger aria-labelledby="ap-kind-label" disabled={editing}>
+            <SelectTrigger
+              aria-labelledby="ap-kind-label"
+              disabled={editing}
+              disabledReason="A provider’s type cannot change after it’s created. Add a new provider to use a different type."
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -387,10 +391,29 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
       )}
 
       <DialogFooter>
-        <Button type="button" variant="ghost" onClick={onDone} disabled={busy}>
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={onDone}
+          disabled={busy}
+          disabledReason={"Wait for the sign-in provider change to finish."}
+        >
           Cancel
         </Button>
-        <Button type="button" onClick={() => void save()} disabled={saveDisabled}>
+        <Button
+          type="button"
+          onClick={() => void save()}
+          disabled={saveDisabled}
+          disabledReason={
+            busy
+              ? "Wait for the sign-in provider to save."
+              : invalidOverride
+                ? "Fix the provider endpoint addresses before saving."
+                : entries.length === 0
+                  ? "Add an entry point first."
+                  : "Complete the required provider fields first."
+          }
+        >
           {busy ? "Saving…" : editing ? "Save" : "Add provider"}
         </Button>
       </DialogFooter>

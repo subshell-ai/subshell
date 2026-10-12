@@ -66,7 +66,7 @@ describe("TmuxStep", () => {
   it("shows the installer's own last line while it runs", () => {
     renderStep({ tmuxPath: null, os: "darwin", onInstall: () => {}, installing: true, progress: "==> Pouring tmux" });
     expect(screen.getByText("==> Pouring tmux")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Installing/ }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: /Installing/ }).matches(":disabled, [aria-disabled=true]")).toBe(true);
   });
 
   it("renders a failed run on the screen that failed, with what the installer printed", () => {

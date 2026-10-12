@@ -1,4 +1,4 @@
-import { cn } from "@internal/node-admin";
+import { cn, ExplainedButton } from "@internal/node-admin";
 import {
   ArrowDownToLine,
   ArrowUpToLine,
@@ -101,10 +101,16 @@ export interface TerminalKeyBarProps {
 }
 
 const BUTTON_CLASS =
-  "min-h-11 min-w-11 shrink-0 touch-manipulation select-none bg-transparent px-3 text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-40 data-[pressed=true]:bg-accent data-[pressed=true]:text-foreground data-[pressed=true]:shadow-inner enabled:active:bg-accent enabled:active:text-foreground motion-safe:transition-colors";
+  "min-h-11 min-w-11 shrink-0 touch-manipulation select-none bg-transparent px-3 text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-40 aria-disabled:opacity-40 data-[pressed=true]:bg-accent data-[pressed=true]:text-foreground data-[pressed=true]:shadow-inner enabled:active:bg-accent enabled:active:text-foreground motion-safe:transition-colors";
 
 /** Preserve terminal focus and show feedback even for a quick touch tap. */
-function KeyBarControl({ className, disabled, onClick, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
+function KeyBarControl({
+  className,
+  disabled,
+  disabledReason,
+  onClick,
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & { disabledReason?: string }) {
   const [pressed, setPressed] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -122,9 +128,10 @@ function KeyBarControl({ className, disabled, onClick, ...props }: ButtonHTMLAtt
     setPressed(false);
   }
   return (
-    <button
+    <ExplainedButton
       {...props}
       disabled={disabled}
+      disabledReason={disabledReason}
       className={className}
       data-pressed={!disabled && pressed}
       onPointerDown={(event) => {
@@ -189,6 +196,11 @@ export function TerminalKeyBar({
   // The input half stands down for either reason: a permission (`view`) or
   // the copy-mode flag. The scroll row is reading, so it always stays.
   const inputless = readOnly || suppressInput;
+  const inputDisabledReason = readOnly
+    ? "You have view-only access to this subshell."
+    : suppressInput
+      ? "Leave copy mode to type in this subshell."
+      : "Wait for the terminal to connect.";
   const [pasting, setPasting] = useState(false);
   const pasteTarget = useRef(onPaste);
   pasteTarget.current = disabled || inputless ? undefined : onPaste;
@@ -247,6 +259,7 @@ export function TerminalKeyBar({
         <KeyBarControl
           type="button"
           disabled={disabled || inputless}
+          disabledReason={inputDisabledReason}
           aria-label="Attach image"
           onClick={onPickImage}
           className={cn(BUTTON_CLASS, "border-border/60 border-l")}
@@ -277,6 +290,7 @@ export function TerminalKeyBar({
                 key={b.label}
                 type="button"
                 disabled={disabled || inputless}
+                disabledReason={inputDisabledReason}
                 aria-label={b.aria}
                 onClick={() => onBytes(b.bytes)}
                 className={cn(BUTTON_CLASS, "font-mono text-sm")}
@@ -304,6 +318,7 @@ export function TerminalKeyBar({
             <KeyBarControl
               type="button"
               disabled={disabled || inputless || pasting}
+              disabledReason={pasting ? "Wait for the paste to finish." : inputDisabledReason}
               aria-label="Paste text"
               onClick={() => void pasteClipboard()}
               className={BUTTON_CLASS}
@@ -315,6 +330,7 @@ export function TerminalKeyBar({
             <KeyBarControl
               type="button"
               disabled={disabled || inputless}
+              disabledReason={inputDisabledReason}
               aria-label="Insert prompt"
               onClick={onInjectPrompt}
               className={BUTTON_CLASS}
@@ -328,6 +344,7 @@ export function TerminalKeyBar({
                 key={b.label}
                 type="button"
                 disabled={disabled || inputless}
+                disabledReason={inputDisabledReason}
                 aria-label={b.aria}
                 onClick={() => onBytes(b.bytes)}
                 className={cn(BUTTON_CLASS, "font-mono text-sm")}

@@ -8,7 +8,7 @@ import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/co
 import { Segmented } from "@/components/ui/segmented";
 import { Textarea } from "@/components/ui/textarea";
 import { useCreatePrompt, usePromptStacks, usePrompts } from "@/hooks/use-prompts";
-import { fieldError, makeForm, useSubmitDisabled } from "@/lib/form";
+import { fieldError, makeForm, useSubmitDisabled, useSubmitDisabledReason } from "@/lib/form";
 import { loadRecentPicks, type RecentPick, recordRecentPick } from "@/lib/prompt-recents";
 import { newPromptLocalId, type PromptBlock } from "@/lib/prompt-stack";
 import { type StackRow, type StacksView, stackJoinedText } from "@/lib/prompt-stacks";
@@ -178,6 +178,7 @@ export function PromptPickerBody({
     },
   });
   const customDisabled = useSubmitDisabled(form, create.isPending);
+  const customDisabledReason = useSubmitDisabledReason(form, create.isPending);
   // The draft-ruling effect writes what the person TYPES, so this component
   // subscribes to the step's values — the same re-render `customBody` state
   // produced before the substrate (spec 2026-09-29).
@@ -338,7 +339,11 @@ export function PromptPickerBody({
         </Button>
       )}
       {step === "custom" ? (
-        <Button onClick={() => void form.handleSubmit()} disabled={customDisabled}>
+        <Button
+          onClick={() => void form.handleSubmit()}
+          disabled={customDisabled}
+          disabledReason={customDisabledReason}
+        >
           {create.isPending ? "Saving…" : mode === "multi" ? "Add prompt" : "Use prompt"}
         </Button>
       ) : (

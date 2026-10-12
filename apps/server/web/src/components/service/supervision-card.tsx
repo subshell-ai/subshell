@@ -53,7 +53,12 @@ function PersistenceFacts({ view, autostart }: { view: ServerDeployment; autosta
       )}
       {fix?.kind === "enable" && (
         <div className="col-span-full space-y-1.5">
-          <Button variant="outline" disabled={autostart.pending} onClick={() => autostart.set(true)}>
+          <Button
+            variant="outline"
+            disabled={autostart.pending}
+            disabledReason={"Wait for the service settings to save."}
+            onClick={() => autostart.set(true)}
+          >
             Start automatically
           </Button>
           {autostart.error && <p className="text-destructive text-detail">{autostart.error}</p>}

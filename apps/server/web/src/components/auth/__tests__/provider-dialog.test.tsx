@@ -207,7 +207,9 @@ describe("ProviderDialog", () => {
         target: { value: "https://override.example/path" },
       });
       expect(screen.getByRole("alert").textContent).toContain("no path");
-      expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(
+        (screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+      ).toBe(true);
     } finally {
       restore();
     }
@@ -280,7 +282,11 @@ describe("ProviderDialog", () => {
     try {
       renderDialog({ provider: view() });
       await settle();
-      expect((screen.getByRole("combobox", { name: "Provider" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(
+        (screen.getByRole("combobox", { name: "Provider" }) as HTMLButtonElement).matches(
+          ":disabled, [aria-disabled=true]",
+        ),
+      ).toBe(true);
     } finally {
       restore();
     }

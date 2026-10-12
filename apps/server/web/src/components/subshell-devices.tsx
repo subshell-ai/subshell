@@ -80,6 +80,11 @@ export function SubshellDevices({ state, onSizing }: SubshellDevicesProps): JSX.
             "Measuring…"
           )}
         </div>
+        {!mayResize && (
+          <p className="px-2 py-1.5 text-detail text-warning">
+            You have view-only access. Terminal sizing needs input access.
+          </p>
+        )}
         <DropdownMenuSeparator />
         {rows.map(({ viewer, you, role }) => {
           const label = roleLabel(role);

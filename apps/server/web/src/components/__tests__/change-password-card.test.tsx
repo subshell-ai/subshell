@@ -19,7 +19,7 @@ const confirmField = () => screen.getByLabelText("Confirm new password") as HTML
 describe("ChangePasswordCard gating", () => {
   it("is DISABLED on a pristine card, with the requirement line already explaining", () => {
     render(<ChangePasswordCard />);
-    expect(updateButton().disabled).toBe(true);
+    expect(updateButton().matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(screen.getByText("At least 8 characters")).toBeDefined();
     expect(screen.queryByRole("alert")).toBeNull();
   });
@@ -29,11 +29,11 @@ describe("ChangePasswordCard gating", () => {
     fireEvent.change(currentField(), { target: { value: "old-one" } });
     fireEvent.change(nextField(), { target: { value: "abc" } });
     fireEvent.blur(nextField());
-    expect(updateButton().disabled).toBe(true);
+    expect(updateButton().matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(screen.getByRole("alert").textContent).toContain("at least 8 characters");
     // Typing enough re-opens the gate (still mismatched, though: confirm).
     fireEvent.change(nextField(), { target: { value: "abcdefgh" } });
-    expect(updateButton().disabled).toBe(true);
+    expect(updateButton().matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(screen.queryByRole("alert")).toBeNull(); // confirm was never touched
   });
 
@@ -43,9 +43,9 @@ describe("ChangePasswordCard gating", () => {
     fireEvent.change(nextField(), { target: { value: "abcdefgh" } });
     fireEvent.change(confirmField(), { target: { value: "abcdefg" } });
     fireEvent.blur(confirmField());
-    expect(updateButton().disabled).toBe(true);
+    expect(updateButton().matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(screen.getByRole("alert").textContent).toBe("New passwords do not match");
     fireEvent.change(confirmField(), { target: { value: "abcdefgh" } });
-    expect(updateButton().disabled).toBe(false);
+    expect(updateButton().matches(":disabled, [aria-disabled=true]")).toBe(false);
   });
 });

@@ -109,7 +109,11 @@ export function ProfileCard({ updateUser = (input) => authClient.updateUser(inpu
                   }}
                 />
               </div>
-              <Button onClick={() => void save()} disabled={busy || nameIsUsable(shown) === null}>
+              <Button
+                onClick={() => void save()}
+                disabled={busy || nameIsUsable(shown) === null}
+                disabledReason={busy ? "Wait for your profile to save." : "Enter a valid display name first."}
+              >
                 {busy ? "Saving…" : "Save"}
               </Button>
               {saved && <span className="text-detail text-success">saved</span>}

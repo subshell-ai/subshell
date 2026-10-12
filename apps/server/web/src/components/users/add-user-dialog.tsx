@@ -148,10 +148,22 @@ export function AddUserDialog({
             )}
           </div>
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={close} disabled={busy}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={close}
+              disabled={busy}
+              disabledReason={"Wait for the account to be created."}
+            >
               Cancel
             </Button>
-            <Button type="submit" disabled={busy || !newAccountComplete(account)}>
+            <Button
+              type="submit"
+              disabled={busy || !newAccountComplete(account)}
+              disabledReason={
+                busy ? "Wait for the account to be created." : "Complete the name, email, and password fields first."
+              }
+            >
               {busy ? "Creating…" : "Add user"}
             </Button>
           </DialogFooter>

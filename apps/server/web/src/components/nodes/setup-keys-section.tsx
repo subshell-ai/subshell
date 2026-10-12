@@ -231,6 +231,7 @@ export function SetupKeysSection() {
                   size="sm"
                   onClick={() => void dismiss(k.id, k.key, state)}
                   disabled={remove.isPending}
+                  disabledReason={"Wait for the key to be revoked."}
                 >
                   {state === "unused" ? "Revoke" : "Remove"}
                 </Button>

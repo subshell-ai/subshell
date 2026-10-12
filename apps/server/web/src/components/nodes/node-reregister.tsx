@@ -91,7 +91,11 @@ export function NodeReregister({
           <Button
             onClick={() => void generate()}
             disabled={!canRetire || pending}
-            title={canRetire ? undefined : "Only the node's owner or an admin can re-register it"}
+            disabledReason={
+              !canRetire
+                ? "Only the node owner or a server admin can re-register this node."
+                : "Wait for the setup key to be generated."
+            }
           >
             {pending ? "Generating…" : "Re-register"}
           </Button>

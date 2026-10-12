@@ -42,7 +42,12 @@ export function WelcomeScreen(props: {
       entranceKey={props.entranceKey}
       art={<Wordmark />}
       barRight={
-        <Button type="button" disabled={props.disabled} onClick={props.onContinue}>
+        <Button
+          type="button"
+          disabled={props.disabled}
+          disabledReason={"Wait for the server check to finish."}
+          onClick={props.onContinue}
+        >
           Continue
         </Button>
       }

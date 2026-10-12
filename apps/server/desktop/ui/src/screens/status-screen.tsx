@@ -143,7 +143,13 @@ export function StatusScreen(props: {
     // window and the button is the press that says otherwise.
     return (
       <Frame rail={props.rail} strings={props.strings} entranceKey={props.entranceKey}>
-        <Button type="button" className="w-full" disabled={busy} onClick={props.onOpenDashboard}>
+        <Button
+          type="button"
+          className="w-full"
+          disabled={busy}
+          disabledReason={"Wait for the current action to finish."}
+          onClick={props.onOpenDashboard}
+        >
           Open control plane
         </Button>
         <StatusDetails
@@ -170,7 +176,12 @@ export function StatusScreen(props: {
         strings={props.strings}
         entranceKey={props.entranceKey}
         barRight={
-          <Button type="button" disabled={busy || running} onClick={() => props.onAction("setup")}>
+          <Button
+            type="button"
+            disabled={busy || running}
+            disabledReason={"Wait for the current action to finish."}
+            onClick={() => props.onAction("setup")}
+          >
             Try Again
           </Button>
         }
@@ -209,6 +220,9 @@ export function StatusScreen(props: {
           type="button"
           className="w-full"
           disabled={busy || running || (tmuxMissing && action.kind !== "retry" && action.kind !== "choose-binary")}
+          disabledReason={
+            busy || running ? "Wait for the current action to finish." : "Install tmux before starting the server."
+          }
           onClick={() => props.onAction(action.kind)}
         >
           {action.label}

@@ -89,12 +89,26 @@ export function CreatePresetDialog({
         <PresetFields value={form} onChange={setForm} lockedHarness={lock} />
         {create.error && <p className="text-destructive text-detail">{errMessage(create.error, "Failed")}</p>}
         <DialogFooter>
-          <Button variant="outline" disabled={create.isPending} onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            disabled={create.isPending}
+            disabledReason={"Wait for the preset to be created."}
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
           <Button
             onClick={() => void submit()}
             disabled={create.isPending || !form.harnessId || form.name.trim() === "" || crossCommSaveBlocked(form)}
+            disabledReason={
+              create.isPending
+                ? "Wait for the preset to be created."
+                : !form.harnessId
+                  ? "Choose an agent or shell first."
+                  : !form.name.trim()
+                    ? "Enter a preset name first."
+                    : "Complete the cross-agent communication requirements or turn it off."
+            }
           >
             {create.isPending ? "Creating…" : "Create preset"}
           </Button>

@@ -42,7 +42,7 @@ describe("TerminalKeyBar", () => {
     expect(sent).toEqual([]);
     rerender(<TerminalKeyBar {...props} suppressInput />);
     const button = screen.getByRole("button", { name: "Insert prompt" }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    expect(button.matches(":disabled, [aria-disabled=true]")).toBe(true);
     fireEvent.click(button);
     expect(opened).toBe(1);
     rerender(<TerminalKeyBar {...props} readOnly />);
@@ -127,7 +127,11 @@ describe("TerminalKeyBar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Enable text copying" }));
     expect(toggles).toBe(1);
     rerender(<TerminalKeyBar disabled suppressInput onBytes={() => {}} copyMode={{ on: true, onToggle }} />);
-    expect((screen.getByRole("button", { name: "Send Escape" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Send Escape" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
     const toggle = screen.getByRole("button", { name: "Enable text input" });
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(toggle);
@@ -192,9 +196,17 @@ describe("TerminalKeyBar", () => {
 
   it("disables paste offline and in copy mode, and hides it for view access", () => {
     const { rerender } = render(<TerminalKeyBar disabled onBytes={() => {}} onPaste={() => {}} />);
-    expect((screen.getByRole("button", { name: "Paste text" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Paste text" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
     rerender(<TerminalKeyBar disabled={false} suppressInput onBytes={() => {}} onPaste={() => {}} />);
-    expect((screen.getByRole("button", { name: "Paste text" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Paste text" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
     rerender(<TerminalKeyBar disabled={false} readOnly onBytes={() => {}} onPaste={() => {}} />);
     expect(screen.queryByRole("button", { name: "Paste text" })).toBeNull();
   });
@@ -261,7 +273,7 @@ describe("TerminalKeyBar", () => {
   it("the image button is disabled with the rest of the bar", () => {
     render(<TerminalKeyBar disabled onBytes={() => {}} onPickImage={() => {}} />);
     const img = screen.getByRole("button", { name: "Attach image" }) as HTMLButtonElement;
-    expect(img.disabled).toBe(true);
+    expect(img.matches(":disabled, [aria-disabled=true]")).toBe(true);
   });
 
   it("keeps keys and the image button on one horizontally scrollable row", () => {
@@ -348,7 +360,7 @@ describe("TerminalKeyBar", () => {
     expect(row.scrollLeft).toBe(120);
     for (const name of [...KEY_BAR_BUTTONS.map((b) => b.aria), "Attach image", "Paste text"]) {
       const button = screen.getByRole("button", { name }) as HTMLButtonElement;
-      expect(button.disabled).toBe(true);
+      expect(button.matches(":disabled, [aria-disabled=true]")).toBe(true);
       fireEvent.click(button);
     }
     expect(sent).toEqual([]);
@@ -357,7 +369,11 @@ describe("TerminalKeyBar", () => {
     expect(sent).toEqual(["top", "bottom"]);
     rerender(<TerminalKeyBar {...props} />);
     expect(row.scrollLeft).toBe(120);
-    expect((screen.getByRole("button", { name: "Send Escape" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(
+      (screen.getByRole("button", { name: "Send Escape" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(false);
   });
 
   it("suppressInput left off keeps the full bar", () => {

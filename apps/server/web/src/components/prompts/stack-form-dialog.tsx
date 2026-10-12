@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { RequiredMark } from "@/components/ui/required-mark";
 import { useCreatePromptStack, useUpdatePromptStack } from "@/hooks/use-prompts";
-import { fieldError, fieldErrorToned, makeForm, useSubmitDisabled } from "@/lib/form";
+import { fieldError, fieldErrorToned, makeForm, useSubmitDisabled, useSubmitDisabledReason } from "@/lib/form";
 import { movePromptBlock, newPromptLocalId, type PromptBlock, removePromptBlock } from "@/lib/prompt-stack";
 import { makePromptStackSchema, stackMembersFromBlocks } from "@/lib/prompt-stack-form";
 import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
@@ -83,6 +83,7 @@ export function StackFormDialog({
     },
   });
   const disabled = useSubmitDisabled(form, busy);
+  const disabledReason = useSubmitDisabledReason(form, busy);
 
   return (
     <Dialog open={open} onOpenChange={formDialogOpenChange(onOpenChange)}>
@@ -192,10 +193,15 @@ export function StackFormDialog({
           )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={busy}
+            disabledReason={"Wait for your changes to save."}
+          >
             Cancel
           </Button>
-          <Button onClick={() => void form.handleSubmit()} disabled={disabled}>
+          <Button onClick={() => void form.handleSubmit()} disabled={disabled} disabledReason={disabledReason}>
             {busy ? "Saving…" : editingId ? "Save" : "Create stack"}
           </Button>
         </DialogFooter>

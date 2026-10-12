@@ -54,15 +54,15 @@ describe("PromptFormDialog gating", () => {
     restore = mockFetch().restore;
     renderDialog();
     // Pristine: no fields filled, no red sentences.
-    expect(createButton().disabled).toBe(true);
+    expect(createButton().matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(screen.queryByRole("alert")).toBeNull();
     // Description alone is not enough — the body is still required.
     fireEvent.change(descriptionField(), { target: { value: "Kickoff" } });
     fireEvent.blur(descriptionField());
-    expect(createButton().disabled).toBe(true);
+    expect(createButton().matches(":disabled, [aria-disabled=true]")).toBe(true);
     // Both filled: the gate opens.
     fireEvent.change(bodyField(), { target: { value: "start the task" } });
-    expect(createButton().disabled).toBe(false);
+    expect(createButton().matches(":disabled, [aria-disabled=true]")).toBe(false);
   });
 
   it("the empty-description sentence shows on blur, before any press", () => {
@@ -80,9 +80,9 @@ describe("PromptFormDialog gating", () => {
     renderDialog({ onSaved: () => (saved = true) });
     fireEvent.change(descriptionField(), { target: { value: "Kickoff" } });
     fireEvent.change(bodyField(), { target: { value: "  " } }); // trimmed-empty: gate closed
-    expect(createButton().disabled).toBe(true);
+    expect(createButton().matches(":disabled, [aria-disabled=true]")).toBe(true);
     fireEvent.change(bodyField(), { target: { value: "start the task" } });
-    expect(createButton().disabled).toBe(false);
+    expect(createButton().matches(":disabled, [aria-disabled=true]")).toBe(false);
     fireEvent.click(createButton());
     await waitFor(() => expect(m.posts.length).toBe(1));
     expect(m.posts[0]).toEqual({ description: "Kickoff", body: "start the task", shared: false });

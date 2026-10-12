@@ -1113,12 +1113,24 @@ export function SubshellTerminal({
               (a missing record keeps both, matching the menu's owner default
               while a mid-view delete is being observed). */}
           {deadPanelActions(subshell?.access).restart && (
-            <Button variant="outline" size="sm" onClick={onRestart} disabled={restarting}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onRestart}
+              disabled={restarting}
+              disabledReason={"Wait for the subshell to restart."}
+            >
               <RotateCcw className="h-3 w-3" /> {restarting ? "Restarting…" : "Restart"}
             </Button>
           )}
           {deadPanelActions(subshell?.access).close && (
-            <Button variant="destructive" size="sm" onClick={onDelete} disabled={deleting}>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={onDelete}
+              disabled={deleting}
+              disabledReason={"Wait for the subshell to close."}
+            >
               <X className="h-3 w-3" /> {deleting ? "Closing…" : "Close"}
             </Button>
           )}

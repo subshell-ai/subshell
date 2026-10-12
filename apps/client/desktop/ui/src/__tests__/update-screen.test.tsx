@@ -28,6 +28,8 @@ const buttonOrNull = (name: string | RegExp) => screen.queryByRole("button", { n
 const APP_CURRENT = { current: "0.6.1", latest: null, notes: null, reason: null };
 
 async function boot(init: Parameters<typeof installFakeIpc>[0] = {}) {
+  // Startup may call a handler before boot() returns. Handlers use this
+  // already-installed fixture instead of a variable assigned after await.
   ipc = installFakeIpc(init);
   renderApp(<App />);
   await waitFor(() => expect(ipc?.callsTo("node_probe").length).toBeGreaterThan(0));
@@ -225,7 +227,7 @@ describe("the restart it offers rather than performs (§ 7.1)", () => {
         node_install_cli: () => {
           // The install cleared the marker and moved the machine on, which is
           // exactly what the next probe reports.
-          fake.setProbe(done);
+          ipc?.setProbe(done);
           return { ok: true, stdout: "Installed subshell 1.10.0", stderr: "" };
         },
         node_service: () => ({ ok: true, stdout: "restarted", stderr: "" }),
@@ -264,7 +266,7 @@ describe("the restart it offers rather than performs (§ 7.1)", () => {
       paneSafety: "kills" as const,
       detail: "",
     };
-    const fake = await boot({
+    await boot({
       probe: makeProbe({
         ...BEHIND,
         service: risky,
@@ -273,7 +275,7 @@ describe("the restart it offers rather than performs (§ 7.1)", () => {
       handlers: {
         node_check_app_update: () => APP_CURRENT,
         node_install_cli: () => {
-          fake.setProbe(makeProbe({ nodeChoice: "up-to-date", bundledVersion: "1.10.0", service: risky }));
+          ipc?.setProbe(makeProbe({ nodeChoice: "up-to-date", bundledVersion: "1.10.0", service: risky }));
           return { ok: true, stdout: "Installed subshell 1.10.0", stderr: "" };
         },
       },
@@ -289,7 +291,7 @@ describe("the restart it offers rather than performs (§ 7.1)", () => {
    */
   it("keeps the offer standing when the CLI refuses", async () => {
     const done = makeProbe({ nodeChoice: "up-to-date", bundledVersion: "1.10.0" });
-    const fake = await boot({
+    await boot({
       probe: makeProbe({
         ...BEHIND,
         pendingInstall: { fromAppVersion: "0.6.0", attempts: 0, halted: false },
@@ -297,7 +299,7 @@ describe("the restart it offers rather than performs (§ 7.1)", () => {
       handlers: {
         node_check_app_update: () => APP_CURRENT,
         node_install_cli: () => {
-          fake.setProbe(done);
+          ipc?.setProbe(done);
           return { ok: true, stdout: "Installed subshell 1.10.0", stderr: "" };
         },
         node_service: () => ({
@@ -357,7 +359,7 @@ describe("the act is a selection (§ 13)", () => {
     // half; it was removed on 2026-09-18, so the cell above is now the only
     // place that says so — which is why this still asserts nothing renders it.
     expect(screen.queryByText(/It finishes by installing the node agent it ships/)).toBeNull();
-    expect(button(/Download and Install 0\.7\.0/).disabled).toBe(false);
+    expect(button(/Download and Install 0\.7\.0/).matches(":disabled, [aria-disabled=true]")).toBe(false);
   });
 
   it("hands the node half its own checkbox once the app half is unticked", async () => {
@@ -378,7 +380,7 @@ describe("the act is a selection (§ 13)", () => {
     expect(button(/Install the Subshell Node CLI \(1\.10\.0\)/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Update Subshell Node CLI" }));
-    await waitFor(() => expect(button("Nothing selected").disabled).toBe(true));
+    await waitFor(() => expect(button("Nothing selected").matches(":disabled, [aria-disabled=true]")).toBe(true));
   });
 
   /**

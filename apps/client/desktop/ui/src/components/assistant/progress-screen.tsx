@@ -108,7 +108,12 @@ export function ProgressScreen(props: {
         // nothing moving and nothing to press. Editing the details is the only
         // remedy that can actually converge.
         failed && onEdit ? (
-          <Button variant="ghost" disabled={busy} onClick={onEdit}>
+          <Button
+            variant="ghost"
+            disabled={busy}
+            disabledReason={"Wait for the current action to finish."}
+            onClick={onEdit}
+          >
             Edit details
           </Button>
         ) : undefined
@@ -121,11 +126,21 @@ export function ProgressScreen(props: {
          * the screen is working, and saying so is the whole job.
          */
         failed ? (
-          <Button className="min-w-[120px]" disabled={busy} onClick={onRetry}>
+          <Button
+            className="min-w-[120px]"
+            disabled={busy}
+            disabledReason={"Wait for the current action to finish."}
+            onClick={onRetry}
+          >
             Retry
           </Button>
         ) : done ? (
-          <Button className="min-w-[120px]" disabled={busy} onClick={onContinue}>
+          <Button
+            className="min-w-[120px]"
+            disabled={busy}
+            disabledReason={"Wait for the current action to finish."}
+            onClick={onContinue}
+          >
             Continue
           </Button>
         ) : undefined

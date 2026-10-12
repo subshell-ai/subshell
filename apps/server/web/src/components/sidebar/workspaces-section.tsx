@@ -1,4 +1,4 @@
-import { apiFetch, cn, confirmAction, errMessage, Input } from "@internal/node-admin";
+import { apiFetch, cn, confirmAction, ExplainedButton, errMessage, Input } from "@internal/node-admin";
 import { Link, useLocation } from "@tanstack/react-router";
 import { ChevronDown, Trash2 } from "lucide-react";
 import { type JSX, type ReactNode, useCallback, useState } from "react";
@@ -69,9 +69,10 @@ function WsSection({
   return (
     <div>
       <div className="flex w-full items-center gap-1 pr-2">
-        <button
+        <ExplainedButton
           type="button"
           disabled={disabled}
+          disabledReason="Clear the filter to collapse this group."
           onClick={onToggle}
           aria-expanded={!collapsed}
           aria-controls={listId}
@@ -85,7 +86,7 @@ function WsSection({
           <ChevronDown
             className={cn("h-3.5 w-3.5 shrink-0 transition-transform duration-200", collapsed && "-rotate-90")}
           />
-        </button>
+        </ExplainedButton>
         {action}
       </div>
       <div id={listId} className={cn(collapsed && "hidden")}>

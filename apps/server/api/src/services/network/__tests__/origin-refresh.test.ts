@@ -167,7 +167,13 @@ describe("startOriginRefresh", () => {
     expect(rec.every).toEqual([ORIGIN_REFRESH_MS]);
     expect(ORIGIN_REFRESH_MS).toBe(5 * 60 * 1000);
     rec.ticks[0]?.();
-    await new Promise((r) => setTimeout(r, 10)); // the tick is fire-and-forget
+    // The tick starts asynchronous file I/O. Wait for its completed registry
+    // update instead of assuming a loaded test runner finishes it in 10 ms.
+    const deadline = Date.now() + 5_000;
+    while (!originRegistry().pluginOrigins(plugin).includes(address.url) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(originRegistry().pluginOrigins(plugin)).toEqual([address.url]);
     expect(rec.probed).toEqual([plugin]);
     await clearNetworkState(plugin);
   });

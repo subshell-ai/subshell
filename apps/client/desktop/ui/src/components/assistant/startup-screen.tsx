@@ -45,7 +45,12 @@ export function StartupScreen(props: {
         // press that spends a setup key: a person who gets here and realises
         // they typed the wrong server must not have to quit the app to fix it.
         onBack ? (
-          <Button variant="ghost" disabled={busy} onClick={onBack}>
+          <Button
+            variant="ghost"
+            disabled={busy}
+            disabledReason={"Wait for the current action to finish."}
+            onClick={onBack}
+          >
             Back
           </Button>
         ) : undefined
@@ -58,7 +63,12 @@ export function StartupScreen(props: {
          * before it collects the details and says Continue, because it spends
          * nothing (operator, 2026-09-18).
          */
-        <Button className="min-w-[120px]" disabled={busy} onClick={onContinue}>
+        <Button
+          className="min-w-[120px]"
+          disabled={busy}
+          disabledReason={"Wait for the current action to finish."}
+          onClick={onContinue}
+        >
           Register
         </Button>
       }

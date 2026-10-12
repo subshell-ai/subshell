@@ -109,10 +109,25 @@ export function SaveWorkspaceDialog({
         {tooLong && <p className="text-destructive text-detail">Keep it under {NAME_MAX_DEFAULT} characters</p>}
         {error && <p className="text-destructive text-detail">{error}</p>}
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={save.isPending}>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={save.isPending}
+            disabledReason={"Wait for the workspace to save."}
+          >
             Cancel
           </Button>
-          <Button onClick={() => void submit()} disabled={save.isPending || trimmed === "" || tooLong}>
+          <Button
+            onClick={() => void submit()}
+            disabled={save.isPending || trimmed === "" || tooLong}
+            disabledReason={
+              save.isPending
+                ? "Wait for the workspace to save."
+                : tooLong
+                  ? "Shorten the workspace name to fit the character limit."
+                  : "Enter a workspace name first."
+            }
+          >
             {save.isPending ? "Saving…" : "Save workspace"}
           </Button>
         </DialogFooter>

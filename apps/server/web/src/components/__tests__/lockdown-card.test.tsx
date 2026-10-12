@@ -76,14 +76,14 @@ describe("the Lockdown card", () => {
       renderCard();
       fireEvent.click(screen.getByRole("button", { name: "Lock down instance" }));
       const confirm = screen.getByRole("button", { name: "Lock down" });
-      expect(confirm.hasAttribute("disabled")).toBe(true);
+      expect(confirm.matches(":disabled, [aria-disabled=true]")).toBe(true);
       // Operator ruling 2026-09-24: a wrong name is not a submitable one. The
       // ask is to TYPE the machine name, and typing something else has not
       // done that.
       fireEvent.change(screen.getByLabelText(/machine name/i), { target: { value: "wrong" } });
-      expect(screen.getByRole("button", { name: "Lock down" }).hasAttribute("disabled")).toBe(true);
+      expect(screen.getByRole("button", { name: "Lock down" }).matches(":disabled, [aria-disabled=true]")).toBe(true);
       fireEvent.change(screen.getByLabelText(/machine name/i), { target: { value: "Testbox" } });
-      expect(screen.getByRole("button", { name: "Lock down" }).hasAttribute("disabled")).toBe(false);
+      expect(screen.getByRole("button", { name: "Lock down" }).matches(":disabled, [aria-disabled=true]")).toBe(false);
       fireEvent.click(screen.getByRole("button", { name: "Lock down" }));
       await waitFor(() => expect(m.calls.length).toBe(1));
       const sent = JSON.parse(m.calls[0]?.body ?? "{}") as Record<string, unknown>;
@@ -131,9 +131,11 @@ describe("the Lockdown card", () => {
 
       const dialog = screen.getByRole("dialog");
       const confirm = within(dialog).getByRole("button", { name: "End lockdown" });
-      expect(confirm.hasAttribute("disabled")).toBe(true);
+      expect(confirm.matches(":disabled, [aria-disabled=true]")).toBe(true);
       fireEvent.change(screen.getByLabelText(/machine name/i), { target: { value: "wrong" } });
-      expect(within(dialog).getByRole("button", { name: "End lockdown" }).hasAttribute("disabled")).toBe(true);
+      expect(
+        within(dialog).getByRole("button", { name: "End lockdown" }).matches(":disabled, [aria-disabled=true]"),
+      ).toBe(true);
       fireEvent.change(screen.getByLabelText(/machine name/i), { target: { value: "Testbox" } });
       fireEvent.click(within(dialog).getByRole("button", { name: "End lockdown" }));
       await waitFor(() => expect(m.calls.length).toBe(1));

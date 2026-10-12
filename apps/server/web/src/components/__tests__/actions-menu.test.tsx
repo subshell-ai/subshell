@@ -55,10 +55,15 @@ describe("ActionsMenu", () => {
   });
 
   it("gates the trigger when disabled", () => {
-    render(<ActionsMenu label="web" items={ITEMS} disabled />);
-    // A disabled button receives no real clicks or keys at all, so asserting
-    // the attribute is the faithful check — fireEvent would bypass it.
-    expect((screen.getByRole("button", { name: "Actions for web" }) as HTMLButtonElement).disabled).toBe(true);
+    render(<ActionsMenu label="web" items={ITEMS} disabled disabledReason="Wait for the subshell action to finish." />);
+    // The trigger can receive focus for its explanation, but activation stays blocked.
+    const trigger = screen.getByRole("button", { name: "Actions for web" });
+    expect(trigger.getAttribute("aria-disabled")).toBe("true");
+    expect(trigger.getAttribute("aria-description")).toBe("Wait for the subshell action to finish.");
+    fireEvent.click(trigger);
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    expect(screen.queryByRole("menuitem")).toBeNull();
   });
 });
 

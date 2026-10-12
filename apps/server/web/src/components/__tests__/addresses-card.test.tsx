@@ -137,7 +137,9 @@ describe("form validation", () => {
     fireEvent.change(port, { target: { value: "99999" } });
     // Mid-thought: no complaint (the 2026-09-16 ruling), but the gate has
     // already closed.
-    expect((screen.getByRole("button", { name: /^Save/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: /^Save/ }) as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+    ).toBe(true);
     expect(screen.queryByText(/expected an integer/)).toBeNull();
     // The thought is finished: the greyed button now has its reason.
     fireEvent.blur(port);

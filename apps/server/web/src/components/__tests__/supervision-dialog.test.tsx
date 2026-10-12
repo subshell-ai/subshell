@@ -86,14 +86,14 @@ describe("SupervisionDialog", () => {
       />,
     );
     const go = screen.getByRole("button", { name: "Switching…" }) as HTMLButtonElement;
-    expect(go.disabled).toBe(true);
+    expect(go.matches(":disabled, [aria-disabled=true]")).toBe(true);
     // The dismiss button stays LIVE, and says "Close" rather than "Cancel"
     // because it does not cancel anything — the chain runs in the desktop app
     // either way. It was disabled, and that turned the one surface able to
     // explain a failed switch into a modal saying "Switching…" forever on a
     // page whose server was gone.
     const close = screen.getByRole("button", { name: "Continue in the background" }) as HTMLButtonElement;
-    expect(close.disabled).toBe(false);
+    expect(close.matches(":disabled, [aria-disabled=true]")).toBe(false);
     expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
   });
 

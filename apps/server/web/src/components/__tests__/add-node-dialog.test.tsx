@@ -158,7 +158,11 @@ describe("AddNodeDialog", () => {
       // the shape is the instruction; only the mint makes it runnable.
       expect(screen.queryByText(/nsk_/)).toBeNull();
       expect(screen.getByText(/setup_key=<generate setup key first>/)).toBeDefined();
-      expect((screen.getByRole("button", { name: "Copy install command" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(
+        (screen.getByRole("button", { name: "Copy install command" }) as HTMLButtonElement).matches(
+          ":disabled, [aria-disabled=true]",
+        ),
+      ).toBe(true);
 
       fireEvent.click(screen.getByRole("button", { name: "Desktop App" }));
       expect(screen.getByText("Generate setup key first")).toBeDefined();
@@ -174,7 +178,11 @@ describe("AddNodeDialog", () => {
       expect(
         screen.getByText('curl -fsSL "https://plane.example/install.sh?setup_key=nsk_secret" | bash'),
       ).toBeDefined();
-      expect((screen.getByRole("button", { name: "Copy install command" }) as HTMLButtonElement).disabled).toBe(false);
+      expect(
+        (screen.getByRole("button", { name: "Copy install command" }) as HTMLButtonElement).matches(
+          ":disabled, [aria-disabled=true]",
+        ),
+      ).toBe(false);
     } finally {
       restore();
     }

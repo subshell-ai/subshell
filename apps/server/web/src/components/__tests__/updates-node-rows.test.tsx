@@ -147,7 +147,9 @@ describe("NodeRows", () => {
 
   it("disables every row's button with the reason the server gave", () => {
     renderRows(nodeUpdates({ rows: [nodeRow({ canUpdate: { ok: false, reason: "this node is offline" } })] }));
-    expect((screen.getByRole("button", { name: "Update" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Update" }) as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+    ).toBe(true);
     expect(screen.getByText("this node is offline")).toBeTruthy();
   });
 
@@ -161,13 +163,13 @@ describe("NodeRows", () => {
       }),
     );
     expect(updateAll().textContent).toBe("Update all (1)");
-    expect(updateAll().disabled).toBe(false);
+    expect(updateAll().matches(":disabled, [aria-disabled=true]")).toBe(false);
   });
 
   it("disables Update all when no row can take one", () => {
     renderRows(nodeUpdates({ rows: [nodeRow()] }));
     expect(updateAll().textContent).toBe("Update all (0)");
-    expect(updateAll().disabled).toBe(true);
+    expect(updateAll().matches(":disabled, [aria-disabled=true]")).toBe(true);
   });
 
   it("shows the pressed row's button as Updating while its POST is in flight", async () => {
@@ -184,7 +186,7 @@ describe("NodeRows", () => {
       renderRows(nodeUpdates({ rows: [nodeRow({ id: "a", name: "alpha", canUpdate: { ok: true, reason: null } })] }));
       fireEvent.click(screen.getByRole("button", { name: "Update" }));
       const updating = (await screen.findByRole("button", { name: "Updating…" })) as HTMLButtonElement;
-      expect(updating.disabled).toBe(true);
+      expect(updating.matches(":disabled, [aria-disabled=true]")).toBe(true);
       expect(updating.querySelector("svg")).toBeTruthy();
       // Async act: the resolve's microtask chain needs the await to land
       // inside act, or the state updates escape it (the sibling sequence
@@ -243,7 +245,7 @@ describe("NodeRows", () => {
       expect(posts).toContain("/api/nodes/a/update");
       expect(posts).toContain("/api/nodes/b/update");
       expect(allBtn.textContent).toBe("Updating…");
-      expect(allBtn.disabled).toBe(true);
+      expect(allBtn.matches(":disabled, [aria-disabled=true]")).toBe(true);
       expect(allBtn.querySelector("svg")).toBeTruthy();
       // Header and both rows: three spinners for one fact, the fleet moving.
       await waitFor(() => expect(screen.getAllByRole("button", { name: "Updating…" }).length).toBe(3));
@@ -334,7 +336,7 @@ describe("NodeRows", () => {
         deferred.get("b")?.();
       });
       await waitFor(() => expect(allBtn.textContent).toBe("Update all (1)"));
-      expect(allBtn.disabled).toBe(true);
+      expect(allBtn.matches(":disabled, [aria-disabled=true]")).toBe(true);
       view.rerender(
         <QueryClientProvider client={view.client}>
           <div className="grid">
@@ -500,8 +502,8 @@ describe("NodeRows", () => {
       }),
     );
     const rowBtn = screen.getByRole("button", { name: "Updating…" }) as HTMLButtonElement;
-    expect(rowBtn.disabled).toBe(true);
-    expect(updateAll().disabled).toBe(true);
+    expect(rowBtn.matches(":disabled, [aria-disabled=true]")).toBe(true);
+    expect(updateAll().matches(":disabled, [aria-disabled=true]")).toBe(true);
   });
 
   it("hands a stalled row back to the human instead of locking the fleet on it", () => {
@@ -519,7 +521,7 @@ describe("NodeRows", () => {
         ],
       }),
     );
-    expect(updateAll().disabled).toBe(false);
+    expect(updateAll().matches(":disabled, [aria-disabled=true]")).toBe(false);
     expect(screen.getByRole("button", { name: "Update" }).textContent).toBe("Update");
   });
 

@@ -110,7 +110,11 @@ function NodeDetailPage() {
             variant="outline"
             onClick={() => setShareOpen(true)}
             disabled={!n.canManage}
-            title={n.canManage ? undefined : "Only the node's manager can change its sharing"}
+            disabledReason={
+              n.kind === "local"
+                ? "Only a server admin can change sharing for this node."
+                : "Only the node owner can change sharing for this node."
+            }
           >
             <Share2 /> Share
           </Button>
@@ -118,12 +122,10 @@ function NodeDetailPage() {
             variant="outline"
             onClick={() => void remove()}
             disabled={!n.canRetire || n.kind === "local"}
-            title={
+            disabledReason={
               n.kind === "local"
-                ? "The control-plane host cannot be deleted"
-                : !n.canRetire
-                  ? "Only the node's owner or an admin can delete it"
-                  : undefined
+                ? "The server’s own node cannot be deleted."
+                : "Only the node owner or a server admin can delete this node."
             }
           >
             <Trash2 /> Delete

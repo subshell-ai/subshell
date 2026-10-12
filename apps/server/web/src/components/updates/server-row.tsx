@@ -156,7 +156,13 @@ export function ServerRow({
         )}
         <Button
           disabled={!view.updateAvailable || !view.canApply.ok || busy}
-          title={view.canApply.ok ? undefined : view.canApply.reasons[0]}
+          disabledReason={
+            busy
+              ? "Wait for the server update to finish."
+              : !view.canApply.ok
+                ? (view.canApply.reasons[0] ?? "The server cannot update from here.")
+                : "No server update is available."
+          }
           onClick={() => setConfirming(true)}
         >
           {view.latest ? `Update to ${view.latest.version}` : "Update"}

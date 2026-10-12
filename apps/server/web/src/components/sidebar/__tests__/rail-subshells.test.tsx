@@ -273,7 +273,7 @@ describe("the cell modes keep the row tree's facts", () => {
       fireEvent.change(screen.getByLabelText("Filter subshells"), { target: { value: "needle" } });
       expect(cellLinks()).toHaveLength(10);
       expect(groupHeaders()[0]?.getAttribute("aria-expanded")).toBe("true");
-      expect(groupHeaders()[0]?.hasAttribute("disabled")).toBe(true);
+      expect(groupHeaders()[0]?.matches(":disabled, [aria-disabled=true]")).toBe(true);
     });
   });
 
@@ -552,7 +552,7 @@ describe("collapse / expand all (operator ask 2026-09-27)", () => {
     await withRail([sub({ id: "a", name: "alpha", nodeId: "n1" })], () => {
       fireEvent.change(screen.getByLabelText("Filter subshells"), { target: { value: "alpha" } });
       const btn = screen.getByRole("button", { name: /all groups/ }) as HTMLButtonElement;
-      expect(btn.disabled).toBe(true);
+      expect(btn.matches(":disabled, [aria-disabled=true]")).toBe(true);
     });
   });
 });

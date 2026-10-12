@@ -99,9 +99,11 @@ export function NodeUpdateCard({ node }: { node: NodeDetail }): JSX.Element {
             variant="outline"
             size="sm"
             disabled={updating || !reachable || blockedReason !== null}
-            title={
+            disabledReason={
               blockedReason ??
-              (reachable ? undefined : "The machine is not connected, so there is nothing to send an update to")
+              (!reachable
+                ? "The node is offline. Wait for it to reconnect before updating."
+                : "Wait for the node update to finish.")
             }
             onClick={() => void start()}
           >

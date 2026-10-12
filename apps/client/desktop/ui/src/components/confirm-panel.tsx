@@ -58,10 +58,22 @@ export function ConfirmPanel(props: {
       ))}
       {/* The bar's grammar, in the card: ghost left, the weight right. */}
       <div className="mt-4 flex flex-wrap justify-end gap-2">
-        <Button variant="outline" size="sm" onClick={onCancel} disabled={busy}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onCancel}
+          disabled={busy}
+          disabledReason={"Wait for the current action to finish."}
+        >
           Cancel
         </Button>
-        <Button variant="destructive" size="sm" onClick={onAccept} disabled={busy}>
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={onAccept}
+          disabled={busy}
+          disabledReason={"Wait for the current action to finish."}
+        >
           {pending.acceptLabel}
         </Button>
       </div>

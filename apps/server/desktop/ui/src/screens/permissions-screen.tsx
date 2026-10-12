@@ -121,7 +121,13 @@ export function PermissionsScreen(props: {
       entranceKey={props.entranceKey}
       barLeft={
         !props.afterHandoff && (
-          <Button type="button" variant="ghost" disabled={busy || running} onClick={props.onClose}>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={busy || running}
+            disabledReason={"Wait for the current action to finish."}
+            onClick={props.onClose}
+          >
             {leaveLabel(probe, probe.onboarded)}
           </Button>
         )
@@ -134,7 +140,12 @@ export function PermissionsScreen(props: {
               there would be the button lying about where it leads. Every OTHER
               door falls through to the shared ghost on the left, whose word
               `leaveLabel` picks by the same argument. */
-          <Button type="button" disabled={busy || running} onClick={props.onContinue}>
+          <Button
+            type="button"
+            disabled={busy || running}
+            disabledReason={"Wait for the current action to finish."}
+            onClick={props.onContinue}
+          >
             Continue
           </Button>
         )
@@ -194,6 +205,7 @@ export function PermissionsScreen(props: {
                     // reader browsing buttons sees no rows.
                     aria-label={`Allow ${row.label}`}
                     disabled={busy || running}
+                    disabledReason={"Wait for the current action to finish."}
                     onClick={() => REQUESTS[allow.request]()}
                   >
                     {allow.label}
@@ -209,6 +221,7 @@ export function PermissionsScreen(props: {
                   variant="outline"
                   aria-label={`Open ${row.label} settings`}
                   disabled={busy || running}
+                  disabledReason={"Wait for the current action to finish."}
                   onClick={() =>
                     void ipc
                       .openSystemSettings(row.pane as Parameters<typeof ipc.openSystemSettings>[0])

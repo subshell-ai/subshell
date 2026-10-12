@@ -25,6 +25,13 @@ export function TippedIconButton({
   children,
   ...buttonProps
 }: ComponentProps<typeof Button> & { tooltip: string }): JSX.Element {
+  if (buttonProps.disabled) {
+    return (
+      <Button aria-label={tooltip} {...buttonProps}>
+        {children}
+      </Button>
+    );
+  }
   return (
     <TooltipProvider delay={300}>
       <Tooltip>

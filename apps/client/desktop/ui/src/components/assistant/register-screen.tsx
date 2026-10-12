@@ -120,13 +120,30 @@ export function RegisterScreen(props: {
         // still available afterwards"). Ghost, because leaving is not the act
         // this screen is for.
         onBack ? (
-          <Button variant="ghost" disabled={busy} onClick={onBack}>
+          <Button
+            variant="ghost"
+            disabled={busy}
+            disabledReason={"Wait for the current action to finish."}
+            onClick={onBack}
+          >
             Back
           </Button>
         ) : undefined
       }
       barRight={
-        <Button className="min-w-[120px]" type="submit" form={FORM_ID} disabled={busy || blocked || !filled}>
+        <Button
+          className="min-w-[120px]"
+          type="submit"
+          form={FORM_ID}
+          disabled={busy || blocked || !filled}
+          disabledReason={
+            busy
+              ? "Wait for registration to finish."
+              : blocked
+                ? "Install tmux before registering this machine."
+                : "Enter the node name, server address, and setup key first."
+          }
+        >
           Continue
         </Button>
       }

@@ -115,7 +115,13 @@ export function AddressesScreen(props: {
         // screen over a mid-first-run machine has none.
         barLeft={
           props.rail === undefined && (
-            <Button type="button" variant="ghost" disabled={locked} onClick={props.onClose}>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={locked}
+              disabledReason={"Wait for the current action to finish."}
+              onClick={props.onClose}
+            >
               {leaveLabel(probe, probe.onboarded)}
             </Button>
           )
@@ -123,7 +129,13 @@ export function AddressesScreen(props: {
         barRight={
           <>
             {unreadable && (
-              <Button type="button" variant="ghost" disabled={locked} onClick={() => props.onBlindChange(true)}>
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={locked}
+                disabledReason={"Wait for the current action to finish."}
+                onClick={() => props.onBlindChange(true)}
+              >
                 Configure anyway
               </Button>
             )}
@@ -131,6 +143,7 @@ export function AddressesScreen(props: {
               type="button"
               variant="ghost"
               disabled={locked}
+              disabledReason={"Wait for the current action to finish."}
               onClick={() => props.onRunSettings(() => ipc.service("restart", false))}
             >
               Restart
@@ -163,7 +176,13 @@ export function AddressesScreen(props: {
       entranceKey={props.entranceKey}
       barLeft={
         props.rail === undefined && (
-          <Button type="button" variant="ghost" disabled={locked} onClick={props.onClose}>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={locked}
+            disabledReason={"Wait for the current action to finish."}
+            onClick={props.onClose}
+          >
             {leaveLabel(probe, probe.onboarded)}
           </Button>
         )
@@ -181,6 +200,7 @@ export function AddressesScreen(props: {
             type="button"
             variant="ghost"
             disabled={locked}
+            disabledReason={"Wait for the current action to finish."}
             onClick={() => props.onRunSettings(() => ipc.service("restart", force?.checked === true))}
           >
             Restart
@@ -188,6 +208,9 @@ export function AddressesScreen(props: {
           <Button
             type="button"
             disabled={locked || refusal !== null || !settingsEdited(probe, state)}
+            disabledReason={
+              locked ? "Wait for the current action to finish." : (refusal ?? "Change the settings before saving.")
+            }
             onClick={() => props.onRunSettings(() => ipc.setup(settingsPayload(probe, state)))}
           >
             Save

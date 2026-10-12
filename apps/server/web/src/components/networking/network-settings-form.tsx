@@ -201,7 +201,12 @@ export function NetworkSettingsForm({
                 onValueChange={(value) => value !== null && set(field.key, String(value))}
                 disabled={disabled || update.isPending}
               >
-                <SelectTrigger id={id} aria-label={field.label} {...describedBy}>
+                <SelectTrigger
+                  disabledReason={"Wait for the network action to finish."}
+                  id={id}
+                  aria-label={field.label}
+                  {...describedBy}
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -267,6 +272,13 @@ export function NetworkSettingsForm({
           variant="outline"
           size="sm"
           disabled={disabled || touched.length === 0 || missingRequired || update.isPending}
+          disabledReason={
+            disabled || update.isPending
+              ? "Wait for the network action to finish."
+              : missingRequired
+                ? "Complete the required network settings first."
+                : "Change a setting before saving."
+          }
           onClick={save}
         >
           {update.isPending ? "Saving…" : "Save settings"}

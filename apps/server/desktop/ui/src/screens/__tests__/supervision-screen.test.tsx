@@ -201,7 +201,7 @@ describe("the choice rows", () => {
       }),
     });
     const login = document.getElementById("sup-login") as HTMLInputElement;
-    expect(login.disabled).toBe(true);
+    expect(login.matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(screen.getByText("Update your server to 0.9.0 to control this.")).toBeDefined();
   });
 });
@@ -209,14 +209,16 @@ describe("the choice rows", () => {
 describe("the Apply gate", () => {
   it("is dead while the choice is the machine's own", () => {
     renderSupervision({});
-    expect((screen.getByRole("button", { name: "Apply" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Apply" }) as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+    ).toBe(true);
   });
 
   it("fires the chosen answer once it differs, and the leave label says where back is", () => {
     const onApply = vi.fn();
     renderSupervision({ supervisionForm: { background: false, autostart: false }, onApply });
     const apply = screen.getByRole("button", { name: "Apply" }) as HTMLButtonElement;
-    expect(apply.disabled).toBe(false);
+    expect(apply.matches(":disabled, [aria-disabled=true]")).toBe(false);
     apply.click();
     expect(onApply).toHaveBeenCalledWith({ background: false, autostart: false });
     // A ready machine has the handoff behind it: the leave is Close, not Back.

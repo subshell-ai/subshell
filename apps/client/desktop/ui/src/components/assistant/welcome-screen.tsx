@@ -30,7 +30,12 @@ export function WelcomeScreen(props: { shell: FrameShell; onContinue: () => void
       {...shell}
       icon={<Sparkles />}
       barRight={
-        <Button className="min-w-[120px]" disabled={busy} onClick={onContinue}>
+        <Button
+          className="min-w-[120px]"
+          disabled={busy}
+          disabledReason={"Wait for the current action to finish."}
+          onClick={onContinue}
+        >
           Continue
         </Button>
       }

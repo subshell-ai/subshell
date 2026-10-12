@@ -106,7 +106,17 @@ export function PendingExpiryCard({ days, maxDays }: { days: number; maxDays: nu
             disabled={busy}
           />
           <span className="text-detail text-muted-foreground">days</span>
-          <Button disabled={busy || !dirty || invalid} onClick={() => void save()}>
+          <Button
+            disabled={busy || !dirty || invalid}
+            disabledReason={
+              busy
+                ? "Wait for the expiry setting to save."
+                : invalid
+                  ? "Enter a valid expiry period."
+                  : "Change the expiry period before saving."
+            }
+            onClick={() => void save()}
+          >
             {busy ? "Saving…" : "Save"}
           </Button>
         </div>

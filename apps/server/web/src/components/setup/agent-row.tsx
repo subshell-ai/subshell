@@ -45,7 +45,12 @@ export function AgentRow({
         <span className="flex-1 font-strong">{harness.name}</span>
         <span className={cn("text-detail", chip.className)}>{chip.text}</span>
         {!harness.installed && installable && onInstall && (
-          <Button size="sm" disabled={installing} onClick={() => onInstall(harness.id)}>
+          <Button
+            size="sm"
+            disabled={installing}
+            disabledReason={"Wait for installation to finish."}
+            onClick={() => onInstall(harness.id)}
+          >
             {/* These installers are `curl … | bash` against someone else's
                 host, which can sit for a while on a slow network. A label
                 that changes once and then holds still for a minute is how a

@@ -58,7 +58,7 @@ describe("the Choice screen", () => {
   it("disables both options while an action is in flight", () => {
     const chosen = renderChoice(true);
     for (const button of screen.getAllByRole("button") as HTMLButtonElement[]) {
-      expect(button.disabled).toBe(true);
+      expect(button.matches(":disabled, [aria-disabled=true]")).toBe(true);
       fireEvent.click(button);
     }
     expect(chosen).toEqual([]);

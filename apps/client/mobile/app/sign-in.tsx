@@ -68,7 +68,13 @@ export default function SignIn() {
           caption={note ?? undefined}
           captionColor={colors.destructive}
         />
-        <PrimaryButton onPress={() => void submit()} label="Sign in" disabled={!email || !password} busy={busy} />
+        <PrimaryButton
+          disabledReason="Enter your email and password first."
+          onPress={() => void submit()}
+          label="Sign in"
+          disabled={!email || !password}
+          busy={busy}
+        />
         <Pressable onPress={() => router.replace("/connect")} style={{ alignItems: "center", padding: 8 }}>
           <Text style={{ ...font("label"), color: colors.mutedFg }}>Use a different instance</Text>
         </Pressable>

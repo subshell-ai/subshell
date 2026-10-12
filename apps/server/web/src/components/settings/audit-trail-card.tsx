@@ -153,6 +153,7 @@ export function AuditTrailCard() {
                   variant="outline"
                   size="sm"
                   disabled={pageIndex === 0}
+                  disabledReason={"You're on the newest page."}
                   onClick={() => setPages((p) => p.slice(0, -1))}
                 >
                   Newer
@@ -162,6 +163,7 @@ export function AuditTrailCard() {
                   variant="outline"
                   size="sm"
                   disabled={!hasOlder}
+                  disabledReason={"There are no older events to show."}
                   onClick={() => {
                     const last = rows[rows.length - 1];
                     setPages((p) => [...p, { createdAt: last.createdAt, id: last.id }]);

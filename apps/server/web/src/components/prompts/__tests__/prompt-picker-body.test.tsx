@@ -206,12 +206,12 @@ describe("PromptPickerBody", () => {
     fireEvent.click(screen.getByRole("button", { name: /Write your own/ }));
     // Pristine: the body is empty, so the button is born dead — and quiet
     // (no red sentence on a field nobody touched).
-    expect(addStackButton().disabled).toBe(true);
+    expect(addStackButton().matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(screen.queryByRole("alert")).toBeNull();
     fireEvent.change(screen.getByPlaceholderText("The text to type into the pane"), {
       target: { value: "do the thing" },
     });
-    expect(addStackButton().disabled).toBe(false);
+    expect(addStackButton().matches(":disabled, [aria-disabled=true]")).toBe(false);
   });
 
   it("Write your own saves only with the switch on, and needs a description then", async () => {
@@ -241,12 +241,12 @@ describe("PromptPickerBody", () => {
     fireEvent.change(screen.getByPlaceholderText("The text to type into the pane"), {
       target: { value: "do the thing" },
     });
-    expect(addStackButton().disabled).toBe(false);
+    expect(addStackButton().matches(":disabled, [aria-disabled=true]")).toBe(false);
     // getByLabelText misses the Base UI switch under happy-dom; the role is
     // unique here. Flipping it makes the empty description required — the
     // gate closes on the SWITCH, not on a click.
     fireEvent.click(screen.getByRole("switch"));
-    expect(addStackButton().disabled).toBe(true);
+    expect(addStackButton().matches(":disabled, [aria-disabled=true]")).toBe(true);
     // The sentence explains once the field has been touched (blur), not
     // before: the disabled button never has to throw away its press.
     const desc = screen.getByLabelText("Prompt description") as HTMLInputElement;
@@ -256,7 +256,7 @@ describe("PromptPickerBody", () => {
     fireEvent.click(addStackButton()); // disabled: inert even if reached
     expect(picked.length).toBe(0);
     fireEvent.change(desc, { target: { value: "The thing" } });
-    expect(addStackButton().disabled).toBe(false);
+    expect(addStackButton().matches(":disabled, [aria-disabled=true]")).toBe(false);
     fireEvent.click(addStackButton());
     await waitFor(() => expect(m.posts.length).toBe(1));
     expect(m.posts[0].body).toEqual({ description: "The thing", body: "do the thing", shared: false });
@@ -320,7 +320,7 @@ describe("PromptPickerBody", () => {
       "half an idea",
     );
     // The seeded draft satisfies the gate: the restored step is submittable.
-    expect(addStackButton().disabled).toBe(false);
+    expect(addStackButton().matches(":disabled, [aria-disabled=true]")).toBe(false);
     fireEvent.click(addStackButton());
     await waitFor(() => expect(picked.length).toBe(1)); // handleSubmit is async
 

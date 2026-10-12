@@ -108,6 +108,7 @@ function PromptStackRow({
             size="icon-sm"
             aria-label="Move prompt up"
             disabled={position === 1}
+            disabledReason={"This prompt is already first in the stack."}
             onClick={() => onReorder(block.localId, -1)}
           >
             <ChevronUp className="h-4 w-4" />
@@ -117,6 +118,7 @@ function PromptStackRow({
             size="icon-sm"
             aria-label="Move prompt down"
             disabled={position === total}
+            disabledReason={"This prompt is already last in the stack."}
             onClick={() => onReorder(block.localId, 1)}
           >
             <ChevronDown className="h-4 w-4" />

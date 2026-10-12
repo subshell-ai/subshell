@@ -402,16 +402,20 @@ describe("actions serialize", () => {
     // The install offer is the Service section's now (operator ruling 2026-09-22).
     await openSection("Service");
     fireEvent.click(button("Install the Subshell Node CLI"));
-    await waitFor(() => expect(button("Install the Subshell Node CLI").disabled).toBe(true));
+    await waitFor(() =>
+      expect(button("Install the Subshell Node CLI").matches(":disabled, [aria-disabled=true]")).toBe(true),
+    );
 
     // Both the guard and the disabled attribute; a click dispatched anyway
     // (a stale reference, a synthetic event) must still not reach the CLI.
     fireEvent.click(button("Install the Subshell Node CLI"));
     expect(fake.callsTo("node_install_cli").length).toBe(1);
-    expect(button("Install the Subshell Node CLI").disabled).toBe(true);
+    expect(button("Install the Subshell Node CLI").matches(":disabled, [aria-disabled=true]")).toBe(true);
 
     gate.resolve({ ok: true, stdout: "Installed subshell.", stderr: "" });
-    await waitFor(() => expect(button("Install the Subshell Node CLI").disabled).toBe(false));
+    await waitFor(() =>
+      expect(button("Install the Subshell Node CLI").matches(":disabled, [aria-disabled=true]")).toBe(false),
+    );
   });
 
   it("keeps the UI disabled until the re-probe has landed", async () => {
@@ -426,7 +430,9 @@ describe("actions serialize", () => {
 
     // A button that came back alive before the re-probe would be a button
     // acting on a machine that has moved on.
-    await waitFor(() => expect(button("Install the Subshell Node CLI").disabled).toBe(false));
+    await waitFor(() =>
+      expect(button("Install the Subshell Node CLI").matches(":disabled, [aria-disabled=true]")).toBe(false),
+    );
     expect(fake.callsTo("node_probe").length).toBeGreaterThan(probesBefore);
   });
 });
@@ -619,11 +625,11 @@ describe("the register form asks the three answers once", () => {
     // name that normalizes to empty never leaves the screen, so the press
     // here owes only the server and key refusals — the ones a filled field
     // can still hide.
-    expect(button("Continue").disabled).toBe(true);
+    expect(button("Continue").matches(":disabled, [aria-disabled=true]")).toBe(true);
     typeInto("Server URL", "subshell.example.com");
     typeInto("Setup key", "nsk_short");
     typeInto("Node name", "workstation");
-    expect(button("Continue").disabled).toBe(false);
+    expect(button("Continue").matches(":disabled, [aria-disabled=true]")).toBe(false);
     fireEvent.click(button("Continue"));
 
     await waitFor(() => expect(screen.getByText(/Include the scheme/)).toBeTruthy());
@@ -649,7 +655,7 @@ describe("the register form asks the three answers once", () => {
     typeInto("Node name", "workstation");
 
     await waitFor(() => expect(screen.getByText(/This address connects to a server on this machine/)).toBeTruthy());
-    expect(button("Continue").disabled).toBe(false);
+    expect(button("Continue").matches(":disabled, [aria-disabled=true]")).toBe(false);
     pressRegisterChain();
     await waitFor(() => expect(fake.callsTo("node_enroll").length).toBe(1));
   });
@@ -957,9 +963,12 @@ describe("what the page never asks for", () => {
     // settle included) before the next press, because a press refused on
     // `busy` is a silent no-op and this pin must not pass by luck.
     await openSection("Control Plane");
-    await waitFor(() => expect(button("https://elsewhere.example").disabled).toBe(false), {
-      timeout: SETTLE_DELAY_MS * (SETTLE_ATTEMPTS + 2),
-    });
+    await waitFor(
+      () => expect(button("https://elsewhere.example").matches(":disabled, [aria-disabled=true]")).toBe(false),
+      {
+        timeout: SETTLE_DELAY_MS * (SETTLE_ATTEMPTS + 2),
+      },
+    );
     fireEvent.click(button("https://elsewhere.example"));
     await waitFor(() => expect(fake.callsTo("node_open_plane").length).toBe(1));
     fireEvent.click(button("Actions for https://elsewhere.example"));
@@ -972,7 +981,7 @@ describe("what the page never asks for", () => {
     await waitFor(() => expect(fake.callsTo("node_plane_remove").length).toBe(1), {
       timeout: SETTLE_DELAY_MS * (SETTLE_ATTEMPTS + 2),
     });
-    await waitFor(() => expect(button("Add a control plane…").disabled).toBe(false));
+    await waitFor(() => expect(button("Add a control plane…").matches(":disabled, [aria-disabled=true]")).toBe(false));
     fireEvent.click(button("Add a control plane…"));
     typeInto("Control plane URL", "https://added.example");
     fireEvent.click(button("Add"));
@@ -1155,13 +1164,17 @@ describe("pacing", () => {
     // The install offer is the Service section's now (operator ruling 2026-09-22).
     await openSection("Service");
     fireEvent.click(button("Install the Subshell Node CLI"));
-    await waitFor(() => expect(button("Install the Subshell Node CLI").disabled).toBe(true));
+    await waitFor(() =>
+      expect(button("Install the Subshell Node CLI").matches(":disabled, [aria-disabled=true]")).toBe(true),
+    );
     const during = fake.callsTo("node_probe").length;
     await new Promise((resolve) => setTimeout(resolve, 120));
     expect(fake.callsTo("node_probe").length).toBe(during);
 
     gate.resolve({ ok: true, stdout: "", stderr: "" });
-    await waitFor(() => expect(button("Install the Subshell Node CLI").disabled).toBe(false));
+    await waitFor(() =>
+      expect(button("Install the Subshell Node CLI").matches(":disabled, [aria-disabled=true]")).toBe(false),
+    );
   });
 });
 
@@ -1278,7 +1291,7 @@ describe("the first run", () => {
     // "what did that just do".
     await waitFor(
       () => {
-        expect(buttonOrNull("Continue")?.disabled).toBe(false);
+        expect(buttonOrNull("Continue")?.matches(":disabled, [aria-disabled=true]")).toBe(false);
       },
       { timeout: 8_000 },
     );
@@ -1574,7 +1587,9 @@ describe("the first run", () => {
     });
 
     await registerAs("https://subshell.example.com");
-    await waitFor(() => expect(buttonOrNull("Retry")?.disabled).toBe(false), { timeout: 5_000 });
+    await waitFor(() => expect(buttonOrNull("Retry")?.matches(":disabled, [aria-disabled=true]")).toBe(false), {
+      timeout: 5_000,
+    });
     expect(fake.callsTo("node_enroll").length).toBe(1);
 
     fireEvent.click(button("Retry"));
@@ -1584,7 +1599,9 @@ describe("the first run", () => {
     expect(fake.callsTo("node_enroll").length).toBe(1);
     // And the resumed run finishes, so the checklist reaches its handoff
     // rather than stranding a machine that is one act from working.
-    await waitFor(() => expect(buttonOrNull("Continue")?.disabled).toBe(false), { timeout: 8_000 });
+    await waitFor(() => expect(buttonOrNull("Continue")?.matches(":disabled, [aria-disabled=true]")).toBe(false), {
+      timeout: 8_000,
+    });
   });
 
   // The walk had no way out at all: `barLeft` existed only on the progress
@@ -1718,7 +1735,7 @@ describe("the first run", () => {
     await waitFor(() => expect(fake.callsTo("node_install_tmux").length).toBe(1));
     // Live, which is the component's own deliberate divergence.
     const back = button("Back");
-    expect(back.disabled).toBe(false);
+    expect(back.matches(":disabled, [aria-disabled=true]")).toBe(false);
 
     fireEvent.click(back);
     await waitFor(() => expect(screen.getByRole("heading", { name: "What Would You Like to Do?" })).toBeTruthy());
@@ -1870,7 +1887,7 @@ describe("the screens", () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 300));
     });
-    expect(button(/Starting…/).disabled).toBe(true);
+    expect(button(/Starting…/).matches(":disabled, [aria-disabled=true]")).toBe(true);
     // Then the daemon actually arrives, and the wait ends on that fact:
     // the loop's next read (≤ one settle interval) comes back online, the
     // act settles inside its own awaited re-probe.
@@ -2027,8 +2044,8 @@ describe("tmux is a hard stop, not a hint", () => {
     await boot({ probe: makeProbe({ ...STOPPED, tmux: null }) });
     // The verbs are the Service section's now.
     await openSection("Service");
-    expect(button("Start").disabled).toBe(true);
-    expect(button("Uninstall").disabled).toBe(false);
+    expect(button("Start").matches(":disabled, [aria-disabled=true]")).toBe(true);
+    expect(button("Uninstall").matches(":disabled, [aria-disabled=true]")).toBe(false);
     // Base UI's span switch carries `data-disabled`, not a DOM property; an
     // enabled one has no such attribute.
     expect(screen.getByRole("switch").hasAttribute("data-disabled")).toBe(false);
@@ -2039,14 +2056,14 @@ describe("tmux is a hard stop, not a hint", () => {
   it("re-enables on the probe that finds tmux — the gate is not remembered", async () => {
     const fake = await boot({ probe: makeProbe({ ...STOPPED, tmux: null }) });
     await openSection("Service");
-    expect(button("Start").disabled).toBe(true);
+    expect(button("Start").matches(":disabled, [aria-disabled=true]")).toBe(true);
     fake.setProbe(STOPPED);
     // No Refresh button drives the re-read any more (operator ruling
     // 2026-09-22); the poll is the refresh, and the test asks the cache for
     // the same re-read the interval performs rather than sleeping out the
     // cadence. The gate reads the LIVE probe, so any re-read re-decides it.
     await fake.client.refetchQueries({ queryKey: PROBE_KEY });
-    await waitFor(() => expect(button("Start").disabled).toBe(false));
+    await waitFor(() => expect(button("Start").matches(":disabled, [aria-disabled=true]")).toBe(false));
   });
 
   // The key-spending form is reached two ways now, so the gate is asserted on
@@ -2067,7 +2084,7 @@ describe("tmux is a hard stop, not a hint", () => {
       }),
     });
     expect(screen.getByRole("heading", { name: "Register This Machine" })).toBeTruthy();
-    expect(button("Continue").disabled).toBe(true);
+    expect(button("Continue").matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(screen.getByText(/so enrolling is disabled/)).toBeTruthy();
     cleanup();
     ipc?.restore();

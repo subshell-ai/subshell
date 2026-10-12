@@ -58,6 +58,6 @@ describe("LaunchSubshellDialog", () => {
     // workspace add-dialog — both instances never mount at once.
     expect(document.querySelector("#picker-working-dir")).not.toBeNull();
     const start = screen.getByRole("button", { name: /Start subshell/i });
-    expect(start.hasAttribute("disabled")).toBe(true);
+    expect(start.matches(":disabled, [aria-disabled=true]")).toBe(true);
   });
 });

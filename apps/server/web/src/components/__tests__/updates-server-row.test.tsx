@@ -47,7 +47,7 @@ describe("the three states of the Server row", () => {
     // The old card's description sentence is the two version cells now.
     expect(screen.getByText("0.6.0", { exact: true })).toBeTruthy();
     expect(screen.getByText("0.7.0", { exact: true })).toBeTruthy();
-    expect(updateButton().disabled).toBe(false);
+    expect(updateButton().matches(":disabled, [aria-disabled=true]")).toBe(false);
     expect(screen.getByText(/backed up to/)).toBeTruthy();
     expect(screen.getByText(/5 kept/)).toBeTruthy();
     expect(screen.getByText(/open subshells keep running/)).toBeTruthy();
@@ -62,7 +62,7 @@ describe("the three states of the Server row", () => {
     );
     // Running and Newest carry the same version — that equality is the sentence.
     expect(screen.getAllByText("0.6.0", { exact: true }).length).toBe(2);
-    expect(updateButton().disabled).toBe(true);
+    expect(updateButton().matches(":disabled, [aria-disabled=true]")).toBe(true);
   });
 
   it("lists every blocker the server named, and disables the button", () => {
@@ -80,7 +80,7 @@ describe("the three states of the Server row", () => {
       screen.getByText(/Updates are unavailable: this server is not running under a service manager\./),
     ).toBeTruthy();
     expect(screen.getByText(/Updates are unavailable: this server runs from a checkout\./)).toBeTruthy();
-    expect(updateButton().disabled).toBe(true);
+    expect(updateButton().matches(":disabled, [aria-disabled=true]")).toBe(true);
   });
 
   it("distinguishes a source that is OFF from one that could not be read", () => {
@@ -126,7 +126,7 @@ describe("the job", () => {
     // — or a second admin watching — must see it, with `outcome` still idle.
     renderRow(serverUpdateView({ job: job({ phase: "backing-up" }) }));
     expect(screen.getByText("Backing up the database…")).toBeTruthy();
-    expect(updateButton().disabled).toBe(true);
+    expect(updateButton().matches(":disabled, [aria-disabled=true]")).toBe(true);
   });
 
   it("reports a failure that reverted at boot, which no tab's own outcome holds", () => {
@@ -240,7 +240,7 @@ describe("the Server row's Notes link", () => {
     setUA(CLIENT_UA);
     renderRow(serverUpdateView());
     expect(screen.queryByRole("link", { name: "Notes" })).toBeNull();
-    expect(updateButton().disabled).toBe(false);
+    expect(updateButton().matches(":disabled, [aria-disabled=true]")).toBe(false);
   });
 
   it("offers no link when the release source named nothing", () => {

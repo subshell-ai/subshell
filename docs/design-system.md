@@ -149,6 +149,19 @@ admitted here.
   *(A disabled control's explanation floated over the whole row until it grew
   the tip; the rail's rows needed the same arrow a day earlier. Operator rule,
   2026-09-25.)*
+- **Disabled buttons**: explain every disabled state in a tooltip. State the
+  actual blocker and a useful next step, such as "Only the node owner can
+  change sharing for this node." or "Choose a working directory first."
+  Pass `disabledReason` to `Button` (or `ExplainedButton` for a control with
+  its own layout). Keep the explanation available on hover and keyboard
+  focus, associate it with the control for screen readers, and block pointer,
+  keyboard, and form activation. Don't rely on a native `title` or a wrapper
+  that changes the control's layout. Use existing form validation messages
+  for missing or invalid input, and update the reason when the blocker changes.
+  Keep owner-only restrictions visible beside the controls in gold
+  (`text-warning`), including directory rules and stopping or uninstalling a
+  node service. On touch-only surfaces, keep the reason visible or available
+  on tap; hover mustn't be the only way to discover it.
 - **Tab group**: a page's tab strip is CONTENT-SIZED (`Segmented fill={false}`),
   never stretched across the container: two tab labels sharing the page's full
   width read as data columns rather than as choices, and the stretch grows the

@@ -780,12 +780,12 @@ describe("NetworkPluginCard: the state matrix", () => {
     );
     const sentence = screen.getByText("Save the Control server URL first.");
     const signIn = screen.getByRole("button", { name: "Sign in with Headscale" }) as HTMLButtonElement;
-    expect(signIn.disabled).toBe(true);
+    expect(signIn.matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(signIn.getAttribute("aria-describedby")).toBe(sentence.id);
 
     showKeyPanel();
     const connect = screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement;
-    expect(connect.disabled).toBe(true);
+    expect(connect.matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(connect.getAttribute("aria-describedby")).toBe(sentence.id);
     // ONE paragraph for both panels — a second copy would be two ids and a
     // screen reader reading the same refusal twice. And it sits INSIDE the
@@ -808,7 +808,11 @@ describe("NetworkPluginCard: the state matrix", () => {
       }),
     );
     expect(screen.queryByText(/Save the Control server URL first./)).toBeNull();
-    expect((screen.getByRole("button", { name: "Sign in with Headscale" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(
+      (screen.getByRole("button", { name: "Sign in with Headscale" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(false);
   });
 
   it("the wizard asks for the token ONCE: the credential box is the secret's door", async () => {
@@ -1391,7 +1395,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     // cleared `publish`'s error, so the card reported a failure that had
     // nothing to do with what it was now doing.
     const disconnect = screen.getByRole("button", { name: "Disconnect" });
-    expect(disconnect.hasAttribute("disabled")).toBe(false);
+    expect(disconnect.matches(":disabled, [aria-disabled=true]")).toBe(false);
     fireEvent.click(disconnect);
     // Scoped to the dialog, which is what the two tests below already do. A
     // bare role query matches the CARD's Disconnect as well as the dialog's,
@@ -1686,7 +1690,9 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
       }),
     );
     expect(screen.getByText(/Unpublish Tailscale before changing these settings/)).toBeTruthy();
-    expect((screen.getByLabelText("Hostname") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText("Hostname") as HTMLInputElement).matches(":disabled, [aria-disabled=true]")).toBe(
+      true,
+    );
   });
 
   it("a public-with-gate network says so permanently, above everything else", async () => {

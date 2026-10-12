@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { z } from "zod";
-import { type FieldProblems, fieldError, fieldErrorToned, makeForm, useSubmitDisabled } from "@/lib/form";
+import {
+  type FieldProblems,
+  fieldError,
+  fieldErrorToned,
+  makeForm,
+  useSubmitDisabled,
+  useSubmitDisabledReason,
+} from "@/lib/form";
 import { makePromptStackSchema } from "@/lib/prompt-stack-form";
 
 afterEach(cleanup);
@@ -27,6 +34,7 @@ const schema = z
 function Probe({ onSubmit }: { onSubmit: (values: { body: string; description: string; save: boolean }) => void }) {
   const form = makeForm({ defaultValues: { body: "", description: "", save: false }, validator: schema, onSubmit });
   const disabled = useSubmitDisabled(form);
+  const disabledReason = useSubmitDisabledReason(form);
   return (
     <form
       onSubmit={(e) => {
@@ -74,7 +82,7 @@ function Probe({ onSubmit }: { onSubmit: (values: { body: string; description: s
           />
         )}
       </form.Field>
-      <button data-testid="submit" type="submit" disabled={disabled}>
+      <button data-testid="submit" type="submit" disabled={disabled} aria-description={disabledReason}>
         go
       </button>
     </form>
@@ -195,4 +203,14 @@ describe("fieldErrorToned (the gold/red split, ruling 2026-09-30)", () => {
     expect(capIssues.length).toBeGreaterThan(0);
     expect(capIssues.every((i) => (i as { gap?: unknown }).gap !== true)).toBe(true);
   });
+});
+
+it("uses the current validation message to explain the disabled submit", () => {
+  render(<Probe onSubmit={() => {}} />);
+  const submit = screen.getByTestId("submit");
+  expect(submit.getAttribute("aria-description")).toBe("The prompt text is required");
+  fireEvent.change(screen.getByTestId("body"), { target: { value: "A prompt" } });
+  expect(submit.getAttribute("aria-description")).toBeNull();
+  fireEvent.click(screen.getByTestId("save"));
+  expect(submit.getAttribute("aria-description")).toBe("A saved prompt needs a short description");
 });

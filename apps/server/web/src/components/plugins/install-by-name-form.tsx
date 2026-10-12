@@ -13,7 +13,7 @@ import {
 import { useStore } from "@tanstack/react-form";
 import { useMemo } from "react";
 import { type InstancePluginRow, useInstallInstancePlugin } from "@/hooks/use-instance-plugins";
-import { type FieldProblems, fieldError, makeForm, useSubmitDisabled } from "@/lib/form";
+import { type FieldProblems, fieldError, makeForm, useSubmitDisabled, useSubmitDisabledReason } from "@/lib/form";
 import { derivePluginId, isSafePluginId, parseNpmSpec } from "@/lib/plugin-spec";
 
 /**
@@ -114,6 +114,7 @@ export function InstallByNameForm({ plugins }: { plugins: InstancePluginRow[] })
   });
   const values = useStore(form.store, (state) => state.values);
   const disabled = useSubmitDisabled(form, install.isPending);
+  const disabledReason = useSubmitDisabledReason(form, install.isPending);
 
   return (
     <Card>
@@ -174,7 +175,7 @@ export function InstallByNameForm({ plugins }: { plugins: InstancePluginRow[] })
               form as the page's main action. Once a name is typed the button
               is present, and the id sentence above explains a grey one. */}
           {values.spec.trim() !== "" && (
-            <Button type="submit" disabled={disabled}>
+            <Button type="submit" disabled={disabled} disabledReason={disabledReason}>
               {install.isPending ? "Installing…" : "Install"}
             </Button>
           )}

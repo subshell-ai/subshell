@@ -85,6 +85,10 @@ describe("SaveWorkspaceDialog", () => {
     renderDialog();
     const field = await screen.findByLabelText("Workspace name");
     fireEvent.change(field, { target: { value: "   " } });
-    expect((screen.getByRole("button", { name: "Save workspace" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Save workspace" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
   });
 });

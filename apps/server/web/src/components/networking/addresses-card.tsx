@@ -379,6 +379,13 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
             variant="outline"
             size="sm"
             disabled={touched.length === 0 || invalid || update.isPending}
+            disabledReason={
+              update.isPending
+                ? "Wait for the addresses to save."
+                : invalid
+                  ? "Fix the invalid addresses before saving."
+                  : "Change an address before saving."
+            }
             title={canRestart || !needsRestart ? undefined : (view.restart.reason ?? undefined)}
             onClick={save}
           >

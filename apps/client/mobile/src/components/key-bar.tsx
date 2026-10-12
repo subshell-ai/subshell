@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
+import { ExplainedPressable } from "@/components/explained-pressable";
 import { isRepeatable, KEY_BAR_BUTTONS, KEY_BAR_EXTENDED } from "@/lib/key-bar";
 import { colors, font, touchTarget } from "@/lib/tokens";
 
@@ -63,9 +64,10 @@ export function KeyBar({
     <View style={{ borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.card }}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 4 }}>
         {buttons.map((b) => (
-          <Pressable
+          <ExplainedPressable
             key={b.label}
             disabled={disabled}
+            disabledReason={"Wait for the terminal to connect."}
             onPressIn={() => startRepeat(b.bytes, b.label)}
             onPressOut={stopRepeat}
             style={{
@@ -77,22 +79,24 @@ export function KeyBar({
             }}
           >
             <Text style={{ ...font("body"), color: colors.mutedFg, fontFamily: "Menlo" }}>{b.label}</Text>
-          </Pressable>
+          </ExplainedPressable>
         ))}
-        <Pressable
+        <ExplainedPressable
           disabled={disabled}
+          disabledReason={"Wait for the terminal to connect."}
           onPress={() => setExtended((v) => !v)}
           style={{ minWidth: touchTarget, height: touchTarget, alignItems: "center", justifyContent: "center" }}
         >
           <Text style={{ ...font("label"), color: extended ? colors.primary : colors.mutedFg }}>⋯</Text>
-        </Pressable>
-        <Pressable
+        </ExplainedPressable>
+        <ExplainedPressable
           disabled={disabled}
+          disabledReason={"Wait for the terminal to connect."}
           onPress={onPaste}
           style={{ minWidth: touchTarget, height: touchTarget, alignItems: "center", justifyContent: "center" }}
         >
           <Text style={{ ...font("body"), color: colors.mutedFg }}>📋</Text>
-        </Pressable>
+        </ExplainedPressable>
         {onToggleKeyboard && (
           // Not disabled with the rest: dismissing a keyboard that is covering
           // half the pane has to work even while the socket is down.

@@ -55,7 +55,7 @@ describe("NetworkSettingsForm gating", () => {
     fireEvent.focus(field);
     fireEvent.change(field, { target: { value: " " } });
     fireEvent.blur(field);
-    expect(saveButton().disabled).toBe(true);
+    expect(saveButton().matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(screen.getByText("Control server URL is required.")).toBeTruthy();
   });
 
@@ -63,7 +63,7 @@ describe("NetworkSettingsForm gating", () => {
     renderForm(rowWith({ settingsFields: CONTROL as unknown as NetworkRow["settingsFields"] }));
     const field = screen.getByLabelText(/Control server URL/) as HTMLInputElement;
     fireEvent.change(field, { target: { value: "https://control.example" } });
-    expect(saveButton().disabled).toBe(false);
+    expect(saveButton().matches(":disabled, [aria-disabled=true]")).toBe(false);
     expect(screen.queryByText("Control server URL is required.")).toBeNull();
   });
 
@@ -88,6 +88,6 @@ describe("NetworkSettingsForm gating", () => {
     // Touching the optional field does not make the required one missing, so
     // the button turns live (dirty, and no requirement unmet).
     fireEvent.change(screen.getByLabelText(/Tailscale port/), { target: { value: "3478" } });
-    expect(saveButton().disabled).toBe(false);
+    expect(saveButton().matches(":disabled, [aria-disabled=true]")).toBe(false);
   });
 });

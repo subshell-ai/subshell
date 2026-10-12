@@ -32,12 +32,28 @@ describe("the Components table", () => {
         </QueryClientProvider>
       );
       const result = render(ui(true));
-      expect((screen.getByRole("button", { name: "Update" }) as HTMLButtonElement).disabled).toBe(true);
-      expect((screen.getByRole("button", { name: /^Update all/ }) as HTMLButtonElement).disabled).toBe(true);
+      expect(
+        (screen.getByRole("button", { name: "Update" }) as HTMLButtonElement).matches(
+          ":disabled, [aria-disabled=true]",
+        ),
+      ).toBe(true);
+      expect(
+        (screen.getByRole("button", { name: /^Update all/ }) as HTMLButtonElement).matches(
+          ":disabled, [aria-disabled=true]",
+        ),
+      ).toBe(true);
       expect(screen.getByText("The server is updating. Wait until it finishes before updating nodes.")).toBeTruthy();
       result.rerender(ui(false));
-      expect((screen.getByRole("button", { name: "Update" }) as HTMLButtonElement).disabled).toBe(false);
-      expect((screen.getByRole("button", { name: /^Update all/ }) as HTMLButtonElement).disabled).toBe(false);
+      expect(
+        (screen.getByRole("button", { name: "Update" }) as HTMLButtonElement).matches(
+          ":disabled, [aria-disabled=true]",
+        ),
+      ).toBe(false);
+      expect(
+        (screen.getByRole("button", { name: /^Update all/ }) as HTMLButtonElement).matches(
+          ":disabled, [aria-disabled=true]",
+        ),
+      ).toBe(false);
     });
   }
 
@@ -58,8 +74,14 @@ describe("the Components table", () => {
         <UpdatesTable view={view} update={idleUpdate} onCheck={() => {}} checking={false} />
       </QueryClientProvider>,
     );
-    expect((screen.getByRole("button", { name: "Update" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: /^Update all/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Update" }) as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: /^Update all/ }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
   });
 
   it("blocks node updates during a CLI or desktop transaction without an API job", () => {
@@ -71,8 +93,14 @@ describe("the Components table", () => {
         <UpdatesTable view={view} update={idleUpdate} onCheck={() => {}} checking={false} />
       </QueryClientProvider>,
     );
-    expect((screen.getByRole("button", { name: "Update" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: /^Update all/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Update" }) as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: /^Update all/ }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
   });
 
   it("titles the card and names the four columns", () => {

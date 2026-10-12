@@ -11,7 +11,7 @@ import {
 import { RequiredMark } from "@/components/ui/required-mark";
 import { Textarea } from "@/components/ui/textarea";
 import { useCreatePrompt, useUpdatePrompt } from "@/hooks/use-prompts";
-import { fieldError, makeForm, useSubmitDisabled } from "@/lib/form";
+import { fieldError, makeForm, useSubmitDisabled, useSubmitDisabledReason } from "@/lib/form";
 import { type PromptDraft, promptDraftSchema } from "@/lib/prompt-form";
 import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 
@@ -66,6 +66,7 @@ export function PromptFormDialog({
     },
   });
   const disabled = useSubmitDisabled(form, busy);
+  const disabledReason = useSubmitDisabledReason(form, busy);
 
   return (
     <Dialog open={open} onOpenChange={formDialogOpenChange(onOpenChange)}>
@@ -142,10 +143,15 @@ export function PromptFormDialog({
           )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={busy}
+            disabledReason={"Wait for your changes to save."}
+          >
             Cancel
           </Button>
-          <Button onClick={() => void form.handleSubmit()} disabled={disabled}>
+          <Button onClick={() => void form.handleSubmit()} disabled={disabled} disabledReason={disabledReason}>
             {busy ? "Saving…" : editingId ? "Save" : "Create prompt"}
           </Button>
         </DialogFooter>

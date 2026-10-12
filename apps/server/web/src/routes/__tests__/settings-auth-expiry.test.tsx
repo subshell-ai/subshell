@@ -128,7 +128,7 @@ describe("Auth page pending-expiry card", () => {
       const input = await waitFor(() => screen.getByLabelText("Pending approvals expire after"));
       fireEvent.change(input, { target: { value: "7" } });
       const save = (await screen.findByRole("button", { name: "Save" })) as HTMLButtonElement;
-      expect(save.disabled).toBe(false);
+      expect(save.matches(":disabled, [aria-disabled=true]")).toBe(false);
       fireEvent.click(save);
       await waitFor(() => expect(patches).toEqual([{ pendingApprovalExpiryDays: 7 }]));
       // The field re-seats from the invalidated refetch, not from the draft:
@@ -145,7 +145,9 @@ describe("Auth page pending-expiry card", () => {
       renderPage();
       const input = await waitFor(() => screen.getByLabelText("Pending approvals expire after"));
       // Unchanged draft: nothing to save (the cast-and-read convention).
-      expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(
+        (screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+      ).toBe(true);
       fireEvent.change(input, { target: { value: "0" } });
       fireEvent.click(await screen.findByRole("button", { name: "Save" }));
       await waitFor(() => expect(patches).toEqual([{ pendingApprovalExpiryDays: 0 }]));
@@ -186,19 +188,19 @@ describe("Auth page pending-expiry card", () => {
       const alert = screen.getByRole("alert");
       expect(alert.textContent).toContain("whole number");
       expect(alert.className).toContain("text-destructive");
-      expect(save().disabled).toBe(true);
+      expect(save().matches(":disabled, [aria-disabled=true]")).toBe(true);
 
       // Legal digits beyond the route's ceiling: same refusal, same weight —
       // the card takes the bound from the read rather than shipping a doomed
       // PATCH.
       fireEvent.change(input, { target: { value: "3651" } });
       expect(screen.getByRole("alert").textContent).toContain("3650");
-      expect(save().disabled).toBe(true);
+      expect(save().matches(":disabled, [aria-disabled=true]")).toBe(true);
 
       // And the path back: a valid draft clears the alert and saves.
       fireEvent.change(input, { target: { value: "7" } });
       expect(screen.queryByRole("alert")).toBeNull();
-      expect(save().disabled).toBe(false);
+      expect(save().matches(":disabled, [aria-disabled=true]")).toBe(false);
       fireEvent.click(save());
       await waitFor(() => expect(patches).toEqual([{ pendingApprovalExpiryDays: 7 }]));
     } finally {

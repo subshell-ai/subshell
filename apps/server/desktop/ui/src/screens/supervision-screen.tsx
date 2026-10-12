@@ -165,13 +165,28 @@ export function SupervisionScreen(props: {
       // rail, and there this is still the only way out.
       barLeft={
         props.rail === undefined && (
-          <Button type="button" variant="ghost" disabled={busy || running} onClick={props.onClose}>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={busy || running}
+            disabledReason={"Wait for the current action to finish."}
+            onClick={props.onClose}
+          >
             {leaveLabel(probe, probe.onboarded)}
           </Button>
         )
       }
       barRight={
-        <Button type="button" disabled={unchanged || busy || running} onClick={() => props.onApply(chosen)}>
+        <Button
+          type="button"
+          disabled={unchanged || busy || running}
+          disabledReason={
+            busy || running
+              ? "Wait for the current action to finish."
+              : "Choose a different supervision option before applying."
+          }
+          onClick={() => props.onApply(chosen)}
+        >
           Apply
         </Button>
       }

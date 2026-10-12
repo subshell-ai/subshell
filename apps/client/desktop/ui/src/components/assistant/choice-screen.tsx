@@ -83,6 +83,7 @@ function ChoiceOption(props: {
       variant="outline"
       className="h-auto w-full items-start justify-start gap-3 whitespace-normal px-4 py-4 text-left [&_svg]:mt-1 [&_svg]:size-5"
       disabled={disabled}
+      disabledReason={"Wait for the current action to finish."}
       onClick={onSelect}
     >
       {icon}

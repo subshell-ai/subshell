@@ -126,7 +126,11 @@ export function ServiceCard({
         <Button
           variant="outline"
           disabled={!view.restart.available || restarting}
-          title={view.restart.available ? undefined : (view.restart.reason ?? undefined)}
+          disabledReason={
+            restarting
+              ? "Wait for the server to restart."
+              : (view.restart.reason ?? "The server cannot restart from here.")
+          }
           onClick={() => setConfirming(true)}
         >
           Restart server

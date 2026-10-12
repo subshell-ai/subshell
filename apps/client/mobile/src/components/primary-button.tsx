@@ -1,4 +1,5 @@
-import { ActivityIndicator, Pressable, Text } from "react-native";
+import { ActivityIndicator, Text } from "react-native";
+import { ExplainedPressable } from "@/components/explained-pressable";
 import { colors, font, radius, touchTarget } from "@/lib/tokens";
 
 /**
@@ -10,18 +11,21 @@ export function PrimaryButton({
   onPress,
   label,
   disabled = false,
+  disabledReason,
   busy = false,
 }: {
   onPress: () => void;
   label: string;
   disabled?: boolean;
+  disabledReason: string;
   busy?: boolean;
 }) {
   const off = disabled || busy;
   return (
-    <Pressable
+    <ExplainedPressable
       onPress={onPress}
       disabled={off}
+      disabledReason={busy ? "Wait for the current action to finish." : disabledReason}
       style={{
         minHeight: touchTarget,
         borderRadius: radius,
@@ -40,6 +44,6 @@ export function PrimaryButton({
         // RN's platform-dependent default size.
         <Text style={{ color: colors.primaryFg, ...font("label") }}>{label}</Text>
       )}
-    </Pressable>
+    </ExplainedPressable>
   );
 }

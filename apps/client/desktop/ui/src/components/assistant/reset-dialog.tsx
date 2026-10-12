@@ -171,7 +171,14 @@ export function ResetDialog(props: {
               </p>
             )}
             <div className="mt-2 flex justify-end gap-2">
-              <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => onClose(false)}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                disabledReason={"Wait for the reset to finish."}
+                onClick={() => onClose(false)}
+              >
                 Cancel
               </Button>
               <Button
@@ -180,6 +187,9 @@ export function ResetDialog(props: {
                 size="sm"
                 className="min-w-[120px]"
                 disabled={busy || typed.trim() === ""}
+                disabledReason={
+                  busy ? "Wait for the reset to finish." : "Enter the confirmation text to reset this app."
+                }
               >
                 {busy ? "Resetting…" : "Reset Everything"}
               </Button>

@@ -49,6 +49,7 @@ export function AddNetworkCard() {
             <Button
               size="sm"
               disabled={install.isPending}
+              disabledReason={"Wait for installation to finish."}
               onClick={() => {
                 setFailedId(null);
                 install.mutate(

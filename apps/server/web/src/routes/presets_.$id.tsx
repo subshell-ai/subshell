@@ -131,12 +131,24 @@ function PresetEditor({ preset }: { preset: PresetRow }) {
           />
           {error && <p className="text-destructive text-detail">{error}</p>}
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => navigate({ to: "/presets" })} disabled={mutation.isPending}>
+            <Button
+              variant="outline"
+              onClick={() => navigate({ to: "/presets" })}
+              disabled={mutation.isPending}
+              disabledReason={"Wait for the preset to save."}
+            >
               Cancel
             </Button>
             <Button
               onClick={() => save()}
               disabled={mutation.isPending || form.name.trim() === "" || crossCommSaveBlocked(form)}
+              disabledReason={
+                mutation.isPending
+                  ? "Wait for the preset to save."
+                  : !form.name.trim()
+                    ? "Enter a preset name first."
+                    : "Complete the cross-agent communication requirements or turn it off."
+              }
             >
               {mutation.isPending ? "Saving…" : "Save"}
             </Button>

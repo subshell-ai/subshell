@@ -114,7 +114,7 @@ describe("preset edit page switch click-through", () => {
       fireEvent.pointerUp(option);
       fireEvent.click(option);
       const toggle = () => dialog.querySelector("#preset-cross-comm") as HTMLButtonElement;
-      await waitFor(() => expect(toggle().disabled).toBe(false));
+      await waitFor(() => expect(toggle().matches(":disabled, [aria-disabled=true]")).toBe(false));
       fireEvent.click(toggle());
       expect(
         toggle().getAttribute("aria-checked") ?? (toggle() as unknown as { checked: boolean }).checked,
@@ -139,11 +139,11 @@ describe("preset edit page save gate", () => {
       const view = renderEditor();
       const nameInput = (await screen.findByLabelText("Name")) as HTMLInputElement;
       const save = () => view.getByRole("button", { name: "Save" }) as HTMLButtonElement;
-      expect(save().disabled).toBe(false);
+      expect(save().matches(":disabled, [aria-disabled=true]")).toBe(false);
       fireEvent.change(nameInput, { target: { value: "   " } });
-      expect(save().disabled).toBe(true);
+      expect(save().matches(":disabled, [aria-disabled=true]")).toBe(true);
       fireEvent.change(nameInput, { target: { value: "Fast" } });
-      expect(save().disabled).toBe(false);
+      expect(save().matches(":disabled, [aria-disabled=true]")).toBe(false);
     } finally {
       restore();
     }

@@ -46,13 +46,13 @@ describe("TerminalHistoryCard", () => {
   it("adopts the stored cap from the server and starts with Save inert", async () => {
     render(<TerminalHistoryCard getLines={async () => 50} setLines={async (l) => l} />);
     await waitFor(() => expect(trigger().textContent).toContain("50"));
-    expect(saveButton().hasAttribute("disabled")).toBe(true);
+    expect(saveButton().matches(":disabled, [aria-disabled=true]")).toBe(true);
   });
 
   it("null reads as the instance default", async () => {
     render(<TerminalHistoryCard getLines={async () => null} setLines={async (l) => l} />);
     await waitFor(() => expect(trigger().textContent).toContain("Instance default"));
-    expect(saveButton().hasAttribute("disabled")).toBe(true);
+    expect(saveButton().matches(":disabled, [aria-disabled=true]")).toBe(true);
   });
 
   it("a failed read still renders, on the safe default", async () => {

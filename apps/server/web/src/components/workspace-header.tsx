@@ -166,6 +166,7 @@ export function WorkspaceHeader({
                 size="icon"
                 onClick={() => void discard()}
                 disabled={discarding}
+                disabledReason={"Wait for the workspace to be discarded."}
               >
                 <Trash2 className="h-4 w-4" />
               </TippedIconButton>

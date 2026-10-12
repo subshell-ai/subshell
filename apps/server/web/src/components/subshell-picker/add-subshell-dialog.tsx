@@ -5,6 +5,7 @@ import { ExistingSubshellList } from "@/components/subshell-picker/existing-subs
 import {
   canSubmit,
   emptyNewSubshellForm,
+  launchDisabledReason,
   type NewSubshellFormValue,
 } from "@/components/subshell-picker/launch-form-rules";
 import { NewSubshellForm } from "@/components/subshell-picker/new-subshell-form";
@@ -199,10 +200,19 @@ export function AddSubshellDialog({
 
         {mode === "new" && (
           <DialogFooter>
-            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={creating}>
+            <Button
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={creating}
+              disabledReason={"Wait for the subshell to start."}
+            >
               Cancel
             </Button>
-            <Button onClick={() => void handleCreate()} disabled={creating || !canSubmit(form)}>
+            <Button
+              onClick={() => void handleCreate()}
+              disabled={creating || !canSubmit(form)}
+              disabledReason={creating ? "Wait for the subshell to start." : launchDisabledReason(form)}
+            >
               {creating ? "Starting…" : "Start subshell"}
             </Button>
           </DialogFooter>

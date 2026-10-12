@@ -267,7 +267,12 @@ function LoginPage() {
                   {/* The one rule every credential form now shares: a required
                       field still empty is not a submit. The passkey and
                       provider buttons below answer on their own, blank-free. */}
-                  <Button type="submit" className="w-full" disabled={busy || email.trim() === "" || password === ""}>
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    disabled={busy || email.trim() === "" || password === ""}
+                    disabledReason={busy ? "Wait for sign-in to finish." : "Enter your email and password first."}
+                  >
                     {busy ? "Signing in…" : "Sign in"}
                   </Button>
                 </form>
@@ -291,6 +296,7 @@ function LoginPage() {
                       variant="outline"
                       className="w-full"
                       disabled={busy}
+                      disabledReason={"Wait for sign-in to finish."}
                       onClick={() =>
                         void authClient.signIn.social({
                           provider: p.id,
@@ -318,6 +324,7 @@ function LoginPage() {
                 variant="outline"
                 className="w-full"
                 disabled={busy}
+                disabledReason={"Wait for sign-in to finish."}
                 onClick={() => void signInWithPasskey()}
               >
                 Sign in with a passkey

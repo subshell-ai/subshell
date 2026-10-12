@@ -91,7 +91,11 @@ describe("AgentRow", () => {
         <AgentRow harness={base} onInstall={() => {}} installing />
       </ul>,
     );
-    expect((screen.getByRole("button", { name: "Installing…" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Installing…" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
   });
 
   it("shows a failed install ON the row that failed, with what the installer printed", () => {
