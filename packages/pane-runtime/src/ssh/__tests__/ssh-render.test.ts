@@ -289,12 +289,45 @@ describe("renderSshConfigContents relay mode (spec 2026-10-08 §9)", () => {
     expect(out).toContain("    GlobalKnownHostsFile /dev/null");
   });
 
+  for (const identityFiles of [[], ["/tmp/connecting-machine-key"]]) {
+    it.skipIf(!Bun.which("ssh"))(
+      `relay excludes local identity files, including defaults (${identityFiles.length} configured)`,
+      async () => {
+        const root = tempRoot("ssh-render-relay-identities-");
+        try {
+          const path = join(root, "config");
+          writeFileSync(
+            path,
+            renderSshConfigContents(
+              baseSnapshot({
+                identityFiles,
+                certificateFiles: ["/tmp/connecting-machine-cert.pub"],
+              }),
+              relay,
+            ),
+          );
+          const child = Bun.spawn([Bun.which("ssh") as string, "-G", "-F", path, "target.example"], {
+            stdout: "pipe",
+            stderr: "pipe",
+          });
+          const output = (await new Response(child.stdout).text()).split("\n");
+          expect(await child.exited).toBe(0);
+          expect(output.filter((line) => line.startsWith("identityfile "))).toEqual(["identityfile none"]);
+          expect(output.filter((line) => line.startsWith("certificatefile "))).toEqual(["certificatefile none"]);
+          expect(output).toContain("identitiesonly no");
+        } finally {
+          cleanup(root);
+        }
+      },
+    );
+  }
+
   it("quotes the pinned path only when it needs it (the same tokenizer rule as other file values)", () => {
     const spaced = renderSshConfigContents(baseSnapshot(), { hostPinPath: "/data/ssh dir/s1/known_hosts" });
     expect(spaced).toContain('    UserKnownHostsFile "/data/ssh dir/s1/known_hosts"');
   });
 
-  it("keeps every other mandatory policy line unchanged (relay mode is ONLY the trust refs + yes)", () => {
+  it("keeps the mandatory forwarding and command restrictions in relay mode", () => {
     const out = renderSshConfigContents(baseSnapshot(), relay);
     for (const [key, value] of [
       ["ForwardAgent", "no"],

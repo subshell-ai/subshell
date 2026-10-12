@@ -1498,3 +1498,58 @@ test("openBRelaySession refuses a malformed host pin WITHOUT writing a file", as
   expect(relay.size).toBe(0);
   rmSync(dataDir, { recursive: true, force: true });
 });
+
+for (const phase of ["opening", "sealing"] as const) {
+  test(`closing a responder while ${phase} a frame prevents later agent work or delivery`, async () => {
+    const f = await openFixture({}, { scheme: CLASSIC_SCHEME });
+    const closed = Promise.withResolvers<void>();
+    const frames: RelayFrame[] = [];
+    const responder = startRelayResponder({
+      relayId: "relay-1",
+      ref: "r-1",
+      selfNodeId: "a-node",
+      peerNodeId: "b-node",
+      peerSigningJwk: f.bKeys.signing.publicJwk,
+      peerEncryptionJwk: f.bKeys.encryption.publicJwk,
+      ownEncryptionPublicJwk: f.aPublic.encryption,
+      ownEncryptionPrivateJwk: f.aPrivate.encryption,
+      ownSigningPrivateJwk: f.aPrivate.signing,
+      fingerprints: [fp(KEY_IN)],
+      agentScheme: CLASSIC_SCHEME,
+      resolveAgentSocket: () => f.stub.path,
+      open: async (...args) => {
+        const result = await mcpOpen(...args);
+        if (phase === "opening") {
+          responder.close("access-revoked");
+          closed.resolve();
+        }
+        return result;
+      },
+      seal: async (...args) => {
+        const result = await mcpSeal(...args);
+        if (phase === "sealing") {
+          responder.close("access-revoked");
+          closed.resolve();
+        }
+        return result;
+      },
+      sendRelayFrame: (frame) => frames.push(frame),
+    });
+    try {
+      responder.deliverInboundRelayFrame(
+        await sealRequest(f, {
+          agentBytes: buildSignRequestClassic(KEY_IN),
+          seq: 0,
+          nB: newNonce(),
+        }),
+      );
+      await closed.promise;
+      await sleep(50);
+      expect(f.forwarded()).toHaveLength(phase === "opening" ? 0 : 1);
+      expect(frames).toHaveLength(0);
+    } finally {
+      responder.close();
+      await f.cleanup();
+    }
+  });
+}

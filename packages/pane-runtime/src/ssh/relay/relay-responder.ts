@@ -351,6 +351,9 @@ export function startRelayResponder(args: RelayResponderArgs): RelayResponderHan
       say(`relay session ${args.ref}: refused a forgery (origin/binding verification failed); nothing sent`);
       return;
     }
+    // A close can land while the envelope is being opened or verified.
+    // Recheck before letting a request reach the local SSH agent.
+    if (closed) return;
     // §5.6's nonce discipline, A's side: B carries nB in EVERY request, and
     // carries nA from the first request sealed after A's first reply landed.
     // A request before the flip that already carries nA cannot be genuine
@@ -396,6 +399,8 @@ export function startRelayResponder(args: RelayResponderArgs): RelayResponderHan
       say(`relay session ${args.ref}: could not seal a reply: ${err instanceof Error ? err.message : String(err)}`);
       return;
     }
+    // Sealing is asynchronous too; teardown must win before delivery.
+    if (closed) return;
     try {
       args.sendRelayFrame({ type: "relay", ref: args.ref, seq: transportSeq, direction: "A2B", blob });
     } catch (err) {

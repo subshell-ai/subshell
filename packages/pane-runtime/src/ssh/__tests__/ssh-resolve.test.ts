@@ -373,6 +373,11 @@ describe("resolveSshAliasConfig", () => {
     expect(out.out.accepted && out.out.snapshot.user).toBeNull();
   });
 
+  it("preserves a remote username that differs from the connecting account only by case", async () => {
+    const result = await resolveWith("app02", CLEAN_G.replace("user deploy", "user OpsUser"), { account: "opsuser" });
+    expect(result.out.accepted && result.out.snapshot.user).toBe("OpsUser");
+  });
+
   it("refuses option-like and empty aliases before spawning anything", async () => {
     const dir = tempRoot("subshell-ssh-resolve-bad-");
     const shim = writeSshShim(join(dir, "bin"), { dashG: CLEAN_G });

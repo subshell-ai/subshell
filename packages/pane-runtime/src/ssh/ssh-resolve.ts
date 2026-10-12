@@ -295,7 +295,8 @@ async function resolveConfig(
   // -G always prints SOME user (the connecting account's own default); null
   // means exactly that default, so the snapshot stores null for it and a real
   // value only when the config chose a different account.
-  const user = userRaw !== null && userRaw.toLowerCase() !== (connectingAccount ?? "").toLowerCase() ? userRaw : null;
+  // Login names are case-sensitive, even though hostnames are not.
+  const user = userRaw !== null && userRaw !== connectingAccount ? userRaw : null;
 
   // --- trust + identity refs (paths on THIS machine; the snapshot carries refs, never contents) ---
   // `-G` prints the DEFAULT identity files in tilde form (`identityfile

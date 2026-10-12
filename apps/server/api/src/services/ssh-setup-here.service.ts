@@ -258,28 +258,29 @@ export async function setupHere(args: {
 
   // The single-use key, minted only once every door above has opened.
   const keys = new NodeSetupKeysRepository(db);
-  const keyRow = await keys.create(args.viewerId);
-
-  const composed = composeSshLaunch({
-    snapshot,
-    targetDataDir: dataDirB,
-    subshellId: execId,
-    ...(relayRef !== null ? { hostPinPath: buildSshKnownHostsPath(dataDirB, execId) } : {}),
-  });
-  // BatchMode first: the exec must never fall back to a password or a
-  // host-key PROMPT - auth failure or pin mismatch is a fast refusal, an
-  // interactive prompt would sit out the deadline on a terminal no one holds.
-  const presetFlags = ["-o", "BatchMode=yes", ...composed.presetFlags];
-  // The installer one-liner, exactly the copy-paste act §7 describes, with
-  // the scripted name (the pane's destination host) because the exec has no
-  // terminal to answer `setup`'s naming question. shellQuote every token;
-  // `bash -c` so pipefail exists and a failed fetch is not hidden by the
-  // empty-stdin pipe.
-  const installUrl = `${APP_BASE_URL}/install.sh?setup_key=${keyRow.key}`;
-  const nodeName = snapshot.host;
-  const remoteCommand = `bash -c ${shellQuote(
-    `set -o pipefail; curl -fsSL ${shellQuote(installUrl)} | SUBSHELL_NODE_NAME=${shellQuote(nodeName)} bash`,
-  )}`;
+  let keyId: string | null = null;
+  let relayClosed = false;
+  /** Best-effort: an unspent key is revoked when the act gives up; a spent one stands as enroll's record. */
+  const revokeUnspentKey = async (): Promise<void> => {
+    if (keyId === null) return;
+    try {
+      // Atomic with enrollment's compare-and-set: never erase its consumed
+      // record between a state read and deletion.
+      await db.deleteFrom("nodeSetupKeys").where("id", "=", keyId).where("usedAt", "is", null).execute();
+    } catch (err) {
+      logger.withError(err).warn(`setup-here: could not revoke the unspent key for pane ${pane.id}`);
+    }
+  };
+  /** Close the exec's own relay pairing (the act's child is gone; the socket should be). */
+  const closeExecRelay = async (): Promise<void> => {
+    if (relayRef === null || relayClosed) return;
+    relayClosed = true;
+    try {
+      await deps.broker().closeForPane(execId, "child-exit");
+    } catch (err) {
+      logger.withError(err).warn(`setup-here: relay close for exec ${execId} failed`);
+    }
+  };
 
   // The audit this act OWNS: written at every exit with ids and the outcome
   // only. Built once per path; the key never enters it (never interpolated).
@@ -302,226 +303,233 @@ export async function setupHere(args: {
       }),
     });
   };
-  /** Best-effort: an unspent key is revoked when the act gives up; a spent one stands as enroll's record. */
-  const revokeUnspentKey = async (): Promise<void> => {
-    try {
-      // Atomic with enrollment's compare-and-set: never erase its consumed
-      // record between a state read and deletion.
-      await db.deleteFrom("nodeSetupKeys").where("id", "=", keyRow.id).where("usedAt", "is", null).execute();
-    } catch (err) {
-      logger.withError(err).warn(`setup-here: could not revoke the unspent key for pane ${pane.id}`);
-    }
-  };
-  /** Enrollment is durable even if installation or the connecting link fails afterward. */
-  const enrolledResult = async (cause: string): Promise<SshAnswer<SetupHereResult> | null> => {
-    const spent = await keys.findById(keyRow.id);
-    const nodeId = spent?.consumedNodeId;
-    if (!nodeId) return null;
-    const connected = getLive(nodeId)?.agent !== undefined;
-    await runAudit("enrolled", connected ? "ready" : cause, nodeId);
-    return { ok: true, value: { nodeId, ...(connected ? {} : { connected: false }) } };
-  };
-  /**
-   * The post-mint invariant: even an unexpected internal throw (not the
-   * machine refusing, something HERE failing) leaves its terminal row.
-   * Best-effort: the audit system must never replace the original error.
-   */
-  const auditInternalFailure = async (): Promise<void> => {
-    try {
-      await runAudit("refused", "internal-error");
-    } catch (auditErr) {
-      logger.withError(auditErr).warn(`setup-here: could not audit the internal failure for pane ${pane.id}`);
-    }
-  };
-  /** Close the exec's own relay pairing (the act's child is gone; the socket should be). */
-  const closeExecRelay = async (): Promise<void> => {
-    if (relayRef === null) return;
-    try {
-      await deps.broker().closeForPane(execId, "child-exit");
-    } catch (err) {
-      logger.withError(err).warn(`setup-here: relay close for exec ${execId} failed`);
-    }
-  };
 
-  args.onProgress?.("installing");
-
-  // KICK. A refusal here has minted a key and opened a relay and must leave
-  // both as it found them (revoke the unspent key, cut the fresh session).
   try {
-    await sshExec(pane.nodeId, {
-      execId,
-      configPath: composed.configPath,
-      fileContent: composed.fileContent,
-      presetFlags,
-      command: remoteCommand,
-      relay: relayRef !== null,
-      agentSocketPath: relayRef === null ? snapshot.authAgentSocket : null,
-      timeoutMs: deps.execTimeoutMs,
-    });
-  } catch (err) {
-    await closeExecRelay();
-    await revokeUnspentKey();
-    const enrolled = await enrolledResult(err instanceof SshRpcError ? `exec-${err.kind}` : "internal-error");
-    if (enrolled) return enrolled;
-    if (err instanceof SshRpcError) {
-      const r = rpcRefusal(err);
-      await runAudit("refused", `exec-${err.kind}`);
-      return r;
-    }
-    await auditInternalFailure();
-    throw err;
-  }
+    const keyRow = await keys.create(args.viewerId);
+    keyId = keyRow.id;
 
-  // POLL to the terminal answer. The node holds the deadline; the plane only
-  // stops asking past its own margin.
-  const pollDeadline = deps.nowMs() + deps.execTimeoutMs + deps.execPollMarginMs;
-  let terminal: Awaited<ReturnType<typeof sshExecStatus>>;
-  for (;;) {
+    const composed = composeSshLaunch({
+      snapshot,
+      targetDataDir: dataDirB,
+      subshellId: execId,
+      ...(relayRef !== null ? { hostPinPath: buildSshKnownHostsPath(dataDirB, execId) } : {}),
+    });
+    // BatchMode first: the exec must never fall back to a password or a
+    // host-key PROMPT - auth failure or pin mismatch is a fast refusal, an
+    // interactive prompt would sit out the deadline on a terminal no one holds.
+    const presetFlags = ["-o", "BatchMode=yes", ...composed.presetFlags];
+    // The installer one-liner, exactly the copy-paste act §7 describes, with
+    // the scripted name (the pane's destination host) because the exec has no
+    // terminal to answer `setup`'s naming question. shellQuote every token;
+    // `bash -c` so pipefail exists and a failed fetch is not hidden by the
+    // empty-stdin pipe.
+    const installUrl = `${APP_BASE_URL}/install.sh?setup_key=${keyRow.key}`;
+    const nodeName = snapshot.host;
+    const remoteCommand = `bash -c ${shellQuote(
+      `set -o pipefail; curl -fsSL ${shellQuote(installUrl)} | SUBSHELL_NODE_NAME=${shellQuote(nodeName)} bash`,
+    )}`;
+
+    /** Enrollment is durable even if installation or the connecting link fails afterward. */
+    const enrolledResult = async (cause: string): Promise<SshAnswer<SetupHereResult> | null> => {
+      const spent = await keys.findById(keyRow.id);
+      const nodeId = spent?.consumedNodeId;
+      if (!nodeId) return null;
+      const connected = getLive(nodeId)?.agent !== undefined;
+      await runAudit("enrolled", connected ? "ready" : cause, nodeId);
+      return { ok: true, value: { nodeId, ...(connected ? {} : { connected: false }) } };
+    };
+    args.onProgress?.("installing");
+
+    // KICK. A refusal here has minted a key and opened a relay and must leave
+    // both as it found them (revoke the unspent key, cut the fresh session).
     try {
-      terminal = await sshExecStatus(pane.nodeId, execId);
+      await sshExec(pane.nodeId, {
+        execId,
+        configPath: composed.configPath,
+        fileContent: composed.fileContent,
+        presetFlags,
+        command: remoteCommand,
+        relay: relayRef !== null,
+        agentSocketPath: relayRef === null ? snapshot.authAgentSocket : null,
+        timeoutMs: deps.execTimeoutMs,
+      });
     } catch (err) {
       await closeExecRelay();
       await revokeUnspentKey();
-      const enrolled = await enrolledResult(err instanceof SshRpcError ? `exec-lost-${err.kind}` : "internal-error");
+      const enrolled = await enrolledResult(err instanceof SshRpcError ? `exec-${err.kind}` : "internal-error");
       if (enrolled) return enrolled;
       if (err instanceof SshRpcError) {
-        await runAudit("refused", `exec-lost-${err.kind}`);
-        return rpcRefusal(err);
+        const r = rpcRefusal(err);
+        await runAudit("refused", `exec-${err.kind}`);
+        return r;
       }
-      await auditInternalFailure();
       throw err;
     }
-    if (terminal.state === "done") break;
-    if (deps.nowMs() > pollDeadline) {
-      await closeExecRelay();
-      await revokeUnspentKey();
-      const enrolled = await enrolledResult("install-deadline");
-      if (enrolled) return enrolled;
-      await runAudit("refused", "install-deadline");
-      return coded(
-        409,
-        BackendErrorCodes.SSH_UPGRADE_FAILED,
-        "Installation timed out. No machine was enrolled. Check the destination before trying again.",
-      );
-    }
-    await deps.sleepMs(deps.pollMs);
-  }
-  await closeExecRelay();
 
-  // The belt redaction: the machine's answer is the first station's word,
-  // this plane keeps NOTHING raw. Output informs the verb and then goes.
-  const output = redactSshSetupKeyLines(`${terminal.stdout}\n${terminal.stderr}`);
-  const installOk = terminal.code === 0 && !terminal.timedOut;
-
-  if (!installOk) {
-    await revokeUnspentKey();
-    // Awaited, not fire-and-forget: the trail of the act that just refused
-    // must be readable when the caller sees the refusal (the `ssh.launch`
-    // posture inverted - there success audits last, here every exit audits
-    // BEFORE the answer leaves).
-    const fail = async (cause: string, refusal: SshAnswer<never>): Promise<SshAnswer<SetupHereResult>> => {
-      const enrolled = await enrolledResult(cause);
-      if (enrolled) return enrolled;
-      await runAudit("refused", cause);
-      return refusal;
-    };
-    if (terminal.timedOut) {
-      return await fail(
-        "install-timeout",
-        coded(
+    // POLL to the terminal answer. The node holds the deadline; the plane only
+    // stops asking past its own margin.
+    const pollDeadline = deps.nowMs() + deps.execTimeoutMs + deps.execPollMarginMs;
+    let terminal: Awaited<ReturnType<typeof sshExecStatus>>;
+    for (;;) {
+      try {
+        terminal = await sshExecStatus(pane.nodeId, execId);
+      } catch (err) {
+        await closeExecRelay();
+        await revokeUnspentKey();
+        const enrolled = await enrolledResult(err instanceof SshRpcError ? `exec-lost-${err.kind}` : "internal-error");
+        if (enrolled) return enrolled;
+        if (err instanceof SshRpcError) {
+          await runAudit("refused", `exec-lost-${err.kind}`);
+          return rpcRefusal(err);
+        }
+        throw err;
+      }
+      if (terminal.state === "done") break;
+      if (deps.nowMs() > pollDeadline) {
+        await closeExecRelay();
+        await revokeUnspentKey();
+        const enrolled = await enrolledResult("install-deadline");
+        if (enrolled) return enrolled;
+        await runAudit("refused", "install-deadline");
+        return coded(
           409,
           BackendErrorCodes.SSH_UPGRADE_FAILED,
           "Installation timed out. No machine was enrolled. Check the destination before trying again.",
-        ),
-      );
+        );
+      }
+      await deps.sleepMs(deps.pollMs);
     }
-    // The named causes, each from a phrase the rendered installer prints (the
-    // script's OWN words are the parser's contract; none of them is echoed),
-    // or from curl's own connect-failure shape when the script never ran.
-    if (couldNotReachPlane(output, terminal.code)) {
-      // §7's egress refusal: its own code, distinct from any key error, and
-      // the pane keeps running untouched.
-      return await fail(
-        "egress",
-        coded(
-          409,
-          BackendErrorCodes.SSH_UPGRADE_EGRESS,
-          `The destination couldn't reach ${APP_BASE_URL} to install Subshell. No machine was enrolled. Your SSH subshell keeps running.`,
-        ),
-      );
-    }
-    if (output.includes("setup key was rejected")) {
-      return await fail(
-        "enroll-key",
-        coded(
-          409,
-          BackendErrorCodes.SSH_UPGRADE_FAILED,
-          "The installer rejected the setup key because it was invalid, expired, or already used. No machine was enrolled. Try setup again to use a new key.",
-        ),
-      );
-    }
-    if (output.includes("could not provide a")) {
-      return await fail(
-        "artifact",
-        coded(
-          409,
-          BackendErrorCodes.SSH_UPGRADE_FAILED,
-          "This server couldn't provide a node build for the destination's platform. Ask an admin to check the server logs and available node downloads, then try again.",
-        ),
-      );
-    }
-    if (output.includes("tmux is still missing") || output.includes("refuse to enroll")) {
-      return await fail(
-        "preflight-tmux",
-        coded(
-          409,
-          BackendErrorCodes.SSH_UPGRADE_FAILED,
-          "Install tmux on the destination, then try setup again. Subshell needs it to run terminal sessions.",
-        ),
-      );
-    }
-    if (output.includes("already have a node named")) {
-      return await fail(
-        "enroll-name",
-        coded(
-          409,
-          BackendErrorCodes.SSH_UPGRADE_FAILED,
-          "You already own a node with this name. Rename the existing node or remove it if you no longer need it, then try setup again.",
-        ),
-      );
-    }
-    return await fail(
-      `install-exit-${terminal.code ?? "signal"}`,
-      coded(
-        409,
-        BackendErrorCodes.SSH_UPGRADE_FAILED,
-        "Installation stopped before the destination enrolled. Check the destination before trying setup again.",
-      ),
-    );
-  }
+    await closeExecRelay();
 
-  // Success is the new node's `ready`, not the installer's cheer. The setup
-  // key's row learns the node id enrollment spent it for; the registry's
-  // agent facts appear exactly when that node's `ready` frame lands.
-  args.onProgress?.("connecting");
-  const readyDeadline = deps.nowMs() + deps.readyBudgetMs;
-  for (;;) {
-    const spent = await keys.findById(keyRow.id);
-    const newNodeId = spent?.consumedNodeId ?? null;
-    if (newNodeId !== null && getLive(newNodeId)?.agent !== undefined) {
-      await runAudit("enrolled", "ready", newNodeId);
-      return { ok: true, value: { nodeId: newNodeId } };
+    // The belt redaction: the machine's answer is the first station's word,
+    // this plane keeps NOTHING raw. Output informs the verb and then goes.
+    const output = redactSshSetupKeyLines(`${terminal.stdout}\n${terminal.stderr}`);
+    const installOk = terminal.code === 0 && !terminal.timedOut;
+
+    if (!installOk) {
+      await revokeUnspentKey();
+      // Awaited, not fire-and-forget: the trail of the act that just refused
+      // must be readable when the caller sees the refusal (the `ssh.launch`
+      // posture inverted - there success audits last, here every exit audits
+      // BEFORE the answer leaves).
+      const fail = async (cause: string, refusal: SshAnswer<never>): Promise<SshAnswer<SetupHereResult>> => {
+        const enrolled = await enrolledResult(cause);
+        if (enrolled) return enrolled;
+        await runAudit("refused", cause);
+        return refusal;
+      };
+      if (terminal.timedOut) {
+        return await fail(
+          "install-timeout",
+          coded(
+            409,
+            BackendErrorCodes.SSH_UPGRADE_FAILED,
+            "Installation timed out. No machine was enrolled. Check the destination before trying again.",
+          ),
+        );
+      }
+      // The named causes, each from a phrase the rendered installer prints (the
+      // script's OWN words are the parser's contract; none of them is echoed),
+      // or from curl's own connect-failure shape when the script never ran.
+      if (couldNotReachPlane(output, terminal.code)) {
+        // §7's egress refusal: its own code, distinct from any key error, and
+        // the pane keeps running untouched.
+        return await fail(
+          "egress",
+          coded(
+            409,
+            BackendErrorCodes.SSH_UPGRADE_EGRESS,
+            `The destination couldn't reach ${APP_BASE_URL} to install Subshell. No machine was enrolled. Your SSH subshell keeps running.`,
+          ),
+        );
+      }
+      if (output.includes("setup key was rejected")) {
+        return await fail(
+          "enroll-key",
+          coded(
+            409,
+            BackendErrorCodes.SSH_UPGRADE_FAILED,
+            "The installer rejected the setup key because it was invalid, expired, or already used. No machine was enrolled. Try setup again to use a new key.",
+          ),
+        );
+      }
+      if (output.includes("could not provide a")) {
+        return await fail(
+          "artifact",
+          coded(
+            409,
+            BackendErrorCodes.SSH_UPGRADE_FAILED,
+            "This server couldn't provide a node build for the destination's platform. Ask an admin to check the server logs and available node downloads, then try again.",
+          ),
+        );
+      }
+      if (output.includes("tmux is still missing") || output.includes("refuse to enroll")) {
+        return await fail(
+          "preflight-tmux",
+          coded(
+            409,
+            BackendErrorCodes.SSH_UPGRADE_FAILED,
+            "Install tmux on the destination, then try setup again. Subshell needs it to run terminal sessions.",
+          ),
+        );
+      }
+      if (output.includes("already have a node named")) {
+        return await fail(
+          "enroll-name",
+          coded(
+            409,
+            BackendErrorCodes.SSH_UPGRADE_FAILED,
+            "You already own a node with this name. Rename the existing node or remove it if you no longer need it, then try setup again.",
+          ),
+        );
+      }
+      return await fail(
+        `install-exit-${terminal.code ?? "signal"}`,
+        coded(
+          409,
+          BackendErrorCodes.SSH_UPGRADE_FAILED,
+          "Installation stopped before the destination enrolled. Check the destination before trying setup again.",
+        ),
+      );
     }
-    if (deps.nowMs() > readyDeadline) break;
-    await deps.sleepMs(deps.pollMs);
+
+    // Success is the new node's `ready`, not the installer's cheer. The setup
+    // key's row learns the node id enrollment spent it for; the registry's
+    // agent facts appear exactly when that node's `ready` frame lands.
+    args.onProgress?.("connecting");
+    const readyDeadline = deps.nowMs() + deps.readyBudgetMs;
+    for (;;) {
+      const spent = await keys.findById(keyRow.id);
+      const newNodeId = spent?.consumedNodeId ?? null;
+      if (newNodeId !== null && getLive(newNodeId)?.agent !== undefined) {
+        await runAudit("enrolled", "ready", newNodeId);
+        return { ok: true, value: { nodeId: newNodeId } };
+      }
+      if (deps.nowMs() > readyDeadline) break;
+      await deps.sleepMs(deps.pollMs);
+    }
+    await revokeUnspentKey();
+    const enrolled = await enrolledResult("ready-timeout");
+    if (enrolled) return enrolled;
+    await runAudit("refused", "enroll-missing");
+    return coded(
+      409,
+      BackendErrorCodes.SSH_UPGRADE_FAILED,
+      "The installer finished, but no machine enrolled with its setup key. Check the destination before trying setup again.",
+    );
+  } catch (err) {
+    if (keyId !== null) {
+      try {
+        await runAudit("refused", "internal-error");
+      } catch (auditErr) {
+        logger.withError(auditErr).warn(`setup-here: could not audit the internal failure for pane ${pane.id}`);
+      }
+    }
+    throw err;
+  } finally {
+    // Also cover failures before exec starts and during the readiness wait.
+    // Conditional deletion preserves keys already consumed by enrollment.
+    await closeExecRelay();
+    await revokeUnspentKey();
   }
-  await revokeUnspentKey();
-  const enrolled = await enrolledResult("ready-timeout");
-  if (enrolled) return enrolled;
-  await runAudit("refused", "enroll-missing");
-  return coded(
-    409,
-    BackendErrorCodes.SSH_UPGRADE_FAILED,
-    "The installer finished, but no machine enrolled with its setup key. Check the destination before trying setup again.",
-  );
 }

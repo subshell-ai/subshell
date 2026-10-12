@@ -155,8 +155,8 @@ const HOST_KEY_CHECK: Record<"direct" | "relay", string> = { direct: "accept-new
  * — the same approval always renders the same file, which is what makes the
  * run's recorded config byte-checkable.
  *
- * Relay mode (the second argument, spec 2026-10-08 §9) changes EXACTLY three
- * things, and pins the test suite to all of them: `StrictHostKeyChecking`
+ * Relay mode (the second argument, spec 2026-10-08 §9) pins host trust and restricts public-key authentication to
+ * the selected relay agent keys: `StrictHostKeyChecking`
  * says `yes` instead of `accept-new` (a changed D key is refused by OpenSSH
  * naming D; nothing new is ever recorded); `UserKnownHostsFile` is the
  * session's pinned file and NOTHING ELSE - the snapshot's own trust refs are
@@ -201,8 +201,14 @@ export function renderSshConfigContents(snapshot: SshConnectionSnapshotWire, rel
     ...(relay
       ? [`    UserKnownHostsFile ${configPathValue(relay.hostPinPath)}`, "    GlobalKnownHostsFile /dev/null"]
       : knownHostsLines(snapshot.knownHostsFiles)),
-    ...snapshot.identityFiles.map((f) => `    IdentityFile ${configPathValue(f)}`),
-    ...snapshot.certificateFiles.map((f) => `    CertificateFile ${configPathValue(f)}`),
+    // A relay uses only the selected agent keys. Explicit "none" also stops
+    // OpenSSH from loading its default identity files when the list is empty.
+    ...(relay
+      ? ["    IdentityFile none", "    CertificateFile none", "    IdentitiesOnly no"]
+      : [
+          ...snapshot.identityFiles.map((f) => `    IdentityFile ${configPathValue(f)}`),
+          ...snapshot.certificateFiles.map((f) => `    CertificateFile ${configPathValue(f)}`),
+        ]),
     "",
   ];
   return lines.join("\n");

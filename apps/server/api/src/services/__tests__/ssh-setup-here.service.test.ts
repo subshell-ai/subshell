@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { buildAgentSocketPath, buildSshConfigPath } from "@internal/pane-runtime";
 import type { SshConnectionSnapshotWire, SshExecCommand } from "@internal/subshell-protocol";
@@ -805,3 +805,41 @@ describe("setupHere preserves completed enrollment after later failures", () => 
     });
   }
 });
+
+for (const failure of ["key creation", "progress callback"] as const) {
+  it(`releases setup resources when ${failure} throws before exec starts`, async () => {
+    await clearUpgradeRows();
+    const paneId = await mkPane({ keyHome: true });
+    const pair = attachPair({ withA: true, status: () => DONE_OK });
+    const keysBefore = (await keys.listByUser(owner)).length;
+    const create =
+      failure === "key creation"
+        ? spyOn(NodeSetupKeysRepository.prototype, "create").mockRejectedValue(new Error("mint failed"))
+        : null;
+    try {
+      await expect(
+        setupHere({
+          viewerId: owner,
+          paneId,
+          onProgress: () => {
+            throw new Error("progress failed");
+          },
+        }),
+      ).rejects.toThrow(failure === "key creation" ? "mint failed" : "progress failed");
+      expect(openCalls).toHaveLength(1);
+      expect(closeCalls).toEqual([{ paneId: openCalls[0]?.paneId, reason: "child-exit" }]);
+      expect((await keys.listByUser(owner)).length).toBe(keysBefore);
+      const audits = await db
+        .selectFrom("auditEvents")
+        .selectAll()
+        .where("action", "=", "node.ssh_upgrade.run")
+        .execute();
+      expect(audits).toHaveLength(failure === "key creation" ? 0 : 1);
+      if (failure === "progress callback") expect(audits[0]?.metadataJson).toContain("internal-error");
+    } finally {
+      create?.mockRestore();
+      pair.a?.detach();
+      pair.b.detach();
+    }
+  });
+}
