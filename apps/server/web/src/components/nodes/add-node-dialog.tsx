@@ -54,7 +54,7 @@ export function AddNodeDialog({
 }: {
   /** Whether the dialog is shown (drives the parent's polling too) */
   open: boolean;
-  /** Open/close from inside (Done/overlay) */
+  /** Open/close from inside (Done, Close, or Escape) */
   onOpenChange: (open: boolean) => void;
   /** Current visible-node count — its rise over the creation-time baseline means "enrolled" */
   nodeCount: number;
@@ -116,7 +116,18 @@ export function AddNodeDialog({
   const arrivedNode = arrived.length === 1 ? arrived[0] : undefined;
 
   return (
-    <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
+    <Dialog
+      open={open}
+      onOpenChange={(next, details) => {
+        // Keep the setup key and instructions visible after an accidental
+        // outside click while the operator installs on another machine.
+        if (!next && details.reason === "outside-press") {
+          details.cancel();
+          return;
+        }
+        next ? onOpenChange(true) : close();
+      }}
+    >
       <DialogContent>
         {/* One header, intentionally description-less (operator's call, 2026-09-18):
             the naming fact rides the mint no more (the machine answers) and

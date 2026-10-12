@@ -24,7 +24,9 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: colors.primaryFg,
         tabBarActiveBackgroundColor: colors.primary,
-        tabBarItemStyle: { borderRadius: radius, margin: 4 },
+        // Keep the full native tab height for touch targets. The selected fill
+        // belongs to a square child button, so clip it to the item's corners.
+        tabBarItemStyle: { borderRadius: radius, overflow: "hidden", marginHorizontal: 4 },
         tabBarInactiveTintColor: colors.mutedFg,
         tabBarStyle: { backgroundColor: colors.bg, borderTopColor: colors.border },
         sceneStyle: { backgroundColor: colors.bg },
