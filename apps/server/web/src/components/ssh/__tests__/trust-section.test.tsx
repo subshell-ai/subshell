@@ -123,9 +123,9 @@ describe("SshTrustSection", () => {
   it("lets an admin inspect and repair the server's peer pin store", async () => {
     const { calls } = renderSection(node({ id: "local", kind: "local", access: "edit" }), "ok", true);
     const button = await screen.findByRole("button", { name: "Re-pair desk" });
-    expect(screen.getByText("Machine trust")).toBeTruthy();
+    expect(screen.getByText("SSH machine identities")).toBeTruthy();
     fireEvent.click(button);
-    await screen.findByText("Pin replaced for desk.");
+    await screen.findByText("Saved identity updated for desk.");
     expect(calls[0]?.url).toBe(`/api/nodes/local/machine-pins/${PEER_ID}/repair`);
   });
 
@@ -139,7 +139,7 @@ describe("SshTrustSection", () => {
     // access:"edit" (the resolver ranks admins at edit, never owner): the
     // trust is read, never re-decided (§4.5 owner-only).
     renderSection(node({ access: "edit", canManage: false }));
-    expect(screen.getByText("Machine trust")).toBeDefined();
+    expect(screen.getByText("SSH machine identities")).toBeDefined();
     expect(screen.getByText(FP_PEER_SIGN)).toBeDefined();
     expect(screen.queryByRole("button", { name: /Re-pair/ })).toBeNull();
   });
@@ -150,7 +150,7 @@ describe("SshTrustSection", () => {
     const button = (await screen.findByRole("button", { name: "Re-pair desk" })) as HTMLButtonElement;
     expect(button.disabled).toBe(false);
     fireEvent.click(button);
-    await screen.findByText(/Pin replaced for desk/);
+    await screen.findByText(/Saved identity updated for desk/);
     expect(calls).toEqual([{ url: `/api/nodes/node1/machine-pins/${PEER_ID}/repair`, method: "POST" }]);
   });
 
@@ -160,7 +160,7 @@ describe("SshTrustSection", () => {
     fireEvent.click(button);
     const note = await screen.findByText(/no live connection/);
     expect(note.className).toContain("text-destructive");
-    expect(screen.queryByText(/Pin replaced/)).toBeNull();
+    expect(screen.queryByText(/Saved identity updated/)).toBeNull();
   });
 
   it("explains that re-pairing replaces the saved identity after verification", () => {

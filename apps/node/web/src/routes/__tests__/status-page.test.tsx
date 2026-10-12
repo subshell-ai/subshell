@@ -94,7 +94,7 @@ function renderPage() {
 describe("status page — machine trust", () => {
   it("renders own and peer fingerprints from the agent view, unmarked (the local truth is never stale)", async () => {
     renderPage();
-    expect(await screen.findByText("Machine trust")).toBeTruthy();
+    expect(await screen.findByText("SSH machine identities")).toBeTruthy();
     expect(screen.getByText(FP_OWN_SIGN)).toBeTruthy();
     expect(screen.getByText(FP_OWN_ENC)).toBeTruthy();
     expect(screen.getByText(`Peer ${PEER_ID}`)).toBeTruthy();
@@ -117,6 +117,6 @@ describe("status page — machine trust", () => {
     }) as typeof fetch;
     renderPage();
     await screen.findByText("This machine");
-    expect(screen.queryByText("Machine trust")).toBeNull();
+    expect(screen.queryByText("SSH machine identities")).toBeNull();
   });
 });

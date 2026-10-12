@@ -48,7 +48,9 @@ export function ServerIdentityRecovery() {
   const form = makeForm({
     defaultValues: { verified: null as IdentityPair | null },
     validator: ({ verified }): Record<string, string> =>
-      verified ? {} : { verified: "Verify both disk fingerprints before repairing registration." },
+      verified
+        ? {}
+        : { verified: "Verify both fingerprints from the server’s identity file before repairing its registration." },
     onSubmit: async ({ verified }) => {
       // Read the cache synchronously too: a refetch may finish before React renders/reset effects run.
       const current = client.getQueryData<IdentityInspection>(IDENTITY_QUERY_KEY);
@@ -126,7 +128,7 @@ export function ServerIdentityRecovery() {
                         }
                       />
                       <FieldLabel htmlFor="ssh-identity-verified">
-                        I verified both disk fingerprints through a trusted channel
+                        I checked both fingerprints against the server’s identity file through a trusted channel
                       </FieldLabel>
                     </div>
                   </Field>
@@ -145,11 +147,12 @@ export function ServerIdentityRecovery() {
           )}
           {repair.isSuccess && (
             <p role="status" className="text-detail">
-              Server identity registration repaired. Peer pins were not changed.
+              The server’s identity registration is repaired. Other machines still have their previous saved identity
+              for this server.
             </p>
           )}
           <Button type="button" variant="outline" disabled={repair.isPending} onClick={() => void identity.refetch()}>
-            Retry identity inspection
+            Reload fingerprints
           </Button>
         </FieldGroup>
       </CardContent>

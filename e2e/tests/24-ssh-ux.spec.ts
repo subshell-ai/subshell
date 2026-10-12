@@ -74,12 +74,12 @@ test("remote key wizard retains the connection draft and sends only explicitly s
   await expect(page.getByRole("button", { name: "SSH terminal", exact: true })).toBeFocused();
   await page.getByPlaceholder("user@hostname:22 or an SSH alias").fill(destination);
   await page.getByRole("checkbox", { name: "Remember this destination" }).check();
-  await page.getByRole("button", { name: "SSH Wizard", exact: true }).click();
+  await page.getByRole("button", { name: "Set up SSH", exact: true }).click();
   await expect(page.getByRole("heading", { name: "What would you like to do?" })).toBeFocused();
   await page.screenshot({ path: "/home/theo/t3-ssh-check/wizard-intents.png", fullPage: true });
   await page.getByRole("button", { name: "Use keys from another machine", exact: true }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await page.getByRole("combobox", { name: "Use SSH keys from" }).click();
+  await page.getByRole("combobox", { name: "Use keys from" }).click();
   await page.getByRole("option", { name: "Named server", exact: true }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page.getByRole("checkbox", { name: "Work key" })).not.toBeChecked();
@@ -101,11 +101,11 @@ test("remote key wizard retains the connection draft and sends only explicitly s
 test("empty SSH setup enables an existing machine inline and completes without launching", async ({ page }) => {
   const { launches, enables } = await wire(page, false);
   await page.goto("/connect");
-  await expect(page.getByText("No machine is ready for SSH")).toBeVisible();
+  await expect(page.getByText("Connect over SSH")).toBeVisible();
   await expect(page.getByRole("button", { name: /Open .* settings/ })).toHaveCount(0);
-  await page.getByRole("button", { name: "SSH Wizard", exact: true }).click();
-  await page.getByRole("button", { name: "Prepare a machine for SSH", exact: true }).click();
-  await page.getByRole("combobox", { name: "Machine to prepare" }).click();
+  await page.getByRole("button", { name: "Set up SSH", exact: true }).click();
+  await page.getByRole("button", { name: "Enable SSH on a node", exact: true }).click();
+  await page.getByRole("combobox", { name: "Node to set up" }).click();
   await page.getByRole("option", { name: /Connecting desktop/ }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.screenshot({ path: "/home/theo/t3-ssh-check/wizard-machine-setup.png", fullPage: true });
@@ -122,14 +122,14 @@ test("empty SSH setup enables an existing machine inline and completes without l
 test("settings wizard returns to settings on Done and connects in the same dialog on request", async ({ page }) => {
   await wire(page);
   await page.goto("/settings/ssh");
-  await page.getByRole("button", { name: "SSH Wizard", exact: true }).click();
-  await page.getByRole("button", { name: "Prepare a machine for SSH", exact: true }).click();
+  await page.getByRole("button", { name: "Set up SSH", exact: true }).click();
+  await page.getByRole("button", { name: "Enable SSH on a node", exact: true }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.getByRole("button", { name: "Done", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "SSH", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "SSH Wizard", exact: true }).click();
-  await page.getByRole("button", { name: "Prepare a machine for SSH", exact: true }).click();
+  await page.getByRole("button", { name: "Set up SSH", exact: true }).click();
+  await page.getByRole("button", { name: "Enable SSH on a node", exact: true }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.getByRole("button", { name: "Connect now", exact: true }).click();
   await expect(page.getByPlaceholder("user@hostname:22 or an SSH alias")).toBeVisible();

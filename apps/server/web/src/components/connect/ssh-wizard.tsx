@@ -101,7 +101,7 @@ export function SshWizard({
   }, [current]);
 
   return (
-    <section className="flex flex-col gap-4" aria-label="SSH Wizard">
+    <section className="flex flex-col gap-4" aria-label="Set up SSH">
       <div className="flex flex-col gap-1">
         <h2 ref={heading} tabIndex={-1} className="font-strong text-section">
           {SSH_STEP_LABELS[current]}
@@ -138,7 +138,7 @@ export function SshWizard({
           </Button>
           <Button type="button" variant="outline" onClick={() => selectIntent("prepare")}>
             <Server data-icon="inline-start" />
-            Prepare a machine for SSH
+            Enable SSH on a node
           </Button>
           <Button type="button" variant="outline" onClick={() => selectIntent("remote-keys")}>
             <KeyRound data-icon="inline-start" />
@@ -163,11 +163,11 @@ export function SshWizard({
               setAdding(false);
               patch({ nodeId });
             }}
-            label={intent === "prepare" ? "Machine to prepare" : "Connect through"}
+            label={intent === "prepare" ? "Node to set up" : "Connect from"}
           />
           <p className="text-detail text-muted-foreground">
-            This machine runs SSH and must be able to reach the destination. Its normal SSH identity files work without
-            an SSH agent.
+            SSH runs on this node, so it needs network access to your destination. You can use keys saved on the node or
+            choose keys from another machine.
           </p>
           <Button
             type="button"
@@ -197,7 +197,7 @@ export function SshWizard({
               setCurrent("review");
             }}
           >
-            Use connecting machine’s own keys
+            Use keys on this machine
           </Button>
           <Button type="button" variant={remote ? "default" : "outline"} onClick={() => setCurrent("key-source")}>
             Use keys from another machine
@@ -210,7 +210,7 @@ export function SshWizard({
           value={draft.keyHome}
           onChange={chooseKeys}
           exclude={draft.nodeId}
-          label="Use SSH keys from"
+          label="Use keys from"
         />
       )}
       {current === "key-setup" && <SshMachineSetup machine={keyMachine} retry={readiness.refetch} onLeave={onLeave} />}
@@ -243,14 +243,14 @@ export function SshWizard({
             </>
           )}
           <p className="text-detail text-muted-foreground">
-            We haven't checked whether you can sign in to the destination. Connecting uses this machine’s SSH
-            configuration, including any local commands configured with Match exec.
+            Starting the subshell tries to sign in to your destination. It reads this machine’s SSH configuration, which
+            can run local commands through Match exec.
           </p>
         </FieldGroup>
       )}
       <div className="flex flex-wrap justify-end gap-2">
         <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
-          Cancel wizard
+          Cancel setup
         </Button>
         {current !== "intent" && (
           <Button

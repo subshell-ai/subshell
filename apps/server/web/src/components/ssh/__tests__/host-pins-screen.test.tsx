@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { HostPinsScreen } from "@/components/ssh/host-pins-screen";
 
 /**
- * Destination trust (spec 2026-10-08 §9): the caller's host-key pins as
+ * Saved host keys (spec 2026-10-08 §9): the caller's host-key pins as
  * destination + `SHA256:` fingerprint (the key line itself never reaches the
  * screen), the delete that forces a fresh-grant TOFU re-capture, and the
  * explicit-pin door the F2 HostKeyAlias gap runs out of. The add dialog's
@@ -110,9 +110,9 @@ describe("HostPinsScreen", () => {
     const confirm = mockConfirm(true);
     restores.push(confirm.restore);
     renderScreen();
-    fireEvent.click(await screen.findByRole("button", { name: `Remove pin for ${DEST}` }));
+    fireEvent.click(await screen.findByRole("button", { name: `Remove host key for ${DEST}` }));
     await waitFor(() => expect(confirm.seen.length).toBe(1));
-    expect(confirm.seen[0]?.title).toBe("Remove this pin?");
+    expect(confirm.seen[0]?.title).toBe("Remove this host key?");
     expect(confirm.seen[0]?.description).toContain(DEST);
     await waitFor(() =>
       expect(sent.some((s) => s.method === "DELETE" && s.path === `/api/ssh/host-pins/${encodeURIComponent(DEST)}`)),
@@ -124,12 +124,12 @@ describe("HostPinsScreen", () => {
       restores.push(undo);
     });
     renderScreen();
-    fireEvent.click(await screen.findByRole("button", { name: "Add destination pin" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add host key" }));
     // Static dialog title (ruling 2026-09-30): nothing typed moves the heading.
-    expect(await screen.findByRole("heading", { name: "Add destination pin" })).toBeDefined();
+    expect(await screen.findByRole("heading", { name: "Add host key" })).toBeDefined();
     fireEvent.change(screen.getByLabelText(/Destination/), { target: { value: DEST } });
     fireEvent.change(screen.getByLabelText(/Host key/), { target: { value: HOST_KEY } });
-    fireEvent.click(screen.getByRole("button", { name: "Add pin" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add host key" }));
     await waitFor(() => expect(sent.some((s) => s.method === "POST" && s.path === "/api/ssh/host-pins")).toBe(true));
     expect(sent.find((s) => s.method === "POST" && s.path === "/api/ssh/host-pins")?.body).toEqual({
       destination: DEST,
@@ -148,10 +148,10 @@ describe("HostPinsScreen", () => {
       },
     );
     renderScreen();
-    fireEvent.click(await screen.findByRole("button", { name: "Add destination pin" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add host key" }));
     fireEvent.change(await screen.findByLabelText(/Destination/), { target: { value: DEST } });
     fireEvent.change(screen.getByLabelText(/Host key/), { target: { value: HOST_KEY } });
-    fireEvent.click(screen.getByRole("button", { name: "Add pin" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add host key" }));
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("pinned to a different key");
     expect(alert.className).toContain("text-destructive");
@@ -162,6 +162,6 @@ describe("HostPinsScreen", () => {
       restores.push(undo);
     });
     renderScreen();
-    expect(await screen.findByText(/Verify a replacement key/)).toBeDefined();
+    expect(await screen.findByText(/verify the replacement/)).toBeDefined();
   });
 });

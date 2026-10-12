@@ -18,7 +18,7 @@ export function SshWizardDialog({ initial, intent }: { initial?: SshInitialChoic
   return (
     <>
       <Button type="button" variant="outline" onClick={() => setOpen(true)}>
-        SSH Wizard
+        Set up SSH
       </Button>
       <Dialog
         open={open}
@@ -28,10 +28,8 @@ export function SshWizardDialog({ initial, intent }: { initial?: SshInitialChoic
       >
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>SSH Wizard</DialogTitle>
-            <DialogDescription>
-              Connect to a destination, prepare a machine, or use keys from another machine.
-            </DialogDescription>
+            <DialogTitle>Set up SSH</DialogTitle>
+            <DialogDescription>Choose where to connect from and which SSH keys to use.</DialogDescription>
           </DialogHeader>
           {open && (
             <ConnectPanel

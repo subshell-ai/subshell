@@ -270,7 +270,7 @@ export function rpcRefusal(err: SshRpcError): SshAnswer<never> {
     BackendErrorCodes.SSH_NODE_REFUSED,
     err.nodeId === "local"
       ? "The server service account could not use SSH. Ensure ssh is installed and that this service has an absolute SSH_AUTH_SOCK pointing to its running SSH agent. Keys in another login session are not automatically available to the service."
-      : "The connecting machine refused the SSH request. Check that SSH is switched on there and that ssh is installed.",
+      : "This machine couldn’t start SSH. Check that SSH is enabled in Subshell and that the ssh command is installed.",
   );
 }
 

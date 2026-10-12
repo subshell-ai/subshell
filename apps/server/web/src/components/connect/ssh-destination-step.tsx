@@ -49,8 +49,8 @@ export function SshDestinationStep({
         {(ledger.isError || aliases.isError) && (
           <div className="flex flex-col items-start gap-2">
             <p role="alert" className="text-destructive text-detail">
-              {ledger.isError && "Saved and recent destinations could not be read. "}
-              {aliases.isError && "SSH config aliases could not be read. "}
+              {ledger.isError && "Couldn’t load saved and recent destinations. "}
+              {aliases.isError && "Couldn’t load aliases from the SSH configuration. "}
               You can still type a destination.
             </p>
             <Button
@@ -62,7 +62,7 @@ export function SshDestinationStep({
                 if (aliases.isError) void aliases.refetch();
               }}
             >
-              Retry destination suggestions
+              Reload destinations
             </Button>
           </div>
         )}

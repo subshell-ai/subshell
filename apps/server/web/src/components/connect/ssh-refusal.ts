@@ -71,8 +71,8 @@ export function sshLaunchRefusal(err: unknown, machine: SshMachineFacts | null):
           return {
             text:
               machine.kind === "local"
-                ? "An admin can enable SSH on this machine in its settings."
-                : "SSH is off on this machine. Ask its owner to enable it.",
+                ? "SSH is disabled in Subshell. An admin can enable it in this machine’s settings."
+                : "SSH is disabled in Subshell. Ask this machine’s owner to enable it.",
             field: "machine",
           };
         }
@@ -131,7 +131,7 @@ export function sshLaunchRefusal(err: unknown, machine: SshMachineFacts | null):
         // the server's own sentence (`rpcRefusal`): the two checks that
         // answer the machine's no.
         return {
-          text: "The connecting machine refused the SSH request. Check that SSH is switched on there and that ssh is installed.",
+          text: "This machine couldn’t start SSH. Check that SSH is enabled in Subshell and that the ssh command is installed.",
           field: "machine",
         };
       default:

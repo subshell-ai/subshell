@@ -61,7 +61,7 @@ describe("SshTrustCard", () => {
   it("owner with a live block: own and peer fingerprints, no stale marking", () => {
     const { container } = render(<NodeSshTrustCard node={node({ sshTrust: LIVE_TRUST })} />);
     expect(container.firstChild).not.toBeNull();
-    expect(screen.getByText("Machine trust")).toBeDefined();
+    expect(screen.getByText("SSH machine identities")).toBeDefined();
     expect(screen.getByText(FP_OWN_SIGN)).toBeDefined();
     expect(screen.getByText(FP_OWN_ENC)).toBeDefined();
     expect(screen.getByText(`Peer ${PEER_ID}`)).toBeDefined();
@@ -119,6 +119,6 @@ describe("SshTrustCard", () => {
   it("an empty peer set says so plainly instead of rendering a lone header", () => {
     render(<NodeSshTrustCard node={node({ sshTrust: { ...LIVE_TRUST, peers: [] } })} />);
     expect(screen.getByText(FP_OWN_SIGN)).toBeDefined();
-    expect(screen.getByText(/no saved ssh relay peers yet/i)).toBeDefined();
+    expect(screen.getByText(/no saved machine identities yet/i)).toBeDefined();
   });
 });

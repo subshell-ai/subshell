@@ -30,7 +30,7 @@ test.skip(missing.length > 0, `SSH binaries absent on this host (${missing.join(
 const SSH_DISCLOSURE_COPY =
   "Connecting uses this machine’s SSH configuration, including any local commands configured with Match exec.";
 const SSH_VIEW_ONLY_COPY = "Only the owner can type in this SSH subshell.";
-const MACHINE_OFF_REASON = "SSH is off on this machine. An admin can enable it in machine settings.";
+const MACHINE_OFF_REASON = "SSH is disabled in Subshell. An admin can enable it in this machine’s settings.";
 /** The seeded control-plane host's display name (seed-local.ts): the picker reads names, not ids. */
 const LOCAL_NODE_NAME = "Server";
 /** `configGroupLabel(selectedNode.name)` for that row. */
@@ -295,19 +295,19 @@ function requirePaneId(): string {
 test("gate off: the wizard shows the host’s blocker and requires explicit setup before launch", async ({ page }) => {
   await login(page, ADMIN.email, ADMIN.password);
   await openConnectPage(page);
-  await expect(page.getByText("No machine is ready for SSH")).toBeVisible();
+  await expect(page.getByText("Connect over SSH")).toBeVisible();
   await expect(page.locator("#connect-destination")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "SSH Wizard", exact: true }).click();
+  await page.getByRole("button", { name: "Set up SSH", exact: true }).click();
   await page.getByRole("button", { name: "Connect to a destination", exact: true }).click();
   await page.getByLabel("SSH destination", { exact: true }).fill(SSH_FIXTURE_ALIAS);
   await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await page.getByRole("combobox", { name: "Connect through", exact: true }).click();
+  await page.getByRole("combobox", { name: "Connect from", exact: true }).click();
   const serverRow = page.getByRole("option", { name: /Server/ });
   await expect(serverRow).toContainText(MACHINE_OFF_REASON);
   await serverRow.click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Prepare the connecting machine", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Enable SSH connections", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Enable SSH", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toHaveCount(0);

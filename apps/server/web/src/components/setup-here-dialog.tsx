@@ -57,7 +57,7 @@ export function SetupHereDialog({
       ? "Installed. Waiting for the destination to connect to this server…"
       : operation?.stage === "checking"
         ? "Checking access and preparing installation…"
-        : "Installing on the destination; the download can take a few minutes.";
+        : "Installing Subshell on the destination. The download may take a few minutes.";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -78,7 +78,7 @@ export function SetupHereDialog({
             </p>
             <p className="text-detail text-muted-foreground">
               Elapsed: {Math.floor(elapsed / 60)}m {elapsed % 60}s. You can close this dialog and keep working. Reopen
-              “Set up Subshell here” on this pane to check progress.
+              “Set up Subshell here” on this subshell to check progress.
             </p>
           </div>
         )}
@@ -90,7 +90,7 @@ export function SetupHereDialog({
         {status.isError && (
           <div role="alert" className="flex flex-col gap-2">
             <p className="text-destructive text-detail">
-              Could not check setup status. Check again before starting another installation.
+              Couldn’t check setup progress. Check again before starting another installation.
             </p>
             <Button variant="outline" onClick={() => void status.refetch()}>
               Check status

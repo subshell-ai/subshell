@@ -117,7 +117,7 @@ async function launchSsh() {
   const field = await screen.findByLabelText("SSH destination");
   fireEvent.change(field, { target: { value: "deploy@example.com:2222" } });
   await settle();
-  fireEvent.click(screen.getByRole("button", { name: "SSH Wizard" }));
+  fireEvent.click(screen.getByRole("button", { name: "Set up SSH" }));
   await settle();
   fireEvent.click(await screen.findByRole("button", { name: "Connect to a destination" }));
   await settle();
@@ -127,7 +127,7 @@ async function launchSsh() {
     fireEvent.click(next);
     await settle();
   }
-  fireEvent.click(await screen.findByRole("button", { name: "Use connecting machine’s own keys" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Use keys on this machine" }));
   await settle();
   const start = screen.getByRole("button", { name: "Start SSH subshell" });
   await waitFor(() => expect((start as HTMLButtonElement).disabled).toBe(false));

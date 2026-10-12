@@ -75,7 +75,7 @@ function PeerRepairButton({ nodeId, peer, label }: { nodeId: string; peer: NodeS
           {errMessage(repair.error, "Couldn't replace the saved identity. Try again.")}
         </p>
       )}
-      {repair.isSuccess && <p className="text-detail text-muted-foreground">Pin replaced for {label}.</p>}
+      {repair.isSuccess && <p className="text-detail text-muted-foreground">Saved identity updated for {label}.</p>}
     </div>
   );
 }

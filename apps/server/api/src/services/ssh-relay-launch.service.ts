@@ -21,7 +21,7 @@ export function selectRelayFingerprints(
     return refused({
       status: 400,
       code: BackendErrorCodes.SSH_KEYS_INVALID,
-      message: "Select keys from the key machine's current SSH agent roster.",
+      message: "Choose keys that are currently loaded in the selected machine's SSH agent.",
     });
   }
   const selected = requested === undefined ? roster.map((key) => key.fingerprint) : [...new Set(requested)];
@@ -35,7 +35,7 @@ export function selectRelayFingerprints(
     return refused({
       status: 400,
       code: BackendErrorCodes.SSH_KEYS_INVALID,
-      message: "Select keys from the key machine's current SSH agent roster.",
+      message: "Choose keys that are currently loaded in the selected machine's SSH agent.",
     });
   }
   return { ok: true, value: selected };

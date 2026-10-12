@@ -61,7 +61,9 @@ it("requires verified current disk fingerprints, permits retry409, and never rep
   expect(screen.getByText("SHA256:disk-sign")).toBeTruthy();
   expect(screen.getByText("SHA256:old-sign")).toBeTruthy();
   fireEvent.click(
-    screen.getByRole("checkbox", { name: "I verified both disk fingerprints through a trusted channel" }),
+    screen.getByRole("checkbox", {
+      name: "I checked both fingerprints against the server’s identity file through a trusted channel",
+    }),
   );
   await waitFor(() => expect(button.disabled).toBe(false));
   fireEvent.click(button);
@@ -69,7 +71,9 @@ it("requires verified current disk fingerprints, permits retry409, and never rep
   expect(posts).toEqual([{ signing: "SHA256:disk-sign", encryption: "SHA256:disk-encrypt" }]);
   state.failRepair = false;
   fireEvent.click(button);
-  await screen.findByText("Server identity registration repaired. Peer pins were not changed.");
+  await screen.findByText(
+    "The server’s identity registration is repaired. Other machines still have their previous saved identity for this server.",
+  );
   expect(posts).toHaveLength(2);
 });
 it("does not inspect or expose recovery to members", async () => {
@@ -82,7 +86,7 @@ it("failed inspection offers retry and names valid-backup recovery instead of bl
   expect(screen.getByText(/A corrupt identity must be restored from a valid backup/)).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Repair server identity registration" })).toBeNull();
   state.inspectionFails = false;
-  fireEvent.click(screen.getByRole("button", { name: "Retry identity inspection" }));
+  fireEvent.click(screen.getByRole("button", { name: "Reload fingerprints" }));
   await screen.findByRole("button", { name: "Repair server identity registration" });
 });
 
@@ -90,13 +94,13 @@ for (const changed of ["signing", "encryption"] as const) {
   it(`requires fresh verification when the disk ${changed} fingerprint changes`, async () => {
     const { state, posts } = await mount();
     const checkbox = screen.getByRole("checkbox", {
-      name: "I verified both disk fingerprints through a trusted channel",
+      name: "I checked both fingerprints against the server’s identity file through a trusted channel",
     });
     const button = screen.getByRole("button", { name: "Repair server identity registration" }) as HTMLButtonElement;
     fireEvent.click(checkbox);
     await waitFor(() => expect(button.disabled).toBe(false));
     state.own = { ...state.own, [changed]: "SHA256:replacement" };
-    fireEvent.click(screen.getByRole("button", { name: "Retry identity inspection" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reload fingerprints" }));
     await screen.findByText("SHA256:replacement");
     await waitFor(() => expect(button.disabled).toBe(true));
     expect(checkbox.getAttribute("aria-checked")).toBe("false");
@@ -114,7 +118,9 @@ it("refuses stale consent when query data changes before the reset effect can ru
   const { client, posts } = await mount();
   const button = screen.getByRole("button", { name: "Repair server identity registration" }) as HTMLButtonElement;
   fireEvent.click(
-    screen.getByRole("checkbox", { name: "I verified both disk fingerprints through a trusted channel" }),
+    screen.getByRole("checkbox", {
+      name: "I checked both fingerprints against the server’s identity file through a trusted channel",
+    }),
   );
   await waitFor(() => expect(button.disabled).toBe(false));
   await act(async () => {

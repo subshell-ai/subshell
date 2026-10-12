@@ -278,7 +278,7 @@ describe("machine disclosure (contract 1)", () => {
       // mark, no requirement caption (Connect is live once a destination stands).
       const label = document.querySelector('label[for="connect-machine"]');
       expect(label?.querySelector('[class*="after:content"]')).toBeNull();
-      expect(screen.queryByText("Choose a connecting machine first.")).toBeNull();
+      expect(screen.queryByText("Choose a node to connect from first.")).toBeNull();
     } finally {
       restore();
     }
@@ -309,10 +309,10 @@ describe("machine disclosure (contract 1)", () => {
     it(`replaces the form when no machine can run SSH: ${JSON.stringify(unavailable)}`, async () => {
       const { calls, restore } = await renderPanel({ nodes: unavailable }, { node: HOST_A.id, destination: "work" });
       try {
-        expect(screen.getByText("No machine is ready for SSH")).toBeTruthy();
+        expect(screen.getByText("Connect over SSH")).toBeTruthy();
         expect(screen.queryByRole("button", { name: "Start SSH subshell" })).toBeNull();
         expect(screen.queryByLabelText("SSH destination")).toBeNull();
-        expect(screen.getByRole("button", { name: "SSH Wizard" })).toBeTruthy();
+        expect(screen.getByRole("button", { name: "Set up SSH" })).toBeTruthy();
         expect(calls.some((c) => c.url.startsWith("/api/ssh/aliases"))).toBe(false);
         expect(calls.some((c) => c.url === "/api/ssh/launch")).toBe(false);
       } finally {
@@ -331,7 +331,7 @@ describe("machine disclosure (contract 1)", () => {
     });
     try {
       expect(screen.getByText("Could not load connecting machines.")).toBeTruthy();
-      expect(screen.queryByText("No machine is ready for SSH")).toBeNull();
+      expect(screen.queryByText("Connect over SSH")).toBeNull();
       failed = false;
       fireEvent.click(screen.getByRole("button", { name: "Retry" }));
       await waitFor(() => expect(machineInput().value).toBe("mac mini"));
@@ -346,9 +346,9 @@ describe("machine disclosure (contract 1)", () => {
       settings: { viewerIsAdmin: false, allowNodeEnrollment: false },
     });
     try {
-      fireEvent.click(screen.getByRole("button", { name: "SSH Wizard" }));
+      fireEvent.click(screen.getByRole("button", { name: "Set up SSH" }));
       await settle();
-      fireEvent.click(screen.getByRole("button", { name: "Prepare a machine for SSH" }));
+      fireEvent.click(screen.getByRole("button", { name: "Enable SSH on a node" }));
       await settle();
       expect((screen.getByRole("button", { name: "Add a machine" }) as HTMLButtonElement).disabled).toBe(true);
       expect(screen.getByText(/Adding nodes is turned off/)).toBeTruthy();
@@ -363,11 +363,11 @@ describe("machine disclosure (contract 1)", () => {
       settings: { viewerIsAdmin: true },
     });
     try {
-      expect(screen.getByText("No machine is ready for SSH")).toBeTruthy();
+      expect(screen.getByText("Connect over SSH")).toBeTruthy();
       expect(screen.queryByText(/SSH is off here/)).toBeTruthy();
       expect(screen.queryByRole("button", { name: "Open Server settings" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Open studio settings" })).toBeNull();
-      expect(screen.getByRole("button", { name: "SSH Wizard" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Set up SSH" })).toBeTruthy();
     } finally {
       restore();
     }
@@ -396,7 +396,7 @@ describe("machine disclosure (contract 1)", () => {
       expect(label?.querySelector('[class*="after:content"]')).not.toBeNull(); // the gold star
       await commitTyped("box.example");
       await clickConnect();
-      const caption = screen.getByText("Choose a connecting machine first.");
+      const caption = screen.getByText("Choose a node to connect from first.");
       expect(caption.className).toContain("text-amber-600"); // gold: nothing typed yet, not red
       expect(calls.filter((c) => c.url === "/api/ssh/launch")).toEqual([]);
     } finally {
@@ -692,7 +692,7 @@ describe("relay launch with current launch access", () => {
     );
     try {
       expect((screen.getByRole("button", { name: "Start SSH subshell" }) as HTMLButtonElement).disabled).toBe(true);
-      expect(screen.getByText(/selected key machine is unavailable/)).toBeTruthy();
+      expect(screen.getByText(/machine supplying your keys is unavailable/)).toBeTruthy();
       expect(calls.some((c) => c.url === "/api/ssh/launch")).toBe(false);
     } finally {
       restore();

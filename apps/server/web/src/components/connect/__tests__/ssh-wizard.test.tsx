@@ -188,11 +188,11 @@ async function choose(label: string, name: string) {
 
 it("opens the three intents from empty SSH state with a single primary wizard action", async () => {
   const { calls } = await setup({ machines: [], start: false });
-  expect(screen.getByText("No machine is ready for SSH")).toBeTruthy();
+  expect(screen.getByText("Connect over SSH")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Add a node" })).toBeNull();
-  await click("SSH Wizard");
+  await click("Set up SSH");
   expect(screen.getByRole("button", { name: "Connect to a destination" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Prepare a machine for SSH" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Enable SSH on a node" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Use keys from another machine" })).toBeTruthy();
   expect(calls.some((c) => c.path === "/api/ssh/identities")).toBe(false);
 });
@@ -206,8 +206,8 @@ it("connect intent skips satisfied setup, focuses steps, and starts only after r
   await settle();
   await next();
   await next();
-  expect(screen.getByRole("heading", { name: "Choose where your keys live" })).toBeTruthy();
-  await click("Use connecting machine’s own keys");
+  expect(screen.getByRole("heading", { name: "Choose where to get keys" })).toBeTruthy();
+  await click("Use keys on this machine");
   expect(calls.some((c) => c.path === "/api/ssh/launch")).toBe(false);
   await click("Start SSH subshell");
   expect(calls.filter((c) => c.path === "/api/ssh/launch")).toEqual([
@@ -226,16 +226,20 @@ it("shows destination discovery failures and retries them without losing typed i
       client.invalidateQueries({ queryKey: ["ssh-aliases"] }),
     ]);
   });
-  await screen.findByText(/Saved and recent destinations could not be read/);
-  expect(screen.getByText(/SSH config aliases could not be read/)).toBeTruthy();
+  await screen.findByText(/Couldn’t load saved and recent destinations/);
+  expect(screen.getByText(/Couldn’t load aliases from the SSH configuration/)).toBeTruthy();
   expect((screen.getByLabelText("SSH destination") as HTMLInputElement).value).toBe("keep-me");
   expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false);
   const savedReads = calls.filter((call) => call.path === "/api/ssh/saved-hosts").length;
   const aliasReads = calls.filter((call) => call.path === "/api/ssh/aliases").length;
   state.savedError = false;
   state.aliasesError = false;
-  await click("Retry destination suggestions");
-  await waitFor(() => expect(screen.queryByText(/could not be read/)).toBeNull());
+  await click("Reload destinations");
+  await waitFor(() =>
+    expect(
+      screen.queryByText(/Couldn’t load (saved and recent destinations|aliases from the SSH configuration)/),
+    ).toBeNull(),
+  );
   expect(calls.filter((call) => call.path === "/api/ssh/saved-hosts")).toHaveLength(savedReads + 1);
   expect(calls.filter((call) => call.path === "/api/ssh/aliases")).toHaveLength(aliasReads + 1);
   expect((screen.getByLabelText("SSH destination") as HTMLInputElement).value).toBe("keep-me");
@@ -246,9 +250,9 @@ it("prepare intent explicitly enables SSH and never launches; Connect now return
     initial: { node: "desk", keyHome: "unavailable", fingerprints: ["SHA256:AAAA"] },
     machines: [machine("desk", false)],
   });
-  await click("Prepare a machine for SSH");
+  await click("Enable SSH on a node");
   await next();
-  expect(screen.getByRole("heading", { name: "Prepare the connecting machine" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Enable SSH connections" })).toBeTruthy();
   await click("Enable SSH");
   await next();
   expect(screen.getByRole("heading", { name: "Your SSH setup" })).toBeTruthy();
@@ -261,7 +265,7 @@ it("prepare intent explicitly enables SSH and never launches; Connect now return
 
 it("shared launchable machines can connect while unauthorized configuration remains unavailable", async () => {
   const { calls } = await setup({ initial: { node: "shared" }, machines: [machine("shared", false, false)] });
-  await click("Prepare a machine for SSH");
+  await click("Enable SSH on a node");
   await next();
   expect(screen.queryByRole("button", { name: "Enable SSH" })).toBeNull();
   expect(screen.queryByRole("button", { name: /settings$/ })).toBeNull();
@@ -277,7 +281,7 @@ it("remote keys intent includes the named server and requires an explicit finger
   });
   await click("Use keys from another machine");
   await next();
-  await choose("Use SSH keys from", "Named server");
+  await choose("Use keys from", "Named server");
   await next();
   expect(calls.filter((c) => c.path === "/api/ssh/identities")).toHaveLength(1);
   expect(screen.getByRole("checkbox", { name: "Work key" }).getAttribute("aria-checked")).toBe("false");
@@ -304,23 +308,23 @@ it("preserves an explicit subset when the connecting machine becomes its key sou
     initial: { node: "desk", keyHome: "keys", destination: "keep-me", fingerprints: ["SHA256:AAAA"] },
     start: false,
   });
-  await choose("Connect through", "keys");
-  expect(screen.getByText(/selected the same machine for the connection and the keys/)).toBeTruthy();
-  expect((screen.getByLabelText("Use SSH keys from") as HTMLInputElement).value).toBe("keys");
+  await choose("Connect from", "keys");
+  expect(screen.getByText(/already selected under Connect from/)).toBeTruthy();
+  expect((screen.getByLabelText("Use keys from") as HTMLInputElement).value).toBe("keys");
   expect((screen.getByRole("button", { name: "Start SSH subshell" }) as HTMLButtonElement).disabled).toBe(true);
   await click("Start SSH subshell");
   expect(calls.some((call) => call.path === "/api/ssh/launch")).toBe(false);
-  await click("SSH Wizard");
+  await click("Set up SSH");
   await click("Connect to a destination");
   await next();
   await next();
   await click("Use keys from another machine");
-  expect((screen.getByLabelText("Use SSH keys from") as HTMLInputElement).value).toBe("keys");
+  expect((screen.getByLabelText("Use keys from") as HTMLInputElement).value).toBe("keys");
   expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
   await click("Continue");
   expect(calls.some((call) => call.path === "/api/ssh/launch")).toBe(false);
-  await click("Cancel wizard");
-  await choose("Connect through", "desk");
+  await click("Cancel setup");
+  await choose("Connect from", "desk");
   expect(screen.getByRole("checkbox", { name: "Work key" }).getAttribute("aria-checked")).toBe("true");
   await click("Start SSH subshell");
   expect(calls.find((call) => call.path === "/api/ssh/launch")?.body).toEqual({
@@ -336,17 +340,17 @@ it("blocks same-machine initial choices until own keys are explicitly chosen", a
     initial: { node: "keys", keyHome: "keys", destination: "keep-me", fingerprints: ["SHA256:AAAA"] },
     start: false,
   });
-  expect((screen.getByLabelText("Use SSH keys from") as HTMLInputElement).value).toBe("keys");
+  expect((screen.getByLabelText("Use keys from") as HTMLInputElement).value).toBe("keys");
   expect((screen.getByRole("button", { name: "Start SSH subshell" }) as HTMLButtonElement).disabled).toBe(true);
   await click("Start SSH subshell");
   expect(calls.some((call) => call.path === "/api/ssh/launch")).toBe(false);
-  await click("SSH Wizard");
+  await click("Set up SSH");
   await click("Connect to a destination");
   await next();
   await next();
-  expect(screen.getByText(/selected the same machine for the connection and the keys/)).toBeTruthy();
-  await click("Use connecting machine’s own keys");
-  expect(screen.queryByText(/selected the same machine for the connection and the keys/)).toBeNull();
+  expect(screen.getByText(/already selected under Connect from/)).toBeTruthy();
+  await click("Use keys on this machine");
+  expect(screen.queryByText(/already selected under Connect from/)).toBeNull();
   expect(calls.some((call) => call.path === "/api/ssh/launch")).toBe(false);
   await click("Start SSH subshell");
   expect(calls.find((call) => call.path === "/api/ssh/launch")?.body).toEqual({ node: "keys", destination: "keep-me" });
@@ -360,7 +364,7 @@ it("requires a deliberate removal of vanished selected keys before continuing wi
   await next();
   await next();
   state.identities = [{ fingerprint: "SHA256:BBBB", comment: "Replacement key" }];
-  await click("Retry keys");
+  await click("Reload keys");
   expect(screen.getByText(/selected key is no longer available/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "Remove unavailable key SHA256:AAAA" })).toBeTruthy();
   fireEvent.click(screen.getByRole("checkbox", { name: "Replacement key" }));
@@ -387,12 +391,12 @@ it("retains canonical destination, remember, and explicit keys across wizard can
     start: false,
   });
   fireEvent.click(screen.getByLabelText("Remember this destination"));
-  await click("SSH Wizard");
+  await click("Set up SSH");
   await click("Use keys from another machine");
   await next();
   await next();
   expect(screen.getByRole("checkbox", { name: "Work key" }).getAttribute("aria-checked")).toBe("true");
-  await click("Cancel wizard");
+  await click("Cancel setup");
   expect((screen.getByLabelText("SSH destination") as HTMLInputElement).value).toBe("target");
   expect((screen.getByLabelText("Remember this destination") as HTMLInputElement).checked).toBe(true);
   await click("Start SSH subshell");
@@ -411,16 +415,16 @@ it("blocks disappeared selected keys and explains unreachable service agents sep
   await next();
   await next();
   state.identities = [];
-  await click("Retry keys");
+  await click("Reload keys");
   expect(screen.getByText(/No keys are loaded/)).toBeTruthy();
   expect(screen.getByText(/selected key is no longer available/)).toBeTruthy();
   expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
   state.rosterError = true;
-  await click("Retry keys");
-  expect(screen.getByText(/interactive shell’s SSH agent may differ/)).toBeTruthy();
+  await click("Reload keys");
+  expect(screen.getByText(/Set SSH_AUTH_SOCK for the Subshell service/)).toBeTruthy();
   state.rosterError = false;
   state.identities = [{ fingerprint: "SHA256:AAAA", comment: "Work key" }];
-  await click("Retry keys");
+  await click("Reload keys");
   await next();
   expect(screen.getByRole("heading", { name: "Your SSH setup" })).toBeTruthy();
 });
@@ -434,7 +438,7 @@ it("preserves wizard draft during readiness failures and an offline selected mac
     await client.invalidateQueries({ queryKey: ["ssh-readiness"] });
   });
   await settle();
-  expect(screen.getByRole("heading", { name: "Choose a connecting machine" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Choose a node to connect from" })).toBeTruthy();
   expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
   state.readyError = false;
   state.machines = [
@@ -456,7 +460,7 @@ it("preserves wizard draft during readiness failures and an offline selected mac
 
 it("matches only its consumed setup key, retains key/method across Back, and distinguishes enrolled offline", async () => {
   const { state, calls } = await setup({ machines: [] });
-  await click("Prepare a machine for SSH");
+  await click("Enable SSH on a node");
   await click("Add a machine");
   await click("Generate setup key");
   await click("Desktop App");
@@ -483,7 +487,7 @@ it("matches only its consumed setup key, retains key/method across Back, and dis
 
 it("disabled enrollment explains policy and preserves existing-machine preparation", async () => {
   await setup({ initial: { node: "desk" }, enrollmentAllowed: false });
-  await click("Prepare a machine for SSH");
+  await click("Enable SSH on a node");
   expect((screen.getByRole("button", { name: "Add a machine" }) as HTMLButtonElement).disabled).toBe(true);
   expect(screen.getByText(/Adding nodes is turned off/)).toBeTruthy();
   await next();
@@ -493,9 +497,9 @@ it("disabled enrollment explains policy and preserves existing-machine preparati
 it("settings/node entry preselects its machine and Done returns to settings", async () => {
   const { calls } = await setup({ initial: { node: "keys" }, settingsEntry: true });
   expect(calls.some((c) => c.path === "/api/ssh/readiness")).toBe(false);
-  await click("SSH Wizard");
-  await click("Prepare a machine for SSH");
-  expect((screen.getByRole("combobox", { name: "Machine to prepare" }) as HTMLInputElement).value).toBe("keys");
+  await click("Set up SSH");
+  await click("Enable SSH on a node");
+  expect((screen.getByRole("combobox", { name: "Node to set up" }) as HTMLInputElement).value).toBe("keys");
   await next();
   await click("Done");
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -516,11 +520,11 @@ it("holds one launch through an asynchronous creation callback and cannot submit
   await click("Connect to a destination");
   await next();
   await next();
-  await click("Use connecting machine’s own keys");
+  await click("Use keys on this machine");
   await click("Start SSH subshell");
   expect(created).toEqual(["created-ssh"]);
   expect((screen.getByRole("button", { name: "Starting SSH subshell…" }) as HTMLButtonElement).disabled).toBe(true);
-  expect((screen.getByRole("button", { name: "Cancel wizard" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "Cancel setup" }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Starting SSH subshell…" }));
   expect(calls.filter((c) => c.path === "/api/ssh/launch")).toHaveLength(1);
   await act(async () => {

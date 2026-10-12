@@ -47,12 +47,12 @@ export function sshKeySelectionProblem(fingerprints: string[], identities?: SshA
 
 export function sshKeySourceProblem(draft: SshSessionDraft): string | null {
   return draft.keyHome && draft.keyHome === draft.nodeId
-    ? "You’ve selected the same machine for the connection and the keys. Choose its own keys or another key machine to continue. Your previous key selection is saved."
+    ? "This machine is already selected under Connect from. Choose its own keys or a different machine. Your previous key selection is saved."
     : null;
 }
 
 export function sshDraftProblems(draft: SshSessionDraft): Record<string, string> {
-  if (!draft.nodeId) return { node: "Choose a connecting machine first." };
+  if (!draft.nodeId) return { node: "Choose a node to connect from first." };
   if (!sshDestination(draft)) return { destination: "Enter an SSH destination." };
   const error =
     sshKeySourceProblem(draft) ||
@@ -75,13 +75,13 @@ export type SshWizardStep =
 export const SSH_STEP_LABELS: Record<SshWizardStep, string> = {
   intent: "What would you like to do?",
   destination: "Choose a destination",
-  machine: "Choose a connecting machine",
+  machine: "Choose a node to connect from",
   enrollment: "Add a machine",
-  "machine-setup": "Prepare the connecting machine",
-  "key-choice": "Choose where your keys live",
-  "key-source": "Choose a key machine",
-  "key-setup": "Prepare the key machine",
-  keys: "Choose SSH agent keys",
+  "machine-setup": "Enable SSH connections",
+  "key-choice": "Choose where to get keys",
+  "key-source": "Choose a machine for keys",
+  "key-setup": "Enable access to SSH keys",
+  keys: "Choose your SSH keys",
   review: "Review your connection",
   readiness: "Your SSH setup",
 };

@@ -5,7 +5,7 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { useSshNodeRoster } from "@/hooks/use-ssh";
 
 export const SSH_AGENT_ACCESS_COPY =
-  "The Subshell process on this machine needs access to SSH_AUTH_SOCK. An interactive shell’s SSH agent may differ from the agent available to its background service.";
+  "Subshell needs access to the SSH agent that holds your keys. Set SSH_AUTH_SOCK for the Subshell service; keys available in your terminal may not be available to that service.";
 
 /** Only mounted on the explicit remote-key path. No roster entry is selected implicitly. */
 export function SshKeyStep({
@@ -22,12 +22,15 @@ export function SshKeyStep({
   if (!nodeId)
     return (
       <p role="status" className="text-detail text-muted-foreground">
-        The selected key machine is unavailable. Bring it online with SSH enabled, or choose another machine.
+        The machine supplying your keys is unavailable. Bring it online and enable SSH in Subshell, or choose another
+        machine.
       </p>
     );
   return (
     <FieldGroup>
-      <p className="text-detail text-muted-foreground">Choose the keys to use. Private keys stay on the key machine.</p>
+      <p className="text-detail text-muted-foreground">
+        Choose which keys this connection can use. The private keys stay on the machine supplying them.
+      </p>
       {roster.isPending && (
         <p role="status" className="text-detail text-muted-foreground">
           Loading SSH agent keys…
@@ -36,7 +39,7 @@ export function SshKeyStep({
       {roster.isError && (
         <div role="alert" className="flex flex-col gap-2">
           <p className="text-destructive text-detail">
-            Could not read this machine’s SSH agent: {errMessage(roster.error, "The agent could not be reached.")}
+            Couldn’t load SSH keys from this machine: {errMessage(roster.error, "Its SSH agent could not be reached.")}
           </p>
           <p className="text-detail text-muted-foreground">{SSH_AGENT_ACCESS_COPY}</p>
         </div>
@@ -66,7 +69,9 @@ export function SshKeyStep({
             .map((fingerprint) => (
               <div key={fingerprint} className="flex flex-col items-start gap-2">
                 <p className="break-all font-mono text-detail text-muted-foreground">{fingerprint}</p>
-                <p className="text-detail text-muted-foreground">This SSH agent no longer has the selected key.</p>
+                <p className="text-detail text-muted-foreground">
+                  This key is no longer loaded in the machine’s SSH agent.
+                </p>
                 <Button
                   type="button"
                   variant="outline"
@@ -79,8 +84,7 @@ export function SshKeyStep({
             ))}
           {roster.data.identities.length === 0 && (
             <p className="text-detail text-muted-foreground">
-              No keys are loaded in this machine’s SSH agent. Load the keys you want to use into that agent, then Retry
-              keys.
+              No keys are loaded in this machine’s SSH agent. Load the keys you want to use, then reload this list.
             </p>
           )}
         </fieldset>
@@ -91,7 +95,7 @@ export function SshKeyStep({
         </p>
       )}
       <Button type="button" variant="outline" className="self-start" onClick={() => void roster.refetch()}>
-        Retry keys
+        Reload keys
       </Button>
     </FieldGroup>
   );

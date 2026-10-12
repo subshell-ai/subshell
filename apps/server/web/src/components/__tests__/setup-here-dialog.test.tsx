@@ -115,7 +115,7 @@ describe("SetupHereDialog", () => {
       let closed = false;
       await renderDialog(makeSshPane(), () => (closed = true));
       fireEvent.click(screen.getByRole("button", { name: "Set up Subshell" }));
-      await waitFor(() => expect(screen.queryByText(/Installing on the destination/)).toBeNull());
+      await waitFor(() => expect(screen.queryByText(/Installing Subshell on the destination/)).toBeNull());
       const link = screen.getByRole("link", { name: "Open its page" }) as HTMLAnchorElement;
       expect(link.getAttribute("href")).toContain("/nodes/new-node-1");
       // Done leaves; the finished answer does not outlive the dialog (mount-
@@ -189,7 +189,7 @@ describe("SetupHereDialog", () => {
       expect(closed).toBe(true);
       cleanup();
       await renderDialog(makeSshPane());
-      expect(screen.getByText(/Installing on the destination/)).toBeTruthy();
+      expect(screen.getByText(/Installing Subshell on the destination/)).toBeTruthy();
       expect((screen.getByRole("button", { name: "Setting up…" }) as HTMLButtonElement).disabled).toBe(true);
       expect(posts).toBe(1);
       operation = { stage: "complete", startedAt: new Date().toISOString(), nodeId: "new-node", error: null };

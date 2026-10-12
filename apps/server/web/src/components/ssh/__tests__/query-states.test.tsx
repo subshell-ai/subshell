@@ -48,5 +48,5 @@ test("loading and failed reads never claim an empty SSH settings ledger; retry r
   expect(await screen.findByText("Could not load destination trust.")).toBeTruthy();
   failing = false;
   for (const button of screen.getAllByRole("button", { name: "Retry" })) fireEvent.click(button);
-  expect(await screen.findByText(/No pinned destinations yet/)).toBeTruthy();
+  expect(await screen.findByText(/No host keys saved yet/)).toBeTruthy();
 });

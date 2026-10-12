@@ -52,7 +52,7 @@ export function NodeSshTrustCard({
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          Machine trust
+          SSH machine identities
           {trust.stale && <Badge variant="warning">Stale</Badge>}
         </CardTitle>
       </CardHeader>
@@ -75,8 +75,8 @@ export function NodeSshTrustCard({
           />
           {trust.peers.length === 0 ? (
             <div className="col-span-full">
-              <dt className="text-muted-foreground">Pinned peers</dt>
-              <dd className="mt-1 text-detail text-muted-foreground">No saved SSH relay peers yet.</dd>
+              <dt className="text-muted-foreground">Saved machine identities</dt>
+              <dd className="mt-1 text-detail text-muted-foreground">No saved machine identities yet.</dd>
             </div>
           ) : (
             trust.peers.map((peer) => (

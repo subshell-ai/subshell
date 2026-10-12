@@ -34,7 +34,9 @@ export function SshMachineStep({
               label: m.node.name,
               disabled: m.node.id === exclude,
               reason:
-                m.node.id === exclude ? "Choose a different key machine." : m.blockers.map((b) => b.message).join(" "),
+                m.node.id === exclude
+                  ? "Choose a different machine to supply your keys."
+                  : m.blockers.map((b) => b.message).join(" "),
             }))}
           onValueChange={(id) => id && onChange(id)}
         />
@@ -81,12 +83,12 @@ export function SshMachineSetup({
       <p className="font-strong text-body">{machine.node.name}</p>
       {machine.canConnect ? (
         <p role="status" className="text-detail">
-          This machine is ready to run SSH. We haven't checked whether you can sign in to the destination.
+          SSH is enabled in Subshell. You can try connecting to your destination.
         </p>
       ) : (
         <>
           {machine.blockers.map((blocker) => (
-            <p key={`${blocker.code}:${blocker.message}`} className="text-detail text-muted-foreground">
+            <p key={`${blocker.code}:${blocker.message}`} className="text-detail text-warning">
               {blocker.message}
             </p>
           ))}
@@ -108,7 +110,7 @@ export function SshMachineSetup({
             ))}
           {!onlyNeedsEnable && (
             <Button type="button" variant="outline" className="self-start" onClick={() => void retry()}>
-              Retry machine status
+              Check again
             </Button>
           )}
           {machine.canConfigure && needsSettings && (

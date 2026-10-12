@@ -51,7 +51,7 @@ describe("sshLaunchRefusal", () => {
 
   it("403 SSH_GATE_OFF on a gated-off agent names the owner remedy", () => {
     expect(sshLaunchRefusal(new ApiError(403, "x", { code: "SSH_GATE_OFF" }), machine({ sshEnabled: false }))).toEqual({
-      text: "SSH is off on this machine. Ask its owner to enable it.",
+      text: "SSH is disabled in Subshell. Ask this machine’s owner to enable it.",
       field: "machine",
     });
   });
@@ -59,7 +59,7 @@ describe("sshLaunchRefusal", () => {
   it("403 SSH_GATE_OFF on the control-plane host names the admin remedy", () => {
     const local = machine({ kind: "local", name: "this host", sshEnabled: false });
     expect(sshLaunchRefusal(new ApiError(403, "x", { code: "SSH_GATE_OFF" }), local)).toEqual({
-      text: "An admin can enable SSH on this machine in its settings.",
+      text: "SSH is disabled in Subshell. An admin can enable it in this machine’s settings.",
       field: "machine",
     });
   });
@@ -114,7 +114,7 @@ describe("sshLaunchRefusal", () => {
 
   it("502 is the machine's own refusal, with the checks that answer it", () => {
     expect(sshLaunchRefusal(new ApiError(502, "x", { code: "SSH_NODE_REFUSED" }), machine({}))).toEqual({
-      text: "The connecting machine refused the SSH request. Check that SSH is switched on there and that ssh is installed.",
+      text: "This machine couldn’t start SSH. Check that SSH is enabled in Subshell and that the ssh command is installed.",
       field: "machine",
     });
   });

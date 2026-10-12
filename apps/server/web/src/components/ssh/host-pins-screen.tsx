@@ -45,14 +45,14 @@ export function HostPinsScreen() {
     <Card>
       <CardHeader className="flex-row items-start justify-between gap-4">
         <div className="space-y-1.5">
-          <CardTitle>Destination trust</CardTitle>
+          <CardTitle>Saved host keys</CardTitle>
           <CardDescription>
-            A saved host key (a “pin”) identifies the destination, helping detect an unexpected server change. Verify a
-            replacement key with the destination’s administrator before removing its pin.
+            Subshell saves host keys to check that you’re connecting to the same destination. If a key changes, verify
+            the replacement with the destination’s administrator before removing the saved key.
           </CardDescription>
         </div>
         <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}>
-          <Plus /> Add destination pin
+          <Plus /> Add host key
         </Button>
       </CardHeader>
       <CardContent>
@@ -60,7 +60,7 @@ export function HostPinsScreen() {
           <SshQueryStatus query={query} label="destination trust" />
         ) : pins.length === 0 ? (
           <p className="text-detail text-muted-foreground">
-            No pinned destinations yet. When you first connect using keys from another machine, Subshell saves the
+            No host keys saved yet. When you first connect using keys from another machine, Subshell saves the
             destination’s host key from that machine’s known_hosts file.
           </p>
         ) : (
@@ -83,9 +83,9 @@ function PinRow({ pin }: { pin: SshHostPin }) {
   async function drop() {
     const ok = await confirmAction({
       // Static title; the destination rides the body (ruling 2026-09-30).
-      title: "Remove this pin?",
-      description: `"${pin.destination}" will need its host key verified again. Confirm the replacement with the destination’s administrator before reconnecting.`,
-      confirmLabel: "Remove pin",
+      title: "Remove this host key?",
+      description: `"${pin.destination}" will use a host key from the machine supplying your SSH keys on the next connection. Verify any replacement with the destination’s administrator before reconnecting.`,
+      confirmLabel: "Remove host key",
       danger: true,
     });
     if (!ok) return;
@@ -100,19 +100,19 @@ function PinRow({ pin }: { pin: SshHostPin }) {
           <CopyableValue value={pin.fingerprint} label={`Fingerprint for ${pin.destination}`} />
         </div>
         <div className="text-detail text-muted-foreground">
-          Pinned {pin.createdAt.slice(0, 10)} · last match {pin.updatedAt.slice(0, 10)}
+          Saved {pin.createdAt.slice(0, 10)} · last match {pin.updatedAt.slice(0, 10)}
         </div>
         {remove.isError && remove.variables === pin.destination && (
           <p role="alert" className="text-destructive text-detail">
-            {errMessage(remove.error, "Couldn't remove the pin.")}
+            {errMessage(remove.error, "Couldn't remove the saved host key.")}
           </p>
         )}
       </div>
       <Button
         variant="ghost"
         size="icon"
-        aria-label={`Remove pin for ${pin.destination}`}
-        title={`Remove pin for ${pin.destination}`}
+        aria-label={`Remove host key for ${pin.destination}`}
+        title={`Remove host key for ${pin.destination}`}
         onClick={() => void drop()}
         className="shrink-0 text-muted-foreground hover:text-destructive"
       >
@@ -166,7 +166,7 @@ function AddPinDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
         await create.mutateAsync({ destination, hostKey });
         onOpenChange(false);
       } catch (err) {
-        setServerError(errMessage(err, "Couldn't add the pin."));
+        setServerError(errMessage(err, "Couldn't save the host key."));
       }
     },
   });
@@ -176,10 +176,10 @@ function AddPinDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
     <Dialog open onOpenChange={formDialogOpenChange(onOpenChange)}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add destination pin</DialogTitle>
+          <DialogTitle>Add host key</DialogTitle>
           <DialogDescription>
             Add a host key you’ve verified with the destination’s administrator. Use this when the machine supplying
-            your keys can’t find the destination’s key, for example when its SSH config uses HostKeyAlias.
+            your SSH keys has no saved key for the destination.
           </DialogDescription>
         </DialogHeader>
         <form.Field name="destination">
@@ -255,7 +255,7 @@ function AddPinDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
             Cancel
           </Button>
           <Button onClick={() => void form.handleSubmit()} disabled={disabled}>
-            {create.isPending ? "Adding…" : "Add pin"}
+            {create.isPending ? "Adding…" : "Add host key"}
           </Button>
         </DialogFooter>
       </DialogContent>

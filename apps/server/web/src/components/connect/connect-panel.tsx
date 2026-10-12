@@ -158,7 +158,7 @@ export function ConnectPanel({
   }, [nodeId, machines, defaultNodeId, setNodeId]);
 
   const keyOptions: ComboboxOption[] = [
-    { value: "connecting", label: "Connecting machine’s own keys" },
+    { value: "connecting", label: "Keys on the connecting machine" },
     ...(nodes ?? [])
       .filter((n) => n.id !== nodeId || n.id === keyHome)
       .map((n) => ({
@@ -167,7 +167,7 @@ export function ConnectPanel({
         disabled: n.id === nodeId || !machineCanConnect(n.id),
         reason:
           n.id === nodeId
-            ? "Choose this machine’s own keys or another key machine."
+            ? "Use keys on this machine, or choose a different machine."
             : (machineBlocker(n.id) ?? undefined),
       })),
   ];
@@ -270,7 +270,7 @@ export function ConnectPanel({
         {
           message:
             enabledCount > 0
-              ? "Choose a connecting machine first."
+              ? "Choose a node to connect from first."
               : "No SSH-enabled machine is available. Enable SSH on a machine first.",
           gap: true,
         },
@@ -316,7 +316,7 @@ export function ConnectPanel({
       <div className="flex flex-col gap-4">
         <SshQueryStatus query={nodesQuery} label="connecting machines" />
         <Button type="button" onClick={() => setWizard(true)}>
-          SSH Wizard
+          Set up SSH
         </Button>
       </div>
     );
@@ -331,7 +331,7 @@ export function ConnectPanel({
         disabled={submitting}
         onClick={() => setWizard(true)}
       >
-        SSH Wizard
+        Set up SSH
       </Button>
       <FieldGroup className="gap-4">
         <Field>
@@ -359,7 +359,7 @@ export function ConnectPanel({
 
         <Field>
           <Label htmlFor={MACHINE_IDS.field}>
-            Connect through
+            Connect from
             {machineRequired && <RequiredMark />}
           </Label>
           <SearchableSelect
@@ -376,7 +376,7 @@ export function ConnectPanel({
               : "Choose a Subshell machine that can reach the destination. It runs SSH for this terminal."}
           </p>
           {nodeId !== "" && !machineReady && (
-            <p role="status" className="text-detail text-muted-foreground">
+            <p role="status" className="text-detail text-warning">
               {selectedBlocker} Choose another connecting machine to continue.
             </p>
           )}
@@ -413,10 +413,10 @@ export function ConnectPanel({
           </Button>
           <div id="ssh-advanced-options" hidden={!advanced && !keySourceProblem && refusal?.field !== "keys"}>
             <Field className="mt-3">
-              <Label htmlFor="connect-key-home">Use SSH keys from</Label>
+              <Label htmlFor="connect-key-home">Use keys from</Label>
               <SearchableSelect
                 id="connect-key-home"
-                placeholder="Choose a key machine"
+                placeholder="Choose a machine for keys"
                 value={keyHome || "connecting"}
                 options={keyOptions}
                 onValueChange={(id) => {
@@ -436,7 +436,8 @@ export function ConnectPanel({
               )}
               {!keyReady && !keySourceProblem && (
                 <p role="status" className="text-detail text-muted-foreground">
-                  The selected key machine is unavailable. Bring it online with SSH enabled, or choose another.
+                  The machine supplying your keys is unavailable. Bring it online and enable SSH in Subshell, or choose
+                  another machine.
                 </p>
               )}
               {refusal?.field === "keys" && (

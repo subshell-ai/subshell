@@ -49,7 +49,7 @@ it("opens on the SSH heading and destination trust", async () => {
       </QueryClientProvider>,
     );
     expect(await screen.findByRole("heading", { name: "SSH" })).toBeDefined();
-    expect(screen.getByText("Destination trust")).toBeDefined();
+    expect(screen.getByText("Saved host keys")).toBeDefined();
   } finally {
     globalThis.fetch = original;
   }
