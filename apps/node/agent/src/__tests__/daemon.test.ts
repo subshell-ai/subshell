@@ -480,7 +480,7 @@ async function startDaemon(
     };
     /** The harness normally awaits the first `ready`; refusal/legacy tests drive the loop themselves. */
     skipReady?: boolean;
-    /** Persist the harness config to the agent home BEFORE the daemon starts (the §5 register's `updateConfig` reads it back). */
+    /** Accepted for the §5 register call sites; persisting is now the harness default (see below). */
     saveConfig?: boolean;
   } = {},
 ): Promise<Harness> {
@@ -513,7 +513,18 @@ async function startDaemon(
     controlEncryptPublicKey: serverLink.publicKey,
     ...configPatch,
   };
-  if (persistFirst) await saveConfig(config);
+  // Isolate the agent home and persist THIS daemon's boot config into it,
+  // unconditionally. The connection hot-reload seam (design 2026-10-10 §A)
+  // reads `config.json` from the home on every beat and before every dial,
+  // and the production invariant it relies on is that a daemon always boots
+  // FROM that file. A shared or foreign home would let a daemon hot-swap onto
+  // another test's leftover credentials (a stranger's `serverUrl` included),
+  // so disk == boot is pinned here, per harness. The old `saveConfig: true`
+  // call sites (the §5 register's mid-heal snapshots) become redundant; the
+  // option is still accepted.
+  newHome();
+  void persistFirst;
+  await saveConfig(config);
   const exits: number[] = [];
   const h: Harness = { plane, config, keys, hostileKeys, serverLink, exits, stopped: Promise.resolve() };
   const promise = runDaemon(config, {
@@ -1089,6 +1100,7 @@ test("probeOnline: open-then-4410 on a handshake-mode plane still answers online
 });
 
 test("a wrong bearer key never gets a socket (upgrade refused)", async () => {
+  newHome(); // empty home: the pre-dial config reload finds no file, warns once, and keeps the running (wrong-key) identity
   const [keys, serverLink, nodeLink] = await Promise.all([keysReady, serverLinkReady, nodeLinkReady]);
   const plane = startPlane({ serverStatic: serverLink, nodePublicKey: nodeLink.publicKey });
   const config: NodeConfig = {
@@ -1137,6 +1149,7 @@ test("a wrong bearer key never gets a socket (upgrade refused)", async () => {
 // DISCRIMINATES: a sliced sleep answers SIGINT in ≲250 ms + slop; an
 // uninterruptible one would only exit at ~2000 ms — past every deadline here.
 test("SIGINT during the backoff sleep: exits 0 inside the raised slice budget and never dials again", async () => {
+  newHome(); // empty home: the pre-dial reload has no file to read, so the daemon keeps the boot identity it was given
   const [keys] = await Promise.all([keysReady]);
   const { lines, restore } = captureLogs();
   const exits: number[] = [];
@@ -2038,6 +2051,7 @@ describe("the link handshake (spec 2026-09-24 §4/§5)", () => {
 
   test("(c) legacy self-heal: register on connect 1, BOTH keys on disk, handshake on connect 2", async () => {
     newHome(); // the register's updateConfig reads/writes the agent home
+    const logs = captureLogs();
     const h = await startDaemon({
       saveConfig: true, // the file the §5 write path merges over
       config: { encryptKeyPair: undefined, controlEncryptPublicKey: undefined }, // new binary, OLD config
@@ -2053,6 +2067,12 @@ describe("the link handshake (spec 2026-09-24 §4/§5)", () => {
     // And the self-heal is done: the provisioned config handshakes WITHOUT another register.
     expect(h.plane.firstFrames.filter((f) => f === "register")).toEqual(["register"]);
     expect(h.plane.violations).toEqual([]);
+    // PR #359 review m1 (2026-10-10): the §5 write is the daemon's OWN. The
+    // identity tracker follows the in-memory mirror (persistLink), so no
+    // seam may report it as a foreign change — the false "config changed;
+    // reconnecting" line misleads exactly the operator this feature speaks to.
+    expect(logs.lines.some((l) => l.includes("config changed; reconnecting"))).toBe(false);
+    logs.restore();
   });
 
   test("(e) R11 rotation heal: 4411 refused kx drops the CONTROL PIN only, register re-presents the SAME static, next connect handshakes", async () => {
@@ -2579,4 +2599,85 @@ describe("pane-log retention wiring", () => {
       delete process.env.SUBSHELL_LOG_RETENTION_HOURS;
     }
   });
+});
+
+/* ------------------------------------------------------------------ */
+/* Credential hot-reload (design 2026-10-10 §A): the beat and the dial  */
+/* ------------------------------------------------------------------ */
+
+// Non-vacuous before flip: every test here starts through `startDaemon`, which
+// awaits the first `ready` — the config is never rewritten before the daemon
+// has an established socket to notice it on.
+
+test("config flip on disk reconnects within a beat without a process restart", async () => {
+  const logs = captureLogs();
+  const h = await startDaemon({ heartbeatMs: 30 });
+  const openedBefore = h.plane.opens;
+  await saveConfig({ ...h.config, nodeId: "flipped-node-id" });
+  await waitUntil(() => h.plane.opens > openedBefore, "redial after config flip");
+  expect(logs.lines.some((l) => l.includes("config changed; reconnecting as node flipped-node-id"))).toBe(true);
+  expect(logs.lines.some((l) => l.includes(NODE_KEY))).toBe(false); // the bearer never reaches the log
+  const lock = JSON.parse(readFileSync(lockPath(), "utf8")) as { nodeId: string };
+  expect(lock.nodeId).toBe("flipped-node-id"); // daemon.lock followed the swap
+  logs.restore();
+});
+
+test("a stuck-between-dials daemon picks up a rewritten config on its next dial (re-register incident)", async () => {
+  const logs = captureLogs();
+  const h = await startDaemon({ heartbeatMs: 10_000 }); // no beat: exercise the LOOP seam only
+  const openedBefore = h.plane.opens;
+  await saveConfig({ ...h.config, nodeId: "loop-flipped" });
+  closeAllSockets(h.plane, 1012, "force a redial"); // the incident shape: no live socket, backoff dials
+  await waitUntil(
+    () =>
+      logs.lines.some((l) => l.includes("config changed; reconnecting as node loop-flipped")) &&
+      h.plane.opens > openedBefore,
+    "loop-seam reload",
+  );
+  logs.restore();
+});
+
+test("unparsable config on disk is one warn line and keeps the live connection", async () => {
+  const logs = captureLogs();
+  const h = await startDaemon({ heartbeatMs: 30 });
+  writeFileSync(configPath(), "{ this is not json", { mode: 0o600 });
+  await sleep(120); // several beats against the broken file
+  expect(h.plane.opens).toBe(1); // no controlled close, no chaos
+  const warns = logs.lines.filter((l) => l.includes("config reload failed"));
+  expect(warns.length).toBe(1); // deduped: one line, not one per beat
+  expect(logs.lines.some((l) => l.includes("keeping the running identity"))).toBe(true);
+  await saveConfig({ ...h.config, nodeId: "after-good-write" }); // a good write after the bad one lands
+  await waitUntil(() => logs.lines.some((l) => l.includes("reconnecting as node after-good-write")), "recover");
+  logs.restore();
+});
+
+test("a parseable-but-un-dialable serverUrl keeps the live connection (the swap gate refuses the whole bundle)", async () => {
+  // PR #359 review M1 (2026-10-10): `loadConfig` proves the fields are
+  // STRINGS, and the WebSocket constructor throw has no catch between the
+  // dial and process exit — a beat that swapped in a hand-written
+  // `"serverUrl": "not a url"` would have dropped a HEALTHY socket and
+  // respawned the service straight into the same death. The gate must make
+  // the seam's stated worst-case (status quo) true for this shape too.
+  const logs = captureLogs();
+  const h = await startDaemon({ heartbeatMs: 30 });
+  await saveConfig({ ...h.config, serverUrl: "not a url" });
+  await sleep(120); // several beats against a file that parses but cannot dial
+  expect(h.plane.opens).toBe(1); // no swap, no close, no redial: the socket lives
+  const warns = logs.lines.filter((l) => l.includes("config reload failed"));
+  expect(warns.length).toBe(1); // deduped like every other refusal
+  expect(logs.lines.some((l) => l.includes("keeping the running identity"))).toBe(true);
+  // The refusal is not sticky: the next legitimate write lands and reconnects.
+  await saveConfig({ ...h.config, nodeId: "dialable-again" });
+  await waitUntil(() => logs.lines.some((l) => l.includes("reconnecting as node dialable-again")), "recover");
+  logs.restore();
+});
+
+test("a formatting-only config rewrite (same fields, reordered keys) costs no redial", async () => {
+  const h = await startDaemon({ heartbeatMs: 30 });
+  const raw = JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>;
+  const reordered: Record<string, unknown> = {};
+  for (const key of Object.keys(raw).reverse()) reordered[key] = raw[key];
+  writeFileSync(configPath(), JSON.stringify(reordered, null, 7), { mode: 0o600 });
+  await sleep(150); // several beats against a byte-different, field-identical file
+  expect(h.plane.opens).toBe(1);
 });

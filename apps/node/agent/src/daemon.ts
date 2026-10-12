@@ -20,7 +20,7 @@ import { buildSubshellsReport, maybeReportMaintenance, seedMaintenanceMemo } fro
 import { stopAllTails } from "./commands/tail.js";
 import { sweepStaleTransfers } from "./commands/transfer-sweep.js";
 import { cleanupStaleUploads } from "./commands/write-file.js";
-import { loadConfig, type NodeConfig, updateConfig } from "./config.js";
+import { applyConnectionFields, connectionIdentity, loadConfig, type NodeConfig, updateConfig } from "./config.js";
 import { registerRestart, setDaemonState } from "./dashboard/state.js";
 import { loadAndApplyDebugLogging } from "./debug-logging.js";
 import { mapOs } from "./enroll.js";
@@ -395,6 +395,9 @@ function readyEvent(
  * Local liveness contract with `subshell status`: a `daemon.lock` ({pid, startedAt,
  * nodeId, lastTickAt}) is written under the agent home at startup, refreshed on every
  * heartbeat tick, and removed on every exit path — so `status` never needs to dial.
+ * The connection identity hot-reloads from `config.json` on the beat and before
+ * every dial (design 2026-10-10 §A); a re-registration lands within one beat
+ * without a restart.
  *
  * @param config - the enrolled node's config (server, ids, pinned control key)
  * @param deps - test seams; production omits them entirely
@@ -407,7 +410,8 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   const heartbeatMs = deps.heartbeatMs ?? HEARTBEAT_MS;
   const inventoryMs = deps.inventoryMs ?? INVENTORY_PERIOD_MS;
   const nowMs = deps.now ?? ((): number => Date.now());
-  const wsUrl = resolveWsUrl(config); // persisted-at-enroll URL wins (ledger 17c)
+  // REMOVED: const wsUrl = resolveWsUrl(config); // persisted-at-enroll URL wins (ledger 17c)
+  // (dial resolves per-connection now — see runConnection)
   // The persisted debug flag, applied before the first frame is handled. The
   // environment still wins, and a machine with nothing stored stays at `info`.
   await loadAndApplyDebugLogging();
@@ -419,7 +423,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   // (the last reader, the `ready` env declarations, moved to the plane's
   // `detect` round trip), and nothing here may delete user data (spec §6: no
   // users, leave it on disk).
-  const controlPublicKey = parsePinnedKey(config.controlPublicKey);
+  let pinnedControlKey = parsePinnedKey(config.controlPublicKey); // re-parsed on a hot swap
 
   // Keep process identity stable while refreshing the service manager's facts.
   const runtime = deps.runtime === undefined ? await collectRuntime().catch(() => null) : deps.runtime;
@@ -599,6 +603,90 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
     }
   };
   writeLiveness();
+
+  // Hot-reload of the connection identity (design 2026-10-10 §A). config.json is
+  // the live home of the node's credentials, and three writers rewrite it while
+  // this process runs: `subshell setup` (re-registration), `set-server-url`, and
+  // §5's register self-heal. Each beat and each between-dials moment compares the
+  // connection-affecting fields (parsed-value equality, never file bytes); on a
+  // real change the fields are swapped IN PLACE — every consumer holds this same
+  // object, the discipline `persistLink` already follows — and the caller hands
+  // the reconnect loop a fresh dial. A config the loader rejects, or whose
+  // dial target could not open a socket, costs ONE warn line (deduped by
+  // message) and the running identity, never a dropped socket: a bad write can
+  // only ever preserve the status quo. The log names the nodeId only — the
+  // bearer key must never reach a log line.
+  let liveIdentity = connectionIdentity(config);
+  let lastBadConfig = "";
+  // async because `loadConfig` is: the loader is the same promise-returning
+  // reader every CLI command uses, and the seam must not re-implement it.
+  const refreshConnectionConfig = async (): Promise<boolean> => {
+    // The identity this reader compared against when it started. A beat and
+    // the loop-seam check can overlap; if a concurrent refresh swapped while
+    // this `loadConfig` was in flight, this reader's disk snapshot is older
+    // than the state it would compare against — yielding costs one beat
+    // (the winner's identity is on disk too, so the next read converges)
+    // where applying it would swap the NEWER credentials back out.
+    const baseline = liveIdentity;
+    let fresh: NodeConfig;
+    try {
+      fresh = await loadConfig();
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      if (detail !== lastBadConfig) {
+        lastBadConfig = detail;
+        log(`config reload failed: ${detail}; keeping the running identity`);
+      }
+      return false;
+    }
+    const next = connectionIdentity(fresh);
+    if (next === liveIdentity) return false;
+    let pinned: typeof pinnedControlKey;
+    try {
+      pinned = parsePinnedKey(fresh.controlPublicKey);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      if (detail !== lastBadConfig) {
+        lastBadConfig = detail;
+        log(`config reload failed: control key unparsable (${detail}); keeping the running identity`);
+      }
+      return false; // whole-bundle rule: a swap half-applied is worse than none
+    }
+    // The whole-bundle rule reaches the DIAL TARGET too. `loadConfig` proves
+    // the fields are STRINGS, not that the result opens a socket, and the
+    // WebSocket constructor's throw has no catch between a dial and process
+    // exit (runConnection reject -> the loop -> runDaemon -> cli) — swapping
+    // an un-dialable `serverUrl` in would trade a healthy connection for a
+    // crash loop the service manager respawns into the same death. Validate
+    // exactly what the next dial will dial, and refuse the whole bundle when
+    // it will not. (PR #359 review M1, 2026-10-10.)
+    const dialTarget = resolveWsUrl(fresh);
+    try {
+      const url = new URL(dialTarget);
+      if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+        throw new Error(`scheme "${url.protocol}" is not ws: or wss:`);
+      }
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      if (detail !== lastBadConfig) {
+        lastBadConfig = detail;
+        log(`config reload failed: dial target un-parsable (${detail}); keeping the running identity`);
+      }
+      return false;
+    }
+    if (liveIdentity !== baseline) return false; // stale snapshot — see `baseline`
+    lastBadConfig = "";
+    liveIdentity = next;
+    applyConnectionFields(config, fresh);
+    pinnedControlKey = pinned;
+    setDaemonState({ serverUrl: config.serverUrl, nodeId: config.nodeId });
+    // The lock follows the swap NOW, not on a future beat: the first dial on
+    // the new identity can be refused (a re-registration mid-flight), and a
+    // never-establishing socket arms no heartbeat to refresh the lock with.
+    writeLiveness();
+    log(`config changed; reconnecting as node ${config.nodeId}`);
+    return true;
+  };
 
   let socket: WsLike | undefined;
   /**
@@ -814,7 +902,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       send(ws, { type: "error", code: "verify", message: "malformed" });
       return;
     }
-    const outcome = await verifyCommand(jws, controlPublicKey, {
+    const outcome = await verifyCommand(jws, pinnedControlKey, {
       nodeId: config.nodeId,
       jtiLru,
       seqTracker,
@@ -892,11 +980,12 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   const runConnection = (): Promise<WsClose> =>
     new Promise<WsClose>((resolve, reject) => {
       seqTracker.reset(); // PER-CONNECT: ordering restarts on a fresh stream (spec §4)
+      const dialUrl = resolveWsUrl(config); // per-DIAL: a hot-swapped serverUrl must land here
       let ws: WsLike;
       try {
-        ws = new WebSocketImpl(wsUrl, { headers: { Authorization: `Bearer ${config.nodeKey}` } });
+        ws = new WebSocketImpl(dialUrl, { headers: { Authorization: `Bearer ${config.nodeKey}` } });
       } catch (err) {
-        reject(new Error(`cannot open ${wsUrl}: ${err instanceof Error ? err.message : String(err)}`));
+        reject(new Error(`cannot open ${dialUrl}: ${err instanceof Error ? err.message : String(err)}`));
         return;
       }
       socket = ws;
@@ -946,6 +1035,12 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
           for (const key of Object.keys(patch) as (keyof NodeConfig)[]) {
             (config as unknown as Record<string, unknown>)[key] = (next as unknown as Record<string, unknown>)[key];
           }
+          // The mirror moved the live identity, so the identity tracker moves
+          // with it: the daemon's OWN §5 heal write is not a foreign change,
+          // and without this the next seam prints a false "config changed;
+          // reconnecting" line for a credential the node just healed itself
+          // (PR #359 review m1, 2026-10-10).
+          liveIdentity = connectionIdentity(config);
         });
         // Gate the redial on the write (see {@link provisioning}): a FAILED store
         // settles the gate quietly too — the negotiator's own persist catch
@@ -965,7 +1060,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       link = connLink;
       ws.addEventListener("open", () => {
         attempt = 0; // a successful open resets the backoff ladder
-        log(`connected ${wsUrl} as node ${config.nodeId}`);
+        log(`connected ${dialUrl} as node ${config.nodeId}`);
         setDaemonState({ connected: true });
         // The handshake is this connection's first turn (ruling R6: no server
         // reply is awaited — derivation happens against the PINNED control key
@@ -1039,6 +1134,26 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
           // when the machine had no panes running — the commonest case for
           // `subshell maintenance off`, where there is nothing to die at all.
           maybeReportMaintenance(ctx);
+          // A healthy connection checks too: the beat that just refreshed the
+          // lock is the beat that notices the plane handed us new credentials.
+          // The close is the ordinary non-terminal kind — finish() clears this
+          // very timer, so one change is applied once and redialed once (a
+          // second, overlapping beat compares against the identity the first
+          // one already swapped in, sees equality, and closes nothing).
+          void refreshConnectionConfig()
+            .then((changed) => {
+              if (!changed) return;
+              try {
+                ws.close(1000, "config changed");
+              } catch {
+                /* already closing — the loop redials on the new identity anyway */
+              }
+            })
+            .catch((err: unknown) => {
+              log(
+                `config reload failed: ${err instanceof Error ? err.message : String(err)}; keeping the running identity`,
+              );
+            });
         }, heartbeatMs);
         // Periodic `inventory` push — the "every 5 min" leg of spec §7
         // (P3-T8c). The timer's lifecycle mirrors the heartbeat's — armed
@@ -1120,6 +1235,9 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       // backoff sleep exits 0 here — the first Ctrl-C never waits out a sleep or a dial.
       if (shuttingDown) stop(0);
       await provisioning; // §5: R7's provisioning close must not redial past its own key write
+      // The incident belt: a daemon stuck between dials (refused bearer, dead
+      // plane) has NO heartbeat beat to check on — re-check before every dial.
+      await refreshConnectionConfig();
       const close = await runConnection();
       if (shuttingDown) stop(0); // graceful: the socket closed cleanly on our request
       if (close.code === NODE_CLOSE_SUPERSEDED) {

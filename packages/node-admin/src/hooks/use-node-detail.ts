@@ -223,8 +223,9 @@ export function useNodeLogSlice(id: string) {
  * On the plane this is OWNER-only: the node dials whatever address is named,
  * carrying the key this plane holds. On the node's own dashboard it is the
  * same act the CLI's `configure` performs — the machine's own file, its own
- * credential — and the response has the same shape either way. It takes
- * effect on the node's next restart, which this does not perform.
+ * credential — and the response has the same shape either way. The node
+ * hot-reloads the new address on its next heartbeat beat, within about fifteen
+ * seconds and without a restart; this call performs no restart.
  */
 export function useSetNodeServerUrl(id: string) {
   return useMutation({

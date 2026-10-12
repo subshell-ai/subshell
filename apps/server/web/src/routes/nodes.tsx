@@ -1,5 +1,5 @@
 import type { Node } from "@internal/node-admin";
-import { Button, confirmAction, errMessage } from "@internal/node-admin";
+import { Button, confirmAction, errMessage, Input } from "@internal/node-admin";
 import { createFileRoute } from "@tanstack/react-router";
 import { KeyRound, List, Plus, Server } from "lucide-react";
 import { useState } from "react";
@@ -11,9 +11,11 @@ import { NodeTable } from "@/components/nodes/node-table";
 import { SetupKeysSection } from "@/components/nodes/setup-keys-section";
 import { PageHeader } from "@/components/page-header";
 import { Segmented } from "@/components/ui/segmented";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useDeleteNode, useNodes } from "@/hooks/use-nodes";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { canAddNode, NODE_ENROLLMENT_OFF_COPY } from "@/lib/node-enrollment";
+import { filterNodes, NODE_FILTERS_OFF, type NodeFilters } from "@/lib/node-filter";
 
 /** The node table is the default; setup keys have a separate URL tab. */
 const NODES_TABS = [
@@ -44,6 +46,9 @@ function NodesPage() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   const nodes = data?.nodes ?? [];
+  // Filters narrow the table without changing the setup keys view.
+  const [filters, setFilters] = useState<NodeFilters>(NODE_FILTERS_OFF);
+  const visible = filterNodes(nodes, filters);
 
   /** The node's config page (`/nodes/$id`, spec §10). */
   function goDetail(id: string) {
@@ -115,6 +120,63 @@ function NodesPage() {
         fill={false}
       />
 
+      {/* The toolbar, shown only when the current view has rows to narrow
+          (the enrollment empty state owns the no-rows case, and the keys
+          ledger has no nodes to filter). `type="search"` is what makes the
+          Input a searchbox to AT — placeholder text is a visual affordance,
+          not an accessible one. */}
+      {active !== "keys" && nodes.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            type="search"
+            value={filters.query}
+            onChange={(e) => setFilters((f) => ({ ...f, query: e.target.value }))}
+            placeholder="Search by name or hostname…"
+            aria-label="Search nodes"
+            className="max-w-sm"
+          />
+          {/* `items` on the Root is Base UI's label map — without it the
+              trigger shows the raw value string (see ui/select.tsx header);
+              this is how `routes/index.tsx` wires its own selects. */}
+          <Select
+            value={filters.status}
+            onValueChange={(v) => setFilters((f) => ({ ...f, status: v as NodeFilters["status"] }))}
+            items={[
+              { value: "all", label: "All status" },
+              { value: "online", label: "Online" },
+              { value: "offline", label: "Offline" },
+            ]}
+          >
+            <SelectTrigger aria-label="Filter by status" className="w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All status</SelectItem>
+              <SelectItem value="online">Online</SelectItem>
+              <SelectItem value="offline">Offline</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select
+            value={filters.access}
+            onValueChange={(v) => setFilters((f) => ({ ...f, access: v as NodeFilters["access"] }))}
+            items={[
+              { value: "all", label: "All access" },
+              { value: "yours", label: "Yours" },
+              { value: "shared", label: "Shared" },
+            ]}
+          >
+            <SelectTrigger aria-label="Filter by access" className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All access</SelectItem>
+              <SelectItem value="yours">Yours</SelectItem>
+              <SelectItem value="shared">Shared</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
       {active === "keys" ? (
         <SetupKeysSection />
       ) : (
@@ -166,9 +228,19 @@ function NodesPage() {
             />
           )}
 
-          {nodes.length > 0 && (
+          {nodes.length > 0 && visible.length === 0 && (
+            <EmptyState
+              icon={Server}
+              title="No nodes match"
+              description="No node matches the current search and filters."
+              actionLabel="Clear filters"
+              onAction={() => setFilters(NODE_FILTERS_OFF)}
+            />
+          )}
+
+          {visible.length > 0 && (
             <NodeTable
-              nodes={nodes}
+              nodes={visible}
               onOpenConfig={goDetail}
               onShare={goDetail}
               onDelete={(node) => void remove(node)}

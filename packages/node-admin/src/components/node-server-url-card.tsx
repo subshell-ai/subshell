@@ -38,7 +38,7 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
     setSaved(null);
     const ok = await confirmAction({
       title: "Change this node's server?",
-      description: `After restarting, "${node.name}" will connect to ${url.trim()} using its existing key, so use only a server you trust. If that server doesn't recognize the node, you'll need terminal access to the node's machine to change the address back.`,
+      description: `"${node.name}" will try to connect to ${url.trim()} within about fifteen seconds, without restarting, using its existing key, so use only a server you trust. If that server doesn't recognize the node, you'll need terminal access to the node's machine to change the address back.`,
       confirmLabel: "Change server",
       danger: true,
     });
@@ -52,7 +52,7 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
     }
   }
 
-  /** Restarting is what applies it, and it is the obvious next thing to want. */
+  /** The beat already applies it; a restart is still the obvious next thing to want. */
   async function restart(): Promise<void> {
     setFailure(null);
     try {
@@ -68,8 +68,8 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
       <CardHeader>
         <CardTitle>Control plane</CardTitle>
         <CardDescription>
-          Change the server address this node connects to after its next restart. The node keeps its existing identity
-          and credentials.
+          Change the server address this node connects to. It picks up the address within about fifteen seconds, without
+          restarting, and keeps its existing identity and credentials.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -115,7 +115,7 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
               disabledReason={"Wait for the service action to finish."}
               onClick={() => void restart()}
             >
-              Restart to apply
+              Restart anyway
             </Button>
           )}
         </div>
