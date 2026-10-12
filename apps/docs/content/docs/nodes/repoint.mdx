@@ -9,6 +9,20 @@ Change the server address or credential stored by an enrolled node.
 
 Use this when your server moves to a different address or you need to store a rotated node key. The node keeps its ID and the server signing key it already trusts.
 
+## Automatic LAN connections
+
+A paired node checks for a faster direct connection when it starts or reconnects.
+It verifies that each address belongs to the control plane it already trusts,
+and keeps your configured server address as the fallback. Previously verified
+address hints let it try the LAN even when the public address is unavailable.
+
+Selection currently covers private IPv4 and mesh addresses. The node keeps a
+healthy connection in place; it doesn't reconnect just to switch routes. Its log reports the selected address and probe time. The browser
+continues using the address you opened, so its OAuth callback doesn't change.
+
+Both the server and node need versions that support discovery. Older servers
+continue to use the configured address.
+
 ## Change the address
 
 ```bash

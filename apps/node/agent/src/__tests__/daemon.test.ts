@@ -458,6 +458,7 @@ async function startDaemon(
   overrides: Partial<
     Pick<
       DaemonDeps,
+      | "routeSelector"
       | "heartbeatMs"
       | "inventoryMs"
       | "rand"
@@ -469,6 +470,8 @@ async function startDaemon(
       | "retentionPass"
     >
   > & {
+    routeFactory?: (config: NodeConfig) => DaemonDeps["routeSelector"];
+    discoverRoutes?: boolean;
     config?: Partial<NodeConfig>;
     /** Handshake tweaks for the fake plane (refusals, silence, the R11 register window hook). */
     plane?: {
@@ -484,7 +487,15 @@ async function startDaemon(
     saveConfig?: boolean;
   } = {},
 ): Promise<Harness> {
-  const { config: configPatch, plane: planeOpts, skipReady, saveConfig: persistFirst, ...daemonOverrides } = overrides;
+  const {
+    config: configPatch,
+    plane: planeOpts,
+    skipReady,
+    saveConfig: persistFirst,
+    routeFactory,
+    discoverRoutes,
+    ...daemonOverrides
+  } = overrides;
   const [keys, hostileKeys, nodeLink, serverLink] = await Promise.all([
     keysReady,
     hostileKeysReady,
@@ -528,6 +539,7 @@ async function startDaemon(
   const exits: number[] = [];
   const h: Harness = { plane, config, keys, hostileKeys, serverLink, exits, stopped: Promise.resolve() };
   const promise = runDaemon(config, {
+    routeSelector: routeFactory?.(config) ?? (discoverRoutes ? undefined : null),
     runtime: null, // no `service status` spawn in tests; the report is Task 11's own suite
     rand: () => 0, // zero-jitter → instant reconnects (tests must not wait out backoff)
     heartbeatMs: 3_600_000, // interval effectively off; the heartbeat test overrides
@@ -690,7 +702,7 @@ test("runDaemon dials the persisted nodeWsUrl; old configs still dial the derive
   await expect(
     runDaemon(
       { ...base, serverUrl: "https://control.example", nodeWsUrl: "wss://pin.example/ws/node" },
-      { WebSocketImpl: RecordingWs, runtime: null },
+      { routeSelector: null, WebSocketImpl: RecordingWs, runtime: null },
     ),
   ).rejects.toThrow(/cannot open wss:\/\/pin\.example\/ws\/node/);
   expect(dialed).toEqual(["wss://pin.example/ws/node"]);
@@ -698,7 +710,10 @@ test("runDaemon dials the persisted nodeWsUrl; old configs still dial the derive
   // Absent persisted URL (config from before 17c) ⇒ the derived path, verbatim.
   dialed.length = 0;
   await expect(
-    runDaemon({ ...base, serverUrl: "https://control.example" }, { WebSocketImpl: RecordingWs, runtime: null }),
+    runDaemon(
+      { ...base, serverUrl: "https://control.example" },
+      { routeSelector: null, WebSocketImpl: RecordingWs, runtime: null },
+    ),
   ).rejects.toThrow(/cannot open wss:\/\/control\.example\/ws\/node/);
   expect(dialed).toEqual(["wss://control.example/ws/node"]);
 });
@@ -734,7 +749,7 @@ test("a loopback nodeWsUrl is ignored only when serverUrl names a remote plane",
   await expect(
     runDaemon(
       { ...base, serverUrl: "https://control.example", nodeWsUrl: "ws://localhost:3080/ws/node" },
-      { WebSocketImpl: RecordingWs, runtime: null },
+      { routeSelector: null, WebSocketImpl: RecordingWs, runtime: null },
     ),
   ).rejects.toThrow(/cannot open wss:\/\/control\.example\/ws\/node/);
   expect(dialed).toEqual(["wss://control.example/ws/node"]);
@@ -744,7 +759,7 @@ test("a loopback nodeWsUrl is ignored only when serverUrl names a remote plane",
   await expect(
     runDaemon(
       { ...base, serverUrl: "http://localhost:3080", nodeWsUrl: "ws://localhost:3080/ws/node" },
-      { WebSocketImpl: RecordingWs, runtime: null },
+      { routeSelector: null, WebSocketImpl: RecordingWs, runtime: null },
     ),
   ).rejects.toThrow(/cannot open ws:\/\/localhost:3080\/ws\/node/);
   expect(dialed).toEqual(["ws://localhost:3080/ws/node"]);
@@ -754,7 +769,7 @@ test("a loopback nodeWsUrl is ignored only when serverUrl names a remote plane",
   await expect(
     runDaemon(
       { ...base, serverUrl: "http://localhost:3080", nodeWsUrl: "wss://pin.example/ws/node" },
-      { WebSocketImpl: RecordingWs, runtime: null },
+      { routeSelector: null, WebSocketImpl: RecordingWs, runtime: null },
     ),
   ).rejects.toThrow(/cannot open wss:\/\/pin\.example\/ws\/node/);
   expect(dialed).toEqual(["wss://pin.example/ws/node"]);
@@ -766,7 +781,7 @@ test("a loopback nodeWsUrl is ignored only when serverUrl names a remote plane",
     await expect(
       runDaemon(
         { ...base, serverUrl: "https://control.example", nodeWsUrl: loopbackPin },
-        { WebSocketImpl: RecordingWs, runtime: null },
+        { routeSelector: null, WebSocketImpl: RecordingWs, runtime: null },
       ),
     ).rejects.toThrow(/cannot open wss:\/\/control\.example\/ws\/node/);
     expect(dialed).toEqual(["wss://control.example/ws/node"]);
@@ -777,7 +792,7 @@ test("a loopback nodeWsUrl is ignored only when serverUrl names a remote plane",
   await expect(
     runDaemon(
       { ...base, serverUrl: "https://control.example", nodeWsUrl: "wss://plane.localhost/ws/node" },
-      { WebSocketImpl: RecordingWs, runtime: null },
+      { routeSelector: null, WebSocketImpl: RecordingWs, runtime: null },
     ),
   ).rejects.toThrow(/cannot open wss:\/\/control\.example\/ws\/node/);
   expect(dialed).toEqual(["wss://control.example/ws/node"]);
@@ -788,7 +803,7 @@ test("a loopback nodeWsUrl is ignored only when serverUrl names a remote plane",
   await expect(
     runDaemon(
       { ...base, serverUrl: "https://control.example", nodeWsUrl: "not a url" },
-      { WebSocketImpl: RecordingWs, runtime: null },
+      { routeSelector: null, WebSocketImpl: RecordingWs, runtime: null },
     ),
   ).rejects.toThrow(/cannot open not a url/);
   expect(dialed).toEqual(["not a url"]);
@@ -1393,6 +1408,7 @@ test("a burst of frames in one turn is verified in ARRIVAL order, not signature-
   const h = await startDaemon({
     tmux: fakeTmux,
     meta: { get: async () => undefined, list: async () => [] } as unknown as SubshellMetaStore,
+    routeSelector: null,
     WebSocketImpl: wrapRealWsWithPump(pumps),
   });
   // FIVE, not three: measured on this machine, three concurrent
@@ -1437,6 +1453,7 @@ test("an oversize frame is dropped on ARRIVAL, not queued behind the chain", asy
   const h = await startDaemon({
     tmux: { sendInput: async () => {} } as unknown as TmuxRunner,
     meta: { get: async () => undefined, list: async () => [] } as unknown as SubshellMetaStore,
+    routeSelector: null,
     WebSocketImpl: wrapRealWsWithPump(pumps),
   });
   const input = await signEnvelope(h, { type: "input", subshellId: HEX_A, data: "x" }, "admit-1", 1);
@@ -1480,6 +1497,7 @@ test("undecryptable bytes of EVERY admitted binary shape close the link 4410, ne
     saveConfig: true,
     tmux: { sendInput: async () => {} } as unknown as TmuxRunner,
     meta: { get: async () => undefined, list: async () => [] } as unknown as SubshellMetaStore,
+    routeSelector: null,
     WebSocketImpl: wrapRealWsWithPump(pumps),
   });
   const shapes: DeliveredFrame[] = [Buffer.alloc(5, 7), new Uint8Array([1, 2, 3]), new ArrayBuffer(4)];
@@ -1528,6 +1546,7 @@ test("an oversize BINARY frame is refused on ARRIVAL exactly like an oversize te
   const h = await startDaemon({
     tmux: { sendInput: async () => {} } as unknown as TmuxRunner,
     meta: { get: async () => undefined, list: async () => [] } as unknown as SubshellMetaStore,
+    routeSelector: null,
     WebSocketImpl: wrapRealWsWithPump(pumps),
   });
   const input = await signEnvelope(h, { type: "input", subshellId: HEX_A, data: "x" }, "bigbytes-1", 1);
@@ -1880,7 +1899,11 @@ function sendCount(sock: { sends: Array<string | Uint8Array> } | undefined): num
 
 test("periodic inventory: ticks push on the interval; close clears the loop; the reconnect arms exactly one", async () => {
   const sockets: Array<{ sends: Array<string | Uint8Array> }> = [];
-  const h = await startDaemon({ inventoryMs: 40, WebSocketImpl: wrapRealWs(sockets, { throwOnSend: false }) });
+  const h = await startDaemon({
+    inventoryMs: 40,
+    routeSelector: null,
+    WebSocketImpl: wrapRealWs(sockets, { throwOnSend: false }),
+  });
   // Connect push + two periodic ticks (T8b pinned the beat's existence and
   // order; this pins that it REPEATS and lands on the live socket) — counted
   // where they are readable: the plane decrypts established inbound.
@@ -1912,7 +1935,7 @@ test("a throwing send costs a log line, never the process — a lost ciphertext 
   // fresh streams carries the later ticks.
   const state = { throwOnSend: false };
   const sockets: Array<{ sends: Array<string | Uint8Array> }> = [];
-  const h = await startDaemon({ inventoryMs: 40, WebSocketImpl: wrapRealWs(sockets, state) });
+  const h = await startDaemon({ inventoryMs: 40, routeSelector: null, WebSocketImpl: wrapRealWs(sockets, state) });
   await waitFor(h, () => count(h, (e) => e.type === "inventory") >= 2, "connect push + first tick");
   const { lines, restore } = captureLogs();
   state.throwOnSend = true;
@@ -2543,6 +2566,16 @@ describe("pane-log retention wiring", () => {
     }
   });
 
+  test("a stopped daemon leaves no retention timer running", async () => {
+    let passes = 0;
+    const h = await startDaemon({ retentionPass: async () => void passes++, retentionMs: 20 });
+    closeAllSockets(h.plane, 4409, "test stop");
+    await h.stopped;
+    const atStop = passes;
+    await sleep(70);
+    expect(passes).toBe(atStop);
+  });
+
   test("keep-forever (0 days + 0 hours) runs no pass at all", async () => {
     let passes = 0;
     const h = await startDaemon({
@@ -2705,6 +2738,60 @@ test.each([
       () => eventTypes(h).filter((type) => type === "ready").length > 1,
       "valid settings reconnect after refusal",
     );
+  } finally {
+    logs.restore();
+  }
+});
+
+test("a failed automatic route redials through the configured endpoint", async () => {
+  let calls = 0;
+  let failures = 0;
+  const h = await startDaemon({
+    routeFactory: (config) => ({
+      select: async () =>
+        ++calls === 1
+          ? { url: "ws://127.0.0.1:1/ws/node", authorization: "NodeRoute unusable", automatic: true }
+          : { url: wsUrlFor(config.serverUrl), authorization: `Bearer ${NODE_KEY}`, automatic: false },
+      failed: () => {
+        failures++;
+      },
+    }),
+  });
+  expect(calls).toBe(2);
+  expect(failures).toBe(1);
+  expect(eventTypes(h)).toContain("ready");
+});
+
+test("an unestablished alternate cannot clear the pinned identity with a repair close", async () => {
+  let failed = false;
+  const h = await startDaemon({
+    skipReady: true,
+    plane: { refuseKxUntilRegister: "repair" },
+    routeFactory: (config) => ({
+      select: async () => ({ url: wsUrlFor(config.serverUrl), authorization: `Bearer ${NODE_KEY}`, automatic: true }),
+      failed: () => {
+        failed = true;
+        throw new DaemonStopped(0);
+      },
+    }),
+  });
+  await h.stopped;
+  expect(failed).toBe(true);
+  expect(h.config.controlEncryptPublicKey).toBe(h.serverLink.publicKey);
+  expect(h.plane.firstFrames).not.toContain("register");
+});
+
+test("automatic discovery follows a hot-reloaded configured endpoint", async () => {
+  const logs = captureLogs();
+  try {
+    const h = await startDaemon({ heartbeatMs: 30, discoverRoutes: true });
+    const nextUrl = `${wsUrlFor(h.config.serverUrl)}?reload=automatic`;
+    await saveConfig({ ...h.config, nodeWsUrl: nextUrl });
+    await waitUntil(
+      () => eventTypes(h).filter((type) => type === "ready").length > 1,
+      "route selection reconnects after repointing",
+    );
+    expect(logs.lines.some((line) => line.includes(`connected ${nextUrl} as node`))).toBe(true);
   } finally {
     logs.restore();
   }

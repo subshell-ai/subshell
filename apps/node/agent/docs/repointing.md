@@ -74,3 +74,49 @@ live identity; malformed settings leave the current connection running. The
 URL check must reject WebSocket fragments, including an empty `#`, and the
 credential must be a valid HTTP header value. Validation failures must never
 log the credential, including through a constructor's error message.
+
+
+## Automatic direct connections
+
+At startup and reconnect, a paired daemon probes its configured endpoint and up
+to eight private IPv4 or mesh endpoints advertised by that same control plane.
+`route-selection.ts` requires a gain of at least 20 ms and 20% before preferring
+a different working route. It keeps a healthy socket in place: switching one
+would interrupt terminal streams. A failed direct WebSocket gets a 60-second
+cooldown, and a direct handshake has a 10-second deadline.
+
+Discovery uses fresh sessions from the existing pinned-key link encryption.
+The node key is inside the encrypted HTTP request, never an Authorization
+header on an automatic probe. An authenticated reply supplies a one-use,
+15-second upgrade ticket for alternative routes. The configured endpoint keeps
+its existing Bearer authentication for proxy compatibility. The real WebSocket
+still completes its ordinary encrypted handshake. A direct endpoint's close before that handshake cannot
+clear the pin, request rollback, or supersede the daemon.
+
+`<dataDir>/node-routes.json` holds address hints only, scoped to the node,
+configured endpoint and pinned encryption identity. This lets a later boot try
+previously advertised LAN addresses when the public endpoint is unavailable;
+each hint must authenticate again. Discovery never overwrites `serverUrl` or
+`nodeWsUrl`. A configure/re-enroll that changes that scope ignores the cache.
+Older servers and unpaired nodes retain their configured connection behavior.
+Browser connections, OAuth callbacks, downloads and pane callback URLs are
+outside this selector.
+
+
+### Docker regression fixture
+
+`scripts/cli-e2e/node-routes-docker.ts` runs the real source server and enrolled
+daemon on separate Docker networks, with a TCP proxy adding 80 ms each way to
+the configured route. After building workspace packages with `bunx turbo build`,
+run `bun scripts/cli-e2e/node-routes-docker.ts`. The default image is
+`desktop-builder:local`; `ROUTE_TEST_IMAGE` can name another Linux image with
+Bun and tmux installed.
+
+The fixture checks LAN selection, public fallback after LAN loss, LAN recovery,
+cached LAN access during a public outage, and rejection of a different server
+that takes over the cached LAN address. Each scenario requires a fresh daemon
+connection and an online runtime reported by the real server. The configured
+address must remain unchanged. Accounts, credentials, databases and containers
+belong to the fixture and are removed when it finishes; the repository is
+mounted read-only and no live service is used. These measurements exercise
+route selection under injected latency, not terminal echo or browser routing.

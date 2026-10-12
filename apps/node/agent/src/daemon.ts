@@ -31,6 +31,7 @@ import { clearLock, writeLock } from "./lock.js";
 import { log } from "./log.js";
 import { createRetentionPass, PANE_LOG_RETENTION_PASS_MS, resolveLogRetention } from "./pane-log-retention.js";
 import { noteSweepScheduled } from "./retention-settings.js";
+import { type NodeRoute, NodeRouteSelector } from "./route-selection.js";
 import { collectRuntime, refreshServiceRuntime } from "./runtime.js";
 import { selfInvokePrefix } from "./self-invoke.js";
 import { SubshellMetaStore } from "./subshell-meta.js";
@@ -149,6 +150,8 @@ export type WsConstructor = new (url: string, options?: { headers?: Record<strin
 
 /** Injectable seams (all optional; production calls `runDaemon(config)`). */
 export interface DaemonDeps {
+  /** Injectable route discovery; null keeps isolated socket tests off the network. */
+  routeSelector?: Pick<NodeRouteSelector, "select" | "failed"> | null;
   /** Epoch-ms clock (default wall clock) — stamps heartbeat/inventory `ts`. */
   now?: () => number;
   /** Jitter source in [0, 1) for the backoff (default `Math.random`). */
@@ -200,6 +203,8 @@ export interface DaemonDeps {
 }
 
 interface WsClose {
+  /** Whether this socket proved the pinned control-plane identity before closing. */
+  authenticated?: boolean;
   /** Close code observed on the socket (1006 when the transport just died). */
   code: number;
   /** Close reason text (may be empty). */
@@ -410,6 +415,8 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   const heartbeatMs = deps.heartbeatMs ?? HEARTBEAT_MS;
   const inventoryMs = deps.inventoryMs ?? INVENTORY_PERIOD_MS;
   const nowMs = deps.now ?? ((): number => Date.now());
+  let routeSelector = deps.routeSelector;
+  let routeScope = "";
   // The persisted debug flag, applied before the first frame is handled. The
   // environment still wins, and a machine with nothing stored stays at `info`.
   await loadAndApplyDebugLogging();
@@ -546,6 +553,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       readCurrent: () => loadConfig(),
       onReadError: (message) => log(message),
     });
+  let retentionTimer: ReturnType<typeof setInterval> | undefined;
   if (!retention.forever) {
     const logSweepFailure = (err: unknown): void => {
       log(`pane log retention pass failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -563,7 +571,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
     // Unref'd: the socket and heartbeat keep the process alive, a sweep must
     // not be what holds one open (and must not hold a test process, whose
     // daemon unwinds through the injected `exit` rather than the process).
-    const retentionTimer = setInterval(() => {
+    retentionTimer = setInterval(() => {
       void retentionPass().catch(logSweepFailure);
     }, deps.retentionMs ?? PANE_LOG_RETENTION_PASS_MS);
     retentionTimer.unref?.();
@@ -717,6 +725,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
    */
   let provisioning: Promise<void> = Promise.resolve();
   let shuttingDown = false;
+  const discoveryAbort = new AbortController();
   /**
    * Has this process already settled the update transaction, either way?
    *
@@ -747,6 +756,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   const onSignal = (): void => {
     if (shuttingDown) return;
     shuttingDown = true;
+    discoveryAbort.abort();
     log("signal received, closing the connection (graceful exit)");
     try {
       socket?.close(1000, "shutdown");
@@ -983,15 +993,16 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   };
 
   /** Open one socket; resolves with the close event when the stream ends. */
-  const runConnection = (): Promise<WsClose> =>
+  const runConnection = (route: NodeRoute): Promise<WsClose> =>
     new Promise<WsClose>((resolve, reject) => {
+      const wsUrl = route.url;
       seqTracker.reset(); // PER-CONNECT: ordering restarts on a fresh stream (spec §4)
-      const dialUrl = resolveWsUrl(config); // per-DIAL: a hot-swapped serverUrl must land here
       let ws: WsLike;
       try {
-        ws = new WebSocketImpl(dialUrl, { headers: { Authorization: `Bearer ${config.nodeKey}` } });
+        ws = new WebSocketImpl(wsUrl, { headers: { Authorization: route.authorization } });
       } catch (err) {
-        reject(new Error(`cannot open ${dialUrl}: ${err instanceof Error ? err.message : String(err)}`));
+        if (route.automatic) resolve({ code: 1006, reason: "could not open the node connection" });
+        else reject(new Error(`cannot open ${wsUrl}: ${err instanceof Error ? err.message : String(err)}`));
         return;
       }
       socket = ws;
@@ -1000,9 +1011,16 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       let inventory: ReturnType<typeof setInterval> | undefined;
       let acceptedTimer: ReturnType<typeof setTimeout> | undefined;
       let settled = false;
+      let connectTimer: ReturnType<typeof setTimeout> | undefined;
       const finish = (close: WsClose): void => {
         if (settled) return;
         settled = true;
+        if (connectTimer !== undefined) clearTimeout(connectTimer);
+        close = { ...close, authenticated: connLink.established() };
+        // Alternate endpoints cannot request identity repair, upgrades or process exit
+        // until the encrypted handshake proves they hold the pinned server key.
+        if (route.automatic && !connLink.established())
+          close = { code: 1006, reason: "direct route could not authenticate" };
         if (heartbeat !== undefined) clearInterval(heartbeat);
         if (inventory !== undefined) clearInterval(inventory);
         if (acceptedTimer !== undefined) clearTimeout(acceptedTimer);
@@ -1064,9 +1082,16 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
         onEstablished: () => arm(),
       });
       link = connLink;
+      if (route.automatic) {
+        connectTimer = setTimeout(() => {
+          finish({ code: 1006, reason: "direct route connection timed out" });
+          ws.close();
+        }, 10_000);
+      }
       ws.addEventListener("open", () => {
+        if (settled) return;
         attempt = 0; // a successful open resets the backoff ladder
-        log(`connected ${dialUrl} as node ${config.nodeId}`);
+        log(`connected ${wsUrl} as node ${config.nodeId}`);
         setDaemonState({ connected: true });
         // The handshake is this connection's first turn (ruling R6: no server
         // reply is awaited — derivation happens against the PINNED control key
@@ -1085,6 +1110,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
        * message turn that opened the sealed ack.
        */
       function arm(): void {
+        if (connectTimer !== undefined) clearTimeout(connectTimer);
         // `ready` is built SYNCHRONOUSLY: nothing it reports needs a read
         // (identity is config + OS facts, `selfInvoke` is `selfInvokePrefix`,
         // and the env VALUES the resume paths need answer on the plane's
@@ -1215,6 +1241,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       // `seq` — they are not commands.
       let frameChain: Promise<void> = Promise.resolve();
       ws.addEventListener("message", (ev) => {
+        if (settled) return;
         const frame = admitFrame(ev.data);
         if (frame === null) return;
         if ("bytes" in frame) {
@@ -1241,10 +1268,23 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       // backoff sleep exits 0 here — the first Ctrl-C never waits out a sleep or a dial.
       if (shuttingDown) stop(0);
       await provisioning; // §5: R7's provisioning close must not redial past its own key write
-      // The incident belt: a daemon stuck between dials (refused bearer, dead
-      // plane) has NO heartbeat beat to check on — re-check before every dial.
       await refreshConnectionConfig();
-      const close = await runConnection();
+      const configuredWsUrl = resolveWsUrl(config);
+      const scope = connectionIdentity(config);
+      // Repointing and credential reloads must discard the previous route scope.
+      if (deps.routeSelector === undefined && routeScope !== scope) {
+        routeSelector = new NodeRouteSelector(config, configuredWsUrl, { log });
+        routeScope = scope;
+      }
+      const route = (await routeSelector?.select(discoveryAbort.signal)) ?? {
+        url: configuredWsUrl,
+        authorization: `Bearer ${config.nodeKey}`,
+        automatic: false,
+      };
+      if (shuttingDown) stop(0);
+      const close = await runConnection(route);
+      if (!close.authenticated && close.code !== NODE_CLOSE_SUPERSEDED && close.code !== NODE_CLOSE_UPDATE_REQUIRED)
+        routeSelector?.failed(route);
       if (shuttingDown) stop(0); // graceful: the socket closed cleanly on our request
       if (close.code === NODE_CLOSE_SUPERSEDED) {
         log(
@@ -1282,6 +1322,8 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       await sleepCancellable(delay);
     }
   } finally {
+    clearInterval(transferSweepTimer);
+    if (retentionTimer !== undefined) clearInterval(retentionTimer);
     registerRestart(null);
     setDaemonState({ connected: false });
     process.off("SIGINT", onSignal);

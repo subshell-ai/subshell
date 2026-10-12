@@ -46,6 +46,7 @@ import {
   releaseHeld,
 } from "./node-registry.js";
 import { binaryPayload, failConnPendings, resolveResult } from "./node-rpc.js";
+import { nodeRouteTickets } from "./route-tickets.js";
 import { recordNodeDisconnect, recordNodeReady } from "./update-tracker.js";
 
 /**
@@ -316,7 +317,10 @@ export async function authenticateNodeUpgrade(
   deps: Pick<NodeWsDeps, "verifyApiKey" | "nodes" | "accountDisabled">,
   authzHeader: string | null,
 ): Promise<NodeWsIdentity> {
-  const rawKey = bearerOf(authzHeader);
+  const ticket = authzHeader?.startsWith("NodeRoute ")
+    ? nodeRouteTickets.consume(authzHeader.slice("NodeRoute ".length))
+    : undefined;
+  const rawKey = ticket?.nodeKey ?? bearerOf(authzHeader);
   if (!rawKey) throw new HttpError(401, "Missing bearer node key");
 
   const row = await deps.verifyApiKey(rawKey);
@@ -362,6 +366,9 @@ export async function authenticateNodeUpgrade(
   // stashed identity into `ws.data`, which is what lets the message entry route
   // every frame through `handleLinkFrame` without ever asking the DB again.
   const { mode } = beginLinkUpgrade(node);
+  if (ticket && (mode !== "handshake" || node.encryptPublicKey !== ticket.nodePublicKey)) {
+    throw new HttpError(403, "The node pairing changed; discover its connection again");
+  }
   return {
     nodeId: meta.nodeId,
     apiKeyId: row.id,

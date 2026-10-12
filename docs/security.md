@@ -1124,6 +1124,45 @@ establishment the same `ready` arrives over the encrypted stream.
   in the class of `runtime`, which names a machine's paths and pids and stays
   owner-or-`edit`.
 
+### Automatic node routes
+
+`POST /api/nodes/route` accepts only an encrypted discovery envelope. A fresh
+`crypto_kx` session against the already pinned control-plane encryption key
+protects both request and reply using the existing secretstream implementation.
+The decrypted request carries the node key, node ID and node public-key claim;
+the ordinary upgrade authenticator checks key validity, row binding and owner
+status, then discovery requires an existing matching encryption pin. This is a
+narrow exception to the node-key REST refusal: plaintext bearer node keys still
+have no REST access.
+
+Only an authenticated response advertises candidate addresses. Automatic probes
+are bounded to eight literal RFC1918 or CGNAT IPv4 addresses at `/ws/node`;
+loopback, link-local, public IPs, DNS names, URL credentials and redirects are
+refused. Candidates come from the server's listening interfaces, never from a
+request Host. Each probe has a 1.5-second deadline and a bounded response body.
+A stale private address pointing at someone else's machine cannot decrypt the
+credential or authenticate a reply. Cached addresses are hints, scoped to the
+configured endpoint and pinned identity, and never bypass verification.
+
+Discovery returns an encrypted, random, single-use upgrade ticket valid for
+15 seconds. The bounded in-memory ticket store keeps the original credential
+and node pin until redemption or expiry; upgrade repeats the key, account and
+pin checks before attaching. `Authorization: NodeRoute <ticket>` never replaces
+the encrypted WebSocket binding, which still proves possession of the node
+credential. A passive observer of a plaintext LAN upgrade can steal its ticket
+and race the legitimate connection, causing denial of service, but cannot
+complete the binding or decrypt the link. Tickets never appear in URLs or logs.
+The configured endpoint retains its existing Bearer authentication so route
+discovery does not change the operator's proxy authentication requirements.
+Probes themselves never open node sockets or supersede a live daemon.
+
+A direct endpoint's unauthenticated close cannot trigger identity repair,
+rollback or a terminal daemon exit. Failure cools that route down and returns
+to the configured endpoint. Legacy servers and unpaired configurations retain
+the existing explicitly configured bearer-upgrade path and its transport trust
+requirements. Automatic selection does not change enrollment trust, the browser
+connection, OAuth, downloads, or pane callback addresses.
+
 ### Directory allowlist (spec 2026-09-05)
 
 A node owner may restrict **where** subshells can be created on their machine:
