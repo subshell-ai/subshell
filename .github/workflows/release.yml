@@ -1650,7 +1650,14 @@ jobs:
   publish-desktop:
     name: Release ${{ matrix.app }}
     needs: [plan, build-desktop]
-    if: needs.plan.outputs.desktop_apps != '[]'
+    # A desktop-only cut has skipped CLI ancestors even when build-desktop
+    # succeeds. Displace the implicit success() gate, but still require every
+    # desktop shard and the plan to succeed before publishing their artifacts.
+    if: >-
+      !cancelled() &&
+      needs.plan.result == 'success' &&
+      needs.build-desktop.result == 'success' &&
+      needs.plan.outputs.desktop_apps != '[]'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:

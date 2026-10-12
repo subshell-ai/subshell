@@ -660,7 +660,10 @@ which is why they share their own smoke, parameterized by app id.
   re-dispatching COMPLETES the half-cut. A DRAFT is the subtle case: the tags
   endpoint answers 200 for a draft too, so plan skips an app only when its
   release exists AND is not a draft, and a draft re-enters the retry path
-  (softprops updates and flips it). Re-cutting a PUBLISHED version
+  (softprops updates and flips it). Desktop-only retries also need an explicit
+  publication gate: skipped CLI ancestors mustn't suppress a successful desktop
+  build. Publication requires the plan and every desktop shard to succeed, and
+  stops on cancellation. Re-cutting a PUBLISHED version
   requires deleting the release and its tag first. And because a desktop
   bundle SHIPS the CLI release's bytes: re-cutting a CLI version after its
   matching desktop cut shipped means deleting and re-cutting the desktop

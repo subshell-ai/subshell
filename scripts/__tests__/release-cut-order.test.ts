@@ -65,12 +65,14 @@ describe("cut phases: CLI first, desktop after", () => {
     expect(job("publish-desktop")).toContain("desktop_apps");
     // The failure half of the tolerance: a SKIPPED publish-cli (desktop-only
     // dispatch) may pass, a FAILED one must stop it. The tolerance is
-    // deliberately ONLY here: a publish job tolerating a skipped build would
-    // try to publish bytes that were never built, so both publish gates stay
-    // plain app-list guards and GitHub's needs blocking stays load-bearing.
+    // only for CLI ancestors: publication still requires a successful build.
+    // The desktop publish gate must displace implicit success() too, because
+    // GitHub propagates a skipped CLI ancestor through the successful build.
     expect(header("build-desktop")).toContain("needs.publish-cli.result == 'success'");
     expect(header("publish-cli")).not.toContain("result ==");
-    expect(header("publish-desktop")).not.toContain("result ==");
+    expect(header("publish-desktop")).toContain("!cancelled()");
+    expect(header("publish-desktop")).toContain("needs.plan.result == 'success'");
+    expect(header("publish-desktop")).toContain("needs.build-desktop.result == 'success'");
     // GitHub's implicit-success trap: an `if` with NO status-check function
     // is wrapped in success() over all needs, and that gate runs before the
     // expression. A `result == 'skipped'` tolerance is therefore inert on
@@ -95,6 +97,28 @@ describe("cut phases: CLI first, desktop after", () => {
     }
     // The website's manifest refresh waits for every phase that ran.
     expect(job("site-manifest")).toContain("needs: [plan, publish-cli, publish-desktop]");
+  });
+
+  test("desktop publication requires built artifacts even with skipped CLI ancestors", () => {
+    const expression = header("publish-desktop").match(/if: >-\n([\s\S]*?)\n    runs-on:/)?.[1];
+    if (!expression) throw new Error("desktop publication gate is missing");
+    const permits = new Function(
+      "needs",
+      "cancelled",
+      `return (${expression.replaceAll("needs.build-desktop", 'needs["build-desktop"]')});`,
+    );
+    const needs = (plan: string, build: string, apps = '[{"app":"desktop-client"}]') => ({
+      plan: { result: plan, outputs: { desktop_apps: apps } },
+      "build-desktop": { result: build },
+      "publish-cli": { result: "skipped" },
+    });
+    expect(permits(needs("success", "success"), () => false)).toBe(true);
+    for (const result of ["failure", "cancelled", "skipped"]) {
+      expect(permits(needs("success", result), () => false)).toBe(false);
+      expect(permits(needs(result, "success"), () => false)).toBe(false);
+    }
+    expect(permits(needs("success", "success", "[]"), () => false)).toBe(false);
+    expect(permits(needs("success", "success"), () => true)).toBe(false);
   });
 
   test("the desktop shard gets a job token to download the release with", () => {
