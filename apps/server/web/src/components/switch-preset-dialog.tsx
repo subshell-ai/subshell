@@ -138,7 +138,7 @@ export function SwitchPresetDialog({
           </Button>
           <Button
             disabled={swap.isPending || presets === undefined}
-            disabledReason={swap.isPending ? "Wait for the preset switch to finish." : "Wait for presets to load."}
+            disabledReason={swap.isPending ? "Wait for the preset switch to finish." : "Wait for the presets to load."}
             onClick={() => void swap.mutate()}
           >
             {swap.isPending ? "Switching…" : "Switch and restart"}

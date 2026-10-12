@@ -96,7 +96,7 @@ export function SubshellManagerTable({
             size="sm"
             onClick={() => void runBulk("restart")}
             disabled={bulkBusy}
-            disabledReason={"Wait for the selected subshells to finish updating."}
+            disabledReason={"Wait for the current action on the selected subshells to finish."}
           >
             <RotateCcw /> Restart
           </Button>
@@ -105,7 +105,7 @@ export function SubshellManagerTable({
             size="sm"
             onClick={() => void runBulk("close")}
             disabled={bulkBusy}
-            disabledReason={"Wait for the selected subshells to finish updating."}
+            disabledReason={"Wait for the current action on the selected subshells to finish."}
           >
             <X /> Close
           </Button>

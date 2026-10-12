@@ -2,7 +2,7 @@
 import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { Tooltip } from "@base-ui/react/tooltip";
 import { cva, type VariantProps } from "class-variance-authority";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 
 const buttonVariants = cva(
@@ -58,9 +58,15 @@ export function Button({ className, variant, size, ...props }: ButtonProps) {
   return <ExplainedButton className={cn(buttonVariants({ variant, size, className }))} {...props} />;
 }
 
-/** Use the same disabled explanation on controls with their own layout. */
+/**
+ * Use the same disabled explanation on controls with their own layout.
+ * While disabled, suppress activation capture handlers too: they may perform
+ * the action themselves. The explanation replaces any native title tooltip.
+ */
 export function ExplainedButton({ disabledReason, ...props }: ButtonPrimitive.Props & { disabledReason?: string }) {
   const reasonId = useId();
+  const hasExplanation = useRef(false);
+  if (disabledReason !== undefined) hasExplanation.current = true;
   const [open, setOpen] = useState(false);
   const explained = Boolean(props.disabled && disabledReason);
   useEffect(() => {
@@ -90,6 +96,10 @@ export function ExplainedButton({ disabledReason, ...props }: ButtonPrimitive.Pr
         }
         props.onKeyDownCapture?.(event);
       }}
+      onBlurCapture={(event) => {
+        setOpen(false);
+        props.onBlurCapture?.(event);
+      }}
       onTouchEnd={(event) => {
         props.onTouchEnd?.(event);
         if (explained && !event.defaultPrevented) setOpen((current) => !current);
@@ -98,6 +108,11 @@ export function ExplainedButton({ disabledReason, ...props }: ButtonPrimitive.Pr
       focusableWhenDisabled={explained || props.focusableWhenDisabled}
     />
   );
+  // Closed tooltip stores still subscribe and run effects. Ordinary actions
+  // need no explanation. Keep the tree stable for controls
+  // that do explain a blocker, so enabling them preserves focus and DOM refs.
+  if (!hasExplanation.current) return button;
+
   // Keep the button itself in the layout and tab order. Base UI blocks activation
   // while allowing hover and focus to explain why the action is unavailable.
   return (

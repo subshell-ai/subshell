@@ -230,6 +230,9 @@ export function SupervisionScreen(props: {
               : "Turning this on starts it automatically every time the machine starts."}
           </span>
         )}
+        {!chosen.background && autostartSupported(probe) && (
+          <span className="hint warn-text">Choose “In the background” to start the server automatically.</span>
+        )}
         {!autostartSupported(probe) && (
           <span className="hint warn-text">{`Update your server to ${MIN_AUTOSTART_SERVER_VERSION} to control this.`}</span>
         )}

@@ -147,7 +147,9 @@ admitted here.
   from performing it, and an attempted operation from a guaranteed result.
   See [the content guide](../apps/docs/STYLE.md#product-copy-and-confirmations)
   for examples.
-- **Tooltip**: the popup carries an arrow pointing back at its control.
+- **Tooltip**: popup text uses `body`, including disabled explanations, so it
+  stays readable in the floating surface. Inline control hints use `detail`.
+  The popup carries an arrow pointing back at its control.
   `TooltipContent` draws it by default, and `arrow={false}` is the rare opt-out
   for a surface with no single anchor. A floating box beside a run of elements
   does not say which one is speaking; the arrow is the pointer that names it.

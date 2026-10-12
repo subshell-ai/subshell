@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { isSelectable, nodePickSettled, nodeRunsHarness, pickNodeDefault } from "@/lib/node-pick";
+import { isSelectable, nodePickSettled, nodeRunsHarness, nodeUnpickableReason, pickNodeDefault } from "@/lib/node-pick";
 import type { Node } from "@/types/node";
 
 /** Minimal Node factory — the decision reads id/name/status and `canLaunch`. */
@@ -14,6 +14,7 @@ function make(over: Partial<Node> = {}): Node {
     // `canLaunch: false` explicitly, which is what makes them read as the
     // exception they are.
     canLaunch: true,
+    maintenance: false,
     agentVersion: null,
     protocolVersion: null,
     ...over,
@@ -119,5 +120,19 @@ describe("nodeRunsHarness", () => {
     // The node reported its set; this plugin is not in it. That is a real
     // "no", unlike the missing-inventory case above.
     expect(nodeRunsHarness(withHarnesses(true), "codex")).toBe(false);
+  });
+});
+
+describe("nodeUnpickableReason", () => {
+  it("names maintenance even though the server also denies launches", () => {
+    expect(nodeUnpickableReason(make({ maintenance: true, canLaunch: false }), null)).toBe(
+      "This node is in maintenance mode.",
+    );
+  });
+  it("distinguishes denied launches, offline nodes, and missing agents", () => {
+    expect(nodeUnpickableReason(make({ canLaunch: false }), null)).toContain("isn't accepting");
+    expect(nodeUnpickableReason(make({ status: "offline" }), null)).toContain("offline");
+    expect(nodeUnpickableReason(make({ harnesses: [] }), "claude-code")).toContain("selected agent");
+    expect(nodeUnpickableReason(make(), null)).toBeUndefined();
   });
 });

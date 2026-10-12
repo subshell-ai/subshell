@@ -271,7 +271,7 @@ function LoginPage() {
                     type="submit"
                     className="w-full"
                     disabled={busy || email.trim() === "" || password === ""}
-                    disabledReason={busy ? "Wait for sign-in to finish." : "Enter your email and password first."}
+                    disabledReason={busy ? "Wait for sign-in to finish." : "Enter your e-mail and password first."}
                   >
                     {busy ? "Signing in…" : "Sign in"}
                   </Button>

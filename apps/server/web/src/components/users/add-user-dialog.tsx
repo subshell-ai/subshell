@@ -161,7 +161,7 @@ export function AddUserDialog({
               type="submit"
               disabled={busy || !newAccountComplete(account)}
               disabledReason={
-                busy ? "Wait for the account to be created." : "Complete the name, email, and password fields first."
+                busy ? "Wait for the account to be created." : "Complete the name, e-mail, and password fields first."
               }
             >
               {busy ? "Creating…" : "Add user"}

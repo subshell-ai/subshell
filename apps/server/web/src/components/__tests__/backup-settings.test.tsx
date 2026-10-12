@@ -357,6 +357,7 @@ describe("Settings backup workflows", () => {
     expect(screen.queryByRole("switch", { name: "Start the server after restoring" })).toBeNull();
     reviewConfiguration();
     await screen.findByText("Review Restore");
+    fireEvent.click(screen.getByRole("button", { name: "Start restore" }));
     expect(requests.some((request) => request.path.endsWith("/apply"))).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect((screen.getByLabelText("Confirm temporary password") as HTMLInputElement).value).toBe("temporary-password");

@@ -166,8 +166,7 @@ export function NodeServiceCard({
     if (spec.verb === "restart" && !runtime?.supervised) {
       return `Nothing on ${local ? "this" : "that"} machine is supervising this node, so exiting would stop it rather than restart it`;
     }
-    if (spec.oneWay && !isOwner)
-      return `Only the node owner can ${spec.verb === "stop" ? "stop" : "uninstall"} this service.`;
+    if (spec.oneWay && !isOwner) return `Only the node owner can ${spec.verb} this service.`;
     return undefined;
   }
 
@@ -211,7 +210,7 @@ export function NodeServiceCard({
             );
           })}
         </div>
-        {!isOwner && (
+        {!isOwner && runtime?.service.installed && (
           <p className="text-detail text-warning">Only the node owner can stop or uninstall this service.</p>
         )}
         {wait.outcome === "waiting" && (

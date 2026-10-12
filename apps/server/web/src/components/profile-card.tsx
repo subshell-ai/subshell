@@ -112,7 +112,7 @@ export function ProfileCard({ updateUser = (input) => authClient.updateUser(inpu
               <Button
                 onClick={() => void save()}
                 disabled={busy || nameIsUsable(shown) === null}
-                disabledReason={busy ? "Wait for your profile to save." : "Enter a valid display name first."}
+                disabledReason={busy ? "Wait for your profile to save." : "Enter a display name first."}
               >
                 {busy ? "Saving…" : "Save"}
               </Button>

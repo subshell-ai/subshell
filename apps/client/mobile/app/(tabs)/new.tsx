@@ -22,7 +22,7 @@ import { usePresets } from "@/hooks/use-presets";
 import { useSubshells } from "@/hooks/use-subshells";
 import { agentDefault } from "@/lib/agent-default";
 import { errMessage } from "@/lib/api-error";
-import { isSelectable, nodePickSettled, nodeRunsHarness, pickNodeDefault } from "@/lib/node-pick";
+import { isSelectable, nodePickSettled, nodeRunsHarness, nodeUnpickableReason, pickNodeDefault } from "@/lib/node-pick";
 import { colors, font, radius, touchTarget } from "@/lib/tokens";
 import { useSubshell } from "@/providers/subshell-provider";
 import type { ExploreResult } from "@/types/files";
@@ -232,7 +232,7 @@ export default function NewSubshell() {
                         setPresetId(null);
                       }}
                       disabled={!usable}
-                      disabledReason={"This agent is unavailable on the nodes you can use."}
+                      disabledReason={"This agent is unavailable."}
                       // Selection and greying are carried by border colour and
                       // opacity, which a screen reader cannot see. The state
                       // props are the only announcement of either — and the
@@ -323,15 +323,7 @@ export default function NewSubshell() {
                       key={n.id}
                       onPress={() => setNodeId(n.id)}
                       disabled={!pickable}
-                      disabledReason={
-                        !n.canLaunch
-                          ? "This node isn’t accepting new subshells."
-                          : n.maintenance
-                            ? "This node is in maintenance mode."
-                            : n.kind !== "local" && n.status !== "online"
-                              ? "This node is offline. Wait for it to reconnect."
-                              : "This node cannot run the selected agent."
-                      }
+                      disabledReason={nodeUnpickableReason(n, harnessId) ?? ""}
                       accessibilityRole="button"
                       accessibilityState={{ selected: sel, disabled: !pickable }}
                       style={{

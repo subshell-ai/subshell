@@ -80,7 +80,7 @@ export function SystemApiKeysCard() {
                 size="sm"
                 onClick={() => void onDelete(k.id, k.name)}
                 disabled={remove.isPending}
-                disabledReason={"Wait for the key to be revoked."}
+                disabledReason={"Wait for the key to be deleted."}
               >
                 Delete
               </Button>

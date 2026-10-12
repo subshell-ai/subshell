@@ -288,6 +288,7 @@ export function NodeKeySetup({
             text={installCommandFor(selected, keyText ?? KEY_PENDING_TOKEN, appBaseUrl)}
             label="install command"
             disabled={keyText === null}
+            disabledReason="Generate a setup key before copying this command."
           />
           {/* The amber verdict sits with the command it refuses — the panel, not the
               generate slot, is where the operator reads the command and decides. */}
@@ -299,6 +300,7 @@ export function NodeKeySetup({
               text={setupCommandFor(selected, keyText ?? KEY_PENDING_TOKEN)}
               label="setup command"
               disabled={keyText === null}
+              disabledReason="Generate a setup key before copying this command."
             />
           )}
           {unknownNote}

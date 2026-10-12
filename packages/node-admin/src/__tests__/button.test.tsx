@@ -37,3 +37,16 @@ it("explains a disabled action on focus without allowing activation", async () =
   expect(click).toHaveBeenCalledTimes(1);
   await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
 });
+
+it("preserves focus when an explanation clears after enabling", () => {
+  const { rerender } = render(
+    <Button disabled disabledReason="Enter a name first.">
+      Save
+    </Button>,
+  );
+  const button = screen.getByRole("button", { name: "Save" });
+  act(() => button.focus());
+  rerender(<Button>Save</Button>);
+  expect(screen.getByRole("button", { name: "Save" })).toBe(button);
+  expect(document.activeElement).toBe(button);
+});

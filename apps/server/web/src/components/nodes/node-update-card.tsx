@@ -125,7 +125,7 @@ export function NodeUpdateCard({ node }: { node: NodeDetail }): JSX.Element {
         )}
         {updating && (
           <p role="status" className="text-detail text-warning">
-            Updating the node. Waiting for it to finish installing and reconnect.
+            Updating the node. Waiting for installation to finish and the node to reconnect.
           </p>
         )}
         {accepted && (

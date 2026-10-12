@@ -293,7 +293,6 @@ export function NetworkPluginCard({
    */
   const blocker = connectBlocker(row);
   const blockerId = `network-${row.id}-connect-blocker`;
-  const blockerProps = blocker ? { "aria-describedby": blockerId } : {};
 
   /**
    * Whether a joined/published row STORES its setup fields below its acts,
@@ -471,7 +470,7 @@ export function NetworkPluginCard({
               variant="outline"
               size="sm"
               disabled={busy}
-              disabledReason={"Wait for the network action to finish."}
+              disabledReason={busy ? "Wait for the network action to finish." : undefined}
               onClick={() => begin(() => setEnabled.mutate({ id: row.id, enabled: true }))}
             >
               {setEnabled.isPending ? "Enabling…" : "Enable"}
@@ -537,7 +536,7 @@ export function NetworkPluginCard({
                   <Button
                     size="sm"
                     disabled={busy}
-                    disabledReason={"Wait for the network action to finish."}
+                    disabledReason={busy ? "Wait for the network action to finish." : undefined}
                     onClick={() => begin(() => install.mutate({ id: row.id }))}
                   >
                     {install.isPending && (
@@ -657,12 +656,8 @@ export function NetworkPluginCard({
                     the blocker explains the CHOICE and has to sit where both
                     panels read under it. */}
                 {row.interactiveLogin ? null : credentialBox}
-                {/* The server refuses EITHER join while a required setting is
-                    unset, so this gates both paths and both buttons. Attached
-                    rather than merely placed above: both are disabled, and a
-                    screen reader skips disabled controls — the people most likely
-                    to wonder why reach a bare paragraph least. Same pattern the
-                    settings form uses for its own disabled reason. */}
+                {/* Keep the prerequisite visible. Each button also explains its
+                    current blocker through the shared disabled tooltip. */}
                 {blocker && (
                   <p id={blockerId} className="text-detail text-muted-foreground">
                     {blocker}
@@ -687,7 +682,6 @@ export function NetworkPluginCard({
                         secondary thing now that only one of them is on screen. */}
                     <Button
                       size="sm"
-                      {...blockerProps}
                       disabled={busy || blocker !== null}
                       disabledReason={busy ? "Wait for the network action to finish." : (blocker ?? undefined)}
                       onClick={() => begin(() => join.mutate({ id: row.id }))}
@@ -700,7 +694,6 @@ export function NetworkPluginCard({
                     {row.interactiveLogin ? credentialBox : null}
                     <Button
                       size="sm"
-                      {...blockerProps}
                       disabled={busy || blocker !== null || credential.trim() === ""}
                       disabledReason={
                         busy
@@ -804,7 +797,7 @@ export function NetworkPluginCard({
                   <Button
                     size="sm"
                     disabled={busy}
-                    disabledReason={"Wait for the network action to finish."}
+                    disabledReason={busy ? "Wait for the network action to finish." : undefined}
                     onClick={() => begin(() => publish.mutate({ id: row.id }))}
                   >
                     {publish.isPending && (
@@ -832,7 +825,7 @@ export function NetworkPluginCard({
                   <Button
                     size="sm"
                     disabled={busy}
-                    disabledReason={"Wait for the network action to finish."}
+                    disabledReason={busy ? "Wait for the network action to finish." : undefined}
                     onClick={() => begin(() => publish.mutate({ id: row.id }))}
                   >
                     {publish.isPending && (
@@ -848,7 +841,7 @@ export function NetworkPluginCard({
                     variant="outline"
                     size="sm"
                     disabled={busy}
-                    disabledReason={"Wait for the network action to finish."}
+                    disabledReason={busy ? "Wait for the network action to finish." : undefined}
                     onClick={async () => {
                       // The LAST sentence is the point on both branches:
                       // sign-in from the origins this unpublish names stops
@@ -895,7 +888,7 @@ export function NetworkPluginCard({
                   size="sm"
                   className="text-destructive hover:text-destructive"
                   disabled={busy}
-                  disabledReason={"Wait for the network action to finish."}
+                  disabledReason={busy ? "Wait for the network action to finish." : undefined}
                   onClick={async () => {
                     // Every plugin's leave is MACHINE-wide — `tailscale
                     // logout`, `netbird down`, cloudflare deletes the stored
@@ -1003,7 +996,7 @@ export function NetworkPluginCard({
                 size="sm"
                 className="text-muted-foreground"
                 disabled={busy}
-                disabledReason={"Wait for the network action to finish."}
+                disabledReason={busy ? "Wait for the network action to finish." : undefined}
                 onClick={async () => {
                   const urls = status.addresses.map((address) => address.url);
                   if (urls.length > 0) {

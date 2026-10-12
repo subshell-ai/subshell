@@ -422,7 +422,7 @@ export function ServiceScreen(props: {
                 size="sm"
                 disabled={busy || blocked}
                 disabledReason={
-                  busy ? "Wait for the service action to finish." : "Install tmux before starting the node."
+                  busy ? "Wait for the service action to finish." : "Install tmux before restarting the node."
                 }
                 onClick={commands.restart}
               >

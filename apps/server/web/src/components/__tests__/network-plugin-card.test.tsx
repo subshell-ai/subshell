@@ -756,8 +756,7 @@ describe("NetworkPluginCard: the state matrix", () => {
     // Headscale's real shape: one required non-secret. The route answers a
     // join on an unset one with 409 NETWORK_UNCONFIGURED and a sentence
     // pointing at the page the press came from — so the buttons wait instead,
-    // each carrying the reason through aria-describedby (disabled controls are
-    // skipped by a screen reader's tab order, so placement is not reaching).
+    // each carrying the reason through aria-description as well as its tooltip.
     //
     // It is the SERVER's refusal, not one panel's, so the mode choice cannot
     // put it under one button and leave the other unexplained: the sentence
@@ -781,12 +780,12 @@ describe("NetworkPluginCard: the state matrix", () => {
     const sentence = screen.getByText("Save the Control server URL first.");
     const signIn = screen.getByRole("button", { name: "Sign in with Headscale" }) as HTMLButtonElement;
     expect(signIn.matches(":disabled, [aria-disabled=true]")).toBe(true);
-    expect(signIn.getAttribute("aria-describedby")).toBe(sentence.id);
+    expect(signIn.getAttribute("aria-description")).toBe(sentence.textContent);
 
     showKeyPanel();
     const connect = screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement;
     expect(connect.matches(":disabled, [aria-disabled=true]")).toBe(true);
-    expect(connect.getAttribute("aria-describedby")).toBe(sentence.id);
+    expect(connect.getAttribute("aria-description")).toBe(sentence.textContent);
     // ONE paragraph for both panels — a second copy would be two ids and a
     // screen reader reading the same refusal twice. And it sits INSIDE the
     // group, because the sentence explains the choice rather than one panel.

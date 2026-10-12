@@ -371,6 +371,9 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
           );
         })}
 
+        {!canRestart && needsRestart && view.restart.reason && (
+          <p className="text-detail text-warning">{view.restart.reason}</p>
+        )}
         <div className="flex items-center gap-3">
           {/* Named for what it does. Where the server cannot restart itself —
               nothing supervising it — it saves and says so, rather than
@@ -386,7 +389,6 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
                   ? "Fix the invalid addresses before saving."
                   : "Change an address before saving."
             }
-            title={canRestart || !needsRestart ? undefined : (view.restart.reason ?? undefined)}
             onClick={save}
           >
             {update.isPending ? "Saving…" : canRestart && needsRestart ? "Save and restart" : "Save"}

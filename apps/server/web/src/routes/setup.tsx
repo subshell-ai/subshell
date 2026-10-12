@@ -461,7 +461,7 @@ function SetupPage() {
           disabled: busy || !newAccountComplete(account),
           disabledReason: busy
             ? "Wait for the account to be created."
-            : "Complete the name, email, and password fields first.",
+            : "Complete the name, e-mail, and password fields first.",
           pending: busy,
           pendingLabel: "Creating account…",
         }}
