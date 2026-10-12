@@ -21,8 +21,7 @@ const SAVE_ERROR_FALLBACK = "Couldn't save the provider.";
 
 /**
  * The add/edit dialog for one OIDC provider (spec §7). The email row never opens
- * it: its kind and id are fixed and it has nothing to register, so the table
- * toggles are its whole surface.
+ * it: its kind and id are fixed and it has nothing to register, so its settings live in the Configure dialog.
  *
  * The form lives BELOW `DialogContent` and keys off the provider id, so every
  * open starts from the row it was opened on (Base UI unmounts hidden content;
@@ -115,9 +114,6 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
       issuer: issuer.trim(),
       clientId: clientId.trim(),
       callbackBaseUrl: overrideOrigin,
-      signInEnabled,
-      registrationEnabled,
-      requireApproval,
     };
     try {
       if (editing) {
@@ -138,6 +134,9 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
           clientSecret: secret,
           ...(domains.trim() === "" ? {} : { allowedDomains: domains.trim() }),
           enabled: true,
+          signInEnabled,
+          registrationEnabled,
+          requireApproval,
         });
       }
       onDone();
@@ -326,50 +325,52 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
 
       {/* The three provider half-switches (spec §7), each with one or two
           sentences of help at `detail`. */}
-      <div className="space-y-3">
-        <div className="flex items-start gap-4">
-          <Switch checked={signInEnabled} onCheckedChange={(c) => setSignInEnabled(c)} aria-label="Allow sign-in" />
-          <div>
-            <Label className="font-strong">Allow sign-in</Label>
-            <p className="text-detail text-muted-foreground">
-              Shows this provider on the login page. Turning it off hides the button and refuses callbacks.
-            </p>
+      {!editing && (
+        <div className="space-y-3">
+          <div className="flex items-start gap-4">
+            <Switch checked={signInEnabled} onCheckedChange={(c) => setSignInEnabled(c)} aria-label="Allow sign-in" />
+            <div>
+              <Label className="font-strong">Allow sign-in</Label>
+              <p className="text-detail text-muted-foreground">
+                Shows this provider on the login page. Turning it off hides the button and refuses callbacks.
+              </p>
+            </div>
           </div>
-        </div>
-        <div className="flex items-start gap-4">
-          <Switch
-            checked={registrationEnabled}
-            onCheckedChange={(c) => setRegistrationEnabled(c)}
-            aria-label="Allow account creation"
-          />
-          <div>
-            <Label className="font-strong">Allow account creation</Label>
-            <p className="text-detail text-muted-foreground">
-              Let people create accounts through this provider. When this is off, only people with existing accounts can
-              sign in.
-            </p>
+          <div className="flex items-start gap-4">
+            <Switch
+              checked={registrationEnabled}
+              onCheckedChange={(c) => setRegistrationEnabled(c)}
+              aria-label="Allow account creation"
+            />
+            <div>
+              <Label className="font-strong">Allow account creation</Label>
+              <p className="text-detail text-muted-foreground">
+                Let people create accounts through this provider. When this is off, only people with existing accounts
+                can sign in.
+              </p>
+            </div>
           </div>
-        </div>
-        <div className="flex items-start gap-4">
-          <Switch
-            checked={requireApproval}
-            onCheckedChange={(c) => setRequireApproval(c)}
-            aria-label="Require approval"
-          />
-          <div>
-            <Label className="font-strong">Require approval</Label>
-            <p className="text-detail text-muted-foreground">
-              New accounts from this provider wait for an admin to approve them. People who already have accounts sign
-              in normally.
-            </p>
+          <div className="flex items-start gap-4">
+            <Switch
+              checked={requireApproval}
+              onCheckedChange={(c) => setRequireApproval(c)}
+              aria-label="Require approval"
+            />
+            <div>
+              <Label className="font-strong">Require approval</Label>
+              <p className="text-detail text-muted-foreground">
+                New accounts from this provider wait for an admin to approve them. People who already have accounts sign
+                in normally.
+              </p>
+            </div>
           </div>
+          {errorText(["LAST_SIGN_IN_PROVIDER"]) && (
+            <p role="alert" className="text-destructive text-detail">
+              {errorText(["LAST_SIGN_IN_PROVIDER"])}
+            </p>
+          )}
         </div>
-        {errorText(["LAST_SIGN_IN_PROVIDER"]) && (
-          <p role="alert" className="text-destructive text-detail">
-            {errorText(["LAST_SIGN_IN_PROVIDER"])}
-          </p>
-        )}
-      </div>
+      )}
 
       <div className="space-y-2">
         <Label htmlFor="ap-domains">Allowed e-mail domains</Label>

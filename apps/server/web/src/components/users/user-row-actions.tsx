@@ -187,10 +187,10 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
 
   // Nothing at all on your own row: every one of the three is a way to remove
   // your own administration, and nothing short of another admin — which an
-  // instance need not have — puts it back. The Role column's badge still says
+  // instance need not have — puts it back. The Role column still says
   // what the role is, so this hides no fact, only every lever.
   if (isSelf) {
-    return <span className="text-detail text-muted-foreground">Your account</span>;
+    return <span className="@sm:whitespace-nowrap text-muted-foreground text-sm">Your account</span>;
   }
 
   // A provider-only account has no password to reset — offering the item would

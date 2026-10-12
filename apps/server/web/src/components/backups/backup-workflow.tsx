@@ -1,5 +1,12 @@
-import { Frame } from "@internal/assistant";
-import { cn } from "@internal/node-admin";
+import {
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+  cn,
+  Card as WorkflowCard,
+  CardContent as WorkflowContent,
+} from "@internal/node-admin";
 import { CheckCircle2, LoaderCircle } from "lucide-react";
 import { Fragment, type ReactNode } from "react";
 import { CopyButton } from "@/components/copy-button";
@@ -18,14 +25,16 @@ export function BackupWorkflow({
 }) {
   // Remount panes so a navigation click cannot submit the next pane's form.
   return (
-    <div
-      key={title}
-      className="flex min-h-0 flex-1 flex-col [&>div]:h-full [&_[data-slot=bar-right]]:flex-1 [&_[data-slot=bar-right]]:justify-between"
-    >
-      <Frame contentAlignment="start" strings={{ title, subtitle: description, problem: "" }} barRight={footer}>
-        <div className="flex flex-col gap-4 text-body">{children}</div>
-      </Frame>
-    </div>
+    <WorkflowCard key={title} className="min-w-0">
+      <CardHeader>
+        <CardTitle>
+          <h2>{title}</h2>
+        </CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <WorkflowContent className="flex flex-col gap-4 text-sm">{children}</WorkflowContent>
+      <CardFooter className="flex flex-wrap items-center justify-between gap-3">{footer}</CardFooter>
+    </WorkflowCard>
   );
 }
 

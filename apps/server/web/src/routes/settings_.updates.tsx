@@ -1,5 +1,6 @@
 import { Button } from "@internal/node-admin";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { DashboardPage } from "@/components/dashboard-page";
 import { ErrorBanner } from "@/components/error-banner";
 import { PageHeader } from "@/components/page-header";
 import { UpdatesTable } from "@/components/updates/updates-table";
@@ -41,7 +42,7 @@ function UpdatesPage() {
   const check = useCheckUpdates();
 
   return (
-    <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
+    <DashboardPage>
       <PageHeader title="Updates" subtitle="Installed versions and available updates." />
       {viewerIsAdmin === undefined ? null : isAdmin ? (
         <>
@@ -82,6 +83,6 @@ function UpdatesPage() {
           .
         </p>
       )}
-    </main>
+    </DashboardPage>
   );
 }

@@ -65,3 +65,12 @@ genuinely different control plane holds no key bound to this node row and
 offline, with the reason only in its own log. Recovering means pointing it back
 or enrolling with a setup key from the new plane. Joining a different plane is
 an `enroll`, not a `configure`.
+
+## Live connection reload
+
+The running daemon reads connection settings before each dial and on its
+heartbeat. It validates the complete connection bundle before replacing the
+live identity; malformed settings leave the current connection running. The
+URL check must reject WebSocket fragments, including an empty `#`, and the
+credential must be a valid HTTP header value. Validation failures must never
+log the credential, including through a constructor's error message.

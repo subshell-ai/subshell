@@ -105,9 +105,9 @@ test("create a preset from the page, verify it via the API, delete it", async ({
   // `E2E_PASTED=yes` and the assertion names the whole secret either way.
   const secret = "E2E_PASTED=yes";
   await expect(page.getByText(secret)).toHaveCount(0);
-  await page.getByRole("button", { name: "Show command for E2E shell" }).click();
+  await page.getByRole("button", { name: "E2E shell", exact: true }).click();
   await expect(page.getByText(secret)).toBeVisible();
-  await page.getByRole("button", { name: "Hide command for E2E shell" }).click();
+  await page.getByRole("button", { name: "E2E shell", exact: true }).click();
   await expect(page.getByText(secret)).toHaveCount(0);
 
   // The pasted rows must reach storage, not just the form.

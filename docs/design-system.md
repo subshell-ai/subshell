@@ -23,8 +23,8 @@ no class at all is the one escape.
 |---|---|---|---|
 | `display` | 30 / 600 | 28 / 600 | one per screen, a frame or page title |
 | `heading` | 20 / 600 | 20 / 600 | card, section, dialog and sheet titles |
-| `label` | 15 / 600 | 16 / 600 | **line items**: form labels, checklist rows, radio/toggle titles, table headers, buttons, what you scan for |
-| `body` | 14 / 400 | 16 / 400 | running text, subtitles, dialog and card prose |
+| `label` | 15 / 600 | 16 / 600 | **line items**: form labels, checklist rows, radio/toggle titles, buttons, what you scan for |
+| `body` | 14 / 400 | 16 / 400 | running text, subtitles, dialog and card prose, table headings and values |
 | `detail` | 13 / 400 | 13 / 400 | **the floor, and everything quiet**: what explains a control (its help text, state note, error), plus metadata: chips, timestamps, versions, monospace output. `muted-foreground` by default |
 
 Line-height 1.2 for `display`/`heading`, 1.5 otherwise. Code is `detail` in the
@@ -48,7 +48,7 @@ How to say it on each surface:
 | assistant | `font-size: var(--text-label); line-height: var(--text-label--line-height)` | `font-weight: var(--font-weight-strong)` |
 | mobile | `...font("label")` | comes with the role |
 
-- `cn()` in the SPA and the client registers the six role utilities as font-sizes; tailwind-merge would otherwise group them with the text-colours and drop one when both are named.
+- `cn()` in the SPA and the client registers the five role utilities as font-sizes; tailwind-merge would otherwise group them with the text-colours and drop one when both are named.
 - `font-semibold` remains legal by VALUE (600) but is retired as a NAME; write `font-strong`.
 
 ## Colour: Dreamframe, under one set of names
@@ -80,11 +80,145 @@ amber waiting, red unreachable, faint exited, hollow ended).
   motion gate so a reduced-motion user sees the still state instead.
 - Touch targets ≥ 44 where there is touch.
 
+## Dashboard pages and tables
+
+These are the dashboard decisions established on 2026-10-11. They apply to
+new pages and changes to existing pages; dated design proposals do not override
+this guide.
+
+### Page layout
+
+Use `DashboardPage` for lists, details, personal settings, and server settings,
+including their loading and error states. It fills the available content width
+with 24px outer padding and 24px between sections. Keep those gutters consistent
+as the screen grows; do not impose a narrow maximum width on the page or choose
+a different width for each route. Tables should gain useful space on wide
+screens while still fitting phones.
+
+Terminal and workspace canvases retain their full-height layouts. Standalone
+sign-in and setup screens retain their own frames. A workflow brought into the
+dashboard uses the dashboard layout: Backups uses ordinary settings cards,
+content-sized Backup/Restore tabs, and actions in the card footer. Do not reuse
+the desktop assistant's oversized centered heading or viewport-bottom action
+bar inside a dashboard page.
+
+### Card structure and grouping
+
+Every table belongs in the shared `Card`, including a table built with CSS
+grid. A containing page card counts; do not nest a second card around its table.
+Use the same card header, content spacing, borders, and background across
+Nodes, Presets, Prompts, Subshells, Users, and other tabular pages.
+
+When a list is grouped, give each group its own titled card and table. Presets
+group by agent; the Subshells table uses its selected grouping. Object group
+names may appear as card titles because they identify the listed objects.
+Avoid full-width shaded group bands inside the table or a special striped row
+style for Subshells. Without grouping, use one card.
+
+Presets, prompts, and prompt stacks use tables. Nodes uses a table without a
+tile-view toggle. Subshells can retain its other views; its table follows the
+same rules as every other table.
+
+### Type, density, and alignment
+
+Table headings and values use normal body size (`text-sm` in the SPA).
+Headings and primary name links use `font-strong`; ordinary values remain
+regular. Use sentence-case column headings. Hostnames, versions, timestamps,
+and other secondary values use muted colour, not a smaller font.
+
+Use `h-8 py-0` for ordinary cells, aiming for compact 32px rows. Check the
+height of the controls inside each cell too: a tall name button or menu trigger
+can undo zero cell padding. Let wrapped content, expanded details, and touch
+target requirements increase height when necessary; do not shrink the text.
+
+Header and row selection checkboxes share one column width, horizontal inset,
+and vertical alignment. A group's select-all checkbox selects only that
+group's rows and preserves selections in other groups. It shows checked or
+indeterminate state from that group's actual selection.
+
+### Responsive columns
+
+Use the card's available width, through container queries, to choose which
+columns fit. Keep the name and row actions visible. Hide secondary metadata
+progressively on small screens, and reveal it again as the card widens. Match
+every header's visibility to its cells. For users, an email can move beneath
+the name when its column is hidden; management actions must remain reachable.
+
+When metadata columns are visible, give the name roughly one third of the
+table instead of letting it consume all remaining space. Fit the actions
+column to its controls. Truncate long names and metadata rather than letting
+them push the page wider; make the complete value available through the
+appropriate detail or disclosure. Keep any necessary horizontal scrolling
+inside the card, never on the whole page.
+
+### Values and interactions
+
+Give independent behaviours separate columns. Presets show Auto-restart and
+Cross-agent use separately. Boolean values, including sharing, use **Yes** or
+**No** consistently. Show plain text for provider, role, permissions, and
+routine states, following the field-value rule below; do not turn them into
+badges. Use an absence mark when a value does not apply: the server's local
+node has no remote heartbeat, so its Seen cell must not claim "never". Relative
+time labels must read naturally: "just now", never "just now ago".
+
+Clicking a name inspects the item. Node and subshell names link to their detail
+pages. Preset names expand their commands; prompt names expand their text;
+prompt-stack names expand their members. Use a consistent name button and
+chevron for disclosures, with `aria-expanded` and an associated content region.
+Expanded table content stays in a detail row spanning the columns. Edit stays
+in the action menu. Command copying uses the shared copy affordance.
+
+Row action menus and context menus put destructive actions last, after one
+divider when ordinary actions precede them. Restart and Close belong in that
+last group. Keep the relative ordering within each group. Presentation changes
+must preserve permissions: hiding a column or removing a badge must not hide an
+otherwise available management action or grant a new one.
+
+### Configuration dialogs
+
+For sign-in providers, the table summarizes Enabled, Sign-in, Registration,
+and Approval with Yes/No values. Configure in the row action menu opens the
+switches in a dialog. Each switch has a clear label and a short explanation of
+what it changes, its dependencies, and its effect on existing accounts. Keep
+the old automatic-registration-closure sentence out of the table.
+
+The dialog states that changes save immediately. Save one field at a time,
+show failures in the dialog, and retain the server's values on failure. Apply
+the save response to the shared state before releasing controls; a slow or
+failed follow-up read must not leave stale values or safeguards active. During
+a save, prevent conflicting changes and premature dismissal. Done closes the
+dialog; it is not a second save step.
+
+Turning Enabled off disables the dependent switches without changing their
+saved checked states. Re-enabling makes those settings available again,
+subject to the existing safeguards. Explain disabled controls visibly and on
+keyboard focus or hover so touch users can discover the reason too.
+
+Moving controls must preserve business rules. The final enabled provider with
+sign-in allowed cannot have Enabled or Sign-in turned off. Keep inherited
+registration behaviour, server-side enforcement, and refreshed safeguards after
+each change. The built-in E-mail provider has Configure, but no credential
+editor or Remove action. Editing another provider's credentials must not
+silently overwrite the flags managed by Configure. Implementation details live
+in [the account and login notes](../apps/server/web/docs/settings-account-login.md).
+
+### Review at small and large widths
+
+Check both phones and wide desktop screens, including 320px and a screen wider
+than 1440px. Verify aligned page gutters, readable type, compact rows, matched
+header/cell visibility, reachable actions, expanded content, and long names.
+Check empty, loading, and error states as well as populated tables. A layout
+must not look correct only with short sample names or one row.
+
 ## Patterns
 
 Each rule closed a real defect (spec § 4). A pattern without a reason is not
 admitted here.
 
+- **Field values**: use plain body text for roles, providers, modes, capabilities,
+  ownership, permissions, and routine state values. Do not wrap them in badges.
+  Warning text can retain its semantic colour. Reserve badges for compact
+  counts and actionable warnings, not ordinary label/value pairs.
 - **Line item**: `label` over `detail`, differing by weight AND colour, never
   by tone alone. *(15px regular over 13px muted read as one paragraph.)*
 - **Quiet label vs control label**: a read-only data row labels over its value
@@ -201,6 +335,9 @@ admitted here.
 - **Consequential action**: the control states what it executes, on screen,
   without a click. No confirm step unless destructive. *("Install" beside a
   copyable command read as two alternatives.)*
+- **Action menus**: group destructive actions at the bottom, after one divider
+  when ordinary actions are also present. Keep their relative order within
+  each group, including in right-click menus.
 - **Destructive action**: typed consent (the reset's hostname), never a
   checkbox.
 - **Step / wizard**: every step shows on every machine, with a done-mark when

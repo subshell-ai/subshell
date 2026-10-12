@@ -52,7 +52,7 @@ test("an administrator downloads an encrypted instance archive and loads it into
   // That is the round trip proven; the e2e server runs from source, so its
   // prepare guard refuses a binary swap ("the installed service no longer owns
   // this server") and Review Restore is intentionally out of reach here.
-  await expect(page.getByRole("heading", { name: "Configure Restore" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Configure restore" })).toBeVisible();
   await expect(page.getByRole("radio", { name: "Same-machine recovery" })).toBeChecked();
   await expect(page.getByLabel("Database path (optional)")).not.toHaveValue("");
 });

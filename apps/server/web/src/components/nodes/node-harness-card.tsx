@@ -1,13 +1,4 @@
-import {
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  errMessage,
-} from "@internal/node-admin";
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, errMessage } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import { LoaderCircle, RefreshCw } from "lucide-react";
 import { useState } from "react";
@@ -41,16 +32,10 @@ interface DetectionRow {
  * asserted a negative nothing had established — the card said "program not
  * found" about a machine that may well have the CLI.
  */
-function badgeLabel(h: DetectionRow): string {
+function detectionLabel(h: DetectionRow): string {
   if (h.installed || h.reason === "no-binary") return "ready";
   if (h.reason) return "program not found";
   return h.checkedAt ? "check failed" : "not checked";
-}
-
-/** The tone that verdict carries: found, definitely missing, or unknown. */
-function badgeVariant(h: DetectionRow): "success" | "muted" | "outline" {
-  if (h.installed || h.reason === "no-binary") return "success";
-  return h.reason ? "muted" : "outline";
 }
 
 /**
@@ -255,13 +240,11 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                   <PluginIcon pluginId={h.harnessId} name={h.name} />
                   <span className="truncate font-strong">{h.name}</span>
                 </div>
-                {/* The badge is the detection answer: whether the program this
+                {/* The text is the detection answer: whether the program this
                   plugin drives was found on this machine. `no-binary` reads
                   ready because a plugin that declares no program is not one
                   whose program is missing. */}
-                <Badge variant={badgeVariant(h)} className="justify-self-start">
-                  {badgeLabel(h)}
-                </Badge>
+                <span className="justify-self-start">{detectionLabel(h)}</span>
                 <span className="font-mono text-detail text-muted-foreground">{h.version ?? ""}</span>
                 {/* The action cell, ALWAYS rendered — the grid rule above says
                   a skipped cell slides the rest of the row one column left.

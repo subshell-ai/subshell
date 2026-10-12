@@ -128,7 +128,7 @@ describe("/presets page", () => {
       expect(screen.getByRole("heading", { name: "Pi" })).toBeDefined();
       // A harness the catalog cannot name still leads its own group, keyed by
       // id. ONCE on screen now: the launch command — which also falls back to
-      // the id for its binary — is hidden until a row's eye is pressed
+      // the id for its binary — is hidden until a row's name is pressed
       // (2026-09-18), so the header is the only place it appears.
       expect(screen.getAllByText("acme").length).toBe(1);
       const text = container.textContent ?? "";
@@ -222,7 +222,7 @@ describe("/presets row command visibility", () => {
     },
   ];
 
-  it("hides the command until the eye is pressed, and hides it again", async () => {
+  it("expands the command from the preset name, then collapses it again", async () => {
     const { restore } = mockFetch({ presets: WITH_SECRET });
     try {
       renderPage();
@@ -230,10 +230,15 @@ describe("/presets row command visibility", () => {
       // Not merely invisible — absent, so a find-in-page cannot reach it.
       expect(screen.queryByText(/sk-ant-secret/)).toBeNull();
 
-      fireEvent.click(screen.getByRole("button", { name: "Show command for Keyed" }));
-      expect(screen.getByText(/sk-ant-secret/)).toBeDefined();
+      const expander = screen.getByRole("button", { name: "Keyed" });
+      expect(expander.getAttribute("aria-expanded")).toBe("false");
+      expect(screen.queryByRole("link", { name: "Keyed" })).toBeNull();
+      fireEvent.click(expander);
+      const command = screen.getByText(/sk-ant-secret/);
+      expect(expander.getAttribute("aria-controls")).toBe(command.id);
+      expect(expander.getAttribute("aria-expanded")).toBe("true");
 
-      fireEvent.click(screen.getByRole("button", { name: "Hide command for Keyed" }));
+      fireEvent.click(screen.getByRole("button", { name: "Keyed" }));
       expect(screen.queryByText(/sk-ant-secret/)).toBeNull();
     } finally {
       restore();
@@ -255,10 +260,10 @@ describe("/presets row command visibility", () => {
   });
 });
 
-describe("cross-comm-ready badge (spec 2026-09-29 preset-launch-fields)", () => {
+describe("cross-agent use column (spec 2026-09-29 preset-launch-fields)", () => {
   afterEach(cleanup);
 
-  it("badges only the switched-on row that names a machine and a directory", async () => {
+  it("marks only the switched-on row that names a machine and a directory as ready", async () => {
     const { restore } = mockFetch({
       presets: [
         presetRow({
@@ -294,10 +299,18 @@ describe("cross-comm-ready badge (spec 2026-09-29 preset-launch-fields)", () => 
     try {
       renderPage();
       await screen.findByText("Everywhere");
-      const badges = screen.getAllByText("cross-comm ready");
-      // Two badges: the enabled rows (with and without a prompt). The
-      // filled-but-off row and the half row stay unbadged.
-      expect(badges).toHaveLength(2);
+      expect(screen.getByRole("columnheader", { name: "Auto-restart" })).toBeDefined();
+      expect(screen.getByRole("columnheader", { name: "Cross-agent use" })).toBeDefined();
+      for (const [name, ready] of [
+        ["Everywhere", "Yes"],
+        ["Silent and ready", "Yes"],
+        ["Filled but off", "No"],
+        ["Settings only", "No"],
+      ]) {
+        const row = screen.getByRole("button", { name }).closest("tr");
+        if (!row) throw new Error(`No table row for ${name}`);
+        expect(within(row).getAllByRole("cell")[2].textContent).toBe(ready);
+      }
     } finally {
       restore();
     }

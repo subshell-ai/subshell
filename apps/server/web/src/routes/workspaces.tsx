@@ -2,6 +2,7 @@ import { apiFetch, apiPost, Button, cn, errMessage } from "@internal/node-admin"
 import { createFileRoute } from "@tanstack/react-router";
 import { LayoutDashboard, Plus } from "lucide-react";
 import { useRef, useState } from "react";
+import { DashboardPage } from "@/components/dashboard-page";
 import { EmptyState } from "@/components/empty-state";
 import { EntityCard } from "@/components/entity-card";
 import { ErrorBanner } from "@/components/error-banner";
@@ -55,7 +56,7 @@ function WorkspacesPage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-4xl space-y-6 p-6">
+    <DashboardPage>
       <PageHeader
         title="Workspaces"
         subtitle="Tiled layouts of your subshells"
@@ -137,6 +138,6 @@ function WorkspacesPage() {
       )}
 
       <NewWorkspaceDialog open={dialogOpen} onOpenChange={setDialogOpen} />
-    </main>
+    </DashboardPage>
   );
 }

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { PendingExpiryCard } from "@/components/auth/pending-expiry-card";
 import { ProviderDialog } from "@/components/auth/provider-dialog";
 import { ProvidersTable } from "@/components/auth/providers-table";
+import { DashboardPage } from "@/components/dashboard-page";
 import { ErrorBanner } from "@/components/error-banner";
 import { PageHeader } from "@/components/page-header";
 import { usePendingExpiry } from "@/hooks/use-admin-settings";
@@ -46,7 +47,7 @@ function AuthPage() {
   });
 
   return (
-    <main className="mx-auto w-full max-w-5xl space-y-6 p-6">
+    <DashboardPage>
       <PageHeader
         title="Auth"
         subtitle="Manage how people sign in"
@@ -115,6 +116,6 @@ function AuthPage() {
           .
         </p>
       )}
-    </main>
+    </DashboardPage>
   );
 }

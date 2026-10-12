@@ -11,7 +11,7 @@ notes should link to them and explain only the additional engineering details.
 - [Security model](security.md): threats, enforced boundaries, accepted risks, and implementation evidence.
 - [Security follow-ups](security-actionable.md): unresolved work, decision triggers, and regression history.
 - [Release and CI](release-and-ci.md): build, signing, publishing, updates, and deployment mechanics.
-- [Design system](design-system.md): product tokens and implementation constraints.
+- [Design system](design-system.md): product tokens, dashboard layouts, responsive tables, interaction patterns, and implementation constraints.
 - [Documentation authoring](../apps/docs/AGENTS.md) and [style guide](../apps/docs/STYLE.md): public site structure, language, visuals, and verification.
 - [Proxmox submission research](proxmox-community-submission.md): external acceptance criteria and future integration work.
 

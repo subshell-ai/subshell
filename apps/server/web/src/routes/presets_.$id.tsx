@@ -11,6 +11,7 @@ import {
 import { useMutation } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useState } from "react";
+import { DashboardPage } from "@/components/dashboard-page";
 import { PresetFields } from "@/components/presets/preset-fields";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useInvalidatePresets, usePresets } from "@/hooks/use-presets";
@@ -32,9 +33,9 @@ function EditPresetPage() {
 
   if (isLoading) {
     return (
-      <main className="mx-auto w-full max-w-2xl p-6">
+      <DashboardPage>
         <p className="text-muted-foreground text-sm">Loading…</p>
-      </main>
+      </DashboardPage>
     );
   }
 
@@ -43,7 +44,7 @@ function EditPresetPage() {
   // says so instead of accusing the row of being gone.
   if (isError) {
     return (
-      <main className="mx-auto w-full max-w-2xl p-6">
+      <DashboardPage>
         <Card>
           <CardHeader>
             <CardTitle>Couldn't load this preset</CardTitle>
@@ -54,7 +55,7 @@ function EditPresetPage() {
             <Button variant="outline" render={<Link to="/presets">Back to presets</Link>} />
           </CardContent>
         </Card>
-      </main>
+      </DashboardPage>
     );
   }
 
@@ -62,7 +63,7 @@ function EditPresetPage() {
 
   if (!preset) {
     return (
-      <main className="mx-auto w-full max-w-2xl p-6">
+      <DashboardPage>
         <Card>
           <CardHeader>
             <CardTitle>Preset not found</CardTitle>
@@ -72,7 +73,7 @@ function EditPresetPage() {
             <Button variant="outline" render={<Link to="/presets">Back to presets</Link>} />
           </CardContent>
         </Card>
-      </main>
+      </DashboardPage>
     );
   }
 
@@ -110,7 +111,7 @@ function PresetEditor({ preset }: { preset: PresetRow }) {
   }
 
   return (
-    <main className="mx-auto w-full max-w-2xl p-6">
+    <DashboardPage>
       <Card>
         <CardHeader>
           <CardTitle>Edit preset</CardTitle>
@@ -155,6 +156,6 @@ function PresetEditor({ preset }: { preset: PresetRow }) {
           </div>
         </CardContent>
       </Card>
-    </main>
+    </DashboardPage>
   );
 }

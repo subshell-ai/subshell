@@ -11,7 +11,7 @@ import { asUserRole, USER_ROLE_LABELS } from "@/types/user-role";
  * OIDC provider's row cannot be resolved to its admin-chosen name from this
  * payload alone, and guessing a name would be worse than printing the id.
  */
-function providerBadgeLabel(providerId: string): string {
+function providerLabel(providerId: string): string {
   if (providerId === "credential") return "E-mail";
   if (providerId === "google") return "Google";
   return providerId;
@@ -52,19 +52,6 @@ export interface UserRow {
   providers?: string[];
 }
 
-/** One badge per sign-in row, the credential provider spelled like the Auth page. */
-function ProviderBadges({ providers }: { providers: readonly string[] }) {
-  return (
-    <div className="flex flex-wrap items-center gap-1">
-      {providers.map((id) => (
-        <Badge key={id} variant={id === "credential" ? "secondary" : "default"}>
-          {providerBadgeLabel(id)}
-        </Badge>
-      ))}
-    </div>
-  );
-}
-
 /**
  * The roster table on `/settings/users`: one row per account, with the
  * per-user controls on every row the server says is manageable.
@@ -89,15 +76,15 @@ export function UsersTable({
   const { data: currentUser } = useCurrentUser();
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+    <div className="@container overflow-x-auto">
+      <table className="w-full text-sm" aria-label="Users">
         <thead>
           <tr className="border-b text-left text-muted-foreground">
             <th className="pr-4 pb-2 font-strong">Name</th>
-            <th className="pr-4 pb-2 font-strong">E-mail</th>
-            <th className="pr-4 pb-2 font-strong">Provider</th>
+            <th className="@lg:table-cell hidden pr-4 pb-2 font-strong">E-mail</th>
+            <th className="@2xl:table-cell hidden pr-4 pb-2 font-strong">Provider</th>
             <th className="pr-4 pb-2 font-strong">Role</th>
-            <th className="pr-4 pb-2 font-strong">Created</th>
+            <th className="@3xl:table-cell hidden pr-4 pb-2 font-strong">Created</th>
             {/* No visible title above a column of kebab buttons: a header
                 over rows whose only content is "Your account" or "Service
                 account" reads as a control that failed to render, not as the
@@ -117,32 +104,46 @@ export function UsersTable({
               {/* A disabled account is dimmed as well as badged: the badge is
                   what states it, the dimming is what makes a locked-out row
                   legible while scanning the column of names. */}
-              <td className={cn("py-2 pr-4", u.disabled && "text-muted-foreground")}>{u.name}</td>
-              <td className={cn("py-2 pr-4", u.disabled && "text-muted-foreground")}>{u.email}</td>
+              <td className={cn("h-8 @lg:w-1/3 w-full max-w-0 py-0 pr-4", u.disabled && "text-muted-foreground")}>
+                <span className="block truncate" title={u.name}>
+                  {u.name}
+                </span>
+                <span className="block @lg:hidden truncate text-muted-foreground" title={u.email}>
+                  {u.email}
+                </span>
+              </td>
+              <td
+                className={cn(
+                  "@lg:table-cell hidden h-8 max-w-0 truncate py-0 pr-4",
+                  u.disabled && "text-muted-foreground",
+                )}
+                title={u.email}
+              >
+                {u.email}
+              </td>
               {/* Absent = an older payload: render nothing rather than guess a
                   set of providers. An empty list IS the payload's answer — the
                   `system` account has no sign-in row — and it renders as the
                   same nothing, which keeps that row exactly as it read
                   before this column existed. */}
-              <td className="py-2 pr-4">{u.providers && <ProviderBadges providers={u.providers} />}</td>
-              <td className="py-2 pr-4">
-                {/* `Badge` renders a div, so the wrapper is one too. */}
+              <td
+                className="@2xl:table-cell hidden h-8 max-w-0 truncate py-0 pr-4"
+                title={u.providers?.map(providerLabel).join(", ")}
+              >
+                {u.providers?.map(providerLabel).join(", ")}
+              </td>
+              <td className="h-8 py-0 pr-4">
                 <div className="flex flex-wrap items-center gap-1">
-                  {/* The role badge keeps saying the role even when the
-                      account is disabled — a disabled admin IS an admin, and
-                      one badge cannot answer both questions. */}
-                  <Badge variant={asUserRole(u.role) === "admin" ? "success" : "secondary"}>
-                    {USER_ROLE_LABELS[asUserRole(u.role)]}
-                  </Badge>
+                  <span>{USER_ROLE_LABELS[asUserRole(u.role)]}</span>
                   {u.disabled && <Badge variant="warning">Disabled</Badge>}
                 </div>
               </td>
-              <td className="py-2 pr-4 text-muted-foreground">
+              <td className="@3xl:table-cell hidden h-8 whitespace-nowrap py-0 pr-4 text-muted-foreground">
                 {u.createdAt ? new Date(u.createdAt).toLocaleString() : "—"}
               </td>
-              <td className="py-2 text-right">
+              <td className="h-8 w-px py-0 text-right">
                 {u.manageable === false ? (
-                  <span className="text-detail text-muted-foreground">Service account</span>
+                  <span className="@sm:whitespace-nowrap text-muted-foreground text-sm">Service account</span>
                 ) : (
                   <UserRowActions user={u} viewerId={currentUser?.id ?? null} onChanged={onChanged} />
                 )}

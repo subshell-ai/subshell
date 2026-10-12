@@ -488,7 +488,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
   if (step === "progress")
     return (
       <BackupWorkflow
-        title="Restoring Your Server"
+        title="Restoring backup"
         description="Your server will disconnect while Subshell restores the backup."
         footer={
           <>
@@ -544,7 +544,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
   if (step === "complete")
     return (
       <BackupWorkflow
-        title="Restore Complete"
+        title="Restore complete"
         description="Your backup has been restored."
         footer={
           <>
@@ -572,7 +572,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
   if (step === "review")
     return (
       <BackupWorkflow
-        title="Review Restore"
+        title="Review restore"
         description="Review these details before restoring your server."
         footer={
           <>
@@ -646,7 +646,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
   if (step === "configure")
     return (
       <BackupWorkflow
-        title="Configure Restore"
+        title="Configure restore"
         description="Configure the destination and restore options, then review the replacement."
         footer={
           <>
@@ -804,7 +804,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
     );
   return (
     <BackupWorkflow
-      title="Restore Your Server"
+      title="Restore backup"
       description="Choose a backup, configure the restore, and review it before preparing."
       footer={
         <>

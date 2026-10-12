@@ -1401,11 +1401,9 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     // and whichever the query reached first decided the outcome.
     const dialog = await screen.findByRole("dialog", {}, { timeout: 1200 });
     fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
-    await waitFor(() => expect(screen.queryByText(/the daemon went away/)).toBeNull(), { timeout: 1200 });
-    // No per-test ceiling: the package's 30 s script budget governs, per the
-    // rationale on the test above. This one runs the full fail-then-succeed
-    // chain - measured 12-16 s on CI's slice when the 20 s ceiling was set,
-    // 26.2 s on 2026-09-30's, which is what moved it onto the package knob.
+    // Compare a boolean: Bun serializes Happy DOM's entire element graph on
+    // a failed toBeNull assertion, blocking the microtasks that clear the error.
+    await waitFor(() => expect(screen.queryByText(/the daemon went away/) === null).toBe(true), { timeout: 1200 });
   });
 
   it("uses the vendor's own words for the credential and for publishing", async () => {

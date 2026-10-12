@@ -46,6 +46,7 @@ import type { ReactElement } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ActionRunner } from "@/hooks/use-action-runner";
 import type { NodeCommands } from "@/hooks/use-node-commands";
 import { IS_MACOS } from "@/lib/copy";
@@ -299,52 +300,61 @@ export function UpdateScreen(props: {
          * `styles.css`'s Switch workaround). Nothing here needs a workaround
          * it does not have.
          */
-        <table className="mx-auto w-full max-w-md text-sm">
-          <thead>
-            <tr className="text-detail text-muted-foreground">
-              <th className="pb-2 text-left font-regular">Component</th>
-              <th className="pb-2 text-left font-regular">Running</th>
-              <th className="pb-2 text-left font-regular">New</th>
-              <th className="pb-2 text-right font-regular">Update</th>
-            </tr>
-          </thead>
-          <tbody>
-            {act.rows.map((row) => (
-              <tr key={row.id}>
-                <td className="py-1 pr-4">{row.label}</td>
-                <td className="py-1 pr-4 text-muted-foreground">{row.from}</td>
-                <td className="py-1 pr-4">
-                  {row.to.kind === "version" ? (
-                    <span className="font-strong">{row.to.version}</span>
-                  ) : row.to.kind === "with-app" ? (
-                    // The number the app cannot know before it downloads: a
-                    // desktop release manifest carries the component's version
-                    // and its asset digests, never the version of the CLI
-                    // inside the bundle (spec § 4.3). So this names the app
-                    // that ships it, and the number appears after the
-                    // relaunch.
-                    <span className="font-strong">ships with the new app</span>
-                  ) : (
-                    <span className="text-muted-foreground">nothing</span>
-                  )}
-                </td>
-                <td className="py-1 text-right">
-                  {row.selectable ? (
-                    <input
-                      type="checkbox"
-                      className="size-4 accent-primary align-middle"
-                      aria-label={`Update ${row.label}`}
-                      checked={row.selected}
-                      onChange={(event) => toggle(row.id, event.target.checked)}
-                    />
-                  ) : row.reason !== null ? (
-                    <span className="text-detail text-muted-foreground">{row.reason}</span>
-                  ) : null}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Card className="mx-auto w-full min-w-0 max-w-md">
+          <CardHeader>
+            <CardTitle>Components</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-sm text-muted-foreground">
+                    <th className="pb-2 text-left font-regular">Component</th>
+                    <th className="pb-2 text-left font-regular">Running</th>
+                    <th className="pb-2 text-left font-regular">New</th>
+                    <th className="pb-2 text-right font-regular">Update</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {act.rows.map((row) => (
+                    <tr key={row.id}>
+                      <td className="h-8 py-0 pr-4">{row.label}</td>
+                      <td className="h-8 py-0 pr-4 text-muted-foreground">{row.from}</td>
+                      <td className="h-8 py-0 pr-4">
+                        {row.to.kind === "version" ? (
+                          <span className="font-strong">{row.to.version}</span>
+                        ) : row.to.kind === "with-app" ? (
+                          // The number the app cannot know before it downloads: a
+                          // desktop release manifest carries the component's version
+                          // and its asset digests, never the version of the CLI
+                          // inside the bundle (spec § 4.3). So this names the app
+                          // that ships it, and the number appears after the
+                          // relaunch.
+                          <span className="font-strong">ships with the new app</span>
+                        ) : (
+                          <span className="text-muted-foreground">nothing</span>
+                        )}
+                      </td>
+                      <td className="h-8 py-0 text-right">
+                        {row.selectable ? (
+                          <input
+                            type="checkbox"
+                            className="size-4 accent-primary align-middle"
+                            aria-label={`Update ${row.label}`}
+                            checked={row.selected}
+                            onChange={(event) => toggle(row.id, event.target.checked)}
+                          />
+                        ) : row.reason !== null ? (
+                          <span className="text-sm text-muted-foreground">{row.reason}</span>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {act.upToDate && data && (

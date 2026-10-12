@@ -6,7 +6,7 @@ is what its place in the tree says: it sits beside `apps/server/api`, which
 builds it into its binary and serves it. The two desktop apps carry their own
 small bundled pages under `<app>/ui/` and share nothing with this one.
 
-**Styling follows `docs/design-system.md`** (six type roles, two weights,
+**Styling follows `docs/design-system.md`** (five type roles, two weights,
 shadcn colour names), and `bun run lint:design` fails on a literal size,
 weight or colour outside the token file. Pick a role, never a number.
 
@@ -14,6 +14,13 @@ weight or colour outside the token file. Pick a role, never a number.
 file keeps what constrains an edit anywhere in the app; each moved section
 leaves a routing line naming the file to read first. The moved text is
 verbatim: nothing was dropped or reworded in transit.
+
+**Every table belongs in a card**, including CSS-grid tables. Use the shared
+`Card` component; a containing page card counts, so do not nest cards. See
+[the dashboard design rules](../../../docs/design-system.md#dashboard-pages-and-tables)
+for card grouping, compact rows, responsive columns, disclosures, and menus.
+Prompts and prompt stacks use card-contained tables; their name buttons expand the body or members,
+and membership disclosures remain table detail rows.
 
 ## URLs
 
@@ -41,6 +48,10 @@ src/
 │                     # query-client.ts, subshell-frames.ts, workspace-layout.ts, ...
 └── types/            # Hand-written mirrors of API response shapes
 ```
+
+Dashboard content uses `DashboardPage` for the same fluid width and margins
+as Settings, including loading and error states. Terminal and workspace
+canvases retain their full-height layouts.
 
 Route files stay thin: URL state + handlers + composition; data logic goes in
 `hooks/`, reusable UI in `components/`, shared types/constants in `lib/`.
@@ -358,6 +369,11 @@ lib tests live in `__tests__/` next to the code (`components/__tests__/`,
 end-to-end coverage lives in the repo-root `e2e/` workspace (Playwright):
 `bun run test:e2e` from the repo root boots its own backend and needs a real
 tmux + a one-time `bunx playwright install chromium`.
+
+When polling for a Happy DOM element to disappear, assert a boolean such as
+`expect(screen.queryByText(text) === null).toBe(true)`. A failing
+`expect(element).toBeNull()` makes Bun serialize the full DOM graph, which can
+block the state update the test is waiting for and exhaust CI timeouts.
 
 ## Drafts and the split flow (spec 2026-09-14)
 

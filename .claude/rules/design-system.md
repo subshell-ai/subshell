@@ -1,7 +1,9 @@
 # Design System
 
 The authoritative reference is [`docs/design-system.md`](../../docs/design-system.md);
-`bun run lint:design` enforces it and fails the build on a violation.
+`bun run lint:design` checks tokens and contrast; layout and interaction rules
+also need review. Read [Dashboard pages and tables](../../docs/design-system.md#dashboard-pages-and-tables)
+when changing page spacing, lists, row actions, or configuration dialogs.
 
 App copy follows [the repository's writing voice](../../AGENTS.md#writing-voice):
 write as you'd speak to a peer, with active verbs, natural contractions, and
@@ -10,7 +12,7 @@ do next. Keep explanations brief without squeezing them into long sentences.
 Review tone by reading it aloud; the linter can't tell whether prose sounds
 natural.
 
-**Pick a role, never a number.** Six type roles (`display`, `heading`,
+**Pick a role, never a number.** Five type roles (`display`, `heading`,
 `label`, `body`, `detail`) at two weights, `strong` (600) and
 `regular` (400):
 
@@ -37,7 +39,9 @@ Line items are `label` over `detail`, differing by weight and colour. **Every
 explanation a control gives about itself is `detail`** (its help text, a
 "set by the environment" note, a saved-vs-running line, a validation error),
 all at one size, the same `detail` that carries metadata (timestamps,
-versions, counts); `body` is running text not attached to a control. A tooltip
+versions, counts). Table headings and values are the exception: they use
+normal `body` size, with muted colour for secondary values. Outside those
+tables, `body` is running text not attached to a control. A tooltip
 popup is the floating-surface exception: it carries `body` (amendment 2026-10-12;
 see the reference).
 **Keep UI titles short and fixed.** Name the action ("Insert this prompt?",

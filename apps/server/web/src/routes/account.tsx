@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { ChangePasswordCard } from "@/components/change-password-card";
+import { DashboardPage } from "@/components/dashboard-page";
 import { PageHeader } from "@/components/page-header";
 import { PasskeysCard } from "@/components/passkeys-card";
 import { ProfileCard } from "@/components/profile-card";
@@ -14,12 +15,12 @@ export const Route = createFileRoute("/account")({ component: AccountPage });
  */
 function AccountPage() {
   return (
-    <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
+    <DashboardPage>
       <PageHeader title="Account" subtitle="Your profile and credentials" />
       <ProfileCard />
       {/* Self-service for ANY signed-in user (own passkeys only via the session). */}
       <PasskeysCard />
       <ChangePasswordCard />
-    </main>
+    </DashboardPage>
   );
 }

@@ -12,6 +12,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useState } from "react";
+import { DashboardPage } from "@/components/dashboard-page";
 import { PageHeader } from "@/components/page-header";
 import { Segmented } from "@/components/ui/segmented";
 import { AddUserDialog } from "@/components/users/add-user-dialog";
@@ -99,7 +100,7 @@ function UsersPage() {
   const pendingCount = pendingRows?.length ?? 0;
 
   return (
-    <main className="mx-auto w-full max-w-5xl space-y-6 p-6">
+    <DashboardPage>
       <PageHeader
         title="Users"
         subtitle="Who can sign in to this instance"
@@ -137,7 +138,7 @@ function UsersPage() {
             onChange={(next) => void navigate({ search: next === "pending" ? { tab: "pending" } : {} })}
           />
           {active === "members" ? (
-            <Card>
+            <Card className="min-w-0">
               <CardHeader>
                 <CardTitle>Users</CardTitle>
                 <CardDescription>
@@ -155,7 +156,7 @@ function UsersPage() {
               )}
             </Card>
           ) : (
-            <Card>
+            <Card className="min-w-0">
               <CardHeader>
                 <CardTitle>Pending approval</CardTitle>
                 <CardDescription>
@@ -198,6 +199,6 @@ function UsersPage() {
           .
         </p>
       )}
-    </main>
+    </DashboardPage>
   );
 }

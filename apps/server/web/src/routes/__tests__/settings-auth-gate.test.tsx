@@ -141,7 +141,10 @@ describe("Auth page gate", () => {
       expect(calls.some((c) => c === "/api/auth-providers")).toBe(true);
       // The email row's null flag on a closed instance reads closed, not open:
       // the review round's contradiction, pinned end to end.
-      expect(screen.getByText("Automatically closed once the first account signed up")).toBeDefined();
+      expect(screen.queryByText("Automatically closed once the first account signed up")).toBeNull();
+      const emailRow = screen.getByText(EMAIL_ROW.name).closest("tr");
+      expect(emailRow?.querySelectorAll("td")[3]?.textContent).toBe("No");
+      expect(screen.queryByRole("switch")).toBeNull();
     } finally {
       restore();
     }

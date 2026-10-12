@@ -1,6 +1,7 @@
 import type { NodeDetail } from "@internal/node-admin";
 import { useNode } from "@internal/node-admin";
 import type { JSX, ReactNode } from "react";
+import { DashboardPage } from "@/components/dashboard-page";
 import { ErrorBanner } from "@/components/error-banner";
 import { NodeSectionNav } from "@/components/nodes/node-section-nav";
 import { PageHeader } from "@/components/page-header";
@@ -40,24 +41,24 @@ export function NodePageShell({
     // Absent and invisible collapse to one 404 server-side — say the same
     // thing here so the page never leaks which ids exist.
     return (
-      <main className="mx-auto w-full max-w-4xl space-y-6 p-6">
+      <DashboardPage>
         <PageHeader title="Node" subtitle="Machine details" />
         <ErrorBanner message="That node does not exist, or is not shared with you." className="rounded-md border" />
-      </main>
+      </DashboardPage>
     );
   }
 
   const n = node.data;
   if (!n) {
     return (
-      <main className="mx-auto w-full max-w-4xl p-6">
+      <DashboardPage>
         <p className="text-muted-foreground text-sm">Loading…</p>
-      </main>
+      </DashboardPage>
     );
   }
 
   return (
-    <main className="mx-auto w-full max-w-4xl space-y-6 p-6">
+    <DashboardPage>
       <PageHeader
         title={title ?? n.name}
         subtitle={subtitle ?? (n.kind === "local" ? "The control-plane host" : (n.hostname ?? "Enrolled node"))}
@@ -65,6 +66,6 @@ export function NodePageShell({
       />
       <NodeSectionNav node={n} />
       {children(n)}
-    </main>
+    </DashboardPage>
   );
 }

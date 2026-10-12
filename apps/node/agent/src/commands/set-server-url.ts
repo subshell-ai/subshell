@@ -12,11 +12,12 @@ import type { Cmd, CommandContext, CommandResult } from "./context.js";
  * `nodeId`/`nodeKey`/`controlPublicKey`, and clears the enroll-time
  * `nodeWsUrl` so the daemon stops dialing the old host.
  *
- * **The new address does not take effect until the agent restarts**, and this
- * command deliberately does not restart it. The plane says so, and the operator
- * chooses when — a machine that vanished mid-command because it silently
- * re-dialed somewhere else is the kind of surprise this whole surface exists to
- * remove.
+ * **The new address takes effect on the daemon's next beat, within 15 seconds,
+ * without a restart**: the running daemon hot-reloads the written config
+ * (`refreshConnectionConfig` in `daemon.ts`) and re-dials there on its own.
+ * This command deliberately performs no restart, and the operator is still
+ * never surprised by a machine vanishing mid-command — the re-dial is now the
+ * daemon's beat, not a hidden process kill.
  *
  * Logged, because this is the one command that changes which plane owns this
  * machine, and the log is the only record of it that stays ON the machine.
@@ -24,7 +25,7 @@ import type { Cmd, CommandContext, CommandResult } from "./context.js";
 export async function execSetServerUrl(_ctx: CommandContext, cmd: Cmd<"set_server_url">): Promise<CommandResult> {
   try {
     const next = await runConfigure({ server: cmd.url });
-    log(`configured: server url is now ${next.serverUrl} (takes effect on the next restart)`);
+    log(`configured: server url is now ${next.serverUrl} (takes effect within one heartbeat, without a restart)`);
     return { ok: true, data: next.serverUrl };
   } catch (err) {
     // The CLI's own refusal, verbatim: it owns the wording of an unusable URL

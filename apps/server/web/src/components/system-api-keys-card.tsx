@@ -1,5 +1,4 @@
 import {
-  Badge,
   Button,
   Card,
   CardContent,
@@ -61,7 +60,7 @@ export function SystemApiKeysCard() {
                   {k.expiresAt ? ` · expires ${new Date(k.expiresAt).toLocaleDateString()}` : " · never expires"}
                 </p>
               </div>
-              <Badge variant={k.enabled ? "success" : "muted"}>{k.enabled ? "active" : "disabled"}</Badge>
+              <span className="text-sm">{k.enabled ? "active" : "disabled"}</span>
               <Switch
                 checked={k.enabled}
                 onCheckedChange={(checked) =>

@@ -1,11 +1,12 @@
 import { Button, cn } from "@internal/node-admin";
 import { Check, type LucideIcon, MoreHorizontal } from "lucide-react";
-import { type JSX, type ReactNode, useRef } from "react";
+import { Fragment, type JSX, type ReactNode, useRef } from "react";
 import { ContextMenuRoot, ContextMenuTriggerContents } from "@/components/ui/context-menu";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
@@ -53,26 +54,31 @@ export interface ActionItem {
  * right-click menu can never present the same entity's actions differently.
  */
 function MenuItems({ items }: { items: ActionItem[] }): JSX.Element {
+  const ordinary = items.filter((item) => !item.destructive);
+  const destructive = items.filter((item) => item.destructive);
+  const ordered = [...ordinary, ...destructive];
   return (
     <>
-      {items.map((item) => {
+      {ordered.map((item, index) => {
         const Icon = item.icon;
         return (
-          <DropdownMenuItem
-            key={item.label}
-            disabled={item.disabled}
-            className={item.destructive ? "text-destructive data-highlighted:text-destructive" : undefined}
-            onSelect={item.disabled ? undefined : item.onSelect}
-          >
-            <Icon className="h-4 w-4" />
-            {item.label}
-            {item.checked !== undefined && (
-              <Check
-                aria-hidden="true"
-                className={cn("ml-auto h-4 w-4 shrink-0", item.checked ? "text-primary" : "text-transparent")}
-              />
-            )}
-          </DropdownMenuItem>
+          <Fragment key={item.label}>
+            {ordinary.length > 0 && index === ordinary.length && <DropdownMenuSeparator />}
+            <DropdownMenuItem
+              disabled={item.disabled}
+              className={item.destructive ? "text-destructive data-highlighted:text-destructive" : undefined}
+              onSelect={item.disabled ? undefined : item.onSelect}
+            >
+              <Icon className="h-4 w-4" />
+              {item.label}
+              {item.checked !== undefined && (
+                <Check
+                  aria-hidden="true"
+                  className={cn("ml-auto h-4 w-4 shrink-0", item.checked ? "text-primary" : "text-transparent")}
+                />
+              )}
+            </DropdownMenuItem>
+          </Fragment>
         );
       })}
     </>

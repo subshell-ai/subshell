@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render as renderReact, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { PromptPageRow } from "@/components/prompts/prompt-page-row";
 
 /**
@@ -19,32 +20,32 @@ const base = {
 
 afterEach(cleanup);
 
-function detailOf(label: string): string | null {
-  // This row nests the label in a badge-carrying wrapper: the detail is the
-  // WRAPPER's next sibling, not the label's.
-  const labelEl = screen.getByText(label, { selector: "span" });
-  return labelEl.parentElement?.nextElementSibling?.textContent ?? null;
+function render(row: ReactElement) {
+  return renderReact(
+    <table>
+      <tbody>{row}</tbody>
+    </table>,
+  );
+}
+
+function previewOf(label: string): string | null {
+  return screen.getByRole("button", { name: label }).closest("tr")?.cells[1]?.textContent ?? null;
 }
 
 describe("PromptPageRow", () => {
-  it("the detail line is the first body line over the updated stamp", () => {
+  it("shows the first body line in its own preview column", () => {
     render(<PromptPageRow {...base} />);
-    const detail = detailOf("Kickoff") ?? "";
-    expect(detail.startsWith("start the task · updated ")).toBe(true);
+    expect(previewOf("Kickoff")).toBe("start the task");
   });
 
-  it("a body starting with a newline drops the segment, not a ' · updated' tail", () => {
+  it("uses an absence placeholder for a blank first line", () => {
     render(<PromptPageRow {...base} body={"\nsecond line"} />);
-    const detail = detailOf("Kickoff") ?? "";
-    expect(detail.startsWith("updated ")).toBe(true);
-    expect(detail).not.toContain("·");
+    expect(previewOf("Kickoff")).toBe("—");
   });
 
-  it("a whitespace-only first line is blank too (the round-8 trim rule)", () => {
+  it("treats a whitespace-only first line as blank", () => {
     render(<PromptPageRow {...base} body={"   \nsecond line"} />);
-    const detail = detailOf("Kickoff") ?? "";
-    expect(detail.startsWith("updated ")).toBe(true);
-    expect(detail).not.toContain("·");
+    expect(previewOf("Kickoff")).toBe("—");
   });
 
   it("the expander opens the full body and the aria pairing holds", () => {

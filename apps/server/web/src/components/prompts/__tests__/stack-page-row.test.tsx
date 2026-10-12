@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render as renderReact, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { StackPageRow } from "@/components/prompts/stack-page-row";
 import type { OwnStackRow, StackItemRow } from "@/lib/prompt-stacks";
 
@@ -38,6 +39,14 @@ const stack = (items: StackItemRow[]): OwnStackRow => ({
 const noop = () => {};
 afterEach(cleanup);
 
+function render(row: ReactElement) {
+  return renderReact(
+    <table>
+      <tbody>{row}</tbody>
+    </table>,
+  );
+}
+
 function renderRow(items: StackItemRow[], highlight = false) {
   const memberEdits: StackItemRow[] = [];
   const { container } = render(
@@ -53,9 +62,9 @@ function renderRow(items: StackItemRow[], highlight = false) {
 }
 
 describe("StackPageRow", () => {
-  it("the collapsed line carries the count and the updated stamp", () => {
+  it("the collapsed row carries the prompt count", () => {
     renderRow([mine(), inline()]);
-    expect(screen.getByText(/2 prompts · updated/)).toBeTruthy();
+    expect(screen.getByText("2 prompts")).toBeTruthy();
     expect(screen.getByText("Morning set")).toBeTruthy();
   });
 
@@ -71,7 +80,7 @@ describe("StackPageRow", () => {
     const { container } = render(
       <StackPageRow stack={stack([])} items={[]} onEditMember={noop} canEditMember={() => true} />,
     );
-    expect(screen.getByText(/Empty · updated/)).toBeTruthy();
+    expect(screen.getByText("Empty")).toBeTruthy();
     clickExpander(container);
     expect(screen.getByText(/Nothing here/)).toBeTruthy();
     // The owner CAN edit the stack, so the sentence names the remedy.

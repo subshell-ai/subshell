@@ -2,6 +2,7 @@ import { Button } from "@internal/node-admin";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useState } from "react";
+import { DashboardPage } from "@/components/dashboard-page";
 import { PageHeader } from "@/components/page-header";
 import { SystemApiKeysCard } from "@/components/system-api-keys-card";
 import { SystemKeyCreateDialog } from "@/components/system-key-create-dialog";
@@ -25,7 +26,7 @@ function ApiKeysPage() {
   const [createOpen, setCreateOpen] = useState(false);
 
   return (
-    <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
+    <DashboardPage>
       {/* Not the card's own description repeated — see the note on
           `/settings/logs` for why one sentence twice is both a visual bug
           and an ambiguous test locator. */}
@@ -57,6 +58,6 @@ function ApiKeysPage() {
         </p>
       )}
       <SystemKeyCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
-    </main>
+    </DashboardPage>
   );
 }

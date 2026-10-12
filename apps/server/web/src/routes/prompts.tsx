@@ -1,13 +1,15 @@
 import { Button, confirmAction, errMessage, Input } from "@internal/node-admin";
 import { createFileRoute } from "@tanstack/react-router";
 import { Copy, Layers, MessageSquareText, Pencil, Plus, Share2, ShieldOff, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 import { CopyButton } from "@/components/copy-button";
+import { DashboardPage } from "@/components/dashboard-page";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorBanner } from "@/components/error-banner";
 import { PageHeader } from "@/components/page-header";
 import { PromptFormDialog } from "@/components/prompts/prompt-form-dialog";
+import { PromptLibraryTable } from "@/components/prompts/prompt-library-table";
 import { PromptPageRow } from "@/components/prompts/prompt-page-row";
 import { StackFormDialog } from "@/components/prompts/stack-form-dialog";
 import { StackPageRow } from "@/components/prompts/stack-page-row";
@@ -360,43 +362,47 @@ function PromptsPage() {
     stacksPanel === promptId && inStacks.length > 0 ? (
       // The id the row's count chip names in aria-controls; the panel is
       // mounted only while open, the same posture as the row body expander.
-      <div id={`prompt-stacks-${promptId}`} className="rounded-md border bg-muted/40 px-3 py-2">
-        <p className="text-detail text-muted-foreground">
-          This prompt is a member of {inStacks.length} stack{inStacks.length === 1 ? "" : "s"} you can see:
-        </p>
-        <ul className="mt-1 space-y-1">
-          {inStacks.map((s) => (
-            <li key={s.id} className="flex items-center gap-1">
-              <button
-                type="button"
-                className="min-w-0 flex-1 truncate rounded-sm text-left font-strong text-label underline-offset-2 hover:underline"
-                onClick={() => jumpToStack(s)}
-              >
-                {s.label}
-              </button>
-              <CopyButton text={stackJoinedText(s)} label={s.label} />
-              {/* The bare label, like the row's own menu: ActionsMenu supplies
+      <tr className="border-b last:border-0">
+        <td colSpan={5} className="max-w-0">
+          <div id={`prompt-stacks-${promptId}`} className="rounded-md border bg-muted/40 px-3 py-2">
+            <p className="text-muted-foreground text-sm">
+              This prompt is a member of {inStacks.length} stack{inStacks.length === 1 ? "" : "s"} you can see:
+            </p>
+            <ul className="mt-1 space-y-1">
+              {inStacks.map((s) => (
+                <li key={s.id} className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 truncate rounded-sm text-left font-strong text-sm underline-offset-2 hover:underline"
+                    onClick={() => jumpToStack(s)}
+                  >
+                    {s.label}
+                  </button>
+                  <CopyButton text={stackJoinedText(s)} label={s.label} />
+                  {/* The bare label, like the row's own menu: ActionsMenu supplies
                   the "Actions for" prefix, so naming it "X actions" here would
                   announce "Actions for X actions" (round-4 review). */}
-              {stackMenuItems(s).length > 0 && <ActionsMenu label={s.label} items={stackMenuItems(s)} />}
-            </li>
-          ))}
-        </ul>
-      </div>
+                  {stackMenuItems(s).length > 0 && <ActionsMenu label={s.label} items={stackMenuItems(s)} />}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </td>
+      </tr>
     ) : null;
 
   const promptRows = (
-    <div className="space-y-2">
+    <PromptLibraryTable kind="prompts" shared={activeTab === "shared"}>
       {activeTab === "own" &&
         own.map((p) => {
           const inStacks = stacksForPrompt(p.id);
           return (
-            <div key={p.id} className="space-y-1">
+            <Fragment key={p.id}>
               <PromptPageRow
                 description={p.description}
                 body={p.body}
                 updatedAt={p.updatedAt}
-                badge={p.shared ? "shared" : undefined}
+                badge={p.shared ? "Yes" : "No"}
                 stacks={{
                   count: inStacks.length,
                   open: stacksPanel === p.id,
@@ -413,14 +419,14 @@ function PromptsPage() {
                 ]}
               />
               {stacksDisclosure(p.id, inStacks)}
-            </div>
+            </Fragment>
           );
         })}
       {activeTab === "shared" &&
         shared.map((p: SharedPromptRow) => {
           const inStacks = stacksForPrompt(p.id);
           return (
-            <div key={p.id} className="space-y-1">
+            <Fragment key={p.id}>
               <PromptPageRow
                 description={p.description}
                 body={p.body}
@@ -435,19 +441,19 @@ function PromptsPage() {
                 items={[]}
               />
               {stacksDisclosure(p.id, inStacks)}
-            </div>
+            </Fragment>
           );
         })}
-    </div>
+    </PromptLibraryTable>
   );
 
   const stackRows = (
-    <div className="space-y-2">
+    <PromptLibraryTable kind="stacks" shared={activeTab === "shared"}>
       {(activeTab === "own" ? ownStacks : sharedStacks).map((s) => (
         <StackPageRow
           key={s.id}
           stack={s}
-          badge={"shared" in s && s.shared ? "shared" : "ownerName" in s ? s.ownerName : undefined}
+          badge={"shared" in s ? (s.shared ? "Yes" : "No") : s.ownerName}
           highlight={highlightId === s.id}
           canEditStack={activeTab === "own"}
           canEditMember={canEditMember}
@@ -455,11 +461,11 @@ function PromptsPage() {
           items={stackMenuItems(s)}
         />
       ))}
-    </div>
+    </PromptLibraryTable>
   );
 
   return (
-    <main className="mx-auto w-full max-w-4xl space-y-6 p-6">
+    <DashboardPage>
       <PageHeader
         title="Prompts"
         subtitle="Save prompts to reuse in your subshells"
@@ -618,7 +624,7 @@ function PromptsPage() {
         </p>
       )}
       {chipsFeedMissing && !isLoading && !isError && (
-        <p className="text-detail text-muted-foreground">
+        <p className="text-muted-foreground text-sm">
           Couldn't load your stacks, so prompt membership counts aren't available.
         </p>
       )}
@@ -658,7 +664,7 @@ function PromptsPage() {
         />
       )}
       {!isLoading && emptyFiltered && (
-        <p className="text-detail text-muted-foreground">
+        <p className="text-muted-foreground text-sm">
           {emptyByFilter
             ? query.trim() !== ""
               ? "No empty stacks match the search."
@@ -674,16 +680,16 @@ function PromptsPage() {
       {/* All is the combined overview: the caller's stacks over their singles,
           each kind its own spaced group so the two never blur into one run. */}
       {activeView === "all" ? (
-        <div className="space-y-6">
+        <div className="flex flex-col gap-6">
           {stacksShown.length > 0 && stackRows}
           {promptsShown.length > 0 && promptRows}
         </div>
       ) : activeView === "stacked" ? (
-        stackRows
+        stacksShown.length > 0 && stackRows
       ) : (
-        promptRows
+        promptsShown.length > 0 && promptRows
       )}
-    </main>
+    </DashboardPage>
   );
 }
 

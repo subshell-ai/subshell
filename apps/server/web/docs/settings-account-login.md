@@ -43,5 +43,20 @@ pending are indistinguishable from the visitor's side; the truth lives on
 Settings → Auth and the Users page's **Pending approval** tab, which reads
 `GET /api/users/pending` and whose Approve/Reject buttons drive
 `PATCH /api/users/:id/approval`). The Users table's Provider column renders
-each member's linked providers as badges, and the row-action menu hides "Reset
+each member's linked providers as plain text, and the row-action menu hides "Reset
 password" for rows with no credential account.
+
+The sign-in provider table shows Yes/No settings. Every row, including E-mail,
+opens Configure from its action menu. That dialog explains Enabled, Sign-in,
+Registration, and Require approval; each change saves immediately through
+the existing one-field PATCH. The last open provider keeps Enabled and
+Sign-in disabled with visible and focusable explanations. E-mail still has
+no credential editor or Remove action.
+
+When a provider is disabled, Configure keeps its other switches disabled
+without changing their saved values. Re-enabling restores access to those
+settings, subject to the last-provider guard.
+
+A successful provider PATCH updates the shared list from its response before
+controls become available again. The mutation remains pending through query
+invalidation, so a slow list refresh cannot expose stale settings or guards.

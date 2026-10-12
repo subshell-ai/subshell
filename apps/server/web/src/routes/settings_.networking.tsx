@@ -1,6 +1,7 @@
 import { Button, Card, CardContent, CardHeader, CardTitle } from "@internal/node-admin";
 import { useIsMutating, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { DashboardPage } from "@/components/dashboard-page";
 import { ErrorBanner } from "@/components/error-banner";
 import { AddNetworkCard } from "@/components/networking/add-network-card";
 import { AddressesCard } from "@/components/networking/addresses-card";
@@ -105,7 +106,7 @@ function NetworkingPage() {
   useAdminStatus(isAdmin);
 
   return (
-    <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
+    <DashboardPage>
       <PageHeader title="Networking" subtitle="Reach this server from your other devices." />
       {viewerIsAdmin === undefined ? null : isAdmin ? (
         <>
@@ -202,6 +203,6 @@ function NetworkingPage() {
           .
         </p>
       )}
-    </main>
+    </DashboardPage>
   );
 }

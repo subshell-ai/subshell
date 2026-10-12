@@ -33,9 +33,9 @@ export function NetworkRow({ row, body = "compact" }: { row: NetworkRowData; bod
   // are not reached through either surface.
   const actionable = row.supported && row.enabled;
   const head = (
-    <div className="flex min-h-11 items-center gap-3 py-2">
+    <div className="flex min-h-11 flex-wrap items-center gap-3 py-2">
       <PluginIcon pluginId={row.id} name={row.name} />
-      <span className="flex-1 font-strong">{row.name}</span>
+      <span className="min-w-0 flex-1 break-words font-strong">{row.name}</span>
       <span className={cn("text-detail", chip.className)}>{chip.text}</span>
       {actionable && (
         <Button

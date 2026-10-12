@@ -277,12 +277,14 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   expect(script).toContain(`SERVER="${BASE_URL}"`);
   // The `server` param the address dropdown carries, asserted on the LIVE
   // route (the bun test stages it through a plugin seam; this proves the
-  // production registry answers the same way). localhost:3199 is the other
-  // spelling of this stack's own origin; evil is nobody's origin.
+  // production registry answers the same way). localhost is the other
+  // spelling of this stack's own origin, including a custom test port.
+  const alternateOrigin = new URL(BASE_URL);
+  alternateOrigin.hostname = "localhost";
   const baked = await request.get(
-    `/install.sh?setup_key=${setupKey}&server=${encodeURIComponent("http://localhost:3199")}`,
+    `/install.sh?setup_key=${setupKey}&server=${encodeURIComponent(alternateOrigin.origin)}`,
   );
-  expect(await baked.text()).toContain('SERVER="http://localhost:3199"');
+  expect(await baked.text()).toContain(`SERVER="${alternateOrigin.origin}"`);
   const refused = await request.get(
     `/install.sh?setup_key=${setupKey}&server=${encodeURIComponent("http://evil.invalid:3199")}`,
   );

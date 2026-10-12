@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { Node } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { NodeTable } from "@/components/nodes/node-table";
 
@@ -33,19 +34,24 @@ function node(overrides: Partial<Node> = {}): Node {
   };
 }
 
-function renderTable(nodes: Node[]) {
+async function renderTable(nodes: Node[]) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const noop = () => {};
-  return render(
-    <QueryClientProvider client={client}>
-      <NodeTable nodes={nodes} onOpenConfig={noop} onShare={noop} onDelete={noop} onError={noop} />
-    </QueryClientProvider>,
-  );
+  const rootRoute = createRootRoute({
+    component: () => (
+      <QueryClientProvider client={client}>
+        <NodeTable nodes={nodes} onOpenConfig={noop} onShare={noop} onDelete={noop} onError={noop} />
+      </QueryClientProvider>
+    ),
+  });
+  const router = createRouter({ routeTree: rootRoute, history: createMemoryHistory({ initialEntries: ["/"] }) });
+  await router.load();
+  return render(<RouterProvider router={router} />);
 }
 
 describe("NodeTable", () => {
-  it("renders one aligned row per node: name, host, platform, owner, version, seen", () => {
-    renderTable([
+  it("renders one aligned row per node: name, host, platform, owner, version, seen", async () => {
+    await renderTable([
       node({
         id: "a1",
         name: "AI PC",
@@ -66,6 +72,7 @@ describe("NodeTable", () => {
       "Seen",
       "",
     ]);
+    expect(screen.getByRole("link", { name: "AI PC" }).getAttribute("href")).toBe("/nodes/a1");
     expect(screen.getByText("Ada")).toBeTruthy();
     expect(screen.getByText("You")).toBeTruthy();
     expect(screen.queryByRole("columnheader", { name: "Status" })).toBeNull();
@@ -84,16 +91,24 @@ describe("NodeTable", () => {
     cleanup();
   });
 
-  it("leaves the owner unknown when the server doesn't disclose it", () => {
-    renderTable([node({ access: "view", agentVersion: "1.0.0" })]);
+  it("shows no heartbeat age for the built-in server, even after it is renamed", async () => {
+    await renderTable([node({ id: "local", kind: "local", name: "Build host" })]);
+    expect(screen.getAllByRole("cell")[5]?.textContent).toBe("—");
+    expect(screen.queryByText("never")).toBeNull();
+    expect(screen.getByRole("img", { name: "Online" })).toBeTruthy();
+    cleanup();
+  });
+
+  it("leaves the owner unknown when the server doesn't disclose it", async () => {
+    await renderTable([node({ access: "view", agentVersion: "1.0.0" })]);
     const cells = screen.getAllByRole("cell");
     expect(cells[3]?.textContent).toBe("—");
     expect(screen.queryByText("You")).toBeNull();
     cleanup();
   });
 
-  it("keeps maintenance visible in the name cell alongside connection status", () => {
-    renderTable([node({ maintenance: true })]);
+  it("keeps maintenance visible in the name cell alongside connection status", async () => {
+    await renderTable([node({ maintenance: true })]);
     expect(screen.getByRole("img", { name: "Online" })).toBeTruthy();
     expect(screen.getByText("maintenance").closest("td")).toBe(screen.getByText("mac mini").closest("td"));
     cleanup();

@@ -1,5 +1,4 @@
 import {
-  Badge,
   Button,
   Card,
   CardContent,
@@ -204,9 +203,7 @@ export function SetupKeysSection() {
                     {k.ownerLabel ? ` · for ${k.ownerLabel}` : ""}
                   </p>
                 </div>
-                <Badge variant={state === "unused" ? "success" : state === "expired" ? "warning" : "muted"}>
-                  {state}
-                </Badge>
+                <span className={state === "expired" ? "text-warning" : undefined}>{state}</span>
                 {/* On the USABLE row only. The card exists because a key the dialog was
                     closed on was recoverable; this closes the other half of that — the
                     COMMAND, which until now could only be re-read by minting a second
