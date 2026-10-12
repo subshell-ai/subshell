@@ -270,7 +270,7 @@ export function SupervisionCard({
           <label htmlFor="server-autostart" className="font-strong text-label">
             Start at login
           </label>
-          <p className="text-detail text-muted-foreground">
+          <p className={`text-detail ${loginBlocked ? "text-warning" : "text-muted-foreground"}`}>
             {loginBlocked ??
               "Starts the server again the next time you log in to this machine. Without it, the service runs now but nothing brings it back after you log out or restart."}
           </p>

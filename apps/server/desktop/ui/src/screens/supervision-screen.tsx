@@ -231,7 +231,7 @@ export function SupervisionScreen(props: {
           </span>
         )}
         {!autostartSupported(probe) && (
-          <span className="hint">{`Update your server to ${MIN_AUTOSTART_SERVER_VERSION} to control this.`}</span>
+          <span className="hint warn-text">{`Update your server to ${MIN_AUTOSTART_SERVER_VERSION} to control this.`}</span>
         )}
       </div>
       {option({

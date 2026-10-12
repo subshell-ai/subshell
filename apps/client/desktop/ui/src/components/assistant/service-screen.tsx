@@ -374,7 +374,7 @@ export function ServiceScreen(props: {
               />
               <Label htmlFor="service-autostart">Start automatically on startup</Label>
             </div>
-            <p className="text-detail text-muted-foreground">
+            <p className={`text-detail ${!supported ? "text-warning" : "text-muted-foreground"}`}>
               {!supported
                 ? `Currently the installed version cannot change this. Updating to version ${MIN_AUTOSTART_NODE_VERSION} lets you.`
                 : atLogin === null
@@ -572,7 +572,7 @@ export function ServiceScreen(props: {
             </Button>
           </div>
           {!unenrollSupported(probe) && (
-            <p className="mt-2 text-detail text-muted-foreground">
+            <p className="mt-2 text-detail text-warning">
               Un-enrolling needs node version {MIN_UNENROLL_NODE_VERSION} or newer. Update the node first.
             </p>
           )}

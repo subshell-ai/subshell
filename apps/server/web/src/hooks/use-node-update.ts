@@ -1,6 +1,6 @@
 import { apiFetch, errMessage, NODE_QUERY_KEY, NODES_QUERY_KEY } from "@internal/node-admin";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { UPDATES_QUERY_KEY } from "@/lib/query-keys";
 
 /** What `POST /api/nodes/:id/update` answers on 202. */
@@ -66,6 +66,17 @@ export function useNodeUpdate(): NodeUpdate {
   const queryClient = useQueryClient();
   const [pendingNodeIds, setPendingNodeIds] = useState<ReadonlySet<string>>(() => new Set());
   const [failures, setFailures] = useState<Readonly<Record<string, string>>>({});
+
+  // The POST can wait for the download. Read progress before it returns,
+  // otherwise the tracker cannot start the page's normal polling cadence.
+  const pending = pendingNodeIds.size > 0;
+  useEffect(() => {
+    if (!pending) return;
+    const timer = setInterval(() => {
+      void queryClient.invalidateQueries({ queryKey: UPDATES_QUERY_KEY }, { cancelRefetch: false });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [pending, queryClient]);
 
   async function update(nodeId: string, opts?: { force?: boolean }): Promise<NodeUpdateStarted> {
     setPendingNodeIds((cur) => new Set(cur).add(nodeId));

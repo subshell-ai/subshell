@@ -95,7 +95,7 @@ export function ServiceCard({
         )}
       </p>
       {!restarting && !service.supervised && view.restart.reason && (
-        <p className="col-span-full text-muted-foreground text-sm">{view.restart.reason}</p>
+        <p className="col-span-full text-sm text-warning">{view.restart.reason}</p>
       )}
       {/* **Gated on `installed`.** `paneSafety` is `"unknown"` when there is no
           definition to read, and `"unknown" !== "keeps"`, so this fired on

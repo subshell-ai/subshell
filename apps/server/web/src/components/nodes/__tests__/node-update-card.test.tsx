@@ -94,6 +94,7 @@ describe("NodeUpdateCard", () => {
       const updating = (await screen.findByRole("button", { name: "Updating…" })) as HTMLButtonElement;
       expect(updating.matches(":disabled, [aria-disabled=true]")).toBe(true);
       expect(updating.querySelector("svg")).toBeTruthy();
+      expect(screen.getByRole("status").textContent).toContain("Updating the node.");
       release();
       // Let the 202 land and the mutation settle before unmount, or React
       // logs an act() warning for the setState the resolution fires.

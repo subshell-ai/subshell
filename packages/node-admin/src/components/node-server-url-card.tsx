@@ -92,6 +92,7 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
             </p>
           )}
         </div>
+        {!isOwner && <p className="text-detail text-warning">Only the node owner can change the server address.</p>}
         <div className="flex items-center gap-2">
           <Button
             variant="outline"

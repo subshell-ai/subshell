@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { BROWSER_UA, CLIENT_UA, restoreUA, setUA } from "@/components/__tests__/helpers/desktop-ua";
@@ -183,11 +183,26 @@ describe("NodeRows", () => {
         release = () => resolve(new Response("{}", { status: 202 }));
       })) as typeof globalThis.fetch;
     try {
-      renderRows(nodeUpdates({ rows: [nodeRow({ id: "a", name: "alpha", canUpdate: { ok: true, reason: null } })] }));
+      const { client } = renderRows(
+        nodeUpdates({
+          rows: [
+            nodeRow({
+              id: "a",
+              name: "alpha",
+              canUpdate: { ok: true, reason: null },
+              update: updateState({ phase: "done" }),
+            }),
+          ],
+        }),
+      );
+      const invalidations = spyOn(client, "invalidateQueries");
       fireEvent.click(screen.getByRole("button", { name: "Update" }));
       const updating = (await screen.findByRole("button", { name: "Updating…" })) as HTMLButtonElement;
       expect(updating.matches(":disabled, [aria-disabled=true]")).toBe(true);
       expect(updating.querySelector("svg")).toBeTruthy();
+      expect(screen.getByRole("status").textContent).toContain("Starting the update.");
+      expect(screen.queryByText(/Updated to/)).toBeNull();
+      await waitFor(() => expect(invalidations).toHaveBeenCalled(), { timeout: 2500 });
       // Async act: the resolve's microtask chain needs the await to land
       // inside act, or the state updates escape it (the sibling sequence
       // test's comment carries the full reason).

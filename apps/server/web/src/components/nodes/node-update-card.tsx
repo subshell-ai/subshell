@@ -123,8 +123,13 @@ export function NodeUpdateCard({ node }: { node: NodeDetail }): JSX.Element {
             The server will not accept this machine's Subshell daemon version. You can still update it from here.
           </p>
         )}
+        {updating && (
+          <p role="status" className="text-detail text-warning">
+            Updating the node. Waiting for it to finish installing and reconnect.
+          </p>
+        )}
         {accepted && (
-          <p className="text-detail text-success">
+          <p role="status" className="text-detail text-warning">
             Update accepted. {node.name} is installing {accepted.to} and will reconnect by itself.
           </p>
         )}

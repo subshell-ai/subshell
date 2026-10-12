@@ -5,4 +5,6 @@
 "@internal/desktop-client": patch
 ---
 
-Explain why disabled buttons are unavailable on hover, keyboard focus, or touch. Highlight owner-only node restrictions in gold and use form validation messages to explain missing input.
+Explain why disabled buttons are unavailable on hover, keyboard focus, or touch. Highlight owner-only restrictions and service prerequisites in gold, and use form validation messages to explain missing input.
+
+Show status as soon as server and node updates start, and fetch node progress while the update request is pending. Keep progress gold until completion is confirmed, and hide the previous attempt's result when a new update starts.

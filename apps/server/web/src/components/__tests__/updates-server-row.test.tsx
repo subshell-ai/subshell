@@ -121,6 +121,20 @@ describe("the job", () => {
     expect(jobLine(job({ phase: "restarting" }))).toBe("Restarting…");
   });
 
+  it("announces an update before its job record arrives", () => {
+    renderRow(serverUpdateView({ job: null }), { ...idleUpdate, outcome: "running" });
+    expect(screen.getByRole("status").textContent).toContain("Starting the server update…");
+  });
+
+  it("does not show an old failed job while a new request starts", () => {
+    renderRow(serverUpdateView({ job: job({ phase: "failed", error: "old failure" }) }), {
+      ...idleUpdate,
+      outcome: "running",
+    });
+    expect(screen.getByRole("status").textContent).toContain("Starting the server update…");
+    expect(screen.queryByText(/old failure/)).toBeNull();
+  });
+
   it("renders the running phase and locks the button, even in a tab that did not press it", () => {
     // The job is a fact about the SERVER, so an admin who reloads mid-update
     // — or a second admin watching — must see it, with `outcome` still idle.

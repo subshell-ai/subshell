@@ -129,6 +129,11 @@ admitted here.
   hold both uses. *(An hour of one-tone experiments settled the split: gold
   for everything read as alarm on unfilled fields; red for everything hid
   which fields still needed typing.)*
+- **Service restrictions and prerequisites**: use gold (`text-warning`) for
+  visible explanations of unavailable actions, such as owner-only permissions,
+  missing supervision, or a version required to change a setting. Keep routine
+  status and optional setup instructions neutral. Failed actions and load
+  errors stay red (`text-destructive`); a restriction is not a failed action.
 - **Titles and confirmations**: keep titles short and fixed. Name the action
   ("Insert this prompt?", "Close this subshell?", "Generate a new setup key?")
   and put variable details in the body: names, counts, versions, addresses,
