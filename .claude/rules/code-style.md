@@ -208,6 +208,29 @@ This applies to:
 - Response schemas (`response`)
 - Nested object properties within any schema
 
+## Validate request inputs at the boundary
+
+For new or changed request inputs, define runtime validation in the route schema
+before doing expensive work. TypeScript types and browser controls do not validate
+HTTP requests. Bound strings according to the fields they search or represent,
+use enums for fixed choices, and validate formats such as locale and time zone
+where a length check alone cannot establish validity. Allow an empty search to
+clear a filter; reject oversized input instead of silently truncating it.
+
+Share browser/API length constants when both enforce the same rule. Keep their
+counting units consistent, including non-BMP Unicode characters; HTML `maxLength`
+and the current API validator count UTF-16 units. `LIST_SEARCH_MAX` is the shared
+source for dashboard searches. Limits must account for every searchable field:
+a search over prompt bodies cannot use only the shorter description limit.
+
+Authenticate and establish the caller's visible records before matching. Apply
+the same rule to nested records, such as prompts referenced by stacks. Treat
+search text as a literal substring and encode query parameters with
+`URLSearchParams`; never interpolate it into SQL, commands, or regular expressions.
+Debouncing and request cancellation improve responsiveness but do not replace
+server validation or rate limiting. See [list-search security constraints](../../docs/security.md#dashboard-list-search-inputs)
+and the app-specific list-filter guidance in `apps/server/api/AGENTS.md`.
+
 ## Co-location of Related Definitions
 
 Keep all definitions for a single concept in the same file. When a handler has

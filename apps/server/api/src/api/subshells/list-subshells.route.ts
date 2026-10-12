@@ -6,6 +6,11 @@ import { SubshellSchema } from "@/api/models.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 
+const ListSubshellsQuerySchema = t.Object({
+  q: t.Optional(t.String({ maxLength: LIST_SEARCH_MAX.subshells })),
+  nodeId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+});
+
 /** `GET /api/subshells` — lists the authenticated user's subshells. */
 export const listSubshellsRoute = new Elysia()
   .use(contextPlugin)
@@ -27,10 +32,7 @@ export const listSubshellsRoute = new Elysia()
       );
     },
     {
-      query: t.Object({
-        q: t.Optional(t.String({ maxLength: LIST_SEARCH_MAX.subshells })),
-        nodeId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
-      }),
+      query: ListSubshellsQuerySchema,
       response: {
         200: t.Array(SubshellSchema, { description: "User's subshells" }),
         401: "ApiErrorResponse",

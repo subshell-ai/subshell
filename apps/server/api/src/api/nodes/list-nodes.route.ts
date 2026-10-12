@@ -10,6 +10,12 @@ import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { resolveNodeAccess } from "@/lib/node-access.js";
 import { apiModels } from "@/schema/index.js";
 
+const ListNodesQuerySchema = t.Object({
+  q: t.Optional(t.String({ maxLength: LIST_SEARCH_MAX.nodes })),
+  status: t.Optional(t.Union([t.Literal("online"), t.Literal("offline")])),
+  access: t.Optional(t.Union([t.Literal("yours"), t.Literal("shared")])),
+});
+
 /**
  * `GET /api/nodes`: every node the caller can see, rendered through ONE
  * mapper so the two actor classes cannot disagree about the row shape.
@@ -97,11 +103,7 @@ export const listNodesRoute = new Elysia()
       };
     },
     {
-      query: t.Object({
-        q: t.Optional(t.String({ maxLength: LIST_SEARCH_MAX.nodes })),
-        status: t.Optional(t.Union([t.Literal("online"), t.Literal("offline")])),
-        access: t.Optional(t.Union([t.Literal("yours"), t.Literal("shared")])),
-      }),
+      query: ListNodesQuerySchema,
       response: {
         200: t.Object({
           nodes: t.Array(NodeViewSchema, {

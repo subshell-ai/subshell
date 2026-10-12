@@ -8,6 +8,11 @@ import { PromptsRepository } from "@/db/repositories/prompts.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { PromptTable } from "@/db/types/prompts.db-types.js";
 
+const ListPromptsQuerySchema = t.Object({
+  q: t.Optional(t.String({ maxLength: LIST_SEARCH_MAX.prompts })),
+  scope: t.Optional(t.Union([t.Literal("own"), t.Literal("shared")])),
+});
+
 /**
  * Saved prompts (spec 2026-09-28): a per-user library of reusable text with a
  * required short description, shared with EVERYONE or nobody via a boolean.
@@ -148,10 +153,7 @@ export const promptsRoutes = new Elysia({ prefix: "/api/prompts" })
       };
     },
     {
-      query: t.Object({
-        q: t.Optional(t.String({ maxLength: LIST_SEARCH_MAX.prompts })),
-        scope: t.Optional(t.Union([t.Literal("own"), t.Literal("shared")])),
-      }),
+      query: ListPromptsQuerySchema,
       response: PromptsListSchema,
       detail: {
         operationId: "listPrompts",

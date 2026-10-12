@@ -477,8 +477,9 @@ describe("filtering across groups", () => {
         expect(groupHeaders()[0]?.textContent).toContain("Server");
 
         fireEvent.change(screen.getByLabelText("Filter subshells"), { target: { value: "zzz" } });
-        await waitFor(() => expect(groupHeaders()).toHaveLength(0));
-        expect(screen.getByText("No matches.")).toBeTruthy();
+        // Groups also disappear during loading; wait for the completed search.
+        expect(await screen.findByText("No matches.")).toBeTruthy();
+        expect(groupHeaders()).toHaveLength(0);
       },
     );
   });

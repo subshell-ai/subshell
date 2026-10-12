@@ -9,6 +9,12 @@ import { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { PromptStackItemTable, PromptStackTable } from "@/db/types/prompt-stacks.db-types.js";
 import type { PromptTable } from "@/db/types/prompts.db-types.js";
 
+const ListPromptStacksQuerySchema = t.Object({
+  q: t.Optional(t.String({ maxLength: LIST_SEARCH_MAX.prompts })),
+  empty: t.Optional(t.Literal("only")),
+  scope: t.Optional(t.Union([t.Literal("own"), t.Literal("shared")])),
+});
+
 /**
  * Prompt stacks (spec 2026-09-29): ordered collections of saved prompts with a
  * short label, shared everyone-or-nobody exactly like single prompts. This
@@ -310,11 +316,7 @@ export const promptStackRoutes = new Elysia()
       };
     },
     {
-      query: t.Object({
-        q: t.Optional(t.String({ maxLength: LIST_SEARCH_MAX.prompts })),
-        empty: t.Optional(t.Literal("only")),
-        scope: t.Optional(t.Union([t.Literal("own"), t.Literal("shared")])),
-      }),
+      query: ListPromptStacksQuerySchema,
       response: PromptStacksListSchema,
       detail: {
         operationId: "listPromptStacks",

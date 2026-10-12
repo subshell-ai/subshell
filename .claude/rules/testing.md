@@ -45,6 +45,20 @@ src/db/repositories/
 
 When fixing bugs, add a test that reproduces the bug before fixing it to prevent regressions.
 
+## Server-backed search coverage
+
+Test the HTTP boundary, not just the matching helper: maximum and over-limit
+lengths (including Unicode), invalid enum/format values, literal SQL/regex-like
+text, and private records or nested members that must remain undiscoverable.
+Retain anonymous and scoped-bearer authorization checks when adding filters.
+
+UI tests should verify debounced requests, immediate select/clear actions,
+stale-response isolation, and a failed search recovering through Retry without
+showing “no matches.” Wait for the completed result state: rows can disappear
+while a request is loading, so their absence alone does not prove an empty
+result has arrived. Route-validation tests should mount the production error
+handler so they assert the API's actual error status and body.
+
 ## After Making Code Changes
 
 After any code change, check if tests need updating due to changed behavior (e.g., different error types, response formats, new error conditions). Then run full verification - see `verification.md`.

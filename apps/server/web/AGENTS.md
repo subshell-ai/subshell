@@ -56,7 +56,14 @@ canvases retain their full-height layouts.
 Dashboard list searches use server-side query parameters, with 300 ms text
 input debounce (`useDebouncedValue`). Filtered cache entries are children of the
 resource key; they never replace the complete list. Select filters apply
-immediately. Keep loading, errors, and zero matches distinct.
+immediately. Forward the query's abort signal to fetch and keep every filter in
+the cache key, so an older response cannot replace the current search. Live
+updates invalidate active filtered queries without replacing the complete-list
+cache with a subset. Keep loading, errors, and zero matches distinct. Use
+`ListLoadError` for compact retry states in sidebars and pickers, with retry
+recovering every failed query the view depends on. Use `LIST_SEARCH_MAX` for
+input bounds; the API independently enforces them. Presentation rules remain in
+[the design guide](../../../docs/design-system.md#dashboard-pages-and-tables).
 
 Route files stay thin: URL state + handlers + composition; data logic goes in
 `hooks/`, reusable UI in `components/`, shared types/constants in `lib/`.
