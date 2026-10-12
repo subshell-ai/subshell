@@ -1,5 +1,15 @@
 # @internal/node
 
+## 1.5.4
+
+### Patch Changes
+
+- [#370](https://github.com/subshell-ai/subshell/pull/370) [`9352359`](https://github.com/subshell-ai/subshell/commit/93523591dba1812afa69730848aed7d7261d00fd) Thanks [@theogravity](https://github.com/theogravity)! - Explain why disabled buttons are unavailable on hover, keyboard focus, or touch. Highlight owner-only restrictions and service prerequisites in gold, and use form validation messages to explain missing input.
+  
+  Show status as soon as server and node updates start, and fetch node progress while the update request is pending. Keep progress gold until completion is confirmed, and hide the previous attempt's result when a new update starts.
+  
+  Avoid mounting tooltips for controls without an explanation, preserve focus when an explanation clears, and show the specific maintenance restriction in the mobile node picker.
+
 ## 1.5.3
 
 ### Patch Changes
