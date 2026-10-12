@@ -37,6 +37,7 @@ export function PromptPageRow({
         <td className="h-8 @lg:w-1/3 w-full max-w-0 py-0 pr-4">
           <button
             type="button"
+            title={description}
             aria-expanded={open}
             aria-controls={bodyId}
             className="flex max-w-full items-center gap-2 rounded-md text-left font-strong hover:underline"

@@ -22,3 +22,5 @@ Replace badge-styled field values throughout the dashboard with plain text, reta
 Move sign-in provider switches into a Configure dialog with explanations, retaining one-field updates and the last-provider safeguard. Show Yes/No values in the table.
 
 Use consistent margins and fluid widths across dashboard lists, details, and server settings, including wide screens.
+
+Apply provider save responses before enabling further changes, preserving dependent settings and last-provider safeguards during slow refreshes.

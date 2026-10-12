@@ -158,7 +158,8 @@ Cross-agent use separately. Boolean values, including sharing, use **Yes** or
 **No** consistently. Show plain text for provider, role, permissions, and
 routine states, following the field-value rule below; do not turn them into
 badges. Use an absence mark when a value does not apply: the server's local
-node has no remote heartbeat, so its Seen cell must not claim "never".
+node has no remote heartbeat, so its Seen cell must not claim "never". Relative
+time labels must read naturally: "just now", never "just now ago".
 
 Clicking a name inspects the item. Node and subshell names link to their detail
 pages. Preset names expand their commands; prompt names expand their text;
@@ -182,7 +183,9 @@ what it changes, its dependencies, and its effect on existing accounts. Keep
 the old automatic-registration-closure sentence out of the table.
 
 The dialog states that changes save immediately. Save one field at a time,
-show failures in the dialog, and retain the server's values on failure. During
+show failures in the dialog, and retain the server's values on failure. Apply
+the save response to the shared state before releasing controls; a slow or
+failed follow-up read must not leave stale values or safeguards active. During
 a save, prevent conflicting changes and premature dismissal. Done closes the
 dialog; it is not a second save step.
 

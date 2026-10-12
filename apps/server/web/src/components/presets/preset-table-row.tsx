@@ -35,6 +35,7 @@ export function PresetTableRow({ preset, binary, items }: { preset: PresetRow; b
         <td className="h-8 @sm:w-1/3 w-full max-w-0 py-0 pr-4">
           <button
             type="button"
+            title={preset.name}
             aria-expanded={shown}
             aria-controls={commandId}
             className="flex max-w-full items-center gap-2 rounded-md text-left font-strong hover:underline"

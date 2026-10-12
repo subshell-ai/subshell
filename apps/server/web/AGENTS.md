@@ -370,6 +370,11 @@ end-to-end coverage lives in the repo-root `e2e/` workspace (Playwright):
 `bun run test:e2e` from the repo root boots its own backend and needs a real
 tmux + a one-time `bunx playwright install chromium`.
 
+When polling for a Happy DOM element to disappear, assert a boolean such as
+`expect(screen.queryByText(text) === null).toBe(true)`. A failing
+`expect(element).toBeNull()` makes Bun serialize the full DOM graph, which can
+block the state update the test is waiting for and exhaust CI timeouts.
+
 ## Drafts and the split flow (spec 2026-09-14)
 
 **Split** opens the ordinary add-subshell dialog, creates a DRAFT workspace

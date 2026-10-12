@@ -129,6 +129,12 @@ describe("SubshellManagerTable time columns (spec §5.6 nodeOffline posture)", (
     expect(screen.queryByText("node unreachable")).toBeNull();
   });
 
+  it("shows fresh output as just now without an extra ago suffix", async () => {
+    restore = mockFetch();
+    await renderTable([makeSubshell({ name: "fresh", lastOutputAt: new Date().toISOString() })]);
+    expect(timeCells("fresh")[0]).toBe("just now");
+  });
+
   it("asserts no liveness times on a nodeOffline row — both time cells render '—' beside 'node unreachable'", async () => {
     restore = mockFetch();
     // The lying row: the DB still says running+alive with fresh-looking

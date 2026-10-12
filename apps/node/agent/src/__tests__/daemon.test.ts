@@ -2681,3 +2681,31 @@ test("a formatting-only config rewrite (same fields, reordered keys) costs no re
   await sleep(150); // several beats against a byte-different, field-identical file
   expect(h.plane.opens).toBe(1);
 });
+
+test.each([
+  { name: "URL fragment", patch: { nodeWsUrl: "ws://127.0.0.1:1/ws#fragment" } },
+  { name: "empty URL fragment", patch: { nodeWsUrl: "ws://127.0.0.1:1/ws#" } },
+  { name: "invalid credential header", patch: { nodeKey: "private-credential\r\ninvalid" } },
+])("hot reload refuses $name before closing the live socket", async ({ patch }) => {
+  const logs = captureLogs();
+  try {
+    const h = await startDaemon({ heartbeatMs: 30 });
+    await saveConfig({ ...h.config, ...patch });
+    await waitUntil(
+      () => logs.lines.some((line) => line.includes("config reload failed")),
+      "invalid connection refused",
+    );
+    await sleep(90);
+    expect(h.plane.opens).toBe(1);
+    expect(logs.lines.filter((line) => line.includes("config reload failed"))).toHaveLength(1);
+    expect(logs.lines.some((line) => line.includes("private-credential"))).toBe(false);
+    expect(h.config.nodeKey).toBe(NODE_KEY);
+    await saveConfig({ ...h.config, nodeWsUrl: `${h.config.serverUrl.replace(/^http/, "ws")}/ws/node?reload=1` });
+    await waitUntil(
+      () => eventTypes(h).filter((type) => type === "ready").length > 1,
+      "valid settings reconnect after refusal",
+    );
+  } finally {
+    logs.restore();
+  }
+});

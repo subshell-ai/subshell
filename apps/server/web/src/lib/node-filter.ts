@@ -2,8 +2,8 @@ import type { Node } from "@internal/node-admin";
 
 /**
  * The Nodes page's three filter axes, page state (the home page's machine
- * filter precedent: filters narrow BOTH views and do not go in the URL; the
- * view tabs do). Pure — all page logic lives here so the component stays glue.
+ * filter precedent: filters narrow the table and do not go in the URL; the
+ * setup-keys tab does). Pure — all page logic lives here so the component stays glue.
  */
 export interface NodeFilters {
   /** Substring of name or hostname (id when hostname is null), case-insensitive. */

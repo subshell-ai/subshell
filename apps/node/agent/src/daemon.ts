@@ -410,8 +410,6 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   const heartbeatMs = deps.heartbeatMs ?? HEARTBEAT_MS;
   const inventoryMs = deps.inventoryMs ?? INVENTORY_PERIOD_MS;
   const nowMs = deps.now ?? ((): number => Date.now());
-  // REMOVED: const wsUrl = resolveWsUrl(config); // persisted-at-enroll URL wins (ledger 17c)
-  // (dial resolves per-connection now — see runConnection)
   // The persisted debug flag, applied before the first frame is handled. The
   // environment still wins, and a machine with nothing stored stays at `info`.
   await loadAndApplyDebugLogging();
@@ -665,6 +663,14 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       const url = new URL(dialTarget);
       if (url.protocol !== "ws:" && url.protocol !== "wss:") {
         throw new Error(`scheme "${url.protocol}" is not ws: or wss:`);
+      }
+      // URL accepts fragments (including an empty #); WebSocket rejects them.
+      if (url.href.includes("#")) throw new Error("WebSocket URLs cannot contain a fragment");
+      try {
+        new Headers({ Authorization: `Bearer ${fresh.nodeKey}` });
+      } catch {
+        // Header constructor errors include the value. Never log a credential.
+        throw new Error("the node credential cannot be used in an HTTP header");
       }
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);

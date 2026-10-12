@@ -180,6 +180,7 @@ export function SubshellManagerTable({
     // so the two time cells must not assert from them (spec §5.6) —
     // "—" is this table's existing nothing-to-say idiom.
     const offline = s.nodeOffline === true;
+    const lastOutput = !offline && s.lastOutputAt ? relativeElapsed(s.lastOutputAt) : null;
     return (
       <tr key={s.id} className="border-b last:border-0">
         <td className="h-8 w-8 py-0 pr-4 align-middle">
@@ -206,7 +207,7 @@ export function SubshellManagerTable({
         </td>
         <td className="@lg:table-cell hidden h-8 max-w-0 truncate py-0 pr-4 text-muted-foreground">{s.workingDir}</td>
         <td className="@sm:table-cell hidden h-8 whitespace-nowrap py-0 pr-4 text-muted-foreground">
-          {offline ? "—" : s.lastOutputAt ? `${relativeElapsed(s.lastOutputAt)} ago` : "—"}
+          {lastOutput === null ? "—" : lastOutput === "just now" ? lastOutput : `${lastOutput} ago`}
         </td>
         <td className="@2xl:table-cell hidden h-8 whitespace-nowrap py-0 pr-4 text-muted-foreground">
           {!offline && s.status === "running" && s.alive && s.startedAt ? relativeElapsed(s.startedAt) : "—"}

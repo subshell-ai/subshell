@@ -41,10 +41,11 @@ export function useAuthProviders(enabled: boolean) {
  */
 function useAuthProvidersInvalidation() {
   const queryClient = useQueryClient();
-  return () => {
-    void queryClient.invalidateQueries({ queryKey: AUTH_PROVIDERS_QUERY_KEY });
-    void queryClient.invalidateQueries({ queryKey: INSTANCE_NAME_QUERY_KEY });
-  };
+  return () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: AUTH_PROVIDERS_QUERY_KEY }),
+      queryClient.invalidateQueries({ queryKey: INSTANCE_NAME_QUERY_KEY }),
+    ]);
 }
 
 /** `POST /api/auth-providers`. Failures surface as `ApiError` with the
@@ -59,11 +60,19 @@ export function useCreateAuthProvider() {
 
 /** `PATCH /api/auth-providers/:id` — a partial body; `id`/`kind` are immutable. */
 export function usePatchAuthProvider() {
+  const queryClient = useQueryClient();
   const invalidate = useAuthProvidersInvalidation();
   return useMutation({
     mutationFn: ({ id, body }: { id: string; body: PatchAuthProviderBody }) =>
       apiFetch<ProviderAdminView>(`/api/auth-providers/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-    onSuccess: invalidate,
+    onSuccess: (updated) => {
+      // Apply the server's answer before releasing controls, even if the
+      // follow-up list read is slow or fails. All rows share the guard state.
+      queryClient.setQueryData<ProviderAdminView[]>(AUTH_PROVIDERS_QUERY_KEY, (previous) =>
+        previous?.map((provider) => (provider.id === updated.id ? updated : provider)),
+      );
+      return invalidate();
+    },
   });
 }
 

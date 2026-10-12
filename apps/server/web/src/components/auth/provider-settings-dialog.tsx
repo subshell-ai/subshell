@@ -108,33 +108,35 @@ export function ProviderSettingsDialog({
               <div key={setting.key} className="flex items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">
                   <Label htmlFor={`${id}-${setting.key}`}>{setting.label}</Label>
-                  <p id={descriptionId} className="mt-1 text-muted-foreground text-sm">
+                  <p id={descriptionId} className="mt-1 text-detail text-muted-foreground">
                     {setting.description}
                   </p>
                   {reason && (
-                    <p id={`${descriptionId}-reason`} className="mt-1 text-sm text-warning">
+                    <p id={`${descriptionId}-reason`} className="mt-1 text-detail text-warning">
                       {reason}
                     </p>
                   )}
                 </div>
-                {reason ? (
-                  <TooltipProvider delay={300}>
-                    <Tooltip>
-                      {/* biome-ignore lint/a11y/noNoninteractiveTabindex: the disabled switch needs a focusable explanation. */}
-                      <TooltipTrigger render={<span tabIndex={0} aria-describedby={reasonId} />}>
-                        {control}
-                      </TooltipTrigger>
-                      <TooltipContent>{reason}</TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                ) : (
-                  <span className="mt-1 inline-flex shrink-0">{control}</span>
-                )}
+                <span className="mt-1 inline-flex shrink-0">
+                  {reason ? (
+                    <TooltipProvider delay={300}>
+                      <Tooltip>
+                        {/* biome-ignore lint/a11y/noNoninteractiveTabindex: the disabled switch needs a focusable explanation. */}
+                        <TooltipTrigger render={<span tabIndex={0} aria-describedby={reasonId} />}>
+                          {control}
+                        </TooltipTrigger>
+                        <TooltipContent>{reason}</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  ) : (
+                    control
+                  )}
+                </span>
               </div>
             );
           })}
           {error && (
-            <p role="alert" className="text-destructive text-sm">
+            <p role="alert" className="text-destructive text-detail">
               {error}
             </p>
           )}

@@ -56,3 +56,7 @@ no credential editor or Remove action.
 When a provider is disabled, Configure keeps its other switches disabled
 without changing their saved values. Re-enabling restores access to those
 settings, subject to the last-provider guard.
+
+A successful provider PATCH updates the shared list from its response before
+controls become available again. The mutation remains pending through query
+invalidation, so a slow list refresh cannot expose stale settings or guards.

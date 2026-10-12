@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { useState } from "react";
 import { ProviderSettingsDialog } from "@/components/auth/provider-settings-dialog";
 import { ProvidersTable } from "@/components/auth/providers-table";
+import { AUTH_PROVIDERS_QUERY_KEY, useAuthProviders } from "@/hooks/use-auth-providers";
 import type { PatchAuthProviderBody, ProviderAdminView } from "@/types/auth-provider";
 
 /** A row with the table's minimum vocabulary; the guard reads two flags only. */
@@ -94,6 +95,52 @@ describe("the last-open-provider guard (2026-09-25)", () => {
       await waitFor(() => expect(writes).toEqual([{ registrationEnabled: true }]));
       expect(screen.queryByRole("menuitem", { name: "Remove" })).toBeNull();
     } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("uses the saved provider state while the follow-up list read is pending", async () => {
+    const original = globalThis.fetch;
+    const providers = [row("email", true, true), row("other", true, true)];
+    const updated = row("email", false, true);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
+      if (init?.method === "PATCH") return Response.json(updated);
+      await gate;
+      return Response.json({ providers: [updated, providers[1]] });
+    }) as typeof fetch;
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    client.setQueryData(AUTH_PROVIDERS_QUERY_KEY, providers);
+    function ConnectedTable() {
+      const { data = [] } = useAuthProviders(true);
+      return <ProvidersTable providers={data} registrationComputedOpen={false} onEdit={() => {}} />;
+    }
+    try {
+      render(
+        <QueryClientProvider client={client}>
+          <ConnectedTable />
+        </QueryClientProvider>,
+      );
+      await configure("email");
+      fireEvent.click(switchFor("Enabled"));
+      await waitFor(() => expect(switchFor("Enabled").getAttribute("aria-checked")).toBe("false"));
+      expect(isDisabled(switchFor("Enabled"))).toBe(true);
+      expect(isDisabled(switchFor("Sign-in"))).toBe(true);
+      expect(switchFor("Sign-in").getAttribute("aria-checked")).toBe("true");
+      release();
+      await waitFor(() => expect(isDisabled(switchFor("Enabled"))).toBe(false));
+      expect(isDisabled(switchFor("Sign-in"))).toBe(true);
+      fireEvent.click(screen.getByRole("button", { name: "Done" }));
+      await configure("other");
+      expect(isDisabled(switchFor("Enabled"))).toBe(true);
+      expect(isDisabled(switchFor("Sign-in"))).toBe(true);
+    } finally {
+      release();
+      cleanup();
+      client.clear();
       globalThis.fetch = original;
     }
   });
