@@ -390,6 +390,7 @@ export function RailSubshells({
           variant="ghost"
           size="icon"
           disabled={q !== "" || !collapsibleGroupsExist}
+          disabledReason={q !== "" ? "Clear the filter to collapse groups." : "There are no groups to collapse."}
           onClick={toggleAllGroups}
           className="ml-auto h-6 w-6 shrink-0 text-muted-foreground"
         >

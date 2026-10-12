@@ -276,7 +276,7 @@ describe("SupervisionCard", () => {
     expect(screen.getByText(/Switching to the Subshell Server app/)).toBeTruthy();
     // And the radios are locked, because a second switch would race the first
     // for the port — `ActionGuard` would refuse it anyway.
-    for (const radio of modes()) expect(radio.disabled).toBe(true);
+    for (const radio of modes()) expect(radio.matches(":disabled, [aria-disabled=true]")).toBe(true);
   });
 
   it("says so when the server never comes back", () => {
@@ -390,7 +390,11 @@ describe("SupervisionCard in a browser", () => {
   it("locks that button while the change is in flight, and says why it failed", () => {
     asShell(BROWSER);
     browser(linuxDeploymentView({ enabled: false }), stubAutostart({ pending: true, error: "unit is masked" }));
-    expect((screen.getByRole("button", { name: "Start automatically" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Start automatically" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
     expect(screen.getByText("unit is masked")).toBeTruthy();
   });
 

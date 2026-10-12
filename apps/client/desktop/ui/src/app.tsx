@@ -395,7 +395,12 @@ export function App() {
         subtitle={failed ? undefined : "Reading this machine's node, service and configuration."}
         barRight={
           failed ? (
-            <Button className="min-w-[120px]" disabled={runner.busy} onClick={commands.refresh}>
+            <Button
+              className="min-w-[120px]"
+              disabled={runner.busy}
+              disabledReason={"Wait for the current action to finish."}
+              onClick={commands.refresh}
+            >
               Retry
             </Button>
           ) : undefined

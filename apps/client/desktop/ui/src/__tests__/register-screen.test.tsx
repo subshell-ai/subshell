@@ -68,17 +68,17 @@ function fill(values: { server?: string; key?: string; name?: string } = {}) {
 describe("the Register screen", () => {
   it("refuses the press until all three fields are answered", () => {
     render(<Host probe={makeProbe()} />);
-    expect(button().disabled).toBe(true);
+    expect(button().matches(":disabled, [aria-disabled=true]")).toBe(true);
 
     fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "https://subshell.example.com" } });
-    expect(button().disabled).toBe(true);
+    expect(button().matches(":disabled, [aria-disabled=true]")).toBe(true);
     fireEvent.change(screen.getByLabelText("Setup key"), { target: { value: KEY } });
     // Two of three: the name became required with the 2026-09-17 node-setup
     // revamp, and this button is where that requirement is felt.
-    expect(button().disabled).toBe(true);
+    expect(button().matches(":disabled, [aria-disabled=true]")).toBe(true);
 
     fireEvent.change(screen.getByLabelText("Node name"), { target: { value: "mac mini" } });
-    expect(button().disabled).toBe(false);
+    expect(button().matches(":disabled, [aria-disabled=true]")).toBe(false);
   });
 
   /*
@@ -92,7 +92,7 @@ describe("the Register screen", () => {
   it("does not count a name that normalizes away as answered", () => {
     render(<Host probe={makeProbe()} />);
     fill({ name: CONTROL_CHARACTER_NAME });
-    expect(button().disabled).toBe(true);
+    expect(button().matches(":disabled, [aria-disabled=true]")).toBe(true);
   });
 
   it("stays disabled without tmux, and says which command installs it", () => {
@@ -101,7 +101,7 @@ describe("the Register screen", () => {
     // Everything typed, and still refused: `subshell enroll` preflights tmux
     // before its network call, so a live button could only manufacture the
     // refusal.
-    expect(button().disabled).toBe(true);
+    expect(button().matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(screen.getByText(/tmux was not found on the login PATH/)).toBeTruthy();
     expect(screen.getByText(/brew install tmux|apt-get install tmux/)).toBeTruthy();
   });
@@ -114,7 +114,7 @@ describe("the Register screen", () => {
   it("leaves the controls live while the probe has not landed", () => {
     render(<Host probe={undefined} />);
     fill();
-    expect(button().disabled).toBe(false);
+    expect(button().matches(":disabled, [aria-disabled=true]")).toBe(false);
     expect(screen.queryByText(/tmux was not found/)).toBeNull();
   });
 
@@ -153,7 +153,7 @@ describe("the Register screen", () => {
       />,
     );
     fill();
-    expect(button().disabled).toBe(true);
+    expect(button().matches(":disabled, [aria-disabled=true]")).toBe(true);
     fireEvent.click(button());
     expect(presses).toBe(0);
   });
@@ -165,7 +165,7 @@ describe("the Register screen", () => {
     // node on one box is exactly what the desktop pair exists for, so it is a
     // warning and never a refusal.
     expect(screen.getAllByText(/This address connects to a server on this machine/).length).toBe(1);
-    expect(button().disabled).toBe(false);
+    expect(button().matches(":disabled, [aria-disabled=true]")).toBe(false);
 
     fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "https://subshell.example.com" } });
     expect(screen.queryByText(/This address connects to a server on this machine/)).toBeNull();
@@ -228,9 +228,9 @@ describe("the Register screen", () => {
     // not have to fill it in to leave.
     let backs = 0;
     render(<Host probe={makeProbe()} onBack={() => (backs += 1)} />);
-    expect(button().disabled).toBe(true);
+    expect(button().matches(":disabled, [aria-disabled=true]")).toBe(true);
     const back = screen.getByRole("button", { name: "Back" }) as HTMLButtonElement;
-    expect(back.disabled).toBe(false);
+    expect(back.matches(":disabled, [aria-disabled=true]")).toBe(false);
     fireEvent.click(back);
     expect(backs).toBe(1);
   });
@@ -246,7 +246,7 @@ describe("the Register screen", () => {
     let backs = 0;
     render(<Host probe={makeProbe()} onBack={() => (backs += 1)} busy />);
     const back = screen.getByRole("button", { name: "Back" }) as HTMLButtonElement;
-    expect(back.disabled).toBe(true);
+    expect(back.matches(":disabled, [aria-disabled=true]")).toBe(true);
     fireEvent.click(back);
     expect(backs).toBe(0);
   });

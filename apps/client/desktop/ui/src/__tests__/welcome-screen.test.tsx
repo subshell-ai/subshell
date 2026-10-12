@@ -46,7 +46,7 @@ describe("the Welcome screen", () => {
     let advanced = 0;
     renderApp(<WelcomeScreen shell={shell} onContinue={() => advanced++} busy={true} />);
     const button = screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    expect(button.matches(":disabled, [aria-disabled=true]")).toBe(true);
     fireEvent.click(button);
     expect(advanced).toBe(0);
   });

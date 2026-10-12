@@ -44,7 +44,12 @@ export function ConnectScreen(props: { shell: FrameShell; commands: NodeCommands
       {...shell}
       icon={<Server />}
       barRight={
-        <Button className="min-w-[120px]" disabled={busy || empty} onClick={submit}>
+        <Button
+          className="min-w-[120px]"
+          disabled={busy || empty}
+          disabledReason={busy ? "Wait for the connection attempt to finish." : "Enter a server address first."}
+          onClick={submit}
+        >
           Connect
         </Button>
       }

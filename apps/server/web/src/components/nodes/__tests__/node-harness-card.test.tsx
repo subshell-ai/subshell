@@ -251,12 +251,12 @@ describe("NodeHarnessCard", () => {
     // Re-check is a DETECTION command that needs the live socket. A node that
     // is offline AND not held cannot answer anything, so the button is shown
     // (the grantee may re-check once it reconnects) but disabled, with the
-    // reason in its title, rather than trading a press for a 409.
+    // reason in its accessible description before a press can reach the server.
     const { calls, restore } = await mount({ harnesses: [], status: "offline", held: null });
     try {
       const btn = screen.getByRole("button", { name: /re-check/i }) as HTMLButtonElement;
-      expect(btn.disabled).toBe(true);
-      expect(btn.getAttribute("title")).toContain("not connected");
+      expect(btn.matches(":disabled, [aria-disabled=true]")).toBe(true);
+      expect(btn.getAttribute("aria-description")).toContain("offline");
       fireEvent.click(btn);
       expect(calls.some((c) => c.method === "POST" && c.url === `/api/nodes/${NODE_ID}/recheck`)).toBe(false);
     } finally {
@@ -274,7 +274,11 @@ describe("NodeHarnessCard", () => {
       held: { reason: "protocol-mismatch", agentVersion: "1.0.0" },
     });
     try {
-      expect((screen.getByRole("button", { name: /re-check/i }) as HTMLButtonElement).disabled).toBe(true);
+      expect(
+        (screen.getByRole("button", { name: /re-check/i }) as HTMLButtonElement).matches(
+          ":disabled, [aria-disabled=true]",
+        ),
+      ).toBe(true);
     } finally {
       restore();
     }

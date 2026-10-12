@@ -101,11 +101,21 @@ export function LockdownCard({ lockdown, machineName }: { lockdown: boolean; mac
             <span className="text-detail text-muted-foreground">The instance is running normally.</span>
           )}
           {lockdown ? (
-            <Button variant="outline" disabled={busy} onClick={() => setAsking("end")}>
+            <Button
+              variant="outline"
+              disabled={busy}
+              disabledReason={"Wait for the server setting to save."}
+              onClick={() => setAsking("end")}
+            >
               End lockdown
             </Button>
           ) : (
-            <Button variant="destructive" disabled={busy} onClick={() => setAsking("start")}>
+            <Button
+              variant="destructive"
+              disabled={busy}
+              disabledReason={"Wait for the server setting to save."}
+              onClick={() => setAsking("start")}
+            >
               Lock down instance
             </Button>
           )}
@@ -215,6 +225,9 @@ function LockdownDialog({
           <Button
             variant={mode === "start" ? "destructive" : "default"}
             disabled={typed.trim() !== machineName || busy}
+            disabledReason={
+              busy ? "Wait for the server setting to save." : "Enter the machine name exactly as shown to confirm."
+            }
             onClick={() => onConfirm(typed)}
           >
             {busy ? copy.pending : copy.confirm}

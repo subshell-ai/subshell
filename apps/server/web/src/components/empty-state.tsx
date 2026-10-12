@@ -59,7 +59,7 @@ export function EmptyState({
           and a label without a handler is a button that does nothing. */}
       {actionLabel && onAction && (
         <CardContent>
-          <Button onClick={onAction} disabled={busy}>
+          <Button onClick={onAction} disabled={busy} disabledReason={"Wait for the subshell to start."}>
             <Plus /> {busy && busyLabel ? busyLabel : actionLabel}
           </Button>
         </CardContent>

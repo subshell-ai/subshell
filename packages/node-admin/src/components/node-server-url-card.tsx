@@ -92,12 +92,29 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
             </p>
           )}
         </div>
+        {!isOwner && <p className="text-detail text-warning">Only the node owner can change the server address.</p>}
         <div className="flex items-center gap-2">
-          <Button variant="outline" disabled={!canSave} onClick={() => void submit()}>
+          <Button
+            variant="outline"
+            disabled={!canSave}
+            disabledReason={
+              !isOwner
+                ? "Only the node owner can change the server address."
+                : save.isPending
+                  ? "Wait for the address to save."
+                  : "Enter a server address first."
+            }
+            onClick={() => void submit()}
+          >
             Save address
           </Button>
           {saved && (
-            <Button variant="outline" disabled={service.isPending} onClick={() => void restart()}>
+            <Button
+              variant="outline"
+              disabled={service.isPending}
+              disabledReason={"Wait for the service action to finish."}
+              onClick={() => void restart()}
+            >
               Restart to apply
             </Button>
           )}

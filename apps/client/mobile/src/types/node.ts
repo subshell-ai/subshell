@@ -46,6 +46,8 @@ export interface Node {
    * against one that cannot arrive.
    */
   canLaunch: boolean;
+  /** Required by the node view; explains the maintenance restriction on launches. */
+  maintenance: boolean;
   /** subshell version from `ready`, null until first ready */
   agentVersion: string | null;
   /** Node protocol version from `ready`, null until first ready */

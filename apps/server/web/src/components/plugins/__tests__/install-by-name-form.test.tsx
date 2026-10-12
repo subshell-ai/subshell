@@ -39,20 +39,20 @@ describe("InstallByNameForm gating", () => {
   it("a built-in name opens the gate immediately (the fast path is one click)", () => {
     renderForm([piRow]);
     fireEvent.change(specField(), { target: { value: "pi" } });
-    expect(installButton()?.disabled).toBe(false);
+    expect(installButton()?.matches(":disabled, [aria-disabled=true]")).toBe(false);
   });
 
   it("an unusable derived id disables the button and says why, with no press needed", () => {
     renderForm([piRow]);
     fireEvent.change(specField(), { target: { value: "@acme/" } }); // derives to nothing
     expect(installButton()).not.toBeNull();
-    expect(installButton()?.disabled).toBe(true);
+    expect(installButton()?.matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(screen.getByRole("alert").textContent).toBe(
       "Couldn't determine the plugin ID from this package name. Enter the ID from the plugin's documentation.",
     );
     // Naming the id the plugin declares opens the gate.
     fireEvent.change(idField(), { target: { value: "acme-pi" } });
-    expect(installButton()?.disabled).toBe(false);
+    expect(installButton()?.matches(":disabled, [aria-disabled=true]")).toBe(false);
     expect(screen.queryByRole("alert")).toBeNull();
   });
 

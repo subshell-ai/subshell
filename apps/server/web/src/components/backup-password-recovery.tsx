@@ -12,7 +12,7 @@ import { useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { signOutAndRedirect } from "@/lib/auth";
-import { type FieldProblems, fieldError, makeForm, useSubmitDisabled } from "@/lib/form";
+import { type FieldProblems, fieldError, makeForm, useSubmitDisabled, useSubmitDisabledReason } from "@/lib/form";
 
 type RecoveryDraft = { currentPassword: string; newPassword: string; confirmation: string };
 
@@ -55,6 +55,7 @@ export function BackupPasswordRecovery() {
     },
   });
   const disabled = useSubmitDisabled(form, busy);
+  const disabledReason = useSubmitDisabledReason(form, busy);
   return (
     <main className="flex min-h-dvh items-center justify-center p-6">
       <Card className="w-full max-w-md">
@@ -176,10 +177,16 @@ export function BackupPasswordRecovery() {
                 }}
               </form.Field>
               {error && <ErrorBanner message={error} />}
-              <Button type="submit" disabled={disabled}>
+              <Button type="submit" disabled={disabled} disabledReason={disabledReason}>
                 {busy ? "Changing password…" : "Change password and sign in"}
               </Button>
-              <Button type="button" variant="outline" disabled={busy} onClick={() => void signOutAndRedirect()}>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                disabledReason={"Wait for the password change to finish."}
+                onClick={() => void signOutAndRedirect()}
+              >
                 Sign out
               </Button>
             </FieldGroup>

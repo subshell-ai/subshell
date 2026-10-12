@@ -88,7 +88,9 @@ describe("every recovery variant's diagnosis and action", () => {
       const probe = makeProbe({ next, tmux: null });
       const view = renderStatus({ probe });
       const label = recoveryAction(next)?.label;
-      expect((screen.getByRole("button", { name: label }) as HTMLButtonElement).disabled).toBe(true);
+      expect(
+        (screen.getByRole("button", { name: label }) as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+      ).toBe(true);
       // The warning names the WHOLE gate, and offers the run-the-installer fix.
       expect(screen.getByText(/tmux was not found on the login PATH\./)).toBeDefined();
       expect(screen.getByRole("button", { name: "Install tmux" })).toBeDefined();
@@ -101,7 +103,9 @@ describe("every recovery variant's diagnosis and action", () => {
       const probe = makeProbe({ next, tmux: null });
       const view = renderStatus({ probe });
       const label = recoveryAction(next)?.label;
-      expect((screen.getByRole("button", { name: label }) as HTMLButtonElement).disabled).toBe(false);
+      expect(
+        (screen.getByRole("button", { name: label }) as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+      ).toBe(false);
       view.unmount();
     }
   });
@@ -123,7 +127,9 @@ describe("every recovery variant's diagnosis and action", () => {
 describe("the primary action's disabled states", () => {
   it("disables while busy, like every other control the old button() helper built", () => {
     renderStatus({ probe: makeProbe({ next: "start", tmux: "/usr/bin/tmux" }), busy: true });
-    expect((screen.getByRole("button", { name: "Start" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Start" }) as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+    ).toBe(true);
   });
 
   it("keeps the problem line when a stale tmux verdict sits beside a tmux that appeared", () => {

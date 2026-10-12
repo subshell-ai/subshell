@@ -96,6 +96,7 @@ export function ActionsMenu({
   label,
   items,
   disabled,
+  disabledReason,
   children,
 }: {
   /** Entity name, used for the trigger's accessible label */
@@ -103,6 +104,7 @@ export function ActionsMenu({
   items: ActionItem[];
   /** Disables the trigger, e.g. while a bulk action covers this row */
   disabled?: boolean;
+  disabledReason?: string;
   /** When present: the menu opens on RIGHT-CLICK of this subtree instead of
    * from a ⋯ button — no visible affordance is added (spec 2026-09-03). */
   children?: ReactNode;
@@ -141,6 +143,7 @@ export function ActionsMenu({
             className="h-7 w-7 shrink-0 text-muted-foreground"
             aria-label={`Actions for ${label}`}
             disabled={disabled}
+            disabledReason={disabledReason}
             onClick={(e) => e.stopPropagation()}
           />
         }

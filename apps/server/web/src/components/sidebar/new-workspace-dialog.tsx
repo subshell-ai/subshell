@@ -5,6 +5,7 @@ import { ExistingSubshellList } from "@/components/subshell-picker/existing-subs
 import {
   canSubmit,
   emptyNewSubshellForm,
+  launchDisabledReason,
   type NewSubshellFormValue,
 } from "@/components/subshell-picker/launch-form-rules";
 import { NewSubshellForm } from "@/components/subshell-picker/new-subshell-form";
@@ -197,15 +198,28 @@ export function NewWorkspaceDialog({
             <Button onClick={() => enter(createdId)}>Enter workspace</Button>
           ) : (
             <>
-              <Button variant="outline" onClick={() => onOpenChange(false)} disabled={creating || launching}>
+              <Button
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={creating || launching}
+                disabledReason={"Wait for the workspace action to finish."}
+              >
                 Cancel
               </Button>
               {mode === "new" && (
-                <Button onClick={() => void launchAndAdd()} disabled={launching || !canSubmit(form)}>
+                <Button
+                  onClick={() => void launchAndAdd()}
+                  disabled={launching || !canSubmit(form)}
+                  disabledReason={launching ? "Wait for the subshell to start." : launchDisabledReason(form)}
+                >
                   {launching ? "Launching…" : "Launch & add"}
                 </Button>
               )}
-              <Button onClick={() => void submit()} disabled={creating || launching}>
+              <Button
+                onClick={() => void submit()}
+                disabled={creating || launching}
+                disabledReason={"Wait for the workspace action to finish."}
+              >
                 {creating ? "Creating…" : "Create workspace"}
               </Button>
             </>

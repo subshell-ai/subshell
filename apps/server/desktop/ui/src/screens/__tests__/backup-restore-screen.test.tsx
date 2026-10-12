@@ -48,23 +48,23 @@ async function reviewSelectedBackup() {
   const validate = screen.queryByRole("button", { name: "Validate backup" });
   const selectionAction = choose ?? validate;
   if (selectionAction) {
-    await waitFor(() => expect(selectionAction.hasAttribute("disabled")).toBe(false));
+    await waitFor(() => expect(selectionAction.matches(":disabled, [aria-disabled=true]")).toBe(false));
     fireEvent.click(selectionAction);
   }
   const review = screen.getByRole("button", { name: "Configure backup" });
-  await waitFor(() => expect(review.hasAttribute("disabled")).toBe(false));
+  await waitFor(() => expect(review.matches(":disabled, [aria-disabled=true]")).toBe(false));
   fireEvent.click(review);
 }
 
 async function reviewConfiguredRestore() {
   const review = screen.getByRole("button", { name: "Review backup" });
-  await waitFor(() => expect(review.hasAttribute("disabled")).toBe(false));
+  await waitFor(() => expect(review.matches(":disabled, [aria-disabled=true]")).toBe(false));
   fireEvent.click(review);
   const confirm = await screen.findByRole("checkbox", {
     name: "I confirm replacing this server’s state and the session effects shown above",
   });
   await waitFor(() => expect(confirm.getAttribute("aria-disabled")).not.toBe("true"));
-  expect(screen.getByRole("button", { name: "Start backup" }).hasAttribute("disabled")).toBe(true);
+  expect(screen.getByRole("button", { name: "Start backup" }).matches(":disabled, [aria-disabled=true]")).toBe(true);
   fireEvent.click(confirm);
 }
 
@@ -93,7 +93,9 @@ describe("native backup and restore", () => {
     fireEvent.click(await screen.findByRole("option", { name: /Database-only snapshot/ }));
     await screen.findByText("Backup validated. Select Configure backup to continue.");
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Configure backup" }).hasAttribute("disabled")).toBe(false),
+      expect(screen.getByRole("button", { name: "Configure backup" }).matches(":disabled, [aria-disabled=true]")).toBe(
+        false,
+      ),
     );
     expect(fake.callsTo("desktop_restore_inspect")).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Validate backup" })).toBeNull();
@@ -149,7 +151,7 @@ describe("native backup and restore", () => {
     expect(screen.queryByRole("switch", { name: "Replace the displayed destination" })).toBeNull();
     const port = screen.getByLabelText("Port (optional)");
     fireEvent.change(port, { target: { value: "70000" } });
-    expect(screen.getByRole("button", { name: "Review backup" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Review backup" }).matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(screen.queryByRole("alert")).toBeNull();
     fireEvent.blur(port);
     expect(screen.getByRole("alert").textContent).toBe("Enter a port from 1 to 65535.");
@@ -165,9 +167,9 @@ describe("native backup and restore", () => {
     expect(fake.callsTo("desktop_restore_apply")).toEqual([
       { staged: stage.id, confirmed: false, force: false, start: false, preview: true },
     ]);
-    expect(screen.getByRole("button", { name: "Start backup" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Start backup" }).matches(":disabled, [aria-disabled=true]")).toBe(true);
     fireEvent.click(confirm);
-    expect(screen.getByRole("button", { name: "Start backup" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "Start backup" }).matches(":disabled, [aria-disabled=true]")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     await screen.findByRole("heading", { name: "Configure Restore" });
     expect((screen.getByLabelText("Port (optional)") as HTMLInputElement).value).toBe("4567");
@@ -245,12 +247,16 @@ describe("native backup and restore", () => {
     const password = screen.getByLabelText("Archive password");
     expect(password.getAttribute("aria-describedby")).toBe(error.id);
     expect(screen.queryByText(/--password-file/)).toBeNull();
-    expect(screen.getByRole("button", { name: "Configure backup" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Configure backup" }).matches(":disabled, [aria-disabled=true]")).toBe(
+      true,
+    );
     fireEvent.change(password, { target: { value: "unique archive secret" } });
     expect(screen.queryByRole("alert")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Validate backup" }));
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Configure backup" }).hasAttribute("disabled")).toBe(false),
+      expect(screen.getByRole("button", { name: "Configure backup" }).matches(":disabled, [aria-disabled=true]")).toBe(
+        false,
+      ),
     );
   });
 
@@ -261,33 +267,33 @@ describe("native backup and restore", () => {
     const save = screen.getByRole("button", { name: "Save backup…" });
     const password = screen.getByLabelText("Archive password");
     const confirmation = screen.getByLabelText("Confirm archive password");
-    expect(save.hasAttribute("disabled")).toBe(true);
+    expect(save.matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(password.hasAttribute("required")).toBe(true);
     expect(screen.queryByRole("alert")).toBeNull();
     fireEvent.change(password, { target: { value: "short" } });
     fireEvent.change(confirmation, { target: { value: "short" } });
     fireEvent.blur(password);
     expect(screen.getByRole("alert").textContent).toContain("at least 8");
-    expect(save.hasAttribute("disabled")).toBe(true);
+    expect(save.matches(":disabled, [aria-disabled=true]")).toBe(true);
     fireEvent.change(password, { target: { value: "unique archive secret" } });
     fireEvent.change(confirmation, { target: { value: "wrong" } });
     fireEvent.blur(confirmation);
     expect(screen.getByRole("alert").textContent).toBe("Passwords do not match.");
     expect(screen.getByRole("alert").className).toContain("text-warning");
     expect(confirmation.getAttribute("aria-invalid")).toBe("true");
-    expect(save.hasAttribute("disabled")).toBe(true);
+    expect(save.matches(":disabled, [aria-disabled=true]")).toBe(true);
     fireEvent.focus(confirmation);
     expect(screen.queryByRole("alert")).toBeNull();
     fireEvent.change(confirmation, { target: { value: "unique archive secret" } });
     fireEvent.blur(confirmation);
     expect(confirmation.getAttribute("aria-invalid")).toBe("false");
-    expect(save.hasAttribute("disabled")).toBe(false);
+    expect(save.matches(":disabled, [aria-disabled=true]")).toBe(false);
     fireEvent.change(password, { target: { value: "" } });
     fireEvent.blur(password);
     expect(password.getAttribute("aria-invalid")).toBe("true");
-    expect(save.hasAttribute("disabled")).toBe(true);
+    expect(save.matches(":disabled, [aria-disabled=true]")).toBe(true);
     fireEvent.click(screen.getByRole("switch", { name: "Encrypt the archive with a password" }));
-    expect(save.hasAttribute("disabled")).toBe(false);
+    expect(save.matches(":disabled, [aria-disabled=true]")).toBe(false);
   });
 
   it("requires successful selection and validation before review and invalidates a changed password", async () => {
@@ -304,21 +310,21 @@ describe("native backup and restore", () => {
     render(<BackupRestoreScreen {...props} kind="restore" />);
     const review = screen.getByRole("button", { name: "Configure backup" });
     expect(screen.queryByLabelText("Archive password")).toBeNull();
-    expect(review.hasAttribute("disabled")).toBe(true);
+    expect(review.matches(":disabled, [aria-disabled=true]")).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Choose backup file…" }));
     const archivePassword = await screen.findByLabelText("Archive password");
     fireEvent.change(archivePassword, { target: { value: "original password" } });
     fireEvent.click(screen.getByRole("button", { name: "Validate backup" }));
     await screen.findByText("Backup validated. Select Configure backup to continue.");
-    await waitFor(() => expect(review.hasAttribute("disabled")).toBe(false));
+    await waitFor(() => expect(review.matches(":disabled, [aria-disabled=true]")).toBe(false));
     expect(screen.queryByRole("heading", { name: "Configure Restore" })).toBeNull();
     expect(screen.getByText("/tmp/validated.subshell")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Archive password"), {
       target: { value: "different password" },
     });
-    expect(review.hasAttribute("disabled")).toBe(true);
+    expect(review.matches(":disabled, [aria-disabled=true]")).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Validate backup" }));
-    await waitFor(() => expect(review.hasAttribute("disabled")).toBe(false));
+    await waitFor(() => expect(review.matches(":disabled, [aria-disabled=true]")).toBe(false));
     expect(fake.callsTo("desktop_restore_inspect")[2]?.password).toBe("different password");
     fireEvent.click(review);
     await screen.findByRole("heading", { name: "Configure Restore" });
@@ -341,11 +347,11 @@ describe("native backup and restore", () => {
     render(<BackupRestoreScreen {...props} kind="backup" />);
     fireEvent.click(screen.getByRole("button", { name: "Save backup…" }));
     await screen.findByText("Backing Up Your Server");
-    expect(screen.getByRole("button", { name: "Backing up…" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Backing up…" }).matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(screen.queryByRole("button", { name: "Save backup…" })).toBeNull();
     finish();
     const next = await screen.findByRole("button", { name: "Next" });
-    await waitFor(() => expect(next.hasAttribute("disabled")).toBe(false));
+    await waitFor(() => expect(next.matches(":disabled, [aria-disabled=true]")).toBe(false));
     expect(screen.queryByText("Backup Complete")).toBeNull();
     fireEvent.click(next);
     await screen.findByText("Backup Complete");
@@ -479,7 +485,11 @@ describe("native backup and restore", () => {
     expect(screen.queryByRole("heading", { name: "Available backups" })).toBeNull();
     expect(screen.getByRole("button", { name: "Configure backup" })).toBeTruthy();
     fireEvent.click(await screen.findByRole("radio", { name: "Use a saved backup" }));
-    expect((screen.getByRole("button", { name: "Configure backup" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Configure backup" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
     await screen.findByRole("heading", { name: "Available backups" });
     expect(screen.queryByLabelText("Prepared restore UUID")).toBeNull();
     expect(screen.queryByText(stage.id)).toBeNull();
@@ -500,7 +510,7 @@ describe("native backup and restore", () => {
       ]),
     );
     const nextButton = await screen.findByRole("button", { name: "Next" });
-    await waitFor(() => expect(nextButton.hasAttribute("disabled")).toBe(false));
+    await waitFor(() => expect(nextButton.matches(":disabled, [aria-disabled=true]")).toBe(false));
     fireEvent.click(nextButton);
     await screen.findByText(/server has restarted successfully/);
   });
@@ -525,7 +535,7 @@ describe("native backup and restore", () => {
     await reviewConfiguredRestore();
     fireEvent.click(screen.getByRole("button", { name: "Start backup" }));
     const nextButton = await screen.findByRole("button", { name: "Next" });
-    await waitFor(() => expect(nextButton.hasAttribute("disabled")).toBe(false));
+    await waitFor(() => expect(nextButton.matches(":disabled, [aria-disabled=true]")).toBe(false));
     fireEvent.click(nextButton);
     await screen.findByText(/server has restarted successfully/);
     expect(fake.callsTo("desktop_restore_prepare")).toHaveLength(2);
@@ -598,10 +608,10 @@ describe("native backup and restore", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start backup" }));
     await screen.findByText("Restoring Your Server");
     expect(screen.queryByRole("button", { name: "Configure backup" })).toBeNull();
-    expect(screen.getByText("Restoring…").hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText("Restoring…").matches(":disabled, [aria-disabled=true]")).toBe(true);
     finishRestore();
     const next = await screen.findByRole("button", { name: "Next" });
-    await waitFor(() => expect(next.hasAttribute("disabled")).toBe(false));
+    await waitFor(() => expect(next.matches(":disabled, [aria-disabled=true]")).toBe(false));
     expect(screen.queryByText("Restore Complete")).toBeNull();
     expect(screen.getByText("Restoring Your Server")).toBeTruthy();
     fireEvent.click(next);
@@ -637,7 +647,9 @@ describe("native backup and restore", () => {
     render(<BackupRestoreScreen {...props} kind="restore" />);
     fireEvent.click(screen.getByRole("button", { name: "Choose backup file…" }));
     await screen.findByText("Checksum validation failed");
-    expect(screen.getByRole("button", { name: "Configure backup" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Configure backup" }).matches(":disabled, [aria-disabled=true]")).toBe(
+      true,
+    );
     expect(fake.callsTo("desktop_restore_prepare")).toHaveLength(0);
     expect(fake.callsTo("desktop_restore_apply").filter((call) => !call.preview)).toHaveLength(0);
   });

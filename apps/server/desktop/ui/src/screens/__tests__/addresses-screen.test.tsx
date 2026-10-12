@@ -133,7 +133,9 @@ describe("the form", () => {
     expect(port.value).toBe("4000");
     // Save is dead until something is typed: a save of unchanged values would
     // read as the button having done something.
-    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+    ).toBe(true);
     fireEvent.change(port, { target: { value: "4001" } });
     expect(onSettingsEdit).toHaveBeenCalled();
   });
@@ -169,7 +171,9 @@ describe("the form", () => {
 
   it("refuses Save on a machine without tmux, in the CLI's own words", () => {
     renderAddresses({ probe: makeProbe({ next: "start", tmux: null }) });
-    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+    ).toBe(true);
     expect(screen.getByText(/Install tmux before saving the server's configuration\./)).toBeDefined();
   });
 

@@ -144,7 +144,7 @@ export function NodeMaintenanceCard({
             calling it a failure would send the reader to retry a flip that has
             already landed. What is wrong is the machine, not the act. */}
         {refusals && (
-          <p role="alert" className="text-amber-600 text-detail dark:text-amber-400">
+          <p role="alert" className="text-detail text-warning">
             {refusals}
           </p>
         )}

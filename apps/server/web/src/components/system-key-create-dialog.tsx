@@ -127,7 +127,13 @@ export function SystemKeyCreateDialog({
               <Button type="button" variant="ghost" onClick={close}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={create.isPending || !name.trim()}>
+              <Button
+                type="submit"
+                disabled={create.isPending || !name.trim()}
+                disabledReason={
+                  create.isPending ? "Wait for the API key to be created." : "Enter a name for the API key first."
+                }
+              >
                 {create.isPending ? "Creating…" : "Create key"}
               </Button>
             </DialogFooter>

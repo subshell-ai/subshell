@@ -4,6 +4,7 @@ import { type JSX, useState } from "react";
 import {
   canSubmit,
   emptyNewSubshellForm,
+  launchDisabledReason,
   type NewSubshellFormValue,
 } from "@/components/subshell-picker/launch-form-rules";
 import { NewSubshellForm } from "@/components/subshell-picker/new-subshell-form";
@@ -78,10 +79,19 @@ export function LaunchSubshellDialog({
         <NewSubshellForm value={form} onChange={setForm} onLeave={() => onOpenChange(false)} />
         {error && <p className="text-destructive text-detail">{error}</p>}
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={create.isPending}>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={create.isPending}
+            disabledReason={"Wait for the subshell to start."}
+          >
             Cancel
           </Button>
-          <Button onClick={() => void submit()} disabled={create.isPending || !canSubmit(form)}>
+          <Button
+            onClick={() => void submit()}
+            disabled={create.isPending || !canSubmit(form)}
+            disabledReason={create.isPending ? "Wait for the subshell to start." : launchDisabledReason(form)}
+          >
             {create.isPending ? "Starting…" : "Start subshell"}
           </Button>
         </DialogFooter>

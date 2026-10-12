@@ -162,6 +162,9 @@ export function PairRowsEditor({
               type="button"
               size="sm"
               disabled={!parsed.rows || parsed.rows.length === 0}
+              disabledReason={
+                !parsed.rows ? "Fix the pasted rows before adding them." : "Paste at least one row first."
+              }
               onClick={() => {
                 if (parsed.rows && parsed.rows.length === 0) setError("Nothing to add");
                 else applyPaste();

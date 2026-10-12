@@ -559,15 +559,25 @@ export function BackupRestoreScreen(props: {
         }}
         barRight={
           completion ? (
-            <Button disabled={locked} onClick={props.onClose}>
+            <Button
+              disabled={locked}
+              disabledReason={"Wait for the backup operation to finish."}
+              onClick={props.onClose}
+            >
               Done
             </Button>
           ) : backupResult ? (
-            <Button disabled={locked} onClick={() => setShowBackupCompletion(true)}>
+            <Button
+              disabled={locked}
+              disabledReason={"Wait for the backup operation to finish."}
+              onClick={() => setShowBackupCompletion(true)}
+            >
               Next
             </Button>
           ) : (
-            <Button disabled>Backing up…</Button>
+            <Button disabled disabledReason={"Wait for the backup operation to finish."}>
+              Backing up…
+            </Button>
           )
         }
       >
@@ -635,15 +645,25 @@ export function BackupRestoreScreen(props: {
         }}
         barRight={
           completion ? (
-            <Button disabled={locked} onClick={props.onClose}>
+            <Button
+              disabled={locked}
+              disabledReason={"Wait for the backup operation to finish."}
+              onClick={props.onClose}
+            >
               Done
             </Button>
           ) : restoreResult ? (
-            <Button disabled={locked} onClick={() => setShowCompletion(true)}>
+            <Button
+              disabled={locked}
+              disabledReason={"Wait for the backup operation to finish."}
+              onClick={() => setShowCompletion(true)}
+            >
               Next
             </Button>
           ) : (
-            <Button disabled>Restoring…</Button>
+            <Button disabled disabledReason={"Wait for the backup operation to finish."}>
+              Restoring…
+            </Button>
           )
         }
       >
@@ -736,6 +756,7 @@ export function BackupRestoreScreen(props: {
           <Button
             variant="ghost"
             disabled={locked}
+            disabledReason={"Wait for the backup operation to finish."}
             onClick={() => {
               backToConfiguration();
             }}
@@ -744,7 +765,15 @@ export function BackupRestoreScreen(props: {
           </Button>
         }
         barRight={
-          <Button disabled={locked || !replace} onClick={() => void apply(!!sessionConfirmation)}>
+          <Button
+            disabled={locked || !replace}
+            disabledReason={
+              locked
+                ? "Wait for the backup operation to finish."
+                : "Confirm that this backup can replace the server data."
+            }
+            onClick={() => void apply(!!sessionConfirmation)}
+          >
             Start backup
           </Button>
         }
@@ -853,6 +882,7 @@ export function BackupRestoreScreen(props: {
           <Button
             variant="ghost"
             disabled={locked}
+            disabledReason={"Wait for the backup operation to finish."}
             onClick={() =>
               void act("Returning to backup selection…", async () => {
                 if (stageId) await ipc.restoreDiscard(stageId);
@@ -870,7 +900,12 @@ export function BackupRestoreScreen(props: {
             Back
           </Button>
         ) : props.rail === undefined ? (
-          <Button variant="ghost" disabled={locked} onClick={props.onClose}>
+          <Button
+            variant="ghost"
+            disabled={locked}
+            disabledReason={"Wait for the backup operation to finish."}
+            onClick={props.onClose}
+          >
             Back
           </Button>
         ) : undefined
@@ -879,12 +914,27 @@ export function BackupRestoreScreen(props: {
         props.kind === "backup" ? (
           <Button
             disabled={locked || !!backupPasswordProblem || !!backupConfirmationProblem}
+            disabledReason={
+              locked
+                ? "Wait for the backup operation to finish."
+                : backupPasswordProblem || backupConfirmationProblem || undefined
+            }
             onClick={() => void backup()}
           >
             Save backup…
           </Button>
         ) : inspection ? (
-          <Button disabled={locked || !!configurationInvalid || !!recoveryInvalid} onClick={() => void reviewRestore()}>
+          <Button
+            disabled={locked || !!configurationInvalid || !!recoveryInvalid}
+            disabledReason={
+              locked
+                ? "Wait for the backup operation to finish."
+                : recoveryPasswordProblem ||
+                  recoveryConfirmationProblem ||
+                  "Complete the required restore settings first."
+            }
+            onClick={() => void reviewRestore()}
+          >
             {locked && progress && (
               <LoaderCircle data-icon="inline-start" className="animate-spin" aria-hidden="true" />
             )}
@@ -893,6 +943,7 @@ export function BackupRestoreScreen(props: {
         ) : (
           <Button
             disabled={locked || !validatedBackup}
+            disabledReason={locked ? "Wait for the backup operation to finish." : "Validate a backup first."}
             onClick={() => {
               if (validatedBackup) {
                 setInspection(validatedBackup);
@@ -983,7 +1034,12 @@ export function BackupRestoreScreen(props: {
                 )}
                 {backupSource === "file" && (
                   <div className="flex flex-col gap-3">
-                    <Button variant="outline" disabled={locked} onClick={() => void inspect()}>
+                    <Button
+                      variant="outline"
+                      disabled={locked}
+                      disabledReason={"Wait for the backup operation to finish."}
+                      onClick={() => void inspect()}
+                    >
                       Choose backup file…
                     </Button>
                     {options.archive && (
@@ -1024,6 +1080,7 @@ export function BackupRestoreScreen(props: {
                     <Button
                       variant="outline"
                       disabled={locked}
+                      disabledReason={"Wait for the backup operation to finish."}
                       onClick={() => void inspect(backupSource === "saved" ? selectedBackup?.path : options.archive)}
                     >
                       {locked && progress && (
@@ -1065,7 +1122,10 @@ export function BackupRestoreScreen(props: {
                             if (path) void inspect(path, "");
                           }}
                         >
-                          <SelectTrigger aria-label="Available backup">
+                          <SelectTrigger
+                            aria-label="Available backup"
+                            disabledReason="Wait for the backup operation to finish."
+                          >
                             <SelectValue placeholder="Choose a backup" />
                           </SelectTrigger>
                           <SelectContent>
@@ -1225,6 +1285,7 @@ export function BackupRestoreScreen(props: {
                               onValueChange={(id) => update("recoverAdmin", id ?? "")}
                             >
                               <SelectTrigger
+                                disabledReason="Wait for the backup operation to finish."
                                 id="restore-admin"
                                 aria-invalid={!!(touchedFields.recoverAdmin && !options.recoverAdmin)}
                                 onBlur={() => setTouchedFields((old) => ({ ...old, recoverAdmin: true }))}

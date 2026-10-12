@@ -156,7 +156,13 @@ export function ServerRow({
         )}
         <Button
           disabled={!view.updateAvailable || !view.canApply.ok || busy}
-          title={view.canApply.ok ? undefined : view.canApply.reasons[0]}
+          disabledReason={
+            busy
+              ? "Wait for the server update to finish."
+              : !view.canApply.ok
+                ? (view.canApply.reasons[0] ?? "The server cannot update from here.")
+                : "No server update is available."
+          }
           onClick={() => setConfirming(true)}
         >
           {view.latest ? `Update to ${view.latest.version}` : "Update"}
@@ -202,8 +208,8 @@ export function ServerRow({
           </p>
         )}
 
-      {busy && job !== null ? (
-        <p className="col-span-full flex items-center gap-2 text-sm text-warning">
+      {busy && job !== null && job.phase !== "failed" && update.outcome !== "waiting" ? (
+        <p role="status" className="col-span-full flex items-center gap-2 text-sm text-warning">
           {/* The wait runs into minutes and the page loses its server in the
               middle of it, so a static sentence reads as a page that has
               stopped rather than one that is working. */}
@@ -211,9 +217,14 @@ export function ServerRow({
           <span>{jobLine(job)}</span>
         </p>
       ) : update.outcome === "waiting" ? (
-        <p className="col-span-full flex items-center gap-2 text-sm text-warning">
+        <p role="status" className="col-span-full flex items-center gap-2 text-sm text-warning">
           <LoaderCircle className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
           <span>Restarting… waiting for the server to come back.</span>
+        </p>
+      ) : busy ? (
+        <p role="status" className="col-span-full flex items-center gap-2 text-sm text-warning">
+          <LoaderCircle className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+          <span>Starting the server update…</span>
         </p>
       ) : null}
 

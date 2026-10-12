@@ -165,13 +165,28 @@ export function SupervisionScreen(props: {
       // rail, and there this is still the only way out.
       barLeft={
         props.rail === undefined && (
-          <Button type="button" variant="ghost" disabled={busy || running} onClick={props.onClose}>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={busy || running}
+            disabledReason={"Wait for the current action to finish."}
+            onClick={props.onClose}
+          >
             {leaveLabel(probe, probe.onboarded)}
           </Button>
         )
       }
       barRight={
-        <Button type="button" disabled={unchanged || busy || running} onClick={() => props.onApply(chosen)}>
+        <Button
+          type="button"
+          disabled={unchanged || busy || running}
+          disabledReason={
+            busy || running
+              ? "Wait for the current action to finish."
+              : "Choose a different supervision option before applying."
+          }
+          onClick={() => props.onApply(chosen)}
+        >
           Apply
         </Button>
       }
@@ -215,8 +230,11 @@ export function SupervisionScreen(props: {
               : "Turning this on starts it automatically every time the machine starts."}
           </span>
         )}
+        {!chosen.background && autostartSupported(probe) && (
+          <span className="hint warn-text">Choose “In the background” to start the server automatically.</span>
+        )}
         {!autostartSupported(probe) && (
-          <span className="hint">{`Update your server to ${MIN_AUTOSTART_SERVER_VERSION} to control this.`}</span>
+          <span className="hint warn-text">{`Update your server to ${MIN_AUTOSTART_SERVER_VERSION} to control this.`}</span>
         )}
       </div>
       {option({

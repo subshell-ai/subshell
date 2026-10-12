@@ -1,4 +1,4 @@
-import { cn, relativeElapsed } from "@internal/node-admin";
+import { cn, ExplainedButton, relativeElapsed } from "@internal/node-admin";
 import { Check } from "lucide-react";
 import type { JSX } from "react";
 import { SubshellSearch } from "@/components/subshell-search";
@@ -97,9 +97,10 @@ export function ExistingSubshellList({
           <ul>
             {filtered.map((subshell) => (
               <li key={subshell.id}>
-                <button
+                <ExplainedButton
                   type="button"
                   disabled={busyId != null}
+                  disabledReason="Wait for the subshell to be added."
                   // A spread, not two ternary attributes: the linter cannot
                   // see a conditional `role` and would flag aria-checked as
                   // unsupported on a plain button. TS narrows via `multi`.
@@ -134,7 +135,7 @@ export function ExistingSubshellList({
                   {busyId === subshell.id && (
                     <span className="shrink-0 text-detail text-muted-foreground">Adding…</span>
                   )}
-                </button>
+                </ExplainedButton>
               </li>
             ))}
           </ul>

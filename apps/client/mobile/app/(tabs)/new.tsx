@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ExplainedPressable } from "@/components/explained-pressable";
 import { Field } from "@/components/field";
 import { PrimaryButton } from "@/components/primary-button";
 import { useNodes } from "@/hooks/use-nodes";
@@ -21,7 +22,7 @@ import { usePresets } from "@/hooks/use-presets";
 import { useSubshells } from "@/hooks/use-subshells";
 import { agentDefault } from "@/lib/agent-default";
 import { errMessage } from "@/lib/api-error";
-import { isSelectable, nodePickSettled, nodeRunsHarness, pickNodeDefault } from "@/lib/node-pick";
+import { isSelectable, nodePickSettled, nodeRunsHarness, nodeUnpickableReason, pickNodeDefault } from "@/lib/node-pick";
 import { colors, font, radius, touchTarget } from "@/lib/tokens";
 import { useSubshell } from "@/providers/subshell-provider";
 import type { ExploreResult } from "@/types/files";
@@ -220,7 +221,7 @@ export default function NewSubshell() {
                   const usable = agentUsable(p);
                   const sel = harnessId === p.id;
                   return (
-                    <Pressable
+                    <ExplainedPressable
                       key={p.id}
                       onPress={() => {
                         // A fresh agent resets the preset (spec §5) — the old
@@ -231,6 +232,7 @@ export default function NewSubshell() {
                         setPresetId(null);
                       }}
                       disabled={!usable}
+                      disabledReason={"This agent is unavailable."}
                       // Selection and greying are carried by border colour and
                       // opacity, which a screen reader cannot see. The state
                       // props are the only announcement of either — and the
@@ -251,7 +253,7 @@ export default function NewSubshell() {
                         {p.icon ? `${p.icon} ` : ""}
                         {p.name}
                       </Text>
-                    </Pressable>
+                    </ExplainedPressable>
                   );
                 })}
               </View>
@@ -317,10 +319,11 @@ export default function NewSubshell() {
                   const pickable = isSelectable(n) && nodeRunsHarness(n, harnessId);
                   const sel = nodeId === n.id;
                   return (
-                    <Pressable
+                    <ExplainedPressable
                       key={n.id}
                       onPress={() => setNodeId(n.id)}
                       disabled={!pickable}
+                      disabledReason={nodeUnpickableReason(n, harnessId) ?? ""}
                       accessibilityRole="button"
                       accessibilityState={{ selected: sel, disabled: !pickable }}
                       style={{
@@ -341,7 +344,7 @@ export default function NewSubshell() {
                             theirs — and survived a rename. */}
                         {n.kind === "local" || n.status === "online" ? n.name : `${n.name} — offline`}
                       </Text>
-                    </Pressable>
+                    </ExplainedPressable>
                   );
                 })}
               </View>
@@ -392,6 +395,13 @@ export default function NewSubshell() {
         />
 
         <PrimaryButton
+          disabledReason={
+            !harnessId
+              ? "Choose an agent or shell first."
+              : !nodeId
+                ? "Choose a node first."
+                : "Choose a working directory first."
+          }
           onPress={() => void start()}
           label="Start subshell"
           disabled={!harnessId || !workingDir || !nodeId}
@@ -402,9 +412,14 @@ export default function NewSubshell() {
       <Modal visible={sheet} animationType="slide" onRequestClose={() => setSheet(false)}>
         <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top + 12 }}>
           <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 12 }}>
-            <Pressable onPress={() => void openDir(dir?.parent ?? undefined)} hitSlop={12} disabled={!dir?.parent}>
+            <ExplainedPressable
+              onPress={() => void openDir(dir?.parent ?? undefined)}
+              hitSlop={12}
+              disabled={!dir?.parent}
+              disabledReason={"There’s no parent directory you can browse from here."}
+            >
               <Text style={{ ...font("label"), color: dir?.parent ? colors.primary : colors.mutedFg }}>↑</Text>
-            </Pressable>
+            </ExplainedPressable>
             <Text numberOfLines={1} style={{ ...font("detail"), color: colors.fg, flex: 1, fontFamily: "Menlo" }}>
               {dir?.path ?? "…"}
             </Text>

@@ -141,15 +141,15 @@ describe("a node whose agent is not running", () => {
     mount({
       probe: makeProbe({ step: "stopped", tmux: null, service: service({ state: "stopped", pid: null }) }),
     });
-    expect(button(/^start$/i).disabled).toBe(true);
-    expect(button(/^uninstall$/i).disabled).toBe(false);
+    expect(button(/^start$/i).matches(":disabled, [aria-disabled=true]")).toBe(true);
+    expect(button(/^uninstall$/i).matches(":disabled, [aria-disabled=true]")).toBe(false);
     expect(screen.getByText(/tmux was not found/i)).toBeTruthy();
   });
 
   it("keeps Stop live without tmux, over a running node", () => {
     mount({ probe: makeProbe({ tmux: null }) });
-    expect(button(/^stop$/i).disabled).toBe(false);
-    expect(button(/^restart$/i).disabled).toBe(true);
+    expect(button(/^stop$/i).matches(":disabled, [aria-disabled=true]")).toBe(false);
+    expect(button(/^restart$/i).matches(":disabled, [aria-disabled=true]")).toBe(true);
   });
 });
 
@@ -379,7 +379,7 @@ describe("Un-enroll", () => {
     mount({
       probe: { ...base, nodeBinary: base.nodeBinary ? { ...base.nodeBinary, version: "0.14.0" } : null },
     });
-    expect(button("Un-enroll…").disabled).toBe(true);
+    expect(button("Un-enroll…").matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(screen.getByText(/needs node version 0\.15\.0 or newer\. Update the node first\./i)).toBeTruthy();
   });
 

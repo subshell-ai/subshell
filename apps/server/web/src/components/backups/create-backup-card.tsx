@@ -8,7 +8,7 @@ import { useStore } from "@tanstack/react-form";
 import { useEffect, useState } from "react";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { useBackupDownload } from "@/hooks/use-backups";
-import { type FieldProblems, fieldError, makeForm, useSubmitDisabled } from "@/lib/form";
+import { type FieldProblems, fieldError, makeForm, useSubmitDisabled, useSubmitDisabledReason } from "@/lib/form";
 import { BackupError, BackupFacts, BackupProgress, BackupWorkflow } from "./backup-workflow";
 
 type BackupDraft = { encrypted: boolean; password: string; confirmation: string };
@@ -54,6 +54,7 @@ export function CreateBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void 
   });
   const encrypted = useStore(form.store, (state) => state.values.encrypted);
   const disabled = useSubmitDisabled(form, busy);
+  const disabledReason = useSubmitDisabledReason(form, busy);
   const failure = error?.message ?? backup.job.data?.error;
   const finished = backup.job.data?.status === "ready";
   const restart = async () => {
@@ -73,11 +74,24 @@ export function CreateBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void 
           <>
             <span />
             {failure ? (
-              <Button variant="ghost" disabled={busy} onClick={() => void restart().catch(() => {})}>
+              <Button
+                variant="ghost"
+                disabled={busy}
+                disabledReason={"Wait for the backup operation to finish."}
+                onClick={() => void restart().catch(() => {})}
+              >
                 Back
               </Button>
             ) : (
-              <Button disabled={!finished || busy} onClick={() => setStep("complete")}>
+              <Button
+                disabled={!finished || busy}
+                disabledReason={
+                  busy
+                    ? "Wait for the backup operation to finish."
+                    : "Wait for the backup to finish before downloading it."
+                }
+                onClick={() => setStep("complete")}
+              >
                 {finished ? "Next" : "Backing up…"}
               </Button>
             )}
@@ -112,7 +126,12 @@ export function CreateBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void 
         description="Your archive is ready to download."
         footer={
           <>
-            <Button variant="ghost" disabled={backup.cancel.isPending} onClick={() => void restart().catch(() => {})}>
+            <Button
+              variant="ghost"
+              disabled={backup.cancel.isPending}
+              disabledReason={"Wait for the backup to be canceled."}
+              onClick={() => void restart().catch(() => {})}
+            >
               Done
             </Button>
             {!downloadRequested && backup.downloadUrl && (
@@ -162,7 +181,7 @@ export function CreateBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void 
       footer={
         <>
           <span />
-          <Button type="submit" form="create-backup-form" disabled={disabled}>
+          <Button type="submit" form="create-backup-form" disabled={disabled} disabledReason={disabledReason}>
             Create backup
           </Button>
         </>

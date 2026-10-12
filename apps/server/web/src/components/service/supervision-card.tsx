@@ -53,7 +53,12 @@ function PersistenceFacts({ view, autostart }: { view: ServerDeployment; autosta
       )}
       {fix?.kind === "enable" && (
         <div className="col-span-full space-y-1.5">
-          <Button variant="outline" disabled={autostart.pending} onClick={() => autostart.set(true)}>
+          <Button
+            variant="outline"
+            disabled={autostart.pending}
+            disabledReason={"Wait for the service settings to save."}
+            onClick={() => autostart.set(true)}
+          >
             Start automatically
           </Button>
           {autostart.error && <p className="text-destructive text-detail">{autostart.error}</p>}
@@ -265,7 +270,7 @@ export function SupervisionCard({
           <label htmlFor="server-autostart" className="font-strong text-label">
             Start at login
           </label>
-          <p className="text-detail text-muted-foreground">
+          <p className={`text-detail ${loginBlocked ? "text-warning" : "text-muted-foreground"}`}>
             {loginBlocked ??
               "Starts the server again the next time you log in to this machine. Without it, the service runs now but nothing brings it back after you log out or restart."}
           </p>

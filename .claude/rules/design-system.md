@@ -37,7 +37,9 @@ Line items are `label` over `detail`, differing by weight and colour. **Every
 explanation a control gives about itself is `detail`** (its help text, a
 "set by the environment" note, a saved-vs-running line, a validation error),
 all at one size, the same `detail` that carries metadata (timestamps,
-versions, counts); `body` is running text not attached to a control.
+versions, counts); `body` is running text not attached to a control. A tooltip
+popup is the floating-surface exception: it carries `body` (amendment 2026-10-12;
+see the reference).
 **Keep UI titles short and fixed.** Name the action ("Insert this prompt?",
 "Close this subshell?") and put names, counts, versions, URLs, and other
 variable details in the body. Apply this to dialogs, confirmations, cards,

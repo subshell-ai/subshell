@@ -258,6 +258,9 @@ export function UpdateScreen(props: {
               className="min-w-[120px]"
               variant="outline"
               disabled={isFetching || runner.busy}
+              disabledReason={
+                isFetching ? "Wait for the update check to finish." : "Wait for the current action to finish."
+              }
               onClick={() => void refetch()}
             >
               Check Again
@@ -270,7 +273,7 @@ export function UpdateScreen(props: {
               there Back is still the only way out. Check Again stays
               regardless: it is a refresh, not a leave. */}
           {props.rail === undefined && (
-            <Button disabled={installApp.isPending} onClick={onClose}>
+            <Button disabled={installApp.isPending} disabledReason={"Wait for the update to finish."} onClick={onClose}>
               Back
             </Button>
           )}
@@ -420,6 +423,7 @@ export function UpdateScreen(props: {
             <Button
               variant="outline"
               disabled={runner.busy}
+              disabledReason={"Wait for the update to finish."}
               onClick={() => {
                 if (runner.busy) return;
                 watchFor("restart");
@@ -437,7 +441,15 @@ export function UpdateScreen(props: {
 
       {act.pressLabel !== null && (
         <div className="mt-4 text-center">
-          <Button disabled={!act.canPress} onClick={press}>
+          <Button
+            disabled={!act.canPress}
+            disabledReason={
+              runner.busy || installApp.isPending
+                ? "Wait for the update to finish."
+                : "Select an available update first."
+            }
+            onClick={press}
+          >
             {installApp.isPending ? "Installing…" : act.pressLabel}
           </Button>
         </div>

@@ -73,7 +73,12 @@ export function WorkspaceActionsMenu({
 
   return (
     <>
-      <ActionsMenu label={workspace.name} items={items} disabled={busy}>
+      <ActionsMenu
+        label={workspace.name}
+        items={items}
+        disabled={busy}
+        disabledReason={"Wait for the workspace action to finish."}
+      >
         {children}
       </ActionsMenu>
       <QrLinkDialog

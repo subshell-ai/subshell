@@ -30,7 +30,14 @@ export interface SetupAssistantProps {
   back?: { label?: string; onClick: () => void; disabled?: boolean };
   /** Ghost button left of the primary. */
   skip?: { label: string; onClick: () => void; disabled?: boolean };
-  primary: { label: string; onClick: () => void; disabled?: boolean; pending?: boolean; pendingLabel?: string };
+  primary: {
+    disabledReason?: string;
+    label: string;
+    onClick: () => void;
+    disabled?: boolean;
+    pending?: boolean;
+    pendingLabel?: string;
+  };
   /**
    * There is deliberately NO status slot beside the primary button
    * (operator's call, 2026-09-14). A control's own progress belongs on the
@@ -102,7 +109,12 @@ export function SetupAssistant({
       <footer className="grid grid-cols-[1fr_auto_1fr] items-center border-t px-8">
         <div className="flex gap-2">
           {back && (
-            <Button variant="ghost" onClick={back.onClick} disabled={back.disabled}>
+            <Button
+              variant="ghost"
+              onClick={back.onClick}
+              disabled={back.disabled}
+              disabledReason={"Wait for the current setup step to finish."}
+            >
               {back.label ?? "Back"}
             </Button>
           )}
@@ -110,11 +122,21 @@ export function SetupAssistant({
         <StepDots {...dots} />
         <div className="flex items-center justify-end gap-2">
           {skip && (
-            <Button variant="ghost" onClick={skip.onClick} disabled={skip.disabled}>
+            <Button
+              variant="ghost"
+              onClick={skip.onClick}
+              disabled={skip.disabled}
+              disabledReason={"Wait for the current setup step to finish."}
+            >
               {skip.label}
             </Button>
           )}
-          <Button className="min-w-[120px]" onClick={primary.onClick} disabled={primaryDisabled}>
+          <Button
+            className="min-w-[120px]"
+            onClick={primary.onClick}
+            disabled={primaryDisabled}
+            disabledReason={primary.pending ? "Wait for this setup step to finish." : primary.disabledReason}
+          >
             {primary.pending ? (primary.pendingLabel ?? primary.label) : primary.label}
           </Button>
         </div>

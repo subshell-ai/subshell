@@ -117,11 +117,19 @@ export function NotificationsCard({
       <CardContent className="space-y-3">
         <div className="flex items-center gap-4">
           {(state === "on" || state === "off") && (
-            <Button onClick={() => void toggle()} disabled={busy}>
+            <Button
+              onClick={() => void toggle()}
+              disabled={busy}
+              disabledReason={"Wait for the notification setting to change."}
+            >
               {busy ? "Working…" : state === "on" ? "Disable on this device" : "Enable notifications on this device"}
             </Button>
           )}
-          {state === null && <Button disabled>{busy ? "Working…" : "Checking…"}</Button>}
+          {state === null && (
+            <Button disabled disabledReason={"Wait for the notification check to finish."}>
+              {busy ? "Working…" : "Checking…"}
+            </Button>
+          )}
         </div>
         {/* role=status: the button can DISAPPEAR when a click lands in
             blocked/unconfigured — sighted users see the helper line appear,

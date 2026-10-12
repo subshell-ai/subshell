@@ -133,7 +133,7 @@ describe("NodeDetailPage re-check gating", () => {
     try {
       renderDetail("node1");
       const btn = await screen.findByRole("button", { name: /Re-check/ });
-      expect(btn.hasAttribute("disabled")).toBe(false);
+      expect(btn.matches(":disabled, [aria-disabled=true]")).toBe(false);
       fireEvent.click(btn);
       await waitFor(() => {
         expect(calls.filter((c) => c.method === "POST" && c.url === "/api/nodes/node1/recheck")).toHaveLength(1);
@@ -141,8 +141,8 @@ describe("NodeDetailPage re-check gating", () => {
       // Configure yes, retire no, for a PLAIN grantee: Share gates on
       // `canManage`, Delete on `canRetire`, and neither flag an admin holds
       // sits in this fixture (the admin shape has its own cell below).
-      expect(screen.getByRole("button", { name: /Share/ }).hasAttribute("disabled")).toBe(true);
-      expect(screen.getByRole("button", { name: /Delete/ }).hasAttribute("disabled")).toBe(true);
+      expect(screen.getByRole("button", { name: /Share/ }).matches(":disabled, [aria-disabled=true]")).toBe(true);
+      expect(screen.getByRole("button", { name: /Delete/ }).matches(":disabled, [aria-disabled=true]")).toBe(true);
     } finally {
       restore();
     }
@@ -153,7 +153,7 @@ describe("NodeDetailPage re-check gating", () => {
     try {
       renderDetail("node1");
       const btn = await screen.findByRole("button", { name: /Re-check/ });
-      expect(btn.hasAttribute("disabled")).toBe(false);
+      expect(btn.matches(":disabled, [aria-disabled=true]")).toBe(false);
       fireEvent.click(btn);
       await waitFor(() => {
         expect(calls.filter((c) => c.method === "POST" && c.url === "/api/nodes/node1/recheck")).toHaveLength(1);
@@ -337,7 +337,7 @@ describe("NodeDetailPage reregister", () => {
     try {
       renderDetail("node1");
       const btn = await screen.findByRole("button", { name: /Re-register/ });
-      expect(btn.hasAttribute("disabled")).toBe(true);
+      expect(btn.matches(":disabled, [aria-disabled=true]")).toBe(true);
     } finally {
       restore();
     }
@@ -357,9 +357,11 @@ describe("NodeDetailPage admin shape (ruling 2026-10-09)", () => {
     try {
       renderDetail("node1");
       await screen.findByText("Your access");
-      expect(screen.getByRole("button", { name: /Delete/ }).hasAttribute("disabled")).toBe(false);
-      expect(screen.getByRole("button", { name: /Re-register/ }).hasAttribute("disabled")).toBe(false);
-      expect(screen.getByRole("button", { name: /Share/ }).hasAttribute("disabled")).toBe(true);
+      expect(screen.getByRole("button", { name: /Delete/ }).matches(":disabled, [aria-disabled=true]")).toBe(false);
+      expect(screen.getByRole("button", { name: /Re-register/ }).matches(":disabled, [aria-disabled=true]")).toBe(
+        false,
+      );
+      expect(screen.getByRole("button", { name: /Share/ }).matches(":disabled, [aria-disabled=true]")).toBe(true);
       expect(screen.queryByRole("button", { name: "Rename node" })).toBeNull();
     } finally {
       restore();
@@ -382,12 +384,12 @@ describe("NodeDetailPage admin shape (ruling 2026-10-09)", () => {
     try {
       renderDetail("node1");
       const update = await screen.findByRole("button", { name: /Update to latest/ });
-      expect(update.hasAttribute("disabled")).toBe(false);
+      expect(update.matches(":disabled, [aria-disabled=true]")).toBe(false);
       expect(screen.getByText(/will not accept this machine's Subshell daemon version/)).toBeDefined();
       // Detection is not `update`: a held link drops it, so Re-check says so
       // instead of trading a press for a 409.
       const recheck = screen.getByRole("button", { name: /Re-check/ });
-      expect(recheck.hasAttribute("disabled")).toBe(true);
+      expect(recheck.matches(":disabled, [aria-disabled=true]")).toBe(true);
     } finally {
       restore();
     }
@@ -400,8 +402,8 @@ describe("NodeDetailPage admin shape (ruling 2026-10-09)", () => {
     try {
       renderDetail("node1");
       const update = await screen.findByRole("button", { name: /Update to latest/ });
-      expect(update.hasAttribute("disabled")).toBe(true);
-      expect(screen.getByRole("button", { name: /Re-check/ }).hasAttribute("disabled")).toBe(true);
+      expect(update.matches(":disabled, [aria-disabled=true]")).toBe(true);
+      expect(screen.getByRole("button", { name: /Re-check/ }).matches(":disabled, [aria-disabled=true]")).toBe(true);
       expect(screen.queryByText(/will not accept this machine's Subshell daemon version/)).toBeNull();
     } finally {
       restore();

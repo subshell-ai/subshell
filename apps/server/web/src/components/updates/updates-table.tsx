@@ -66,7 +66,15 @@ export function UpdatesTable({
           should be a global button"). Nothing about its behaviour changed. */}
       <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
         <CardTitle>Components</CardTitle>
-        <Button variant="outline" size="sm" disabled={!view.server.source.enabled || checking} onClick={onCheck}>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!view.server.source.enabled || checking}
+          disabledReason={
+            checking ? "Wait for the update check to finish." : "Update checks are turned off for this server."
+          }
+          onClick={onCheck}
+        >
           {checking ? "Checking…" : "Re-check"}
         </Button>
       </CardHeader>

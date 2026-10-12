@@ -86,10 +86,27 @@ export function TitleDialog({
           </p>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.isPending}>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={mutation.isPending}
+            disabledReason={"Wait for the title to save."}
+          >
             Cancel
           </Button>
-          <Button onClick={save} disabled={mutation.isPending || unchanged || trimmed === "" || tooLong}>
+          <Button
+            onClick={save}
+            disabled={mutation.isPending || unchanged || trimmed === "" || tooLong}
+            disabledReason={
+              mutation.isPending
+                ? "Wait for the title to save."
+                : unchanged
+                  ? "Change the title before saving."
+                  : tooLong
+                    ? "Shorten the title to fit the character limit."
+                    : "Enter a title first."
+            }
+          >
             {mutation.isPending ? "Saving…" : "Save title"}
           </Button>
         </DialogFooter>

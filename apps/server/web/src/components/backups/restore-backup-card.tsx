@@ -14,7 +14,7 @@ import {
   restoreConnectionOrigin,
   useRestoreBackup,
 } from "@/hooks/use-backups";
-import { type FieldProblems, fieldError, makeForm, useSubmitDisabled } from "@/lib/form";
+import { type FieldProblems, fieldError, makeForm, useSubmitDisabled, useSubmitDisabledReason } from "@/lib/form";
 import { setRestoreProgressActive } from "@/lib/restore-progress";
 import { Card, CardContent, CardHeader, CardTitle } from "./backup-card";
 import { BackupError, BackupFacts, BackupProgress, BackupWorkflow } from "./backup-workflow";
@@ -240,8 +240,11 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
   });
   const confirmed = useStore(review.store, (state) => state.values.confirmed);
   const inspectDisabled = useSubmitDisabled(inspectForm, busy);
+  const inspectDisabledReason = useSubmitDisabledReason(inspectForm, busy);
   const configureDisabled = useSubmitDisabled(inspectForm, busy || !inspection);
+  const configureDisabledReason = useSubmitDisabledReason(inspectForm, busy);
   const reviewDisabled = useSubmitDisabled(configuration, busy);
+  const reviewDisabledReason = useSubmitDisabledReason(configuration, busy);
   const prepareDisabled = useSubmitDisabled(
     review,
     busy ||
@@ -250,6 +253,16 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
       !restore.prepare.data ||
       Object.keys(configurationProblems(draft, inspection)).length > 0,
   );
+  const reviewReason = useSubmitDisabledReason(review, busy);
+  const prepareDisabledReason = busy
+    ? "Wait for the restore operation to finish."
+    : !inspection
+      ? "Validate a backup first."
+      : !restore.prepare.data
+        ? "Review the restore settings first."
+        : !confirmed
+          ? "Confirm the replacement and session effects before starting."
+          : (Object.values(configurationProblems(draft, inspection))[0] ?? reviewReason);
   const admins =
     inspection?.admins.map((admin) => ({ value: admin.id, label: `${admin.name} · ${admin.email}` })) ?? [];
 
@@ -484,6 +497,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
               <Button
                 variant="ghost"
                 disabled={busy}
+                disabledReason={"Wait for the restore operation to finish."}
                 onClick={() => {
                   setJob(null);
                   review.setFieldValue("confirmed", false);
@@ -493,7 +507,11 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                 Back
               </Button>
             ) : (
-              <Button disabled={outcome !== "completed"} onClick={() => setStep("complete")}>
+              <Button
+                disabled={outcome !== "completed"}
+                disabledReason={"Wait for the restore to finish before continuing."}
+                onClick={() => setStep("complete")}
+              >
                 {outcome === "completed" ? "Next" : "Restoring…"}
               </Button>
             )}
@@ -558,10 +576,20 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
         description="Review these details before restoring your server."
         footer={
           <>
-            <Button variant="ghost" disabled={busy} onClick={() => setStep("configure")}>
+            <Button
+              variant="ghost"
+              disabled={busy}
+              disabledReason={"Wait for the restore operation to finish."}
+              onClick={() => setStep("configure")}
+            >
               Back
             </Button>
-            <Button type="submit" form="review-restore-form" disabled={prepareDisabled}>
+            <Button
+              type="submit"
+              form="review-restore-form"
+              disabled={prepareDisabled}
+              disabledReason={prepareDisabledReason}
+            >
               Start restore
             </Button>
           </>
@@ -622,10 +650,20 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
         description="Configure the destination and restore options, then review the replacement."
         footer={
           <>
-            <Button variant="ghost" disabled={busy} onClick={() => setStep("select")}>
+            <Button
+              variant="ghost"
+              disabled={busy}
+              disabledReason={"Wait for the restore operation to finish."}
+              onClick={() => setStep("select")}
+            >
               Back
             </Button>
-            <Button type="submit" form="configure-restore-form" disabled={reviewDisabled}>
+            <Button
+              type="submit"
+              form="configure-restore-form"
+              disabled={reviewDisabled}
+              disabledReason={reviewDisabledReason}
+            >
               Review backup
             </Button>
           </>
@@ -724,6 +762,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                               onValueChange={(value) => field.handleChange(value ?? "")}
                             >
                               <SelectTrigger
+                                disabledReason="Wait for the restore operation to finish."
                                 id="restore-admin"
                                 aria-invalid={!!problem}
                                 onFocus={() => setFocusedField("adminId")}
@@ -770,7 +809,17 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
       footer={
         <>
           <span />
-          <Button disabled={configureDisabled} onClick={() => setStep("configure")}>
+          <Button
+            disabled={configureDisabled}
+            disabledReason={
+              busy
+                ? "Wait for the restore operation to finish."
+                : !inspection
+                  ? "Validate a backup first."
+                  : configureDisabledReason
+            }
+            onClick={() => setStep("configure")}
+          >
             Configure backup
           </Button>
         </>
@@ -827,7 +876,13 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                 void validateSelection(values);
               }}
             />
-            <Button type="button" variant="outline" disabled={busy} onClick={() => picker.current?.click()}>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              disabledReason={"Wait for the restore operation to finish."}
+              onClick={() => picker.current?.click()}
+            >
               Choose backup file…
             </Button>
             {selected.file && <p className="break-words text-muted-foreground">{selected.file.name}</p>}
@@ -857,7 +912,14 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                     void validateSelection(values);
                   }}
                 >
-                  <SelectTrigger id="saved-backup">
+                  <SelectTrigger
+                    id="saved-backup"
+                    disabledReason={
+                      busy
+                        ? "Wait for the restore operation to finish."
+                        : "There are no saved backups to choose. Upload a backup file instead."
+                    }
+                  >
                     <SelectValue placeholder="Select a backup" />
                   </SelectTrigger>
                   <SelectContent>
@@ -945,7 +1007,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
           </p>
         ) : (
           (selected.file || selected.path) && (
-            <Button type="submit" variant="outline" disabled={inspectDisabled}>
+            <Button type="submit" variant="outline" disabled={inspectDisabled} disabledReason={inspectDisabledReason}>
               {restore.inspect.isPending && (
                 <LoaderCircle data-icon="inline-start" className="animate-spin" aria-hidden="true" />
               )}

@@ -106,9 +106,11 @@ admitted here.
   documentation or pack it into a run-on sentence to meet a quota. Move
   optional background into documentation or a disclosure. UI copy uses no em
   dashes. An absence placeholder in a table isn't prose.
-- **Help text**: everything a control says about itself is `detail`, at ONE
-  size: its hint, "set by the environment", a saved-vs-running note, a
-  validation error, the same role metadata uses, so a field never mixes sizes.
+- **Help text**: every INLINE explanation a control gives about itself is
+  `detail`, at ONE size: its hint, "set by the environment", a saved-vs-running
+  note, a validation error, the same role metadata uses, so a field never mixes
+  sizes. A tooltip popup is the floating-surface exception and carries `body`;
+  see **Tooltip**.
   `body` is for running text that is not attached to a control. *(One screen explained a toggle at 13 and the field below it at
   12; a plugin's description was 12 in one card and 14 in the other; the
   assistant's `.hint` was 14. Three sizes for one idea, because the table used
@@ -129,6 +131,11 @@ admitted here.
   hold both uses. *(An hour of one-tone experiments settled the split: gold
   for everything read as alarm on unfilled fields; red for everything hid
   which fields still needed typing.)*
+- **Service restrictions and prerequisites**: use gold (`text-warning`) for
+  visible explanations of unavailable actions, such as owner-only permissions,
+  missing supervision, or a version required to change a setting. Keep routine
+  status and optional setup instructions neutral. Failed actions and load
+  errors stay red (`text-destructive`); a restriction is not a failed action.
 - **Titles and confirmations**: keep titles short and fixed. Name the action
   ("Insert this prompt?", "Close this subshell?", "Generate a new setup key?")
   and put variable details in the body: names, counts, versions, addresses,
@@ -142,13 +149,28 @@ admitted here.
   from performing it, and an attempted operation from a guaranteed result.
   See [the content guide](../apps/docs/STYLE.md#product-copy-and-confirmations)
   for examples.
-- **Tooltip**: the popup carries an arrow pointing back at its control.
+- **Tooltip**: popup text uses `body`, including disabled explanations, so it
+  stays readable in the floating surface. Inline control hints use `detail`.
+  The popup carries an arrow pointing back at its control.
   `TooltipContent` draws it by default, and `arrow={false}` is the rare opt-out
   for a surface with no single anchor. A floating box beside a run of elements
   does not say which one is speaking; the arrow is the pointer that names it.
   *(A disabled control's explanation floated over the whole row until it grew
   the tip; the rail's rows needed the same arrow a day earlier. Operator rule,
   2026-09-25.)*
+- **Disabled buttons**: explain every disabled state in a tooltip. State the
+  actual blocker and a useful next step, such as "Only the node owner can
+  change sharing for this node." or "Choose a working directory first."
+  Pass `disabledReason` to `Button` (or `ExplainedButton` for a control with
+  its own layout). Keep the explanation available on hover and keyboard
+  focus, associate it with the control for screen readers, and block pointer,
+  keyboard, and form activation. Don't rely on a native `title` or a wrapper
+  that changes the control's layout. Use existing form validation messages
+  for missing or invalid input, and update the reason when the blocker changes.
+  Keep owner-only restrictions visible beside the controls in gold
+  (`text-warning`), including directory rules and stopping or uninstalling a
+  node service. On touch-only surfaces, keep the reason visible or available
+  on tap; hover mustn't be the only way to discover it.
 - **Tab group**: a page's tab strip is CONTENT-SIZED (`Segmented fill={false}`),
   never stretched across the container: two tab labels sharing the page's full
   width read as data columns rather than as choices, and the stretch grows the

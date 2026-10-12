@@ -82,9 +82,9 @@ describe("LogRetentionCard", () => {
     });
     renderCard();
     const days = (await screen.findByLabelText("Days")) as HTMLInputElement;
-    expect(days.disabled).toBe(true);
+    expect(days.matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(screen.getByText(/SUBSHELL_LOG_RETENTION_DAYS/)).toBeTruthy();
-    expect((screen.getByLabelText("Hours") as HTMLInputElement).disabled).toBe(false);
+    expect((screen.getByLabelText("Hours") as HTMLInputElement).matches(":disabled, [aria-disabled=true]")).toBe(false);
   });
 
   test("a save PUTs only the touched field to the local endpoint", async () => {
@@ -103,9 +103,17 @@ describe("LogRetentionCard", () => {
   test("an untouched form cannot save, and junk cannot either", async () => {
     stub(STORED);
     renderCard();
-    expect(((await screen.findByRole("button", { name: "Save window" })) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      ((await screen.findByRole("button", { name: "Save window" })) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
     fireEvent.change(screen.getByLabelText("Days"), { target: { value: "-2" } });
-    expect((screen.getByRole("button", { name: "Save window" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Save window" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
     expect(screen.getByText(/whole number of 0 or more/)).toBeTruthy();
     expect(calls.some((c) => c.method === "PUT")).toBe(false);
   });

@@ -91,7 +91,12 @@ export function TmuxStep({
         <SquareTerminal aria-hidden className="size-5 shrink-0 text-muted-foreground" />
         <span className="flex-1 font-strong text-detail text-warning">Not found</span>
         {installable && (
-          <Button size="sm" disabled={installing} onClick={onInstall}>
+          <Button
+            size="sm"
+            disabled={installing}
+            disabledReason={"Wait for installation to finish."}
+            onClick={onInstall}
+          >
             {/* A label that changes once and then holds still for a minute is
                 how a working button comes to look like a wedged one. */}
             {installing && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 motion-safe:animate-spin" />}

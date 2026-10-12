@@ -434,7 +434,7 @@ describe("filtering across groups", () => {
     await withRail([subshell({ id: "a", name: "needle" })], async () => {
       fireEvent.change(screen.getByLabelText("Filter subshells"), { target: { value: "needle" } });
       await waitFor(() => expect(groupHeader("local").getAttribute("aria-expanded")).toBe("true"));
-      expect(groupHeader("local").hasAttribute("disabled")).toBe(true);
+      expect(groupHeader("local").matches(":disabled, [aria-disabled=true]")).toBe(true);
       fireEvent.click(groupHeader("local"));
       expect(groupHeader("local").getAttribute("aria-expanded")).toBe("true");
       expect(groupList("local").className).not.toContain("hidden");
@@ -442,7 +442,7 @@ describe("filtering across groups", () => {
       // Clearing the filter hands control back, still honouring the ORIGINAL
       // (untouched) preference: shut.
       fireEvent.change(screen.getByLabelText("Filter subshells"), { target: { value: "" } });
-      await waitFor(() => expect(groupHeader("local").hasAttribute("disabled")).toBe(false));
+      await waitFor(() => expect(groupHeader("local").matches(":disabled, [aria-disabled=true]")).toBe(false));
       expect(groupHeader("local").getAttribute("aria-expanded")).toBe("false");
     });
   });
@@ -882,7 +882,7 @@ describe("the workspace search filter (operator ask 2026-09-27)", () => {
       await waitFor(() => expect(savedHeader().getAttribute("aria-expanded")).toBe("true"));
       // Inert while force-open: the button is disabled, and a press writes
       // nothing — the stored fold is exactly what was there before.
-      expect(savedHeader().disabled).toBe(true);
+      expect(savedHeader().matches(":disabled, [aria-disabled=true]")).toBe(true);
       fireEvent.click(savedHeader());
       expect(savedHeader().getAttribute("aria-expanded")).toBe("true");
       expect(localStorage.getItem(WS_COLLAPSED_KEY)).toBe(JSON.stringify({ saved: true }));

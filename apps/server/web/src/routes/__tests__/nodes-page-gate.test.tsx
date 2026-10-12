@@ -79,7 +79,7 @@ const addOpeners = () =>
   [
     ...screen.queryAllByRole("button", { name: /Add node/ }),
     ...screen.queryAllByRole("button", { name: /Add your first node/ }),
-  ].filter((b) => !b.hasAttribute("disabled"));
+  ].filter((b) => !b.matches(":disabled, [aria-disabled=true]"));
 
 afterEach(cleanup);
 
@@ -96,26 +96,16 @@ describe("/nodes add-node gating", () => {
       await waitFor(
         () => {
           add = screen.queryByRole("button", { name: /Add node/ }) ?? undefined;
-          expect(add?.hasAttribute("disabled")).toBe(true);
+          expect(add?.matches(":disabled, [aria-disabled=true]")).toBe(true);
         },
         { timeout: 4000 },
       );
-      // The tooltip lives (Base UI marks the trigger element; the popup
-      // itself is hover-gated, which happy-dom cannot drive — the
-      // association, not the open popup, is what this can pin). Review
-      // finding I-1: the association must serve readers and tab users too,
-      // so the SPAN carries the tab stop and names the describedby target.
+      // The disabled button itself stays focusable and carries its explanation.
       const trigger = add?.closest("[data-base-ui-tooltip-trigger]") as HTMLElement | null;
-      expect(trigger).not.toBeNull();
+      expect(trigger).toBe(add ?? null);
       expect(trigger?.getAttribute("tabindex")).toBe("0");
-      const describedBy = trigger?.getAttribute("aria-describedby");
-      expect(describedBy).toBeTruthy();
-      expect(document.getElementById(describedBy ?? "")?.textContent).toContain("Adding nodes is turned off");
-      // The touch carrier: the same sentence is VISIBLE in the empty state.
-      // getAll, not get — the sr-only copy above matches the same text, and
-      // a unique-match `getByText` here would pin the two-carrier design
-      // accidentally rather than on purpose.
-      expect(screen.getAllByText(NODE_ENROLLMENT_OFF_COPY).length).toBeGreaterThanOrEqual(2);
+      expect(trigger?.getAttribute("aria-description")).toBe(NODE_ENROLLMENT_OFF_COPY);
+      expect(screen.getByText(NODE_ENROLLMENT_OFF_COPY)).toBeTruthy();
       // Nothing ENABLED opens the dialog, and the empty state keeps no action.
       expect(addOpeners()).toEqual([]);
       expect(screen.queryByRole("button", { name: /Add your first node/ })).toBeNull();
@@ -162,10 +152,13 @@ describe("/nodes add-node gating", () => {
       await waitFor(() => expect(screen.getByText("AI PC")).toBeTruthy(), { timeout: 4000 });
       expect(screen.queryByText(/Ask one to add a machine for you/)).toBeNull();
       // Same wait-on-the-assertion shape as the first test (M-5): with rows
-      // listed, the empty-state sentence is absent, so the disabled attribute
+      // listed, the empty-state sentence is absent, so the disabled state
       // is the only settings-dependent fact to gate on.
       await waitFor(
-        () => expect(screen.getByRole("button", { name: /Add node/ }).hasAttribute("disabled")).toBe(true),
+        () =>
+          expect(screen.getByRole("button", { name: /Add node/ }).matches(":disabled, [aria-disabled=true]")).toBe(
+            true,
+          ),
         { timeout: 4000 },
       );
     } finally {

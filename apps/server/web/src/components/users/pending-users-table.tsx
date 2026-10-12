@@ -115,6 +115,7 @@ function PendingRow({ row }: { row: PendingUserRow }) {
             size="sm"
             variant="outline"
             disabled={busy}
+            disabledReason={"Wait for the account change to finish."}
             onClick={() => void decide("approved")}
             aria-label={`Approve ${row.email}`}
           >
@@ -127,6 +128,7 @@ function PendingRow({ row }: { row: PendingUserRow }) {
               size="sm"
               variant="ghost"
               disabled={busy}
+              disabledReason={"Wait for the account change to finish."}
               onClick={() => void decide("rejected")}
               aria-label={`Reject ${row.email}`}
             >

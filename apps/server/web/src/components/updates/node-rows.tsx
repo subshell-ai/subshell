@@ -142,6 +142,13 @@ export function NodeRows({ fleet, serverUpdating = false }: { fleet: NodeUpdates
             <Button
               variant="outline"
               disabled={updatable.length === 0 || anyBusy || serverUpdating}
+              disabledReason={
+                serverUpdating
+                  ? NODE_UPDATE_SERVER_BUSY_MESSAGE
+                  : anyBusy
+                    ? "Wait for the current node updates to finish."
+                    : "No nodes are ready to update."
+              }
               onClick={() => void updateAll()}
             >
               {batch && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 animate-spin" />}
@@ -173,7 +180,9 @@ export function NodeRows({ fleet, serverUpdating = false }: { fleet: NodeUpdates
         // The tracker entry rides the row (design 2026-09-25): every
         // sentence about an ordered update comes from the server's fact,
         // so a refresh or a second tab reads the same story mid-flight.
-        const tracked = row.update;
+        // A previous attempt's result must not hide a new request's progress.
+        const pending = nodeUpdate.pendingNodeIds.has(row.id);
+        const tracked = pending && !isUpdateLive(row.update) ? null : row.update;
         const failure = nodeUpdate.failures[row.id];
         return (
           <div key={row.id} className="contents">
@@ -192,7 +201,13 @@ export function NodeRows({ fleet, serverUpdating = false }: { fleet: NodeUpdates
                 variant="outline"
                 size="sm"
                 disabled={!row.canUpdate.ok || batch || updating || serverUpdating}
-                title={serverUpdating ? NODE_UPDATE_SERVER_BUSY_MESSAGE : (row.canUpdate.reason ?? undefined)}
+                disabledReason={
+                  serverUpdating
+                    ? NODE_UPDATE_SERVER_BUSY_MESSAGE
+                    : !row.canUpdate.ok
+                      ? (row.canUpdate.reason ?? "This node cannot update from here.")
+                      : "Wait for the current node updates to finish."
+                }
                 onClick={() => {
                   if (serverUpdating) return;
                   void nodeUpdate.update(row.id).catch(() => {
@@ -213,14 +228,22 @@ export function NodeRows({ fleet, serverUpdating = false }: { fleet: NodeUpdates
             {!serverUpdating && !row.canUpdate.ok && row.canUpdate.reason !== null && (
               <p className="col-span-full truncate text-detail text-muted-foreground">{row.canUpdate.reason}</p>
             )}
+            {pending && tracked == null && (
+              <p role="status" className="col-span-full text-detail text-warning">
+                Starting the update. Waiting for the node to report progress.
+              </p>
+            )}
             {tracked != null && (
               <p
+                role="status"
                 className={`col-span-full text-detail ${
-                  tracked.phase === "done" || tracked.phase === "working" || tracked.phase === "restarting"
-                    ? "text-success"
-                    : tracked.phase === "failed"
-                      ? "text-destructive"
-                      : "text-muted-foreground"
+                  isUpdateLive(tracked)
+                    ? "text-warning"
+                    : tracked.phase === "done"
+                      ? "text-success"
+                      : tracked.phase === "failed"
+                        ? "text-destructive"
+                        : "text-muted-foreground"
                 }`}
               >
                 {updateLine(row, tracked)}

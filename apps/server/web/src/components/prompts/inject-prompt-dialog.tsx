@@ -87,10 +87,15 @@ export function InjectPromptDialog({
           </p>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => setPicked(null)} disabled={busy}>
+          <Button
+            variant="outline"
+            onClick={() => setPicked(null)}
+            disabled={busy}
+            disabledReason={"Wait for the prompt to be inserted."}
+          >
             Back
           </Button>
-          <Button onClick={() => void send()} disabled={busy}>
+          <Button onClick={() => void send()} disabled={busy} disabledReason={"Wait for the prompt to be inserted."}>
             {busy ? "Inserting…" : "Insert prompt"}
           </Button>
         </DialogFooter>

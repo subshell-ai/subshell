@@ -56,6 +56,8 @@ export interface SegmentedProps<T extends string> {
    * variant's `h-8` because `cn` is tailwind-merge, not string concat.
    */
   dense?: boolean;
+  disabled?: boolean;
+  disabledReason?: string;
 }
 
 /**
@@ -80,6 +82,8 @@ export function Segmented<T extends string>({
   className,
   fill = true,
   dense = false,
+  disabled = false,
+  disabledReason,
 }: SegmentedProps<T>) {
   return (
     <fieldset
@@ -89,6 +93,8 @@ export function Segmented<T extends string>({
       {options.map((option) => {
         const buttonProps = {
           type: "button",
+          disabled,
+          disabledReason,
           size: "sm",
           // Under `fill`, every option takes an EQUAL share of the group, which
           // is what makes it read as a switch between named states rather than
@@ -110,7 +116,7 @@ export function Segmented<T extends string>({
             {option.label}
           </>
         );
-        if (option.tooltip === undefined) {
+        if (option.tooltip === undefined || disabled) {
           // The untouched path. A Fragment carries the React key without
           // touching the DOM, so untold options are byte-identical.
           return (

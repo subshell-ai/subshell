@@ -67,9 +67,9 @@ describe("the reset dialog", () => {
     });
     expect(screen.getByText("devbox")).toBeTruthy();
     // Empty box: nothing to consent with.
-    expect(press().disabled).toBe(true);
+    expect(press().matches(":disabled, [aria-disabled=true]")).toBe(true);
     fireEvent.change(screen.getByLabelText(/Type/), { target: { value: "devbox" } });
-    await waitFor(() => expect(press().disabled).toBe(false));
+    await waitFor(() => expect(press().matches(":disabled, [aria-disabled=true]")).toBe(false));
     fireEvent.click(press());
     // A hostname crossed the boundary, and NOTHING else — no path, ever.
     await waitFor(() => expect(fake.callsTo("node_reset")).toEqual([{ typed: "devbox" }]));
@@ -123,8 +123,10 @@ describe("the reset dialog", () => {
     fireEvent.change(screen.getByLabelText(/Type/), { target: { value: "devbox" } });
     fireEvent.click(press());
     const running = (await screen.findByRole("button", { name: "Resetting…" })) as HTMLButtonElement;
-    expect(running.disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(running.matches(":disabled, [aria-disabled=true]")).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+    ).toBe(true);
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.getByRole("dialog", { name: "Reset everything?" })).toBeTruthy();
 

@@ -241,7 +241,12 @@ function ProviderRow({
         {isEmail ? (
           <span className="text-detail text-muted-foreground">Built in</span>
         ) : (
-          <ActionsMenu label={provider.name} items={items} disabled={busy} />
+          <ActionsMenu
+            label={provider.name}
+            items={items}
+            disabled={busy}
+            disabledReason={"Wait for the sign-in provider change to finish."}
+          />
         )}
       </td>
     </tr>

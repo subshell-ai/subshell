@@ -173,7 +173,18 @@ export function LogRetentionCard(): React.ReactNode {
               {sourceLine(d.hours, "SUBSHELL_LOG_RETENTION_HOURS")}
             </p>
           </div>
-          <Button variant="outline" disabled={!canSave} onClick={submit}>
+          <Button
+            variant="outline"
+            disabled={!canSave}
+            disabledReason={
+              save.isPending
+                ? "Wait for the retention settings to save."
+                : invalid
+                  ? "Enter a valid retention window."
+                  : "Change the retention window before saving."
+            }
+            onClick={submit}
+          >
             {save.isPending ? "Saving…" : "Save window"}
           </Button>
         </div>

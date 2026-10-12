@@ -82,7 +82,13 @@ export default function Connect() {
           Plain HTTP: your token will cross the network in the clear.
         </Text>
       ) : null}
-      <PrimaryButton onPress={() => void save()} label="Connect" disabled={input.trim().length === 0} busy={busy} />
+      <PrimaryButton
+        disabledReason="Enter a server address first."
+        onPress={() => void save()}
+        label="Connect"
+        disabled={input.trim().length === 0}
+        busy={busy}
+      />
 
       {instances.length > 0 ? (
         <View style={{ gap: 8 }}>

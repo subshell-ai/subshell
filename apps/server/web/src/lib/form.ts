@@ -76,6 +76,19 @@ export function useSubmitDisabled(form: AnyFormApi, busy = false): boolean {
   return useStore(form.store, (state) => !state.isValid || state.isSubmitting) || busy;
 }
 
+/** Keep the button's explanation in step with the form's existing validation. */
+export function useSubmitDisabledReason(form: AnyFormApi, busy = false): string | undefined {
+  return useStore(form.store, (state) => {
+    if (busy || state.isSubmitting) return "Wait for the current action to finish.";
+    if (state.isValid) return undefined;
+    for (const meta of Object.values(state.fieldMeta)) {
+      const reason = fieldError(meta?.errors ?? []);
+      if (reason) return reason;
+    }
+    return "Complete the required fields and fix any errors before continuing.";
+  });
+}
+
 /** The field's one sentence, or null. Errors carry the source object shape
  *  once Standard Schema produced them, bare strings otherwise. */
 /**

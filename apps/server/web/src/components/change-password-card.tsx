@@ -3,7 +3,7 @@ import { useState } from "react";
 import { z } from "zod";
 import { RequiredMark } from "@/components/ui/required-mark";
 import { authClient } from "@/lib/auth-client";
-import { fieldError, makeForm, useSubmitDisabled } from "@/lib/form";
+import { fieldError, makeForm, useSubmitDisabled, useSubmitDisabledReason } from "@/lib/form";
 import { MIN_PASSWORD_LENGTH, PASSWORD_REQUIREMENT, passwordTooShort } from "@/lib/password";
 import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 
@@ -72,6 +72,7 @@ export function ChangePasswordCard() {
     },
   });
   const disabled = useSubmitDisabled(form, pwBusy);
+  const disabledReason = useSubmitDisabledReason(form, pwBusy);
 
   return (
     <Card>
@@ -169,7 +170,7 @@ export function ChangePasswordCard() {
           </form.Field>
           {pwError && <p className="text-destructive text-detail">{pwError}</p>}
           {pwSaved && <p className="text-detail text-success">Password updated</p>}
-          <Button type="submit" disabled={disabled}>
+          <Button type="submit" disabled={disabled} disabledReason={disabledReason}>
             {pwBusy ? "Updating…" : "Update password"}
           </Button>
         </form>

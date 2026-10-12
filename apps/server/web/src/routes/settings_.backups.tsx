@@ -21,9 +21,11 @@ function BackupsPage() {
           <div className="px-8 pt-6">
             <PageHeader title="Backups" />
           </div>
-          <fieldset disabled={busy} className="shrink-0 border-b px-8 py-3">
+          <div className="shrink-0 border-b px-8 py-3">
             <Segmented
               ariaLabel="Backup operation"
+              disabled={busy}
+              disabledReason="Wait for the backup or restore operation to finish."
               fill={false}
               options={[
                 { value: "backup", label: "Backup" },
@@ -32,7 +34,7 @@ function BackupsPage() {
               value={operation}
               onChange={setOperation}
             />
-          </fieldset>
+          </div>
           <section
             hidden={operation !== "backup"}
             className={operation === "backup" ? "flex min-h-0 flex-1 flex-col" : undefined}

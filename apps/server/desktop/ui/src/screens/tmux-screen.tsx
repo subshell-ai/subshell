@@ -251,7 +251,13 @@ export function TmuxScreen(props: {
               failed asks the reader to believe the same press will do something
               different this time. It will — it re-reads the machine first — and the
               label is where that is said. */}
-          <Button type="button" className="w-full" disabled={busy || running} onClick={props.onInstall}>
+          <Button
+            type="button"
+            className="w-full"
+            disabled={busy || running}
+            disabledReason={"Wait for installation to finish."}
+            onClick={props.onInstall}
+          >
             {failed === null ? plan.label : "Try again"}
           </Button>
           {/* Centred under a full-width button: left-aligned, it read as a caption for

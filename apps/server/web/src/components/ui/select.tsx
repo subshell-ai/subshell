@@ -1,5 +1,5 @@
 import { Select as SelectPrimitive } from "@base-ui/react/select";
-import { cn } from "@internal/node-admin";
+import { cn, ExplainedButton } from "@internal/node-admin";
 import { Check, ChevronDown } from "lucide-react";
 import type { JSX } from "react";
 
@@ -35,12 +35,26 @@ export function SelectValue({ className, ...props }: SelectPrimitive.Value.Props
   );
 }
 
-export function SelectTrigger({ className, children, ...props }: SelectPrimitive.Trigger.Props): JSX.Element {
+export function SelectTrigger({
+  className,
+  children,
+  disabledReason,
+  render,
+  ...props
+}: SelectPrimitive.Trigger.Props & { disabledReason?: string }): JSX.Element {
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
+      render={(triggerProps, state) => (
+        <ExplainedButton
+          {...triggerProps}
+          disabled={state.disabled}
+          disabledReason={disabledReason}
+          render={typeof render === "function" ? (buttonProps) => render(buttonProps, state) : render}
+        />
+      )}
       className={cn(
-        "flex h-9 w-full items-center justify-between gap-2 overflow-hidden whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+        "flex h-9 w-full items-center justify-between gap-2 overflow-hidden whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
         className,
       )}
       {...props}

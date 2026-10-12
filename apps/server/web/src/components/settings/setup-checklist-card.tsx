@@ -171,7 +171,13 @@ function Remedy({ remedy, autostart }: { remedy: ChecklistRemedy; autostart: Ser
         {/* The `true` direction only, as everywhere else in a browser: a
             reader who is not at that machine does not set out to disarm a
             server they would then have to walk to. */}
-        <Button variant="outline" size="sm" disabled={autostart.pending} onClick={() => autostart.set(true)}>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={autostart.pending}
+          disabledReason={"Wait for the service settings to save."}
+          onClick={() => autostart.set(true)}
+        >
           Start automatically
         </Button>
         {autostart.error && <p className="text-destructive text-detail">{autostart.error}</p>}

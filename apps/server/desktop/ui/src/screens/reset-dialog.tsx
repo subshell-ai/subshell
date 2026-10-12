@@ -171,6 +171,9 @@ export function ResetDialog(props: {
         <Button
           type="button"
           disabled={busy || !(why === null && armedOk)}
+          disabledReason={
+            busy ? "Wait for the reset to finish." : (why ?? "Enter the confirmation text to reset the server.")
+          }
           data-armed={String(armedOk)}
           onClick={() => props.onRunReset(typed)}
         >
@@ -181,7 +184,13 @@ export function ResetDialog(props: {
             reached, so the way out lives here), disabled while the chain runs
             — nothing on the progress pane may offer an act the chain cannot
             honour. */}
-        <Button type="button" variant="outline" disabled={busy} onClick={props.onCancel}>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy}
+          disabledReason={"Wait for the reset to finish."}
+          onClick={props.onCancel}
+        >
           Cancel
         </Button>
       </div>

@@ -95,7 +95,7 @@ export function ServiceCard({
         )}
       </p>
       {!restarting && !service.supervised && view.restart.reason && (
-        <p className="col-span-full text-muted-foreground text-sm">{view.restart.reason}</p>
+        <p className="col-span-full text-sm text-warning">{view.restart.reason}</p>
       )}
       {/* **Gated on `installed`.** `paneSafety` is `"unknown"` when there is no
           definition to read, and `"unknown" !== "keeps"`, so this fired on
@@ -126,7 +126,11 @@ export function ServiceCard({
         <Button
           variant="outline"
           disabled={!view.restart.available || restarting}
-          title={view.restart.available ? undefined : (view.restart.reason ?? undefined)}
+          disabledReason={
+            restarting
+              ? "Wait for the server to restart."
+              : (view.restart.reason ?? "The server cannot restart from here.")
+          }
           onClick={() => setConfirming(true)}
         >
           Restart server

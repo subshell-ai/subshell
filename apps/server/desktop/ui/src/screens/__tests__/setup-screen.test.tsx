@@ -134,7 +134,7 @@ describe("the form", () => {
   it("disables Set Up with its reason while tmux is missing", () => {
     renderSetup({ probe: makeProbe({ next: "init", onboarded: false, tmux: null }) });
     const setUp = screen.getByRole("button", { name: "Set Up" }) as HTMLButtonElement;
-    expect(setUp.disabled).toBe(true);
+    expect(setUp.matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(screen.getByText("Waiting for tmux to be installed")).toBeDefined();
   });
 
@@ -143,7 +143,7 @@ describe("the form", () => {
     // autoFired so the auto-fire effect stands down and the form stays drawn.
     renderSetup({ autoFired: true, onStartSetup });
     const setUp = screen.getByRole("button", { name: "Set Up" }) as HTMLButtonElement;
-    expect(setUp.disabled).toBe(false);
+    expect(setUp.matches(":disabled, [aria-disabled=true]")).toBe(false);
     setUp.click();
     expect(onStartSetup).toHaveBeenCalledTimes(1);
   });

@@ -129,7 +129,7 @@ describe("the start-up screen", () => {
     const backs: number[] = [];
     renderStartup({ busy: true, onBack: () => backs.push(1) });
     const back = screen.getByRole("button", { name: "Back" }) as HTMLButtonElement;
-    expect(back.disabled).toBe(true);
+    expect(back.matches(":disabled, [aria-disabled=true]")).toBe(true);
     fireEvent.click(back);
     expect(backs).toEqual([]);
   });
@@ -137,7 +137,7 @@ describe("the start-up screen", () => {
   it("changes nothing while an action is in flight", () => {
     const { changes, continues } = renderStartup({ busy: true });
     const button = screen.getByRole("button", { name: "Register" }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    expect(button.matches(":disabled, [aria-disabled=true]")).toBe(true);
     fireEvent.click(button);
     fireEvent.click(screen.getByRole("switch"));
     expect(continues).toEqual([]);

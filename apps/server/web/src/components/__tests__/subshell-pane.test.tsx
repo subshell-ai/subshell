@@ -88,9 +88,13 @@ describe("SubshellPane touch key bar", () => {
     renderPane(<SubshellPane pane={paneRow()} active showKeyBar onRestart={() => {}} onRemovePane={() => {}} />);
     const bar = screen.getByRole("toolbar", { name: "Terminal special keys" });
     // No WS is open (unit env), so `connected` is false: keys inert, scroll live.
-    expect((screen.getByRole("button", { name: "Send Ctrl-C" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Send Ctrl-C" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
     const top = screen.getByRole("button", { name: "Scroll to top" }) as HTMLButtonElement;
-    expect(top.disabled).toBe(false);
+    expect(top.matches(":disabled, [aria-disabled=true]")).toBe(false);
     expect(bar).toBeDefined();
     // Tapping must not throw even with no socket behind the handles.
     fireEvent.click(top);

@@ -26,7 +26,15 @@ import { useState } from "react";
  * belongs on screen from the start, but copying a command whose token slot is a
  * placeholder would run it as-is on a stranger's machine.
  */
-export function CopyCommandRow({ text, label, disabled }: { text: string; label?: string; disabled?: boolean }) {
+export function CopyCommandRow({
+  text,
+  label,
+  disabled,
+  disabledReason,
+}: {
+  text: string;
+  label?: string;
+} & ({ disabled?: false; disabledReason?: string } | { disabled: boolean; disabledReason: string })) {
   const [copied, setCopied] = useState(false);
 
   async function copy() {
@@ -62,6 +70,7 @@ export function CopyCommandRow({ text, label, disabled }: { text: string; label?
         size="icon-sm"
         aria-label={name}
         disabled={disabled}
+        disabledReason={disabledReason}
         onClick={() => void copy()}
       >
         {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}

@@ -51,7 +51,12 @@ export function HandoffScreen(props: {
         strings={props.strings}
         entranceKey={props.entranceKey}
         barRight={
-          <Button type="button" disabled={props.busy} onClick={props.onRetryOpen}>
+          <Button
+            type="button"
+            disabled={props.busy}
+            disabledReason={"Wait for the current action to finish."}
+            onClick={props.onRetryOpen}
+          >
             Open control plane
           </Button>
         }
@@ -69,7 +74,12 @@ export function HandoffScreen(props: {
       strings={props.strings}
       entranceKey={props.entranceKey}
       barRight={
-        <Button type="button" disabled={props.busy} onClick={props.onContinue}>
+        <Button
+          type="button"
+          disabled={props.busy}
+          disabledReason={"Wait for the current action to finish."}
+          onClick={props.onContinue}
+        >
           Continue
         </Button>
       }

@@ -279,7 +279,9 @@ describe("UserRowActions", () => {
     try {
       renderRow({ id: "u9" }, "me");
       await pick("Promote to admin");
-      await waitFor(() => expect((trigger() as HTMLButtonElement).disabled).toBe(true));
+      await waitFor(() =>
+        expect((trigger() as HTMLButtonElement).matches(":disabled, [aria-disabled=true]")).toBe(true),
+      );
       // The title's second half, pinned: the locked trigger opens nothing, so
       // a second act cannot even be reached while the first is in flight.
       fireEvent.keyDown(trigger(), { key: "ArrowDown" });
@@ -290,7 +292,9 @@ describe("UserRowActions", () => {
       await act(async () => {
         release?.();
       });
-      await waitFor(() => expect((trigger() as HTMLButtonElement).disabled).toBe(false));
+      await waitFor(() =>
+        expect((trigger() as HTMLButtonElement).matches(":disabled, [aria-disabled=true]")).toBe(false),
+      );
     } finally {
       globalThis.fetch = original;
     }
@@ -310,9 +314,9 @@ describe("UserRowActions", () => {
       const button = screen.getByRole("button", { name: "Reset and sign out" });
       // Confirm-gated: too short keeps the act dead.
       fireEvent.change(screen.getByLabelText("New password"), { target: { value: "short" } });
-      expect((button as HTMLButtonElement).disabled).toBe(true);
+      expect((button as HTMLButtonElement).matches(":disabled, [aria-disabled=true]")).toBe(true);
       fireEvent.change(screen.getByLabelText("New password"), { target: { value: "correct-horse-battery" } });
-      expect((button as HTMLButtonElement).disabled).toBe(false);
+      expect((button as HTMLButtonElement).matches(":disabled, [aria-disabled=true]")).toBe(false);
       fireEvent.click(button);
       await waitFor(() => expect(patches.length).toBe(1));
       expect(patches[0]?.url).toBe("/api/users/u9/password");

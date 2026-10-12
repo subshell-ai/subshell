@@ -179,6 +179,7 @@ export function SupervisionDialog({
             className={lethal ? "border-destructive text-destructive hover:bg-destructive/10" : undefined}
             onClick={() => onConfirm(autostart, lethal)}
             disabled={pending}
+            disabledReason={"Wait for the service settings to save."}
           >
             {pending && <LoaderCircle className="motion-safe:animate-spin" aria-hidden />}
             {pending

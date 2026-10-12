@@ -100,7 +100,11 @@ export function PasskeysCard() {
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
-            <Button onClick={() => void addPasskey()} disabled={busy}>
+            <Button
+              onClick={() => void addPasskey()}
+              disabled={busy}
+              disabledReason={"Finish the passkey prompt on your device first."}
+            >
               {busy ? "Waiting for device…" : "Add passkey"}
             </Button>
           </div>

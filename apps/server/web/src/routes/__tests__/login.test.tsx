@@ -92,13 +92,13 @@ describe("/login submit gating", () => {
     // The form lands after the anonymous instance-settings read.
     await screen.findByLabelText("E-mail");
     const button = () => screen.getByRole("button", { name: "Sign in" }) as HTMLButtonElement;
-    expect(button().disabled).toBe(true);
+    expect(button().matches(":disabled, [aria-disabled=true]")).toBe(true);
     fireEvent.change(screen.getByLabelText("E-mail"), { target: { value: "   " } });
-    expect(button().disabled).toBe(true);
+    expect(button().matches(":disabled, [aria-disabled=true]")).toBe(true);
     fireEvent.change(screen.getByLabelText("E-mail"), { target: { value: "theo@example.test" } });
-    expect(button().disabled).toBe(true);
+    expect(button().matches(":disabled, [aria-disabled=true]")).toBe(true);
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "hunter2" } });
-    expect(button().disabled).toBe(false);
+    expect(button().matches(":disabled, [aria-disabled=true]")).toBe(false);
     void router;
   });
 });

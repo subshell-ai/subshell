@@ -551,7 +551,9 @@ describe("the rail", () => {
     // The room is the chain: the pane retitled, the dismissal is inert, and
     // a Cancel press cannot end it.
     expect(screen.getByRole("dialog", { name: "Resetting this server" })).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+    ).toBe(true);
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.getByRole("dialog")).toBeTruthy();
     await act(async () => {

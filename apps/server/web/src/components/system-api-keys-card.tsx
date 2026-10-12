@@ -75,7 +75,13 @@ export function SystemApiKeysCard() {
                 disabled={setEnabled.isPending}
                 aria-label={`${k.name} enabled`}
               />
-              <Button variant="ghost" size="sm" onClick={() => void onDelete(k.id, k.name)} disabled={remove.isPending}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void onDelete(k.id, k.name)}
+                disabled={remove.isPending}
+                disabledReason={"Wait for the key to be deleted."}
+              >
                 Delete
               </Button>
             </div>

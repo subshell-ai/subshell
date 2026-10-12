@@ -166,7 +166,7 @@ export function NodeServiceCard({
     if (spec.verb === "restart" && !runtime?.supervised) {
       return `Nothing on ${local ? "this" : "that"} machine is supervising this node, so exiting would stop it rather than restart it`;
     }
-    if (spec.oneWay && !isOwner) return "Only the node's owner can do this: it cannot be undone from here";
+    if (spec.oneWay && !isOwner) return `Only the node owner can ${spec.verb} this service.`;
     return undefined;
   }
 
@@ -195,7 +195,14 @@ export function NodeServiceCard({
                 key={spec.verb}
                 variant="outline"
                 disabled={why !== undefined || confirming || service.isPending || wait.waiting}
-                title={why}
+                disabledReason={
+                  why ??
+                  (confirming
+                    ? "Finish or cancel the confirmation first."
+                    : wait.waiting
+                      ? "Wait for the node to reconnect."
+                      : "Wait for the service action to finish.")
+                }
                 onClick={() => void run(spec)}
               >
                 {spec.label}
@@ -203,6 +210,9 @@ export function NodeServiceCard({
             );
           })}
         </div>
+        {!isOwner && runtime?.service.installed && (
+          <p className="text-detail text-warning">Only the node owner can stop or uninstall this service.</p>
+        )}
         {wait.outcome === "waiting" && (
           <p className="flex items-center gap-2 text-sm text-warning">
             {/* The node drops its socket and comes back; that is tens of

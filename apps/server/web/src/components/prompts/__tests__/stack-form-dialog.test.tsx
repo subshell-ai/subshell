@@ -80,9 +80,9 @@ describe("StackFormDialog", () => {
     const m = mockFetch();
     try {
       renderDialog();
-      expect(saveButton(false).disabled).toBe(true); // label and member both required
+      expect(saveButton(false).matches(":disabled, [aria-disabled=true]")).toBe(true); // label and member both required
       fireEvent.change(labelField(), { target: { value: "Morning set" } });
-      expect(saveButton(false).disabled).toBe(true); // still no member
+      expect(saveButton(false).matches(":disabled, [aria-disabled=true]")).toBe(true); // still no member
       // Open the embedded picker, take the custom step, land one inline member.
       fireEvent.click(screen.getByRole("button", { name: "Add prompt" })); // the opener
       fireEvent.click(screen.getByRole("button", { name: /Write your own/ }));
@@ -90,7 +90,7 @@ describe("StackFormDialog", () => {
         target: { value: "inline note" },
       });
       fireEvent.click(screen.getByRole("button", { name: "Add prompt" })); // the step's submit
-      await waitFor(() => expect(saveButton(false).disabled).toBe(false));
+      await waitFor(() => expect(saveButton(false).matches(":disabled, [aria-disabled=true]")).toBe(false));
       fireEvent.click(saveButton(false));
       await waitFor(() => expect(m.calls.length).toBe(1));
       expect(m.calls[0]).toMatchObject({ url: "/api/prompts/stacks", method: "POST" });
@@ -108,7 +108,7 @@ describe("StackFormDialog", () => {
         initial: { label: "Emptied", blocks: [block({ promptId: "p1" })], shared: true },
       });
       fireEvent.click(screen.getByLabelText("Remove prompt")); // last member goes
-      expect(saveButton(true).disabled).toBe(false); // minItems 0 on edit
+      expect(saveButton(true).matches(":disabled, [aria-disabled=true]")).toBe(false); // minItems 0 on edit
       fireEvent.click(saveButton(true));
       await waitFor(() => expect(m.calls.length).toBe(1));
       expect(m.calls[0]).toMatchObject({ url: "/api/prompts/stacks/st1", method: "PUT" });

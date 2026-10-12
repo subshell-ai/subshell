@@ -99,9 +99,11 @@ export function NodeUpdateCard({ node }: { node: NodeDetail }): JSX.Element {
             variant="outline"
             size="sm"
             disabled={updating || !reachable || blockedReason !== null}
-            title={
+            disabledReason={
               blockedReason ??
-              (reachable ? undefined : "The machine is not connected, so there is nothing to send an update to")
+              (!reachable
+                ? "The node is offline. Wait for it to reconnect before updating."
+                : "Wait for the node update to finish.")
             }
             onClick={() => void start()}
           >
@@ -121,8 +123,13 @@ export function NodeUpdateCard({ node }: { node: NodeDetail }): JSX.Element {
             The server will not accept this machine's Subshell daemon version. You can still update it from here.
           </p>
         )}
+        {updating && (
+          <p role="status" className="text-detail text-warning">
+            Updating the node. Waiting for installation to finish and the node to reconnect.
+          </p>
+        )}
         {accepted && (
-          <p className="text-detail text-success">
+          <p role="status" className="text-detail text-warning">
             Update accepted. {node.name} is installing {accepted.to} and will reconnect by itself.
           </p>
         )}

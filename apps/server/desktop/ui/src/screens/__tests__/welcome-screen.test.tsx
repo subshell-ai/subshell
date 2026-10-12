@@ -31,6 +31,10 @@ describe("WelcomeScreen", () => {
 
   it("disables Continue while an action is in flight", () => {
     render(<WelcomeScreen strings={STRINGS} disabled onContinue={() => {}} />);
-    expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
   });
 });

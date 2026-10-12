@@ -60,11 +60,11 @@ describe("TitleDialog", () => {
     const { restore } = mockFetch();
     try {
       renderDialog();
-      expect(saveButton().disabled).toBe(true); // unchanged (prefilled)
+      expect(saveButton().matches(":disabled, [aria-disabled=true]")).toBe(true); // unchanged (prefilled)
       fireEvent.change(screen.getByRole("textbox", { name: "New subshell title" }), { target: { value: "   " } });
-      expect(saveButton().disabled).toBe(true); // blank
+      expect(saveButton().matches(":disabled, [aria-disabled=true]")).toBe(true); // blank
       fireEvent.change(screen.getByRole("textbox", { name: "New subshell title" }), { target: { value: "Other" } });
-      expect(saveButton().disabled).toBe(false);
+      expect(saveButton().matches(":disabled, [aria-disabled=true]")).toBe(false);
     } finally {
       restore();
     }
@@ -79,7 +79,7 @@ describe("TitleDialog", () => {
       // fireEvent bypasses the DOM maxlength, exercising the component guard:
       fireEvent.change(input, { target: { value: "x".repeat(121) } });
       expect(screen.getByText("Keep it under 120 characters")).toBeDefined();
-      expect(saveButton().disabled).toBe(true);
+      expect(saveButton().matches(":disabled, [aria-disabled=true]")).toBe(true);
     } finally {
       restore();
     }

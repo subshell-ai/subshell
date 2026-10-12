@@ -91,10 +91,22 @@ export function SubshellManagerTable({
       {selectedIds.length > 0 && (
         <div className="flex items-center gap-2">
           <span className="mr-2 text-muted-foreground text-sm">{selectedIds.length} selected</span>
-          <Button variant="outline" size="sm" onClick={() => void runBulk("restart")} disabled={bulkBusy}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void runBulk("restart")}
+            disabled={bulkBusy}
+            disabledReason={"Wait for the current action on the selected subshells to finish."}
+          >
             <RotateCcw /> Restart
           </Button>
-          <Button variant="destructive" size="sm" onClick={() => void runBulk("close")} disabled={bulkBusy}>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => void runBulk("close")}
+            disabled={bulkBusy}
+            disabledReason={"Wait for the current action on the selected subshells to finish."}
+          >
             <X /> Close
           </Button>
         </div>

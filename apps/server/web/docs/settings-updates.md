@@ -60,3 +60,10 @@ as soon as this tab starts a server update and also follows a job started
 elsewhere. Node detail pages receive the same blocker in their polled response.
 The update endpoint checks before release lookup and again before issuing the
 node command, covering a server update that starts during the lookup.
+
+Show a status line as soon as an update starts, before its POST returns or a
+job record arrives. Node update requests can wait for the download, so
+`useNodeUpdate` refreshes the active Updates query every second while a
+request is pending. The server tracker then supplies progress and completion.
+A previous attempt's terminal result must not cover a new request's status.
+Use gold for work in progress and reserve green for confirmed completion.

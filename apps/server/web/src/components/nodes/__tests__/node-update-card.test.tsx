@@ -92,8 +92,9 @@ describe("NodeUpdateCard", () => {
       expect(screen.getByText("Running an unreported version")).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "Update to latest" }));
       const updating = (await screen.findByRole("button", { name: "Updating…" })) as HTMLButtonElement;
-      expect(updating.disabled).toBe(true);
+      expect(updating.matches(":disabled, [aria-disabled=true]")).toBe(true);
       expect(updating.querySelector("svg")).toBeTruthy();
+      expect(screen.getByRole("status").textContent).toContain("Updating the node.");
       release();
       // Let the 202 land and the mutation settle before unmount, or React
       // logs an act() warning for the setState the resolution fires.
@@ -212,8 +213,8 @@ describe("NodeUpdateCard", () => {
     // control.
     mount(node({ status: "offline", held: null }));
     const btn = screen.getByRole("button", { name: "Update to latest" }) as HTMLButtonElement;
-    expect(btn.disabled).toBe(true);
-    expect(btn.getAttribute("title")).toContain("not connected");
+    expect(btn.matches(":disabled, [aria-disabled=true]")).toBe(true);
+    expect(btn.getAttribute("aria-description")).toContain("offline");
   });
 
   it("keeps Update live and explains it on a HELD node", () => {
@@ -222,7 +223,7 @@ describe("NodeUpdateCard", () => {
     // button above.
     mount(node({ status: "offline", held: { reason: "below-floor", agentVersion: "0.0.1" } }));
     const btn = screen.getByRole("button", { name: "Update to latest" }) as HTMLButtonElement;
-    expect(btn.disabled).toBe(false);
+    expect(btn.matches(":disabled, [aria-disabled=true]")).toBe(false);
     expect(screen.getByText(/will not accept this machine's Subshell daemon version/)).toBeTruthy();
   });
 });
@@ -235,8 +236,16 @@ it("explains the server update blocker and enables updates after it clears", () 
       node({ updateBlockedReason: "The server is updating. Wait until it finishes before updating nodes." }),
     ),
   );
-  expect((screen.getByRole("button", { name: "Update to latest" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(
+    (screen.getByRole("button", { name: "Update to latest" }) as HTMLButtonElement).matches(
+      ":disabled, [aria-disabled=true]",
+    ),
+  ).toBe(true);
   expect(screen.getByText("The server is updating. Wait until it finishes before updating nodes.")).toBeTruthy();
   result.rerender(withNode(client, node({ updateBlockedReason: null })));
-  expect((screen.getByRole("button", { name: "Update to latest" }) as HTMLButtonElement).disabled).toBe(false);
+  expect(
+    (screen.getByRole("button", { name: "Update to latest" }) as HTMLButtonElement).matches(
+      ":disabled, [aria-disabled=true]",
+    ),
+  ).toBe(false);
 });

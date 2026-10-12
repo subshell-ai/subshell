@@ -103,7 +103,11 @@ export function SwitchPresetDialog({
           // must match the item texts below exactly.
           items={[{ value: NONE, label: "None" }, ...options.map((p) => ({ value: p.id, label: p.name }))]}
         >
-          <SelectTrigger aria-label="Preset" disabled={presets === undefined}>
+          <SelectTrigger
+            aria-label="Preset"
+            disabled={presets === undefined}
+            disabledReason="Wait for the presets to load."
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -124,10 +128,19 @@ export function SwitchPresetDialog({
           <p className="text-destructive text-detail">{(swap.error as Error).message || "Failed to switch preset"}</p>
         )}
         <DialogFooter>
-          <Button variant="outline" disabled={swap.isPending} onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            disabled={swap.isPending}
+            disabledReason={"Wait for the preset switch to finish."}
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
-          <Button disabled={swap.isPending || presets === undefined} onClick={() => void swap.mutate()}>
+          <Button
+            disabled={swap.isPending || presets === undefined}
+            disabledReason={swap.isPending ? "Wait for the preset switch to finish." : "Wait for the presets to load."}
+            onClick={() => void swap.mutate()}
+          >
             {swap.isPending ? "Switching…" : "Switch and restart"}
           </Button>
         </DialogFooter>

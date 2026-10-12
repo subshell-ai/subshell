@@ -17,6 +17,7 @@ import { TmuxStep } from "@/components/setup/tmux-step";
 import {
   canSubmit,
   emptyNewSubshellForm,
+  launchDisabledReason,
   type NewSubshellFormValue,
 } from "@/components/subshell-picker/launch-form-rules";
 import { NewSubshellForm } from "@/components/subshell-picker/new-subshell-form";
@@ -458,6 +459,9 @@ function SetupPage() {
           label: "Create Account",
           onClick: () => void register(),
           disabled: busy || !newAccountComplete(account),
+          disabledReason: busy
+            ? "Wait for the account to be created."
+            : "Complete the name, e-mail, and password fields first.",
           pending: busy,
           pendingLabel: "Creating account…",
         }}
@@ -530,6 +534,7 @@ function SetupPage() {
           label: "Continue",
           onClick: goNext,
           disabled: installTmux.isPending || !adminStatus?.runtime.tmuxPath,
+          disabledReason: installTmux.isPending ? "Wait for tmux to install." : "Install tmux before continuing.",
         }}
       >
         {adminStatusError ? (
@@ -597,6 +602,7 @@ function SetupPage() {
           label: primaryLabel(agents.some((h) => h.installed)),
           onClick: goNext,
           disabled: busy || install.isPending,
+          disabledReason: "Wait for the current setup step to finish.",
         }}
       >
         {harnessesLoading && <p className="text-muted-foreground text-sm">Checking {here}…</p>}
@@ -663,6 +669,7 @@ function SetupPage() {
         label: "Start",
         onClick: () => void launch(),
         disabled: create.isPending || !canSubmit(launchForm),
+        disabledReason: create.isPending ? "Wait for the subshell to start." : launchDisabledReason(launchForm),
         pending: create.isPending,
         pendingLabel: "Starting…",
       }}

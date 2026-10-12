@@ -143,6 +143,7 @@ function TranscriptSearchBar({
         size="icon-sm"
         onClick={() => find(q.trim(), "prev")}
         disabled={!total}
+        disabledReason={"There are no search matches to navigate."}
         aria-label="Previous match"
         title="Previous match"
       >
@@ -153,6 +154,7 @@ function TranscriptSearchBar({
         size="icon-sm"
         onClick={() => find(q.trim(), "next")}
         disabled={!total}
+        disabledReason={"There are no search matches to navigate."}
         aria-label="Next match"
         title="Next match"
       >

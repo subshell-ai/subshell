@@ -60,6 +60,15 @@ export function canSubmit(value: NewSubshellFormValue): boolean {
   return Boolean(value.harnessId) && Boolean(value.workingDir.trim()) && Boolean(value.nodeId) && presetNamed;
 }
 
+/** Explain the same requirements that prevent a launch. */
+export function launchDisabledReason(value: NewSubshellFormValue): string | undefined {
+  if (!value.harnessId) return "Choose an agent or shell first.";
+  if (!value.nodeId) return "Choose a node first.";
+  if (!value.workingDir.trim()) return "Choose a working directory first.";
+  if (value.saveAsPreset && !value.presetName?.trim()) return "Enter a name for the new preset first.";
+  return undefined;
+}
+
 /**
  * Whether a node is pickable right now: an OFFLINE agent is shown disabled —
  * launching there 409s `NODE_OFFLINE`, and offering a target we know is down

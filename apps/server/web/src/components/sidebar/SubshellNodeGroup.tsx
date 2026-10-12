@@ -1,4 +1,4 @@
-import { cn } from "@internal/node-admin";
+import { cn, ExplainedButton } from "@internal/node-admin";
 import { ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -71,15 +71,16 @@ export function SubshellNodeGroup({
   // make the `aria-controls` selector unreliable.
   const listId = `sidebar-node-group-${nodeId}`;
   const headerButton = (
-    <button
+    <ExplainedButton
       type="button"
       onClick={disabled ? undefined : onToggle}
       disabled={disabled}
+      disabledReason="Clear the filter to collapse this group."
       aria-expanded={open}
       aria-controls={listId}
       className={cn(
         "flex w-full cursor-pointer items-center gap-2 rounded-md py-1 pr-2 pl-3 text-detail text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground",
-        disabled && "pointer-events-none",
+        disabled && "cursor-default",
       )}
     />
   );
@@ -99,10 +100,8 @@ export function SubshellNodeGroup({
   return (
     <div>
       <TooltipProvider delay={300}>
-        <Tooltip>
-          <TooltipTrigger disabled={disabled} render={headerButton}>
-            {headerBody}
-          </TooltipTrigger>
+        <Tooltip disabled={disabled}>
+          <TooltipTrigger render={headerButton}>{headerBody}</TooltipTrigger>
           {title === label ? null : <TooltipContent>{title}</TooltipContent>}
         </Tooltip>
       </TooltipProvider>

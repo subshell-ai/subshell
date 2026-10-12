@@ -1,6 +1,7 @@
 import { describeDevices, roleLabel, type ViewersState } from "@internal/subshell-protocol";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
+import { ExplainedPressable } from "@/components/explained-pressable";
 import { colors, font, radius, touchTarget } from "@/lib/tokens";
 
 /**
@@ -56,9 +57,10 @@ export function DevicesStrip({
             const label = roleLabel(role);
             const isPinned = viewer.id === pinnedId;
             return (
-              <Pressable
+              <ExplainedPressable
                 key={viewer.id}
                 disabled={!mayResize}
+                disabledReason={"Terminal sizing needs input access."}
                 // Tapping a device pins the pane to it; tapping the pinned one
                 // again releases it. Without a way back, pinning would be a
                 // one-way door out of the default.
@@ -82,7 +84,7 @@ export function DevicesStrip({
                   {label ? ` · ${label}` : ""}
                   {viewer.canInput ? "" : " · read-only"}
                 </Text>
-              </Pressable>
+              </ExplainedPressable>
             );
           })}
           {mayResize && pinnedId && (

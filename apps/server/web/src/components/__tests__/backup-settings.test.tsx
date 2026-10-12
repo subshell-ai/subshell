@@ -66,7 +66,11 @@ async function selectFile() {
     target: { files: [new File(["archive"], "instance.subshell")] },
   });
   await waitFor(() =>
-    expect((screen.getByRole("button", { name: "Configure backup" }) as HTMLButtonElement).disabled).toBe(false),
+    expect(
+      (screen.getByRole("button", { name: "Configure backup" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(false),
   );
 }
 async function configureFile() {
@@ -81,18 +85,34 @@ async function confirmReview() {
   const confirm = await screen.findByRole("checkbox", {
     name: "I confirm replacement and the session effects shown above",
   });
-  expect((screen.getByRole("button", { name: "Start restore" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(
+    (screen.getByRole("button", { name: "Start restore" }) as HTMLButtonElement).matches(
+      ":disabled, [aria-disabled=true]",
+    ),
+  ).toBe(true);
   fireEvent.click(confirm);
   await waitFor(() =>
-    expect((screen.getByRole("button", { name: "Start restore" }) as HTMLButtonElement).disabled).toBe(false),
+    expect(
+      (screen.getByRole("button", { name: "Start restore" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(false),
   );
   fireEvent.click(confirm);
   await waitFor(() =>
-    expect((screen.getByRole("button", { name: "Start restore" }) as HTMLButtonElement).disabled).toBe(true),
+    expect(
+      (screen.getByRole("button", { name: "Start restore" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true),
   );
   fireEvent.click(confirm);
   await waitFor(() =>
-    expect((screen.getByRole("button", { name: "Start restore" }) as HTMLButtonElement).disabled).toBe(false),
+    expect(
+      (screen.getByRole("button", { name: "Start restore" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(false),
   );
   fireEvent.click(screen.getByRole("button", { name: "Start restore" }));
 }
@@ -128,7 +148,11 @@ describe("Settings backup workflows", () => {
     mount(<CreateBackupCard onBusy={(value) => activity.push(value)} />);
     fireEvent.click(screen.getByRole("button", { name: "Create backup" }));
     await screen.findByText("Creating your backup");
-    expect((screen.getByRole("button", { name: "Backing up…" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Backing up…" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
     expect(activity).toContain(true);
     finish?.(Response.json({ id: "backup-job" }));
     await screen.findByText("Backup finished");
@@ -140,7 +164,7 @@ describe("Settings backup workflows", () => {
     mount(<CreateBackupCard />);
     fireEvent.click(screen.getByRole("switch", { name: "Encrypt the archive with a password" }));
     const submit = screen.getByRole("button", { name: "Create backup" }) as HTMLButtonElement;
-    expect(submit.disabled).toBe(true);
+    expect(submit.matches(":disabled, [aria-disabled=true]")).toBe(true);
     const password = screen.getByLabelText("Archive password");
     const confirm = screen.getByLabelText("Confirm archive password");
     for (const input of [password, confirm]) fireEvent.change(input, { target: { value: "short" } });
@@ -157,7 +181,7 @@ describe("Settings backup workflows", () => {
     });
     expect(posts(requests)).toHaveLength(0);
     for (const input of [password, confirm]) fireEvent.change(input, { target: { value: "unique archive password" } });
-    expect(submit.disabled).toBe(false);
+    expect(submit.matches(":disabled, [aria-disabled=true]")).toBe(false);
     fireEvent.click(submit);
     await screen.findByText("Backup finished");
     expect(screen.queryByText("Passwords do not match.")).toBeNull();
@@ -179,7 +203,11 @@ describe("Settings backup workflows", () => {
   it("uses a separate chooser, validates automatically, and stays on selection until Configure", async () => {
     const requests = mockApi();
     mount(<RestoreBackupCard />);
-    expect((screen.getByRole("button", { name: "Configure backup" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Configure backup" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
     expect(screen.queryByLabelText("Archive password")).toBeNull();
     const chooser = screen.getByRole("button", { name: "Choose backup file…" });
     const before = chooser.outerHTML;
@@ -214,7 +242,11 @@ describe("Settings backup workflows", () => {
     });
     const password = await screen.findByLabelText("Archive password");
     await screen.findByText(/This backup is encrypted/);
-    expect((screen.getByRole("button", { name: "Configure backup" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Configure backup" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
     fireEvent.change(password, { target: { value: "incorrect" } });
     fireEvent.click(screen.getByRole("button", { name: "Validate backup" }));
     await screen.findByText(/The password is incorrect/);
@@ -248,7 +280,11 @@ describe("Settings backup workflows", () => {
     mount(<RestoreBackupCard />);
     fireEvent.click(screen.getByRole("radio", { name: "Use a saved backup" }));
     await waitFor(() =>
-      expect((screen.getByRole("combobox", { name: "Available backups" }) as HTMLButtonElement).disabled).toBe(false),
+      expect(
+        (screen.getByRole("combobox", { name: "Available backups" }) as HTMLButtonElement).matches(
+          ":disabled, [aria-disabled=true]",
+        ),
+      ).toBe(false),
     );
     fireEvent.click(screen.getByRole("combobox", { name: "Available backups" }));
     fireEvent.click(await screen.findByRole("option", { name: /saved.subshell/ }));
@@ -263,7 +299,11 @@ describe("Settings backup workflows", () => {
     mount(<RestoreBackupCard />);
     fireEvent.click(screen.getByRole("radio", { name: "Use a saved backup" }));
     await screen.findByText("No saved backups are available. Open a backup file instead.");
-    expect((screen.getByRole("button", { name: "Configure backup" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Configure backup" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
   });
 
   it("validates configuration on blur, retains recovery fields through review, and starts restoration only after confirmation", async () => {
@@ -282,7 +322,11 @@ describe("Settings backup workflows", () => {
       fireEvent.focus(port);
       fireEvent.change(port, { target: { value: "70000" } });
     });
-    expect((screen.getByRole("button", { name: "Review backup" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Review backup" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
     expect(screen.queryByText(portError)).toBeNull();
     await act(async () => {
       fireEvent.blur(port);
@@ -298,7 +342,11 @@ describe("Settings backup workflows", () => {
     });
     expect(screen.queryByText(portError)).toBeNull();
     fireEvent.click(screen.getByRole("switch", { name: "Recover an existing administrator" }));
-    expect((screen.getByRole("button", { name: "Review backup" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Review backup" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
     fireEvent.click(screen.getByRole("combobox", { name: "Administrator" }));
     fireEvent.click(await screen.findByRole("option", { name: "Admin · admin@example.test" }));
     for (const label of ["Temporary password (at least eight characters)", "Confirm temporary password"]) {
@@ -309,6 +357,7 @@ describe("Settings backup workflows", () => {
     expect(screen.queryByRole("switch", { name: "Start the server after restoring" })).toBeNull();
     reviewConfiguration();
     await screen.findByText("Review Restore");
+    fireEvent.click(screen.getByRole("button", { name: "Start restore" }));
     expect(requests.some((request) => request.path.endsWith("/apply"))).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect((screen.getByLabelText("Confirm temporary password") as HTMLInputElement).value).toBe("temporary-password");
@@ -318,7 +367,11 @@ describe("Settings backup workflows", () => {
     await screen.findByText("Restoring your server");
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByLabelText("Confirm temporary password")).toBeNull();
-    expect((screen.getByRole("button", { name: "Restoring…" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Restoring…" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
     expect(
       JSON.parse(
         requests.find((request) => request.path === "/api/admin/backups/staged/restore-stage")?.body as string,
@@ -362,7 +415,11 @@ describe("Settings backup workflows", () => {
     await screen.findByText("The backup changed. Review it again before preparing the restore.");
     expect(requests.filter((request) => request.path.endsWith("/inspect"))).toHaveLength(2);
     expect(screen.getByText("2.0")).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Start restore" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Start restore" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
   });
 
   it("reviews the affected-session count and carries its consent to the host worker", async () => {
@@ -395,7 +452,11 @@ describe("Settings backup workflows", () => {
     reviewConfiguration();
     await confirmReview();
     await screen.findByText("Restoring your server");
-    expect((screen.getByRole("button", { name: "Restoring…" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Restoring…" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
     // The card's own status poll runs on a fixed 1 s cadence
     // (restore-backup-card.tsx), and this scenario's FIRST poll is the thrown
     // connection refusal, so "Restore finished" cannot exist before ~1 s plus

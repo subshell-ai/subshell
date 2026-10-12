@@ -756,8 +756,7 @@ describe("NetworkPluginCard: the state matrix", () => {
     // Headscale's real shape: one required non-secret. The route answers a
     // join on an unset one with 409 NETWORK_UNCONFIGURED and a sentence
     // pointing at the page the press came from — so the buttons wait instead,
-    // each carrying the reason through aria-describedby (disabled controls are
-    // skipped by a screen reader's tab order, so placement is not reaching).
+    // each carrying the reason through aria-description as well as its tooltip.
     //
     // It is the SERVER's refusal, not one panel's, so the mode choice cannot
     // put it under one button and leave the other unexplained: the sentence
@@ -780,13 +779,13 @@ describe("NetworkPluginCard: the state matrix", () => {
     );
     const sentence = screen.getByText("Save the Control server URL first.");
     const signIn = screen.getByRole("button", { name: "Sign in with Headscale" }) as HTMLButtonElement;
-    expect(signIn.disabled).toBe(true);
-    expect(signIn.getAttribute("aria-describedby")).toBe(sentence.id);
+    expect(signIn.matches(":disabled, [aria-disabled=true]")).toBe(true);
+    expect(signIn.getAttribute("aria-description")).toBe(sentence.textContent);
 
     showKeyPanel();
     const connect = screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement;
-    expect(connect.disabled).toBe(true);
-    expect(connect.getAttribute("aria-describedby")).toBe(sentence.id);
+    expect(connect.matches(":disabled, [aria-disabled=true]")).toBe(true);
+    expect(connect.getAttribute("aria-description")).toBe(sentence.textContent);
     // ONE paragraph for both panels — a second copy would be two ids and a
     // screen reader reading the same refusal twice. And it sits INSIDE the
     // group, because the sentence explains the choice rather than one panel.
@@ -808,7 +807,11 @@ describe("NetworkPluginCard: the state matrix", () => {
       }),
     );
     expect(screen.queryByText(/Save the Control server URL first./)).toBeNull();
-    expect((screen.getByRole("button", { name: "Sign in with Headscale" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(
+      (screen.getByRole("button", { name: "Sign in with Headscale" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(false);
   });
 
   it("the wizard asks for the token ONCE: the credential box is the secret's door", async () => {
@@ -1391,7 +1394,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     // cleared `publish`'s error, so the card reported a failure that had
     // nothing to do with what it was now doing.
     const disconnect = screen.getByRole("button", { name: "Disconnect" });
-    expect(disconnect.hasAttribute("disabled")).toBe(false);
+    expect(disconnect.matches(":disabled, [aria-disabled=true]")).toBe(false);
     fireEvent.click(disconnect);
     // Scoped to the dialog, which is what the two tests below already do. A
     // bare role query matches the CARD's Disconnect as well as the dialog's,
@@ -1686,7 +1689,9 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
       }),
     );
     expect(screen.getByText(/Unpublish Tailscale before changing these settings/)).toBeTruthy();
-    expect((screen.getByLabelText("Hostname") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText("Hostname") as HTMLInputElement).matches(":disabled, [aria-disabled=true]")).toBe(
+      true,
+    );
   });
 
   it("a public-with-gate network says so permanently, above everything else", async () => {

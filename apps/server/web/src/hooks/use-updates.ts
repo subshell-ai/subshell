@@ -206,6 +206,7 @@ export function useStartServerUpdate(): StartServerUpdate {
     installing,
     async start(body: { force?: boolean }): Promise<void> {
       setError(null);
+      setInstalling(null);
       setOutcome("running");
       cancelled.current = false;
       // Read the baseline BEFORE the press: once the process is gone there is

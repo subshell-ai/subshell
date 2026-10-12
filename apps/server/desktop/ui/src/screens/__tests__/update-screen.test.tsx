@@ -80,7 +80,7 @@ describe("the phases", () => {
     const onClose = vi.fn();
     const view = renderUpdate({ state: "downloading", updateProgress: "Starting the download…", onClose });
     const close = screen.getByRole("button", { name: "Close" }) as HTMLButtonElement;
-    expect(close.disabled).toBe(true);
+    expect(close.matches(":disabled, [aria-disabled=true]")).toBe(true);
     // A disabled button's press is a no-op, but the test pins that the HANDLER
     // is behind the gate: the gate is in the disabled state, not in the
     // callback.

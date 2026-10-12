@@ -584,9 +584,9 @@ describe("setup wizard: the agent step is optional", () => {
     // Nothing installed yet — the primary is labelled "Skip for now", and the
     // install-in-flight rule holds it disabled exactly as it held "Continue".
     const primary = screen.getByRole("button", { name: "Skip for now" });
-    expect(primary.hasAttribute("disabled")).toBe(false);
+    expect(primary.matches(":disabled, [aria-disabled=true]")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Install" }));
-    await waitFor(() => expect(primary.hasAttribute("disabled")).toBe(true));
+    await waitFor(() => expect(primary.matches(":disabled, [aria-disabled=true]")).toBe(true));
     // The progress lives on the ROW, not beside the button: the bar carries
     // no status text at all (operator's call, 2026-09-14).
     const row = screen.getByRole("listitem", { name: "Claude Code" });
@@ -668,7 +668,7 @@ describe("setup wizard: the tmux step", () => {
     // The gate stands open on the machine the body just confirmed: the press
     // is "Continue", enabled, and never the skip word (operator's ruling,
     // 2026-09-18 — same read the body shows decides whether it can fire).
-    expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "Continue" }).matches(":disabled, [aria-disabled=true]")).toBe(false);
     expect(screen.queryByRole("button", { name: "Skip for now" })).toBeNull();
   });
 
@@ -686,10 +686,10 @@ describe("setup wizard: the tmux step", () => {
     // "Continue" and simply cannot fire until the read reports a path. No
     // skip word appears — walking past tmux was never a save, it only moved
     // the refusal to the launch step.
-    expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Continue" }).matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(screen.queryByRole("button", { name: "Skip for now" })).toBeNull();
     // Back is not gated — walking back is not walking past.
-    expect(screen.getByRole("button", { name: "Back" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "Back" }).matches(":disabled, [aria-disabled=true]")).toBe(false);
   });
 
   it("holds the gated Continue shut while the tmux check has not answered", async () => {
@@ -701,7 +701,7 @@ describe("setup wizard: the tmux step", () => {
     // The body's own unknown-state line — and no verdict group yet, because
     // "Checking…" renders no fieldset.
     expect(await screen.findByText("Checking this machine…")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Continue" }).matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(screen.queryByRole("button", { name: "Skip for now" })).toBeNull();
   });
 
@@ -714,18 +714,20 @@ describe("setup wizard: the tmux step", () => {
     await renderSetup({ adminStatusError: true }, "tmux");
     expect(await screen.findByText("Couldn't check for tmux on this machine.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Continue" }).matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(screen.queryByRole("button", { name: "Skip for now" })).toBeNull();
   });
 
   it("installs tmux on macOS, flips the step to found, and opens the gate", async () => {
     await renderSetup({ tmuxPath: null, os: "darwin" }, "tmux");
-    expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Continue" }).matches(":disabled, [aria-disabled=true]")).toBe(true);
     fireEvent.click(within(tmuxBlock()).getByRole("button", { name: "Install" }));
     await waitFor(() => expect(tmuxBlock().textContent).toContain("Found at"));
     // The install landing refetches the same read the bar reads, so the gate
     // opens on its own — no leave-and-return (2026-09-18).
-    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(false));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Continue" }).matches(":disabled, [aria-disabled=true]")).toBe(false),
+    );
   });
 
   it("holds the primary while the tmux install runs, and shows the installer's line", async () => {
@@ -738,9 +740,9 @@ describe("setup wizard: the tmux step", () => {
     // Already disabled by the missing-tmux gate — what the install proves is
     // that BOTH rules hold during the run, and Back flips as the install's
     // own doing.
-    await waitFor(() => expect(primary.hasAttribute("disabled")).toBe(true));
+    await waitFor(() => expect(primary.matches(":disabled, [aria-disabled=true]")).toBe(true));
     expect(tmuxBlock().textContent).toContain("Starting the installer…");
-    expect(screen.getByRole("button", { name: "Back" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Back" }).matches(":disabled, [aria-disabled=true]")).toBe(true);
   });
 
   it("shows the Linux command to copy and offers no button for it", async () => {
@@ -1077,7 +1079,7 @@ describe("setup wizard: the launch step", () => {
     // Not just "eventually enabled" — the settle inside the walk means the
     // defaults have already composed; a regression in them fails HERE rather
     // than as a click that silently launches with blanks.
-    expect(start.disabled).toBe(false);
+    expect(start.matches(":disabled, [aria-disabled=true]")).toBe(false);
     expect((screen.getByLabelText("Working directory") as HTMLInputElement).value).toBe("/home/ada");
   });
 

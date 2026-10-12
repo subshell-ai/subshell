@@ -178,6 +178,7 @@ export function PlaneScreen(props: {
       role="menuitem"
       className="h-7 w-full justify-start rounded-sm px-2 font-regular text-detail"
       disabled={busy}
+      disabledReason={"Wait for the current action to finish."}
       onClick={act}
     >
       {label}
@@ -195,6 +196,7 @@ export function PlaneScreen(props: {
           size="sm"
           className="min-w-0 flex-1 justify-start px-0 font-mono text-sm hover:underline"
           disabled={busy}
+          disabledReason={"Wait for the current action to finish."}
           onClick={() => open(url)}
         >
           <span className="min-w-0 break-all text-left">{url}</span>
@@ -204,6 +206,7 @@ export function PlaneScreen(props: {
           variant="ghost"
           size="sm"
           disabled={busy}
+          disabledReason={"Wait for the current action to finish."}
           aria-label={`Actions for ${url}`}
           aria-haspopup="menu"
           aria-expanded={menuUrl === url}
@@ -252,6 +255,7 @@ export function PlaneScreen(props: {
         <Button
           variant="outline"
           disabled={busy}
+          disabledReason={"Wait for the current action to finish."}
           onClick={() => {
             setTyped("");
             setAdding(true);
@@ -300,6 +304,7 @@ export function PlaneScreen(props: {
                 variant="ghost"
                 size="sm"
                 disabled={busy}
+                disabledReason={"Wait for the current action to finish."}
                 onClick={() => {
                   setAdding(false);
                   setTyped("");
@@ -307,7 +312,14 @@ export function PlaneScreen(props: {
               >
                 Cancel
               </Button>
-              <Button type="submit" size="sm" disabled={busy || typed.trim() === ""}>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={busy || typed.trim() === ""}
+                disabledReason={
+                  busy ? "Wait for the current action to finish." : "Enter a control-plane address first."
+                }
+              >
                 Add
               </Button>
             </div>

@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { Alert, Linking, Pressable, ScrollView, Switch, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { confirmAction } from "@/components/confirm-action";
+import { ExplainedPressable } from "@/components/explained-pressable";
 import { useApp } from "@/lib/app-state";
 import { instanceMeta } from "@/lib/instances";
 import { probeInstance } from "@/lib/probe";
@@ -115,11 +116,16 @@ export default function Settings() {
             <Text style={{ ...font("detail"), color: colors.mutedFg }}>{instanceMeta(r)}</Text>
           </Pressable>
           <View style={{ flexDirection: "row", gap: 16 }}>
-            <Pressable onPress={() => void reprobe(r.id)} disabled={busyId !== null} hitSlop={8}>
+            <ExplainedPressable
+              onPress={() => void reprobe(r.id)}
+              disabled={busyId !== null}
+              disabledReason={"Wait for the current server check to finish."}
+              hitSlop={8}
+            >
               <Text style={{ ...font("label"), color: busyId === r.id ? colors.mutedFg : colors.primary }}>
                 {busyId === r.id ? "Probing…" : "Re-probe"}
               </Text>
-            </Pressable>
+            </ExplainedPressable>
             <Pressable
               onPress={() =>
                 confirmAction(

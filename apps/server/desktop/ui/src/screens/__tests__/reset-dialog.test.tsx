@@ -100,14 +100,22 @@ describe("the dialog and its gates", () => {
     // render its refusal rather than a blank dialog or an armable button.
     renderReset({ probe: null });
     expect(screen.getByRole("dialog")).toBeDefined();
-    expect((screen.getByRole("button", { name: "Reset everything" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Reset everything" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
   });
 
   it("refuses to arm when the server hasn't reported its data locations", () => {
     renderReset({ probe: makeProbe({ next: "start", hostname: "testhost", status: null }) });
     // No promises without the block to promise from.
     expect(document.querySelector("ul.wizard-copy.list-disc")?.children.length ?? 0).toBe(0);
-    expect((screen.getByRole("button", { name: "Reset everything" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Reset everything" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
     // The verdict renders TWICE, as the old screen did: the refusal line above,
     // and the reason beside the control it disables.
     expect(screen.getAllByText(/Reset can't safely delete it\./)).toHaveLength(2);
@@ -118,25 +126,45 @@ describe("the dialog and its gates", () => {
     const rows = document.querySelectorAll("ul.wizard-copy.list-disc li");
     expect(rows).toHaveLength(5);
     expect(rows[0].textContent).toContain("Database (users, sessions, API keys, the node signing keypair)");
-    expect((screen.getByRole("button", { name: "Reset everything" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Reset everything" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
     typeHostname("testhost");
-    expect((screen.getByRole("button", { name: "Reset everything" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(
+      (screen.getByRole("button", { name: "Reset everything" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(false);
     // The compare is exact: Rust compares the same memoized name.
     typeHostname("TestHost");
-    expect((screen.getByRole("button", { name: "Reset everything" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Reset everything" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
   });
 
   it("names an unreadable hostname as its own refusal", () => {
     renderReset({ probe: { ...RESETTABLE, hostname: "" } });
     expect(screen.getByText(/Couldn't read this machine's name/)).toBeDefined();
     typeHostname("testhost");
-    expect((screen.getByRole("button", { name: "Reset everything" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Reset everything" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
   });
 
   it("shows the arming verdict where the refusal would be", () => {
     renderReset({ armingProblem: "The reset could not be staged: command not found." });
     expect(screen.getAllByText(/The reset could not be staged/).length).toBeGreaterThan(0);
-    expect((screen.getByRole("button", { name: "Reset everything" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Reset everything" }) as HTMLButtonElement).matches(
+        ":disabled, [aria-disabled=true]",
+      ),
+    ).toBe(true);
   });
 });
 
@@ -191,7 +219,9 @@ describe("the run press and its meter", () => {
     // rail-is-the-exit ruling — the rail is unreachable under an overlay),
     // but nothing on the progress pane may offer an act the chain cannot
     // honour, so it is DISABLED, not gone.
-    expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
+    ).toBe(true);
   });
 });
 

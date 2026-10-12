@@ -116,6 +116,9 @@ export function UninstallPluginDialog({ plugin, onClose }: { plugin: InstancePlu
             variant="destructive"
             onClick={() => void confirmUninstall()}
             disabled={!impact || uninstall.isPending}
+            disabledReason={
+              uninstall.isPending ? "Wait for the plugin to uninstall." : "Wait for the plugin usage check to finish."
+            }
           >
             {uninstall.isPending ? "Uninstalling…" : "Uninstall"}
           </Button>

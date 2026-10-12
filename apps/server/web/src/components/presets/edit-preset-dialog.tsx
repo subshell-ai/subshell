@@ -13,7 +13,7 @@ import {
   formDialogOpenChange,
 } from "@/components/ui/dialog";
 import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
-import { type FieldProblems, makeForm, useSubmitDisabled } from "@/lib/form";
+import { type FieldProblems, makeForm, useSubmitDisabled, useSubmitDisabledReason } from "@/lib/form";
 import { crossCommSaveBlocked, presetFormFromRow, toPresetUpdatePayload } from "@/lib/preset-form";
 import type { PresetRow } from "@/types/preset";
 
@@ -71,6 +71,7 @@ export function EditPresetDialog({
   });
   const draft = useStore(form.store, (state) => state.values.draft);
   const disabled = useSubmitDisabled(form, save.isPending);
+  const disabledReason = useSubmitDisabledReason(form, save.isPending);
   return (
     <Dialog
       open
@@ -94,10 +95,15 @@ export function EditPresetDialog({
           <p className="text-destructive text-detail">{errMessage(save.error, "Failed to save preset")}</p>
         )}
         <DialogFooter>
-          <Button variant="outline" disabled={save.isPending} onClick={onClose}>
+          <Button
+            variant="outline"
+            disabled={save.isPending}
+            disabledReason={"Wait for the preset to save."}
+            onClick={onClose}
+          >
             Cancel
           </Button>
-          <Button disabled={disabled} onClick={() => void form.handleSubmit()}>
+          <Button disabled={disabled} disabledReason={disabledReason} onClick={() => void form.handleSubmit()}>
             {save.isPending ? "Saving…" : "Save and apply"}
           </Button>
         </DialogFooter>

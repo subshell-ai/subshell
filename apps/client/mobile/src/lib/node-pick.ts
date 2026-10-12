@@ -9,10 +9,9 @@ import type { Node } from "@/types/node";
  * the control-plane host once an admin switches launching off there, which
  * applies to admins too. That row used to be the only visible-but-unlaunchable
  * one; maintenance makes it ordinary, since any node in a window is listed and
- * unpickable (spec 2026-09-14). Mobile needs no maintenance field of its own
- * to honour that — the server folds it into `canLaunch`, and the reason text
- * the web picker shows is the part this screen goes without. Without reading it, an admin who threw that switch
- * would still see the Server chip here and collect a 403 on Start. An
+ * unpickable (spec 2026-09-14). The server folds maintenance into `canLaunch`;
+ * keep the maintenance field so the disabled explanation can name that reason.
+ * Ignoring `canLaunch` would leave disabled nodes selectable and fail on Start. An
  * OFFLINE node is shown disabled for its own reason: launching there 409s
  * `NODE_OFFLINE`, and offering a target we know is down would only invite a
  * confusing failure. (The pick list can always be stale — the 409 path covers
@@ -85,4 +84,13 @@ export function nodeRunsHarness(node: Node, harnessId: string | null): boolean {
   if (harnessId === null) return true;
   if (!node.harnesses) return true;
   return node.harnesses.some((h) => h.harnessId === harnessId && h.installed);
+}
+
+/** Explain the first condition that prevents selecting this node. */
+export function nodeUnpickableReason(n: Node, harnessId: string | null): string | undefined {
+  if (n.maintenance) return "This node is in maintenance mode.";
+  if (!n.canLaunch) return "This node isn't accepting new subshells.";
+  if (n.kind !== "local" && n.status !== "online") return "This node is offline. Wait for it to reconnect.";
+  if (!nodeRunsHarness(n, harnessId)) return "This node cannot run the selected agent.";
+  return undefined;
 }

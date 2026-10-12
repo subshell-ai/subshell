@@ -284,7 +284,12 @@ export function SubshellActionsMenu({
 
   return (
     <>
-      <ActionsMenu label={subshell.name} items={items} disabled={disabled || busy}>
+      <ActionsMenu
+        label={subshell.name}
+        items={items}
+        disabled={disabled || busy}
+        disabledReason={"Wait for the subshell action to finish."}
+      >
         {children}
       </ActionsMenu>
 

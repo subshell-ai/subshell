@@ -126,7 +126,11 @@ export function UpdatesCard(): React.ReactNode {
         ) : (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-3">
-              <Button onClick={() => void update.mutate()} disabled={busy}>
+              <Button
+                onClick={() => void update.mutate()}
+                disabled={busy}
+                disabledReason={"Wait for the update to finish."}
+              >
                 {update.isPending ? "Installing…" : "Update to latest"}
               </Button>
               <label className="flex items-center gap-2 text-detail text-muted-foreground">
@@ -153,7 +157,12 @@ export function UpdatesCard(): React.ReactNode {
         )}
 
         <div className="border-t pt-3">
-          <Button variant="outline" onClick={() => void rollback.mutate()} disabled={busy}>
+          <Button
+            variant="outline"
+            onClick={() => void rollback.mutate()}
+            disabled={busy}
+            disabledReason={"Wait for the update to finish."}
+          >
             {rollback.isPending ? "Rolling back…" : "Roll back to the previous version"}
           </Button>
           <p className="mt-2 text-detail text-muted-foreground">

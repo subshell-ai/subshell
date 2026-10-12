@@ -76,6 +76,11 @@ Distinguish an attempt from a guarantee, and interruption from permanent loss.
 Keep necessary warnings visible at the decision point. Aim for one or two
 short sentences, but use more when clarity or consequences require it.
 
+Explain why each disabled button is unavailable in a tooltip that works on
+hover and keyboard focus, with a touch-accessible alternative. Use the actual
+permission, missing input, or pending action as the reason. Keep owner-only
+restrictions visible beside the controls in gold (`text-warning`).
+
 Keep labels, tooltips, notifications, and guides consistent. Include only
 details useful in that context: a tooltip defining a sidebar group doesn't
 need its notification policy. Don't force a remedy or reassurance into every

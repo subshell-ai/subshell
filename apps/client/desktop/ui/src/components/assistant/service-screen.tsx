@@ -286,7 +286,13 @@ export function ServiceScreen(props: {
           <p className="font-strong text-detail">Register as a node</p>
           <div className="mt-2">
             {probe?.bundledVersion ? (
-              <Button variant="outline" size="sm" disabled={busy} onClick={commands.installNode}>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                disabledReason={"Wait for the current action to finish."}
+                onClick={commands.installNode}
+              >
                 Install the Subshell Node CLI
               </Button>
             ) : (
@@ -314,6 +320,9 @@ export function ServiceScreen(props: {
               variant="outline"
               size="sm"
               disabled={busy || blocked}
+              disabledReason={
+                busy ? "Wait for the service action to finish." : "Install tmux before starting the node."
+              }
               onClick={() => {
                 // Install is not one of restart's two-phase paths; `settle`
                 // waits for the manager's spawn to take the lock so the
@@ -365,7 +374,7 @@ export function ServiceScreen(props: {
               />
               <Label htmlFor="service-autostart">Start automatically on startup</Label>
             </div>
-            <p className="text-detail text-muted-foreground">
+            <p className={`text-detail ${!supported ? "text-warning" : "text-muted-foreground"}`}>
               {!supported
                 ? `Currently the installed version cannot change this. Updating to version ${MIN_AUTOSTART_NODE_VERSION} lets you.`
                 : atLogin === null
@@ -388,6 +397,9 @@ export function ServiceScreen(props: {
                 variant="outline"
                 size="sm"
                 disabled={busy || blocked}
+                disabledReason={
+                  busy ? "Wait for the service action to finish." : "Install tmux before starting the node."
+                }
                 onClick={() => commands.service("start", { settle: true })}
               >
                 {pressed("start", "Starting", "Start")}
@@ -398,17 +410,32 @@ export function ServiceScreen(props: {
                 variant="outline"
                 size="sm"
                 disabled={busy}
+                disabledReason={"Wait for the current action to finish."}
                 onClick={() => commands.service("stop", { settle: true })}
               >
                 {pressed("stop", "Stopping", "Stop")}
               </Button>
             )}
             {running && (
-              <Button variant="outline" size="sm" disabled={busy || blocked} onClick={commands.restart}>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy || blocked}
+                disabledReason={
+                  busy ? "Wait for the service action to finish." : "Install tmux before restarting the node."
+                }
+                onClick={commands.restart}
+              >
                 {pressed("restart", "Restarting", "Restart")}
               </Button>
             )}
-            <Button variant="outline" size="sm" disabled={busy} onClick={commands.uninstall}>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              disabledReason={"Wait for the current action to finish."}
+              onClick={commands.uninstall}
+            >
               {pressed("uninstall", "Uninstalling", "Uninstall")}
             </Button>
           </div>
@@ -439,7 +466,13 @@ export function ServiceScreen(props: {
             subshell running on this machine.
           </p>
           <div className="mt-2">
-            <Button variant="outline" size="sm" disabled={busy} onClick={commands.rewrite}>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              disabledReason={"Wait for the current action to finish."}
+              onClick={commands.rewrite}
+            >
               {pressed("rewrite", "Rewriting", "Rewrite the service definition")}
             </Button>
           </div>
@@ -463,7 +496,13 @@ export function ServiceScreen(props: {
         <div className="mt-6 rounded-md border border-border p-3">
           <p className="font-strong text-detail">Enroll this machine as a node</p>
           <div className="mt-2">
-            <Button variant="outline" size="sm" disabled={busy} onClick={onRegister}>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              disabledReason={"Wait for the current action to finish."}
+              onClick={onRegister}
+            >
               Register this machine
             </Button>
           </div>
@@ -511,20 +550,29 @@ export function ServiceScreen(props: {
               which is how a machine ends up unmanaged but still enrolled.
               The card says so in the sentence below. */}
           <div className="mt-2 flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" disabled={busy} onClick={onRegister}>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              disabledReason={"Wait for the current action to finish."}
+              onClick={onRegister}
+            >
               Re-enroll…
             </Button>
             <Button
               variant="destructive"
               size="sm"
               disabled={busy || !unenrollSupported(probe)}
+              disabledReason={
+                busy ? "Wait for the current action to finish." : "Update the node CLI to unenroll it from here."
+              }
               onClick={() => commands.unenroll()}
             >
               {pressed("unenroll", "Un-enrolling", "Un-enroll…")}
             </Button>
           </div>
           {!unenrollSupported(probe) && (
-            <p className="mt-2 text-detail text-muted-foreground">
+            <p className="mt-2 text-detail text-warning">
               Un-enrolling needs node version {MIN_UNENROLL_NODE_VERSION} or newer. Update the node first.
             </p>
           )}

@@ -92,7 +92,13 @@ export function InstanceNameCard(): JSX.Element {
             }}
             className="w-64"
           />
-          <Button variant="outline" size="sm" onClick={() => void save()} disabled={busy || value === null}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void save()}
+            disabled={busy || value === null}
+            disabledReason={busy ? "Wait for the name to save." : "Wait for the current name to load."}
+          >
             Save
           </Button>
           {saved && <span className="text-detail text-success">saved</span>}

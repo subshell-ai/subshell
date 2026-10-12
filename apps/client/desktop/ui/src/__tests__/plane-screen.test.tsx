@@ -238,7 +238,7 @@ describe("the list and its add form", () => {
   it("keeps the empty field unpressable", () => {
     mount({ settings: makeSettings({ planes: [] }) });
     fireEvent.click(button("Add a control plane…"));
-    expect(button("Add").disabled).toBe(true);
+    expect(button("Add").matches(":disabled, [aria-disabled=true]")).toBe(true);
   });
 });
 

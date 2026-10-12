@@ -100,7 +100,11 @@ export function EntryPointsEditor({
           disabled={offered.length === 1}
           items={offered.map((o) => ({ value: o, label: o === OTHER ? "Other…" : o }))}
         >
-          <SelectTrigger aria-label="Address to add" className="min-w-0 flex-1">
+          <SelectTrigger
+            disabledReason={"There are no more server addresses to choose. Enter another address below."}
+            aria-label="Address to add"
+            className="min-w-0 flex-1"
+          >
             <SelectValue placeholder="Choose an address" />
           </SelectTrigger>
           <SelectContent>
@@ -119,6 +123,7 @@ export function EntryPointsEditor({
           type="button"
           onClick={addEntry}
           disabled={selected === OTHER && normalizeOriginEntry(otherText) === null}
+          disabledReason={"Enter a valid address, including http:// or https://."}
         >
           Add
         </Button>

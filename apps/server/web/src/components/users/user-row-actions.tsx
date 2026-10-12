@@ -251,7 +251,12 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
 
   return (
     <div className="flex items-center justify-end gap-2">
-      <ActionsMenu label={user.email} items={items} disabled={busy} />
+      <ActionsMenu
+        label={user.email}
+        items={items}
+        disabled={busy}
+        disabledReason={"Wait for the account change to finish."}
+      />
 
       {/* Gated by both modals: a refusal met INSIDE a dialog belongs to the
           dialog (it renders `error` there), not to the row behind the scrim. */}
@@ -312,10 +317,23 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
               <Button onClick={closeReset}>Done</Button>
             ) : (
               <>
-                <Button variant="ghost" onClick={closeReset} disabled={busy}>
+                <Button
+                  variant="ghost"
+                  onClick={closeReset}
+                  disabled={busy}
+                  disabledReason={"Wait for the account change to finish."}
+                >
                   Cancel
                 </Button>
-                <Button onClick={() => void resetPassword()} disabled={busy || passwordTooShort(password.trim())}>
+                <Button
+                  onClick={() => void resetPassword()}
+                  disabled={busy || passwordTooShort(password.trim())}
+                  disabledReason={
+                    busy
+                      ? "Wait for the password reset to finish."
+                      : "Enter a password that meets the minimum length shown above."
+                  }
+                >
                   Reset and sign out
                 </Button>
               </>
@@ -352,10 +370,19 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
               <Button onClick={closeDisable}>Done</Button>
             ) : (
               <>
-                <Button variant="ghost" onClick={closeDisable} disabled={busy}>
+                <Button
+                  variant="ghost"
+                  onClick={closeDisable}
+                  disabled={busy}
+                  disabledReason={"Wait for the account change to finish."}
+                >
                   Cancel
                 </Button>
-                <Button onClick={() => void setDisabled(true)} disabled={busy}>
+                <Button
+                  onClick={() => void setDisabled(true)}
+                  disabled={busy}
+                  disabledReason={"Wait for the account change to finish."}
+                >
                   Disable and sign out
                 </Button>
               </>
