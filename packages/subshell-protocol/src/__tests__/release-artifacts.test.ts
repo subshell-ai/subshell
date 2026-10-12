@@ -270,6 +270,47 @@ describe("notarizeAndStapleDmg", () => {
     expect(f.calls).toHaveLength(1);
   });
 
+  test("retries a dropped Apple ticket connection without resubmitting the image", async () => {
+    const f = fake();
+    const delays: number[] = [];
+    f.deps.sleep = async (ms) => {
+      delays.push(ms);
+    };
+    const run = f.deps.runCapture;
+    f.deps.runCapture = async (argv) => {
+      const result = await run(argv);
+      return f.calls.length === 2
+        ? { code: 68, output: 'Error Domain=NSURLErrorDomain Code=-1005 "The network connection was lost."' }
+        : result;
+    };
+    expect(await notarizeAndStapleDmg(DMG, f.deps, CREDS)).toBe(true);
+    expect(delays).toEqual([15_000]);
+    expect(f.calls).toHaveLength(3);
+    expect(f.calls[2]).toEqual(f.calls[1]);
+  });
+
+  test("persistent connection loss exhausts bounded retries and refuses publication", async () => {
+    const f = fake({ staple: { code: 68, output: "Error Domain=NSURLErrorDomain Code=-1005" } });
+    const delays: number[] = [];
+    f.deps.sleep = async (ms) => {
+      delays.push(ms);
+    };
+    expect(await notarizeAndStapleDmg(DMG, f.deps, CREDS)).toBe(false);
+    expect(delays).toEqual([15_000, 30_000, 45_000, 60_000]);
+    expect(f.calls).toHaveLength(6);
+  });
+
+  test("exit 68 without a dropped connection refuses without retries", async () => {
+    const f = fake({ staple: { code: 68, output: "Ticket validation failed" } });
+    const delays: number[] = [];
+    f.deps.sleep = async (ms) => {
+      delays.push(ms);
+    };
+    expect(await notarizeAndStapleDmg(DMG, f.deps, CREDS)).toBe(false);
+    expect(delays).toEqual([]);
+    expect(f.calls).toHaveLength(2);
+  });
+
   // Accepted but never stapled = Gatekeeper answers online or not at all;
   // Tauri's own silent-staple failure is the precedent this refuses.
   test("a failed staple fails the cut AFTER acceptance", async () => {

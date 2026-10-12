@@ -649,6 +649,11 @@ which is why they share their own smoke, parameterized by app id.
   wraps, built from the same commit, so a fix to `apps/server/api` or `apps/node/agent`
   does NOT reach desktop users until the matching desktop cut. Dispatch a
   security-relevant release as `app=all`.
+- **Apple ticket downloads:** after notarization accepts a DMG, stapling retries
+  a dropped CloudKit connection (`stapler` exit 68 with `NSURLErrorDomain`
+  code -1005) up to five attempts, waiting 15, 30, 45, then 60 seconds.
+  Other failures stop immediately. Retries never resubmit the image, bypass
+  acceptance, or allow publication without a successful staple and bundle smoke.
 - **Retry:** a mid-flight failure leaves the tag without a release:
   re-dispatching COMPLETES the half-cut. A DRAFT is the subtle case: the tags
   endpoint answers 200 for a draft too, so plan skips an app only when its

@@ -21,6 +21,7 @@ import { createReadStream } from "node:fs";
 import { copyFile, mkdir, rename } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { pipeline } from "node:stream/promises";
+import { setTimeout as sleep } from "node:timers/promises";
 import { NODE_PROTOCOL_VERSION } from "./node-frames.js";
 import { RELEASE_MANIFEST_NAME, type ReleaseComponent, type ReleaseManifest } from "./releases.js";
 import { MIN_NODE_VERSION, semverLt } from "./versions.js";
@@ -280,6 +281,8 @@ export interface NotaryToolDeps {
   /** Run a command to completion; resolves to its exit code and combined output. */
   runCapture: (argv: string[]) => Promise<{ code: number; output: string }>;
   log: (line: string) => void;
+  /** Delay transient ticket-download retries; tests inject a recording clock. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 /**
@@ -338,11 +341,20 @@ export async function notarizeAndStapleDmg(
     deps.log(`notarytool did not report "status: Accepted":\n${submit.output}`);
     return false;
   }
-  const staple = await deps.runCapture(["xcrun", "stapler", "staple", dmgPath]);
-  if (staple.code !== 0) {
+  // Apple can accept the image and then drop the ticket-download connection.
+  // Retry only that transport failure on the same accepted image; a missing
+  // or invalid signature must still refuse publication immediately.
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    const staple = await deps.runCapture(["xcrun", "stapler", "staple", dmgPath]);
+    if (staple.code === 0) {
+      deps.log("notarization accepted and stapled to the image");
+      return true;
+    }
     deps.log(`stapler staple failed (exit ${staple.code}):\n${staple.output}`);
-    return false;
+    if (staple.code !== 68 || !/NSURLErrorDomain Code=-1005\b/.test(staple.output) || attempt === 5) return false;
+    const delay = attempt * 15_000;
+    deps.log(`Apple's ticket connection dropped; retrying stapling in ${delay / 1000}s (${attempt + 1}/5).`);
+    await (deps.sleep ?? sleep)(delay);
   }
-  deps.log("notarization accepted and stapled to the image");
-  return true;
+  return false;
 }
