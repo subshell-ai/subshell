@@ -115,17 +115,23 @@ export function SubshellDetail({ subshellId, onBack }: { subshellId: string; onB
             <Pressable
               key={t}
               onPress={() => setTab(t)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: tab === t }}
               style={{
                 paddingHorizontal: 14,
                 paddingVertical: 6,
                 borderRadius: radius,
-                backgroundColor: tab === t ? colors.accent : "transparent",
+                backgroundColor: tab === t ? colors.primary : "transparent",
                 borderWidth: 1,
                 borderColor: colors.border,
               }}
             >
               <Text
-                style={{ ...font("label"), color: tab === t ? colors.fg : colors.mutedFg, textTransform: "capitalize" }}
+                style={{
+                  ...font("label"),
+                  color: tab === t ? colors.primaryFg : colors.mutedFg,
+                  textTransform: "capitalize",
+                }}
               >
                 {t}
               </Text>

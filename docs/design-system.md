@@ -322,7 +322,14 @@ admitted here.
   on tap; hover mustn't be the only way to discover it.
 - **Selected segments**: `Segmented` uses the primary button fill for its
   selected option, separate from keyboard focus. Keep each option's original
-  icon when present; do not add checkmarks or other selection icons.
+  icon when present; do not add checkmarks or other selection icons. Workspace
+  tabs (phone strip and dockview) use the same primary-button gradient and
+  foreground tokens. Keep the selected tab visible in unfocused dock groups;
+  the focused group gets a separate underline. Preserve status dots, waiting
+  indicators, close actions, and keyboard focus cues. Desktop setup choices
+  use the shared primary button variant when selected. Native mobile tabs and
+  choice chips use `colors.primary` with `colors.primaryFg`, matching the native
+  primary button; don't rely on a border or text color alone for selection.
 - **Tab group**: a page's tab strip is CONTENT-SIZED (`Segmented fill={false}`),
   never stretched across the container: two tab labels sharing the page's full
   width read as data columns rather than as choices, and the stretch grows the

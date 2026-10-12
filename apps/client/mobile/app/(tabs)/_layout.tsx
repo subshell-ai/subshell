@@ -3,7 +3,7 @@ import { Tabs } from "expo-router";
 import type { ComponentProps } from "react";
 import type { ColorValue } from "react-native";
 import { useWaitingCount } from "@/hooks/use-summary";
-import { colors } from "@/lib/tokens";
+import { colors, radius } from "@/lib/tokens";
 
 /**
  * Explicit icons: SDK 57 no longer bundles @expo/vector-icons through the expo
@@ -22,7 +22,9 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.primary,
+        tabBarActiveTintColor: colors.primaryFg,
+        tabBarActiveBackgroundColor: colors.primary,
+        tabBarItemStyle: { borderRadius: radius, margin: 4 },
         tabBarInactiveTintColor: colors.mutedFg,
         tabBarStyle: { backgroundColor: colors.bg, borderTopColor: colors.border },
         sceneStyle: { backgroundColor: colors.bg },
