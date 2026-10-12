@@ -189,6 +189,18 @@ last group. Keep the relative ordering within each group. Presentation changes
 must preserve permissions: hiding a column or removing a badge must not hide an
 otherwise available management action or grant a new one.
 
+### Dialog dismissal
+
+Dialogs and modal sheets stay open when someone clicks or taps outside them.
+Every dialog must offer an explicit Close, Cancel, or Done control; an accessible
+Close (×) button counts. Apply this in the shared dialog primitives across the
+web dashboard, node dashboard, and desktop apps. Native mobile modals follow the
+same rule. Popovers and menus aren't dialogs and keep their outside-dismiss behavior.
+
+Escape and native Back keep their existing behavior. New/edit forms may block
+Escape to protect unsaved work, and running operations may temporarily block
+closing when interruption isn't supported; explain that state beside the controls.
+
 ### Configuration dialogs
 
 For sign-in providers, the table summarizes Enabled, Sign-in, Registration,

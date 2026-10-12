@@ -1,5 +1,6 @@
 ---
 "@internal/server": patch
+"@internal/node": patch
 "@internal/desktop-server": patch
 "@internal/desktop-client": patch
 ---
@@ -8,4 +9,4 @@ Make selected tabs and segmented choices clearly visible throughout the web inte
 
 Use the same clear selected state for desktop setup choices and mobile tabs, agent, preset, and node choices, preserving their icons and accessibility states.
 
-Keep the Add node dialog open when clicking outside it, so setup instructions remain visible during installation.
+Keep dialogs and modal sheets open when clicking outside them across the dashboard, node dashboard, and desktop apps. Close them through an explicit Close, Cancel, or Done control.

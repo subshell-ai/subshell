@@ -116,18 +116,7 @@ export function AddNodeDialog({
   const arrivedNode = arrived.length === 1 ? arrived[0] : undefined;
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next, details) => {
-        // Keep the setup key and instructions visible after an accidental
-        // outside click while the operator installs on another machine.
-        if (!next && details.reason === "outside-press") {
-          details.cancel();
-          return;
-        }
-        next ? onOpenChange(true) : close();
-      }}
-    >
+    <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
       <DialogContent>
         {/* One header, intentionally description-less (operator's call, 2026-09-18):
             the naming fact rides the mint no more (the machine answers) and

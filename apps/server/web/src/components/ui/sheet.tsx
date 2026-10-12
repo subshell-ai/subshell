@@ -6,14 +6,16 @@ import type { JSX } from "react";
 /**
  * Side sheet: a dialog panel sliding in from a screen edge, built on Base
  * UI's Dialog (positioning + animation only — swipe-to-close is not wired;
- * the nav drawer uses tap-outside, Escape, or the X).
+ * the nav drawer uses Escape or its Close control).
  *
  * NOTE (post-migration lesson, see .migration/dialog.md): never combine the
  * Tailwind NEGATIVE prefix with a negative arbitrary value —
  * `-translate-x-[-100%]` compiles to +100%. Use bare values
  * (`-translate-x-full`) as below.
  */
-export const Sheet = Dialog.Root;
+export function Sheet<Payload = unknown>(props: Omit<Dialog.Root.Props<Payload>, "disablePointerDismissal">) {
+  return <Dialog.Root {...props} disablePointerDismissal />;
+}
 export const SheetTrigger = Dialog.Trigger;
 export const SheetClose = Dialog.Close;
 

@@ -8,7 +8,7 @@ import { ConfirmProvider } from "../confirm-dialog";
  * (Service verbs, Repoint, maintenance) blocks on — `confirmAction` resolves
  * only through the handler this provider installs. So the test is not about the
  * markup: it is the proof that a press resolves the exact promise a card is
- * awaiting, and that a cancel (or an errant scrim click) resolves `false` rather
+ * awaiting, and that Cancel resolves `false` rather
  * than leaving a mutation hanging.
  */
 describe("ConfirmProvider", () => {
@@ -53,6 +53,14 @@ describe("ConfirmProvider", () => {
       });
     });
     expect(await screen.findByText("Repoint this node?")).toBeTruthy();
+    const backdrop = screen.getByRole("alertdialog").parentElement;
+    if (!backdrop) throw new Error("Missing dialog backdrop");
+    await act(async () => {
+      fireEvent.mouseDown(backdrop);
+      fireEvent.click(backdrop);
+    });
+    expect(resolved).toBe(null);
+    expect(screen.getByRole("alertdialog")).toBeTruthy();
     await act(async () => {
       fireEvent.click(screen.getByText("Cancel"));
     });
