@@ -10,6 +10,7 @@ import {
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useRef, useState } from "react";
 import { RailSubshells } from "@/components/sidebar/rail-subshells";
+import { filterSubshells } from "@/lib/subshell-filter";
 import { resetWorkspaceFocusForTests, setWorkspaceFocusedId } from "@/lib/workspace-focus";
 import { setFetchRouter } from "@/test-setup";
 import type { SubshellView } from "@/types/subshell";
@@ -78,7 +79,7 @@ function stubFetch(subshells: SubshellView[], panes: readonly { subshellId: stri
               panes: panes.map((p, i) => ({ id: `p${i}`, ...p })),
             }
           : url.includes("/api/subshells")
-            ? subshells
+            ? filterSubshells(subshells, new URL(url, "http://localhost").searchParams.get("q") ?? "")
             : url.includes("/api/nodes")
               ? {
                   nodes: [
@@ -280,11 +281,11 @@ describe("the cell modes keep the row tree's facts", () => {
   it("flat mode shows the same set the groups would, and follows the filter", async () => {
     await withRail(
       [sub({ id: "a", name: "keep", nodeId: "local" }), sub({ id: "b", name: "skip", nodeId: "n1" })],
-      () => {
+      async () => {
         fireEvent.click(screen.getByRole("button", { name: "Flat cell view" }));
         expect(cellLinks()).toHaveLength(2);
         fireEvent.change(screen.getByLabelText("Filter subshells"), { target: { value: "keep" } });
-        expect(cellLinks()).toHaveLength(1);
+        await waitFor(() => expect(cellLinks()).toHaveLength(1));
         expect(cellLinks()[0]?.getAttribute("aria-label")).toContain("keep:");
       },
     );

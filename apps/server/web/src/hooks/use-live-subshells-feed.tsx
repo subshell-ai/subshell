@@ -169,7 +169,11 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
       };
 
       const commit = (next: SubshellView[]) => {
+        const previous = queryClient.getQueryData(SUBSHELLS_QUERY_KEY);
         queryClient.setQueryData(SUBSHELLS_QUERY_KEY, next);
+        if (previous !== queryClient.getQueryData(SUBSHELLS_QUERY_KEY)) {
+          void queryClient.invalidateQueries({ queryKey: [...SUBSHELLS_QUERY_KEY, "filtered"] });
+        }
         // Read back, never the value just written: `setQueryData` shares the
         // write structurally, so unchanged rows keep their object identity and
         // an unchanged list keeps the array's. Handing consumers THAT is what

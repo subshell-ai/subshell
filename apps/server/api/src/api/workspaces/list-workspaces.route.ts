@@ -1,11 +1,15 @@
 import { Elysia, t } from "elysia";
-import { authGuard } from "@/api/auth-guard.js";
+import { authGuard, HttpError } from "@/api/auth-guard.js";
+import { matchesListQuery } from "@/api/list-filter.js";
 import { WorkspaceSchema } from "@/api/models.js";
 import { requireCookieActor } from "@/api/workspaces/require-cookie-actor.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 
 const ListWorkspacesQuerySchema = t.Object({
+  q: t.Optional(t.String()),
+  locale: t.Optional(t.String()),
+  timeZone: t.Optional(t.String()),
   subshellId: t.Optional(
     t.String({
       minLength: 1,
@@ -29,10 +33,34 @@ export const listWorkspacesRoute = new Elysia()
     "/",
     async ({ query, actor, user, ctx }) => {
       requireCookieActor(actor);
-      return await ctx.services.workspaces.listWorkspaces(user.id, {
+      const rows = await ctx.services.workspaces.listWorkspaces(user.id, {
         subshellId: query.subshellId,
         draftsOnly: query.drafts === "only",
       });
+      if (query.drafts !== "only" || !query.q?.trim()) return rows.filter((w) => matchesListQuery(query.q, w.name));
+      let formatter: Intl.DateTimeFormat;
+      try {
+        formatter = new Intl.DateTimeFormat(query.locale, {
+          timeZone: query.timeZone,
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        });
+      } catch {
+        throw new HttpError(400, "Choose a valid locale and time zone.");
+      }
+      const labels = new Map<string, number>();
+      return rows
+        .slice()
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .filter((w) => {
+          const date = new Date(w.createdAt);
+          const base = Number.isNaN(date.getTime()) ? w.createdAt : formatter.format(date);
+          const count = (labels.get(base) ?? 0) + 1;
+          labels.set(base, count);
+          return matchesListQuery(query.q, count === 1 ? base : `${base} · ${w.name}`);
+        });
     },
     {
       query: ListWorkspacesQuerySchema,

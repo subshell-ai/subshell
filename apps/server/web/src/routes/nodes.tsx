@@ -1,21 +1,24 @@
 import type { Node } from "@internal/node-admin";
-import { Button, confirmAction, errMessage, Input } from "@internal/node-admin";
+import { Button, confirmAction, errMessage, Input, NODES_QUERY_KEY } from "@internal/node-admin";
 import { createFileRoute } from "@tanstack/react-router";
 import { KeyRound, List, Plus, Server } from "lucide-react";
 import { useState } from "react";
 import { DashboardPage } from "@/components/dashboard-page";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorBanner } from "@/components/error-banner";
+import { LoadingCard } from "@/components/loading-card";
 import { AddNodeDialog } from "@/components/nodes/add-node-dialog";
 import { NodeTable } from "@/components/nodes/node-table";
 import { SetupKeysSection } from "@/components/nodes/setup-keys-section";
 import { PageHeader } from "@/components/page-header";
 import { Segmented } from "@/components/ui/segmented";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { useFilteredList } from "@/hooks/use-filtered-list";
 import { useDeleteNode, useNodes } from "@/hooks/use-nodes";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { canAddNode, NODE_ENROLLMENT_OFF_COPY } from "@/lib/node-enrollment";
-import { filterNodes, NODE_FILTERS_OFF, type NodeFilters } from "@/lib/node-filter";
+import { NODE_FILTERS_OFF, type NodeFilters } from "@/lib/node-filter";
 
 /** The node table is the default; setup keys have a separate URL tab. */
 const NODES_TABS = [
@@ -48,7 +51,18 @@ function NodesPage() {
   const nodes = data?.nodes ?? [];
   // Filters narrow the table without changing the setup keys view.
   const [filters, setFilters] = useState<NodeFilters>(NODE_FILTERS_OFF);
-  const visible = filterNodes(nodes, filters);
+  const q = useDebouncedValue(filters.query.trim());
+  const results = useFilteredList<{ nodes: Node[] }>(
+    NODES_QUERY_KEY,
+    "/api/nodes",
+    {
+      q,
+      status: filters.status === "all" ? undefined : filters.status,
+      access: filters.access === "all" ? undefined : filters.access,
+    },
+    { refetchInterval: dialogOpen ? 3000 : false },
+  );
+  const visible = results.data?.nodes ?? [];
 
   /** The node's config page (`/nodes/$id`, spec §10). */
   function goDetail(id: string) {
@@ -188,10 +202,10 @@ function NodesPage() {
               (review finding I-1). */}
           {actionError && <p className="text-destructive text-detail">{actionError}</p>}
 
-          {isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
+          {(isLoading || results.isLoading) && <LoadingCard message="Loading nodes…" />}
 
           {/* A failed list load is not an empty account — say so, with a retry. */}
-          {isError && (
+          {(isError || results.isError) && (
             <ErrorBanner
               message="Couldn't load nodes."
               className="rounded-md border"
@@ -200,7 +214,7 @@ function NodesPage() {
                   variant="link"
                   size="sm"
                   className="h-auto p-0 text-detail text-inherit underline"
-                  onClick={() => void refetch()}
+                  onClick={() => void Promise.all([refetch(), results.refetch()])}
                 >
                   Retry
                 </Button>
@@ -228,7 +242,7 @@ function NodesPage() {
             />
           )}
 
-          {nodes.length > 0 && visible.length === 0 && (
+          {nodes.length > 0 && !results.isLoading && !results.isError && visible.length === 0 && (
             <EmptyState
               icon={Server}
               title="No nodes match"

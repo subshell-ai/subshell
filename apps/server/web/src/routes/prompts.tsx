@@ -7,6 +7,7 @@ import { CopyButton } from "@/components/copy-button";
 import { DashboardPage } from "@/components/dashboard-page";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorBanner } from "@/components/error-banner";
+import { LoadingCard } from "@/components/loading-card";
 import { PageHeader } from "@/components/page-header";
 import { PromptFormDialog } from "@/components/prompts/prompt-form-dialog";
 import { PromptLibraryTable } from "@/components/prompts/prompt-library-table";
@@ -20,7 +21,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Segmented } from "@/components/ui/segmented";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { useFilteredList } from "@/hooks/use-filtered-list";
 import {
+  PROMPT_STACKS_QUERY_KEY,
+  PROMPTS_QUERY_KEY,
   useDeletePrompt,
   useDeletePromptStack,
   usePromptStacks,
@@ -32,14 +37,13 @@ import { promptDraftFromRow, suggestCloneDescription } from "@/lib/prompt-form";
 import type { PromptBlock } from "@/lib/prompt-stack";
 import { stackBlocksFromItems } from "@/lib/prompt-stack-form";
 import {
-  matchesStackQuery,
   type StackItemRow,
   type StackRow,
   type StacksView,
   stackJoinedText,
   stacksWithPrompt,
 } from "@/lib/prompt-stacks";
-import { matchesPromptQuery, type OwnPromptRow, type PromptsView, type SharedPromptRow } from "@/lib/prompts";
+import type { OwnPromptRow, PromptsView, SharedPromptRow } from "@/lib/prompts";
 
 /**
  * Prompts (spec 2026-09-28) and prompt stacks (spec 2026-09-29). The tabbed
@@ -51,7 +55,7 @@ import { matchesPromptQuery, type OwnPromptRow, type PromptsView, type SharedPro
  * names (the nodes page's rule); `?focus=` is the cross-link arrival from a
  * prompt row's "In N stacks".
  *
- * Search is client-side and shared across every view (small per-user lists,
+ * Search is server-side and shared across every view (debounced text input,
  * the accepted no-pagination posture); "In N stacks" counts are derived from
  * the stacks payload, so a stack the caller cannot see never counts, exactly
  * the API's disclosure rule.
@@ -125,23 +129,17 @@ function PromptsPage() {
       }),
     });
 
-  const own = useMemo(() => view.own.filter((p) => matchesPromptQuery(p, query)), [view.own, query]);
-  const shared = useMemo(() => view.shared.filter((p) => matchesPromptQuery(p, query)), [view.shared, query]);
-  // The All|Empty filter is a Stacked-only affordance (it is about MY
-  // recoverable empty stacks), so it trims this list ONLY there; in All the
-  // stacks show every match, and a filter left set from Stacked cannot
-  // silently hide rows in the overview.
-  const ownStacks = useMemo(
-    () =>
-      stacksView.own
-        .filter((s) => matchesStackQuery(s, query))
-        .filter((s) => !(activeView === "stacked" && stackFilter === "empty") || s.items.length === 0),
-    [stacksView.own, query, stackFilter, activeView],
-  );
-  const sharedStacks = useMemo(
-    () => stacksView.shared.filter((s) => matchesStackQuery(s, query)),
-    [stacksView.shared, query],
-  );
+  const q = useDebouncedValue(query.trim());
+  const promptResults = useFilteredList<PromptsView>(PROMPTS_QUERY_KEY, "/api/prompts", { q, scope: activeTab });
+  const stackResults = useFilteredList<StacksView>(PROMPT_STACKS_QUERY_KEY, "/api/prompts/stacks", {
+    q,
+    scope: activeTab,
+    empty: activeView === "stacked" && stackFilter === "empty" ? "only" : undefined,
+  });
+  const own = promptResults.data?.own ?? [];
+  const shared = promptResults.data?.shared ?? [];
+  const ownStacks = stackResults.data?.own ?? [];
+  const sharedStacks = stackResults.data?.shared ?? [];
 
   /** The prompt-to-stacks cross-link, client-side by design: the payload
    *  holds only stacks the caller can see, so an invisible stack never
@@ -162,6 +160,8 @@ function PromptsPage() {
     if (activeView !== "stacked" || !focus) return;
     setQuery("");
     setStackFilter("all");
+    clearTimeout(ringTimer.current);
+    ringTimer.current = undefined;
     setHighlightId(focus);
     void navigate({ search: (s) => ({ ...s, focus: undefined }), replace: true });
   }, [activeView, focus, navigate]);
@@ -180,16 +180,19 @@ function PromptsPage() {
   // foreign id) clears the highlight so it cannot re-arm later.
   // biome-ignore lint/correctness/useExhaustiveDependencies: deps re-run the scroll after the row renders
   useEffect(() => {
-    if (highlightId === null) return;
+    if (highlightId === null || ringTimer.current !== undefined) return;
     const row = document.querySelector(`[data-stack-id="${cssEscape(highlightId)}"]`);
     if (row === null) {
-      if (stacksQ.data !== undefined) setHighlightId(null);
+      if (stackResults.data !== undefined) setHighlightId(null);
       return;
     }
     row.scrollIntoView({ block: "center" });
     clearTimeout(ringTimer.current);
-    ringTimer.current = setTimeout(() => setHighlightId(null), 2500);
-  }, [highlightId, focus, stacksQ.data]);
+    ringTimer.current = setTimeout(() => {
+      ringTimer.current = undefined;
+      setHighlightId(null);
+    }, 2500);
+  }, [highlightId, focus, stackResults.data]);
 
   function jumpToStack(s: StackRow) {
     setStacksPanel(null);
@@ -304,13 +307,15 @@ function PromptsPage() {
   const showPrompts = activeView !== "stacked";
   const showStacks = activeView !== "single";
 
-  const isLoading = (showPrompts && prompts.isLoading) || (showStacks && stacksQ.isLoading);
+  const isLoading =
+    (showPrompts && (prompts.isLoading || promptResults.isLoading)) ||
+    (showStacks && (stacksQ.isLoading || stackResults.isLoading));
   // The banner names the feed that ACTUALLY failed, not the view's nominal
   // kind: in All with only the stacks fetch down, "Couldn't load prompts."
   // blamed the list that loaded fine while the vanished stacks went unexplained
   // (round-3 review). Retry re-asks just the failed ones (the third nit).
-  const shownPromptsFailed = showPrompts && prompts.isError;
-  const shownStacksFailed = showStacks && stacksQ.isError;
+  const shownPromptsFailed = showPrompts && (prompts.isError || promptResults.isError);
+  const shownStacksFailed = showStacks && (stacksQ.isError || stackResults.isError);
   const isError = shownPromptsFailed || shownStacksFailed;
   const errorText =
     shownPromptsFailed && shownStacksFailed
@@ -319,8 +324,8 @@ function PromptsPage() {
         ? "Couldn't load stacks."
         : "Couldn't load prompts.";
   const retry = () => {
-    if (prompts.isError) void prompts.refetch();
-    if (stacksQ.isError) void stacksQ.refetch();
+    if (prompts.isError || promptResults.isError) void Promise.all([prompts.refetch(), promptResults.refetch()]);
+    if (stacksQ.isError || stackResults.isError) void Promise.all([stacksQ.refetch(), stackResults.refetch()]);
   };
   // "Empty library" is about the UNFILTERED counts of the kinds this view
   // shows; the "no matches" line is about the filtered ones it hides.
@@ -601,7 +606,6 @@ function PromptsPage() {
         />
       )}
 
-      {isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
       {isError && (
         <ErrorBanner
           message={errorText}
@@ -679,16 +683,20 @@ function PromptsPage() {
 
       {/* All is the combined overview: the caller's stacks over their singles,
           each kind its own spaced group so the two never blur into one run. */}
-      {activeView === "all" ? (
-        <div className="flex flex-col gap-6">
-          {stacksShown.length > 0 && stackRows}
-          {promptsShown.length > 0 && promptRows}
-        </div>
-      ) : activeView === "stacked" ? (
-        stacksShown.length > 0 && stackRows
-      ) : (
-        promptsShown.length > 0 && promptRows
-      )}
+      <div className="flex flex-col gap-6">
+        {showStacks &&
+          (stackResults.isLoading ? (
+            <LoadingCard message="Loading prompt stacks…" />
+          ) : (
+            stacksShown.length > 0 && stackRows
+          ))}
+        {showPrompts &&
+          (promptResults.isLoading ? (
+            <LoadingCard message="Loading prompts…" />
+          ) : (
+            promptsShown.length > 0 && promptRows
+          ))}
+      </div>
     </DashboardPage>
   );
 }

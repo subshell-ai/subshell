@@ -99,6 +99,25 @@ describe("GET /api/subshells visibility + access", () => {
     );
   }
 
+  it("filters the authorized list by text and node, including bearer reads", async () => {
+    const listFiltered = async (q: string, nodeId: string, bearer = false) => {
+      const response = await subshellRoutes.fetch(
+        new Request(`http://localhost/api/subshells?${new URLSearchParams({ q, nodeId })}`, {
+          headers: bearer
+            ? { authorization: `Bearer ${bobSubshellKey}` }
+            : { cookie: `better-auth.session_token=${bobCookie}` },
+        }),
+      );
+      expect(response.status).toBe(200);
+      return ((await response.json()) as { id: string }[]).map((s) => s.id).sort();
+    };
+    expect(await listFiltered(" S_BOB ", "local")).toEqual(["s_bob", "s_bobown"]);
+    expect(await listFiltered("s_bob", "missing")).toEqual([]);
+    expect(await listFiltered("s_priv", "local")).toEqual([]);
+    expect(await listFiltered("s_bob", "local", true)).toEqual(["s_bob", "s_bobown"]);
+    expect(await listFiltered("CLAUDE-CODE", "local")).toEqual(["s_all", "s_bob", "s_bobown"]);
+  });
+
   it("Bob sees his named-edit subshell + the Everyone-view one, each with the right access, never Alice's private one", async () => {
     const rows = (await (await list(bobCookie)).json()) as { id: string; access: string }[];
     const byId = new Map(rows.map((r) => [r.id, r.access]));

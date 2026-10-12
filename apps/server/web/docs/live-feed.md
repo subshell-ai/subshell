@@ -70,3 +70,9 @@ cadence nothing arrives to mark elapsed time and a subshell that simply went
 quiet would read as working forever. `hooks/use-clock-tick.ts` re-renders the
 surfaces that show it: ONE tick each for the home list and the rail, never one
 per row. Any NEW surface rendering `subshellIndicator` needs its own tick.
+
+Dashboard and sidebar searches read parameterized HTTP queries beneath
+`["subshells", "filtered"]`. The feed still writes only the complete list and
+existing detail entries; when that complete list changes, it invalidates filtered
+queries so the server re-evaluates membership. Unchanged frames do not refetch.
+Search results never replace the complete list used by navigation and pickers.

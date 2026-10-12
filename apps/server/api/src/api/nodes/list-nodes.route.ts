@@ -1,6 +1,7 @@
 import { Elysia, t } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
-import { NodeViewSchema, toNodeViews } from "@/api/nodes/node-view.js";
+import { matchesListQuery } from "@/api/list-filter.js";
+import { type NodeView, NodeViewSchema, toNodeViews } from "@/api/nodes/node-view.js";
 import { db } from "@/db/index.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
@@ -39,7 +40,11 @@ export const listNodesRoute = new Elysia()
   .use(apiModels)
   .get(
     "/",
-    async ({ user, actor }) => {
+    async ({ query, user, actor }) => {
+      const matches = (n: NodeView) =>
+        matchesListQuery(query.q, n.name, n.hostname ?? n.id) &&
+        (!query.status || n.status === query.status) &&
+        (!query.access || (query.access === "yours" ? n.access === "owner" : n.access !== "owner"));
       if (actor === "cookie") {
         const isAdmin = (await new UserMetaRepository(db).getRole(user.id)) === "admin";
         // Admins read EVERY machine node (`local` | `agent`); everyone else
@@ -72,7 +77,9 @@ export const listNodesRoute = new Elysia()
           const granted = resolveNodeAccess(user.id, false, row, rowShares);
           return access === "none" ? [] : [{ row, access, isAdmin, granted }];
         });
-        return { nodes: await toNodeViews(entries) };
+        return {
+          nodes: (await toNodeViews(entries)).filter(matches),
+        };
       }
       // Bearer: the strict owner-only set, the same candidate source
       // `resolveLaunchNode` step 3 uses for machine actors. No role read and
@@ -84,9 +91,16 @@ export const listNodesRoute = new Elysia()
         const access = resolveNodeAccess(user.id, false, row, []);
         return access === "none" ? [] : [{ row, access, isAdmin: false, granted: access }];
       });
-      return { nodes: await toNodeViews(entries) };
+      return {
+        nodes: (await toNodeViews(entries)).filter(matches),
+      };
     },
     {
+      query: t.Object({
+        q: t.Optional(t.String()),
+        status: t.Optional(t.Union([t.Literal("online"), t.Literal("offline")])),
+        access: t.Optional(t.Union([t.Literal("yours"), t.Literal("shared")])),
+      }),
       response: {
         200: t.Object({
           nodes: t.Array(NodeViewSchema, {

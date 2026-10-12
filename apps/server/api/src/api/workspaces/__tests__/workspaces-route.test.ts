@@ -80,6 +80,19 @@ describe("workspaces route", () => {
     await deleteUserByEmailOrId(otherEmail);
   });
 
+  it("searches saved workspaces within the owner's list", async () => {
+    const token = await signIn(ownerEmail, password);
+    const other = await signIn(otherEmail, password);
+    const id = await createWorkspace(token, "Needle & saved");
+    await createWorkspace(token, "Other workspace");
+    await createWorkspace(other, "Needle & foreign");
+    const response = await workspaceRoutes.fetch(
+      authedRequest(`/api/workspaces?${new URLSearchParams({ q: " NEEDLE & " })}`, token),
+    );
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { id: string }[]).map((w) => w.id)).toEqual([id]);
+  });
+
   /** POSTs a workspace and returns its id. */
   async function createWorkspace(token: string, name: string): Promise<string> {
     const res = await workspaceRoutes.fetch(
@@ -430,6 +443,36 @@ describe("workspaces route", () => {
       expect(res.status).toBe(200);
       return ((await res.json()) as { id: string }).id;
     }
+
+    it("searches draft labels in the browser's locale and time zone", async () => {
+      const token = await signIn(ownerEmail, password);
+      const first = await post(token, { name: "First draft", draft: true });
+      const second = await post(token, { name: "Duplicate name suffix", draft: true });
+      const firstId = ((await first.json()) as { id: string }).id;
+      const secondId = ((await second.json()) as { id: string }).id;
+      await db
+        .updateTable("workspaces")
+        .set({ createdAt: "2026-08-28T16:45:30.000Z" })
+        .where("id", "=", firstId)
+        .execute();
+      await db
+        .updateTable("workspaces")
+        .set({ createdAt: "2026-08-28T16:45:00.000Z" })
+        .where("id", "=", secondId)
+        .execute();
+      const search = async (q: string, timeZone = "America/Los_Angeles") =>
+        workspaceRoutes.fetch(
+          authedRequest(
+            `/api/workspaces?${new URLSearchParams({ q, drafts: "only", locale: "en-US", timeZone })}`,
+            token,
+          ),
+        );
+      const byDate = await search("9:45");
+      expect(((await byDate.json()) as { id: string }[]).map((w) => w.id)).toEqual([firstId, secondId]);
+      const bySuffix = await search("duplicate name");
+      expect(((await bySuffix.json()) as { id: string }[]).map((w) => w.id)).toEqual([secondId]);
+      expect((await search("test", "bad/timezone")).status).toBe(400);
+    });
 
     it("a draft is absent from the workspace list, and says so on create", async () => {
       const token = await signIn(ownerEmail, password);

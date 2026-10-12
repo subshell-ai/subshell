@@ -3,6 +3,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { PromptPickerBody } from "@/components/prompts/prompt-picker-body";
 import type { PromptBlock } from "@/lib/prompt-stack";
+import { matchesStackQuery, type StackRow } from "@/lib/prompt-stacks";
+import { matchesPromptQuery } from "@/lib/prompts";
 
 /**
  * The shared picker BODY (spec 2026-09-28), the component the launch form
@@ -60,11 +62,27 @@ function mockFetch(
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? "GET";
-    if (url === "/api/prompts/stacks") {
-      return Promise.resolve(new Response(JSON.stringify({ own: ownStacks, shared: sharedStacks })));
+    const parsed = new URL(url, "http://localhost");
+    const q = parsed.searchParams.get("q") ?? "";
+    if (parsed.pathname === "/api/prompts/stacks") {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            own: ownStacks.filter((s) => matchesStackQuery(s as StackRow, q)),
+            shared: sharedStacks.filter((s) => matchesStackQuery(s as StackRow, q)),
+          }),
+        ),
+      );
     }
-    if (url === "/api/prompts" && method !== "POST") {
-      return Promise.resolve(new Response(JSON.stringify({ own, shared })));
+    if (parsed.pathname === "/api/prompts" && method !== "POST") {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            own: own.filter((p) => matchesPromptQuery(p as { description: string; body: string }, q)),
+            shared: shared.filter((p) => matchesPromptQuery(p as { description: string; body: string }, q)),
+          }),
+        ),
+      );
     }
     if (url === "/api/prompts" && method === "POST") {
       posts.push({ url, body: JSON.parse(String(init?.body)) as Record<string, unknown> });
@@ -176,11 +194,11 @@ describe("PromptPickerBody", () => {
     const input = document.getElementById("prompt-picker-search") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "verify" } });
     await settle();
-    expect(screen.queryByText("Kickoff")).toBeNull();
+    await waitFor(() => expect(screen.queryByText("Kickoff") === null).toBe(true));
     expect(screen.getByText("Notes")).toBeDefined();
     fireEvent.change(input, { target: { value: "task" } });
     await settle();
-    expect(screen.getByText("Kickoff")).toBeDefined();
+    expect(await screen.findByText("Kickoff")).toBeDefined();
   });
 
   it("the shared tab answers its own question when empty", async () => {
@@ -191,7 +209,7 @@ describe("PromptPickerBody", () => {
     await settle();
     openSearch();
     await settle();
-    expect(screen.queryByText("Kickoff")).toBeNull();
+    await waitFor(() => expect(screen.queryByText("Kickoff") === null).toBe(true));
     // Regex, not exact: Base UI's Empty node carries a word-joiner
     // (U+2060) that defeats the exact string matcher.
     expect(screen.getByText(/No shared prompts yet/)).toBeDefined();
@@ -399,7 +417,7 @@ describe("PromptPickerBody", () => {
     fireEvent.change(input, { target: { value: "inline text" } });
     await settle();
     expect(screen.getByText("Morning set")).toBeTruthy(); // found through a member
-    expect(screen.queryByText("Kickoff")).toBeNull();
+    await waitFor(() => expect(screen.queryByText("Kickoff") === null).toBe(true));
   });
 
   it("allowStacks=false lists singles only (the stack editor never nests)", async () => {
@@ -505,12 +523,12 @@ describe("PromptPickerBody — a late items swap keeps the typed query", () => {
     globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
-      if (url === "/api/prompts/stacks") {
+      if (new URL(url, "http://localhost").pathname === "/api/prompts/stacks") {
         return new Promise<Response>((res) => {
           releaseStacks = res;
         });
       }
-      if (url === "/api/prompts" && method !== "POST") {
+      if (new URL(url, "http://localhost").pathname === "/api/prompts" && method !== "POST") {
         return Promise.resolve(new Response(JSON.stringify({ own: [ownRow], shared: [] })));
       }
       return realFetch(input as never, init as never);

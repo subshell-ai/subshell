@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
+import { matchesListQuery } from "@/api/list-filter.js";
 import { SubshellSchema } from "@/api/models.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
@@ -11,15 +12,21 @@ export const listSubshellsRoute = new Elysia()
   .use(apiModels)
   .get(
     "/",
-    async ({ user, actor, apiKeyPermissions, ctx }) => {
+    async ({ user, actor, apiKeyPermissions, ctx, query }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "read");
       // bearer enumeration is deliberate (MCP coordination sees owner-shared
       // siblings); boundary pinned by __tests__ (subshells-list-visibility
       // .test.ts, enumerate-ok / act-denied) — do not tighten without
       // updating docs/security.md §3.
-      return await ctx.services.subshells.listSubshells(user.id);
+      const rows = await ctx.services.subshells.listSubshells(user.id);
+      return rows.filter(
+        (s) =>
+          (!query.nodeId || (s.nodeId || "local") === query.nodeId) &&
+          matchesListQuery(query.q, s.name, s.workingDir, s.harnessId),
+      );
     },
     {
+      query: t.Object({ q: t.Optional(t.String()), nodeId: t.Optional(t.String()) }),
       response: {
         200: t.Array(SubshellSchema, { description: "User's subshells" }),
         401: "ApiErrorResponse",

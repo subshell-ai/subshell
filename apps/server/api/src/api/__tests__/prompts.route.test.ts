@@ -137,6 +137,24 @@ describe("/api/prompts (spec 2026-09-28)", () => {
     expect((list.json as unknown as { shared: PromptView[] }).shared).toEqual([]);
   });
 
+  it("searches descriptions and bodies literally without disclosing private prompts", async () => {
+    const needle = unique("Search%_&");
+    const created = await call("/", { cookie: ownerCookie, body: { description: "Search fixture", body: needle } });
+    const id = created.json.id as string;
+    createdPromptIds.push(id);
+    const path = `?${new URLSearchParams({ q: `  ${needle.toUpperCase()}  ` })}`;
+    const own = await call(path, { cookie: ownerCookie });
+    expect(own.status).toBe(200);
+    expect((own.json as unknown as { own: PromptView[] }).own.map((p) => p.id)).toEqual([id]);
+    const privateRead = await call(path, { cookie: readerCookie });
+    expect((privateRead.json as unknown as { shared: PromptView[] }).shared).toEqual([]);
+    await call(`/${id}`, { cookie: ownerCookie, method: "PUT", body: { shared: true } });
+    const sharedRead = await call(path, { cookie: readerCookie });
+    expect((sharedRead.json as unknown as { shared: PromptView[] }).shared.map((p) => p.id)).toEqual([id]);
+    const scoped = await call(`${path}&scope=own`, { cookie: readerCookie });
+    expect((scoped.json as unknown as { shared: PromptView[] }).shared).toEqual([]);
+  });
+
   it("refuses an empty or whitespace description and an empty body", async () => {
     for (const body of [
       { description: "", body: "x" },

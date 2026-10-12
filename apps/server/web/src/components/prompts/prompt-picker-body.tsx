@@ -112,13 +112,14 @@ export function PromptPickerBody({
   onExit: () => void;
 }) {
   const scope = draftScope ?? "";
-  const { data, isLoading, isError } = usePrompts();
+  const [tab, setTab] = useState<"own" | "shared">("own");
+  const [search, setSearch] = useState("");
+  const { data, isLoading, isError } = usePrompts(search, tab);
   // The editor (allowStacks=false) can never render a stack, so it does not
   // ask for any: no cold-cache request rides a list that cannot nest.
-  const stacksQ = usePromptStacks({ enabled: allowStacks });
+  const stacksQ = usePromptStacks({ enabled: allowStacks, search, scope: tab });
   const view: PromptsView = data ?? { own: [], shared: [] };
   const stacksView: StacksView = stacksQ.data ?? { own: [], shared: [] };
-  const [tab, setTab] = useState<"own" | "shared">("own");
   // The last few prompts/stacks picked in THIS browser (localStorage, durable
   // across sessions; see lib/prompt-recents). A pick bubbles here immediately
   // so a picker that stays open (multi) re-sorts without a reload.
@@ -262,21 +263,22 @@ export function PromptPickerBody({
   // are on offer, a stacks-aware search must not answer with a prompts-only
   // sentence - the same rule as the sr-only label and the placeholder.
   const kinds = offeredStacks.length > 0 ? "prompts or stacks" : "prompts";
-  const emptyText = isLoading ? (
-    "Loading…"
-  ) : isError ? (
-    // The one sentence that is not neutral: the page's rule (a failure
-    // never reads as "none yet") keeps the destructive colour too.
-    <span className="text-destructive">The prompts could not be loaded.</span>
-  ) : totalRows === 0 ? (
-    tab === "own" ? (
-      `No ${kinds} yet`
+  const emptyText =
+    isLoading || (allowStacks && stacksQ.isLoading) ? (
+      "Loading…"
+    ) : isError || (allowStacks && stacksQ.isError) ? (
+      // The one sentence that is not neutral: the page's rule (a failure
+      // never reads as "none yet") keeps the destructive colour too.
+      <span className="text-destructive">The prompts could not be loaded.</span>
+    ) : totalRows === 0 && !search.trim() ? (
+      tab === "own" ? (
+        `No ${kinds} yet`
+      ) : (
+        `No shared ${kinds} yet`
+      )
     ) : (
-      `No shared ${kinds} yet`
-    )
-  ) : (
-    `No ${kinds} match the search.`
-  );
+      `No ${kinds} match the search.`
+    );
 
   function pick(row: { id: string; description: string; body: string }) {
     const block: PromptBlock = {
@@ -405,6 +407,7 @@ export function PromptPickerBody({
                   its source, not the dropdown.) */}
             <SearchableSelect
               id="prompt-picker-search"
+              onSearchChange={setSearch}
               value=""
               // The list answers both kinds when stacks are on offer (the
               // editor's picker is prompts-only, and would promise a search

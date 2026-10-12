@@ -1,5 +1,7 @@
 import { apiFetch } from "@internal/node-admin";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { useFilteredList } from "@/hooks/use-filtered-list";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
 
@@ -33,4 +35,10 @@ export function useSubshellsList() {
 export function useInvalidateSubshells(): () => Promise<void> {
   const queryClient = useQueryClient();
   return () => queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
+}
+
+/** Server-side search with its own cache; the live feed invalidates these results. */
+export function useFilteredSubshells(query: string, nodeId?: string) {
+  const q = useDebouncedValue(query.trim());
+  return useFilteredList<SubshellView[]>(SUBSHELLS_QUERY_KEY, "/api/subshells", { q, nodeId });
 }

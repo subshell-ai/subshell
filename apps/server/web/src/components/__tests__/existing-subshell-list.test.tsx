@@ -1,7 +1,25 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, fireEvent, render as renderUI, screen } from "@testing-library/react";
+import type { ComponentProps, ReactElement } from "react";
 import { ExistingSubshellList } from "@/components/subshell-picker/existing-subshell-list";
+import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
+
+function render(element: ReactElement<ComponentProps<typeof ExistingSubshellList>>) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  const { subshells, query, nodeId } = element.props;
+  client.setQueryData(SUBSHELLS_QUERY_KEY, subshells);
+  const params = new URLSearchParams();
+  if (query.trim()) params.set("q", query.trim());
+  if (nodeId) params.set("nodeId", nodeId);
+  if (params.size)
+    client.setQueryData(
+      [...SUBSHELLS_QUERY_KEY, "filtered", params.toString()],
+      subshells.filter((s) => !nodeId || (s.nodeId ?? "local") === nodeId),
+    );
+  return renderUI(<QueryClientProvider client={client}>{element}</QueryClientProvider>);
+}
 
 /** A full SubshellView with overridable fields — subshells list empty by default. */
 function makeSubshell(overrides: Partial<SubshellView> = {}): SubshellView {

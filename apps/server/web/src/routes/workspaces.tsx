@@ -6,6 +6,7 @@ import { DashboardPage } from "@/components/dashboard-page";
 import { EmptyState } from "@/components/empty-state";
 import { EntityCard } from "@/components/entity-card";
 import { ErrorBanner } from "@/components/error-banner";
+import { LoadingCard } from "@/components/loading-card";
 import { PageHeader } from "@/components/page-header";
 import { NewWorkspaceDialog } from "@/components/sidebar/new-workspace-dialog";
 import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
@@ -70,7 +71,7 @@ function WorkspacesPage() {
       {error && <p className="text-destructive text-detail">{error}</p>}
       {dropNote && <p className="text-muted-foreground text-sm">{dropNote}</p>}
 
-      {isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
+      {isLoading && <LoadingCard message="Loading workspaces…" />}
 
       {/* A failed list load is not an empty account — say so, with a retry. */}
       {isError && (

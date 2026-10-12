@@ -53,6 +53,11 @@ Dashboard content uses `DashboardPage` for the same fluid width and margins
 as Settings, including loading and error states. Terminal and workspace
 canvases retain their full-height layouts.
 
+Dashboard list searches use server-side query parameters, with 300 ms text
+input debounce (`useDebouncedValue`). Filtered cache entries are children of the
+resource key; they never replace the complete list. Select filters apply
+immediately. Keep loading, errors, and zero matches distinct.
+
 Route files stay thin: URL state + handlers + composition; data logic goes in
 `hooks/`, reusable UI in `components/`, shared types/constants in `lib/`.
 

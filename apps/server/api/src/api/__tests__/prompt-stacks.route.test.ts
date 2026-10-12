@@ -158,6 +158,21 @@ describe("/api/prompts/stacks (spec 2026-09-29)", () => {
     expect((await call("/stacks")).status).toBe(401); // gated, not absent
   });
 
+  it("searches only visible members and filters empty owned stacks", async () => {
+    const needle = unique("member-search");
+    const promptId = await mkPrompt(readerCookie, "Member", needle, true);
+    const stack = await mkStack(ownerCookie, unique("Collection"), [{ promptId }]);
+    const path = `/stacks?${new URLSearchParams({ q: needle.toUpperCase() })}`;
+    const before = await callJson<{ own: StackView[] }>(path, { cookie: ownerCookie });
+    expect(before.json.own.map((s) => s.id)).toEqual([stack.id]);
+    await callJson(`/${promptId}`, { cookie: readerCookie, method: "PUT", body: { shared: false } });
+    const after = await callJson<{ own: StackView[] }>(path, { cookie: ownerCookie });
+    expect(after.json.own).toEqual([]);
+    const empty = await callJson<{ own: StackView[] }>("/stacks?empty=only", { cookie: ownerCookie });
+    expect(empty.json.own.map((s) => s.id)).toContain(stack.id);
+    expect(empty.json.own.every((s) => s.items.length === 0)).toBe(true);
+  });
+
   it("creates with a trimmed label and ordered members (refs + inline), reads back in own", async () => {
     const p1 = await mkPrompt(ownerCookie, "P1", "one");
     const p2 = await mkPrompt(ownerCookie, "P2", "two");

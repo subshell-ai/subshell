@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
+import { matchesListQuery } from "@/api/list-filter.js";
 import { promptStackRoutes } from "@/api/prompt-stacks.route.js";
 import { db } from "@/db/index.js";
 import { PromptsRepository } from "@/db/repositories/prompts.repository.js";
@@ -122,25 +123,34 @@ export const promptsRoutes = new Elysia({ prefix: "/api/prompts" })
   .use(promptStackRoutes)
   .get(
     "/",
-    async ({ user, actor, apiKeyPermissions }) => {
+    async ({ user, actor, apiKeyPermissions, query }) => {
       requirePerm({ actor, apiKeyPermissions }, "prompts", "read");
       const repo = new PromptsRepository(db);
-      const [own, shared] = await Promise.all([repo.listOwn(user.id), repo.listShared(user.id)]);
+      const [own, shared] = await Promise.all([
+        query.scope === "shared" ? [] : repo.listOwn(user.id),
+        query.scope === "own" ? [] : repo.listShared(user.id),
+      ]);
       const users = new UsersRepository(db);
       const names = await users.displayNamesByIds([...new Set(shared.map((r) => r.userId))]);
       return {
-        own: own.map(toView),
-        shared: shared.map((r) => ({
-          id: r.id,
-          description: r.description,
-          body: r.body,
-          ownerName: names.get(r.userId) ?? r.userId,
-          createdAt: r.createdAt,
-          updatedAt: r.updatedAt,
-        })),
+        own: own.filter((p) => matchesListQuery(query.q, p.description, p.body)).map(toView),
+        shared: shared
+          .filter((p) => matchesListQuery(query.q, p.description, p.body))
+          .map((r) => ({
+            id: r.id,
+            description: r.description,
+            body: r.body,
+            ownerName: names.get(r.userId) ?? r.userId,
+            createdAt: r.createdAt,
+            updatedAt: r.updatedAt,
+          })),
       };
     },
     {
+      query: t.Object({
+        q: t.Optional(t.String()),
+        scope: t.Optional(t.Union([t.Literal("own"), t.Literal("shared")])),
+      }),
       response: PromptsListSchema,
       detail: {
         operationId: "listPrompts",

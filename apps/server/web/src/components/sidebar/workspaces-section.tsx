@@ -4,10 +4,18 @@ import { ChevronDown, Trash2 } from "lucide-react";
 import { type JSX, type ReactNode, useCallback, useState } from "react";
 import { TippedIconButton } from "@/components/tipped-icon-button";
 import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
-import { useDraftWorkspaces, useInvalidateWorkspaces, useWorkspaces } from "@/hooks/use-workspaces";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { useFilteredList } from "@/hooks/use-filtered-list";
+import {
+  useDraftWorkspaces,
+  useInvalidateWorkspaces,
+  useWorkspaces,
+  WORKSPACES_QUERY_KEY,
+} from "@/hooks/use-workspaces";
 import { workspaceIdFromPath } from "@/lib/route-ids";
 import { RECENT_LIMIT } from "@/lib/sidebar-recents";
 import { formatWorkspaceDate } from "@/lib/workspace-name";
+import type { WorkspaceRow } from "@/types/workspace";
 
 /**
  * Which Workspaces sub-sections (Saved / Drafts) are FOLDED, per device (a JSON
@@ -119,10 +127,22 @@ export function WorkspacesSection(): JSX.Element | null {
   // it would otherwise list.
   const [workspaceQuery, setWorkspaceQuery] = useState("");
   const workspaceSearch = workspaceQuery.trim().toLowerCase();
-  const sortedWorkspaces = (workspaces ?? []).slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  const shownWorkspaces = workspaceSearch
-    ? sortedWorkspaces.filter((w) => w.name.toLowerCase().includes(workspaceSearch))
-    : sortedWorkspaces.slice(0, RECENT_LIMIT);
+  const q = useDebouncedValue(workspaceQuery.trim());
+  const results = useFilteredList<WorkspaceRow[]>(WORKSPACES_QUERY_KEY, "/api/workspaces", { q });
+  const locale = Intl.DateTimeFormat().resolvedOptions();
+  const draftResults = useFilteredList<WorkspaceRow[]>(
+    [...WORKSPACES_QUERY_KEY, "drafts"],
+    "/api/workspaces",
+    {
+      q,
+      drafts: "only",
+      locale: locale.locale,
+      timeZone: locale.timeZone,
+    },
+    { enabled: Boolean(q) },
+  );
+  const sortedWorkspaces = (results.data ?? []).slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const shownWorkspaces = workspaceSearch ? sortedWorkspaces : sortedWorkspaces.slice(0, RECENT_LIMIT);
 
   // The active workspace id (from the URL) — only a DRAFT among these is the one
   // to spare from the discard sweep and to highlight. A SAVED active id must not
@@ -142,8 +162,8 @@ export function WorkspacesSection(): JSX.Element | null {
     labelCounts.set(base, n);
     return { row: w, label: n === 1 ? base : `${base} · ${w.name}` };
   });
-  const shownDrafts = workspaceSearch
-    ? labeledDrafts.filter((e) => e.label.toLowerCase().includes(workspaceSearch))
+  const shownDrafts = q
+    ? labeledDrafts.filter((e) => draftResults.data?.some((w) => w.id === e.row.id))
     : labeledDrafts;
   const activeIsDraft = activeWorkspaceId !== null && sortedDrafts.some((w) => w.id === activeWorkspaceId);
   const showDraftSection = shownDrafts.length > 0;
@@ -289,9 +309,19 @@ export function WorkspacesSection(): JSX.Element | null {
         </WsSection>
       )}
       {wsActionError && <p className="px-3 py-1 text-destructive text-detail">{wsActionError}</p>}
-      {workspaceSearch && shownWorkspaces.length === 0 && !showDraftSection && (
-        <p className="px-3 py-1 text-detail text-muted-foreground">No workspaces match.</p>
+      {(results.isError || draftResults.isError) && (
+        <p className="px-3 py-1 text-destructive text-detail">Couldn’t load workspaces.</p>
       )}
+      {(results.isLoading || draftResults.isLoading) && (
+        <p className="px-3 py-1 text-detail text-muted-foreground">Loading…</p>
+      )}
+      {workspaceSearch &&
+        !results.isLoading &&
+        !draftResults.isLoading &&
+        !results.isError &&
+        !draftResults.isError &&
+        shownWorkspaces.length === 0 &&
+        !showDraftSection && <p className="px-3 py-1 text-detail text-muted-foreground">No workspaces match.</p>}
     </div>
   );
 }

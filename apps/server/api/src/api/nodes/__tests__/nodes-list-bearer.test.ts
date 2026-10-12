@@ -137,6 +137,27 @@ describe("GET /api/nodes bearer visibility (enumerate-ok / act-denied)", () => {
     harnesses: { harnessId: string; installed: boolean }[];
   };
 
+  it("combines search, status and access without widening bearer visibility", async () => {
+    const list = async (params: Record<string, string>, bearer = false) => {
+      const response = await app.fetch(
+        new Request(`http://localhost/api/nodes?${new URLSearchParams(params)}`, {
+          headers: bearer
+            ? { authorization: `Bearer ${bobSubshellKey}` }
+            : { cookie: `better-auth.session_token=${bobCookie}` },
+        }),
+      );
+      expect(response.status).toBe(200);
+      return ((await response.json()) as { nodes: Row[] }).nodes.map((n) => n.id);
+    };
+    expect(await list({ q: " NB-OWN- ", status: "offline", access: "yours" })).toEqual([bobNode]);
+    expect(await list({ q: "nb-own-", status: "online" })).toEqual([]);
+    expect(await list({ q: "nb-", access: "shared" })).toEqual(expect.arrayContaining([aliceNamed, aliceEveryone]));
+    expect(await list({ q: "nb-", access: "shared" }, true)).toEqual([]);
+    expect(await list({ q: "nb-priv-" })).toEqual([]);
+    const invalid = await app.fetch(authedRequest("/api/nodes?status=broken", bobCookie));
+    expect(invalid.status).toBe(400);
+  });
+
   it("enumerate-ok: the token sees its owner's OWN agent node, honestly rendered", async () => {
     expect(bobSubshellKey.startsWith("subshell_")).toBe(true);
     const res = await bearerList(bobSubshellKey);
