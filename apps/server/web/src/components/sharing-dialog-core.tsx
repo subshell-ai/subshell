@@ -1,4 +1,4 @@
-import { Badge, Button, errMessage } from "@internal/node-admin";
+import { Button, errMessage } from "@internal/node-admin";
 import { type ReactNode, useState } from "react";
 import {
   Dialog,
@@ -162,11 +162,7 @@ export function SharingDialogCore({
                   </Button>
                 </>
               ) : g.permission === "edit" ? (
-                // Dreamframe N2: edit is a lit plum chip, view stays bare muted
-                // text — the permission levels contrast by presence, not hue.
-                <Badge className="border-[var(--edit-badge-border)] bg-[var(--edit-badge-bg)] text-[var(--edit-badge-foreground)]">
-                  View + edit
-                </Badge>
+                <span className="text-sm">View + edit</span>
               ) : (
                 <span className="text-muted-foreground text-sm">View</span>
               )}

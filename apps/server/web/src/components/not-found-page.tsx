@@ -1,12 +1,13 @@
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { DashboardPage } from "@/components/dashboard-page";
 
 /** The shared frame for both not-found states: the same centered card the
  * workspace/preset detail routes use (routes/workspaces_.$id.tsx). */
 function NotFoundCard({ title, body, action }: { title: string; body: string; action: ReactNode }) {
   return (
-    <main className="mx-auto w-full max-w-2xl p-6">
+    <DashboardPage>
       <Card>
         <CardHeader>
           <CardTitle>{title}</CardTitle>
@@ -14,7 +15,7 @@ function NotFoundCard({ title, body, action }: { title: string; body: string; ac
         </CardHeader>
         <CardContent>{action}</CardContent>
       </Card>
-    </main>
+    </DashboardPage>
   );
 }
 

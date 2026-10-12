@@ -167,12 +167,7 @@ describe("SubshellManagerTable time columns (spec §5.6 nodeOffline posture)", (
   });
 });
 
-/**
- * The `sections` banding (2026-09-24): the list's answer to the tile
- * headings, and the surface a quiet regression loves — a dropped band row
- * or a swapped order changes nothing a type checker can see.
- */
-describe("SubshellManagerTable sections bands", () => {
+describe("SubshellManagerTable group cards", () => {
   let restore: (() => void) | undefined;
   afterEach(() => {
     cleanup();
@@ -180,18 +175,13 @@ describe("SubshellManagerTable sections bands", () => {
     restore = undefined;
   });
 
-  /** The tbody's rows in DOM order, as band/row markers. */
   function bodyRows(): string[] {
-    const tbody = document.querySelector("tbody");
-    return Array.from(tbody?.querySelectorAll("tr") ?? []).map((tr) => {
-      const band = tr.querySelector("td[colspan]");
-      return band
-        ? `BAND:${band.textContent?.trim()}`
-        : (tr.querySelector("td:nth-child(2)")?.textContent?.trim() ?? "?");
-    });
+    return Array.from(document.querySelectorAll("tbody tr")).map(
+      (tr) => tr.querySelector("td:nth-child(2)")?.textContent?.trim() ?? "?",
+    );
   }
 
-  it("renders a band row before each section's rows, in the caller's order", async () => {
+  it("renders a named table per group, in the caller's order", async () => {
     restore = mockFetch();
     const a = makeSubshell({ id: "a", name: "alpha" });
     const b = makeSubshell({ id: "b", name: "beta" });
@@ -202,7 +192,17 @@ describe("SubshellManagerTable sections bands", () => {
         { key: "mac", label: "mac mini", title: "mac mini", subshells: [b] },
       ],
     );
-    expect(bodyRows()).toEqual(["BAND:Server", "alpha", "BAND:mac mini", "beta"]);
+    expect(screen.getAllByRole("table").map((table) => table.getAttribute("aria-label"))).toEqual([
+      "Server",
+      "mac mini",
+    ]);
+    expect(bodyRows()).toEqual(["alpha", "beta"]);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select all subshells in Server" }));
+    expect((screen.getByRole("checkbox", { name: "Select subshell alpha" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("checkbox", { name: "Select subshell beta" }) as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select all subshells in mac mini" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select all subshells in Server" }));
+    expect((screen.getByRole("checkbox", { name: "Select subshell beta" }) as HTMLInputElement).checked).toBe(true);
   });
 
   it("an unresolved label still renders, with the reveal as tooltip state not text", async () => {
@@ -216,11 +216,12 @@ describe("SubshellManagerTable sections bands", () => {
         { key: "deadbeef", label: "deadbeef", title: "deadbeef-cafe-1234", subshells: [a] },
       ],
     );
-    expect(bodyRows()).toEqual(["BAND:deadbeef", "alpha"]);
+    expect(screen.getByRole("table", { name: "deadbeef" })).toBeDefined();
+    expect(bodyRows()).toEqual(["alpha"]);
     expect(screen.queryByText("deadbeef-cafe-1234")).toBeNull();
   });
 
-  it("no sections prop means the flat table it has always been — zero band rows", async () => {
+  it("renders one Subshells table when grouping is off", async () => {
     restore = mockFetch();
     const a = makeSubshell({ id: "a", name: "alpha" });
     const b = makeSubshell({ id: "b", name: "beta" });

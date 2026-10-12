@@ -146,7 +146,7 @@ function NodeDetailPage() {
               <div>
                 <dt className="text-muted-foreground">Status</dt>
                 <dd className="mt-1 flex flex-wrap items-center gap-2">
-                  <Badge variant={n.status === "online" ? "success" : "muted"}>{n.status}</Badge>
+                  <span>{n.status}</span>
                   {/* Any mismatch, either direction: the protocol is matched
                       EXACTLY, so a node ahead of the server is refused just as
                       a node behind it is. Naming which way round it is turns a
@@ -230,9 +230,9 @@ function NodeDetailPage() {
                   <dt className="text-muted-foreground">Capabilities</dt>
                   <dd className="mt-1 flex flex-wrap gap-1">
                     {n.capabilities.map((c) => (
-                      <Badge key={c} variant="outline">
+                      <span key={c} className="text-sm">
                         {c}
-                      </Badge>
+                      </span>
                     ))}
                   </dd>
                 </div>

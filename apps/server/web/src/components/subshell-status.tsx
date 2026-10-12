@@ -15,9 +15,9 @@ import type { SubshellView } from "@/types/subshell";
  * at a glance, not a hover.
  */
 export function StatusChip({ subshell }: { subshell: SubshellView }) {
-  if (subshell.status === "terminated") return <Badge variant="muted">ended</Badge>;
-  if (!subshell.alive) return <Badge variant="muted">exited</Badge>;
-  return <Badge variant="success">running</Badge>;
+  if (subshell.status === "terminated") return <span className="text-muted-foreground text-sm">ended</span>;
+  if (!subshell.alive) return <span className="text-muted-foreground text-sm">exited</span>;
+  return <span className="text-sm">running</span>;
 }
 
 /**

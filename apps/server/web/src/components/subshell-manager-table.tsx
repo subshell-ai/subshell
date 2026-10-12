@@ -1,8 +1,8 @@
-import { apiFetch, Button, relativeElapsed } from "@internal/node-admin";
+import { apiFetch, Button, Card, CardContent, CardHeader, CardTitle, relativeElapsed } from "@internal/node-admin";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { RotateCcw, X } from "lucide-react";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDot } from "@/components/subshell-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -18,7 +18,7 @@ import type { SubshellView } from "@/types/subshell";
  * live-fed list and home page reflect the change. Bulk Terminate was
  * removed with the human-facing action (spec 2026-09-03): Close covers it.
  *
- * `sections` draws a subheader band per section (operator ask, 2026-09-24 —
+ * `sections` draws a card per section (operator ask, 2026-09-24 —
  * the tiles were segmented and the list was not): the caller passes the SAME
  * `SubshellSection`s the tile view renders, so one grouping answers "which
  * machine" or "which state" identically in both views. Omitted, the table
@@ -36,14 +36,6 @@ export function SubshellManagerTable({
   const [bulkBusy, setBulkBusy] = useState(false);
   // Drop selections that vanished (e.g. deleted by a live frame mid-action).
   const selectedIds = selected.filter((id) => subshells.some((s) => s.id === id));
-
-  const selectAllRef = useRef<HTMLInputElement>(null);
-  const allSelected = subshells.length > 0 && selectedIds.length === subshells.length;
-  useEffect(() => {
-    if (selectAllRef.current) {
-      selectAllRef.current.indeterminate = selectedIds.length > 0 && !allSelected;
-    }
-  }, [selectedIds.length, allSelected]);
 
   const [lastBulkError, setLastBulkError] = useState<string | null>(null);
 
@@ -86,7 +78,7 @@ export function SubshellManagerTable({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-4">
       {lastBulkError && <p className="text-destructive text-detail">{lastBulkError}</p>}
       {selectedIds.length > 0 && (
         <div className="flex items-center gap-2">
@@ -112,80 +104,73 @@ export function SubshellManagerTable({
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-lg border bg-card">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b text-detail text-muted-foreground uppercase">
-              <th className="w-9 px-3 py-2.5">
-                <input
-                  ref={selectAllRef}
-                  type="checkbox"
-                  aria-label="Select all subshells"
-                  className="h-4 w-4 rounded border border-input bg-background accent-primary"
-                  checked={allSelected}
-                  onChange={(e) => setSelected(e.target.checked ? subshells.map((s) => s.id) : [])}
-                />
-              </th>
-              <th className="px-3 py-2.5 text-left font-strong">Name</th>
-              <th className="px-3 py-2.5 text-left font-strong">Working dir</th>
-              <th className="px-3 py-2.5 text-left font-strong">Last output</th>
-              <th className="px-3 py-2.5 text-left font-strong">Uptime</th>
-              <th className="px-3 py-2.5" />
-            </tr>
-          </thead>
-          <tbody>
-            {subshells.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
-                  No subshells yet.
-                </td>
-              </tr>
-            ) : (
-              (sections ? sections : [{ key: "*", label: "", title: "", subshells }]).map((sec) => (
-                <Fragment key={sec.key}>
-                  {/* The section band — same label and same hover reveal
-                      (full node id only while a cold registry has not answered) as
-                      the tile heading for the same section, so switching
-                      views changes the shape, not the words. */}
-                  {/* The band's own token call, settled by the operator after
-                      three tries (muted/30 washed out, background/70 looked
-                      like a hole, muted/80 too creamy): a `background/80`
-                      strip. */}
-                  {sections && (
-                    <tr className="bg-background/80">
-                      <td colSpan={6} className="px-3 py-1.5">
-                        {/* `block max-w-… truncate`: an inline span cannot
-                            ellipsize, so a long node name would stretch the
-                            row instead of clamping where the name cells do
-                            (the wrapper's overflow-x-auto made that silent). */}
-                        {sec.label === sec.title ? (
-                          <span className="block max-w-[360px] truncate font-strong text-detail text-muted-foreground">
-                            {sec.label}
-                          </span>
-                        ) : (
-                          <TooltipProvider delay={300}>
-                            <Tooltip>
-                              <TooltipTrigger
-                                render={
-                                  <span className="block max-w-[360px] truncate font-strong text-detail text-muted-foreground">
-                                    {sec.label}
-                                  </span>
-                                }
-                              />
-                              <TooltipContent>{sec.title}</TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        )}
-                      </td>
+      {(sections ?? [{ key: "*", label: "Subshells", title: "Subshells", subshells }]).map((sec) => {
+        const groupIds = sec.subshells.map((s) => s.id);
+        const groupSelected = groupIds.filter((id) => selectedIds.includes(id)).length;
+        return (
+          <Card key={sec.key} className="min-w-0">
+            <CardHeader>
+              <CardTitle className="min-w-0">
+                {sec.label === sec.title ? (
+                  <span className="block truncate">{sec.label}</span>
+                ) : (
+                  <TooltipProvider delay={300}>
+                    <Tooltip>
+                      <TooltipTrigger render={<span className="block truncate">{sec.label}</span>} />
+                      <TooltipContent>{sec.title}</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="@container overflow-x-auto">
+                <table className="w-full text-sm" aria-label={sec.label}>
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="w-8 pr-4 pb-2 align-middle">
+                        <input
+                          ref={(input) => {
+                            if (input) input.indeterminate = groupSelected > 0 && groupSelected < groupIds.length;
+                          }}
+                          type="checkbox"
+                          aria-label={sections ? `Select all subshells in ${sec.label}` : "Select all subshells"}
+                          className="block size-4 rounded border border-input bg-background accent-primary"
+                          checked={groupIds.length > 0 && groupSelected === groupIds.length}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setSelected((previous) =>
+                              checked
+                                ? [...new Set([...previous, ...groupIds])]
+                                : previous.filter((id) => !groupIds.includes(id)),
+                            );
+                          }}
+                        />
+                      </th>
+                      <th className="pr-4 pb-2 font-strong">Name</th>
+                      <th className="@lg:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">Working dir</th>
+                      <th className="@sm:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">Last output</th>
+                      <th className="@2xl:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">Uptime</th>
+                      <th className="w-px pb-2" aria-label="Actions" />
                     </tr>
-                  )}
-                  {sec.subshells.map(renderRow)}
-                </Fragment>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+                  </thead>
+                  <tbody>
+                    {sec.subshells.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-muted-foreground">
+                          No subshells yet.
+                        </td>
+                      </tr>
+                    ) : (
+                      sec.subshells.map(renderRow)
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
     </div>
   );
 
@@ -196,32 +181,37 @@ export function SubshellManagerTable({
     // "—" is this table's existing nothing-to-say idiom.
     const offline = s.nodeOffline === true;
     return (
-      <tr key={s.id} className="border-b last:border-0 hover:bg-accent/40">
-        <td className="px-3 py-2">
+      <tr key={s.id} className="border-b last:border-0">
+        <td className="h-8 w-8 py-0 pr-4 align-middle">
           <input
             type="checkbox"
             aria-label={`Select subshell ${s.name}`}
-            className="h-4 w-4 rounded border border-input bg-background accent-primary"
+            className="block size-4 rounded border border-input bg-background accent-primary"
             checked={selectedIds.includes(s.id)}
             onChange={(e) => toggle(s.id, e.target.checked)}
           />
         </td>
-        <td className="max-w-[220px] px-3 py-2">
+        <td className="h-8 @sm:w-1/3 w-full max-w-0 py-0 pr-4">
           <div className="flex min-w-0 items-center gap-2">
             <SubshellDot subshell={s} accessible className="mt-0" />
-            <Link to="/subshells/$id" params={{ id: s.id }} className="truncate hover:text-primary" title={s.name}>
+            <Link
+              to="/subshells/$id"
+              params={{ id: s.id }}
+              className="truncate font-strong hover:underline"
+              title={s.name}
+            >
               {s.name}
             </Link>
           </div>
         </td>
-        <td className="max-w-[240px] truncate px-3 py-2 text-muted-foreground">{s.workingDir}</td>
-        <td className="px-3 py-2 text-muted-foreground">
+        <td className="@lg:table-cell hidden h-8 max-w-0 truncate py-0 pr-4 text-muted-foreground">{s.workingDir}</td>
+        <td className="@sm:table-cell hidden h-8 whitespace-nowrap py-0 pr-4 text-muted-foreground">
           {offline ? "—" : s.lastOutputAt ? `${relativeElapsed(s.lastOutputAt)} ago` : "—"}
         </td>
-        <td className="px-3 py-2 text-muted-foreground">
+        <td className="@2xl:table-cell hidden h-8 whitespace-nowrap py-0 pr-4 text-muted-foreground">
           {!offline && s.status === "running" && s.alive && s.startedAt ? relativeElapsed(s.startedAt) : "—"}
         </td>
-        <td className="px-3 py-2">
+        <td className="h-8 w-px py-0 text-right">
           <div className="flex justify-end">
             <SubshellActionsMenu subshell={s} disabled={bulkBusy} />
           </div>

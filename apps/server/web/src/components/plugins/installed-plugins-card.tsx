@@ -1,5 +1,4 @@
 import {
-  Badge,
   Button,
   Card,
   CardContent,
@@ -122,9 +121,7 @@ export function InstalledPluginsCard({
                       </p>
                     </div>
                   </div>
-                  <Badge variant={p.builtIn ? "muted" : "outline"} className="justify-self-start">
-                    {p.builtIn ? "this build" : "npm"}
-                  </Badge>
+                  <span className="justify-self-start">{p.builtIn ? "this build" : "npm"}</span>
                   {canManage ? (
                     <Switch
                       className="justify-self-start"
@@ -174,9 +171,7 @@ export function InstalledPluginsCard({
                       }}
                     />
                   ) : (
-                    <Badge variant={p.enabled ? "success" : "warning"} className="justify-self-start">
-                      {p.enabled ? "enabled" : "disabled"}
-                    </Badge>
+                    <span className="justify-self-start">{p.enabled ? "enabled" : "disabled"}</span>
                   )}
                   {/* Always a cell, even for a reader who manages nothing — an
                   omitted one would pull this row's earlier cells rightwards

@@ -1,4 +1,4 @@
-import { Badge, Fact, FactCard } from "@internal/node-admin";
+import { Fact, FactCard } from "@internal/node-admin";
 import type { AdminStatus } from "@/hooks/use-admin-status";
 
 /**
@@ -8,39 +8,39 @@ import type { AdminStatus } from "@/hooks/use-admin-status";
  * page an admin skims, not one they read, and a posture item that renders
  * identically whether it is safe or not has told them nothing. The two
  * genuinely dangerous states — an armed break-glass password and a placeholder
- * auth secret — are the only warning badges.
+ * auth secret — keep their warning colour.
  */
 export function SecurityCard({ status }: { status: AdminStatus }) {
   const { security } = status;
   return (
     <FactCard title="Security posture">
       <Fact label="Registrations">
-        <Badge variant={security.registrationsOpen ? "warning" : "muted"}>
+        <span className={security.registrationsOpen ? "text-warning" : undefined}>
           {security.registrationsOpen ? "open" : "closed"}
-        </Badge>
+        </span>
       </Fact>
       <Fact label="Break-glass login">
         {security.emergencyLoginActive ? (
-          <Badge
-            variant="warning"
+          <span
+            className="text-warning"
             title="SUBSHELL_EMERGENCY_PASSWORD is set: an admin signing in with it has their credential OVERWRITTEN. Clear the variable after recovery."
           >
             armed
-          </Badge>
+          </span>
         ) : (
-          <Badge variant="muted">off</Badge>
+          <span>off</span>
         )}
       </Fact>
       <Fact label="Auth secret">
         {security.usingPlaceholderSecret ? (
-          <Badge
-            variant="warning"
+          <span
+            className="text-warning"
             title="BETTER_AUTH_SECRET is still the built-in placeholder. Production refuses to boot this way; set a real one before binding beyond loopback."
           >
             placeholder
-          </Badge>
+          </span>
         ) : (
-          <Badge variant="success">set</Badge>
+          <span>set</span>
         )}
       </Fact>
       <Fact label="System API keys" wide>

@@ -1,13 +1,14 @@
-import { apiFetch, Button, confirmAction, errMessage } from "@internal/node-admin";
+import { apiFetch, Button, Card, CardContent, CardHeader, confirmAction, errMessage } from "@internal/node-admin";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Copy, Pencil, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { DashboardPage } from "@/components/dashboard-page";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorBanner } from "@/components/error-banner";
 import { PageHeader } from "@/components/page-header";
 import { PluginIcon } from "@/components/plugin-icon";
 import { CreatePresetDialog } from "@/components/presets/create-preset-dialog";
-import { PresetListRow } from "@/components/presets/preset-list-row";
+import { PresetTableRow } from "@/components/presets/preset-table-row";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useInvalidatePresets, usePresets } from "@/hooks/use-presets";
 import { presetFormFromRow, suggestCloneName } from "@/lib/preset-form";
@@ -80,7 +81,7 @@ function PresetsPage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-4xl space-y-6 p-6">
+    <DashboardPage>
       <PageHeader
         title="Presets"
         subtitle="Saved launch settings, per agent"
@@ -149,49 +150,73 @@ function PresetsPage() {
           preview comes from the plugin row; an unknown harness falls back to
           its id so the row still renders something honest. */}
       {groups.length > 0 && (
-        <div className="space-y-6">
+        <div className="flex flex-col gap-6">
           {groups.map(([harnessId, rows]) => {
             const plugin = plugins.find((p) => p.id === harnessId);
             return (
-              <div key={harnessId} className="space-y-2">
+              <Card key={harnessId} className="min-w-0">
                 {/* A real heading, not styled text: the e2e group-header probe
                     queries by role because a presetless row's launch-command
                     preview renders the bare harness id — text matching would
                     collide. PageHeader carries the h1; these are the h2s. */}
-                <div className="flex items-center gap-2">
+                <CardHeader className="flex-row items-center gap-2 space-y-0">
                   <PluginIcon pluginId={harnessId} name={plugin?.name} />
                   <h2 className="font-strong text-sm">{plugin?.name ?? harnessId}</h2>
-                </div>
-                {rows.map((p) => (
-                  <PresetListRow
-                    key={p.id}
-                    preset={p}
-                    binary={plugin?.binary ?? harnessId}
-                    items={[
-                      {
-                        label: "Edit",
-                        icon: Pencil,
-                        onSelect: () => void navigate({ to: "/presets/$id", params: { id: p.id } }),
-                      },
-                      {
-                        label: "Clone preset",
-                        icon: Copy,
-                        onSelect: () => setCloneSource(p),
-                      },
-                      {
-                        label: "Delete preset",
-                        icon: Trash2,
-                        destructive: true,
-                        onSelect: () => void deletePreset(p.id),
-                      },
-                    ]}
-                  />
-                ))}
-              </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="@container overflow-x-auto">
+                    <table className="w-full text-sm" aria-label={`${plugin?.name ?? harnessId} presets`}>
+                      <thead>
+                        <tr className="border-b text-left text-muted-foreground">
+                          <th scope="col" className="pr-4 pb-2 font-strong">
+                            Name
+                          </th>
+                          <th scope="col" className="@sm:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">
+                            Auto-restart
+                          </th>
+                          <th scope="col" className="@lg:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">
+                            Cross-agent use
+                          </th>
+                          <th scope="col" className="pb-2 text-right font-strong">
+                            <span className="sr-only">Actions</span>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((p) => (
+                          <PresetTableRow
+                            key={p.id}
+                            preset={p}
+                            binary={plugin?.binary ?? harnessId}
+                            items={[
+                              {
+                                label: "Edit",
+                                icon: Pencil,
+                                onSelect: () => void navigate({ to: "/presets/$id", params: { id: p.id } }),
+                              },
+                              {
+                                label: "Clone preset",
+                                icon: Copy,
+                                onSelect: () => setCloneSource(p),
+                              },
+                              {
+                                label: "Delete preset",
+                                icon: Trash2,
+                                destructive: true,
+                                onSelect: () => void deletePreset(p.id),
+                              },
+                            ]}
+                          />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
             );
           })}
         </div>
       )}
-    </main>
+    </DashboardPage>
   );
 }

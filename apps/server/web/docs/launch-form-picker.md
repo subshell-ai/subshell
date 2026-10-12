@@ -90,8 +90,11 @@ filled fields. There is no `+` on the row and no "None" row: a preset worth
 keeping is MADE from the whole form by the "Save as preset" checkbox at its
 bottom, and an untouched picker already IS the no-preset state. First run
 hides the Preset row entirely: a new account has zero presets, so the row
-would have nothing to offer. The saved set lives at `/presets`, grouped by agent under real
-`<h2>` headers. There the row menu's **Clone preset** opens the SAME
+would have nothing to offer. The saved set lives at `/presets`, with one table in a card per agent under
+real `<h2>` headers. Columns show name, auto-restart, cross-agent use, and actions; command previews
+stay hidden until the name is clicked, then expand in a full-width detail row.
+The name uses the same disclosure button and chevron as prompts; editing
+belongs in the actions menu. There the row menu's **Clone preset** opens the SAME
 `create-preset-dialog.tsx`, seeded through `initialForm`: the clone IS a plain
 create, and the agent rides locked because a preset's harness is immutable.
 The suggested `… (2)` name mirrors the UNIQUE index's collision rule, so the
@@ -105,7 +108,7 @@ bodies, joined by one blank line at launch). CROSS-COMM READY is opt-in
 (migration 0043): the section ends in a switch "Enable agents to create
 subshells with this preset", and readiness means the switch AND machine +
 directory - the prompt is optional launch data (`isPresetCrossCommReady` in
-`@internal/subshell-protocol`): the `/presets` row badges it, the launch form
+`@internal/subshell-protocol`): the `/presets` table shows it as Yes or No in Cross-agent use, the launch form
 prefills from it on pick, and MCP `create_subshell` can launch from it by
 id. The switch cannot arm while a requirement is missing,
 and a switched-on preset whose fields later break cannot be saved until the

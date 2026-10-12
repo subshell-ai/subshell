@@ -74,17 +74,17 @@ describe("UsersTable", () => {
     async function renderOne(over: Partial<UserRow> & { id: string }): Promise<string> {
       stubSession("me");
       renderTable([user(over)]);
-      const tr = (await screen.findByText(`${over.id}@example.com`)).closest("tr");
+      const tr = (await screen.findByText(`${over.id}@example.com`, { selector: "td" })).closest("tr");
       return tr?.textContent ?? "";
     }
 
-    it("badges both providers when an account has both", async () => {
+    it("lists both providers when an account has both", async () => {
       const text = await renderOne({ id: "both", providers: ["credential", "google"] });
       expect(text).toContain("E-mail");
       expect(text).toContain("Google");
     });
 
-    it("badges only the provider for a google-only account", async () => {
+    it("lists only the provider for a google-only account", async () => {
       // "Email" is the credential provider's word (spelled like the Auth page's
       // kind label), and a provider-only arrival must not borrow it.
       const text = await renderOne({ id: "goned", providers: ["google"] });

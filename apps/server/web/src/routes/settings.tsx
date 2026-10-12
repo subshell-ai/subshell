@@ -12,6 +12,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { DashboardPage } from "@/components/dashboard-page";
 import { ErrorBanner } from "@/components/error-banner";
 import { InstanceNameCard } from "@/components/instance-name-card";
 import { PageHeader } from "@/components/page-header";
@@ -131,7 +132,7 @@ function SettingsPage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
+    <DashboardPage>
       {/* No action slot: Status and Plugins were buttons here because the rail
           did not list them. The Server Settings group does now. */}
       <PageHeader title="General" subtitle="Instance name, nodes, and reset" />
@@ -271,6 +272,6 @@ function SettingsPage() {
           .
         </p>
       )}
-    </main>
+    </DashboardPage>
   );
 }

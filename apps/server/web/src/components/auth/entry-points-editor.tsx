@@ -1,4 +1,4 @@
-import { Badge, Button, Input, Label } from "@internal/node-admin";
+import { Button, Input, Label } from "@internal/node-admin";
 import { X } from "lucide-react";
 import { type Dispatch, type SetStateAction, useState } from "react";
 import { normalizeOriginEntry } from "@/components/auth/entry-origins";
@@ -70,9 +70,9 @@ export function EntryPointsEditor({
           <li key={origin} className="flex items-center gap-2">
             <span className="min-w-0 flex-1 truncate font-mono text-detail">{origin}</span>
             {i === 0 && (
-              <Badge variant="secondary">
+              <span className="text-muted-foreground text-sm">
                 {publicBaseOrigin != null && origin === publicBaseOrigin ? "Public base URL" : "Callback base"}
-              </Badge>
+              </span>
             )}
             {i > 0 && (
               <Button

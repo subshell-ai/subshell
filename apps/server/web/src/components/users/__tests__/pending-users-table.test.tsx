@@ -97,7 +97,7 @@ describe("PendingUsersTable", () => {
     // Rejecting an already-rejected row would rewrite the state it has; the
     // row stays as the record, and Approve is the only way out (spec §6).
     renderTable([row({ id: "a3", approvalState: "rejected", arrivedAt: null })]);
-    const tr = screen.getByText("a3@example.com").closest("tr");
+    const tr = screen.getByText("a3@example.com", { selector: "td" }).closest("tr");
     expect(tr?.textContent).toContain("Rejected");
     expect(screen.queryByRole("button", { name: "Reject a3@example.com" })).toBeNull();
     expect(screen.getByRole("button", { name: "Approve a3@example.com" })).toBeDefined();
@@ -110,7 +110,7 @@ describe("PendingUsersTable", () => {
     // The backend sends providerName null when the provider is gone; the queue is
     // the record of who knocked at a provider this instance used to have.
     renderTable([row({ id: "a4", providerId: "old-sso", providerName: null })]);
-    const tr = screen.getByText("a4@example.com").closest("tr");
+    const tr = screen.getByText("a4@example.com", { selector: "td" }).closest("tr");
     expect(tr?.textContent).toContain("Removed provider");
   });
 

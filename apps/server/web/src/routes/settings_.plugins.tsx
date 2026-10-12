@@ -1,6 +1,7 @@
 import { Button } from "@internal/node-admin";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { DashboardPage } from "@/components/dashboard-page";
 import { ErrorBanner } from "@/components/error-banner";
 import { PageHeader } from "@/components/page-header";
 import { InstallByNameForm } from "@/components/plugins/install-by-name-form";
@@ -38,7 +39,7 @@ function InstancePluginsPage() {
   const catalog = plugins.filter((p) => !p.installed && p.builtIn);
 
   return (
-    <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
+    <DashboardPage>
       <PageHeader
         title="Plugins"
         subtitle="Plugin changes apply to every node connected to this server. To launch an agent, install its CLI on the machine where it will run."
@@ -71,6 +72,6 @@ function InstancePluginsPage() {
           fresh mount is what makes "keep" the default every time rather than
           a value to remember to reset. */}
       {uninstallTarget && <UninstallPluginDialog plugin={uninstallTarget} onClose={() => setUninstallTarget(null)} />}
-    </main>
+    </DashboardPage>
   );
 }

@@ -1,6 +1,7 @@
 import { ApiError, Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@internal/node-admin";
 import { createFileRoute, Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef } from "react";
+import { DashboardPage } from "@/components/dashboard-page";
 import { WorkspaceDock } from "@/components/workspace-dock";
 import { WorkspaceTabs } from "@/components/workspace-tabs";
 import { useDiscardThinDraft } from "@/hooks/use-discard-thin-draft";
@@ -80,9 +81,9 @@ function WorkspaceDetailPage() {
   }, [load, detail, focusedPaneId, navigate]);
   if (load === "loading") {
     return (
-      <main className="mx-auto w-full max-w-2xl p-6">
+      <DashboardPage>
         <p className="text-muted-foreground text-sm">Loading…</p>
-      </main>
+      </DashboardPage>
     );
   }
 
@@ -90,7 +91,7 @@ function WorkspaceDetailPage() {
     // Keyed on `!detail`: a background refetch failure keeps the last-good
     // detail, so this card is only for a first load the server answered badly.
     return (
-      <main className="mx-auto w-full max-w-2xl p-6">
+      <DashboardPage>
         <Card>
           <CardHeader>
             <CardTitle>Couldn&apos;t load this workspace</CardTitle>
@@ -105,7 +106,7 @@ function WorkspaceDetailPage() {
             <Button variant="ghost" render={<Link to="/workspaces">Back to workspaces</Link>} />
           </CardContent>
         </Card>
-      </main>
+      </DashboardPage>
     );
   }
 
@@ -115,7 +116,7 @@ function WorkspaceDetailPage() {
   // word, never an outage or a 500.
   if (!detail) {
     return (
-      <main className="mx-auto w-full max-w-2xl p-6">
+      <DashboardPage>
         <Card>
           <CardHeader>
             <CardTitle>Workspace not found</CardTitle>
@@ -125,7 +126,7 @@ function WorkspaceDetailPage() {
             <Button variant="outline" render={<Link to="/workspaces">Back to workspaces</Link>} />
           </CardContent>
         </Card>
-      </main>
+      </DashboardPage>
     );
   }
 

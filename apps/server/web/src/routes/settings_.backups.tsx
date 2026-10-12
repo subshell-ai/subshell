@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { CreateBackupCard } from "@/components/backups/create-backup-card";
 import { RestoreBackupCard } from "@/components/backups/restore-backup-card";
+import { DashboardPage } from "@/components/dashboard-page";
 
 import { PageHeader } from "@/components/page-header";
 import { Segmented } from "@/components/ui/segmented";
@@ -15,13 +16,11 @@ function BackupsPage() {
   const { data } = usePublicSettings();
   const restoring = useRestoreProgressActive();
   return (
-    <main className="flex h-full min-h-0 w-full flex-col">
+    <DashboardPage>
       {data?.viewerIsAdmin === true || restoring ? (
         <>
-          <div className="px-8 pt-6">
-            <PageHeader title="Backups" />
-          </div>
-          <div className="shrink-0 border-b px-8 py-3">
+          <PageHeader title="Backups" />
+          <div>
             <Segmented
               ariaLabel="Backup operation"
               disabled={busy}
@@ -35,22 +34,16 @@ function BackupsPage() {
               onChange={setOperation}
             />
           </div>
-          <section
-            hidden={operation !== "backup"}
-            className={operation === "backup" ? "flex min-h-0 flex-1 flex-col" : undefined}
-          >
+          <section hidden={operation !== "backup"}>
             <CreateBackupCard onBusy={setBusy} />
           </section>
-          <section
-            hidden={operation !== "restore"}
-            className={operation === "restore" ? "flex min-h-0 flex-1 flex-col" : undefined}
-          >
+          <section hidden={operation !== "restore"}>
             <RestoreBackupCard onBusy={setBusy} />
           </section>
         </>
       ) : data?.viewerIsAdmin === false ? (
         <p className="text-body text-muted-foreground">Backups are available to instance administrators.</p>
       ) : null}
-    </main>
+    </DashboardPage>
   );
 }

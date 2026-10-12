@@ -140,7 +140,7 @@ describe("/settings/users page", () => {
     const { restore } = mockFetch(true);
     try {
       renderPage();
-      await waitFor(() => expect(screen.getByText("dana@example.com")).toBeDefined());
+      await waitFor(() => expect(screen.getByText("dana@example.com", { selector: "td" })).toBeDefined());
       expect(screen.getByText("Dana")).toBeDefined();
       expect(screen.getByRole("button", { name: "Add user" })).toBeDefined();
       // The manageable row carries the kebab; its three actions are pinned at
@@ -177,13 +177,13 @@ describe("/settings/users page", () => {
       renderPage();
       // Default tab is Members with the ABSENT param: the queue card is not
       // rendered even though the count query ran for the label.
-      await waitFor(() => expect(screen.getByText("dana@example.com")).toBeDefined());
+      await waitFor(() => expect(screen.getByText("dana@example.com", { selector: "td" })).toBeDefined());
       expect(screen.queryByText("knocker@example.com")).toBeNull();
       // The label carries the count of EVERY queue row, pending and rejected.
       const pendingTab = screen.getByRole("button", { name: /Pending approval/ });
       expect(pendingTab.textContent).toContain("2");
       fireEvent.click(pendingTab);
-      await waitFor(() => expect(screen.getByText("knocker@example.com")).toBeDefined());
+      await waitFor(() => expect(screen.getByText("knocker@example.com", { selector: "td" })).toBeDefined());
       // Queue rows get their decision buttons; members are absent on this tab.
       expect(screen.getByRole("button", { name: "Approve knocker@example.com" })).toBeDefined();
       expect(screen.queryByText("dana@example.com")).toBeNull();
@@ -196,9 +196,9 @@ describe("/settings/users page", () => {
     const { restore } = mockFetch(true);
     try {
       renderPage("/settings/users?tab=pending");
-      await waitFor(() => expect(screen.getByText("knocker@example.com")).toBeDefined());
+      await waitFor(() => expect(screen.getByText("knocker@example.com", { selector: "td" })).toBeDefined());
       // Rejected rows stay in the queue (spec §6), badged as what they are.
-      expect(screen.getByText("rejected@example.com")).toBeDefined();
+      expect(screen.getByText("rejected@example.com", { selector: "td" })).toBeDefined();
       expect(screen.getByText("Rejected")).toBeDefined();
     } finally {
       restore();
@@ -211,7 +211,7 @@ describe("/settings/users page", () => {
     const { restore } = mockFetch(true);
     try {
       renderPage();
-      await waitFor(() => expect(screen.getByText("system@subshell.local")).toBeDefined());
+      await waitFor(() => expect(screen.getByText("system@subshell.local", { selector: "td" })).toBeDefined());
       expect(screen.getByText("Service account")).toBeDefined();
       expect(screen.queryByRole("button", { name: "Actions for system@subshell.local" })).toBeNull();
     } finally {
@@ -226,12 +226,12 @@ describe("/settings/users page", () => {
     const { restore } = mockFetch(true);
     try {
       renderPage();
-      await waitFor(() => expect(screen.getByText("cleo@example.com")).toBeDefined());
+      await waitFor(() => expect(screen.getByText("cleo@example.com", { selector: "td" })).toBeDefined());
       expect(screen.getByText("Disabled")).toBeDefined();
       // A disabled admin still carries the Admin role badge — the two badges
       // answer different questions and neither hides the other. Row-scoped
       // because the viewer's own row also badges Admin.
-      const cleoRow = screen.getByText("cleo@example.com").closest("tr");
+      const cleoRow = screen.getByText("cleo@example.com", { selector: "td" }).closest("tr");
       expect(cleoRow?.textContent).toContain("Admin");
       // The row is still actionable (the menu's Enable-vs-Disable spelling is
       // pinned at the component level).
@@ -245,7 +245,7 @@ describe("/settings/users page", () => {
     const { restore } = mockFetch(true);
     try {
       renderPage();
-      await waitFor(() => expect(screen.getByText("you@example.com")).toBeDefined());
+      await waitFor(() => expect(screen.getByText("you@example.com", { selector: "td" })).toBeDefined());
       expect(screen.getByText("Your account")).toBeDefined();
       expect(screen.queryByRole("button", { name: "Actions for you@example.com" })).toBeNull();
     } finally {

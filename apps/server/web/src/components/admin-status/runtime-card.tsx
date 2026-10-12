@@ -18,9 +18,7 @@ export function RuntimeCard({ status }: { status: AdminStatus }) {
       <Fact label="Uptime">{formatDuration(runtime.uptimeSeconds)}</Fact>
       <Fact label="Booted">{new Date(runtime.bootedAt).toLocaleString()}</Fact>
       <Fact label="Mode">
-        <Badge variant={runtime.production ? "success" : "muted"}>
-          {runtime.production ? "production" : "development"}
-        </Badge>
+        <span>{runtime.production ? "production" : "development"}</span>
       </Fact>
       <Fact label="Host" mono>
         {runtime.hostname}
@@ -36,7 +34,7 @@ export function RuntimeCard({ status }: { status: AdminStatus }) {
       <Fact label="Serving SPA from">
         {/* `disk` on a compiled binary run from a checkout is the documented
             trap: the repo's own dist shadows the embedded copy. */}
-        <Badge variant="outline">{runtime.staticSource}</Badge>
+        <span>{runtime.staticSource}</span>
       </Fact>
       <Fact label="Listening on" mono wide>
         {runtime.listenHost}:{runtime.listenPort} · base URL {runtime.appBaseUrl}

@@ -29,14 +29,14 @@ import { type PendingUserRow, useSetUserApproval } from "@/hooks/use-users-pendi
  */
 export function PendingUsersTable({ rows }: { rows: readonly PendingUserRow[] }) {
   return (
-    <div className="overflow-x-auto">
+    <div className="@container overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b text-left text-muted-foreground">
             <th className="pr-4 pb-2 font-strong">Name</th>
-            <th className="pr-4 pb-2 font-strong">E-mail</th>
-            <th className="pr-4 pb-2 font-strong">Provider</th>
-            <th className="pr-4 pb-2 font-strong">Arrived</th>
+            <th className="@lg:table-cell hidden pr-4 pb-2 font-strong">E-mail</th>
+            <th className="@2xl:table-cell hidden pr-4 pb-2 font-strong">Provider</th>
+            <th className="@3xl:table-cell hidden pr-4 pb-2 font-strong">Arrived</th>
             <th className="pr-4 pb-2 font-strong">Status</th>
             <th className="pb-2 text-right font-strong" aria-label="Actions" />
           </tr>
@@ -85,27 +85,39 @@ function PendingRow({ row }: { row: PendingUserRow }) {
     <tr className="border-b align-middle last:border-0">
       {/* A provider arrival may have carried no name; the email still identifies
           the person, so the empty name reads as "—" rather than a blank. */}
-      <td className="py-2 pr-4">{row.name || "—"}</td>
-      <td className="py-2 pr-4">{row.email}</td>
-      <td className="py-2 pr-4">
+      <td className="h-8 @lg:w-1/3 w-full max-w-0 py-0 pr-4">
+        <span className="block truncate" title={row.name}>
+          {row.name || "—"}
+        </span>
+        <span className="block @lg:hidden truncate text-muted-foreground" title={row.email}>
+          {row.email}
+        </span>
+      </td>
+      <td className="@lg:table-cell hidden h-8 max-w-0 truncate py-0 pr-4" title={row.email}>
+        {row.email}
+      </td>
+      <td
+        className="@2xl:table-cell hidden h-8 max-w-0 truncate py-0 pr-4"
+        title={row.providerName ?? "Removed provider"}
+      >
         {row.providerName ? (
-          <Badge variant="default">{row.providerName}</Badge>
+          <span>{row.providerName}</span>
         ) : (
-          <span className="text-detail text-muted-foreground">Removed provider</span>
+          <span className="text-muted-foreground text-sm">Removed provider</span>
         )}
       </td>
-      <td className="py-2 pr-4 text-muted-foreground">
+      <td className="@3xl:table-cell hidden h-8 whitespace-nowrap py-0 pr-4 text-muted-foreground">
         {/* Null arrival is a resolved rejection's answer: the stamp cleared
             when the row left pending. */}
         {row.arrivedAt ? new Date(row.arrivedAt).toLocaleString() : "—"}
       </td>
-      <td className="py-2 pr-4">
+      <td className="h-8 py-0 pr-4">
         {/* Pending needs no badge: the whole tab is the pending list. Rejected
             is the exception the queue holds, so it is the state that speaks. */}
         {rejected && <Badge variant="warning">Rejected</Badge>}
       </td>
-      <td className="py-2 text-right">
-        <div className="flex items-center justify-end gap-2">
+      <td className="h-8 w-px py-0 text-right">
+        <div className="flex flex-wrap items-center justify-end gap-1">
           {error && (
             <span role="alert" className="text-destructive text-detail">
               {error}

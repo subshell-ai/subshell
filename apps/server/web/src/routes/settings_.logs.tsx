@@ -1,5 +1,6 @@
 import { Button } from "@internal/node-admin";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { DashboardPage } from "@/components/dashboard-page";
 import { ErrorBanner } from "@/components/error-banner";
 import { PageHeader } from "@/components/page-header";
 import { AuditTrailCard } from "@/components/settings/audit-trail-card";
@@ -62,7 +63,7 @@ function LogsPage() {
   const { data: view, error, isLoading, refetch } = useServerDeployment(isAdmin && active === "system", 60_000);
 
   return (
-    <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
+    <DashboardPage>
       {/* Deliberately not either card's own description reworded — the old
           audit page's comment kept that rule for a duplicated-string reason
           (header text made every e2e locator ambiguous), and it travels. */}
@@ -115,6 +116,6 @@ function LogsPage() {
           .
         </p>
       )}
-    </main>
+    </DashboardPage>
   );
 }

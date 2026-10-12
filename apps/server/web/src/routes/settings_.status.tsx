@@ -5,6 +5,7 @@ import { LocationsCard } from "@/components/admin-status/locations-card";
 import { RuntimeCard } from "@/components/admin-status/runtime-card";
 import { SecurityCard } from "@/components/admin-status/security-card";
 import { VersionsCard } from "@/components/admin-status/versions-card";
+import { DashboardPage } from "@/components/dashboard-page";
 import { ErrorBanner } from "@/components/error-banner";
 import { PageHeader } from "@/components/page-header";
 import { DevProxyNotice } from "@/components/service/dev-proxy-notice";
@@ -84,7 +85,7 @@ function ServerStatusPage() {
   } = useServerDeployment(isAdmin, 60_000);
 
   return (
-    <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
+    <DashboardPage>
       <PageHeader title="Server status" subtitle="What this instance is running right now" />
       {viewerIsAdmin === undefined ? null : isAdmin ? (
         <>
@@ -130,6 +131,6 @@ function ServerStatusPage() {
           .
         </p>
       )}
-    </main>
+    </DashboardPage>
   );
 }

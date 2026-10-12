@@ -68,7 +68,7 @@ export function CreateBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void 
   if (step === "progress")
     return (
       <BackupWorkflow
-        title="Backing Up Your Server"
+        title="Creating backup"
         description="Keep this page open while your archive is created."
         footer={
           <>
@@ -122,7 +122,7 @@ export function CreateBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void 
   if (step === "complete")
     return (
       <BackupWorkflow
-        title="Backup Complete"
+        title="Backup complete"
         description="Your archive is ready to download."
         footer={
           <>
@@ -176,7 +176,7 @@ export function CreateBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void 
     );
   return (
     <BackupWorkflow
-      title="Back Up Your Server"
+      title="Create backup"
       description="Save the database, supported configuration, identity, plugins and captured logs."
       footer={
         <>

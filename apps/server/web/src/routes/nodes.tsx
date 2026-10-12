@@ -3,6 +3,7 @@ import { Button, confirmAction, errMessage } from "@internal/node-admin";
 import { createFileRoute } from "@tanstack/react-router";
 import { KeyRound, List, Plus, Server } from "lucide-react";
 import { useState } from "react";
+import { DashboardPage } from "@/components/dashboard-page";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorBanner } from "@/components/error-banner";
 import { AddNodeDialog } from "@/components/nodes/add-node-dialog";
@@ -72,7 +73,7 @@ function NodesPage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-4xl space-y-6 p-6">
+    <DashboardPage>
       <PageHeader
         title="Nodes"
         subtitle="Nodes allow you to run subshells on other machines"
@@ -178,6 +179,6 @@ function NodesPage() {
       )}
 
       <AddNodeDialog open={dialogOpen} onOpenChange={setDialogOpen} nodeCount={nodes.length} />
-    </main>
+    </DashboardPage>
   );
 }

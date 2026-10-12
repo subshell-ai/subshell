@@ -110,11 +110,11 @@ export function NodeRow({
           keeps the other two columns still: the chips run onto a second line
           without dragging the menu down the row or squeezing the name. */}
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-        <Badge variant="outline" className="text-muted-foreground">
+        <span className="text-muted-foreground">
           {osLabel(node.os)}
           {node.arch ? ` · ${node.arch}` : ""}
-        </Badge>
-        <Badge variant={node.status === "online" ? "success" : "muted"}>{node.status}</Badge>
+        </span>
+        <span>{node.status}</span>
         {/* Beside the status rather than among the harness chips, for the
             reason the docblock gives: this is a warning, and a warning that
             needs a click to be seen is not one. A node in maintenance looks
@@ -123,9 +123,7 @@ export function NodeRow({
             launch there. */}
         {node.maintenance && <Badge variant="warning">maintenance</Badge>}
         {visible.map((h) => (
-          <Badge key={h.harnessId} variant="outline" className="border-emerald-500/50 text-emerald-400">
-            {h.harnessId}
-          </Badge>
+          <span key={h.harnessId}>{h.harnessId}</span>
         ))}
         {overflowCount > 0 && (
           <button
@@ -140,7 +138,7 @@ export function NodeRow({
             {showAllHarnesses ? "Show fewer" : `+${overflowCount} more`}
           </button>
         )}
-        {isOwner ? <Badge variant="muted">yours</Badge> : <Badge variant="secondary">shared · {node.access}</Badge>}
+        <span className="text-muted-foreground">{isOwner ? "yours" : `shared · ${node.access}`}</span>
       </div>
 
       {/* Column 3: the menu, in the same place in every row whatever the

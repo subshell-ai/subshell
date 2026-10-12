@@ -3,6 +3,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { LayoutGrid, List, Plus, TerminalSquare } from "lucide-react";
 import type { JSX } from "react";
 import { useState } from "react";
+import { DashboardPage } from "@/components/dashboard-page";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorBanner } from "@/components/error-banner";
 import { useQuickAdd } from "@/components/quick-add";
@@ -169,7 +170,7 @@ function SubshellsPage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-6xl space-y-6 p-6">
+    <DashboardPage>
       <header className="flex items-center justify-between">
         <div>
           <h1 className="font-strong text-heading">Subshells</h1>
@@ -329,7 +330,7 @@ function SubshellsPage() {
           )}
         </>
       )}
-    </main>
+    </DashboardPage>
   );
 }
 

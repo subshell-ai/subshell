@@ -76,7 +76,7 @@ async function selectFile() {
 async function configureFile() {
   await selectFile();
   fireEvent.click(screen.getByRole("button", { name: "Configure backup" }));
-  await screen.findByText("Configure Restore");
+  await screen.findByText("Configure restore");
 }
 function reviewConfiguration() {
   fireEvent.click(screen.getByRole("button", { name: "Review backup" }));
@@ -124,7 +124,7 @@ describe("Settings backup workflows", () => {
     expect(screen.queryByLabelText("Archive password")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Create backup" }));
     await screen.findByText("Backup finished");
-    expect(screen.queryByText("Backup Complete")).toBeNull();
+    expect(screen.queryByText("Backup complete")).toBeNull();
     expect(screen.queryByRole("link", { name: "Download backup" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByText("Your backup is ready")).toBeTruthy();
@@ -135,7 +135,7 @@ describe("Settings backup workflows", () => {
     expect(screen.queryByRole("button", { name: /Copy.*(?:size|encryption)/i })).toBeNull();
     expect(posts(requests)[0]?.body).toBe("{}");
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
-    await screen.findByText("Back Up Your Server");
+    await screen.findByRole("heading", { name: "Create backup" });
   });
 
   it("shows progress while creation is pending and leaves Next disabled", async () => {
@@ -197,7 +197,7 @@ describe("Settings backup workflows", () => {
     await screen.findByText(/Capture failed/);
     expect(screen.queryByText("Your backup is ready")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
-    await screen.findByText("Back Up Your Server");
+    await screen.findByRole("heading", { name: "Create backup" });
   });
 
   it("uses a separate chooser, validates automatically, and stays on selection until Configure", async () => {
@@ -215,7 +215,7 @@ describe("Settings backup workflows", () => {
     expect(chooser.outerHTML).toBe(before);
     await selectFile();
     expect(posts(requests)).toHaveLength(1);
-    expect(screen.getByText("Restore Your Server")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Restore backup" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Validate backup" })).toBeNull();
     expect(screen.queryByLabelText("Archive password")).toBeNull();
   });
@@ -356,7 +356,7 @@ describe("Settings backup workflows", () => {
     }
     expect(screen.queryByRole("switch", { name: "Start the server after restoring" })).toBeNull();
     reviewConfiguration();
-    await screen.findByText("Review Restore");
+    await screen.findByText("Review restore");
     fireEvent.click(screen.getByRole("button", { name: "Start restore" }));
     expect(requests.some((request) => request.path.endsWith("/apply"))).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
@@ -386,11 +386,11 @@ describe("Settings backup workflows", () => {
     });
     finish?.(Response.json({ id: "restore-job", expiresAt: Date.now() + 60000 }));
     await screen.findByText("Restore finished");
-    expect(screen.queryByText("Restore Complete")).toBeNull();
+    expect(screen.queryByText("Restore complete")).toBeNull();
     expect(screen.queryByText(/Run this command/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Open restore assistant" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await screen.findByText("Restore Complete");
+    await screen.findByText("Restore complete");
     expect(screen.getByText("Your server is ready")).toBeTruthy();
     expect(requests.filter((request) => request.path.endsWith("/apply"))).toHaveLength(1);
     expect(JSON.parse(requests.find((request) => request.path.endsWith("/apply"))?.body as string)).toEqual({
@@ -464,7 +464,7 @@ describe("Settings backup workflows", () => {
     // runner squeaks past, a loaded CI runner (PR #348, twice at ~1.5 s) does
     // not. The headroom asserts nothing new; it stops racing the cadence.
     await screen.findByText("Restore finished", undefined, { timeout: 3000 });
-    expect(screen.queryByText("Restore Complete")).toBeNull();
+    expect(screen.queryByText("Restore complete")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await screen.findByText("Your server is ready");
   });

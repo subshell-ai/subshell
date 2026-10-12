@@ -54,6 +54,33 @@ describe("ActionsMenu", () => {
     expect(screen.getByRole("menuitem", { name: "Delete" }).className).toContain("text-destructive");
   });
 
+  it("groups destructive actions last with one divider, preserving each group's order", async () => {
+    render(
+      <ActionsMenu
+        label="web"
+        items={[
+          { label: "Restart", icon: Square, destructive: true },
+          { label: "Edit", icon: Pencil },
+          { label: "Close", icon: Trash2, destructive: true },
+          { label: "Copy", icon: Square },
+        ]}
+      />,
+    );
+    await openMenu("web");
+    const menu = screen.getByRole("menu");
+    expect(
+      Array.from(menu.querySelectorAll('[role="menuitem"], [role="separator"]')).map((item) =>
+        item.getAttribute("role") === "separator" ? "divider" : item.textContent,
+      ),
+    ).toEqual(["Edit", "Copy", "divider", "Restart", "Close"]);
+  });
+
+  it("omits the divider when every action is destructive", async () => {
+    render(<ActionsMenu label="web" items={[{ label: "Close", icon: Trash2, destructive: true }]} />);
+    await openMenu("web");
+    expect(screen.queryByRole("separator")).toBeNull();
+  });
+
   it("gates the trigger when disabled", () => {
     render(<ActionsMenu label="web" items={ITEMS} disabled disabledReason="Wait for the subshell action to finish." />);
     // The trigger can receive focus for its explanation, but activation stays blocked.
