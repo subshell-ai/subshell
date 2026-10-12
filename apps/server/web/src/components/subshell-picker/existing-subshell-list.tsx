@@ -1,9 +1,10 @@
 import { cn, ExplainedButton, relativeElapsed } from "@internal/node-admin";
 import { Check } from "lucide-react";
 import type { JSX } from "react";
+import { ListLoadError } from "@/components/list-load-error";
 import { SubshellSearch } from "@/components/subshell-search";
 import { RowStatusBadges } from "@/components/subshell-status";
-import { filterSubshells } from "@/lib/subshell-filter";
+import { useFilteredSubshells, useInvalidateSubshells } from "@/hooks/use-subshells";
 import { priorityRunning } from "@/lib/subshell-order";
 import type { SubshellView } from "@/types/subshell";
 
@@ -14,7 +15,7 @@ import type { SubshellView } from "@/types/subshell";
  *
  * This replaces three parallel dropdown submenus, which listed every subshell
  * three times with no way to search: fine for four subshells, unusable for
- * forty. It searches with `filterSubshells` and shows status with
+ * forty. It searches through the subshells API and shows status with
  * `RowStatusBadges` — the `StatusChip` state plus the `WaitingChip` "waiting
  * for you" badge, or a lone "node unreachable" badge replacing both when the
  * subshell's node is offline (spec 2026-08-31 §5.6) — the same pieces the
@@ -38,8 +39,7 @@ export function ExistingSubshellList({
   /**
    * When set, only subshells running on this node are listed — the dialog
    * keeps the EXISTING half coherent with the node the NEW half would
-   * launch onto. Pure display filtering: the list is already visibility-
-   * filtered server-side and this must never be relied on for authz.
+   * launch onto. The server applies this filter after checking visibility.
    * Older payloads without `nodeId` are treated as `local`.
    */
   nodeId?: string;
@@ -70,23 +70,26 @@ export function ExistingSubshellList({
   onToggle?: (id: string) => void;
 }): JSX.Element {
   const multi = selected !== undefined && onToggle !== undefined;
-  const onNode = nodeId === undefined ? subshells : subshells.filter((s) => (s.nodeId ?? "local") === nodeId);
-  const filtered = priorityRunning(filterSubshells(onNode, query));
+  const results = useFilteredSubshells(query, nodeId);
+  const retry = useInvalidateSubshells();
+  // Workspace membership is a local selection constraint, not a search predicate.
+  const available = new Set(subshells.map((s) => s.id));
+  const filtered = priorityRunning((results.data ?? []).filter((s) => available.has(s.id)));
 
   return (
     <div className="space-y-3">
       <SubshellSearch value={query} onChange={onQueryChange} />
 
       <div className="max-h-80 min-h-32 overflow-y-auto rounded-md border">
-        {loadFailed ? (
-          <p className="p-3 text-destructive text-detail">Couldn't load subshells.</p>
-        ) : loading ? (
+        {loadFailed || results.isError ? (
+          <ListLoadError message="Couldn't load subshells." retry={retry} busy={loading || results.isFetching} />
+        ) : loading || results.isLoading ? (
           <p className="p-3 text-muted-foreground text-sm">Loading subshells…</p>
         ) : subshells.length === 0 ? (
           <p className="p-3 text-muted-foreground text-sm">
             Every subshell is already on this workspace. Create a new one instead.
           </p>
-        ) : onNode.length === 0 ? (
+        ) : filtered.length === 0 && !query.trim() ? (
           <p className="p-3 text-muted-foreground text-sm">
             No subshells on this node. Use “New subshell” to launch one there, or pick a different node there to list
             those subshells.

@@ -41,6 +41,14 @@ function renderDialog(props: { excludeSubshellIds: string[]; initialForm?: { nod
     makeSubshell({ id: "other", name: "other" }),
     makeSubshell({ id: "remote", name: "remote", nodeId: "box" }),
   ]);
+  const rows = qc.getQueryData<SubshellView[]>(SUBSHELLS_QUERY_KEY) ?? [];
+  for (const nodeId of ["local", "box"]) {
+    qc.setQueryDefaults([...SUBSHELLS_QUERY_KEY, "filtered", `nodeId=${nodeId}`], { staleTime: Infinity });
+    qc.setQueryData(
+      [...SUBSHELLS_QUERY_KEY, "filtered", `nodeId=${nodeId}`],
+      rows.filter((s) => s.nodeId === nodeId),
+    );
+  }
   render(
     <QueryClientProvider client={qc}>
       <AddSubshellDialog open onOpenChange={() => {}} onAdd={async () => {}} {...props} />

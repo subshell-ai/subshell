@@ -10,6 +10,7 @@ import {
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AppSidebar } from "@/components/app-sidebar";
 import * as quickAdd from "@/components/quick-add";
+import { filterSubshells } from "@/lib/subshell-filter";
 import { formatWorkspaceDate } from "@/lib/workspace-name";
 import { setFetchRouter } from "@/test-setup";
 import type { SubshellView } from "@/types/subshell";
@@ -90,13 +91,19 @@ function stubFetch(
           // detail (…/workspaces/<id>) before the list too — the extra path/query
           // segment is what tells the three reads apart.
           url.includes("drafts=only")
-          ? draftWorkspaces
+          ? new URL(url, "http://localhost").searchParams.get("q")
+            ? []
+            : draftWorkspaces
           : url.includes("/api/workspaces/")
             ? (workspaceDetail ?? { workspace: null, panes: [] })
             : url.includes("/api/workspaces")
-              ? workspaces
+              ? workspaces.filter((w) =>
+                  (w as { name: string }).name
+                    .toLowerCase()
+                    .includes(new URL(url, "http://localhost").searchParams.get("q")?.toLowerCase() ?? ""),
+                )
               : url.includes("/api/subshells")
-                ? subshells
+                ? filterSubshells(subshells, new URL(url, "http://localhost").searchParams.get("q") ?? "")
                 : url.includes("/api/nodes")
                   ? {
                       nodes: [
@@ -470,8 +477,9 @@ describe("filtering across groups", () => {
         expect(groupHeaders()[0]?.textContent).toContain("Server");
 
         fireEvent.change(screen.getByLabelText("Filter subshells"), { target: { value: "zzz" } });
-        await waitFor(() => expect(groupHeaders()).toHaveLength(0));
-        expect(screen.getByText("No matches.")).toBeTruthy();
+        // Groups also disappear during loading; wait for the completed search.
+        expect(await screen.findByText("No matches.")).toBeTruthy();
+        expect(groupHeaders()).toHaveLength(0);
       },
     );
   });
@@ -486,7 +494,7 @@ describe("the rail's Needs Attention spotlight (spec 2026-09-24)", () => {
   it("renders nothing when no pane has an unseen push", async () => {
     await withRail([subshell({ id: "a", name: "seen" })], async () => {
       await waitFor(() => expect(groupHeaders()).toHaveLength(1));
-      expect(attentionRegion()).toBeNull();
+      expect(attentionRegion() === null).toBe(true);
     });
   });
 
@@ -528,7 +536,7 @@ describe("the rail's Needs Attention spotlight (spec 2026-09-24)", () => {
   it("excludes a grantee's unseen row from the owner's spotlight", async () => {
     await withRail([subshell({ id: "a", name: "shared", unseenPush: true, access: "view" })], async () => {
       await waitFor(() => expect(groupHeaders()).toHaveLength(1));
-      expect(attentionRegion()).toBeNull();
+      expect(attentionRegion() === null).toBe(true);
     });
   });
 
@@ -542,10 +550,10 @@ describe("the rail's Needs Attention spotlight (spec 2026-09-24)", () => {
         await waitFor(() => expect(attentionRegion()).not.toBeNull());
         fireEvent.change(screen.getByLabelText("Filter subshells"), { target: { value: "keep" } });
         await waitFor(() => expect(attentionRegion()?.textContent).toContain("keep-me"));
-        expect(attentionRegion()?.textContent).not.toContain("other");
+        await waitFor(() => expect(attentionRegion()?.textContent).not.toContain("other"));
 
         fireEvent.change(screen.getByLabelText("Filter subshells"), { target: { value: "zzz-nomatch" } });
-        await waitFor(() => expect(attentionRegion()).toBeNull());
+        await waitFor(() => expect(attentionRegion() === null).toBe(true));
       },
     );
   });
@@ -906,7 +914,7 @@ describe("the workspace search filter (operator ask 2026-09-27)", () => {
       expect(screen.getByText("Docs")).toBeTruthy();
       // A partial narrows to the one hit.
       fireEvent.change(input, { target: { value: "Doc" } });
-      await waitFor(() => expect(screen.queryByText("Alpha")).toBeNull());
+      await waitFor(() => expect(screen.queryByText("Alpha") === null).toBe(true));
       expect(screen.getByText("Docs")).toBeTruthy();
       // A no-match clears the list but KEEPS the box, so the text can be cleared.
       fireEvent.change(input, { target: { value: "zzz" } });

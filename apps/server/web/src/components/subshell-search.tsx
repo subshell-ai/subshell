@@ -1,4 +1,5 @@
 import { cn, Input } from "@internal/node-admin";
+import { LIST_SEARCH_MAX } from "@internal/subshell-protocol";
 
 /**
  * Search box filtering subshell cards by name, working directory, or harness.
@@ -18,6 +19,7 @@ export function SubshellSearch({
   return (
     <Input
       value={value}
+      maxLength={LIST_SEARCH_MAX.subshells}
       onChange={(e) => onChange(e.target.value)}
       placeholder="Search by name, path, or harness…"
       className={cn("max-w-sm", className)}

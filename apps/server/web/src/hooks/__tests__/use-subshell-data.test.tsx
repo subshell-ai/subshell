@@ -147,7 +147,9 @@ describe("useSubshellData — no poll; the live socket is the freshness source",
     const { tick, invalidated } = await mount({ feed: "delivering" });
     // Nothing was captured to drive, and driving nothing invalidates anything.
     tick();
-    expect(invalidated).toEqual([]);
+    expect(
+      invalidated.filter((key) => JSON.stringify(key) !== JSON.stringify([...SUBSHELLS_QUERY_KEY, "filtered"])),
+    ).toEqual([]);
   });
 
   it("arms no interval even when the feed never delivers", async () => {
@@ -157,7 +159,9 @@ describe("useSubshellData — no poll; the live socket is the freshness source",
     // what made a broken feed expensive instead of merely stale.
     const { tick, invalidated } = await mount({ feed: "off" });
     tick();
-    expect(invalidated).toEqual([]);
+    expect(
+      invalidated.filter((key) => JSON.stringify(key) !== JSON.stringify([...SUBSHELLS_QUERY_KEY, "filtered"])),
+    ).toEqual([]);
   });
 
   it("reflects a change the feed pushes into the list cache, with no fetch of its own", async () => {
@@ -173,6 +177,8 @@ describe("useSubshellData — no poll; the live socket is the freshness source",
     const rows = client.getQueryData<Array<{ id: string; status: string }>>(SUBSHELLS_QUERY_KEY);
     expect(rows?.[0]?.status).toBe("terminated");
     // The point of removing the poll: this page asked the server for nothing.
-    expect(invalidated).toEqual([]);
+    expect(
+      invalidated.filter((key) => JSON.stringify(key) !== JSON.stringify([...SUBSHELLS_QUERY_KEY, "filtered"])),
+    ).toEqual([]);
   });
 });

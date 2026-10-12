@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import type { Node } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { filterNodes } from "@/lib/node-filter";
 import { Route } from "@/routes/nodes";
 import { setFetchRouter } from "@/test-setup";
 
@@ -14,7 +16,7 @@ import { setFetchRouter } from "@/test-setup";
 
 /** Two rows chosen so each axis separates them: name/hostname ("AI PC" vs
  *  "Server"), status (offline vs online), access (owner vs shared/edit). */
-const NODES = [
+const NODES: Node[] = [
   {
     id: "n1",
     name: "AI PC",
@@ -83,7 +85,13 @@ function stubApi() {
             serverVersion: "0.0.0",
           }
         : url.pathname === "/api/nodes"
-          ? { nodes: NODES }
+          ? {
+              nodes: filterNodes(NODES, {
+                query: url.searchParams.get("q") ?? "",
+                status: (url.searchParams.get("status") ?? "all") as "all" | "online" | "offline",
+                access: (url.searchParams.get("access") ?? "all") as "all" | "yours" | "shared",
+              }),
+            }
           : // SetupKeysSection reads `data?.keys.length` — an empty object
             // here took the whole route down behind the error boundary in the
             // gate test's first draft.
@@ -145,14 +153,14 @@ describe("/nodes toolbar filters", () => {
 
       typeSearch("server");
       expect(await screen.findByText("Server")).toBeTruthy();
-      expect(screen.queryByText("AI PC")).toBeNull();
+      await waitFor(() => expect(screen.queryByText("AI PC") === null).toBe(true));
 
       typeSearch("");
       expect(await screen.findByText("AI PC")).toBeTruthy();
 
       await pickOption("Filter by status", "Offline");
       expect(await screen.findByText("AI PC")).toBeTruthy();
-      expect(screen.queryByText("Server")).toBeNull();
+      await waitFor(() => expect(screen.queryByText("Server") === null).toBe(true));
 
       expect(screen.getByRole("columnheader", { name: "Platform" })).toBeTruthy();
       expect(screen.queryByRole("button", { name: "Tiled view" })).toBeNull();
@@ -162,7 +170,7 @@ describe("/nodes toolbar filters", () => {
       await pickOption("Filter by status", "All status");
       await pickOption("Filter by access", "Shared");
       expect(await screen.findByText("Server")).toBeTruthy();
-      expect(screen.queryByText("AI PC")).toBeNull();
+      await waitFor(() => expect(screen.queryByText("AI PC") === null).toBe(true));
     } finally {
       restore();
     }

@@ -35,7 +35,7 @@ to the public internet.**
 
 That is not a disclaimer bolted onto an otherwise-hardened system. It is a design
 input that several deliberate decisions depend on: permissive CORS, rate limiting
-only on login, no input length limits on free-text fields, no pagination on small
+only on login, no universal input length limit on free-text fields, no pagination on small
 per-user lists, and a filesystem picker that browses the host by default. Each is
 sound at the intended perimeter and unsound outside it. §12 is what would have to
 change.
@@ -592,6 +592,30 @@ later cannot regress that.
 
 The reasoning: an admin's screen gets screenshotted into issues. Treat it as
 quotable.
+
+### Dashboard list search inputs
+
+List searches preserve each endpoint's existing authentication and visibility
+checks. Nodes, subshells, prompts, stacks, and workspaces filter only rows the
+caller can already list. Stack search sees only visible members, so a private
+prompt referenced by a shared stack cannot become a search oracle. Cookie-only
+workspace reads and bearer permission gates remain in force.
+
+`q` is a literal case-insensitive substring, never SQL, a regular expression,
+or a command. Query schemas reject oversized text: nodes 128 UTF-16 units,
+workspaces 120, subshells 4,096 (paths), and prompts/stacks 20,000 (bodies).
+`LIST_SEARCH_MAX` in the protocol package also supplies the browser limits.
+Select filters use explicit enums; identifier filters allow 1–128 units.
+Workspace locale/time-zone inputs allow 1–128 units and must pass
+`Intl.DateTimeFormat` validation even when no draft search is performed.
+Invalid requests return the API's validation error; search text is not silently
+truncated.
+
+Filtering is still in memory over authorized lists, not database pagination.
+Debouncing and cancellation reduce normal browser traffic; they are not server
+rate limits. The trusted-network availability assumptions above still apply.
+Regression tests cover boundary lengths, invalid filter values, literal SQL/regex
+syntax, anonymous and under-scoped requests, and private-row/member exclusion.
 
 ## 4. What a harness pane can reach
 

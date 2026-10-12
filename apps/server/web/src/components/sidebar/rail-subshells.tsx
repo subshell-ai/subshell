@@ -1,7 +1,9 @@
 import { Input } from "@internal/node-admin";
+import { LIST_SEARCH_MAX } from "@internal/subshell-protocol";
 import { useLocation } from "@tanstack/react-router";
 import { ChevronsDownUp, ChevronsUpDown, Grid3x3, LayoutGrid, List } from "lucide-react";
 import { type RefObject, useCallback, useMemo, useState } from "react";
+import { ListLoadError } from "@/components/list-load-error";
 import { SubshellNodeGroup } from "@/components/sidebar/SubshellNodeGroup";
 import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
 import { flatCellRows, nodeTintBucket, paneInitial, SubshellCellGrid } from "@/components/sidebar/subshell-cell-grid";
@@ -9,8 +11,8 @@ import { TippedIconButton } from "@/components/tipped-icon-button";
 import { Segmented } from "@/components/ui/segmented";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useNodes } from "@/hooks/use-nodes";
-import { useOrderedSubshells } from "@/hooks/use-ordered-subshells";
 import { usePresets } from "@/hooks/use-presets";
+import { useFilteredSubshells } from "@/hooks/use-subshells";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { subshellIdFromPath, workspaceIdFromPath } from "@/lib/route-ids";
 import {
@@ -26,7 +28,7 @@ import {
 } from "@/lib/sidebar-node-group-pref";
 import { type RailSubshellsView, railSubshellsView, setRailSubshellsView } from "@/lib/sidebar-rail-view-pref";
 import { RECENT_LIMIT } from "@/lib/sidebar-recents";
-import { filterSubshells } from "@/lib/subshell-filter";
+import { sortByStatus } from "@/lib/subshell-indicator";
 import {
   CROSS_AGENT_GROUP_ID,
   FALLBACK_NODE_ID,
@@ -128,19 +130,9 @@ export function RailSubshells({
       presetId === null ? undefined : (presetData?.find((p) => p.id === presetId)?.name ?? presetId),
     [presetData],
   );
-  // Filter mode replaces the recents with matches over the FULL cached list
-  // (no server call — the list is already client-side). Same predicate as
-  // the home page and the add-subshell dialog (lib/subshell-filter).
   const q = query.trim();
-  // Sorted by liveness BEFORE the recents slice (band order documented in
-  // use-ordered-subshells), so a pile of old ended sessions can never crowd a
-  // live one out of the rail. The filter mode shares the same run.
-  const byStatus = useOrderedSubshells();
-  // The one filtered list all three modes read: the machine groups, the comms
-  // section AND the Needs Attention spotlight. Deriving it once makes "the
-  // spotlight sees the exact rows the groups see" a fact of the code rather
-  // than two identical expressions kept in sync by a comment.
-  const railRows = q ? filterSubshells(byStatus, query) : byStatus;
+  const results = useFilteredSubshells(query);
+  const railRows = sortByStatus(results.data ?? []);
   // Panes an AGENT opened over MCP leave the machine groups entirely
   // (operator ask 2026-09-25): they are internal cross-agent comms, filed in
   // one section of their own ABOVE the machine groups (moved from below on
@@ -403,11 +395,18 @@ export function RailSubshells({
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
           placeholder="Filter subshells…"
+          maxLength={LIST_SEARCH_MAX.subshells}
           aria-label="Filter subshells"
           className="h-7 text-detail"
         />
       </div>
-      {q !== "" && listedCount === 0 && <p className="px-3 py-1 text-detail text-muted-foreground">No matches.</p>}
+      {results.isError && (
+        <ListLoadError message="Couldn’t load subshells." retry={results.refetch} busy={results.isFetching} />
+      )}
+      {results.isLoading && <p className="px-3 py-1 text-detail text-muted-foreground">Loading…</p>}
+      {q !== "" && !results.isLoading && !results.isError && listedCount === 0 && (
+        <p className="px-3 py-1 text-detail text-muted-foreground">No matches.</p>
+      )}
 
       {view === "rows" && (
         <>

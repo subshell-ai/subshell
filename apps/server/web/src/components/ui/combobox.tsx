@@ -72,6 +72,10 @@ export interface SearchableSelectProps {
    * exactly that when this was keyed on `value === ""`).
    */
   consumed?: boolean;
+  /** Server-backed consumers own matching; fixed option lists keep local search. */
+  onSearchChange?: (query: string) => void;
+  /** Maximum search input length, matching the resource API. */
+  maxLength?: number;
 }
 
 /**
@@ -92,6 +96,8 @@ export function SearchableSelect({
   describedBy,
   emptyText = "No matches",
   consumed,
+  onSearchChange,
+  maxLength,
 }: SearchableSelectProps): JSX.Element {
   // Item values are the option objects; the external contract stays the
   // plain id string. Object identity would break under rebuilt arrays, so
@@ -134,29 +140,40 @@ export function SearchableSelect({
       // it to "" blanks the just-picked selection (caught by the setup
       // wizard when this was keyed on `value === ""`).
       inputValue={consumed === true ? query : undefined}
-      onInputValueChange={(next: string) => setQuery(next)}
+      onInputValueChange={(next: string) => {
+        setQuery(next);
+        onSearchChange?.(next);
+      }}
       onOpenChange={(open) => {
         // A reopened consumed search starts empty (the pick returned the
         // input to its placeholder); a held picker keeps Base UI's own
         // restore-the-label behavior.
-        if (!open && consumed === true) setQuery("");
+        if (!open && consumed === true) {
+          setQuery("");
+          onSearchChange?.("");
+        }
         if (open) return;
         const saved = scrollerRef.current;
         scrollerRef.current = null;
         if (saved?.el.isConnected && saved.el.scrollTop !== saved.top) saved.el.scrollTop = saved.top;
       }}
-      filter={(item: ComboboxOption, query: string) => {
-        // Per-field, trimmed: the same semantics the Prompts page filter
-        // (matchesPromptQuery) has, so the picker and the page answer a
-        // query identically. Joining the fields would match ACROSS the
-        // label/body boundary the page never matches.
-        const q = query.trim().toLowerCase();
-        if (q === "") return true;
-        return item.label.toLowerCase().includes(q) || (item.searchText ?? "").toLowerCase().includes(q);
-      }}
+      filter={
+        onSearchChange
+          ? null
+          : (item: ComboboxOption, query: string) => {
+              // Per-field, trimmed: the same semantics the Prompts page filter
+              // (matchesPromptQuery) has, so the picker and the page answer a
+              // query identically. Joining the fields would match ACROSS the
+              // label/body boundary the page never matches.
+              const q = query.trim().toLowerCase();
+              if (q === "") return true;
+              return item.label.toLowerCase().includes(q) || (item.searchText ?? "").toLowerCase().includes(q);
+            }
+      }
     >
       <ComboboxPrimitive.Input
         id={id}
+        maxLength={maxLength}
         aria-describedby={describedBy}
         placeholder={placeholder}
         onPointerDownCapture={() => {

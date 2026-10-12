@@ -98,10 +98,10 @@ describe("InjectPromptDialog", () => {
       // The picker now reads stacks too (spec 2026-09-29); this suite is
       // about singles, so none are offered (empty is a valid answer, not an
       // error, and keeps the fetch deterministic).
-      if (url === "/api/prompts/stacks") {
+      if (new URL(url, "http://localhost").pathname === "/api/prompts/stacks") {
         return Promise.resolve(new Response(JSON.stringify({ own: [], shared: [] })));
       }
-      if (url === "/api/prompts" && method !== "POST") {
+      if (new URL(url, "http://localhost").pathname === "/api/prompts" && method !== "POST") {
         return Promise.resolve(
           new Response(
             JSON.stringify({

@@ -1,10 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
+import { Elysia } from "elysia";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { db } from "@/db/index.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
@@ -98,6 +100,42 @@ describe("GET /api/subshells visibility + access", () => {
       }),
     );
   }
+
+  it("bounds search text and node identifiers", async () => {
+    const app = new Elysia().use(errorHandlerPlugin).use(subshellRoutes);
+    for (const [params, expected] of [
+      [{ q: "x".repeat(4096) }, 200],
+      [{ q: "x".repeat(4097) }, 400],
+      [{ nodeId: "x".repeat(129) }, 400],
+      [{ nodeId: "" }, 400],
+    ] as const) {
+      const response = await app.fetch(
+        new Request(`http://localhost/api/subshells?${new URLSearchParams(params)}`, {
+          headers: { cookie: `better-auth.session_token=${bobCookie}` },
+        }),
+      );
+      expect(response.status).toBe(expected);
+    }
+  });
+
+  it("filters the authorized list by text and node, including bearer reads", async () => {
+    const listFiltered = async (q: string, nodeId: string, bearer = false) => {
+      const response = await subshellRoutes.fetch(
+        new Request(`http://localhost/api/subshells?${new URLSearchParams({ q, nodeId })}`, {
+          headers: bearer
+            ? { authorization: `Bearer ${bobSubshellKey}` }
+            : { cookie: `better-auth.session_token=${bobCookie}` },
+        }),
+      );
+      expect(response.status).toBe(200);
+      return ((await response.json()) as { id: string }[]).map((s) => s.id).sort();
+    };
+    expect(await listFiltered(" S_BOB ", "local")).toEqual(["s_bob", "s_bobown"]);
+    expect(await listFiltered("s_bob", "missing")).toEqual([]);
+    expect(await listFiltered("s_priv", "local")).toEqual([]);
+    expect(await listFiltered("s_bob", "local", true)).toEqual(["s_bob", "s_bobown"]);
+    expect(await listFiltered("CLAUDE-CODE", "local")).toEqual(["s_all", "s_bob", "s_bobown"]);
+  });
 
   it("Bob sees his named-edit subshell + the Everyone-view one, each with the right access, never Alice's private one", async () => {
     const rows = (await (await list(bobCookie)).json()) as { id: string; access: string }[];

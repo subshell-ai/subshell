@@ -82,6 +82,21 @@ amber waiting, red unreachable, faint exited, hollow ended).
 
 ## Dashboard pages and tables
 
+Dashboard list filters run through their HTTP list endpoints. Debounce text inputs
+by 300 ms; apply select filters immediately. Keep the input and clear action
+available for zero matches, distinguish loading and failed requests from empty
+results, and preserve the user's text while responses arrive. Failed searches
+need a visible error and Retry action, including sidebars and pickers; never
+show “no matches” for a failed request. Match HTML input `maxLength` to the
+resource limit in `LIST_SEARCH_MAX`; the API independently rejects oversized
+queries. Show list loading
+inside a card using `LoadingCard`: a centered spinner and a specific message
+such as “Loading nodes…”. Center the group horizontally and vertically, announce
+it as a status, and respect reduced-motion preferences. Filtered results
+use separate query keys from complete lists used by navigation, counts, and
+pickers. Fixed option menus and presentation choices such as grouping stay local.
+
+
 These are the dashboard decisions established on 2026-10-11. They apply to
 new pages and changes to existing pages; dated design proposals do not override
 this guide.

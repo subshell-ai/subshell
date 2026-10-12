@@ -53,6 +53,7 @@ export {
   lingerProbeArgv,
   lingerVerdict,
 } from "./linger.js";
+export { LIST_SEARCH_MAX } from "./list-search.js";
 // NOTE: release-artifacts.ts, release-signature.ts and service-test-safety.ts
 // (node: builtins) are intentionally NOT re-exported here — this barrel is
 // imported by apps/client/mobile through Metro, which cannot resolve

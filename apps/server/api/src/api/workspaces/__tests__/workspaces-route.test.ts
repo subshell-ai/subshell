@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
+import { Elysia } from "elysia";
 import { workspaceRoutes } from "@/api/workspaces/index.js";
 import { authDatabase } from "@/auth/database.js";
 import { db } from "@/db/index.js";
@@ -7,6 +8,7 @@ import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
@@ -78,6 +80,37 @@ describe("workspaces route", () => {
     await db.deleteFrom("userMeta").where("userId", "=", otherId).execute();
     await deleteUserByEmailOrId(ownerEmail);
     await deleteUserByEmailOrId(otherEmail);
+  });
+
+  it("validates search and auxiliary inputs even without a draft search", async () => {
+    const app = new Elysia().use(errorHandlerPlugin).use(workspaceRoutes);
+    const token = await signIn(ownerEmail, password);
+    for (const [params, expected] of [
+      [{ q: "x".repeat(120) }, 200],
+      [{ q: "x".repeat(121) }, 400],
+      [{ subshellId: "x".repeat(129) }, 400],
+      [{ locale: "bad_locale" }, 400],
+      [{ timeZone: "bad/timezone" }, 400],
+      [{ locale: "x".repeat(129) }, 400],
+      [{ timeZone: "x".repeat(129) }, 400],
+      [{ drafts: "all" }, 400],
+    ] as const) {
+      const response = await app.fetch(authedRequest(`/api/workspaces?${new URLSearchParams(params)}`, token));
+      expect(response.status).toBe(expected);
+    }
+  });
+
+  it("searches saved workspaces within the owner's list", async () => {
+    const token = await signIn(ownerEmail, password);
+    const other = await signIn(otherEmail, password);
+    const id = await createWorkspace(token, "Needle & saved");
+    await createWorkspace(token, "Other workspace");
+    await createWorkspace(other, "Needle & foreign");
+    const response = await workspaceRoutes.fetch(
+      authedRequest(`/api/workspaces?${new URLSearchParams({ q: " NEEDLE & " })}`, token),
+    );
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { id: string }[]).map((w) => w.id)).toEqual([id]);
   });
 
   /** POSTs a workspace and returns its id. */
@@ -430,6 +463,36 @@ describe("workspaces route", () => {
       expect(res.status).toBe(200);
       return ((await res.json()) as { id: string }).id;
     }
+
+    it("searches draft labels in the browser's locale and time zone", async () => {
+      const token = await signIn(ownerEmail, password);
+      const first = await post(token, { name: "First draft", draft: true });
+      const second = await post(token, { name: "Duplicate name suffix", draft: true });
+      const firstId = ((await first.json()) as { id: string }).id;
+      const secondId = ((await second.json()) as { id: string }).id;
+      await db
+        .updateTable("workspaces")
+        .set({ createdAt: "2026-08-28T16:45:30.000Z" })
+        .where("id", "=", firstId)
+        .execute();
+      await db
+        .updateTable("workspaces")
+        .set({ createdAt: "2026-08-28T16:45:00.000Z" })
+        .where("id", "=", secondId)
+        .execute();
+      const search = async (q: string, timeZone = "America/Los_Angeles") =>
+        workspaceRoutes.fetch(
+          authedRequest(
+            `/api/workspaces?${new URLSearchParams({ q, drafts: "only", locale: "en-US", timeZone })}`,
+            token,
+          ),
+        );
+      const byDate = await search("9:45");
+      expect(((await byDate.json()) as { id: string }[]).map((w) => w.id)).toEqual([firstId, secondId]);
+      const bySuffix = await search("duplicate name");
+      expect(((await bySuffix.json()) as { id: string }[]).map((w) => w.id)).toEqual([secondId]);
+      expect((await search("test", "bad/timezone")).status).toBe(400);
+    });
 
     it("a draft is absent from the workspace list, and says so on create", async () => {
       const token = await signIn(ownerEmail, password);

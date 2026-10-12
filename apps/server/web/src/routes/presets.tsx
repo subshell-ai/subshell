@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { DashboardPage } from "@/components/dashboard-page";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorBanner } from "@/components/error-banner";
+import { LoadingCard } from "@/components/loading-card";
 import { PageHeader } from "@/components/page-header";
 import { PluginIcon } from "@/components/plugin-icon";
 import { CreatePresetDialog } from "@/components/presets/create-preset-dialog";
@@ -113,7 +114,7 @@ function PresetsPage() {
         />
       )}
 
-      {isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
+      {isLoading && <LoadingCard message="Loading presets…" />}
 
       {/* A failed list load is not an empty account: say so, and offer the
           retry the old silent blank denied. */}

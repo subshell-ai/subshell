@@ -137,6 +137,47 @@ describe("/api/prompts (spec 2026-09-28)", () => {
     expect((list.json as unknown as { shared: PromptView[] }).shared).toEqual([]);
   });
 
+  it("searches descriptions and bodies literally without disclosing private prompts", async () => {
+    const needle = unique("Search%_&");
+    const created = await call("/", { cookie: ownerCookie, body: { description: "Search fixture", body: needle } });
+    const id = created.json.id as string;
+    createdPromptIds.push(id);
+    const path = `?${new URLSearchParams({ q: `  ${needle.toUpperCase()}  ` })}`;
+    const own = await call(path, { cookie: ownerCookie });
+    expect(own.status).toBe(200);
+    expect((own.json as unknown as { own: PromptView[] }).own.map((p) => p.id)).toEqual([id]);
+    const privateRead = await call(path, { cookie: readerCookie });
+    expect((privateRead.json as unknown as { shared: PromptView[] }).shared).toEqual([]);
+    await call(`/${id}`, { cookie: ownerCookie, method: "PUT", body: { shared: true } });
+    const sharedRead = await call(path, { cookie: readerCookie });
+    expect((sharedRead.json as unknown as { shared: PromptView[] }).shared.map((p) => p.id)).toEqual([id]);
+    const scoped = await call(`${path}&scope=own`, { cookie: readerCookie });
+    expect((scoped.json as unknown as { shared: PromptView[] }).shared).toEqual([]);
+  });
+
+  it("bounds searches and rejects invalid scope without weakening authentication or permissions", async () => {
+    const query = (q: string) => `?${new URLSearchParams({ q })}`;
+    expect((await call(query("x".repeat(20000)), { cookie: ownerCookie })).status).toBe(200);
+    expect((await call(query("x".repeat(20001)), { cookie: ownerCookie })).status).toBe(400);
+    expect((await call(query("🦊".repeat(10001)), { cookie: ownerCookie })).status).toBe(400);
+    expect((await call("?scope=everyone", { cookie: ownerCookie })).status).toBe(400);
+    expect((await call(query("private"))).status).toBe(401);
+    const key = await mintKey(ownerId, { subshells: ["read"] });
+    expect((await call(query("private"), { bearer: key })).status).toBe(403);
+    for (const q of ["' OR 1=1 --", "(a+)+$", "<script>alert(1)</script>", "%_"]) {
+      const response = await call(query(q), { cookie: readerCookie });
+      expect(response.status).toBe(200);
+      // SQL/regex syntax is a substring, never an instruction or wildcard.
+      const view = response.json as unknown as { own: PromptView[]; shared: PromptView[] };
+      expect(
+        [...view.own, ...view.shared].every(
+          (p) =>
+            p.body.toLowerCase().includes(q.toLowerCase()) || p.description.toLowerCase().includes(q.toLowerCase()),
+        ),
+      ).toBe(true);
+    }
+  });
+
   it("refuses an empty or whitespace description and an empty body", async () => {
     for (const body of [
       { description: "", body: "x" },

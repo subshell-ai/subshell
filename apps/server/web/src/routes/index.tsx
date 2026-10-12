@@ -6,6 +6,7 @@ import { useState } from "react";
 import { DashboardPage } from "@/components/dashboard-page";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorBanner } from "@/components/error-banner";
+import { LoadingCard } from "@/components/loading-card";
 import { useQuickAdd } from "@/components/quick-add";
 import { SubshellCard } from "@/components/subshell-card";
 import { SubshellManagerTable } from "@/components/subshell-manager-table";
@@ -18,10 +19,11 @@ import { useCardPreviews } from "@/hooks/use-card-previews";
 import { useClockTick } from "@/hooks/use-clock-tick";
 import { useNodes } from "@/hooks/use-nodes";
 import { usePublicSettings } from "@/hooks/use-public-settings";
+import { useFilteredSubshells } from "@/hooks/use-subshells";
 import { useLiveSubshells } from "@/hooks/useLiveSubshells";
 import { launchGuidance } from "@/lib/launch-guidance";
 import { canAddNode } from "@/lib/node-enrollment";
-import { filterByNode, filterSubshells, machineIds } from "@/lib/subshell-filter";
+import { machineIds } from "@/lib/subshell-filter";
 import { ACTIVITY_TICK_MS, sortByStatus } from "@/lib/subshell-indicator";
 import { groupSubshellsByNode, needsAttention, nodeLabelFor } from "@/lib/subshell-node-groups";
 import { priorityRunning } from "@/lib/subshell-order";
@@ -79,8 +81,8 @@ function SubshellsPage() {
   // and the loop saturates the main thread (fresh-instance hang, 2026-09-03;
   // regression: e2e spec 01).
 
-  const searched = filterSubshells(subshells, query);
-  const filtered = machine === "all" ? searched : filterByNode(searched, machine);
+  const results = useFilteredSubshells(query, machine === "all" ? undefined : machine);
+  const filtered = results.data ?? [];
   // The cards are the only surface that renders a screen, so they are what
   // asks for one (spec 2026-09-19 §4.4).
   useCardPreviews(filtered.map((s) => s.id));
@@ -242,7 +244,7 @@ function SubshellsPage() {
         </div>
       </div>
 
-      {isLoading && <p className="text-muted-foreground text-sm">Loading subshells…</p>}
+      {(isLoading || results.isLoading) && <LoadingCard message="Loading subshells…" />}
 
       {/* A failed list fetch is not an empty account: say what broke and
           offer the retry, rather than the "No subshells yet" card — the live
@@ -250,15 +252,15 @@ function SubshellsPage() {
           the page has. Network failures now also self-heal via the query
           retry loop (and the global offline banner); the button remains for
           HTTP failures and the impatient. */}
-      {isError && (
+      {(isError || results.isError) && (
         <ErrorBanner
-          message="Couldn't load subshells, retrying…"
+          message="Couldn't load subshells."
           action={
             <Button
               variant="link"
               size="sm"
               className="h-auto p-0 text-destructive underline"
-              onClick={() => void refetch()}
+              onClick={() => void Promise.all([refetch(), results.refetch()])}
             >
               Try again
             </Button>
@@ -293,7 +295,7 @@ function SubshellsPage() {
           />
         ))}
 
-      {!isLoading && subshells.length > 0 && filtered.length === 0 && (
+      {!isLoading && !results.isLoading && !results.isError && subshells.length > 0 && filtered.length === 0 && (
         <p className="text-muted-foreground text-sm">
           {query ? (
             <>No subshells match “{query}”.</>

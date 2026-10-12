@@ -1,14 +1,16 @@
 import { apiFetch, apiPost } from "@internal/node-admin";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { useFilteredList } from "@/hooks/use-filtered-list";
 import type { PromptDraft } from "@/lib/prompt-form";
 import type { PromptStackDraft } from "@/lib/prompt-stack-form";
 import type { StacksView } from "@/lib/prompt-stacks";
 import type { PromptsView } from "@/lib/prompts";
 
 /**
- * The saved-prompt library (spec 2026-09-28). One key, one URL: the page,
- * the launch-form picker, and the inject dialog all read the SAME list, the
- * way every preset surface reads `["presets"]`. Mutations invalidate rather
+ * The saved-prompt library. Unfiltered readers share the complete list;
+ * server searches use child keys so mutations invalidate every result.
+ * Mutations invalidate rather
  * than patch: unlike the preset selection (which the launch form guards
  * against a cache that has not refetched yet), no picker selects a prompt by
  * id from this cache in the same turn it was created.
@@ -23,22 +25,22 @@ import type { PromptsView } from "@/lib/prompts";
 export const PROMPTS_QUERY_KEY = ["prompts"] as const;
 export const PROMPT_STACKS_QUERY_KEY = ["prompt-stacks"] as const;
 
-export function usePrompts() {
-  return useQuery({
-    queryKey: PROMPTS_QUERY_KEY,
-    queryFn: () => apiFetch<PromptsView>("/api/prompts"),
-  });
+export function usePrompts(search = "", scope?: "own" | "shared") {
+  const q = useDebouncedValue(search.trim());
+  return useFilteredList<PromptsView>(PROMPTS_QUERY_KEY, "/api/prompts", { q, scope });
 }
 
 /** `enabled` lets a consumer that cannot show stacks (the stack editor's
  *  picker, which must not nest) skip the request entirely rather than fetch
  *  a list it will never render. */
-export function usePromptStacks(opts?: { enabled?: boolean }) {
-  return useQuery({
-    queryKey: PROMPT_STACKS_QUERY_KEY,
-    queryFn: () => apiFetch<StacksView>("/api/prompts/stacks"),
-    enabled: opts?.enabled ?? true,
-  });
+export function usePromptStacks(opts?: { enabled?: boolean; search?: string; scope?: "own" | "shared" }) {
+  const q = useDebouncedValue(opts?.search?.trim() ?? "");
+  return useFilteredList<StacksView>(
+    PROMPT_STACKS_QUERY_KEY,
+    "/api/prompts/stacks",
+    { q, scope: opts?.scope },
+    { enabled: opts?.enabled ?? true },
+  );
 }
 
 /** Both keys, the prompt mutations' rule: membership reads through to stacks. */

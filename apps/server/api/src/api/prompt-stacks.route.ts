@@ -1,11 +1,19 @@
+import { LIST_SEARCH_MAX } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
+import { matchesListQuery } from "@/api/list-filter.js";
 import { db } from "@/db/index.js";
 import { PromptStacksRepository, StackMemberReferenceGone } from "@/db/repositories/prompt-stacks.repository.js";
 import { PromptsRepository } from "@/db/repositories/prompts.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { PromptStackItemTable, PromptStackTable } from "@/db/types/prompt-stacks.db-types.js";
 import type { PromptTable } from "@/db/types/prompts.db-types.js";
+
+const ListPromptStacksQuerySchema = t.Object({
+  q: t.Optional(t.String({ maxLength: LIST_SEARCH_MAX.prompts })),
+  empty: t.Optional(t.Literal("only")),
+  scope: t.Optional(t.Union([t.Literal("own"), t.Literal("shared")])),
+});
 
 /**
  * Prompt stacks (spec 2026-09-29): ordered collections of saved prompts with a
@@ -263,10 +271,13 @@ export const promptStackRoutes = new Elysia()
   .use(authGuard)
   .get(
     "/stacks",
-    async ({ user, actor, apiKeyPermissions }) => {
+    async ({ user, actor, apiKeyPermissions, query }) => {
       requirePerm({ actor, apiKeyPermissions }, "prompts", "read");
       const repo = new PromptStacksRepository(db);
-      const [own, shared] = await Promise.all([repo.listOwn(user.id), repo.listShared(user.id)]);
+      const [own, shared] = await Promise.all([
+        query.scope === "shared" ? [] : repo.listOwn(user.id),
+        query.scope === "own" ? [] : repo.listShared(user.id),
+      ]);
       const stacks = [...own, ...shared];
       const items = await repo.listItemsForStacks(stacks.map((s) => s.id));
       const refIds = [...new Set(items.flatMap((i) => (i.promptId ? [i.promptId] : [])))];
@@ -279,26 +290,33 @@ export const promptStackRoutes = new Elysia()
         byStack.set(item.stackId, list);
       }
       const itemsFor = (id: string) => itemViews(byStack.get(id) ?? [], prompts, names, user.id);
+      const matches = (s: { label: string; items: { description: string; body: string }[] }) =>
+        matchesListQuery(query.q, s.label, ...s.items.flatMap((i) => [i.description, i.body]));
       return {
-        own: own.map((s) => ({
-          id: s.id,
-          label: s.label,
-          shared: s.shared === 1,
-          createdAt: s.createdAt,
-          updatedAt: s.updatedAt,
-          items: itemsFor(s.id),
-        })),
-        shared: shared.map((s) => ({
-          id: s.id,
-          label: s.label,
-          ownerName: names.get(s.userId) ?? s.userId,
-          createdAt: s.createdAt,
-          updatedAt: s.updatedAt,
-          items: itemsFor(s.id),
-        })),
+        own: own
+          .map((s) => ({
+            id: s.id,
+            label: s.label,
+            shared: s.shared === 1,
+            createdAt: s.createdAt,
+            updatedAt: s.updatedAt,
+            items: itemsFor(s.id),
+          }))
+          .filter((s) => matches(s) && (query.empty !== "only" || s.items.length === 0)),
+        shared: shared
+          .map((s) => ({
+            id: s.id,
+            label: s.label,
+            ownerName: names.get(s.userId) ?? s.userId,
+            createdAt: s.createdAt,
+            updatedAt: s.updatedAt,
+            items: itemsFor(s.id),
+          }))
+          .filter(matches),
       };
     },
     {
+      query: ListPromptStacksQuerySchema,
       response: PromptStacksListSchema,
       detail: {
         operationId: "listPromptStacks",

@@ -629,3 +629,20 @@ Separately, the repo-root `e2e/` suite drives this server as a real subprocess
 (`bun src/index.ts` with `NODE_ENV=development` against a temp-file DB and a
 stub `pi` harness on port 3199), a full-stack check that is deliberately
 outside `bun test`. It is launched by `bun run test:e2e`, never by `turbo test`.
+
+## List filters
+
+The dashboard sends optional `q` parameters to the nodes, subshells, prompts,
+prompt stacks, and workspaces list routes. Matching is a trimmed,
+case-insensitive literal substring, after the caller's visibility rules.
+Nodes also accept `status` and `access`; subshells accept `nodeId`; stacks
+accept `empty=only` for owned stacks. Prompts and stacks also accept
+`scope=own|shared`. Search stack members only after dropping
+references the caller cannot see. Workspace draft searches receive the browser's
+`locale` and `timeZone` to match the labels rendered in the sidebar.
+
+Search lengths come from `LIST_SEARCH_MAX` in the protocol package; use the
+same constants for browser input limits. Keep identifier/locale/time-zone
+filters bounded, validate locale and time zone before reading workspace rows,
+and retain enum validation for select filters. See `docs/security.md`'s
+Dashboard list search inputs section for the security constraints.

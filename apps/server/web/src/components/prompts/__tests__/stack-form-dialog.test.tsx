@@ -51,7 +51,7 @@ function mockFetch(opts: { failWith?: string } = {}) {
     }
     // The embedded picker's singles list (allowStacks=false: it never asks
     // for /api/prompts/stacks, which is itself part of what this suite proves).
-    if (url === "/api/prompts") {
+    if (new URL(url, "http://localhost").pathname === "/api/prompts") {
       return Promise.resolve(new Response(JSON.stringify({ own: [], shared: [] })));
     }
     // Any other URL: a TEST FAILURE in progress (a stack request from the
