@@ -189,6 +189,18 @@ last group. Keep the relative ordering within each group. Presentation changes
 must preserve permissions: hiding a column or removing a badge must not hide an
 otherwise available management action or grant a new one.
 
+### Dialog dismissal
+
+Dialogs and modal sheets stay open when someone clicks or taps outside them.
+Every dialog must offer an explicit Close, Cancel, or Done control; an accessible
+Close (×) button counts. Apply this in the shared dialog primitives across the
+web dashboard, node dashboard, and desktop apps. Native mobile modals follow the
+same rule. Popovers and menus aren't dialogs and keep their outside-dismiss behavior.
+
+Escape and native Back keep their existing behavior. New/edit forms may block
+Escape to protect unsaved work, and running operations may temporarily block
+closing when interruption isn't supported; explain that state beside the controls.
+
 ### Configuration dialogs
 
 For sign-in providers, the table summarizes Enabled, Sign-in, Registration,
@@ -320,6 +332,16 @@ admitted here.
   (`text-warning`), including directory rules and stopping or uninstalling a
   node service. On touch-only surfaces, keep the reason visible or available
   on tap; hover mustn't be the only way to discover it.
+- **Selected segments**: `Segmented` uses the primary button fill for its
+  selected option, separate from keyboard focus. Keep each option's original
+  icon when present; do not add checkmarks or other selection icons. Workspace
+  tabs (phone strip and dockview) use the same primary-button gradient and
+  foreground tokens. Keep the selected tab visible in unfocused dock groups;
+  the focused group gets a separate underline. Preserve status dots, waiting
+  indicators, close actions, and keyboard focus cues. Desktop setup choices
+  use the shared primary button variant when selected. Native mobile tabs and
+  choice chips use `colors.primary` with `colors.primaryFg`, matching the native
+  primary button; don't rely on a border or text color alone for selection.
 - **Tab group**: a page's tab strip is CONTENT-SIZED (`Segmented fill={false}`),
   never stretched across the container: two tab labels sharing the page's full
   width read as data columns rather than as choices, and the stretch grows the

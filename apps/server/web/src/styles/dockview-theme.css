@@ -40,17 +40,16 @@
 
   /* Active tab in the focused group: the one surface that should read as
      "selected" everywhere at once. */
-  --dv-activegroup-visiblepanel-tab-background-color: #221c32;
-  --dv-activegroup-visiblepanel-tab-color: var(--foreground);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--button-primary-from);
+  --dv-activegroup-visiblepanel-tab-color: var(--button-primary-foreground);
   /* Background tabs in the focused group. */
   --dv-activegroup-hiddenpanel-tab-background-color: #181226;
   --dv-activegroup-hiddenpanel-tab-color: var(--muted-foreground);
 
-  /* Same pair, but for a group that doesn't currently have focus — kept a
-     shade flatter than the active group's tabs so focus is readable at a
-     glance across tiles. */
-  --dv-inactivegroup-visiblepanel-tab-background-color: #181226;
-  --dv-inactivegroup-visiblepanel-tab-color: var(--muted-foreground);
+  /* Selection stays visible in every group; the focused group gets a separate
+     underline below, so focus and selection don't contradict each other. */
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--button-primary-from);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--button-primary-foreground);
   --dv-inactivegroup-hiddenpanel-tab-background-color: #181226;
   --dv-inactivegroup-hiddenpanel-tab-color: var(--muted-foreground);
 
@@ -70,6 +69,21 @@
   --dv-drag-over-background-color: color-mix(in oklch, var(--primary) 20%, transparent);
   --dv-drag-over-border-color: var(--primary);
   --dv-floating-box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* Match Segmented's primary-button treatment, including in an unfocused tile.
+   Dockview's palette variables accept colors, so the gradient belongs here. */
+.dockview-theme-abyss .dv-tabs-container > .dv-tab.dv-active-tab {
+  background-image: linear-gradient(135deg, var(--button-primary-from), var(--button-primary-to));
+  font-weight: var(--font-weight-strong);
+}
+
+.dockview-theme-abyss .dv-tabs-container > .dv-tab.dv-active-tab:hover {
+  background-image: linear-gradient(135deg, var(--button-primary-hover-from), var(--button-primary-hover-to));
+}
+
+.dockview-theme-abyss .dv-active-group > .dv-tabs-and-actions-container .dv-tab.dv-active-tab {
+  box-shadow: inset 0 -2px var(--primary);
 }
 
 /* Touch ergonomics for iPad landscape (spec §6): fingers need more than a

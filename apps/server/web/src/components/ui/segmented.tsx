@@ -62,7 +62,7 @@ export interface SegmentedProps<T extends string> {
 
 /**
  * A row of mutually exclusive choices — a bordered pill group where the
- * active option gets the `secondary` fill and every option carries
+ * active option gets the primary fill and every option carries
  * `aria-pressed`. Two shapes by `fill`: the default shares the width EQUALLY,
  * so a switch inside a bounded row reads as one control; `fill={false}` sizes
  * the group to its words, which is the shape a PAGE-level tab strip takes —
@@ -105,7 +105,7 @@ export function Segmented<T extends string>({
           // the sm height for the rail's 24px (twMerge resolves it against
           // the variant's h-8; horizontal px stays — see the prop's JSDoc).
           className: cn("min-w-0", fill && "flex-1", dense && "h-6"),
-          variant: value === option.value ? "secondary" : "ghost",
+          variant: value === option.value ? "default" : "ghost",
           "aria-pressed": value === option.value,
           "aria-label": option.ariaLabel,
           onClick: () => onChange(option.value),

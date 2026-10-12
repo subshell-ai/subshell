@@ -4,7 +4,7 @@
  * incomplete paths block arms nothing), the hostname gate the page shares
  * with Rust, the two panes and their meter, and the action row's busy states.
  * What the modal adds to what the screen ruled: the dismissal (Cancel,
- * backdrop, Escape) is the way out until the chain runs, and INERT while it
+ * Escape) is the way out until the chain runs, and INERT while it
  * runs — a running reset keeps its old room's rule that nothing ends it but
  * its own end.
  */
@@ -242,13 +242,15 @@ describe("the modal's dismissal", () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
-  it("answers the backdrop, but not a press on the card itself", () => {
+  it("ignores backdrop presses and closes through Cancel", () => {
     const onCancel = vi.fn();
     renderReset({ onCancel });
     const card = screen.getByRole("dialog");
-    fireEvent.click(card); // the island stops the event before the dismissal
+    fireEvent.click(card);
     expect(onCancel).not.toHaveBeenCalled();
     fireEvent.click(card.parentElement as HTMLElement);
+    expect(onCancel).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 

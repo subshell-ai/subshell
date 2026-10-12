@@ -8,9 +8,11 @@ import type { HTMLAttributes } from "react";
  * names unchanged). Centered modals need no Positioner — the Popup places
  * itself. Enter/exit animations ride Base UI's `data-starting-style` /
  * `data-ending-style` presence attributes instead of Radix's
- * `data-[state=...]` keyframe classes.
+ * `data-[state=...]` keyframe classes. Outside presses never dismiss it.
  */
-export const Dialog = DialogPrimitive.Root;
+export function Dialog<Payload = unknown>(props: Omit<DialogPrimitive.Root.Props<Payload>, "disablePointerDismissal">) {
+  return <DialogPrimitive.Root {...props} disablePointerDismissal />;
+}
 export const DialogTrigger = DialogPrimitive.Trigger;
 export const DialogClose = DialogPrimitive.Close;
 export const DialogPortal = DialogPrimitive.Portal;

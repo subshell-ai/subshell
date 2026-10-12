@@ -56,16 +56,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }): Re
     <>
       {children}
       {prompt && (
-        // biome-ignore lint/a11y/noStaticElementInteractions: the backdrop is deliberately non-interactive (role=presentation); the click-away dismiss is a mouse-only convenience that resolves false, and keyboard/AT users reach the Cancel button and the Escape handler in the effect above.
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4"
-          // A scrim click is a dismiss, the same as Escape or Cancel: it never
-          // resolves true, so nothing destructive happens on an errant click.
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) answer(false);
-          }}
-          role="presentation"
-        >
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4" role="presentation">
           <div
             role="alertdialog"
             aria-modal="true"

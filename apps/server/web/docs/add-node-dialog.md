@@ -28,7 +28,8 @@ The Nodes UI (`routes/nodes.tsx`, `routes/nodes_.$id.tsx`, components grouped in
 `components/nodes/`, data in `hooks/use-nodes.ts` + `use-node-shares.ts`): the
 **Add-node dialog is ONE screen** (operator's call, 2026-09-18) titled
 **"Install Subshell client"**: the trigger button stays "Add node", but opening it
-lands on the instructions; the old first screen, whose whole content was one
+lands on the instructions. Clicking outside leaves the dialog and its setup key
+open; Done, Close, and Escape still dismiss it. The old first screen, whose whole content was one
 button, is gone. Its address dropdown is labelled **"Select Subshell server
 address"**, and it **names what the node dials forever** (operator's call,
 2026-09-18), not merely the curl's host, and it sits ABOVE the mint press and the

@@ -164,9 +164,7 @@ test("launch dialog survives the agent dropdown's scroll shift", async ({ page }
   await scroller.evaluate((el) => {
     el.scrollTop = el.scrollHeight;
   });
-  // Dismiss the dropdown: a point inside the dialog's bottom padding —
-  // outside the popup, and NOT the backdrop (a backdrop tap closes the
-  // whole dialog).
+  // Dismiss only the dropdown by tapping the dialog's bottom padding.
   const dbox = await dialog.boundingBox();
   expect(dbox).toBeTruthy();
   if (!dbox) throw new Error("Dialog has no bounding box");

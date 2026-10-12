@@ -334,7 +334,7 @@ export function TmuxScreen(props: {
             {routes.map((route) => (
               <Button
                 key={route.target}
-                variant="outline"
+                variant={opened === route.target ? "default" : "outline"}
                 aria-pressed={opened === route.target}
                 onClick={() => setOpened(opened === route.target ? null : route.target)}
               >

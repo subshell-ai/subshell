@@ -233,7 +233,7 @@ export default function NewSubshell() {
                       }}
                       disabled={!usable}
                       disabledReason={"This agent is unavailable."}
-                      // Selection and greying are carried by border colour and
+                      // Selection and greying are carried by the filled background and
                       // opacity, which a screen reader cannot see. The state
                       // props are the only announcement of either — and the
                       // greyed chips are new in this cut, so the disabled half
@@ -245,11 +245,11 @@ export default function NewSubshell() {
                         borderRadius: radius,
                         borderWidth: 1,
                         borderColor: sel ? colors.primary : colors.border,
-                        backgroundColor: colors.card,
+                        backgroundColor: sel ? colors.primary : colors.card,
                         opacity: usable ? 1 : 0.5,
                       }}
                     >
-                      <Text style={{ ...font("label"), color: sel ? colors.primary : colors.fg }}>
+                      <Text style={{ ...font("label"), color: sel ? colors.primaryFg : colors.fg }}>
                         {p.icon ? `${p.icon} ` : ""}
                         {p.name}
                       </Text>
@@ -275,10 +275,12 @@ export default function NewSubshell() {
                     borderRadius: radius,
                     borderWidth: 1,
                     borderColor: presetId === null ? colors.primary : colors.border,
-                    backgroundColor: colors.card,
+                    backgroundColor: presetId === null ? colors.primary : colors.card,
                   }}
                 >
-                  <Text style={{ ...font("label"), color: presetId === null ? colors.primary : colors.fg }}>None</Text>
+                  <Text style={{ ...font("label"), color: presetId === null ? colors.primaryFg : colors.fg }}>
+                    None
+                  </Text>
                 </Pressable>
                 {agentPresets.map((pr) => {
                   const sel = presetId === pr.id;
@@ -293,10 +295,10 @@ export default function NewSubshell() {
                         borderRadius: radius,
                         borderWidth: 1,
                         borderColor: sel ? colors.primary : colors.border,
-                        backgroundColor: colors.card,
+                        backgroundColor: sel ? colors.primary : colors.card,
                       }}
                     >
-                      <Text style={{ ...font("label"), color: sel ? colors.primary : colors.fg }}>{pr.name}</Text>
+                      <Text style={{ ...font("label"), color: sel ? colors.primaryFg : colors.fg }}>{pr.name}</Text>
                     </Pressable>
                   );
                 })}
@@ -331,11 +333,11 @@ export default function NewSubshell() {
                         borderRadius: radius,
                         borderWidth: 1,
                         borderColor: sel ? colors.primary : colors.border,
-                        backgroundColor: colors.card,
+                        backgroundColor: sel ? colors.primary : colors.card,
                         opacity: pickable ? 1 : 0.5,
                       }}
                     >
-                      <Text style={{ ...font("label"), color: sel ? colors.primary : colors.fg }}>
+                      <Text style={{ ...font("label"), color: sel ? colors.primaryFg : colors.fg }}>
                         {/* `n.name`, never a word derived from the id: the
                             control-plane row is admin-named (root AGENTS.md,
                             spec 2026-09-08) and defaults to "Server", so the

@@ -529,12 +529,6 @@
     justify-content: center;
     gap: 8px;
   }
-  /* The pressed manager reads as chosen, since its instructions are what is
-     below. */
-  .manual-routes button[aria-pressed="true"] {
-    border-color: var(--primary);
-    color: var(--foreground);
-  }
   /* The chosen manager's two steps: get it from its own site, then run one
      line. Centred under the pair, on the same 4px rhythm as the rest. */
   .manual-steps {

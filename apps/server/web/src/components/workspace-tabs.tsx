@@ -48,17 +48,16 @@ export function WorkspaceTab({ pane, active, onSelect, onRemove, waiting }: Work
     <div
       className={cn(
         "flex shrink-0 items-stretch border-b-2",
-        active ? "border-primary bg-terminal-tab-active" : "border-transparent",
+        active
+          ? "border-primary bg-[linear-gradient(135deg,var(--button-primary-from),var(--button-primary-to))] text-[var(--button-primary-foreground)] hover:bg-[linear-gradient(135deg,var(--button-primary-hover-from),var(--button-primary-hover-to))]"
+          : "border-transparent text-muted-foreground",
       )}
     >
       <button
         type="button"
         onClick={onSelect}
         aria-current={active}
-        className={cn(
-          "flex min-h-11 max-w-[220px] items-center gap-2 px-4 text-sm",
-          active ? "text-foreground" : "text-muted-foreground",
-        )}
+        className={cn("flex min-h-11 max-w-[220px] items-center gap-2 px-4 text-sm", active && "font-strong")}
       >
         {subshell && <SubshellDot subshell={subshell} className="mt-0" />}
         <span className="truncate">{pane.subshellName}</span>
@@ -68,7 +67,7 @@ export function WorkspaceTab({ pane, active, onSelect, onRemove, waiting }: Work
         type="button"
         onClick={onRemove}
         aria-label={`Remove ${pane.subshellName} from workspace`}
-        className="flex h-11 w-11 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
+        className="flex h-11 w-11 shrink-0 items-center justify-center hover:bg-accent/50"
       >
         <X className="h-4 w-4" />
       </button>

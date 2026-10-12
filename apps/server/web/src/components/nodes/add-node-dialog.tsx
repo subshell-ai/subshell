@@ -54,7 +54,7 @@ export function AddNodeDialog({
 }: {
   /** Whether the dialog is shown (drives the parent's polling too) */
   open: boolean;
-  /** Open/close from inside (Done/overlay) */
+  /** Open/close from inside (Done, Close, or Escape) */
   onOpenChange: (open: boolean) => void;
   /** Current visible-node count — its rise over the creation-time baseline means "enrolled" */
   nodeCount: number;
