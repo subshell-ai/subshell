@@ -36,6 +36,7 @@
  */
 import { chmodSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname } from "node:path";
+import { NODE_UPDATE_SERVER_BUSY_MESSAGE } from "@internal/backend-errors";
 import { hostReleaseTarget, releaseAssetNames, semverLt } from "@internal/subshell-protocol";
 import { serverConfigDir } from "@/config-env.js";
 import { SUBSHELL_DB_BACKUPS_KEEP } from "@/constants.js";
@@ -107,6 +108,11 @@ export function currentUpdateJob(): UpdateJob | null {
 /** Whether a job is in flight — anything that is not `failed`. */
 export function updateJobRunning(): boolean {
   return job !== null && job.phase !== "failed";
+}
+
+/** Node downloads depend on this process staying available until they finish. */
+export function nodeUpdateBlockReason(): string | null {
+  return updateJobRunning() || readPending() !== null ? NODE_UPDATE_SERVER_BUSY_MESSAGE : null;
 }
 
 /** Drop the job so a suite starts clean. @internal */
@@ -383,6 +389,8 @@ export interface ReleaseRef {
 
 /** What `GET /api/admin/server/update` answers (spec §4.5). */
 export interface ServerUpdateView {
+  /** Includes updates started from the CLI or desktop app, recorded on disk. */
+  updating: boolean;
   /** The release source, and whether it is on at all. */
   source: { url: string | null; enabled: boolean };
   /** The version this process is. */
@@ -469,6 +477,7 @@ export async function collectServerUpdateView(refresh = false): Promise<ServerUp
 
   const backupFiles = listBackups();
   return {
+    updating: pending !== null || updateJobRunning(),
     source: { url, enabled: url !== null },
     current: SERVER_VERSION,
     latest,

@@ -31,6 +31,7 @@ export function NodeUpdateCard({ node }: { node: NodeDetail }): JSX.Element {
   const [accepted, setAccepted] = useState<{ to: string } | null>(null);
   const updating = nodeUpdate.pendingNodeIds.has(node.id);
   const failure = nodeUpdate.failures[node.id];
+  const blockedReason = node.updateBlockedReason ?? null;
   // The two states the server's `canUpdate` admits: online, or held. It reads
   // the row `status` projection and the live-registry `held` — the SAME facts
   // the page's own "offline" badge already shows — so a heartbeat-stalled node
@@ -70,6 +71,7 @@ export function NodeUpdateCard({ node }: { node: NodeDetail }): JSX.Element {
   }, [node.status, node.agentVersion]);
 
   async function start(): Promise<void> {
+    if (blockedReason !== null) return;
     setAccepted(null);
     nodeUpdate.reset();
     try {
@@ -96,8 +98,11 @@ export function NodeUpdateCard({ node }: { node: NodeDetail }): JSX.Element {
             type="button"
             variant="outline"
             size="sm"
-            disabled={updating || !reachable}
-            title={reachable ? undefined : "The machine is not connected, so there is nothing to send an update to"}
+            disabled={updating || !reachable || blockedReason !== null}
+            title={
+              blockedReason ??
+              (reachable ? undefined : "The machine is not connected, so there is nothing to send an update to")
+            }
             onClick={() => void start()}
           >
             {/* The POST blocks for the node's whole download-and-restart window,
@@ -107,7 +112,8 @@ export function NodeUpdateCard({ node }: { node: NodeDetail }): JSX.Element {
             {updating ? "Updating…" : "Update to latest"}
           </Button>
         </div>
-        {node.held !== null && !updating && (
+        {blockedReason !== null && <p className="text-detail text-muted-foreground">{blockedReason}</p>}
+        {node.held !== null && !updating && blockedReason === null && (
           // The one offline-shaped state that CAN take an update, said before
           // the press: the button looks alive on a row labeled offline, and
           // without this line that reads as a rendering defect.

@@ -322,6 +322,7 @@ describe("GET /api/admin/server/update", () => {
         "paneSafety",
         "source",
         "updateAvailable",
+        "updating",
       ].sort(),
     );
     expect(body.current).toBe(SERVER_VERSION);

@@ -87,3 +87,18 @@ export async function collectRuntime(deps: RuntimeDeps = {}): Promise<NodeRuntim
     binaryPath: deps.binaryPath ?? selfInvokePrefix().command,
   };
 }
+
+/** Refresh service facts without making a status query look like a process restart. */
+export async function refreshServiceRuntime(report: NodeRuntimeReport, deps: RuntimeDeps = {}): Promise<void> {
+  try {
+    const fresh = await collectRuntime(deps);
+    report.service = fresh.service;
+    report.supervised = fresh.supervised;
+    report.logPath = fresh.logPath;
+    report.logHint = fresh.logHint;
+  } catch {
+    // A failed probe cannot establish that restarting is safe.
+    report.service = { ...report.service, state: "unknown", paneSafety: "unknown" };
+    report.supervised = false;
+  }
+}

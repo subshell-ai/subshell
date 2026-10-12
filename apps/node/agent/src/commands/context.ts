@@ -133,8 +133,8 @@ export interface CommandContext {
   /** In-flight `write_file` streams by resolved final path (filled by write-file.ts; survives reconnects). */
   uploads: Map<string, UploadState>;
   /**
-   * How this process runs (spec 2026-09-12 § 6.1), collected once at daemon
-   * start; `null` when the report could not be built. `restart` refuses on
+   * The shared process report. Service facts refresh on heartbeats while
+   * `startedAt` stays fixed; null when the initial read failed. Restart refuses on
    * null — without the report there is no evidence that exiting would be a
    * restart rather than a stop.
    */

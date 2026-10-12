@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
-import { idleUpdate, updatesView } from "@/components/__tests__/helpers/updates-view";
+import { idleUpdate, nodeRow, nodeUpdates, updatesView } from "@/components/__tests__/helpers/updates-view";
 import { UpdatesTable } from "@/components/updates/updates-table";
 import { resetDesktopShellForTests } from "@/lib/desktop";
 
@@ -17,6 +17,64 @@ function renderTable() {
 }
 
 describe("the Components table", () => {
+  for (const outcome of ["running", "waiting"] as const) {
+    it(`disables individual and bulk node updates while the server is ${outcome}`, () => {
+      const client = new QueryClient();
+      const view = updatesView({ nodes: nodeUpdates({ rows: [nodeRow({ canUpdate: { ok: true, reason: null } })] }) });
+      const ui = (busy: boolean) => (
+        <QueryClientProvider client={client}>
+          <UpdatesTable
+            view={view}
+            update={{ ...idleUpdate, outcome: busy ? outcome : "done" }}
+            onCheck={() => {}}
+            checking={false}
+          />
+        </QueryClientProvider>
+      );
+      const result = render(ui(true));
+      expect((screen.getByRole("button", { name: "Update" }) as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByRole("button", { name: /^Update all/ }) as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.getByText("The server is updating. Wait until it finishes before updating nodes.")).toBeTruthy();
+      result.rerender(ui(false));
+      expect((screen.getByRole("button", { name: "Update" }) as HTMLButtonElement).disabled).toBe(false);
+      expect((screen.getByRole("button", { name: /^Update all/ }) as HTMLButtonElement).disabled).toBe(false);
+    });
+  }
+
+  it("disables node updates when another tab started the server update", () => {
+    const client = new QueryClient();
+    const view = updatesView({ nodes: nodeUpdates({ rows: [nodeRow({ canUpdate: { ok: true, reason: null } })] }) });
+    view.server.job = {
+      from: "0.6.0",
+      to: "0.7.0",
+      startedAt: new Date().toISOString(),
+      phase: "restarting",
+      received: 10,
+      total: 10,
+      error: null,
+    };
+    render(
+      <QueryClientProvider client={client}>
+        <UpdatesTable view={view} update={idleUpdate} onCheck={() => {}} checking={false} />
+      </QueryClientProvider>,
+    );
+    expect((screen.getByRole("button", { name: "Update" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: /^Update all/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("blocks node updates during a CLI or desktop transaction without an API job", () => {
+    const client = new QueryClient();
+    const view = updatesView({ nodes: nodeUpdates({ rows: [nodeRow({ canUpdate: { ok: true, reason: null } })] }) });
+    view.server.updating = true;
+    render(
+      <QueryClientProvider client={client}>
+        <UpdatesTable view={view} update={idleUpdate} onCheck={() => {}} checking={false} />
+      </QueryClientProvider>,
+    );
+    expect((screen.getByRole("button", { name: "Update" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: /^Update all/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("titles the card and names the four columns", () => {
     renderTable();
     expect(screen.getByText("Components", { exact: true })).toBeTruthy();

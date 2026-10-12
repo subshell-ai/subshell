@@ -31,6 +31,10 @@ function job(over: Partial<UpdateJob> = {}): UpdateJob {
 }
 
 describe("updatesPollMs", () => {
+  it("keeps polling an external server update until its transaction clears", () => {
+    expect(updatesPollMs(updatesView({ server: serverUpdateView({ updating: true, job: null }) }), false)).toBe(2000);
+    expect(updatesPollMs(updatesView({ server: serverUpdateView({ updating: false, job: null }) }), false)).toBe(false);
+  });
   it("polls nothing when there is no data and no explicit cadence", () => {
     // The standing rule: this page does not poll by default.
     expect(updatesPollMs(undefined, false)).toBe(false);

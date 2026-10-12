@@ -53,3 +53,10 @@ anything on a machine the page is not running on.
 (deliberately, so no row keeps stating what the previous read said while the
 Server row moves), so sitting in that row's action cell only made a global
 control read as a server-only one. Its behaviour did not change.
+
+Node updates wait while the server updates or restarts because their downloads
+come through the server. The table disables both individual and bulk controls
+as soon as this tab starts a server update and also follows a job started
+elsewhere. Node detail pages receive the same blocker in their polled response.
+The update endpoint checks before release lookup and again before issuing the
+node command, covering a server update that starts during the lookup.

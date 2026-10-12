@@ -639,7 +639,19 @@ describe("ready.runtime (additive)", () => {
     logHint: "journalctl --user -u subshell.service -f",
     tmuxPath: "/usr/bin/tmux",
     binaryPath: "/u/.local/bin/subshell",
-  };
+  } as const;
+
+  it("accepts refreshed runtime in heartbeats and drops malformed optional reports", () => {
+    expect(parseNodeEvent({ type: "heartbeat", ts: "now", runtime })).toEqual({
+      type: "heartbeat",
+      ts: "now",
+      runtime,
+    });
+    expect(parseNodeEvent({ type: "heartbeat", ts: "now", runtime: { service: "bad" } })).toEqual({
+      type: "heartbeat",
+      ts: "now",
+    });
+  });
 
   it("accepts a ready with a well-formed runtime and without one", () => {
     expect(parseNodeEvent({ ...base, runtime })).toMatchObject({ type: "ready", runtime });

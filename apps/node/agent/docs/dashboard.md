@@ -46,20 +46,20 @@ so that cannot go unnoticed.
   pane-safety refusals, the maintenance kill order, and the signed-update
   verification are ONE implementation shared with the plane-driven path.
   During the daemon's boot window (or after a failed boot-time service read)
-  the frozen runtime report is null while the MANAGER did start this pid:
+  the shared runtime report is null while the MANAGER did start this pid:
   the update route re-proves that with one live query and threads the answer
   into `execUpdate` as its `supervisedProof` (round-3 review, finding 5), so
   the null the page just disproven cannot 409 the supervised node a handler
   later. A caller with NO proof (the plane-commanded path) keeps the null-
-  runtime refusal verbatim, and a present frozen report always outranks a
-  proof: supervision cannot change while the pid does not.
+  runtime refusal verbatim, and a present shared report always outranks a
+  proof: the daemon refreshes its report on heartbeats.
   `maintenance on` here KILLS local panes, the node's own CLI semantics
   (flag first, kill, re-probe), not the plane's no-kill version, because
   the local card has no race to win. The version refusals ("already at",
   downgrade) belong to `applyUpdate`; no route re-implements them.
 - **Restart/update exit only through the daemon** (`dashboard/state.ts`
   bridges `ctx.requestRestart`), keeping the result-before-exit discipline;
-  `runtime` on the view is the daemon's FROZEN report so the page shows
+  `runtime` on the view is the daemon's shared report so the page shows
   exactly what the plane is shown. With no daemon (a future standalone
   verb) `liveRuntime()` memoizes 5 s rather than spawning per poll.
 - **Pages: disk → embedded → notice** (`web-static.ts`, the server's

@@ -9,6 +9,8 @@ Update the node daemon while accounting for its running sessions.
 
 Review current work and the server's compatibility requirements. The server checks a minimum node version and an exact protocol version independently.
 
+If the server is updating, wait until it finishes before updating nodes from the dashboard. Node updates download through the server, so the update controls stay disabled while it updates and restarts.
+
 ## Update from the dashboard
 
 For the instance-wide update page, sign in as an administrator. In the server dashboard sidebar, open **Server Settings** → **Updates**. In **Components**, select **Re-check** to refresh release information and find the **Nodes** rows below the server and desktop apps.
@@ -18,7 +20,7 @@ For the instance-wide update page, sign in as an administrator. In the server da
 3. Select **Update** on that node's row.
 4. Wait for installation and reconnection, then confirm the reported running version.
 
-The server offers a node release compatible with its requirements and the node's platform. **Update all** processes the eligible nodes in order and stops at the first failure. The failed node's row explains the problem; check which machines completed before trying again.
+The server offers a node release compatible with its requirements and the node's platform. **Update all** starts updates for all eligible nodes together. Each row reports its own progress or failure, so one failed update doesn't stop the others.
 
 A truly offline node can't receive an update command. A connected node held for compatibility can be unavailable for normal work while still accepting an offered update. The page distinguishes minimum-version, protocol, and encryption-pairing issues. See [Version compatibility](/reference/versions) for those checks.
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { collectRuntime } from "../runtime.js";
+import { collectRuntime, refreshServiceRuntime } from "../runtime.js";
 
 const running = {
   installed: true,
@@ -69,5 +69,35 @@ describe("collectRuntime", () => {
     expect(r.service.linger).toBeNull();
     expect(r.supervised).toBe(false);
     expect(r.logHint).toBeNull();
+  });
+});
+
+describe("refreshServiceRuntime", () => {
+  it("refreshes installation and supervision without changing process identity", async () => {
+    const deps = { pid: 99, queryService: async () => running as never };
+    const report = await collectRuntime(deps);
+    const startedAt = report.startedAt;
+    await refreshServiceRuntime(report, {
+      ...deps,
+      queryService: async () => ({ ...running, installed: false, state: "not-installed", pid: null }) as never,
+    });
+    expect(report.service.installed).toBe(false);
+    expect(report.supervised).toBe(false);
+    expect(report.startedAt).toBe(startedAt);
+    await refreshServiceRuntime(report, deps);
+    expect(report.service.state).toBe("running");
+    expect(report.supervised).toBe(true);
+    expect(report.startedAt).toBe(startedAt);
+  });
+  it("marks failed reads unknown and refuses to claim supervision", async () => {
+    const report = await collectRuntime({ pid: 99, queryService: async () => running as never });
+    await refreshServiceRuntime(report, {
+      queryService: async () => {
+        throw new Error("unavailable");
+      },
+    });
+    expect(report.service.state).toBe("unknown");
+    expect(report.service.paneSafety).toBe("unknown");
+    expect(report.supervised).toBe(false);
   });
 });

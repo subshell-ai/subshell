@@ -264,6 +264,9 @@ export const NodeRuntimeSchema = t.Object({
 
 /** `GET /api/nodes/:id` — the view plus the grant set, ONLY when the viewer can configure. */
 export const GetNodeResponseSchema = t.Object({
+  updateBlockedReason: t.Optional(
+    t.Nullable(t.String({ description: "Why node updates must wait; config-capable viewers only" })),
+  ),
   ...NodeViewSchema.properties,
   shares: t.Optional(t.Array(NodeShareSchema, { description: "Full grant set (config-capable viewers only)" })),
   runtime: t.Optional(

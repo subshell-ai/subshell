@@ -6,6 +6,7 @@ import { RowRule } from "@/components/updates/row-cells";
 import { ServerRow } from "@/components/updates/server-row";
 import type { StartServerUpdate } from "@/hooks/use-updates";
 import { desktopShell } from "@/lib/desktop";
+import { isServerUpdating } from "@/lib/updates-poll";
 import type { UpdatesView } from "@/types/updates";
 
 /**
@@ -111,7 +112,12 @@ export function UpdatesTable({
               <ServerRow view={view.server} update={update} serverUpdate={view.serverUpdate} />
             </>
           )}
-          <NodeRows fleet={view.nodes} />
+          <NodeRows
+            fleet={view.nodes}
+            serverUpdating={
+              update.outcome === "running" || update.outcome === "waiting" || isServerUpdating(view.server)
+            }
+          />
         </div>
       </CardContent>
     </Card>

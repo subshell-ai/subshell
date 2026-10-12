@@ -10,6 +10,7 @@ import { nodeCanConfigure } from "@/lib/node-access.js";
 import { apiModels } from "@/schema/index.js";
 import { detectOnNodeBestEffort } from "@/services/nodes/inventory.js";
 import { getLive } from "@/services/nodes/node-registry.js";
+import { nodeUpdateBlockReason } from "@/services/server-update.js";
 
 /**
  * `GET /api/nodes/:id` — one node view for the caller. Missing and invisible
@@ -59,6 +60,7 @@ export const getNodeRoute = new Elysia()
         : undefined;
       return {
         ...view,
+        updateBlockedReason: nodeUpdateBlockReason(),
         shares: await toNodeShareViews(gate.shares),
         ...(runtime ? { runtime } : {}),
         ...(runningSubshells === undefined ? {} : { runningSubshells }),

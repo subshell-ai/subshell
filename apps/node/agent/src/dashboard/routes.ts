@@ -137,7 +137,7 @@ function updateCtx(cfg: NodeConfig, proof?: SupervisionProof): UpdateExecContext
 /**
  * One live manager query, reduced to what {@link SupervisionProof} carries.
  *
- * This is the page's answer for the window in which the daemon's FROZEN
+ * This is the page's answer for the window in which the daemon's shared
  * runtime report does not exist yet (boot) or never landed (the read failed):
  * `execUpdate` must not 409 a supervised node on a null the page has just
  * disproven, so the query happens ONCE, here, and its two facts — supervised
@@ -159,7 +159,7 @@ async function proveSupervision(): Promise<SupervisionProof> {
 /**
  * Would exiting THIS process be a restart or a stop? The update route asks
  * before installing; rollback asks before it would exit into nothing. Uses the
- * daemon's frozen report when a daemon is live, else re-proves it with one
+ * daemon's shared report when a daemon is live, else re-proves it with one
  * manager query (the same fallback the update route uses).
  */
 async function isSupervisedForRestart(): Promise<boolean> {
@@ -189,7 +189,7 @@ function serviceRefusal(error: string, knownPaneSafety?: SupervisionProof["paneS
     // machine asked its own definition a route ago and can read the same
     // field, so the two spellings survive here too. A boot-window update
     // refusal was decided on the CALLER's proof rather than the (null)
-    // frozen report, so that answer names the wording — "could not read"
+    // shared report, so that answer names the wording — "could not read"
     // when the manager said `kills` would be false certainty wearing the
     // opposite hat.
     // Only `kills` earns the certainty sentence. `undefined` — the manager
@@ -308,7 +308,7 @@ export function buildRoutes(
       .get("/api/self/state", async () => ({
         connected: getDaemonState().connected,
         lastHeartbeatAt: getDaemonState().lastHeartbeatAt,
-        // The daemon's FROZEN report when a daemon is live (the Status page
+        // The daemon's shared report when a daemon is live (the Status page
         // then shows exactly what the plane is shown); the memoized fresh
         // collect when the dashboard runs without one.
         runtime: getDaemonState().runtime ?? (await liveRuntime()),
@@ -518,7 +518,7 @@ export function buildRoutes(
           // The supervision refusal must not wait for the release source to
           // answer: `execUpdate` would refuse the same way, but only after a
           // network round trip, and on the FOREGROUND `subshell run` the
-          // frozen runtime report can say "unsupervised" immediately. When the
+          // shared runtime report can say "unsupervised" immediately. When the
           // report is NULL — the boot window, or a failed boot-time read —
           // this route re-proves supervision with one manager query, and that
           // proof then rides to `execUpdate` as well (finding 5): the null the
