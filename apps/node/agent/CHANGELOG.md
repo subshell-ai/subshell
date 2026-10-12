@@ -1,5 +1,19 @@
 # @internal/node
 
+## 1.5.5
+
+### Patch Changes
+
+- [#342](https://github.com/subshell-ai/subshell/pull/342) [`3daf01e`](https://github.com/subshell-ai/subshell/commit/3daf01eea16c66624fb7df184b82cc5f27b12b2e) Thanks [@theogravity](https://github.com/theogravity)! - Make selected tabs and segmented choices clearly visible throughout the web interface, including Terminal / Desktop App. Choices retain their original icons with the stronger selected highlight. Workspace tabs use the same selected treatment on phones and in tiled layouts, including unfocused groups.
+  
+  Use the same clear selected state for desktop setup choices and mobile tabs, agent, preset, and node choices, preserving their icons and accessibility states.
+  
+  Keep dialogs and modal sheets open when clicking outside them across the dashboard, node dashboard, and desktop apps. Close them through an explicit Close, Cancel, or Done control.
+
+- [#359](https://github.com/subshell-ai/subshell/pull/359) [`2b7da8e`](https://github.com/subshell-ai/subshell/commit/2b7da8ed8838704f270ee2b7787e322f00bddf99) Thanks [@theogravity](https://github.com/theogravity)! - Reload updated node credentials and server addresses before dialing and on the heartbeat, preserving running subshells. Add search, status, and access filters to the Nodes table, and describe address changes without requiring a restart.
+  
+  Reject WebSocket URL fragments and invalid credential headers before replacing the running connection, without logging credentials.
+
 ## 1.5.4
 
 ### Patch Changes
