@@ -113,6 +113,8 @@ describe("the Server Settings group's open/close wiring", () => {
       await waitFor(() => expect(header()).toBeTruthy());
       await body();
     } finally {
+      // Unmount before restoring hooks that pending query updates can call.
+      cleanup();
       spy.mockRestore();
       restoreFetch();
     }
@@ -191,6 +193,8 @@ describe("the Server Settings group's open/close wiring", () => {
       // e2e's member spec also pins.
       expect(screen.queryByRole("link", { name: "Users" })).toBeNull();
     } finally {
+      // Unmount before restoring hooks that pending query updates can call.
+      cleanup();
       spy.mockRestore();
       restoreFetch();
     }
@@ -224,6 +228,8 @@ describe("the Settings group", () => {
       await waitFor(() => expect(personalHeader()).toBeTruthy());
       await body();
     } finally {
+      // Unmount before restoring hooks that pending query updates can call.
+      cleanup();
       spy.mockRestore();
       restoreFetch();
     }
