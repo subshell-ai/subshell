@@ -107,8 +107,7 @@ test("empty SSH setup enables an existing machine inline and completes without l
   await page.getByRole("button", { name: "Enable SSH on a node", exact: true }).click();
   await page.getByRole("combobox", { name: "Node to set up" }).click();
   await page.getByRole("option", { name: /Connecting desktop/ }).click();
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await page.screenshot({ path: "/home/theo/t3-ssh-check/wizard-machine-setup.png", fullPage: true });
+  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Enable SSH", exact: true }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Your SSH setup", exact: true })).toBeVisible();

@@ -251,8 +251,8 @@ it("prepare intent explicitly enables SSH and never launches; Connect now return
     machines: [machine("desk", false)],
   });
   await click("Enable SSH on a node");
-  await next();
-  expect(screen.getByRole("heading", { name: "Enable SSH connections" })).toBeTruthy();
+  expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByRole("heading", { name: "Choose a node to connect from" })).toBeTruthy();
   await click("Enable SSH");
   await next();
   expect(screen.getByRole("heading", { name: "Your SSH setup" })).toBeTruthy();
@@ -266,7 +266,6 @@ it("prepare intent explicitly enables SSH and never launches; Connect now return
 it("shared launchable machines can connect while unauthorized configuration remains unavailable", async () => {
   const { calls } = await setup({ initial: { node: "shared" }, machines: [machine("shared", false, false)] });
   await click("Enable SSH on a node");
-  await next();
   expect(screen.queryByRole("button", { name: "Enable SSH" })).toBeNull();
   expect(screen.queryByRole("button", { name: /settings$/ })).toBeNull();
   expect(screen.getByText(/This machine’s owner can enable SSH/)).toBeTruthy();
@@ -451,9 +450,8 @@ it("preserves wizard draft during readiness failures and an offline selected mac
     machine("other"),
   ];
   await click("Retry");
-  await next();
+  expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
   expect(screen.getByText("Bring this machine online.")).toBeTruthy();
-  await click("Back");
   await click("Back");
   expect((screen.getByLabelText("SSH destination") as HTMLInputElement).value).toBe("keep-me");
 });
@@ -530,4 +528,14 @@ it("holds one launch through an asynchronous creation callback and cannot submit
   await act(async () => {
     finish?.();
   });
+});
+
+it("returning from Add a machine continues with the selected existing node", async () => {
+  await setup({ initial: { node: "desk" } });
+  await click("Enable SSH on a node");
+  await click("Add a machine");
+  await click("Back");
+  expect(screen.queryByText(/Next: Add a machine/)).toBeNull();
+  await next();
+  expect(screen.getByRole("heading", { name: "Your SSH setup" })).toBeTruthy();
 });

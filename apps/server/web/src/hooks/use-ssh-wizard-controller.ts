@@ -48,7 +48,7 @@ export function useSshWizardController({
       ? draft.keyHome
       : null,
   );
-  const steps = sshWizardSteps(intent, draft, machines, current, adding);
+  const steps = sshWizardSteps(intent, draft, current, adding);
   const index = Math.max(0, steps.indexOf(current));
   const values = useMemo(() => ({ draft, current }), [draft, current]);
   function problems(value: typeof values): Record<string, string> {
@@ -78,9 +78,9 @@ export function useSshWizardController({
       return true;
     if (current === "enrollment")
       return !enrollment.consumedNodeId || !machines.some((m) => m.node.id === enrollment.consumedNodeId);
-    if (current === "machine") return !machine;
+    if (current === "machine") return !machine?.canConnect;
     if (["machine-setup", "review", "readiness"].includes(current) && !machine?.canConnect) return true;
-    if (current === "key-source" && !keyMachine) return true;
+    if (current === "key-source" && !keyMachine?.canConnect) return true;
     if (current === "key-setup" && !keyMachine?.canConnect) return true;
     if (intent !== "prepare" && ["keys", "review", "readiness"].includes(current) && remote)
       return (
@@ -98,6 +98,7 @@ export function useSshWizardController({
       return;
     }
     if (current === "enrollment" && enrollment.consumedNodeId) {
+      setAdding(false);
       onDraftChange({ ...draft, nodeId: enrollment.consumedNodeId });
       setCurrent("machine-setup");
       return;

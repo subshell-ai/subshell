@@ -306,8 +306,7 @@ test("gate off: the wizard shows the host’s blocker and requires explicit setu
   const serverRow = page.getByRole("option", { name: /Server/ });
   await expect(serverRow).toContainText(MACHINE_OFF_REASON);
   await serverRow.click();
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Enable SSH connections", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Choose a node to connect from", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Enable SSH", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toHaveCount(0);

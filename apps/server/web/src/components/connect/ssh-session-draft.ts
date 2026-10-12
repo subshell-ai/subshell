@@ -1,5 +1,5 @@
 import type { DestinationCandidate } from "@/components/connect/destination-options";
-import { type SshAgentIdentity, type SshMachineReadiness, sshSelectionError } from "@/lib/ssh";
+import { type SshAgentIdentity, sshSelectionError } from "@/lib/ssh";
 
 export type SshWizardIntent = "connect" | "prepare" | "remote-keys";
 export type SshInitialChoices = { node?: string; destination?: string; keyHome?: string; fingerprints?: string[] };
@@ -90,22 +90,19 @@ export const SSH_STEP_LABELS: Record<SshWizardStep, string> = {
 export function sshWizardSteps(
   intent: SshWizardIntent | null,
   draft: SshSessionDraft,
-  machines: SshMachineReadiness[],
   current: SshWizardStep,
   adding: boolean,
 ): SshWizardStep[] {
   if (!intent) return ["intent"];
-  const machine = machines.find((m) => m.node.id === draft.nodeId);
-  const key = machines.find((m) => m.node.id === draft.keyHome);
   const steps: SshWizardStep[] = ["intent"];
   if (intent === "connect") steps.push("destination");
   steps.push("machine");
   if (adding) steps.push("enrollment");
-  if (!machine?.canConnect || current === "machine-setup") steps.push("machine-setup");
+  if (current === "machine-setup") steps.push("machine-setup");
   if (intent === "connect") steps.push("key-choice");
   if (intent === "remote-keys" || (intent === "connect" && (draft.keyHome || current === "key-source"))) {
     steps.push("key-source");
-    if (!key?.canConnect || current === "key-setup") steps.push("key-setup");
+    if (current === "key-setup") steps.push("key-setup");
     steps.push("keys");
   }
   steps.push(intent === "connect" ? "review" : "readiness");

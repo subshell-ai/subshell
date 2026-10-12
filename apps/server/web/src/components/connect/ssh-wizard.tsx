@@ -169,6 +169,9 @@ export function SshWizard({
             SSH runs on this node, so it needs network access to your destination. You can use keys saved on the node or
             choose keys from another machine.
           </p>
+          {machine && !machine.canConnect && (
+            <SshMachineSetup machine={machine} retry={readiness.refetch} onLeave={onLeave} />
+          )}
           <Button
             type="button"
             variant="outline"
@@ -205,13 +208,18 @@ export function SshWizard({
         </div>
       )}
       {current === "key-source" && (
-        <SshMachineStep
-          machines={machines.filter((machine) => machine.node.canLaunch)}
-          value={draft.keyHome}
-          onChange={chooseKeys}
-          exclude={draft.nodeId}
-          label="Use keys from"
-        />
+        <>
+          <SshMachineStep
+            machines={machines.filter((machine) => machine.node.canLaunch)}
+            value={draft.keyHome}
+            onChange={chooseKeys}
+            exclude={draft.nodeId}
+            label="Use keys from"
+          />
+          {keyMachine && !keySourceProblem && !keyMachine.canConnect && (
+            <SshMachineSetup machine={keyMachine} retry={readiness.refetch} onLeave={onLeave} />
+          )}
+        </>
       )}
       {current === "key-setup" && <SshMachineSetup machine={keyMachine} retry={readiness.refetch} onLeave={onLeave} />}
       {current === "keys" && (
@@ -258,6 +266,7 @@ export function SshWizard({
             variant="outline"
             disabled={busy}
             onClick={() => {
+              if (current === "enrollment") setAdding(false);
               if (current === "key-source" && intent === "connect") setCurrent("key-choice");
               else setCurrent(steps[index - 1] ?? "intent");
             }}
