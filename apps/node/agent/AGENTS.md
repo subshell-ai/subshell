@@ -74,6 +74,12 @@ NO `--name`, and works only between two names for ONE plane; joining a
 genuinely different plane is an `enroll`. **Working on configure or
 enrollment: read `apps/node/agent/docs/repointing.md` first.**
 
+**Paired nodes also select a direct route at startup and reconnect.** Discovery
+uses the pinned encryption identity and one-use upgrade tickets, keeps the
+configured address as fallback, and never replaces a healthy socket. Cached
+LAN hints are re-verified on every use. Read `docs/repointing.md` before changing
+`src/route-selection.ts` or the daemon's dialing path.
+
 ## CLI (`src/cli.ts`, hand-rolled parser, no flag library)
 
 The verbs: `setup` (the headless entry point, what the rendered install.sh

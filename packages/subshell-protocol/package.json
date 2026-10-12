@@ -30,6 +30,10 @@
     "./wire": {
       "types": "./dist/wire.d.ts",
       "import": "./dist/wire.js"
+    },
+    "./node-route": {
+      "types": "./dist/node-route.d.ts",
+      "import": "./dist/node-route.js"
     }
   },
   "types": "dist/index.d.ts",

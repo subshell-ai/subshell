@@ -5,7 +5,9 @@ import {
   generateLinkKeyPair,
   type LinkKeyPair,
 } from "@internal/subshell-protocol/node-link-crypto";
+import { sealRouteRequest } from "@internal/subshell-protocol/node-route";
 import { Elysia } from "elysia";
+import { createRouteDiscoveryRoute } from "@/api/nodes/route-discovery.route.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
@@ -77,6 +79,15 @@ const app = new Elysia()
   // THE REAL global error handler — the refusal body the wire test below
   // asserts is exactly what production sends for a status-carrying throw.
   .use(errorHandlerPlugin)
+  .group("/api/nodes", (app) =>
+    app.use(
+      createRouteDiscoveryRoute({
+        keys: async () => serverStatic,
+        auth: deps,
+        origins: () => ["http://172.16.2.177:3080"],
+      }),
+    ),
+  )
   .ws("/ws/node", {
     async upgrade(context) {
       const request = (context as { request: Request }).request;
@@ -373,6 +384,41 @@ describe("/ws/node over the real ws stack", () => {
     keyStore.set(key, { id: apiKeyId, nodeId });
     return { nodeId, key };
   }
+
+  it("discovery over HTTP yields a ticket that establishes a real encrypted WebSocket", async () => {
+    const { nodeId, key } = await fixtureNode();
+    await nodes.setEncryptPublicKey(nodeId, nodeStatic.publicKey);
+    const probe = await sealRouteRequest(serverStatic.publicKey, {
+      purpose: "node-route-v1",
+      nodeKey: key,
+      nodeId,
+      nodePublicKey: nodeStatic.publicKey,
+    });
+    const response = await fetch(`http://localhost:${port()}/api/nodes/route`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(probe.envelope),
+    });
+    expect(response.status).toBe(200);
+    expect(getLive(nodeId)).toBeUndefined();
+    const reply = probe.openReply(await response.text()) as { ticket: string };
+    const client = await createClientSession({ serverStaticPublicKey: serverStatic.publicKey });
+    const ws = await connect(`NodeRoute ${reply.ticket}`);
+    try {
+      ws.send(JSON.stringify({ t: "kx", eph: client.ephemeralPublicKey, pub: nodeStatic.publicKey }));
+      ws.send(
+        client.session.sealFrame(JSON.stringify({ nodeId, nodeKey: key, protocolVersion: NODE_PROTOCOL_VERSION })),
+      );
+      await waitFor(() => getLive(nodeId)?.link !== undefined, "ticket link established");
+      ws.send(client.session.sealFrame(JSON.stringify(readyBody)));
+      await waitFor(async () => (await nodes.findById(nodeId))?.status === "online", "ticket node online");
+      const live = getLive(nodeId);
+      expect((await rawHandshake(`NodeRoute ${reply.ticket}`)).status).toBe(401);
+      expect(getLive(nodeId)).toBe(live);
+    } finally {
+      ws.close();
+    }
+  });
 
   it("binary frames reach the node handler as Buffers; under-cap ciphertext does not close (R2 on the wire)", async () => {
     const { nodeId, key } = await fixtureNode();

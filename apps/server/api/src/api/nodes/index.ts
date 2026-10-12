@@ -19,6 +19,7 @@ import { setNodeMaintenanceRoute } from "@/api/nodes/set-node-maintenance.route.
 import { setNodeServerUrlRoute } from "@/api/nodes/set-node-server-url.route.js";
 import { setNodeSharesRoute } from "@/api/nodes/set-node-shares.route.js";
 import { updateNodeRoute } from "@/api/nodes/update-node.route.js";
+import { routeDiscoveryRoute } from "./route-discovery.route.js";
 
 /**
  * `/api/nodes` — one Elysia instance per endpoint (the subshells-directory
@@ -35,6 +36,7 @@ import { updateNodeRoute } from "@/api/nodes/update-node.route.js";
  */
 export const nodesRoutes = new Elysia({ prefix: "/api/nodes" })
   .use(enrollRoute)
+  .use(routeDiscoveryRoute)
   .use(createSetupKeyRoute)
   .use(listSetupKeyRoute)
   .use(deleteSetupKeyRoute)
