@@ -120,10 +120,13 @@ export function SshWizard({
         />
         <RadioGroup
           aria-label="SSH keys"
-          value={useRemote ? "remote" : "connecting"}
+          value={draft.authentication === "password" ? "password" : useRemote ? "remote" : "connecting"}
           onValueChange={(value) => {
             setUseRemote(value === "remote");
-            if (value === "connecting") patch({ keyHome: "" });
+            patch({
+              authentication: value === "password" ? "password" : undefined,
+              ...(value !== "remote" ? { keyHome: "" } : {}),
+            });
           }}
         >
           <Field className="flex-row items-start gap-3">
@@ -172,6 +175,20 @@ export function SshWizard({
                 </span>
               )}
             </div>
+          </Field>
+          <Field className="flex-row items-start gap-3">
+            <RadioGroupItem
+              id="ssh-auth-password"
+              value="password"
+              aria-labelledby="ssh-auth-password-label"
+              aria-describedby="ssh-auth-password-description"
+            />
+            <FieldLabel htmlFor="ssh-auth-password" className="flex min-w-0 cursor-pointer flex-col gap-1">
+              <span id="ssh-auth-password-label">Enter a password when connecting</span>
+              <span id="ssh-auth-password-description" className="text-detail text-muted-foreground">
+                Enter your password in the terminal when SSH asks for it. Subshell won’t save it.
+              </span>
+            </FieldLabel>
           </Field>
         </RadioGroup>
         {remote && (!noOtherKeyNodes || keyProblem || keyMachine) && (

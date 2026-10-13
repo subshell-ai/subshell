@@ -179,6 +179,12 @@ values, and dynamic tokens fall back to “Destination determined when connectin
 Opening the picker never runs SSH configuration commands. Older nodes may omit
 previews, so the field remains optional on the wire.
 
+The authentication choices include entering a password when connecting. This
+sends only `authentication: "password"`, never a password, to the launch API.
+OpenSSH prompts in the terminal with public-key authentication and agent access
+disabled; keyboard-interactive authentication remains available for MFA. Switching
+to password clears the key-source node without discarding saved key selections.
+
 **The SSH tab opens directly on the connection form.** Destination, connecting
 node, and key source appear together. Selecting another node's keys reveals its
 picker and key roster inline. If only the connecting node's SSH flag blocks

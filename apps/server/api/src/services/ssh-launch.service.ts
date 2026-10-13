@@ -140,6 +140,7 @@ export function composeSshLaunch(args: {
    * delivered on the signed relay-open to its own derivation of them.
    */
   hostPinPath?: string;
+  authentication?: "password";
 }): {
   configPath: string;
   fileContent: string;
@@ -149,12 +150,18 @@ export function composeSshLaunch(args: {
   const approved = parseSshConnectionSnapshot(args.snapshot);
   if (approved === null) throw new Error("ssh compose: snapshot failed grammar re-validation");
   const configPath = buildSshConfigPath(args.targetDataDir, args.subshellId);
-  const fileContent = renderSshConfigContents(
+  let fileContent = renderSshConfigContents(
     approved,
     args.hostPinPath === undefined ? undefined : { hostPinPath: args.hostPinPath },
   );
+  if (args.authentication === "password") {
+    if (args.hostPinPath) throw new Error("Password authentication cannot use a key relay.");
+    // OpenSSH uses the first value, including for jump hosts. Keep keys and
+    // connection sharing from bypassing the requested interactive password flow.
+    fileContent = `Host *\n    BatchMode no\n    PubkeyAuthentication no\n    PasswordAuthentication yes\n    KbdInteractiveAuthentication yes\n    PreferredAuthentications keyboard-interactive,password\n    IdentityAgent none\n    ControlMaster no\n    ControlPath none\n${fileContent}`;
+  }
   const presetFlags = [...sshOptionTokens(approved, configPath), "--", sshDestinationToken(approved)];
-  return approved.authAgentSocket === null
+  return args.authentication === "password" || approved.authAgentSocket === null
     ? { configPath, fileContent, presetFlags }
     : { configPath, fileContent, presetFlags, extraPaneEnv: { SSH_AUTH_SOCK: approved.authAgentSocket } };
 }
@@ -380,11 +387,18 @@ export async function sshLaunch(args: {
   /** Optional key machine; current launch access on both machines authorizes relay use. */
   keyHomeNodeId?: string;
   fingerprints?: readonly string[];
+  authentication?: "password";
   /** The REQUEST-scoped subshells service (the create path is its own). */
   subshells: Pick<SubshellsService, "createSubshell">;
 }): Promise<SshAnswer<{ subshellId: string }>> {
   const gate = await gateSshNode(args.viewerId, args.nodeId);
   if (!gate.ok) return gate;
+  if (args.authentication === "password" && (args.keyHomeNodeId !== undefined || args.fingerprints !== undefined))
+    return codedRefusal(
+      400,
+      BackendErrorCodes.ALIAS_UNSAFE,
+      "Password authentication cannot use a key-source node or selected keys.",
+    );
   const row = gate.value.row;
   if (!isWireSafeSshDestination(args.destination)) {
     return codedRefusal(400, BackendErrorCodes.ALIAS_UNSAFE, UNSAFE_DESTINATION_COPY);
@@ -447,6 +461,7 @@ export async function sshLaunch(args: {
     relay = leg.value;
   }
   const composed = composeSshLaunch({
+    authentication: args.authentication,
     snapshot,
     targetDataDir: dataDir,
     subshellId,

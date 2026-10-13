@@ -264,6 +264,7 @@ export function ConnectPanel({
       }
       preparing = false;
       const created = await launch.mutateAsync({
+        ...(draft.authentication === "password" ? { authentication: "password" as const } : {}),
         node: nodeId,
         destination,
         ...(keyHome ? { keyHome, fingerprints } : {}),

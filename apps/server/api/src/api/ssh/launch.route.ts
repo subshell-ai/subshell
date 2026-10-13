@@ -39,6 +39,7 @@ export const sshLaunchRoute = new Elysia()
         name: body.name === undefined ? undefined : normalizeLabel(body.name, 120),
         keyHomeNodeId: body.keyHome,
         fingerprints: body.fingerprints,
+        authentication: body.authentication,
         subshells: ctx.services.subshells,
       });
       if (!answer.ok) {
@@ -54,6 +55,7 @@ export const sshLaunchRoute = new Elysia()
     },
     {
       body: t.Object({
+        authentication: t.Optional(t.Literal("password")),
         node: t.String({ minLength: 1, description: "Connecting machine ('local' = the control-plane host)" }),
         destination: SshDestinationField,
         name: t.Optional(t.String({ minLength: 1, maxLength: 120, description: "Pane display name" })),

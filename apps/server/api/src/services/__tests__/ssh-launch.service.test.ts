@@ -148,3 +148,32 @@ describe("relaySnapshotRefusal", () => {
     }
   });
 });
+
+describe("interactive password authentication", () => {
+  it("disables keys and agent access while keeping password and MFA prompts interactive", () => {
+    const result = composeSshLaunch({
+      snapshot: SNAP({ authAgentSocket: "/tmp/agent.sock", identityFiles: ["/home/test/.ssh/id_ed25519"] }),
+      targetDataDir: "/tmp/password-test",
+      subshellId: ID,
+      authentication: "password",
+    });
+    expect(result.fileContent).toContain("PubkeyAuthentication no");
+    expect(result.fileContent).toContain("PasswordAuthentication yes");
+    expect(result.fileContent).toContain("KbdInteractiveAuthentication yes");
+    expect(result.fileContent).toContain("BatchMode no");
+    expect(result.fileContent).toContain("IdentityAgent none");
+    expect(result.fileContent).toContain("ControlPath none");
+    expect(result.extraPaneEnv).toBeUndefined();
+  });
+  it("refuses password mode combined with a key relay", () => {
+    expect(() =>
+      composeSshLaunch({
+        snapshot: SNAP(),
+        targetDataDir: "/tmp/password-test",
+        subshellId: ID,
+        authentication: "password",
+        hostPinPath: "/tmp/known_hosts",
+      }),
+    ).toThrow("cannot use a key relay");
+  });
+});

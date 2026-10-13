@@ -449,3 +449,21 @@ it("removes the waiting notice when refreshed readiness reports SSH enabled", as
   await waitFor(() => expect(screen.queryByText("Waiting for SSH to be enabled…")).toBeNull());
   await waitFor(() => expect(disabled()).toBe(false));
 }, 10000);
+
+it("switches from another node's keys to an interactive password without sending key choices", async () => {
+  const { calls } = await setup({
+    initial: { node: "desk", keyHome: "keys", destination: "target", fingerprints: ["SHA256:AAAA"] },
+  });
+  fireEvent.click(
+    screen.getByText("Enter your password in the terminal when SSH asks for it. Subshell won’t save it."),
+  );
+  await settle();
+  expect(screen.queryByRole("combobox", { name: "Use keys from" })).toBeNull();
+  expect(document.querySelector('input[type="password"]')).toBeNull();
+  await click("Start SSH subshell");
+  expect(calls.find((c) => c.path === "/api/ssh/launch")?.body).toEqual({
+    node: "desk",
+    destination: "target",
+    authentication: "password",
+  });
+});
