@@ -21,7 +21,7 @@ Successful MCP responses contain JSON encoded in a text content block. Failures 
 | `get_subshell` | Inspect one session. |
 | `list_nodes` | List owned machines and launch availability. |
 | `list_presets` | List saved presets and harness catalog entries. |
-| `create_subshell` | Launch a helper from a saved preset ID. |
+| `create_subshell` | Launch from a saved preset, or open a plain terminal without one. |
 | `restart_subshell` | Revive a session in place. |
 | `terminate_subshell` | Stop the process and keep the session record. |
 | `delete_subshell` | Remove the session and captured history. |
@@ -110,6 +110,8 @@ Pass `{ "id": "SUBSHELL_ID" }` for the tail, or add `from_byte` (a previous `nex
 
 Pass required `id` and `text`, plus optional `submit`. The default is `submit: true`, which sends Enter after the text. Returns `{ ok: true }`.
 
+SSH subshells reject this tool with `SSH_OWNER_INPUT_ONLY`, including when the pane token belongs to their owner. Use the dashboard as that owner to type into an SSH terminal.
+
 Text and Enter are ordered input operations, not an atomic transaction. If the pane has exited, the call returns `SUBSHELL_NOT_RUNNING`. Restart it before retrying when you're authorized to do so.
 
 ## transfer_files
@@ -136,7 +138,7 @@ Pass `subshell_id` and `command`, with optional `timeout_ms` in whole millisecon
 
 Returns `{ status, exitCode, output, truncated, nextByte }`. When `status` is `completed`, `exitCode` contains the command's shell exit status. When it's `timed_out`, `exitCode` is null and the command keeps running.
 
-You need edit access to a running, idle pane using a plain terminal harness. If the pane isn't ready, the tool types nothing and returns one of these errors:
+You need a running, idle pane owned by the pane token’s user and using a plain terminal harness. SSH subshells reject this tool with `SSH_OWNER_INPUT_ONLY`. If the pane isn't ready, the tool types nothing and returns one of these errors:
 
 - `SUBSHELL_NOT_RUNNING`: restart the pane when authorized.
 - `EXEC_TERMINAL_ONLY`: choose a terminal pane rather than an agent pane.

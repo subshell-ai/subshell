@@ -34,7 +34,7 @@ For [SSH subshells](/guides/ssh), only the owner can type in the terminal. Recip
 ## What recipients see
 
 > [!warning] Terminal disclosure
-> View access exposes terminal output, including any secrets displayed there. Edit access also allows input into the running process.
+> View access exposes terminal output, including any secrets displayed there. Edit access also allows input into the running process, except in SSH subshells, where input remains owner-only.
 
 Attached viewers can see other viewers' device names and terminal dimensions. Notifications remain owner-targeted and aren't added by a sharing grant.
 

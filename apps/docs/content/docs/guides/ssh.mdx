@@ -65,7 +65,7 @@ For these connections, Subshell stores the public host key and destination in th
 
 Connections using the connecting node's own keys or a password use that node's OpenSSH trust records instead. They automatically remember a previously unknown host key and reject a changed one. To verify a destination before that first connection, have the node's owner establish its trusted host key on the node first.
 
-Once connected, the terminal shows the destination's shell. If you selected password authentication, wait for its password prompt before typing. Only the owner can type in an SSH subshell; [sharing](/guides/sharing) lets other users view its output.
+Once connected, the terminal shows the destination's shell. If you selected password authentication, wait for its password prompt before typing. Only the owner signed in to the dashboard can type in an SSH subshell; MCP and other bearer credentials cannot send input. Session [sharing](/guides/sharing) lets other users view its output.
 
 ## Saved and recent destinations
 
@@ -79,7 +79,7 @@ Remembering a destination saves a suggestion, not a password. Forgetting it does
 
 As the SSH subshell's owner, open its **⋯** menu and choose **Set up Subshell here…** when available. Review the confirmation before running the installer: it installs Subshell on the destination and enrolls it as a node you own. Your SSH subshell keeps running.
 
-This requires node enrollment to be allowed and an SSH login that works without interactive prompts. Password-only login can't supply a stored password to the installer. You can close and reopen the dialog to check progress. If it reports enrollment without a confirmed connection, open the new node's page and check its service before trying another installation.
+This requires node enrollment to be allowed and an SSH login that works without interactive prompts. Password-only login can't supply a stored password to the installer. You can close and reopen the dialog to check progress. Results remain available for one hour while the server keeps running. Progress isn't retained across a server restart; check **Nodes** and the destination before retrying an interrupted installation. If it reports enrollment without a confirmed connection, open the new node's page and check its service before trying another installation.
 
 ## Next steps
 

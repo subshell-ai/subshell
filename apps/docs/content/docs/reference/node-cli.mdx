@@ -37,7 +37,7 @@ subshell enroll --server <url> --key <setup-key> --name <name>
 
 ## configure
 
-`subshell configure [--server <url>] [--key <node-key>] [--json]` requires at least one change. It keeps node identity and the trusted control-plane key. A setup key is refused here. Restart to apply changes.
+`subshell configure [--server <url>] [--key <node-key>] [--json]` requires at least one change. It keeps node identity and the trusted control-plane key. A setup key is refused here. A running daemon reloads valid connection settings on its next heartbeat and reconnects; a stopped daemon uses them when started.
 
 ## run and dashboard
 
