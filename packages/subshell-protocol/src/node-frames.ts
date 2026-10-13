@@ -1,6 +1,6 @@
 import { BASE64_RE, isBool, isInt, isNum, isRecord, isStr, isStrArray, isStringMap } from "./guards.js";
 import type { JsonValue } from "./json.js";
-import { parseSshNodeCommandBody, type SshNodeCommandBody } from "./ssh-frames.js";
+import { isSshFingerprint, parseSshNodeCommandBody, type SshNodeCommandBody } from "./ssh-frames.js";
 import { SSH_CONFIG_FILE_MAX_BYTES, SSH_PATH_MAX_CHARS, SSH_RELAY_FRAME_MAX_BYTES } from "./ssh-limits.js";
 
 /**
@@ -544,19 +544,11 @@ export interface NodeSshFingerprintReport {
   peers: NodeSshPeerFingerprint[];
 }
 
-/**
- * The canonical fingerprint spelling of `fingerprintJwk`: the `SHA256:`
- * prefix and exactly the 43 unpadded base64url characters of a 32-byte
- * SHA-256 digest. Nothing else is admitted: the plane mirrors and renders
- * bytes it cannot re-derive, so a looser grammar would let another scheme's
- * digests into the same out-of-band comparison the block exists to enable.
- */
-const SSH_FINGERPRINT_RE = /^SHA256:[A-Za-z0-9_-]{43}$/;
-
-/** Whether `value` is a canonical `SHA256:` fingerprint string. */
-function isSshFingerprint(value: unknown): value is string {
-  return typeof value === "string" && SSH_FINGERPRINT_RE.test(value);
-}
+// The canonical fingerprint spelling of `fingerprintJwk` is the ONE predicate
+// `ssh-frames.ts` exports (`isSshFingerprint`: the `SHA256:` prefix over exactly
+// the 43 unpadded base64url characters of a 32-byte SHA-256 digest). The plane
+// mirrors and renders bytes it cannot re-derive, and a second, drifting copy of
+// that grammar is how one canonical spelling grows two answers.
 
 /**
  * Node ids as the plane mints them: uuid text (hex and hyphens). THE guard,

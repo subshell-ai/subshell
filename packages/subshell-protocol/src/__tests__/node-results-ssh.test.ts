@@ -61,7 +61,7 @@ describe("parseNodeSshResolveOutcome", () => {
 
 describe("parseNodeSshAgentIdentities", () => {
   /** A canonical grant-grammar fingerprint (SHA256: + base64url digest text). */
-  const FP_A = `SHA256:${"A".repeat(20)}${"b".repeat(20)}cd`;
+  const FP_A = `SHA256:${"A".repeat(20)}${"b".repeat(20)}cde`;
   const _FP_B = `SHA256:${"-_9".repeat(14)}x`;
 
   test("narrows a well-formed roster answer", () => {

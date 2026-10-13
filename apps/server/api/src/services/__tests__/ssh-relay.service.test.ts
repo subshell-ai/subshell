@@ -47,7 +47,7 @@ const A_SIGNING = '{"kty":"EC","crv":"P-256","x":"AX","y":"AY","use":"sig"}';
 const A_ENCRYPT = '{"kty":"EC","crv":"P-256","x":"EX","y":"EY","use":"enc"}';
 const B_SIGNING = '{"kty":"EC","crv":"P-256","x":"BX","y":"BY","use":"sig"}';
 const B_ENCRYPT = '{"kty":"EC","crv":"P-256","x":"FX","y":"FY","use":"enc"}';
-const FINGERPRINTS = ["SHA256:AAAA", "SHA256:BBBB"];
+const FINGERPRINTS = [`SHA256:${"A".repeat(43)}`, `SHA256:${"B".repeat(43)}`];
 
 const b64 = (s: string): string => Buffer.from(s, "utf8").toString("base64");
 
@@ -73,6 +73,8 @@ function makeHarness(
     dataDir?: string | null;
     ack?: (nodeId: string, cmd: NodeCommandBody) => unknown | Promise<unknown>;
     authorize?: (userId: string, nodeId: string) => Promise<boolean>;
+    /** The revocation seam (authorization-only); omit to exercise the authorize-negation fallback. */
+    revoked?: (userId: string, nodeId: string) => Promise<boolean>;
     relaySend?: (nodeId: string, frame: RelayFrame) => void;
   } = {},
 ) {
@@ -99,6 +101,7 @@ function makeHarness(
 
   const broker: RelayBroker = createRelayBroker({
     authorize: opts.authorize ?? (async () => true),
+    revoked: opts.revoked,
     async sendCommand(nodeId, cmd) {
       commands.push({ nodeId, cmd });
       return (opts.ack ?? defaultAck)(nodeId, cmd);
@@ -489,6 +492,33 @@ describe("teardown (spec §5.6, Task 8 (f))", () => {
     const closes = h.commands.filter((c) => c.cmd.type === "ssh_relay_close");
     expect(closes).toHaveLength(2);
     for (const c of closes) expect(c.cmd).toEqual({ type: "ssh_relay_close", ref: r1.ref, reason: "access-revoked" });
+    expect(h.audits.filter((a) => a.action === "node.ssh_relay.close")).toHaveLength(1);
+  });
+
+  it("a link blip is not a revocation: the shares cut consults the revoked seam, never the full open gate", async () => {
+    // The finding this pins: the gate an OPEN asks is liveness-inclusive, and
+    // a shares replacement must not read "machine momentarily offline" as
+    // "this user lost access". Authorization-only answers come through
+    // `revoked`; a `false` authorize alone must leave the pairing standing.
+    let blipped = false;
+    let accessGone = false;
+    const h = makeHarness({
+      relaySend: () => {},
+      authorize: async () => !blipped,
+      revoked: async () => accessGone,
+    });
+    const r = await h.open({ paneId: "p1" });
+    blipped = true;
+    expect(await h.broker.closeUnauthorizedForNode("a")).toBe(0);
+    expect(h.broker.sessionInfo(r.ref)).not.toBeNull();
+    expect(h.commands.filter((c) => c.cmd.type === "ssh_relay_close")).toHaveLength(0);
+    accessGone = true;
+    expect(await h.broker.closeUnauthorizedForNode("a")).toBe(1);
+    expect(h.broker.sessionInfo(r.ref)).toBeNull();
+    // One close per participant (A and B each hear the named cut), one audit.
+    const closes = h.commands.filter((c) => c.cmd.type === "ssh_relay_close");
+    expect(closes).toHaveLength(2);
+    for (const c of closes) expect(c.cmd).toEqual({ type: "ssh_relay_close", ref: r.ref, reason: "access-revoked" });
     expect(h.audits.filter((a) => a.action === "node.ssh_relay.close")).toHaveLength(1);
   });
 

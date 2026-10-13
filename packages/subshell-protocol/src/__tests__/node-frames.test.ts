@@ -75,7 +75,7 @@ const relayOpenCmd: SshRelayOpenCommand = {
   bNodeId: "node-b",
   peerSigningPublicKey: '{"kty":"EC","crv":"P-256","x":"AAA","y":"BBB"}',
   peerEncryptPublicKey: "SGVsbG9Xb3JsZEhlcmVJc1RoaXJ0eXR3b0J5dGVzMTI=",
-  fingerprints: ["SHA256:AAAA", "SHA256:BBBB"],
+  fingerprints: [`SHA256:${"A".repeat(43)}`, `SHA256:${"B".repeat(43)}`],
   lifetimeMs: 30_000,
   paneId: "11111111-2222-4333-8444-555555555555",
   // Task 12: the destination's pinned host-key line (A's known_hosts entry,
@@ -1265,7 +1265,10 @@ describe("ssh_relay_open / ssh_relay_close arms (spec 2026-10-08 §5.1)", () => 
     expect(
       parseNodeCommandBody({
         ...relayOpenCmd,
-        fingerprints: Array.from({ length: SSH_MAX_SELECTED_FINGERPRINTS }, (_, i) => `SHA256:${i}`),
+        fingerprints: Array.from(
+          { length: SSH_MAX_SELECTED_FINGERPRINTS },
+          (_, i) => `SHA256:${String(i).padStart(43, "A")}`,
+        ),
       }),
     ).not.toBeNull();
     expect(parseNodeCommandBody({ ...relayOpenCmd, lifetimeMs: 0 })).toBeNull(); // positive or refuse
@@ -1352,8 +1355,9 @@ describe("ssh_relay_open / ssh_relay_close arms (spec 2026-10-08 §5.1)", () => 
     expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: ["ok"] })).toBeNull(); // no prefix
     expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: ["SHA256:"] })).toBeNull(); // empty digest
     expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: ["SHA256:AAA\tBBB"] })).toBeNull(); // control char
-    expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: [`SHA256:${"A".repeat(129)}`] })).toBeNull(); // over the bound
-    expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: [`SHA256:${"a-_0".repeat(32)}`] })).not.toBeNull(); // alphabet, at bound
+    expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: [`SHA256:${"A".repeat(129)}`] })).toBeNull(); // far off the 43-char digest
+    expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: [`SHA256:${"a-_0".repeat(32)}`] })).toBeNull(); // generous no more: a digest is 43 chars
+    expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: [`SHA256:${"a-_0".repeat(10)}a-_`] })).not.toBeNull(); // alphabet, exactly 43
   });
 
   it("validates the paneId against the path-composition shape (Task 8 (b))", () => {
@@ -1391,8 +1395,9 @@ describe("ssh_relay_open / ssh_relay_close arms (spec 2026-10-08 §5.1)", () => 
     // The plane validates a grant's selection with the SAME rule its own
     // parser enforces on receipt; one definition, two directions.
     expect(isSshFingerprints([])).toBe(true); // §5.4: empty names nothing, serves nothing
-    expect(isSshFingerprints(["SHA256:AAAA"])).toBe(true);
-    expect(isSshFingerprints(["SHA256:AAAA", "not-a-fingerprint"])).toBe(false);
+    expect(isSshFingerprints([`SHA256:${"A".repeat(43)}`])).toBe(true);
+    expect(isSshFingerprints([`SHA256:${"A".repeat(43)}`, "not-a-fingerprint"])).toBe(false);
+    expect(isSshFingerprints(["SHA256:AAAA"])).toBe(false); // short of the 43-char digest
     expect(isSshFingerprints(Array.from({ length: SSH_MAX_SELECTED_FINGERPRINTS + 1 }, (_, i) => `SHA256:${i}`))).toBe(
       false,
     );

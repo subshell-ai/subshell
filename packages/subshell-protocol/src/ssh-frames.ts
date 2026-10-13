@@ -404,22 +404,22 @@ function isIdStr(value: unknown): value is string {
 }
 
 /**
- * The OpenSSH display notation the connection carries: the `SHA256:` prefix over
- * base64url digest text (43 chars in practice; bounded generously at 128).
- * Shape, not truth - whether the digest matches a key is the responder's
- * §5.4 enforcement. The alphabet rule is also what stops control characters
- * reaching a future audit row through a field that promises to be a
- * fingerprint.
+ * The OpenSSH display notation, exactly: the `SHA256:` prefix over the 43
+ * unpadded base64url characters of a 32-byte SHA-256 digest - which is what
+ * every producer of this notation (OpenSSH's own display form, `fingerprintJwk`)
+ * emits, so the strict width refuses nothing real. Shape, not truth - whether
+ * the digest matches a key is the responder's §5.4 enforcement. The alphabet
+ * rule is also what stops control characters reaching a future audit row
+ * through a field that promises to be a fingerprint.
  */
-const SSH_FINGERPRINT_RE = /^SHA256:[A-Za-z0-9_-]{1,128}$/;
+const SSH_FINGERPRINT_RE = /^SHA256:[A-Za-z0-9_-]{43}$/;
 
 /**
- * Whether `value` is ONE fingerprint in the canonical display grammar. This is
- * the roster answer's grammar too, deliberately the SAME predicate: the
- * approve surface promises selections "exactly as the roster reports them",
- * so a fingerprint the roster may carry and a connection may not select would be
- * one broken round trip invented by drift. Exported for `node-results.ts`'s
- * roster validator.
+ * Whether `value` is ONE fingerprint in the canonical display grammar. THE
+ * predicate for the spelling: the approve surface promises selections
+ * "exactly as the roster reports them", `node-results.ts`'s roster validator
+ * and `node-frames.ts`'s report mirror both import this one, so no wire
+ * surface can carry a fingerprint another surface calls malformed.
  */
 export function isSshFingerprint(value: unknown): value is string {
   return isStr(value) && SSH_FINGERPRINT_RE.test(value);

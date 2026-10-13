@@ -1075,8 +1075,12 @@ consequences are:
   it dialing itself; and it is audited as `node.config.update`. The audit names
   the NEW value only: which address a node dials lives in that machine's own
   config and is reported by nothing on the wire, so recording a previous value
-  would mean inventing one. It does not restart the agent: the address takes
-  effect on the next start, and choosing when is the operator's.
+  would mean inventing one. It does not restart the agent, and since
+  2026-10-13 it does not wait for the next start either: the running daemon
+  hot-reloads the written config and re-dials the new address on its next
+  heartbeat beat, within about fifteen seconds. The disclosure above therefore
+  lands on the click, not on some later boot, which is the point of the
+  owner-only gate, and why the command is logged on the machine itself.
 - **Applying a rotated key grants nothing new** (2026-09-22). `subshell
   configure --key <node key>`, the verb the node's Rotate-key card tells you
   to run, rewrites ONLY `nodeKey` in the same 0600 `config.json`. It grants

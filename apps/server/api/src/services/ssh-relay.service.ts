@@ -22,7 +22,7 @@ import { type AuditEventInput, audit } from "@/services/audit.js";
 import { getLive } from "@/services/nodes/node-registry.js";
 import { binaryPayload, sendCommand } from "@/services/nodes/node-rpc.js";
 import { productionLocalRelayParticipant } from "@/services/ssh-local-participant.js";
-import { gateSshNode } from "@/services/ssh-policy.service.js";
+import { gateSshNode, sshAccessRevoked } from "@/services/ssh-policy.service.js";
 import { logger } from "@/utils/logger.js";
 
 /** Encrypted relay broker: pair two machines for one user's launch, forward opaque
@@ -155,8 +155,17 @@ export interface RelayBrokerDeps {
   nodeRow(nodeId: string): Promise<{ kind: NodeKind; sshEnabled: number | null } | null | undefined>;
   /** The node's dataDir from its live `ready` facts, or null (not fully connected). */
   nodeDataDir(nodeId: string): string | null;
-  /** Current launch/SSH policy for this user on both machines. */
+  /** Full connect policy for this user on a machine (an OPEN asks this). */
   authorize(userId: string, nodeId: string): Promise<boolean>;
+  /**
+   * The REVOCATION read for {@link RelayBroker.closeUnauthorizedForNode}:
+   * whether the user has lost AUTHORIZATION (access gone, SSH switched off,
+   * row deleted) — never liveness. An offline or held machine is not an access
+   * decision, and a shares write must not read like a revocation because a
+   * link blipped mid-edit. Defaults to the negation of `authorize`, which is
+   * right whenever authorize already models access only (test seams).
+   */
+  revoked?(userId: string, nodeId: string): Promise<boolean>;
   /** The audit sink (best-effort by contract, never throws). */
   audit(event: AuditEventInput): Promise<void>;
   nowMs(): number;
@@ -550,9 +559,15 @@ export function createRelayBroker(deps: RelayBrokerDeps): RelayBroker {
     routeRelayFrame,
     closeRelay,
     async closeUnauthorizedForNode(nodeId) {
+      // The revocation read is authorization-only: a machine that merely went
+      // offline or got held for an update keeps its pairings alive (the link
+      // cuts, the caps and the pane own those; a shares write does not). An
+      // `authorize` call here would read a blip as a revocation and cut a
+      // session the shares change said nothing about.
+      const revoked = deps.revoked ?? (async (userId, node) => !(await deps.authorize(userId, node)));
       let n = 0;
       for (const s of forEach((x) => x.aNode === nodeId || x.bNode === nodeId)) {
-        if (!(await deps.authorize(s.userId, s.aNode)) || !(await deps.authorize(s.userId, s.bNode))) {
+        if ((await revoked(s.userId, s.aNode)) || (await revoked(s.userId, s.bNode))) {
           if (await closeRelay(s.ref, "access-revoked")) n += 1;
         }
       }
@@ -713,6 +728,7 @@ function productionDeps(): RelayBrokerDeps {
     nodeDataDir: (nodeId) =>
       nodeId === "local" ? SUBSHELL_SERVER_DATA_DIR : (getLive(nodeId)?.agent?.dataDir ?? null),
     authorize: async (userId, nodeId) => (await gateSshNode(userId, nodeId)).ok,
+    revoked: sshAccessRevoked,
     audit,
     nowMs: () => Date.now(),
     schedule: (fn, ms) => {

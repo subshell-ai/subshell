@@ -321,7 +321,7 @@ describe("server relay identity recovery", () => {
       bNode: PEER_B,
       aPeer: peer,
       bPeer: peer,
-      fingerprints: ["SHA256:AAAA"],
+      fingerprints: [`SHA256:${"A".repeat(43)}`],
       hostPin: `example.test ssh-ed25519 ${"A".repeat(51)}`,
       identityGenerations: { a: broker.identityGeneration("local"), b: broker.identityGeneration(PEER_B) },
     };

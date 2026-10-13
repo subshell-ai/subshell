@@ -30,7 +30,7 @@ import { audit } from "@/services/audit.js";
 import { getHeld, holdConnection, releaseHeld, resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
 import { sendCommand } from "@/services/nodes/node-rpc.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { gateSshNode } from "@/services/ssh-policy.service.js";
+import { gateSshNode, sshAccessRevoked } from "@/services/ssh-policy.service.js";
 import { createRelayBroker, setRelayBrokerForTests } from "@/services/ssh-relay.service.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { attachScriptedNode, ok, SCRIPTED_DATA_DIR, statDirEcho } from "@/test-helpers/scripted-node.js";
@@ -831,8 +831,11 @@ describe("SSH readiness and grantless relay authorization", () => {
     const a = attachScriptedNode(keyNodeId, {
       ssh_agent_identities: () => ({
         identities: [
-          { fingerprint: "SHA256:AAAA", comment: "Selected" },
-          ...Array.from({ length: 8 }, (_, index) => ({ fingerprint: `SHA256:other${index}`, comment: "Other" })),
+          { fingerprint: `SHA256:${"A".repeat(43)}`, comment: "Selected" },
+          ...Array.from({ length: 8 }, (_, index) => ({
+            fingerprint: `SHA256:${`other${index}`.padEnd(43, "0")}`,
+            comment: "Other",
+          })),
         ],
       }),
       ssh_relay_open: (cmd) => (cmd.type === "ssh_relay_open" ? { role: "A", relayId: cmd.relayId } : {}),
@@ -854,6 +857,7 @@ describe("SSH readiness and grantless relay authorization", () => {
       nodeRow: (id) => nodes.findById(id),
       nodeDataDir: () => SCRIPTED_DATA_DIR,
       authorize: async (userId, nodeId) => (await gateSshNode(userId, nodeId)).ok,
+      revoked: sshAccessRevoked,
       audit,
       nowMs: () => Date.now(),
       schedule: () => null,
@@ -863,7 +867,7 @@ describe("SSH readiness and grantless relay authorization", () => {
     setRelayBrokerForTests(broker);
     try {
       const res = await launch(
-        { node: NODE_ON, destination: "work", keyHome: keyNodeId, fingerprints: ["SHA256:AAAA"] },
+        { node: NODE_ON, destination: "work", keyHome: keyNodeId, fingerprints: [`SHA256:${"A".repeat(43)}`] },
         editorCookie,
       );
       expect(res.status).toBe(201);
@@ -874,14 +878,28 @@ describe("SSH readiness and grantless relay authorization", () => {
         .select("ssh")
         .where("id", "=", body.subshell.id)
         .executeTakeFirstOrThrow();
-      expect(JSON.parse(pane.ssh ?? "{}").relayFingerprints).toEqual(["SHA256:AAAA"]);
-      expect(a.cmdsOf("ssh_relay_open")[0]?.fingerprints).toEqual(["SHA256:AAAA"]);
+      expect(JSON.parse(pane.ssh ?? "{}").relayFingerprints).toEqual([`SHA256:${"A".repeat(43)}`]);
+      expect(a.cmdsOf("ssh_relay_open")[0]?.fingerprints).toEqual([`SHA256:${"A".repeat(43)}`]);
       expect(a.cmdsOf("ssh_relay_open")[0]).not.toHaveProperty("grantId");
       expect(b.cmdsOf("launch")[0]?.ssh?.fileContent).toContain("StrictHostKeyChecking yes");
       expect(broker.activeRelayCount(keyNodeId)).toBe(1);
       const sharesApp = new Elysia()
         .use(errorHandlerPlugin)
         .use(new Elysia({ prefix: "/api/nodes" }).use(setNodeSharesRoute));
+      // A blip is not a revocation: B drops off the wire and an unchanged
+      // shares write lands. The full open-gate would read B's absence as
+      // "unauthorized" and cut a session the write said nothing about; the
+      // authorization-only revocation read must leave the pairing standing.
+      b.detach();
+      const rewrote = await sharesApp.fetch(
+        new Request(`http://localhost:3099/api/nodes/${keyNodeId}/shares`, {
+          method: "PUT",
+          headers: { "content-type": "application/json", cookie: `better-auth.session_token=${ownerCookie}` },
+          body: JSON.stringify({ shares: [{ granteeUserId: editorId, permission: "view" }] }),
+        }),
+      );
+      expect(rewrote.status).toBe(200);
+      expect(broker.activeRelayCount(keyNodeId)).toBe(1);
       const revoked = await sharesApp.fetch(
         new Request(`http://localhost:3099/api/nodes/${keyNodeId}/shares`, {
           method: "PUT",

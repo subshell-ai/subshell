@@ -54,15 +54,52 @@ export function sshPolicy(
   return { canConnect: blockers.length === 0, canConfigure: gate.canManage, blockers };
 }
 
-export async function sshReadiness(gate: NodeGate) {
+/** The two instance-level facts `sshPolicy` reads, so a multi-row view fetches them once. */
+export interface SshPolicyConfig {
+  /** The instance lockdown switch. */
+  lockdown: boolean;
+  /** Whether launching subshells on the server itself is enabled. */
+  serverAccountEnabled: boolean;
+}
+
+/** Read the instance-level policy facts once for a whole view (Settings → SSH readiness). */
+export async function sshPolicyConfig(): Promise<SshPolicyConfig> {
+  const [lockdown, serverAccountEnabled] = await Promise.all([lockdownEnabled(db), serverSubshellsEnabled(db)]);
+  return { lockdown, serverAccountEnabled };
+}
+
+export async function sshReadiness(gate: NodeGate, config?: SshPolicyConfig) {
+  const { lockdown, serverAccountEnabled } = config ?? (await sshPolicyConfig());
   const live = gate.row.kind === "agent" ? getLive(gate.row.id) : undefined;
   return sshPolicy(gate, {
-    lockdown: await lockdownEnabled(db),
-    serverAccountEnabled: await serverSubshellsEnabled(db),
+    lockdown,
+    serverAccountEnabled,
     held: gate.row.kind === "agent" && !!getHeld(gate.row.id),
     online: gate.row.kind === "local" || (!!live && !live.closing),
     ready: gate.row.kind === "local" || !!live?.agent?.dataDir,
   });
+}
+
+/**
+ * Whether the viewer has lost the AUTHORIZATION to keep a live SSH session on
+ * this machine: no row or gate left, launch access gone, outgoing SSH switched
+ * off on it. Liveness (offline, held, still-connecting) and maintenance are
+ * deliberately NOT here — a link blip or a maintenance flip is not an access
+ * decision, and `closeUnauthorizedForNode` must not cut a healthy pairing for
+ * one. The lockdown is excluded for the same reason: it refuses NEW
+ * connections; it has never claimed the live ones.
+ */
+export async function sshAccessRevoked(viewerId: string, nodeId: string): Promise<boolean> {
+  const gate = await loadNodeGate(viewerId, nodeId);
+  if (!gate) return true;
+  const policy = sshPolicy(gate, {
+    lockdown: false,
+    serverAccountEnabled: await serverSubshellsEnabled(db),
+    held: false,
+    online: true,
+    ready: true,
+  });
+  return !policy.canConnect;
 }
 
 /** Invisible and absent machines have the same 404; refuse before any RPC. */

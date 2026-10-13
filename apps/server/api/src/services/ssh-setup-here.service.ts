@@ -260,9 +260,25 @@ export async function setupHere(args: {
   const keys = new NodeSetupKeysRepository(db);
   let keyId: string | null = null;
   let relayClosed = false;
-  /** Best-effort: an unspent key is revoked when the act gives up; a spent one stands as enroll's record. */
+  // The doubt set: whether the destination's exec child MAY still be running.
+  // Only outcomes that lose the answer without learning the verdict hold it —
+  // a kick whose ack was lost or malformed, a status call that failed, a poll
+  // the plane stopped past its margin. The node's terminal `ssh_exec_status`
+  // answer clears it (whatever the verdict), and so does every path where the
+  // command was never dispatched (a local throw, or an `offline`/`refused`/
+  // `unsupported` kick). Deleting the key under a possibly-running installer
+  // turns "setup refused for link reasons" into a half-provisioned machine
+  // whose enroll answer is a refusal nobody can see the reason for.
+  let execMayStillRun = false;
+  /**
+   * Best-effort: an unspent key is revoked on the way out unless the child may
+   * still be running; a spent one stands as enroll's record. Where the doubt
+   * holds, the key is left to its single-use 24-hour expiry instead — a late
+   * enroll then SUCCEEDS (the machine becomes the node the user asked for)
+   * rather than half-installing against a row that vanished.
+   */
   const revokeUnspentKey = async (): Promise<void> => {
-    if (keyId === null) return;
+    if (keyId === null || execMayStillRun) return;
     try {
       // Atomic with enrollment's compare-and-set: never erase its consumed
       // record between a state read and deletion.
@@ -341,7 +357,10 @@ export async function setupHere(args: {
     args.onProgress?.("installing");
 
     // KICK. A refusal here has minted a key and opened a relay and must leave
-    // both as it found them (revoke the unspent key, cut the fresh session).
+    // both as it found them. `offline`, `refused` and `unsupported` prove the
+    // exec never started, so the key can go. A `timeout` or `malformed` reply
+    // means the ACK was lost or junk while the command may have been accepted
+    // and the child may be installing — there the key must outlive the doubt.
     try {
       await sshExec(pane.nodeId, {
         execId,
@@ -355,7 +374,13 @@ export async function setupHere(args: {
       });
     } catch (err) {
       await closeExecRelay();
-      await revokeUnspentKey();
+      // The doubt kinds: the ACK was lost or junk, so the command may have
+      // been accepted and the child may be installing. `offline`/`refused`/
+      // `unsupported` prove nothing started, and a non-RPC throw is a local
+      // bug before the wire — both leave the doubt unset.
+      if (err instanceof SshRpcError && (err.kind === "timeout" || err.kind === "malformed")) {
+        execMayStillRun = true;
+      }
       const enrolled = await enrolledResult(err instanceof SshRpcError ? `exec-${err.kind}` : "internal-error");
       if (enrolled) return enrolled;
       if (err instanceof SshRpcError) {
@@ -365,6 +390,9 @@ export async function setupHere(args: {
       }
       throw err;
     }
+    // The ack is the proof: the machine accepted the exec, and from here the
+    // child is running until its terminal answer says otherwise.
+    execMayStillRun = true;
 
     // POLL to the terminal answer. The node holds the deadline; the plane only
     // stops asking past its own margin.
@@ -374,8 +402,9 @@ export async function setupHere(args: {
       try {
         terminal = await sshExecStatus(pane.nodeId, execId);
       } catch (err) {
+        // The doubt stands (the ack proved the start; this answer is lost): a
+        // still-running installer must meet its key.
         await closeExecRelay();
-        await revokeUnspentKey();
         const enrolled = await enrolledResult(err instanceof SshRpcError ? `exec-lost-${err.kind}` : "internal-error");
         if (enrolled) return enrolled;
         if (err instanceof SshRpcError) {
@@ -386,8 +415,10 @@ export async function setupHere(args: {
       }
       if (terminal.state === "done") break;
       if (deps.nowMs() > pollDeadline) {
+        // The plane stopped ASKING past its margin; the node's own deadline
+        // owns the child, and a spend that lands after this answer must
+        // succeed and surface as the node, not half-install against a gone row.
         await closeExecRelay();
-        await revokeUnspentKey();
         const enrolled = await enrolledResult("install-deadline");
         if (enrolled) return enrolled;
         await runAudit("refused", "install-deadline");
@@ -399,6 +430,9 @@ export async function setupHere(args: {
       }
       await deps.sleepMs(deps.pollMs);
     }
+    // The node's own terminal answer: the child is done, whatever the verdict.
+    // From here the key is safe to revoke.
+    execMayStillRun = false;
     await closeExecRelay();
 
     // The belt redaction: the machine's answer is the first station's word,
@@ -528,7 +562,9 @@ export async function setupHere(args: {
     throw err;
   } finally {
     // Also cover failures before exec starts and during the readiness wait.
-    // Conditional deletion preserves keys already consumed by enrollment.
+    // revokeUnspentKey itself holds the two guards: keys already consumed by
+    // enrollment (SQL) and keys whose installer may still be running (the
+    // doubt flag) are never erased here.
     await closeExecRelay();
     await revokeUnspentKey();
   }

@@ -150,7 +150,7 @@ async function mkPane(opts: {
         ? JSON.stringify({
             ...SNAP(),
             ...(opts.keyHome && opts.fingerprints !== null
-              ? { relayFingerprints: opts.fingerprints ?? ["SHA256:AAAA"] }
+              ? { relayFingerprints: opts.fingerprints ?? [`SHA256:${"A".repeat(43)}`] }
               : {}),
           })
         : opts.ssh,
@@ -224,7 +224,7 @@ function attachPair(impl: {
   const a = impl.withA
     ? attachScriptedNode(NODE_A, {
         ssh_agent_identities: () => ({
-          identities: (impl.fingerprints ?? ["SHA256:AAAA"]).map((fingerprint) => ({
+          identities: (impl.fingerprints ?? [`SHA256:${"A".repeat(43)}`]).map((fingerprint) => ({
             fingerprint,
             comment: "test key",
           })),
@@ -328,12 +328,15 @@ describe("setupHere door order (pane first, gates before any key)", () => {
 describe("setupHere relay mode", () => {
   for (const rosterSize of [2, 9]) {
     it(`reuses only the saved selected key from a current roster of ${rosterSize} keys`, async () => {
-      const selected = "SHA256:AAAA";
+      const selected = `SHA256:${"A".repeat(43)}`;
       const paneId = await mkPane({ keyHome: true, fingerprints: [selected] });
       let enrolled: { id: string; handle: ScriptedNode } | null = null;
       const pair = attachPair({
         withA: true,
-        fingerprints: [selected, ...Array.from({ length: rosterSize - 1 }, (_, i) => `SHA256:extra${i}`)],
+        fingerprints: [
+          selected,
+          ...Array.from({ length: rosterSize - 1 }, (_, i) => `SHA256:${`extra${i}`.padEnd(43, "0")}`),
+        ],
         onKick: async (cmd) => {
           enrolled = await enrollD(mintedKey(cmd));
         },
@@ -361,8 +364,8 @@ describe("setupHere relay mode", () => {
   }
 
   it("refuses when a saved selected key disappears without replacing it with another live key", async () => {
-    const paneId = await mkPane({ keyHome: true, fingerprints: ["SHA256:AAAA"] });
-    const pair = attachPair({ withA: true, fingerprints: ["SHA256:BBBB"], status: () => DONE_OK });
+    const paneId = await mkPane({ keyHome: true, fingerprints: [`SHA256:${"A".repeat(43)}`] });
+    const pair = attachPair({ withA: true, fingerprints: [`SHA256:${"B".repeat(43)}`], status: () => DONE_OK });
     const keysBefore = (await keys.listByUser(owner)).length;
     try {
       const result = await setupHere({ viewerId: owner, paneId });
@@ -622,6 +625,59 @@ describe("setupHere relay mode", () => {
       pair.b.detach();
     }
   });
+
+  // PR #379 review: the act gives up the WAIT, not the destination's child. On
+  // the doubt paths (a lost status call, the plane's own poll deadline) the
+  // installer may still be mid-flight, so the key must SURVIVE — deleting it
+  // seconds before a still-running `curl | bash` spends it leaves a
+  // half-provisioned machine whose enroll hits a vanished row. These pin the
+  // late enroll SUCCEEDING after each give-up.
+  const doubtGiveUp = (mode: "lost-status" | "deadline") =>
+    it(`a ${mode === "lost-status" ? "lost status call" : "poll deadline"} leaves the key spendable for the late installer`, async () => {
+      await clearUpgradeRows();
+      const paneId = await mkPane({ keyHome: false });
+      const keysBefore = (await keys.listByUser(owner)).length;
+      if (mode === "deadline") {
+        // The tiny budget lets the plane's poll deadline fire without waiting
+        // out the real 600 s exec timeout; the node's answer stays "running".
+        let clock = 0;
+        setSshSetupHereDepsForTests({
+          nowMs: () => clock++,
+          sleepMs: async () => {},
+          execTimeoutMs: 1,
+          execPollMarginMs: 0,
+          readyBudgetMs: 1,
+          pollMs: 1,
+          broker: () => fakeBroker,
+        });
+      }
+      const pair = attachPair({
+        withA: false,
+        status: () => {
+          if (mode === "lost-status") throw new Error("connection lost");
+          return { state: "running" };
+        },
+      });
+      try {
+        const res = await setupHere({ viewerId: owner, paneId });
+        expect(res.ok).toBe(false);
+        if (res.ok) return;
+        // Both give-ups are refusals; the deadline one names the timeout.
+        if (mode === "deadline") expect(coded(res.refusal).message).toContain("timed out");
+        // The key is still there, unspent — and a late enroll spends it fine.
+        expect((await keys.listByUser(owner)).length).toBe(keysBefore + 1);
+        const enrolled = await enrollD(mintedKey(pair.kick()));
+        expect(typeof (await keys.peekByKey(mintedKey(pair.kick())))?.usedAt).toBe("string");
+        await enrolled.handle.detach();
+        await nodes.deleteById(enrolled.id);
+      } finally {
+        await clearUpgradeRows();
+        pair.b.detach();
+        installDeps();
+      }
+    });
+  doubtGiveUp("lost-status");
+  doubtGiveUp("deadline");
 });
 
 describe("setupHere direct mode (B's own keys, no relay)", () => {

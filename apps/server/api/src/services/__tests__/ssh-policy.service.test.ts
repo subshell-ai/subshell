@@ -62,7 +62,7 @@ describe("SSH policy follows existing launch permission", () => {
 });
 
 describe("SSH relay key selection", () => {
-  const roster = Array.from({ length: 9 }, (_, i) => ({ fingerprint: `SHA256:key${i}` }));
+  const roster = Array.from({ length: 9 }, (_, i) => ({ fingerprint: `SHA256:${`key${i}`.padEnd(43, "0")}` }));
   test("omitted selection uses the whole current roster within the cap", () => {
     expect(selectRelayFingerprints(roster.slice(0, 8))).toEqual({
       ok: true,
@@ -74,11 +74,12 @@ describe("SSH relay key selection", () => {
       expect(result.refusal.code).toBe(BackendErrorCodes.SSH_KEYS_OVER_LIMIT);
   });
   test("explicit choice is deduplicated and must belong to the live roster", () => {
-    expect(selectRelayFingerprints(roster, ["SHA256:key1", "SHA256:key1"])).toEqual({
+    const fp1 = `SHA256:${`key1`.padEnd(43, "0")}`;
+    expect(selectRelayFingerprints(roster, [fp1, fp1])).toEqual({
       ok: true,
-      value: ["SHA256:key1"],
+      value: [fp1],
     });
-    expect(selectRelayFingerprints(roster, ["SHA256:missing"]).ok).toBe(false);
+    expect(selectRelayFingerprints(roster, [`SHA256:${"m".repeat(43)}`]).ok).toBe(false);
     expect(selectRelayFingerprints(roster, ["not-a-fingerprint"]).ok).toBe(false);
     expect(selectRelayFingerprints(roster, null as unknown as string[]).ok).toBe(false);
   });
