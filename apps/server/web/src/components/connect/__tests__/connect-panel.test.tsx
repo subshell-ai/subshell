@@ -579,11 +579,11 @@ describe("connect and the ledger (contracts 3, 6)", () => {
     }
   });
 
-  it("Use by default PATCHes the connecting-machine preference", async () => {
+  it("Select this node by default PATCHes the connecting-machine preference", async () => {
     const { calls, restore } = await renderPanel({ nodes: [HOST_A] });
     try {
       await waitFor(() => expect(machineInput().value).toBe("mac mini"));
-      fireEvent.click(screen.getByRole("button", { name: "Use by default" }));
+      fireEvent.click(screen.getByRole("button", { name: "Select this node by default" }));
       await waitFor(() =>
         expect(calls.some((c) => c.method === "PATCH" && c.url === "/api/ssh/preferences")).toBe(true),
       );

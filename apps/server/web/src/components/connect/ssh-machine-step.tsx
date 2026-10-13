@@ -55,9 +55,11 @@ export function SshMachineSetup({
   machine,
   retry,
   onLeave,
+  showName = true,
 }: {
   machine?: SshMachineReadiness;
   retry: () => unknown;
+  showName?: boolean;
   onLeave?: () => void;
 }) {
   const enable = useEnableSsh();
@@ -80,7 +82,7 @@ export function SshMachineSetup({
     (machine.node.kind === "agent" && !machine.node.canLaunch);
   return (
     <div className="flex flex-col gap-3">
-      <p className="font-strong text-body">{machine.node.name}</p>
+      {showName && <p className="font-strong text-body">{machine.node.name}</p>}
       {machine.canConnect ? (
         <p role="status" className="text-detail">
           SSH is enabled in Subshell. You can try connecting to your destination.

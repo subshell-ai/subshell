@@ -394,9 +394,10 @@ export function ConnectPanel({
             <button
               type="button"
               onClick={() => setDefault.mutate(selectedNode.id)}
+              title="Preselects this node for your future SSH connections."
               className="text-detail text-muted-foreground underline-offset-2 hover:underline"
             >
-              Use by default
+              Select this node by default
             </button>
           )}
         </Field>
@@ -426,8 +427,9 @@ export function ConnectPanel({
                 describedBy="connect-key-help"
               />
               <p id="connect-key-help" className="text-detail text-muted-foreground">
-                Choose another machine to use keys loaded in its SSH agent. Keys stay on that machine; it must be online
-                and have SSH enabled.
+                {keyOptions.length === 1
+                  ? "No other nodes are available to supply SSH keys. This connection will use keys on the connecting node."
+                  : "Choose another node to use keys loaded in its SSH agent. You need launch access to that node, and it must be online with SSH enabled. Private keys stay on that node."}
               </p>
               {keySourceProblem && (
                 <p role="alert" className="text-destructive text-detail">

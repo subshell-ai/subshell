@@ -212,13 +212,13 @@ export function SshWizard({
             {machine?.node.name ?? "Selected machine unavailable"}
             {sshDestination(draft) && ` → ${sshDestination(draft)}`}
           </p>
-          <SshMachineSetup machine={machine} retry={readiness.refetch} onLeave={onLeave} />
+          <SshMachineSetup showName={false} machine={machine} retry={readiness.refetch} onLeave={onLeave} />
           {remote && intent !== "prepare" && (
             <>
               <p className="text-detail">
                 Keys from {keyMachine?.node.name ?? "unavailable machine"}: {fingerprints.join(", ")}
               </p>
-              <SshMachineSetup machine={keyMachine} retry={readiness.refetch} onLeave={onLeave} />
+              <SshMachineSetup showName={false} machine={keyMachine} retry={readiness.refetch} onLeave={onLeave} />
               {!keySourceProblem && <SshQueryStatus query={roster} label="SSH agent keys" />}
               {!keySourceProblem && sshKeySelectionProblem(fingerprints, roster.data?.identities) && (
                 <p role="alert" className="text-destructive text-detail">
