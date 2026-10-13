@@ -1114,15 +1114,80 @@ consequences are:
   UI says. It also does not rename: `config.json`'s name never reaches the
   plane outside the enroll body, so the plane owns a node's name.
 
-### What the node discloses to the plane (protocol 10 framing, current through 14)
+### SSH surfaces and credential boundaries
 
-Connecting a node is itself a disclosure, and the frames it rides on are
-bounded on purpose. The list below is what protocol 10 established; it is
-also what today's `ready` frame still carries (`handleNodeMessage`'s `ready`
-case in `node-ws-handler.ts`, `NODE_PROTOCOL_VERSION` = 14). Protocol 14's
-handshake adds NOTHING to this list: the `kx` and the sealed binding carry
-only the identity the bearer had already authenticated, and after
-establishment the same `ready` arrives over the encrypted stream.
+The connection form is **New subshell → SSH terminal**. **Settings → SSH**
+manages saved and recent destinations; it has no host-key editor. Node Overview's
+**SSH → Allow SSH** switch controls outgoing connections and supplying agent
+keys. It does not configure `sshd` or grant incoming SSH access.
+
+| Surface | Authorization and effect |
+| --- | --- |
+| `/api/ssh/readiness`, `/aliases`, `/resolve`, `/identities` | Browser session required. Node discovery and operations follow the caller's node access and the applicable readiness gates; alias/configuration data and public agent identities are not anonymous information. |
+| `POST /api/ssh/launch` | Browser session and launch access to the connecting node; relays also require launch access to the key source. Both participants must pass SSH and readiness checks. |
+| `PUT /api/nodes/:id/ssh-enabled` | Browser session and node owner, or administrator for the built-in node. An edit share alone cannot enable SSH. The setting can be changed while a node is offline and is reconciled on reconnect. |
+| `/api/ssh/saved-hosts` and `/preferences` | Browser session, scoped to the caller. Saved suggestions are separate from destination trust; forgetting a suggestion neither removes its host pin nor closes a session. |
+| `/api/ssh/verify-destination` and `/verify-destination/accept` | Browser session, current access checks, and the one-use confirmation binding described above. These are destination network probes and trust writes, not login attempts. |
+| `/api/ssh/host-pins` | Browser session, owner-scoped compatibility API for explicit recovery. Creation refuses a conflicting key; deletion is a deliberate trust reset. Removing the UI did not remove this API. |
+| Terminal WebSocket input and REST input/exec | SSH input requires the subshell owner's cookie identity. Edit grantees and all bearer actors are refused, including the pane's own token. Output still follows ordinary view grants. |
+| `/api/ssh/setup-here` and `/setup-here/:paneId` | Browser session and ownership of the SSH pane; setup rechecks enrollment policy, node access, and the saved key selection. It runs a separate noninteractive installer on the destination. |
+| Node machine-pin repair and `/api/nodes/local/ssh-identity/repair` | Explicit verified repair, not automatic acceptance of a changed identity. Peer repair requires node management authority; the built-in node's own identity repair requires an administrator's browser session. |
+
+The dashboard requires an explicit key selection for remote-key launches. The
+cookie API also accepts an omitted fingerprint selection, which selects the
+current agent roster subject to its bounds. The resulting set is retained for
+the connection and subsequent setup; it is not permission to widen that set later.
+
+The form can enable SSH as part of **Start SSH subshell**, with a notice before
+submission, only when the viewer may configure that node and the disabled flag
+is its sole readiness blocker. It uses the same owner-only API as the node
+settings switch. Enabling is a separate mutation: a later failed launch does not
+undo it. For another owner's disabled node the form waits and polls; polling
+neither enables SSH nor grants access. Disabling blocks new connections and
+closes affected signing relays; it does not promise to terminate an already
+authenticated direct SSH session.
+
+**Password mode has no saved password field.** The user types into OpenSSH's
+terminal prompt. Launch configuration disables public-key authentication, agent
+use, and connection multiplexing for this mode, so a cached connection cannot
+silently bypass the requested password prompt. Password input still traverses
+the normal browser → server → connecting-node terminal path. HTTPS protects the
+browser hop; the node link has its own encryption. This is not an end-to-end
+secret channel past the server or execution host. Normal password prompts do
+not echo, but a program that echoes or prints a secret can expose it in captured
+output. “Subshell doesn't save your password” does not mean a compromised
+server or node cannot observe terminal input.
+
+**SSH configuration is evaluated under the connecting node's OS account.**
+The resolver rejects `Match exec` found by its bounded structural scan before
+invoking `ssh -G`, refuses unsupported command-bearing settings such as
+`ProxyCommand` and `LocalCommand`, and renders a validated per-pane configuration.
+The scan is not proof that evaluation cannot execute commands: byte, file, and
+glob limits can leave configuration unseen by the scan but still evaluated by
+OpenSSH. A `Match exec` there can run under the connecting account. Treat that
+account’s configuration as executable trusted input, not passive data. Remote-key relays additionally refuse
+`ProxyJump` and `HostKeyAlias`, because their destination trust currently covers
+one canonical destination. These restrictions do not sandbox that OS account
+or make its OpenSSH binary and configuration untrusted-code-safe.
+
+**Setup progress is not a durable job.** Completed results remain for one hour
+in the running server process. Closing the dialog does not cancel the installer;
+a server restart loses progress tracking. Check the destination and node roster
+before retrying. Setup keys and installer output are excluded from audit metadata
+and user-facing refusal text; the audit event records the service-selected outcome.
+
+Implementation entry points: `apps/server/api/src/api/ssh/`,
+`apps/server/api/src/services/ssh-launch.service.ts`,
+`apps/server/api/src/services/ssh-destination-verification.service.ts`,
+`apps/server/api/src/services/subshells.service.ts`, and
+`packages/pane-runtime/src/ssh/`. Operator instructions live in
+[Connect over SSH](../apps/docs/content/docs/guides/ssh.mdx).
+
+### What the node discloses to the plane
+
+Connecting a node discloses execution-machine information to the trusted server.
+The current protocol is 20. The encrypted handshake protects this information
+in transit; it does not hide it from the control plane.
 
 - **`ready` discloses machine facts**: `agentVersion`, protocol/os/arch,
   `hostname`, the agent's `dataDir` path, its capability set, the
@@ -1131,6 +1196,13 @@ establishment the same `ready` arrives over the encrypted stream.
   `homeDir`, and, from agents that report it, the `runtime` supervision
   snapshot. Resume-path defaults hang off the home; the plane cannot
   expand `~` against a filesystem it cannot see.
+- **SSH and maintenance state also reach the server.** `ready` carries the
+  node's maintenance and SSH enablement mirrors when present. The runtime's
+  `sshFingerprint` report includes its own public identity fingerprints and
+  pinned peer identities, exposing trust relationships without private keys.
+  SSH discovery commands additionally return aliases, resolved connection
+  settings, public agent-key identities, and destination host keys to the
+  authorized caller through the control plane.
 - **`detect` answers binary facts and named env values.** The PLANE names
   everything it asks: the `detect` command carries the detection rules
   (one per harness this instance's registry resolves) and `envNames`:

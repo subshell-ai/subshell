@@ -117,6 +117,21 @@ Plugin shape and runtime facts (loaded from disk, `PluginHost`-only, JSON identi
 - **Beyond its row** (§4): raw REST resolves a pane's token as its OWNER with boost and shares off, so a prompt-injected pane can create, restart and **terminate** the owner's OTHER subshells (the sibling-action surface the "other panes are agents" posture rests on, accepted at the harness's own altitude (§11)).
 - `/api/files/explore` **403s machine credentials**. `SUBSHELL_FS_ROOT` unset = the host filesystem is browsable by design; the check is lexical AND realpath, unresolvable paths refused; it never confines a remote node.
 
+## SSH
+
+See [SSH surfaces and credential boundaries](../../docs/security.md#ssh-surfaces-and-credential-boundaries)
+for the route inventory and trust limits. `/api/ssh/*` requires a browser session;
+SSH terminal input additionally requires the pane owner and refuses all bearer
+actors. The node SSH switch is owner-only (admin for the built-in node), including
+implicit enablement on launch. It controls outgoing SSH and agent-key supply,
+not incoming access. Relays require access to both nodes; the UI requires key selection, while the
+cookie API can select the current roster when selection is omitted. Private keys
+stay at the source. Bounded configuration scanning does not prevent all local
+execution during `ssh -G`; trust the connecting account’s SSH configuration. First-use destination confirmation cannot replace
+a conflicting pin. Host-pin recovery APIs remain even though their settings UI is
+gone. Passwords enter through the terminal, are not saved as credentials, and are
+still visible to trusted transport endpoints. Saved destinations are not trust pins.
+
 ## Network plugins
 
 - **A network plugin DESCRIBES, the host EXECUTES** (§11.13): it returns argv, parses output, names a secret; never spawns, writes a file, touches config.env, or reads a credential back, every effect goes through a `PluginHost` member. `/api/network/*` is cookie-admin only, bearer refused, **never public** (no no-users carve-out).
