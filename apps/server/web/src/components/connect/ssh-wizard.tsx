@@ -109,10 +109,9 @@ export function SshWizard({
           onChange={(nodeId) => patch({ nodeId })}
           label="Connect from"
           description="Choose the node that will make the SSH connection."
+          notice={enableOnStart ? "Starting this subshell will enable outgoing SSH on this node." : undefined}
         />
-        {enableOnStart ? (
-          <p className="text-detail text-warning">Starting this subshell will enable outgoing SSH on this node.</p>
-        ) : machine && !machine.canConnect ? (
+        {!enableOnStart && machine && !machine.canConnect ? (
           <SshMachineSetup
             showName={false}
             allowEnable={false}
