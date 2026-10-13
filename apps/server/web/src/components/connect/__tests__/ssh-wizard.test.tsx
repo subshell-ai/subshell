@@ -429,7 +429,8 @@ it("removes the waiting notice when refreshed readiness reports SSH enabled", as
   await act(async () => {
     await client.invalidateQueries({ queryKey: ["ssh-readiness"] });
   });
-  await waitFor(() => expect(screen.queryByText("Waiting for SSH to be enabled…")).toBeNull());
+  // Avoid serializing Happy DOM's element graph while the refetch is pending.
+  await waitFor(() => expect(screen.queryByText("Waiting for SSH to be enabled…") === null).toBe(true));
   await waitFor(() => expect(disabled()).toBe(false));
 }, 10000);
 
