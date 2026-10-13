@@ -15,13 +15,14 @@
     "verify-types": "tsc --noEmit"
   },
   "devDependencies": {
+    "@internal/mcp-core": "workspace:*",
     "@internal/server": "workspace:*",
     "@internal/server-web": "workspace:*",
-    "@internal/mcp-core": "workspace:*",
     "@internal/subshell-protocol": "workspace:*",
     "@internal/tsconfig": "workspace:*",
     "@playwright/test": "1.62.1",
     "@types/node": "26.2.0",
+    "testcontainers": "12.2.1",
     "typescript": "7.0.2"
   }
 }

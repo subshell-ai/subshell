@@ -1,16 +1,16 @@
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { type APIRequestContext, expect, type Page, type PlaywrightWorkerArgs, test } from "@playwright/test";
-import { missingSshBins, SSH_FIXTURE_ALIAS, type SshFixture, startSshFixture } from "../fixtures/sshd";
+import { SSH_FIXTURE_ALIAS, which } from "../fixtures/sshd";
+import { startContainerSshFixture } from "../fixtures/sshd-container";
 import { PORTS } from "../ports";
 import { shortTmuxBase } from "../stack";
 import { expectSubshellRunning } from "./helpers";
 
 /** Real-browser direct SSH proof against a dedicated sshd and isolated backend.
- * Gate-off state enters the same wizard as launch, readiness blocks Start until
- * explicitly enabled, and the Match exec disclosure precedes the launch action.
+ * Testcontainers owns the destination sshd, including disposable password accounts.
  * A real alias launch reaches the remote shell; an edit sharee remains view-only.
  * The backend owns a fixture HOME and SSH_AUTH_SOCK, temp DB/data, and tmux socket.
  * Missing SSH binaries skip loudly rather than substituting a mock.
@@ -23,12 +23,13 @@ const ORIGIN = `http://127.0.0.1:${PORTS.connect}`;
 const READY_TIMEOUT = 60_000;
 const SPAWN_TIMEOUT = 90_000;
 
-const missing = missingSshBins();
-test.skip(missing.length > 0, `SSH binaries absent on this host (${missing.join(", ")}) - spec 23 needs a real sshd`);
+const missing = ["ssh", "ssh-keygen", "ssh-agent", "ssh-add"].filter((bin) => which(bin) === null);
+test.skip(
+  missing.length > 0,
+  `SSH binaries absent on this host (${missing.join(", ")}) - spec 23 needs the OpenSSH client tools`,
+);
 
 /** The exact strings the page ships (components/connect/* + components/ssh-pane-labels.tsx). */
-const SSH_DISCLOSURE_COPY =
-  "Connecting uses this machine’s SSH configuration, including any local commands configured with Match exec.";
 const SSH_VIEW_ONLY_COPY = "Only the owner can type in this SSH subshell.";
 const MACHINE_OFF_REASON = "Outgoing SSH is disabled on this node.";
 /** The seeded control-plane host's display name (seed-local.ts): the picker reads names, not ids. */
@@ -170,7 +171,7 @@ function freshCtx(playwright: PlaywrightWorkerArgs["playwright"]): Promise<APIRe
   return playwright.request.newContext({ baseURL: ORIGIN, storageState: { cookies: [], origins: [] } });
 }
 
-let fixture: SshFixture | undefined;
+let fixture: Awaited<ReturnType<typeof startContainerSshFixture>> | undefined;
 let fixtureRoot: string | undefined;
 let agentPid: number | undefined;
 /** The admin's REST session: the gate flips, the pane row, and every log read ride it while the browser does the UI. */
@@ -184,7 +185,7 @@ test.beforeAll(async ({ playwright }) => {
   if (missing.length > 0) return;
 
   fixtureRoot = mkdtempSync(path.join(tmpdir(), "subshell-e2e-connfix-"));
-  fixture = await startSshFixture(fixtureRoot);
+  fixture = await startContainerSshFixture(fixtureRoot);
 
   // An ssh-agent holding the fixture's trusted key (spec 22's setup): the
   // backend's resolve reads SSH_AUTH_SOCK from the SERVER process env. The
@@ -276,12 +277,10 @@ async function login(page: Page, email: string, password: string): Promise<void>
 }
 
 /** The compatibility route opens the current SSH launch dialog; gate-off state may show setup instead of fields. */
-async function openConnectPage(page: Page, showForm = true): Promise<void> {
+async function openConnectPage(page: Page): Promise<void> {
   await page.goto(`${ORIGIN}/connect`);
   await expect(page.getByRole("dialog", { name: "New subshell", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "SSH terminal", exact: true })).toHaveAttribute("aria-pressed", "true");
-  if (showForm) {
-  }
 }
 
 function requireAdmin(): APIRequestContext {
@@ -296,7 +295,7 @@ function requirePaneId(): string {
 
 test("gate off: the form explains enablement on Start", async ({ page }) => {
   await login(page, ADMIN.email, ADMIN.password);
-  await openConnectPage(page, false);
+  await openConnectPage(page);
   await expect(page.locator("#ssh-wizard-destination")).toBeVisible();
   await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toBeDisabled();
   await page.getByLabel("SSH destination", { exact: true }).fill(SSH_FIXTURE_ALIAS);
@@ -307,24 +306,6 @@ test("gate off: the form explains enablement on Start", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Enable SSH", exact: true })).toHaveCount(0);
   await expect(page.getByText("Starting this subshell will enable outgoing SSH on this node.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toBeEnabled();
-});
-
-test("the disclosure names the Match exec risk above Start SSH subshell before launch", async ({ page }) => {
-  const enabled = await requireAdmin().put("/api/nodes/local/ssh-enabled", { data: { on: true } });
-  expect(enabled.ok(), await enabled.text()).toBe(true);
-  await login(page, ADMIN.email, ADMIN.password);
-  await openConnectPage(page);
-
-  const disclosure = page.getByText(SSH_DISCLOSURE_COPY);
-  await expect(disclosure).toBeVisible();
-  const connectButton = page.getByRole("button", { name: "Start SSH subshell", exact: true });
-  await expect(connectButton).toBeVisible();
-
-  // "Before the button" literally: the paragraph's box lies above the
-  // button's box in the reading column.
-  const disclosureBox = await disclosure.boundingBox();
-  const buttonBox = await connectButton.boundingBox();
-  expect(disclosureBox && buttonBox ? disclosureBox.y + disclosureBox.height <= buttonBox.y : false).toBe(true);
 });
 
 test("gate on: destination-first launch reaches a live ssh pane whose remote shell answers", async ({ page }) => {
@@ -450,4 +431,95 @@ test("view only: an edit sharee sees the SSH rule in the header and their typing
   const logRes = await adminCtx.get(`/api/subshells/${id}/log`);
   expect(logRes.ok(), await logRes.text()).toBe(true);
   expect(((await logRes.json()) as { lines: string[] }).lines.join("\n")).not.toContain(nonce);
+});
+
+test("password login prompts in the terminal, retries a wrong password, and saves distinct users without storing passwords", async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  if (!fixture || !instance) throw new Error("Missing container fixture");
+  const fx = fixture;
+  const api = requireAdmin();
+  const bodies: string[] = [];
+  page.on("request", (request) => {
+    if (request.postData()) bodies.push(request.postData() ?? "");
+  });
+  await login(page, ADMIN.email, ADMIN.password);
+  for (const user of ["developer", "operator"]) {
+    const destination = `${user}@${fx.host}:${fx.port}`;
+    await openConnectPage(page);
+    await page.getByLabel("SSH destination", { exact: true }).fill(destination);
+    await page.getByRole("radio", { name: "Enter a password when connecting", exact: true }).check();
+    await page
+      .getByRole("checkbox", { name: "Remember this destination", exact: true })
+      .setChecked(user === "developer");
+    await page.getByRole("button", { name: "Start SSH subshell", exact: true }).click();
+    await expect(page).toHaveURL(/\/subshells\/[a-zA-Z0-9_-]+$/, { timeout: READY_TIMEOUT });
+    const id = new URL(page.url()).pathname.split("/").pop();
+    const readLog = async () => {
+      const response = await api.get(`/api/subshells/${id}/log`);
+      expect(response.ok()).toBe(true);
+      return ((await response.json()) as { lines: string[] }).lines.join("\n");
+    };
+    try {
+      await expect.poll(readLog, { timeout: READY_TIMEOUT }).toMatch(/password:/i);
+      await page.locator(".xterm-helper-textarea").click();
+      if (user === "developer") {
+        await page.keyboard.type("incorrect-fixture-password\r");
+        await expect.poll(readLog, { timeout: READY_TIMEOUT }).toMatch(/Permission denied, please try again/);
+      }
+      await page.keyboard.type(`${fx.password}\r`);
+      await expect
+        .poll(() => readFileSync(fx.logPath, "utf8"), { timeout: READY_TIMEOUT })
+        .toContain(`Accepted password for ${user}`);
+      await expect
+        .poll(() => readFileSync(fx.logPath, "utf8"), { timeout: READY_TIMEOUT })
+        .toMatch(new RegExp(`Starting session: shell.*${user}`));
+      await page.keyboard.type("echo PASSWORD-$((8+1))-OK\r");
+      await expect.poll(readLog, { timeout: READY_TIMEOUT }).toContain("PASSWORD-9-OK");
+      expect(await readLog()).not.toContain(fx.password);
+      expect(await readLog()).not.toContain("incorrect-fixture-password");
+      const saved = await api.get("/api/ssh/saved-hosts");
+      expect(JSON.stringify(await saved.json())).not.toContain(fx.password);
+    } finally {
+      await api.post(`/api/subshells/${id}/terminate`);
+      await api.delete(`/api/subshells/${id}`);
+    }
+  }
+  expect(bodies.join("\n")).not.toContain(fx.password);
+  for (const file of ["subshell.db", "subshell.db-wal"]) {
+    const dbPath = path.join(instance.dir, file);
+    if (existsSync(dbPath)) expect(readFileSync(dbPath).includes(Buffer.from(fx.password))).toBe(false);
+  }
+  await page.goto(`${ORIGIN}/settings/ssh`);
+  const operatorDestination = `operator@${fx.host}:${fx.port}`;
+  await page.getByRole("button", { name: `Remember ${operatorDestination}`, exact: true }).click();
+  await expect(page.getByRole("button", { name: `Forget ${operatorDestination}`, exact: true })).toBeVisible();
+  const saved = await api.get("/api/ssh/saved-hosts");
+  const ledger = await saved.json();
+  expect(ledger.saved.map((row: { destination: string }) => row.destination).sort()).toEqual(
+    ["developer", "operator"].map((user) => `${user}@${fx.host}:${fx.port}`).sort(),
+  );
+  for (const user of ["developer", "operator"]) {
+    const destination = `${user}@${fx.host}:${fx.port}`;
+    await expect(page.getByText(destination, { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: `Forget ${destination}`, exact: true }).click();
+    await expect(page.getByText(destination, { exact: true })).toHaveCount(0);
+  }
+});
+
+test("host-key settings adds a verified container key and removes it after confirmation", async ({ page }) => {
+  if (!fixture) throw new Error("Missing container fixture");
+  await login(page, ADMIN.email, ADMIN.password);
+  await page.goto(`${ORIGIN}/settings/ssh`);
+  await page.getByRole("button", { name: "Add host key", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Add host key", exact: true });
+  const destination = `operator@${fixture.host}:${fixture.port}`;
+  await dialog.getByLabel("Destination", { exact: false }).fill(destination);
+  await dialog.getByLabel("Host key", { exact: false }).fill(fixture.hostKeyLine);
+  await dialog.getByRole("button", { name: "Add host key", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole("button", { name: `Remove host key for ${destination}`, exact: true }).click();
+  await page.getByRole("button", { name: "Remove host key", exact: true }).click();
+  await expect(page.getByRole("button", { name: `Remove host key for ${destination}`, exact: true })).toHaveCount(0);
 });

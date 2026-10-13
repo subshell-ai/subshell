@@ -124,7 +124,9 @@ function LedgerRow({
     <li className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
       <div className="min-w-0 flex-1">
         <div className="break-all font-strong text-label">{row.alias ?? row.destination}</div>
-        {row.alias && <div className="break-all text-detail text-muted-foreground">{row.destination}</div>}
+        {row.alias && row.alias !== row.destination && (
+          <div className="break-all text-detail text-muted-foreground">{row.destination}</div>
+        )}
         <div className="break-words text-detail text-muted-foreground">{detail}</div>
       </div>
       <Button

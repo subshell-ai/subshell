@@ -127,3 +127,26 @@ Channels are machine-facing (no browser UI): spec `07` is API-only, seals with
 real crypto from `seal.ts` (a thin re-export of `@internal/mcp-core`, the same
 module the backend and node run, so drift is structurally impossible), and
 asserts recipient-filtered reads.
+
+## SSH container coverage
+
+`23-connect-flow.spec.ts` requires a running Docker-compatible daemon.
+Testcontainers builds `fixtures/ssh-container/Dockerfile`, publishes sshd on a
+random port, and owns container cleanup. Missing Docker fails setup rather
+than silently skipping coverage. The container creates disposable developer
+and operator accounts for real password login; no host accounts or SSH files
+are changed. Host keys are generated under the test's temporary directory and
+trusted explicitly by the connecting process.
+
+The browser exercises key login, password prompts and retry, terminal I/O,
+view-only sharing, saving distinct usernames on one host, forgetting and
+re-saving destinations, and adding/removing verified host keys. Password checks
+cover HTTP bodies, terminal history, saved-host responses, and database bytes;
+Playwright failure traces can still contain fixture passwords typed into the
+terminal, so these are disposable test credentials.
+
+Specs 22 and 23-ssh-relay retain their host-process fixtures for terminal
+lifecycle and cross-node cryptographic relay coverage. Run all SSH specs
+together with `01-setup-wizard.spec.ts` (which seeds the account for spec 24).
+CI mounts its Docker socket into the e2e job so Testcontainers can start the
+same destination fixture.
