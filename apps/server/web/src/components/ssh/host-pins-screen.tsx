@@ -47,8 +47,8 @@ export function HostPinsScreen() {
         <div className="flex min-w-0 flex-col gap-2">
           <CardTitle>Saved host keys</CardTitle>
           <CardDescription>
-            When another node supplies your SSH keys, Subshell uses saved host keys to verify the destination. If a host
-            key changes, verify the replacement with the destination’s administrator before removing it.
+            A host key identifies the machine you’re connecting to. Your SSH keys or password identify you. When you
+            sign in using another node’s keys, Subshell checks the destination against the host key saved here.
           </CardDescription>
         </div>
         <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}>
@@ -60,7 +60,9 @@ export function HostPinsScreen() {
           <SshQueryStatus query={query} label="destination trust" />
         ) : pins.length === 0 ? (
           <p className="text-detail text-muted-foreground">
-            No host keys saved yet. Subshell saves them from the node supplying your keys when you first connect.
+            No host keys saved yet. On your first connection using another node’s keys, Subshell copies the
+            destination’s host key from that node’s trusted hosts. You only need to add one yourself if that node
+            doesn’t have it.
           </p>
         ) : (
           <ul className="flex flex-col divide-y">
@@ -177,8 +179,8 @@ function AddPinDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
         <DialogHeader>
           <DialogTitle>Add host key</DialogTitle>
           <DialogDescription>
-            Add a host key you’ve verified with the destination’s administrator. Use this when the machine supplying
-            your SSH keys has no saved key for the destination.
+            Ask the destination’s administrator for its host key and verify it with them before adding it. This lets you
+            connect using another node’s keys when that node hasn’t saved the destination’s host key.
           </DialogDescription>
         </DialogHeader>
         <form.Field name="destination">
