@@ -154,14 +154,28 @@ export function SshWizard({
               aria-labelledby="ssh-keys-remote-label"
               aria-describedby={remote && noOtherKeyNodes ? "ssh-keys-empty" : undefined}
             />
-            <FieldLabel htmlFor="ssh-keys-remote" className="flex min-w-0 cursor-pointer flex-col gap-1">
-              <span id="ssh-keys-remote-label">Use another node’s keys</span>
+            <div className="flex min-w-0 flex-col gap-1">
+              <FieldLabel htmlFor="ssh-keys-remote" className="cursor-pointer">
+                <span id="ssh-keys-remote-label">Use another node’s keys</span>
+              </FieldLabel>
               {remote && noOtherKeyNodes && (
                 <span id="ssh-keys-empty" role="status" className="text-detail text-warning">
-                  No other nodes are available to supply keys. Use the connecting node’s keys or add another node.
+                  <label htmlFor="ssh-keys-remote" className="cursor-pointer">
+                    No other nodes are available to supply keys. Use the connecting node’s keys or{" "}
+                  </label>
+                  <a
+                    href="/nodes"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline"
+                    aria-label="Add another node (opens in a new tab)"
+                  >
+                    add another node
+                  </a>
+                  .
                 </span>
               )}
-            </FieldLabel>
+            </div>
           </Field>
         </RadioGroup>
         {remote && (!noOtherKeyNodes || keyProblem || keyMachine) && (

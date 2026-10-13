@@ -391,6 +391,9 @@ it("shows guidance instead of a key picker when no other nodes are available", a
   await settle();
   expect(screen.queryByRole("combobox", { name: "Use keys from" })).toBeNull();
   expect(screen.getByText(/No other nodes are available to supply keys/)).toBeTruthy();
+  const addNode = screen.getByRole("link", { name: "Add another node (opens in a new tab)" });
+  expect(addNode.getAttribute("href")).toBe("/nodes");
+  expect(addNode.getAttribute("target")).toBe("_blank");
   expect(disabled()).toBe(true);
   fireEvent.click(screen.getByRole("radio", { name: "Use the connecting node’s keys" }));
   await settle();
@@ -404,7 +407,7 @@ it("enables the key-source node on Start, then requires an explicit key selectio
   });
   expect(screen.queryByRole("button", { name: "Enable SSH" })).toBeNull();
   expect(screen.getByText(/Starting this subshell will enable SSH on the node supplying keys/)).toBeTruthy();
-  expect(disabled()).toBe(false);
+  await waitFor(() => expect(disabled()).toBe(false));
   await click("Start SSH subshell");
   await screen.findByRole("checkbox", { name: "Work key" });
   expect(calls.some((c) => c.path === "/api/nodes/keys/ssh-enabled")).toBe(true);
