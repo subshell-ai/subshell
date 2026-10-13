@@ -19,7 +19,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Share2, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { SshWizardDialog } from "@/components/connect/ssh-wizard-dialog";
 import { DirectoryPickerInput } from "@/components/directory-picker-input";
 import { EditableText } from "@/components/editable-text";
 import { NodeHarnessCard } from "@/components/nodes/node-harness-card";
@@ -28,6 +27,7 @@ import { NodeReregister } from "@/components/nodes/node-reregister";
 import { osLabel } from "@/components/nodes/node-row";
 import { managesNodeSections } from "@/components/nodes/node-section-nav";
 import { NodeSharingDialog } from "@/components/nodes/node-sharing-dialog";
+import { NodeSshCard } from "@/components/nodes/node-ssh-card";
 import { NodeUpdateCard } from "@/components/nodes/node-update-card";
 import { ServerIdentityRecovery } from "@/components/ssh/server-identity-recovery";
 import { SshTrustSection } from "@/components/ssh/trust-section";
@@ -244,6 +244,8 @@ function NodeDetailPage() {
             </dl>
           </div>
 
+          <NodeSshCard key={n.id} node={n} />
+
           {/* Whether this machine takes new work at all (spec 2026-09-14).
               Every kind, and on the Overview: the rules of a machine live
               where every machine shows them, and the tabs are for driving
@@ -252,7 +254,6 @@ function NodeDetailPage() {
           {/* The flip's fallout on THIS surface: every subshell of the viewer's
               that ran here went `terminated` the instant the PUT answered, and
               nothing else on the page refetches the sidebar list. */}
-          <SshWizardDialog initial={{ node: n.id }} />
           <NodeMaintenanceCard
             node={n}
             onMaintenanceChanged={() => void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY })}

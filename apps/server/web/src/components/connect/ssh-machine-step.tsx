@@ -2,7 +2,7 @@ import { Button, errMessage } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { SearchableSelect } from "@/components/ui/combobox";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { useEnableSsh } from "@/hooks/use-ssh";
+import { useSetSshEnabled } from "@/hooks/use-ssh";
 import type { SshMachineReadiness } from "@/lib/ssh";
 
 /** Lists visible machines even when they need preparation; launch and configuration are distinct rights. */
@@ -64,7 +64,7 @@ export function SshMachineSetup({
   showName?: boolean;
   onLeave?: () => void;
 }) {
-  const enable = useEnableSsh();
+  const enable = useSetSshEnabled();
   const navigate = useNavigate();
   if (!machine)
     return (
@@ -102,7 +102,7 @@ export function SshMachineSetup({
                 type="button"
                 className="self-start"
                 disabled={enable.isPending}
-                onClick={() => enable.mutate(machine.node.id)}
+                onClick={() => enable.mutate({ id: machine.node.id, on: true })}
               >
                 {enable.isPending ? "Enabling SSH…" : "Enable SSH"}
               </Button>

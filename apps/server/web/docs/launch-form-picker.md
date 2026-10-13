@@ -182,7 +182,7 @@ previews, so the field remains optional on the wire.
 **The SSH tab opens with two radio choices and descriptions.** Each task has one
 form: Connect to a destination or Enable SSH on a node. The connection form shows destination, connecting node, and key source
 together. Selecting another node's keys reveals its picker and key roster inline.
-Node setup ends with Done. Key selection stays inside the connection form. Personal SSH settings and node overviews open the same forms.
+Node setup ends with Done. Key selection stays inside the connection form. Personal SSH settings open the same forms. Node overviews show an SSH settings card with the current state and an owner/admin enable or disable action.
 The original parent callback still owns workspace selection or split attachment,
 and busy state lasts until asynchronous attachment finishes. Changing a parent
 mode keeps the destination, canonical suggestion, machine, scoped fingerprints,

@@ -206,15 +206,15 @@ export function useSshReadiness() {
 }
 
 /** An explicit SSH configuration act; readiness must be re-read before claiming readiness. */
-export function useEnableSsh() {
+export function useSetSshEnabled() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
+    mutationFn: ({ id, on }: { id: string; on: boolean }) =>
       apiFetch(`/api/nodes/${encodeURIComponent(id)}/ssh-enabled`, {
         method: "PUT",
-        body: JSON.stringify({ on: true }),
+        body: JSON.stringify({ on }),
       }),
-    onSuccess: async (_data, id) => {
+    onSuccess: async (_data, { id }) => {
       await Promise.all([
         client.invalidateQueries({ queryKey: ["ssh-readiness"] }),
         client.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, id] }),
