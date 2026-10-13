@@ -1,7 +1,6 @@
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
   errMessage,
@@ -19,10 +18,6 @@ export function NodeSshCard({ node, children }: { node: NodeDetail; children?: R
     <Card>
       <CardHeader>
         <CardTitle>SSH</CardTitle>
-        <CardDescription>
-          Allow this node to make outgoing SSH connections and supply keys to other nodes through Subshell. This doesn't
-          enable incoming SSH access.
-        </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col items-start gap-3">
         <div className="flex items-center gap-4">
