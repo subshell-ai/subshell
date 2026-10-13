@@ -145,18 +145,26 @@ export function SshWizard({
               </span>
             </FieldLabel>
           </Field>
-          <Field className="flex-row items-center gap-3">
-            <RadioGroupItem id="ssh-keys-remote" value="remote" />
-            <FieldLabel htmlFor="ssh-keys-remote">Use another node’s keys</FieldLabel>
+          <Field className="flex-row items-start gap-3">
+            <RadioGroupItem
+              id="ssh-keys-remote"
+              value="remote"
+              aria-labelledby="ssh-keys-remote-label"
+              aria-describedby={remote && noOtherKeyNodes ? "ssh-keys-empty" : undefined}
+            />
+            <FieldLabel htmlFor="ssh-keys-remote" className="flex min-w-0 cursor-pointer flex-col gap-1">
+              <span id="ssh-keys-remote-label">Use another node’s keys</span>
+              {remote && noOtherKeyNodes && (
+                <span id="ssh-keys-empty" role="status" className="text-detail text-warning">
+                  No other nodes are available to supply keys. Use the connecting node’s keys or add another node.
+                </span>
+              )}
+            </FieldLabel>
           </Field>
         </RadioGroup>
-        {remote && (
+        {remote && (!noOtherKeyNodes || keyProblem || keyMachine) && (
           <FieldGroup>
-            {noOtherKeyNodes ? (
-              <p role="status" className="text-detail text-muted-foreground">
-                No other nodes are available to supply keys. Use the connecting node’s keys or add another node.
-              </p>
-            ) : (
+            {!noOtherKeyNodes && (
               <SshMachineStep
                 machines={keyMachines}
                 value={draft.keyHome}
