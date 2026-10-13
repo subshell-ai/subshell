@@ -140,13 +140,16 @@ trusted explicitly by the connecting process.
 
 The browser exercises key login, password prompts and retry, terminal I/O,
 view-only sharing, saving distinct usernames on one host, forgetting and
-re-saving destinations, and adding/removing verified host keys. Password checks
+re-saving destinations. Password checks
 cover HTTP bodies, terminal history, saved-host responses, and database bytes;
 Playwright failure traces can still contain fixture passwords typed into the
 terminal, so these are disposable test credentials.
 
 Specs 22 and 23-ssh-relay retain their host-process fixtures for terminal
-lifecycle and cross-node cryptographic relay coverage. Run all SSH specs
-together with `01-setup-wizard.spec.ts` (which seeds the account for spec 24).
+lifecycle and cross-node cryptographic relay coverage.
+
+Spec 24 covers the browser’s first-connection confirmation and cancellation;
+spec 23-ssh-relay checks real discovery and acceptance before relay authentication.
+Run all SSH specs together with `01-setup-wizard.spec.ts` (which seeds the account for spec 24).
 CI mounts its Docker socket into the e2e job so Testcontainers can start the
 same destination fixture.

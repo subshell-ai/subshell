@@ -18,6 +18,7 @@ import {
   sshSessionDraft,
 } from "@/components/connect/ssh-session-draft";
 import { SshWizard } from "@/components/connect/ssh-wizard";
+import { launchWithDestinationVerification } from "@/components/connect/verify-destination";
 import { SshQueryStatus } from "@/components/ssh/query-status";
 import { type ComboboxOption, SearchableSelect } from "@/components/ui/combobox";
 import { Field, FieldGroup } from "@/components/ui/field";
@@ -47,8 +48,6 @@ const MACHINE_IDS = {
   requirement: "connect-machine-requirement",
   refusal: "connect-machine-refusal",
 };
-
-/** The disclosure every ssh surface owes before the button (decision 6, verbatim). */
 
 export function ConnectPanel({
   initial,
@@ -261,12 +260,16 @@ export function ConnectPanel({
         if (enableKeysOnStart) return;
       }
       preparing = false;
-      const created = await launch.mutateAsync({
-        ...(draft.authentication === "password" ? { authentication: "password" as const } : {}),
-        node: nodeId,
-        destination,
-        ...(keyHome ? { keyHome, fingerprints } : {}),
-      });
+      const created = await launchWithDestinationVerification(
+        {
+          ...(draft.authentication === "password" ? { authentication: "password" as const } : {}),
+          node: nodeId,
+          destination,
+          ...(keyHome ? { keyHome, fingerprints } : {}),
+        },
+        launch.mutateAsync,
+      );
+      if (!created) return;
       launchedId = created.subshell.id;
       setCreatedId(launchedId);
       if (remember) {

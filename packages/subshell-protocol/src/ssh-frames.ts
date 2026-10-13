@@ -118,6 +118,8 @@ export interface SshAgentIdentitiesCommand {
  */
 export interface SshHostKeyCommand {
   type: "ssh_host_key";
+  /** Fetch the presented public identity without authenticating or writing trust. */
+  scan?: true;
   /** The resolved destination host (bracketed IPv6 spelled as OpenSSH spells it). */
   host: string;
   /** The resolved port; always sent, because `[host]:port` is one of ssh's own lookup spellings. */
@@ -523,7 +525,14 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
       if (!isInt(value.port) || (value.port as number) < 1 || (value.port as number) > 65_535) return null;
       if (!("user" in value)) return null;
       if (!(value.user === null || isAliasName(value.user))) return null;
-      return { type: "ssh_host_key", host: value.host, port: value.port as number, user: value.user };
+      if (value.scan !== undefined && value.scan !== true) return null;
+      return {
+        type: "ssh_host_key",
+        host: value.host,
+        port: value.port as number,
+        user: value.user,
+        ...(value.scan === true ? { scan: true as const } : {}),
+      };
     }
     case "ssh_relay_open": {
       // EVERY pairing field is required (§5.1): this command IS the pairing,

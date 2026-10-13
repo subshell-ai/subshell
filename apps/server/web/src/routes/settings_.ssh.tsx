@@ -3,7 +3,6 @@ import { SavedHostsSection } from "@/components/connect/saved-hosts-section";
 import { SshWizardDialog } from "@/components/connect/ssh-wizard-dialog";
 import { DashboardPage } from "@/components/dashboard-page";
 import { PageHeader } from "@/components/page-header";
-import { HostPinsScreen } from "@/components/ssh/host-pins-screen";
 import { sshConnectSearch } from "@/lib/ssh-connect-search";
 
 export const Route = createFileRoute("/settings_/ssh")({
@@ -11,7 +10,7 @@ export const Route = createFileRoute("/settings_/ssh")({
   component: SshSettingsRoute,
 });
 
-/** Personal saved destinations and destination trust, scoped to the caller. */
+/** Personal saved and recent destinations, scoped to the caller. */
 function SshSettingsRoute() {
   return <SshSettingsPage />;
 }
@@ -19,9 +18,8 @@ function SshSettingsRoute() {
 export function SshSettingsPage() {
   return (
     <DashboardPage>
-      <PageHeader title="SSH" subtitle="Manage your destinations and saved host keys." action={<SshWizardDialog />} />
+      <PageHeader title="SSH" subtitle="Manage your saved and recent destinations." action={<SshWizardDialog />} />
       <SavedHostsSection />
-      <HostPinsScreen />
     </DashboardPage>
   );
 }

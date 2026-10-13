@@ -10,14 +10,14 @@ import {
 import { cleanup, render, screen } from "@testing-library/react";
 import { Route, SshSettingsPage } from "../settings_.ssh";
 
-/** Personal SSH settings expose destination trust and saved destinations. */
+/** Personal SSH settings expose saved destinations. */
 afterEach(cleanup);
 
 it("declares the route with a component (the path binds in the generated tree)", () => {
   expect(typeof Route.options.component).toBe("function");
 });
 
-it("opens on the SSH heading and destination trust", async () => {
+it("opens on the SSH heading and saved destinations", async () => {
   const original = globalThis.fetch;
   globalThis.fetch = (async (input: unknown) => {
     const path = new URL(String(input), "http://localhost").pathname;
@@ -49,7 +49,8 @@ it("opens on the SSH heading and destination trust", async () => {
       </QueryClientProvider>,
     );
     expect(await screen.findByRole("heading", { name: "SSH" })).toBeDefined();
-    expect(screen.getByText("Saved host keys")).toBeDefined();
+    expect(await screen.findByText("Saved destinations")).toBeDefined();
+    expect(screen.queryByText("Saved host keys") === null).toBe(true);
   } finally {
     globalThis.fetch = original;
   }

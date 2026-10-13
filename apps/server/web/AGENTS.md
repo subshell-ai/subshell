@@ -430,6 +430,12 @@ and key roster inline. Start SSH subshell enables outgoing SSH on the connecting
 node only when the viewer can configure it and the disabled flag is its sole
 blocker, with a gold notice before submission. Recheck readiness before enabling
 and before launching. Node pages manage SSH through their settings card.
+When a relay connection has no trusted destination identity, its launch refusal
+opens a one-time confirmation in the connection flow. Cancellation saves nothing;
+acceptance submits the server-issued token and retries the captured launch once.
+Changed identities never use that prompt. SSH settings manages saved destinations,
+not host keys. Verification details can reveal the public fingerprint without
+requiring a user to paste or manage key material.
 Old `/connect` links open the same
 subshell dialog through `/new?kind=ssh`. Failed reads must stay distinct from
 empty lists, with retry actions. Read `docs/launch-form-picker.md` for the

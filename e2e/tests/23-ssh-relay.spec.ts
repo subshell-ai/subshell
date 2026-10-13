@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { type APIRequestContext, expect, type PlaywrightWorkerArgs, test } from "@playwright/test";
@@ -312,6 +312,32 @@ test.describe("ssh relay crown jewel (spec 2026-10-08 §13)", () => {
       stage("stage 1 roster ok");
       // Stage 2: relay authorization is existing launch access, with an explicit key choice.
       stage("stage 2 launch access and roster ready");
+      // Neither node knows D yet: the launch must stop before creating a pane.
+      const trustFile = path.join(D.homeA, ".ssh", "known_hosts");
+      const originalTrust = readFileSync(trustFile, "utf8");
+      writeFileSync(trustFile, "", { mode: 0o600 });
+      const unknown = await admin.post("/api/ssh/launch", {
+        data: { node: B.id, keyHome: A.id, destination: SSH_FIXTURE_ALIAS, fingerprints: [fpA] },
+      });
+      expect(unknown.status()).toBe(409);
+      expect((await unknown.json()).code).toBe("SSH_HOST_PIN_MISSING");
+      // Discovery carries no login keys, stores nothing, and requires a cookie-bound confirmation.
+      const check = await admin.post("/api/ssh/verify-destination", {
+        data: { node: B.id, keyHome: A.id, destination: SSH_FIXTURE_ALIAS },
+      });
+      expect(check.ok(), await check.text()).toBe(true);
+      const offered = await check.json();
+      expect(offered.fingerprint).toMatch(/^SHA256:/);
+      const beforeTrust = await admin.get("/api/ssh/host-pins");
+      expect((await beforeTrust.json()).pins).toEqual([]);
+      const accepted = await admin.post("/api/ssh/verify-destination/accept", { data: { token: offered.token } });
+      expect(accepted.ok(), await accepted.text()).toBe(true);
+      expect(
+        (await admin.post("/api/ssh/verify-destination/accept", { data: { token: offered.token } })).status(),
+      ).toBe(409);
+
+      writeFileSync(trustFile, originalTrust, { mode: 0o600 });
+
       // ── Stage 3: the relay launch. The pane is B's ssh with NO key of its
       // own, pointed at B's proxy socket.
       const launch = await admin.post("/api/ssh/launch", {

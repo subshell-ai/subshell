@@ -163,7 +163,7 @@ export async function sshRegisterIdentity(nodeId: string): Promise<string> {
  */
 export async function sshHostKey(
   nodeId: string,
-  destination: { host: string; port: number; user: string | null },
+  destination: { host: string; port: number; user: string | null; scan?: true },
 ): Promise<NodeSshHostKeyResult> {
   let data: unknown;
   try {

@@ -17,6 +17,12 @@ const machine = (over: Partial<SshMachineFacts>): SshMachineFacts => ({
 });
 
 describe("sshLaunchRefusal", () => {
+  it("destination identity refusals preserve the complete user message without the API prefix", () => {
+    const message =
+      "The destination’s identity has changed, so Subshell blocked the connection. Ask its administrator to verify the change before trying again.";
+    const err = new ApiError(409, message, { code: "SSH_HOST_PIN_CHANGED", body: { message } });
+    expect(sshLaunchRefusal(err, machine({}))).toEqual({ field: "destination", text: message });
+  });
   it("422 with a body renders every blocked setting verbatim, sliced message or not", () => {
     const settings = ["ProxyCommand", "LocalForward", "RemoteForward"];
     const raw = JSON.stringify({ outcome: { accepted: false, code: "unsupported_setting", settings } });

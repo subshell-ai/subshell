@@ -233,3 +233,73 @@ describe("ssh_host_key arm (gate ON)", () => {
     expect(String((res as { error?: string }).error)).toInclude("binary missing");
   });
 });
+
+describe("destination identity discovery", () => {
+  it("scans one destination with a deadline, without login credentials or trust-file writes", async () => {
+    let runs = 0;
+    const result = await execSshHostKey(makeCtx("scan"), cmd({ scan: true, port: 2222 }), {
+      resolveKeyscanBin: async () => "/usr/bin/ssh-keyscan",
+      trustFile: () => {
+        throw new Error("discovery must not write or read trust");
+      },
+      runProcess: async (argv, env, deadline) => {
+        runs++;
+        expect(argv).toEqual([
+          "/usr/bin/ssh-keyscan",
+          "-T",
+          "5",
+          "-p",
+          "2222",
+          "-t",
+          "ed25519,ecdsa,rsa",
+          "git.example.test",
+        ]);
+        expect(Object.keys(env)).toEqual(["PATH"]);
+        expect(deadline).toBe(8000);
+        return {
+          code: 0,
+          stdout: `# server banner\n${LINE_A}\n${LINE_A}\n`,
+          stderr: "",
+          timedOut: false,
+          spawnError: false,
+        };
+      },
+    });
+    expect(runs).toBe(1);
+    expect(result).toEqual({ ok: true, data: { lines: [LINE_A] } });
+  });
+  it("still checks the node's SSH switch before discovering anything", async () => {
+    const result = await execSshHostKey(makeCtx("scan-off", false), cmd({ scan: true }), {
+      resolveKeyscanBin: async () => {
+        throw new Error("must not resolve while disabled");
+      },
+    });
+    expect(result).toEqual({ ok: false, error: GATE_REFUSAL });
+  });
+  it("rejects multi-host and option-like targets before spawning", async () => {
+    for (const host of ["one,two", "10.0.0.0/8", "-f", "host with space"]) {
+      const result = await execSshHostKey(makeCtx(`scan-reject-${crypto.randomUUID()}`), cmd({ scan: true, host }), {
+        resolveKeyscanBin: async () => {
+          throw new Error("must not resolve invalid targets");
+        },
+      });
+      expect(result.ok).toBe(false);
+    }
+  });
+  it("refuses missing tools, timeouts, malformed answers and empty results", async () => {
+    expect(
+      (
+        await execSshHostKey(makeCtx("scan-no-tool"), cmd({ scan: true }), {
+          resolveKeyscanBin: async () => null,
+        })
+      ).ok,
+    ).toBe(false);
+    for (const over of [{ code: 1 }, { timedOut: true }, { spawnError: true }, { stdout: "junk" }, { stdout: "" }]) {
+      const result = await execSshHostKey(makeCtx(`scan-fail-${crypto.randomUUID()}`), cmd({ scan: true }), {
+        resolveKeyscanBin: async () => "/usr/bin/ssh-keyscan",
+        runProcess: async () => ({ code: 0, stdout: LINE_A, stderr: "", timedOut: false, spawnError: false, ...over }),
+      });
+      expect(result.ok).toBe(false);
+    }
+  });
+});

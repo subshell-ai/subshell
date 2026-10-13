@@ -168,12 +168,16 @@ import { SSH_CONFIG_FILE_MAX_BYTES, SSH_PATH_MAX_CHARS, SSH_RELAY_FRAME_MAX_BYTE
  * gate is what refuses pairing BEFORE any relay command is sent (§5.1's own
  * bump argument, §11's never-half-relay rule). Server first, as always.
  *
- * **18 -> 19 (this tier):** relay-open carries the per-connection key
+ * **18 -> 19:** relay-open carries the per-connection key
  * selection without a standing grant id. `access-revoked` replaces the
  * old grant-specific close reason. Exact protocol matching keeps both
  * relay endpoints on this authorization contract.
+ *
+ * **19 -> 20:** ssh_host_key can discover a destination’s presented identity
+ * without writing trust. The server requires this distinction before offering
+ * a first-connection confirmation.
  */
-export const NODE_PROTOCOL_VERSION = 19;
+export const NODE_PROTOCOL_VERSION = 20;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an

@@ -508,18 +508,10 @@ test("password login prompts in the terminal, retries a wrong password, and save
   }
 });
 
-test("host-key settings adds a verified container key and removes it after confirmation", async ({ page }) => {
-  if (!fixture) throw new Error("Missing container fixture");
+test("SSH settings has no manual host-key management", async ({ page }) => {
   await login(page, ADMIN.email, ADMIN.password);
   await page.goto(`${ORIGIN}/settings/ssh`);
-  await page.getByRole("button", { name: "Add host key", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Add host key", exact: true });
-  const destination = `operator@${fixture.host}:${fixture.port}`;
-  await dialog.getByLabel("Destination", { exact: false }).fill(destination);
-  await dialog.getByLabel("Host key", { exact: false }).fill(fixture.hostKeyLine);
-  await dialog.getByRole("button", { name: "Add host key", exact: true }).click();
-  await expect(dialog).toHaveCount(0);
-  await page.getByRole("button", { name: `Remove host key for ${destination}`, exact: true }).click();
-  await page.getByRole("button", { name: "Remove host key", exact: true }).click();
-  await expect(page.getByRole("button", { name: `Remove host key for ${destination}`, exact: true })).toHaveCount(0);
+  await expect(page.getByText("Saved destinations", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add host key", exact: true })).toHaveCount(0);
+  await expect(page.getByText("Saved host keys", { exact: true })).toHaveCount(0);
 });

@@ -158,7 +158,7 @@ test("SSH settings keeps empty and populated cards usable at narrow and wide wid
   await expect(page.getByText(longDestination, { exact: true })).toBeVisible();
   for (const width of [320, 1600]) {
     await page.setViewportSize({ width, height: 1000 });
-    for (const name of ["Connect over SSH", "Add host key", "Forget Production"]) {
+    for (const name of ["Connect over SSH", "Forget Production"]) {
       const button = page.getByRole("button", { name, exact: true });
       await expect(button).toBeVisible();
       const bounds = await button.boundingBox();
@@ -169,4 +169,55 @@ test("SSH settings keeps empty and populated cards usable at narrow and wide wid
     expect(await page.locator("main").evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
     await page.screenshot({ path: `test-results/ssh-settings-${width}.png`, fullPage: true });
   }
+});
+
+test("unfamiliar destinations ask in the connection flow and cancellation saves nothing", async ({ page }) => {
+  await wire(page);
+  let launches = 0;
+  const accepted: unknown[] = [];
+  await page.route("**/api/ssh/launch", (route) => {
+    launches++;
+    return route.fulfill({
+      status: 409,
+      json: {
+        code: accepted.length ? "SSH_HOST_PIN_CHANGED" : "SSH_HOST_PIN_MISSING",
+        message: accepted.length ? "The destination identity changed. Connection blocked." : "Confirmation needed.",
+      },
+    });
+  });
+  await page.route("**/api/ssh/verify-destination", (route) =>
+    route.fulfill({
+      json: {
+        token: "account-bound-check",
+        destination,
+        fingerprint: "SHA256:destination-identity",
+      },
+    }),
+  );
+  await page.route("**/api/ssh/verify-destination/accept", (route) => {
+    accepted.push(route.request().postDataJSON());
+    return route.fulfill({ json: { accepted: true } });
+  });
+  await page.goto("/connect");
+  await page.getByLabel("SSH destination", { exact: true }).fill(destination);
+  await page.getByRole("radio", { name: "Use another node’s keys", exact: true }).check();
+  await page.getByRole("combobox", { name: "Use keys from", exact: true }).click();
+  await page.getByRole("option", { name: "Named server", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Work key", exact: true }).check();
+  await page.getByRole("button", { name: "Start SSH subshell", exact: true }).click();
+  const confirmation = page.getByRole("dialog", { name: "Connect to this destination?", exact: true });
+  await expect(confirmation.getByText(destination, { exact: true })).toBeVisible();
+  await confirmation.getByText("Verification details", { exact: true }).click();
+  await expect(confirmation.getByText("SHA256:destination-identity", { exact: true })).toBeVisible();
+  await page.screenshot({ path: "test-results/ssh-destination-confirmation.png", fullPage: true });
+  await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(confirmation).toHaveCount(0);
+  expect(accepted).toEqual([]);
+  expect(launches).toBe(1);
+  await page.getByRole("button", { name: "Start SSH subshell", exact: true }).click();
+  await confirmation.getByRole("button", { name: "Trust and connect", exact: true }).click();
+  await expect(page.getByText("The destination identity changed. Connection blocked.", { exact: true })).toBeVisible();
+  await expect(confirmation).toHaveCount(0);
+  expect(accepted).toEqual([{ token: "account-bound-check" }]);
+  expect(launches).toBe(3); // two attempts, with one retry after confirmation
 });

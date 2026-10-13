@@ -129,6 +129,12 @@ describe("the cookie doctrine", () => {
     expect((await fetchPins(undefined, { method: "POST", body: { destination: DEST, hostKey: LINE } })).status).toBe(
       401,
     );
+    for (const [path, body] of [
+      ["/api/ssh/verify-destination", { node: "local", keyHome: "keys", destination: "host.test" }],
+      ["/api/ssh/verify-destination/accept", { token: "token" }],
+    ] as const) {
+      expect((await fetchPins(path, { method: "POST", body, bearer: key })).status).toBe(403);
+    }
     expect((await fetchPins(`/api/ssh/host-pins/${DEST}`, { method: "DELETE", bearer: key })).status).toBe(403);
   });
 });

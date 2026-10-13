@@ -365,22 +365,21 @@ export function hostPinRefusal(err: SshHostPinError): SshHostPinRefusal {
       return {
         status: 409,
         code: BackendErrorCodes.SSH_HOST_PIN_MISSING,
-        message:
-          "The machine supplying your keys has no saved host key for that destination. Connect to it once from that machine and verify its key, or add a verified host key in Settings → SSH.",
+        message: "Subshell needs your confirmation before connecting to this destination for the first time.",
       };
     case "ambiguous":
       return {
         status: 409,
         code: BackendErrorCodes.SSH_HOST_PIN_MISSING,
         message:
-          "The machine supplying your keys has multiple host keys saved for this destination. Verify the correct key and update its known_hosts entry, then try again.",
+          "The node supplying your keys has conflicting identities for this destination. Ask its owner to check them before connecting.",
       };
     case "changed":
       return {
         status: 409,
         code: BackendErrorCodes.SSH_HOST_PIN_CHANGED,
         message:
-          "The destination’s host key has changed. Verify the new key with its administrator through a trusted channel before removing the saved pin and reconnecting.",
+          "The destination’s identity has changed, so Subshell blocked the connection. Ask its administrator to verify the change before trying again.",
       };
     case "invalid-line":
       return { status: 400, code: BackendErrorCodes.SSH_HOST_PIN_INVALID, message: err.message };

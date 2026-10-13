@@ -57,8 +57,13 @@ export function sshLaunchRefusal(err: unknown, machine: SshMachineFacts | null):
       err.code?.startsWith("SSH_RELAY_") ||
       err.code?.startsWith("SSH_HOST_PIN_") ||
       err.code?.startsWith("SSH_KEYS_")
-    )
-      return { field: "keys", text: err.message };
+    ) {
+      const message =
+        err.body && typeof err.body === "object" && "message" in err.body && typeof err.body.message === "string"
+          ? err.body.message
+          : err.message;
+      return { field: err.code.startsWith("SSH_HOST_PIN_") ? "destination" : "keys", text: message };
+    }
     switch (err.status) {
       case 400:
         // ALIAS_UNSAFE: the token was refused before the machine was asked.

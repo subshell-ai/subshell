@@ -2,9 +2,13 @@ import { BackendErrorCodes } from "@internal/backend-errors";
 import { isSshKnownHostsPinLine } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
-import { throwCodedRefusal } from "@/api/ssh/ssh-views.js";
+import { SshDestinationField, throwCodedRefusal } from "@/api/ssh/ssh-views.js";
 import { parseSshCanonicalDestination } from "@/db/types/ssh-saved-hosts.db-types.js";
 import { apiModels } from "@/schema/index.js";
+import {
+  acceptDestinationVerification,
+  prepareDestinationVerification,
+} from "@/services/ssh-destination-verification.service.js";
 import {
   captureHostPin,
   deleteHostPin,
@@ -15,28 +19,28 @@ import {
 } from "@/services/ssh-host-pins.service.js";
 
 /**
- * `/api/ssh/host-pins` - the destination trust screen (spec 2026-10-08 §8-§9,
- * Task 12): LIST the caller's host-key pins, SUPPLY an explicit pin (the §9
- * "or an explicit pin" door: the operator's key for a destination the key
- * home has not connected to yet), and DELETE one - the recovery's first half,
- * whose second half is the fresh connection TOFU the next capture runs.
- *
- * The row model is the saved-hosts posture verbatim: per-owner reads,
- * a foreign id the SAME 404 an absent row is, and the cookie doctrine of
- * every ssh sibling (deciding which key authenticates a destination is a
- * browser-session act). What the screen NEVER sees is the key bytes: the
- * serialized view carries the destination and the pinned key's `SHA256:`
- * fingerprint - a public identifier - and the stored line leaves this server
- * only on the signed relay-open to B.
- *
- * The audit trail (written by the service): `node.ssh_host_pin.create` and
- * `.delete`, each naming destination + fingerprint only (docs/security.md
- * §10). Supplying a pin for a destination that already stands pinned to a
- * DIFFERENT key is the §9 hard block (409, nothing written) - delete the pin
- * first, that is the whole recovery flow.
+ * Browser sessions confirm unfamiliar destinations in the connection flow.
+ * The compatibility host-pins API remains owner-scoped for explicit operator recovery.
+ * It never overwrites a different identity. Audits contain fingerprints only.
  */
+const VerifyDestinationRequestSchema = t.Object({
+  node: t.String({ minLength: 1, maxLength: 128, description: "Connecting node id" }),
+  keyHome: t.String({ minLength: 1, maxLength: 128, description: "Node supplying the selected keys" }),
+  destination: SshDestinationField,
+});
+const VerifyDestinationResponseSchema = t.Object({
+  token: t.String({ description: "Account-bound, single-use confirmation valid for five minutes" }),
+  destination: t.String({ description: "Resolved destination whose identity was discovered" }),
+  fingerprint: t.String({ description: "Public fingerprint of the identity awaiting confirmation" }),
+});
+const AcceptDestinationRequestSchema = t.Object({
+  token: t.String({ minLength: 1, maxLength: 128, description: "Confirmation token from destination discovery" }),
+});
+const AcceptDestinationResponseSchema = t.Object({
+  accepted: t.Boolean({ description: "True once this exact identity has been remembered" }),
+});
 
-/** The trust screen's row shape: destination + public fingerprint, never key bytes. */
+/** Compatibility view of a saved identity; excludes raw key material. */
 const SshHostPinViewSchema = t.Object({
   id: t.String({ description: "Pin row id (uuid)" }),
   destination: t.String({ description: "Canonical resolved destination `user@host:port`" }),
@@ -48,6 +52,44 @@ const SshHostPinViewSchema = t.Object({
 export const sshTrustRoutes = new Elysia()
   .use(authGuard)
   .use(apiModels)
+  .post(
+    "/verify-destination",
+    async ({ user, actor, body }) => {
+      requireCookieActor(actor, "Destination verification requires a browser session");
+      return prepareDestinationVerification({ viewerId: user.id, ...body });
+    },
+    {
+      body: VerifyDestinationRequestSchema,
+      response: {
+        200: VerifyDestinationResponseSchema,
+        400: "ApiErrorResponse",
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+        409: "ApiErrorResponse",
+        404: "ApiErrorResponse",
+        502: "ApiErrorResponse",
+      },
+    },
+  )
+  .post(
+    "/verify-destination/accept",
+    async ({ user, actor, body }) => {
+      requireCookieActor(actor, "Destination verification requires a browser session");
+      return acceptDestinationVerification(user.id, body.token);
+    },
+    {
+      body: AcceptDestinationRequestSchema,
+      response: {
+        200: AcceptDestinationResponseSchema,
+        400: "ApiErrorResponse",
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+        409: "ApiErrorResponse",
+        404: "ApiErrorResponse",
+        502: "ApiErrorResponse",
+      },
+    },
+  )
   .get(
     "/host-pins",
     async ({ user, actor }) => {

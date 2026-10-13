@@ -380,7 +380,7 @@ describe("parseNodeCommandBody", () => {
     // / `ssh_relay_close` signed commands. A tier-17 agent understands no relay
     // frame, and the exact-match gate refuses it BEFORE any relay command
     // (spec §11: never half-relaying).
-    expect(NODE_PROTOCOL_VERSION).toBe(19);
+    expect(NODE_PROTOCOL_VERSION).toBe(20);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
@@ -1149,6 +1149,14 @@ describe("ssh command arms and the launch ssh block", () => {
     expect(parseNodeCommandBody({ type: "ssh_agent_identities", grantId: "g" })).toEqual({
       type: "ssh_agent_identities",
     });
+  });
+
+  it("preserves explicit host identity discovery and rejects ambiguous scan flags", () => {
+    const command = { type: "ssh_host_key", host: "host.test", port: 22, user: null } as const;
+    expect(parseNodeCommandBody({ ...command, scan: true })).toEqual({ ...command, scan: true });
+    for (const scan of [false, "true", 1, null]) {
+      expect(parseNodeCommandBody({ ...command, scan })).toBeNull();
+    }
   });
 
   it("the ssh_host_key arm names a destination and nothing else (spec 2026-10-08 §9, Task 12)", () => {

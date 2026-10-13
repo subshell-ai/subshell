@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { type JsonValue, parseNodeSshHostKey, type SshHostKeyCommand } from "@internal/subshell-protocol";
+import { findBinary } from "../../binary-lookup.js";
 import { runSshProcess, sshChildPath } from "../ssh-spawn.js";
 import { knownHostsPath, resolveSshKeygenBin } from "./machine-paths.js";
 import type { MachineSshResult } from "./result.js";
@@ -40,6 +41,8 @@ import type { MachineSshResult } from "./result.js";
 export interface HostKeySeams {
   /** Where ssh-keygen is; defaults to this machine's own lookup ladder. */
   resolveKeygenBin?: () => Promise<string | null>;
+  /** Where ssh-keyscan is; discovery never invokes an authenticated SSH session. */
+  resolveKeyscanBin?: () => Promise<string | null>;
   /** The trust file to read; defaults to the connecting account's `~/.ssh/known_hosts`. */
   trustFile?: () => string;
   /** One ssh-keygen run; defaults to {@link runSshProcess}. The seam's contract: absolute argv[0], full child env, deadline. */
@@ -79,6 +82,7 @@ function entryLines(stdout: string): string[] {
 
 /** Execute `ssh_host_key` for one destination. */
 export async function readMachineHostKey(cmd: SshHostKeyCommand, seams?: HostKeySeams): Promise<MachineSshResult> {
+  if (cmd.scan) return scanMachineHostKey(cmd, seams);
   const keygen = await (seams?.resolveKeygenBin ?? resolveSshKeygenBin)();
   if (keygen === null) return { ok: false, error: "ssh-keygen binary missing: ssh-keygen" };
   const trustFile = (seams?.trustFile ?? knownHostsPath)();
@@ -124,5 +128,41 @@ export async function readMachineHostKey(cmd: SshHostKeyCommand, seams?: HostKey
   const validated = parseNodeSshHostKey({ lines: [...found] });
   if (validated === null) return { ok: false, error: "malformed host-key answer" };
   // The seam cast: JSON-safe by construction, contract owned by `node-results.ts`.
+  return { ok: true, data: validated as unknown as JsonValue };
+}
+
+/** Discovery is untrusted until explicitly accepted by the person connecting. */
+async function scanMachineHostKey(cmd: SshHostKeyCommand, seams?: HostKeySeams): Promise<MachineSshResult> {
+  const host = cmd.host.replace(/^\[|\]$/g, "");
+  // ssh-keyscan accepts lists and address ranges; the command must name one destination.
+  if (/[,/\s]/.test(host) || host.startsWith("-"))
+    return { ok: false, error: "Unsupported destination for identity discovery" };
+  const binary = await (
+    seams?.resolveKeyscanBin ??
+    (() =>
+      findBinary("ssh-keyscan", "SUBSHELL_SSH_KEYSCAN_PATH", [
+        "/usr/bin/ssh-keyscan",
+        "/bin/ssh-keyscan",
+        "/opt/homebrew/bin/ssh-keyscan",
+      ]))
+  )();
+  if (!binary) return { ok: false, error: "ssh-keyscan is not installed on this node" };
+  const run = await (seams?.runProcess ?? runSshProcess)(
+    [binary, "-T", "5", "-p", String(cmd.port), "-t", "ed25519,ecdsa,rsa", host],
+    { PATH: await sshChildPath() },
+    8_000,
+  );
+  if (run.spawnError || run.timedOut || run.code !== 0)
+    return { ok: false, error: "Could not retrieve the destination identity" };
+  const lines = [...new Set(entryLines(run.stdout))];
+  const validated = parseNodeSshHostKey({ lines });
+  if (
+    !validated ||
+    !lines.length ||
+    !lines.every((line) =>
+      /^\S+ (?:ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(?:256|384|521)) [A-Za-z0-9+/]+={0,2}$/.test(line),
+    )
+  )
+    return { ok: false, error: "The destination did not provide a supported SSH identity" };
   return { ok: true, data: validated as unknown as JsonValue };
 }

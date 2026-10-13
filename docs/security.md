@@ -899,6 +899,22 @@ consequences are:
   selection is retained for "Set up Subshell here" and revalidated against
   the live roster. This does not prevent someone with terminal access from
   using other credentials available to that OS user.
+- **Unfamiliar relay destinations require confirmation in the connection flow.**
+  Existing destination trust comes from the key source's `known_hosts` or the
+  viewer's saved pin. If neither exists, the connecting node retrieves the
+  presented public host key with a bounded `ssh-keyscan`, without login
+  credentials. Retrieval establishes no trust: the browser shows the resolved
+  destination and offers the standard OpenSSH fingerprint for independent
+  verification. Confirmation is trust on first use, not proof against an
+  attacker present on that first connection. The cookie-only confirmation token
+  binds the viewer, both nodes, resolved destination, and exact key for five
+  minutes. Accepting rechecks access and resolution, consumes the token once,
+  and saves only that key. Cancellation writes no trust; conflicting stored
+  identities never become first-use confirmations. The relay verifies against
+  its private per-pane known-hosts file with strict checking, so a changed key
+  blocks authentication. Manual key management is absent from settings; the
+  owner-scoped host-pins API remains for explicit operator recovery. Direct SSH
+  continues to use the connecting node's OpenSSH trust with `accept-new`.
 - **The server can be either relay participant.** It uses dedicated identity
   and peer-pin files under its data directory's `ssh-relay/`, included in
   backups. Both roles use the same sealed participant runtime as nodes. Its
