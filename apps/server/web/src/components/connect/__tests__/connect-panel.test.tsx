@@ -148,7 +148,7 @@ async function renderPanel(
   const indexRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/",
-    component: () => <ConnectPanel initial={initial} />,
+    component: () => <ConnectPanel initial={initial} startInWizard={false} />,
   });
   const paneRoute = createRoute({ getParentRoute: () => rootRoute, path: "/subshells/$id", component: () => null });
   const router = createRouter({
@@ -526,7 +526,11 @@ describe("connect and the ledger (contracts 3, 6)", () => {
     const rootRoute = createRootRoute();
     const router = createRouter({
       routeTree: rootRoute.addChildren([
-        createRoute({ getParentRoute: () => rootRoute, path: "/", component: ConnectPanel }),
+        createRoute({
+          getParentRoute: () => rootRoute,
+          path: "/",
+          component: () => <ConnectPanel startInWizard={false} />,
+        }),
         createRoute({ getParentRoute: () => rootRoute, path: "/subshells/$id", component: () => null }),
       ]),
       history: createMemoryHistory({ initialEntries: ["/"] }),

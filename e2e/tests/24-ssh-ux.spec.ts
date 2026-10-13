@@ -72,10 +72,7 @@ test("remote key wizard retains the connection draft and sends only explicitly s
   const { launches } = await wire(page);
   await page.goto("/connect");
   await expect(page.getByRole("button", { name: "SSH terminal", exact: true })).toBeFocused();
-  await page.getByPlaceholder("user@hostname:22 or an SSH alias").fill(destination);
-  await page.getByRole("checkbox", { name: "Remember this destination" }).check();
-  await page.getByRole("button", { name: "Set up SSH", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "What would you like to do?" })).toBeFocused();
+  await expect(page.getByRole("heading", { name: "What would you like to do?" })).toHaveCount(0);
   await page.screenshot({ path: "/home/theo/t3-ssh-check/wizard-intents.png", fullPage: true });
   await page.getByRole("button", { name: "Use keys from another machine", exact: true }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
@@ -90,8 +87,8 @@ test("remote key wizard retains the connection draft and sends only explicitly s
   expect(launches).toHaveLength(0);
   await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Use this setup", exact: true }).click();
-  await expect(page.getByPlaceholder("user@hostname:22 or an SSH alias")).toHaveValue(destination);
-  await expect(page.getByRole("checkbox", { name: "Remember this destination" })).toBeChecked();
+  await page.getByPlaceholder("user@hostname:22 or an SSH alias").fill(destination);
+  await page.getByRole("checkbox", { name: "Remember this destination" }).check();
   await page.getByRole("button", { name: "Start SSH subshell", exact: true }).click();
   expect(launches).toEqual([{ node: "desk", keyHome: "local", fingerprints: [fingerprint], destination }]);
   await expect(page.getByText("Test connection stopped before launch.")).toBeVisible();
@@ -101,9 +98,8 @@ test("remote key wizard retains the connection draft and sends only explicitly s
 test("empty SSH setup enables an existing machine inline and completes without launching", async ({ page }) => {
   const { launches, enables } = await wire(page, false);
   await page.goto("/connect");
-  await expect(page.getByText("Connect over SSH")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Connect to a destination", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /Open .* settings/ })).toHaveCount(0);
-  await page.getByRole("button", { name: "Set up SSH", exact: true }).click();
   await page.getByRole("button", { name: "Enable SSH on a node", exact: true }).click();
   await page.getByRole("combobox", { name: "Node to set up" }).click();
   await page.getByRole("option", { name: /Connecting desktop/ }).click();

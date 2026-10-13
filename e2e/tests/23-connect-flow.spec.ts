@@ -276,10 +276,15 @@ async function login(page: Page, email: string, password: string): Promise<void>
 }
 
 /** The compatibility route opens the current SSH launch dialog; gate-off state may show setup instead of fields. */
-async function openConnectPage(page: Page): Promise<void> {
+async function openConnectPage(page: Page, showForm = true): Promise<void> {
   await page.goto(`${ORIGIN}/connect`);
   await expect(page.getByRole("dialog", { name: "New subshell", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "SSH terminal", exact: true })).toHaveAttribute("aria-pressed", "true");
+  if (showForm) {
+    await page.getByRole("button", { name: "Enable SSH on a node", exact: true }).click();
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page.getByRole("button", { name: "Connect now", exact: true }).click();
+  }
 }
 
 function requireAdmin(): APIRequestContext {
@@ -294,11 +299,9 @@ function requirePaneId(): string {
 
 test("gate off: the wizard shows the host’s blocker and requires explicit setup before launch", async ({ page }) => {
   await login(page, ADMIN.email, ADMIN.password);
-  await openConnectPage(page);
-  await expect(page.getByText("Connect over SSH")).toBeVisible();
+  await openConnectPage(page, false);
   await expect(page.locator("#connect-destination")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "Set up SSH", exact: true }).click();
   await page.getByRole("button", { name: "Connect to a destination", exact: true }).click();
   await page.getByLabel("SSH destination", { exact: true }).fill(SSH_FIXTURE_ALIAS);
   await page.getByRole("button", { name: "Continue", exact: true }).click();

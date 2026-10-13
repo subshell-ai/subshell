@@ -313,7 +313,7 @@ it("preserves an explicit subset when the connecting machine becomes its key sou
   expect((screen.getByRole("button", { name: "Start SSH subshell" }) as HTMLButtonElement).disabled).toBe(true);
   await click("Start SSH subshell");
   expect(calls.some((call) => call.path === "/api/ssh/launch")).toBe(false);
-  await click("Set up SSH");
+  await click("Back");
   await click("Connect to a destination");
   await next();
   await next();
@@ -343,7 +343,7 @@ it("blocks same-machine initial choices until own keys are explicitly chosen", a
   expect((screen.getByRole("button", { name: "Start SSH subshell" }) as HTMLButtonElement).disabled).toBe(true);
   await click("Start SSH subshell");
   expect(calls.some((call) => call.path === "/api/ssh/launch")).toBe(false);
-  await click("Set up SSH");
+  await click("Back");
   await click("Connect to a destination");
   await next();
   await next();
@@ -390,7 +390,7 @@ it("retains canonical destination, remember, and explicit keys across wizard can
     start: false,
   });
   fireEvent.click(screen.getByLabelText("Remember this destination"));
-  await click("Set up SSH");
+  await click("Back");
   await click("Use keys from another machine");
   await next();
   await next();

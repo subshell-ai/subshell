@@ -173,8 +173,8 @@ automatically, and a disappeared selected key blocks launch. The server can
 connect or supply remote agent keys under the same launch-access rule as nodes.
 Saved destination management lives in Settings → SSH.
 
-**Set up SSH** is available from empty, partial, and ready connection forms,
-personal SSH settings, and each node's overview. It stays inside the caller's
+**The SSH tab opens with the setup choices.** Personal SSH settings and each
+node's overview also offer Set up SSH. The flow stays inside the caller's
 existing dialog: Connect to a destination, Enable SSH on a node, and Use
 keys from another machine share one draft and adapt their steps to current
 readiness. Setup completion never launches a pane. Prepare ends with Done or

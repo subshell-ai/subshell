@@ -58,7 +58,7 @@ export function ConnectPanel({
   onPendingChange,
   draft: controlledDraft,
   onDraftChange,
-  startInWizard = false,
+  startInWizard = true,
   wizardIntent,
   onDone,
 }: {
@@ -324,15 +324,6 @@ export function ConnectPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      <Button
-        type="button"
-        variant="outline"
-        className="self-start"
-        disabled={submitting}
-        onClick={() => setWizard(true)}
-      >
-        Set up SSH
-      </Button>
       <FieldGroup className="gap-4">
         <Field>
           <Label htmlFor={DESTINATION_IDS.field}>SSH destination</Label>
@@ -472,6 +463,9 @@ export function ConnectPanel({
         </div>
 
         <p className="text-detail text-muted-foreground">{SSH_DISCLOSURE_COPY}</p>
+        <Button type="button" variant="outline" disabled={submitting} onClick={() => setWizard(true)}>
+          Back
+        </Button>
         <Button type="button" onClick={() => void form.handleSubmit()} disabled={disabled}>
           {submitting ? "Connecting…" : "Start SSH subshell"}
         </Button>

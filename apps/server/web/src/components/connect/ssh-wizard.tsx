@@ -97,16 +97,18 @@ export function SshWizard({
 
   return (
     <section className="flex flex-col gap-4" aria-label="Set up SSH">
-      <div className="flex flex-col gap-1">
-        <h2 ref={heading} tabIndex={-1} className="font-strong text-section">
-          {SSH_STEP_LABELS[current]}
-        </h2>
-        <p className="text-detail text-muted-foreground">
-          {intent
-            ? `Step ${index + 1} of ${steps.length}${steps[index + 1] ? ` · Next: ${SSH_STEP_LABELS[steps[index + 1]]}` : ""}`
-            : "Choose what you want to set up."}
-        </p>
-      </div>
+      {current !== "intent" && (
+        <div className="flex flex-col gap-1">
+          <h2 ref={heading} tabIndex={-1} className="font-strong text-section">
+            {SSH_STEP_LABELS[current]}
+          </h2>
+          <p className="text-detail text-muted-foreground">
+            {intent
+              ? `Step ${index + 1} of ${steps.length}${steps[index + 1] ? ` · Next: ${SSH_STEP_LABELS[steps[index + 1]]}` : ""}`
+              : "Choose what you want to set up."}
+          </p>
+        </div>
+      )}
       <SshQueryStatus query={readiness} label="connecting machines" />
       {keySourceProblem && intent !== "prepare" && current !== "intent" && (
         <div className="flex flex-col items-start gap-2">
