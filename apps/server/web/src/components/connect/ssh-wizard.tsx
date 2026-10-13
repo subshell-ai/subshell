@@ -52,6 +52,7 @@ export function SshWizard({
   const machine = machines.find((item) => item.node.id === draft.nodeId);
   const keyMachine = machines.find((item) => item.node.id === draft.keyHome);
   const remote = useRemote;
+  const enableKeysOnStart = remote && sshCanEnableOnStart(keyMachine);
   const keyMachines = machines.filter((item) => item.node.canLaunch);
   const noOtherKeyNodes =
     !readiness.isPending && !readiness.isError && !keyMachines.some((item) => item.node.id !== draft.nodeId);
@@ -65,7 +66,7 @@ export function SshWizard({
     if (remote) {
       const error = !draft.keyHome
         ? "Choose a node to supply keys."
-        : keyProblem || sshKeySelectionProblem(fingerprints);
+        : keyProblem || (!enableKeysOnStart ? sshKeySelectionProblem(fingerprints) : null);
       if (error) return { draft: error };
     }
     return {};
@@ -78,6 +79,7 @@ export function SshWizard({
     (!machine?.canConnect && !enableOnStart) ||
     !!launchBlocked ||
     (remote &&
+      !enableKeysOnStart &&
       (!keyMachine?.canConnect ||
         roster.isPending ||
         roster.isError ||
@@ -175,6 +177,11 @@ export function SshWizard({
                 exclude={draft.nodeId}
                 id="ssh-keys-machine"
                 label="Use keys from"
+                notice={
+                  enableKeysOnStart
+                    ? "Starting this subshell will enable SSH on the node supplying keys. You’ll then choose which keys to use before connecting."
+                    : undefined
+                }
               />
             )}
             {keyProblem && (
@@ -182,8 +189,14 @@ export function SshWizard({
                 {keyProblem}
               </p>
             )}
-            {keyMachine && !keyProblem && !keyMachine.canConnect && (
-              <SshMachineSetup showName={false} machine={keyMachine} retry={readiness.refetch} onLeave={onLeave} />
+            {keyMachine && !keyProblem && !keyMachine.canConnect && !enableKeysOnStart && (
+              <SshMachineSetup
+                showName={false}
+                allowEnable={false}
+                machine={keyMachine}
+                retry={readiness.refetch}
+                onLeave={onLeave}
+              />
             )}
             {keyMachine?.canConnect && !keyProblem && (
               <SshKeyStep

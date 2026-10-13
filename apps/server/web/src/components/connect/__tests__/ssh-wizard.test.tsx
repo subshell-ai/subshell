@@ -396,3 +396,36 @@ it("shows guidance instead of a key picker when no other nodes are available", a
   await settle();
   expect(disabled()).toBe(false);
 });
+
+it("enables the key-source node on Start, then requires an explicit key selection", async () => {
+  const { calls } = await setup({
+    initial: { node: "desk", keyHome: "keys", destination: "target" },
+    machines: [machine("desk"), machine("keys", false)],
+  });
+  expect(screen.queryByRole("button", { name: "Enable SSH" })).toBeNull();
+  expect(screen.getByText(/Starting this subshell will enable SSH on the node supplying keys/)).toBeTruthy();
+  expect(disabled()).toBe(false);
+  await click("Start SSH subshell");
+  await screen.findByRole("checkbox", { name: "Work key" });
+  expect(calls.some((c) => c.path === "/api/nodes/keys/ssh-enabled")).toBe(true);
+  expect(calls.some((c) => c.path === "/api/ssh/launch")).toBe(false);
+  expect(disabled()).toBe(true);
+  fireEvent.click(screen.getByRole("checkbox", { name: "Work key" }));
+  await settle();
+  await click("Start SSH subshell");
+  expect(calls.find((c) => c.path === "/api/ssh/launch")?.body).toEqual({
+    node: "desk",
+    keyHome: "keys",
+    destination: "target",
+    fingerprints: ["SHA256:AAAA"],
+  });
+});
+it("cannot implicitly enable another owner's key-source node", async () => {
+  await setup({
+    initial: { node: "desk", keyHome: "keys", destination: "target" },
+    machines: [machine("desk"), machine("keys", false, false)],
+  });
+  expect(disabled()).toBe(true);
+  expect(screen.queryByRole("button", { name: "Enable SSH" })).toBeNull();
+  expect(screen.getByText(/Ask this node’s owner to enable it/)).toBeTruthy();
+});

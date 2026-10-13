@@ -184,8 +184,10 @@ node, and key source appear together. Selecting another node's keys reveals its
 picker and key roster inline. If only the connecting node's SSH flag blocks
 launch and the viewer can configure it, a gold notice explains that Start will
 enable outgoing SSH. The submission guard covers enablement, fresh readiness
-checks, launch, and attachment; a failure stops the sequence. Other blockers and
-missing configuration permissions keep Start disabled. Node settings retain an
+checks, launch, and attachment; a failure stops the sequence. A disabled key-source node follows the same permission and blocker checks. Start
+enables it, then pauses for explicit key selection before connecting, because the
+node won't expose its roster while SSH is disabled. The gold notice explains this
+extra step. Other blockers and missing configuration permissions keep Start disabled. Node settings retain an
 explicit SSH toggle for independent configuration.
 The original parent callback still owns workspace selection or split attachment,
 and busy state lasts until asynchronous attachment finishes. Changing a parent

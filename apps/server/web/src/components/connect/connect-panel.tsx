@@ -173,8 +173,10 @@ export function ConnectPanel({
       })),
   ];
   const keySourceProblem = sshKeySourceProblem(draft);
-  const keyReady = !keyHome || keyOptions.some((o) => o.value === keyHome && !o.disabled);
-  const roster = useSshNodeRoster(keyHome && keyReady ? keyHome : null, !wizard);
+  const enableKeysOnStart =
+    wizard && !!keyHome && keyHome !== nodeId && sshCanEnableOnStart(machines?.find((m) => m.node.id === keyHome));
+  const keyReady = enableKeysOnStart || !keyHome || keyOptions.some((o) => o.value === keyHome && !o.disabled);
+  const roster = useSshNodeRoster(keyHome && keyReady && !enableKeysOnStart ? keyHome : null, !wizard);
   const fingerprints = draft.selections[keyHome] ?? [];
   const selectionError = sshKeySelectionProblem(fingerprints, roster.data?.identities);
   const rosterReady = !keyHome || (!roster.isPending && !roster.isError && selectionError === null);
@@ -217,8 +219,10 @@ export function ConnectPanel({
     !createdId &&
     (machineReady || enableOnStart) &&
     keyReady &&
-    rosterReady &&
-    Object.keys(sshDraftProblems(draft)).length === 0;
+    (rosterReady || enableKeysOnStart) &&
+    (enableKeysOnStart
+      ? !!nodeId && !!destination && !keySourceProblem
+      : Object.keys(sshDraftProblems(draft)).length === 0);
 
   async function submit(): Promise<void> {
     // Belt over gate: the button's own disabled condition already holds both
@@ -228,19 +232,35 @@ export function ConnectPanel({
     setSubmitting(true);
     setRefusal(null);
     let launchedId: string | null = null;
-    let preparing = enableOnStart;
+    let preparing = enableOnStart || enableKeysOnStart;
     try {
-      if (enableOnStart) {
+      const nodesToEnable = [...(enableKeysOnStart ? [keyHome] : []), ...(enableOnStart ? [nodeId] : [])];
+      if (nodesToEnable.length) {
         const fresh = await nodesQuery.refetch();
-        const current = fresh.data?.machines.find((m) => m.node.id === nodeId);
-        if (fresh.isError || !current || (!current.canConnect && !sshCanEnableOnStart(current)))
-          throw new Error("This node can't enable outgoing SSH right now. Check its status and your permissions.");
-        if (!current.node.sshEnabled) await enableSsh.mutateAsync({ id: nodeId, on: true });
+        for (const id of [nodeId, ...(keyHome ? [keyHome] : [])]) {
+          const current = fresh.data?.machines.find((m) => m.node.id === id);
+          if (
+            fresh.isError ||
+            !current ||
+            (!current.canConnect && !(nodesToEnable.includes(id) && sshCanEnableOnStart(current)))
+          )
+            throw new Error("This node can't enable SSH right now. Check its status and your permissions.");
+        }
+        for (const id of nodesToEnable) {
+          const current = fresh.data?.machines.find((m) => m.node.id === id);
+          if (!current?.node.sshEnabled) await enableSsh.mutateAsync({ id, on: true });
+        }
         const refreshed = await nodesQuery.refetch();
-        if (refreshed.isError || !refreshed.data?.machines.find((m) => m.node.id === nodeId)?.canConnect)
-          throw new Error(
-            "SSH was enabled, but this node isn't ready to connect. Check its status before trying again.",
-          );
+        if (
+          refreshed.isError ||
+          [nodeId, ...(keyHome ? [keyHome] : [])].some(
+            (id) => !refreshed.data?.machines.find((m) => m.node.id === id)?.canConnect,
+          )
+        )
+          throw new Error("SSH was enabled, but a selected node isn't ready. Check its status before trying again.");
+        // Roster access is gated by SSH enablement. Let the user choose an explicit
+        // key subset after it becomes readable; never substitute the entire roster.
+        if (enableKeysOnStart) return;
       }
       preparing = false;
       const created = await launch.mutateAsync({
