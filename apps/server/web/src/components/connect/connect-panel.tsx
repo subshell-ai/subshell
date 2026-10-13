@@ -488,12 +488,17 @@ export function ConnectPanel({
           <input
             type="checkbox"
             id="connect-remember"
+            aria-describedby="connect-remember-description"
             checked={remember}
             onChange={(e) => setRemember(e.target.checked)}
             className="h-4 w-4 rounded border border-input bg-background accent-primary"
           />
           <Label htmlFor="connect-remember">Remember this destination</Label>
         </div>
+        <p id="connect-remember-description" className="text-detail text-muted-foreground">
+          Adds this destination to your saved suggestions when you start the subshell. It uses the address or SSH alias
+          as its label, so you don’t need to name it.
+        </p>
 
         <p className="text-detail text-muted-foreground">{SSH_DISCLOSURE_COPY}</p>
         <Button type="button" variant="outline" disabled={submitting} onClick={() => setWizard(true)}>

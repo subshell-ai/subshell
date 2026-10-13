@@ -50,12 +50,17 @@ export function SshDestinationStep({
         <Field className="flex-row items-center gap-3">
           <input
             id="ssh-remember"
+            aria-describedby="ssh-remember-description"
             type="checkbox"
             checked={draft.remember}
             onChange={(event) => onChange({ ...draft, remember: event.target.checked })}
           />
           <FieldLabel htmlFor="ssh-remember">Remember this destination</FieldLabel>
         </Field>
+        <p id="ssh-remember-description" className="text-detail text-muted-foreground">
+          Adds this destination to your saved suggestions when you start the subshell. It uses the address or SSH alias
+          as its label, so you don’t need to name it.
+        </p>
         {(ledger.isError || aliases.isError) && (
           <div className="flex flex-col items-start gap-2">
             <p role="alert" className="text-destructive text-detail">
