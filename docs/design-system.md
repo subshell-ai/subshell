@@ -355,6 +355,12 @@ admitted here.
   control plus dead space (2026-09-18), not as a page tab. *(Users page at a
   wide window: "Members" and "Pending approval" each took half the page
   (operator ruling, 2026-09-25).)*
+- **Radio descriptions are clickable**: put each option’s title and description
+  inside its associated label, so clicking either selects that option. Keep
+  disabled controls disabled and links or other interactive controls outside the
+  label. Use `aria-labelledby` for the title and `aria-describedby` for the
+  description so assistive technology announces their separate roles. This applies
+  to native radios and shared radio components across web and desktop surfaces.
 - **Choice group**: radios inside `role="radiogroup"` with an `aria-label`; a
   dependent setting sits BELOW the group after a rule, never indented under one
   option; its dependency is a disabled control that says why and names what

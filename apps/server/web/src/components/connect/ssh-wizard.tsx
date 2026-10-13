@@ -136,14 +136,15 @@ export function SshWizard({
               <RadioGroupItem
                 id={`ssh-action-${item.value}`}
                 value={item.value}
+                aria-labelledby={`ssh-action-${item.value}-label`}
                 aria-describedby={`ssh-action-${item.value}-description`}
               />
-              <div className="flex min-w-0 flex-col gap-1">
-                <FieldLabel htmlFor={`ssh-action-${item.value}`}>{item.label}</FieldLabel>
-                <p id={`ssh-action-${item.value}-description`} className="text-detail text-muted-foreground">
+              <FieldLabel htmlFor={`ssh-action-${item.value}`} className="flex min-w-0 cursor-pointer flex-col gap-1">
+                <span id={`ssh-action-${item.value}-label`}>{item.label}</span>
+                <span id={`ssh-action-${item.value}-description`} className="text-detail text-muted-foreground">
                   {item.description}
-                </p>
-              </div>
+                </span>
+              </FieldLabel>
             </Field>
           ))}
         </RadioGroup>
@@ -180,13 +181,18 @@ export function SshWizard({
               }}
             >
               <Field className="flex-row items-start gap-3">
-                <RadioGroupItem id="ssh-keys-connecting" value="connecting" aria-describedby="ssh-keys-node-name" />
-                <div className="flex min-w-0 flex-col gap-1">
-                  <FieldLabel htmlFor="ssh-keys-connecting">Use the connecting node’s keys</FieldLabel>
-                  <p id="ssh-keys-node-name" className="break-all text-detail text-muted-foreground">
+                <RadioGroupItem
+                  id="ssh-keys-connecting"
+                  value="connecting"
+                  aria-labelledby="ssh-keys-connecting-label"
+                  aria-describedby="ssh-keys-node-name"
+                />
+                <FieldLabel htmlFor="ssh-keys-connecting" className="flex min-w-0 cursor-pointer flex-col gap-1">
+                  <span id="ssh-keys-connecting-label">Use the connecting node’s keys</span>
+                  <span id="ssh-keys-node-name" className="break-all text-detail text-muted-foreground">
                     {machine?.node.name ?? "Choose a connecting node"}
-                  </p>
-                </div>
+                  </span>
+                </FieldLabel>
               </Field>
               <Field className="flex-row items-center gap-3">
                 <RadioGroupItem id="ssh-keys-remote" value="remote" />

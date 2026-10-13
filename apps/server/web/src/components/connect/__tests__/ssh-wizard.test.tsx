@@ -349,3 +349,30 @@ it("keeps the chosen remote node selected when returning through the task choose
   expect((screen.getByRole("combobox", { name: "Use keys from" }) as HTMLInputElement).value).toBe("keys");
   expect(disabled()).toBe(true);
 });
+
+it("selects SSH options by clicking their descriptions", async () => {
+  await setup({ initial: { node: "desk", destination: "target" } });
+  fireEvent.click(
+    screen.getByText(
+      "Allow a node to make outgoing SSH connections through Subshell. This doesn't enable incoming SSH access.",
+    ),
+  );
+  await settle();
+  expect(screen.getByRole("radio", { name: "Enable SSH on a node" }).getAttribute("aria-checked")).toBe("true");
+  fireEvent.click(
+    screen.getByText(
+      "Start an SSH subshell. Choose your destination, the node to connect from, and which keys to use.",
+    ),
+  );
+  await settle();
+  expect(screen.getByRole("radio", { name: "Connect to a destination" }).getAttribute("aria-checked")).toBe("true");
+  await click("Continue");
+  fireEvent.click(screen.getByRole("radio", { name: "Use another node’s keys" }));
+  await settle();
+  fireEvent.click(document.getElementById("ssh-keys-node-name")!);
+  await settle();
+  expect(screen.getByRole("radio", { name: "Use the connecting node’s keys" }).getAttribute("aria-checked")).toBe(
+    "true",
+  );
+  expect(screen.queryByRole("combobox", { name: "Use keys from" })).toBeNull();
+});
