@@ -64,9 +64,7 @@ export function SshWizard({
     if (!draft.nodeId) return { draft: "Choose a node." };
     if (!sshDestination(draft)) return { draft: "Enter an SSH destination." };
     if (remote) {
-      const error = !draft.keyHome
-        ? "Choose a node to supply keys."
-        : keyProblem || (!enableKeysOnStart ? sshKeySelectionProblem(fingerprints) : null);
+      const error = !draft.keyHome ? "Choose a node to supply keys." : keyProblem;
       if (error) return { draft: error };
     }
     return {};
