@@ -30,6 +30,7 @@ export function useSshWizardController({
   const machine = machines.find((m) => m.node.id === draft.nodeId);
   const keyMachine = machines.find((m) => m.node.id === draft.keyHome);
   const remote = !!draft.keyHome;
+  const [keyChoice, setKeyChoice] = useState(`${draft.keyHome ? "remote" : "connecting"}`);
   const keySourceProblem = sshKeySourceProblem(draft);
   const fingerprints = draft.selections[draft.keyHome] ?? [];
   const roster = useSshNodeRoster(
@@ -41,7 +42,7 @@ export function useSshWizardController({
       ? draft.keyHome
       : null,
   );
-  const steps = sshWizardSteps(intent, draft, current);
+  const steps = sshWizardSteps(intent, draft, current, keyChoice === "remote");
   const index = Math.max(0, steps.indexOf(current));
   const values = useMemo(() => ({ draft, current }), [draft, current]);
   function problems(value: typeof values): Record<string, string> {
@@ -76,6 +77,11 @@ export function useSshWizardController({
   }
   async function next(): Promise<void> {
     if (Object.keys(problems(values)).length > 0 || lifecycleBlocked()) return;
+    if (current === "key-choice") {
+      if (keyChoice === "connecting") onDraftChange({ ...draft, keyHome: "" });
+      setCurrent(keyChoice === "remote" ? "key-source" : "review");
+      return;
+    }
     if (current === "review") {
       await onStart();
       return;
@@ -110,6 +116,8 @@ export function useSshWizardController({
     keyMachine,
     keySourceProblem,
     remote,
+    keyChoice,
+    setKeyChoice,
     fingerprints,
     roster,
     steps,

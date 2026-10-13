@@ -85,13 +85,14 @@ export function sshWizardSteps(
   intent: SshWizardIntent | null,
   draft: SshSessionDraft,
   current: SshWizardStep,
+  remoteKeys = !!draft.keyHome,
 ): SshWizardStep[] {
   if (!intent) return ["intent"];
   const steps: SshWizardStep[] = ["intent"];
   if (intent === "connect") steps.push("destination");
   steps.push("machine");
   if (intent === "connect") steps.push("key-choice");
-  if (intent === "remote-keys" || (intent === "connect" && (draft.keyHome || current === "key-source"))) {
+  if (intent === "remote-keys" || (intent === "connect" && (remoteKeys || current === "key-source"))) {
     steps.push("key-source");
     steps.push("keys");
   }

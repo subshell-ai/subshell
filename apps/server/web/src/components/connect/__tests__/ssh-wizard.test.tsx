@@ -207,7 +207,9 @@ it("connect intent skips satisfied setup, focuses steps, and starts only after r
   await next();
   await next();
   expect(screen.getByRole("heading", { name: "Choose where to get keys" })).toBeTruthy();
-  await click("Use keys on this machine");
+  fireEvent.click(screen.getByRole("radio", { name: "Use the connecting node’s keys" }));
+  await settle();
+  await next();
   expect(calls.some((c) => c.path === "/api/ssh/launch")).toBe(false);
   await click("Start SSH subshell");
   expect(calls.filter((c) => c.path === "/api/ssh/launch")).toEqual([
@@ -317,7 +319,9 @@ it("preserves an explicit subset when the connecting machine becomes its key sou
   await click("Connect to a destination");
   await next();
   await next();
-  await click("Use keys from another machine");
+  fireEvent.click(screen.getByRole("radio", { name: "Use another node’s keys" }));
+  await settle();
+  await next();
   expect((screen.getByLabelText("Use keys from") as HTMLInputElement).value).toBe("keys");
   expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
   await click("Continue");
@@ -348,7 +352,9 @@ it("blocks same-machine initial choices until own keys are explicitly chosen", a
   await next();
   await next();
   expect(screen.getByText(/already selected under Connect from/)).toBeTruthy();
-  await click("Use keys on this machine");
+  fireEvent.click(screen.getByRole("radio", { name: "Use the connecting node’s keys" }));
+  await settle();
+  await next();
   expect(screen.queryByText(/already selected under Connect from/)).toBeNull();
   expect(calls.some((call) => call.path === "/api/ssh/launch")).toBe(false);
   await click("Start SSH subshell");
@@ -482,7 +488,9 @@ it("holds one launch through an asynchronous creation callback and cannot submit
   await click("Connect to a destination");
   await next();
   await next();
-  await click("Use keys on this machine");
+  fireEvent.click(screen.getByRole("radio", { name: "Use the connecting node’s keys" }));
+  await settle();
+  await next();
   await click("Start SSH subshell");
   expect(created).toEqual(["created-ssh"]);
   expect((screen.getByRole("button", { name: "Starting SSH subshell…" }) as HTMLButtonElement).disabled).toBe(true);
@@ -500,4 +508,20 @@ it("keeps node enrollment out of SSH setup", async () => {
   expect(screen.queryByRole("button", { name: "Add a machine" })).toBeNull();
   await next();
   expect(screen.getByRole("heading", { name: "Your SSH setup" })).toBeTruthy();
+});
+
+it("keeps key-source radio selection on the step until Continue, with a separate node name", async () => {
+  const named = machine("desk");
+  named.node.name = "A very long connecting node name that should wrap without changing the radio label";
+  await setup({ initial: { node: "desk", destination: "target" }, machines: [named, machine("keys")] });
+  await click("Connect to a destination");
+  await next();
+  await next();
+  expect(screen.getByText(named.node.name)).toBeTruthy();
+  fireEvent.click(screen.getByRole("radio", { name: "Use another node’s keys" }));
+  await settle();
+  expect(screen.getByRole("heading", { name: "Choose where to get keys" })).toBeTruthy();
+  expect(screen.getByRole("radio", { name: "Use another node’s keys" }).getAttribute("aria-checked")).toBe("true");
+  await next();
+  expect(screen.getByRole("heading", { name: "Choose a machine for keys" })).toBeTruthy();
 });

@@ -12,7 +12,8 @@ import {
   sshKeySelectionProblem,
 } from "@/components/connect/ssh-session-draft";
 import { SshQueryStatus } from "@/components/ssh/query-status";
-import { FieldGroup } from "@/components/ui/field";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useSshWizardController } from "@/hooks/use-ssh-wizard-controller";
 import type { SshMachineReadiness } from "@/lib/ssh";
 
@@ -66,6 +67,8 @@ export function SshWizard({
     keyMachine,
     keySourceProblem,
     remote,
+    keyChoice,
+    setKeyChoice,
     fingerprints,
     roster,
     steps,
@@ -168,21 +171,21 @@ export function SshWizard({
         </FieldGroup>
       )}
       {current === "key-choice" && (
-        <div className="flex flex-col gap-2">
-          <Button
-            type="button"
-            variant={!remote ? "default" : "outline"}
-            onClick={() => {
-              patch({ keyHome: "" });
-              setCurrent("review");
-            }}
-          >
-            Use keys on this machine
-          </Button>
-          <Button type="button" variant={remote ? "default" : "outline"} onClick={() => setCurrent("key-source")}>
-            Use keys from another machine
-          </Button>
-        </div>
+        <RadioGroup aria-label="SSH keys" value={keyChoice} onValueChange={setKeyChoice}>
+          <Field className="flex-row items-start gap-3">
+            <RadioGroupItem id="ssh-keys-connecting" value="connecting" aria-describedby="ssh-keys-node-name" />
+            <div className="flex min-w-0 flex-col gap-1">
+              <FieldLabel htmlFor="ssh-keys-connecting">Use the connecting node’s keys</FieldLabel>
+              <p id="ssh-keys-node-name" className="break-all text-detail text-muted-foreground">
+                {machine?.node.name ?? "Selected node unavailable"}
+              </p>
+            </div>
+          </Field>
+          <Field className="flex-row items-center gap-3">
+            <RadioGroupItem id="ssh-keys-remote" value="remote" />
+            <FieldLabel htmlFor="ssh-keys-remote">Use another node’s keys</FieldLabel>
+          </Field>
+        </RadioGroup>
       )}
       {current === "key-source" && (
         <>
@@ -259,7 +262,7 @@ export function SshWizard({
             </Button>
           </>
         ) : (
-          !["intent", "key-choice"].includes(current) && (
+          current !== "intent" && (
             <Button type="button" disabled={disabled} onClick={() => void form.handleSubmit()}>
               {busy ? "Starting SSH subshell…" : current === "review" ? "Start SSH subshell" : "Continue"}
             </Button>

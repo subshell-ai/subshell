@@ -124,7 +124,9 @@ async function launchSsh() {
     fireEvent.click(next);
     await settle();
   }
-  fireEvent.click(await screen.findByRole("button", { name: "Use keys on this machine" }));
+  fireEvent.click(await screen.findByRole("radio", { name: "Use the connecting node’s keys" }));
+  await settle();
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   await settle();
   const start = screen.getByRole("button", { name: "Start SSH subshell" });
   await waitFor(() => expect((start as HTMLButtonElement).disabled).toBe(false));
