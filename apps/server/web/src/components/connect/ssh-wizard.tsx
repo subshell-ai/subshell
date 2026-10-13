@@ -161,10 +161,7 @@ export function SshWizard({
             }}
             label={intent === "prepare" ? "Node to set up" : "Connect from"}
           />
-          <p className="text-detail text-muted-foreground">
-            SSH runs on this node, so it needs network access to your destination. You can use keys saved on the node or
-            choose keys from another machine.
-          </p>
+          <p className="text-detail text-muted-foreground">Choose the node that will make the SSH connection.</p>
           {machine && !machine.canConnect && (
             <SshMachineSetup machine={machine} retry={readiness.refetch} onLeave={onLeave} />
           )}
