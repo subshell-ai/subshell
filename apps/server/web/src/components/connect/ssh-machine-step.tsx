@@ -11,6 +11,7 @@ export function SshMachineStep({
   value,
   onChange,
   label,
+  description,
   exclude,
   id = "ssh-wizard-machine",
 }: {
@@ -18,6 +19,7 @@ export function SshMachineStep({
   value: string;
   onChange: (id: string) => void;
   label: string;
+  description?: string;
   exclude?: string;
   id?: string;
 }) {
@@ -42,6 +44,7 @@ export function SshMachineStep({
             }))}
           onValueChange={(id) => id && onChange(id)}
         />
+        {description && <p className="text-detail text-muted-foreground">{description}</p>}
         {value && !machines.some((m) => m.node.id === value) && (
           <p role="alert" className="text-destructive text-detail">
             The selected machine is no longer available to you. Choose another machine.

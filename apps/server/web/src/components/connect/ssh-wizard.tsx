@@ -164,10 +164,8 @@ export function SshWizard({
             value={draft.nodeId}
             onChange={(nodeId) => patch({ nodeId })}
             label={intent === "prepare" ? "Node to set up" : "Connect from"}
+            description={intent !== "prepare" ? "Choose the node that will make the SSH connection." : undefined}
           />
-          {intent !== "prepare" && (
-            <p className="text-detail text-muted-foreground">Choose the node that will make the SSH connection.</p>
-          )}
           {machine && (intent === "prepare" || !machine.canConnect) && (
             <SshMachineSetup showName={false} machine={machine} retry={readiness.refetch} onLeave={onLeave} />
           )}
