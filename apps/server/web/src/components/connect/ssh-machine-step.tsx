@@ -61,10 +61,12 @@ export function SshMachineSetup({
   retry,
   onLeave,
   showName = true,
+  allowEnable = true,
 }: {
   machine?: SshMachineReadiness;
   retry: () => unknown;
   showName?: boolean;
+  allowEnable?: boolean;
   onLeave?: () => void;
 }) {
   const enable = useSetSshEnabled();
@@ -101,14 +103,16 @@ export function SshMachineSetup({
           ))}
           {!machine.node.sshEnabled &&
             (machine.canConfigure ? (
-              <Button
-                type="button"
-                className="self-start"
-                disabled={enable.isPending}
-                onClick={() => enable.mutate({ id: machine.node.id, on: true })}
-              >
-                {enable.isPending ? "Enabling SSH…" : "Enable SSH"}
-              </Button>
+              allowEnable ? (
+                <Button
+                  type="button"
+                  className="self-start"
+                  disabled={enable.isPending}
+                  onClick={() => enable.mutate({ id: machine.node.id, on: true })}
+                >
+                  {enable.isPending ? "Enabling SSH…" : "Enable SSH"}
+                </Button>
+              ) : null
             ) : (
               <p className="text-detail text-muted-foreground">
                 {machine.node.kind === "local" ? "Ask an admin to enable it." : "Ask this node’s owner to enable it."}

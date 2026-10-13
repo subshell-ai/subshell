@@ -68,15 +68,9 @@ async function wire(page: Page, ready = true) {
   return { launches, enables };
 }
 
-async function openTask(page: Page, name: string) {
-  await page.getByRole("radio", { name, exact: true }).check();
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-}
-
 test("connection form reveals remote keys inline and launches only the selected keys", async ({ page }) => {
   const { launches } = await wire(page);
   await page.goto("/connect");
-  await openTask(page, "Connect to a destination");
   await page.getByLabel("SSH destination", { exact: true }).fill(destination);
   await page.getByRole("radio", { name: "Use another node’s keys", exact: true }).check();
   await page.getByRole("combobox", { name: "Use keys from", exact: true }).click();
@@ -90,25 +84,24 @@ test("connection form reveals remote keys inline and launches only the selected 
   await expect(page.getByText("Test connection stopped before launch.")).toBeVisible();
 });
 
-test("enables an existing node on its dedicated form and finishes without launching", async ({ page }) => {
+test("enables the connecting node when Start is selected", async ({ page }) => {
   const { launches, enables } = await wire(page, false);
   await page.goto("/connect");
-  await openTask(page, "Enable SSH on a node");
-  await page.getByRole("combobox", { name: "Node to set up" }).click();
+  await page.getByLabel("SSH destination", { exact: true }).fill(destination);
+  await page.getByRole("combobox", { name: "Connect from" }).click();
   await page.getByRole("option", { name: /Connecting desktop/ }).click();
-  await expect(page.getByRole("button", { name: "Done", exact: true })).toBeDisabled();
-  await page.getByRole("button", { name: "Enable SSH", exact: true }).click();
-  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(page.getByText("Starting this subshell will enable outgoing SSH on this node.")).toBeVisible();
+  expect(enables).toHaveLength(0);
+  await page.getByRole("button", { name: "Start SSH subshell", exact: true }).click();
+  await expect(page.getByText("Test connection stopped before launch.")).toBeVisible();
   expect(enables).toEqual(["desk"]);
-  expect(launches).toHaveLength(0);
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(launches).toHaveLength(1);
 });
 
 test("settings connection form selects keys without launching", async ({ page }) => {
   const { launches } = await wire(page);
   await page.goto("/settings/ssh");
   await page.getByRole("button", { name: "Set up SSH", exact: true }).click();
-  await openTask(page, "Connect to a destination");
   await page.getByRole("radio", { name: "Use another node’s keys", exact: true }).check();
   await page.getByRole("combobox", { name: "Use keys from", exact: true }).click();
   await page.getByRole("option", { name: "Named server", exact: true }).click();

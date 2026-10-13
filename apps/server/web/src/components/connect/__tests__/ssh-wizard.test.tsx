@@ -64,6 +64,7 @@ async function setup({
     machines,
     readyError,
     savedError: false,
+    enableError: false,
     aliasesError: false,
     identities: [{ fingerprint: "SHA256:AAAA", comment: "Work key" }],
     rosterError: false,
@@ -96,6 +97,7 @@ async function setup({
     if (path === "/api/ssh/identities")
       return state.rosterError ? json({ message: "No SSH_AUTH_SOCK" }, 502) : json({ identities: state.identities });
     if (path.endsWith("/ssh-enabled")) {
+      if (state.enableError) return json({ message: "Enable denied" }, 403);
       state.machines = state.machines.map((m) =>
         path.includes(`/${m.node.id}/`)
           ? {
@@ -163,12 +165,7 @@ async function click(name: string) {
   fireEvent.click(await screen.findByRole("button", { name }));
   await settle();
 }
-async function next() {
-  const button = await screen.findByRole("button", { name: "Continue" });
-  await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
-  fireEvent.click(button);
-  await settle();
-}
+
 async function choose(label: string, name: string) {
   const field = screen.getByRole("combobox", { name: label });
   act(() => {
@@ -186,17 +183,16 @@ async function choose(label: string, name: string) {
   await settle();
 }
 
-async function task(name = "Connect to a destination") {
-  fireEvent.click(screen.getByRole("radio", { name }));
+async function task() {
   await settle();
-  await next();
 }
+
 function disabled(name = "Start SSH subshell") {
   return (screen.getByRole("button", { name }) as HTMLButtonElement).disabled;
 }
-it("uses radio task choices and a single connection form", async () => {
+it("opens directly on the connection form", async () => {
   const { calls } = await setup({ initial: { node: "desk", destination: "target" } });
-  expect(screen.getAllByRole("radio")).toHaveLength(2);
+  expect(screen.queryByRole("radiogroup", { name: "SSH action" })).toBeNull();
   await task();
   expect(screen.getByLabelText("SSH destination")).toBeTruthy();
   expect(screen.getByRole("combobox", { name: "Connect from" })).toBeTruthy();
@@ -211,16 +207,21 @@ it("uses radio task choices and a single connection form", async () => {
     destination: "target",
   });
 });
-it("enables an owned node inline without launching", async () => {
+it("enables an owned node only when starting the subshell", async () => {
   const { calls } = await setup({
     initial: { node: "desk", destination: "target" },
     machines: [machine("desk", false)],
   });
   await task();
-  expect(disabled()).toBe(true);
-  await click("Enable SSH");
-  await waitFor(() => expect(disabled()).toBe(false));
-  expect(calls.some((c) => c.path === "/api/ssh/launch")).toBe(false);
+  expect(disabled()).toBe(false);
+  expect(screen.queryByRole("button", { name: "Enable SSH" })).toBeNull();
+  expect(screen.getByText(/Starting this subshell will enable outgoing SSH/)).toBeTruthy();
+  expect(calls.some((c) => c.method === "PUT")).toBe(false);
+  await click("Start SSH subshell");
+  await waitFor(() => expect(calls.some((c) => c.path === "/api/ssh/launch")).toBe(true));
+  expect(calls.findIndex((c) => c.path.endsWith("/ssh-enabled"))).toBeLessThan(
+    calls.findIndex((c) => c.path === "/api/ssh/launch"),
+  );
 });
 it("shows owner guidance and blocks unauthorized configuration", async () => {
   const { calls } = await setup({
@@ -293,15 +294,10 @@ it("blocks vanished keys and unavailable SSH agents", async () => {
   await click("Reload keys");
   expect(screen.getByText(/Set SSH_AUTH_SOCK/)).toBeTruthy();
 });
-it("retains draft choices across tasks and failed readiness reads", async () => {
+it("retains draft choices after failed readiness reads", async () => {
   const { state, client } = await setup({ initial: { node: "desk", destination: "keep-me" } });
   await task();
   fireEvent.click(screen.getByLabelText("Remember this destination"));
-  await click("Back");
-  await task("Enable SSH on a node");
-  expect(screen.queryByLabelText("SSH destination")).toBeNull();
-  await click("Back");
-  await task();
   state.readyError = true;
   await act(async () => {
     await client.invalidateQueries({ queryKey: ["ssh-readiness"] });
@@ -323,28 +319,26 @@ it("holds launch and navigation until the parent attaches the subshell", async (
   await task();
   await click("Start SSH subshell");
   expect(disabled("Starting SSH subshell…")).toBe(true);
-  expect(disabled("Back")).toBe(true);
+  expect(disabled("Cancel")).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Starting SSH subshell…" }));
   expect(calls.filter((c) => c.path === "/api/ssh/launch")).toHaveLength(1);
   await act(async () => finish());
 });
-it("node settings setup has one form and Done closes without launching", async () => {
+it("settings opens the connection form and Cancel closes without launching", async () => {
   const { calls } = await setup({ initial: { node: "keys" }, settingsEntry: true });
   await click("Set up SSH");
-  await task("Enable SSH on a node");
-  await click("Done");
+  expect(screen.getByLabelText("SSH destination")).toBeTruthy();
+  await click("Cancel");
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(calls.some((c) => c.path === "/api/ssh/launch")).toBe(false);
 });
 
-it("keeps the chosen remote node selected when returning through the task chooser", async () => {
+it("keeps the chosen remote node selected while choosing keys", async () => {
   await setup({ initial: { node: "desk", destination: "target" } });
   await task();
   fireEvent.click(screen.getByRole("radio", { name: "Use another node’s keys" }));
   await settle();
   await choose("Use keys from", "keys");
-  await click("Back");
-  await task();
   expect(screen.getByRole("radio", { name: "Use another node’s keys" }).getAttribute("aria-checked")).toBe("true");
   expect((screen.getByRole("combobox", { name: "Use keys from" }) as HTMLInputElement).value).toBe("keys");
   expect(disabled()).toBe(true);
@@ -352,21 +346,6 @@ it("keeps the chosen remote node selected when returning through the task choose
 
 it("selects SSH options by clicking their descriptions", async () => {
   await setup({ initial: { node: "desk", destination: "target" } });
-  fireEvent.click(
-    screen.getByText(
-      "Allow a node to make outgoing SSH connections through Subshell. This doesn't enable incoming SSH access.",
-    ),
-  );
-  await settle();
-  expect(screen.getByRole("radio", { name: "Enable SSH on a node" }).getAttribute("aria-checked")).toBe("true");
-  fireEvent.click(
-    screen.getByText(
-      "Start an SSH subshell. Choose your destination, the node to connect from, and which keys to use.",
-    ),
-  );
-  await settle();
-  expect(screen.getByRole("radio", { name: "Connect to a destination" }).getAttribute("aria-checked")).toBe("true");
-  await click("Continue");
   fireEvent.click(screen.getByRole("radio", { name: "Use another node’s keys" }));
   await settle();
   fireEvent.click(document.getElementById("ssh-keys-node-name")!);
@@ -375,4 +354,33 @@ it("selects SSH options by clicking their descriptions", async () => {
     "true",
   );
   expect(screen.queryByRole("combobox", { name: "Use keys from" })).toBeNull();
+});
+
+it("does not launch when enabling fails", async () => {
+  const { state, calls } = await setup({
+    initial: { node: "desk", destination: "target" },
+    machines: [machine("desk", false)],
+  });
+  state.enableError = true;
+  await click("Start SSH subshell");
+  await screen.findByRole("alert");
+  expect(calls.some((c) => c.path === "/api/ssh/launch")).toBe(false);
+});
+it("rechecks permission before enabling", async () => {
+  const { state, calls } = await setup({
+    initial: { node: "desk", destination: "target" },
+    machines: [machine("desk", false)],
+  });
+  state.machines = [machine("desk", false, false)];
+  await click("Start SSH subshell");
+  await screen.findByRole("alert");
+  expect(calls.some((c) => c.path.endsWith("/ssh-enabled") || c.path === "/api/ssh/launch")).toBe(false);
+});
+it("blocks automatic enablement when another blocker exists", async () => {
+  const blocked = machine("desk", false);
+  blocked.blockers.push({ code: "NODE_IN_MAINTENANCE", message: "This node is in maintenance." });
+  const { calls } = await setup({ initial: { node: "desk", destination: "target" }, machines: [blocked] });
+  expect(disabled()).toBe(true);
+  expect(screen.queryByRole("button", { name: "Enable SSH" })).toBeNull();
+  expect(calls.some((c) => c.method === "PUT")).toBe(false);
 });

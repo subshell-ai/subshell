@@ -424,12 +424,13 @@ and uses the connecting machine's own keys. A relay launch carries explicit
 fingerprints, retained for “Set up Subshell here”; never silently substitute or
 widen the selection when keys disappear or a machine goes offline.
 
-The reusable SSH forms live inside the existing dialog and preserve the
-launch choices and workspace/split context. Radio choices open dedicated forms
-for connecting, enabling SSH, and selecting another node's keys. The connection
-form shows its node and key controls inline; applying keys never starts a
-subshell and still requires an explicit Start SSH subshell click. Settings
-and machine pages open the same wizard. Old `/connect` links open the same
+The SSH tab opens directly on its connection form and preserves launch choices
+and workspace/split context. Selecting another node's keys reveals its picker
+and key roster inline. Start SSH subshell enables outgoing SSH on the connecting
+node only when the viewer can configure it and the disabled flag is its sole
+blocker, with a gold notice before submission. Recheck readiness before enabling
+and before launching. Node pages manage SSH through their settings card.
+Old `/connect` links open the same
 subshell dialog through `/new?kind=ssh`. Failed reads must stay distinct from
 empty lists, with retry actions. Read `docs/launch-form-picker.md` for the
 shared draft, readiness, and launch-callback contracts.

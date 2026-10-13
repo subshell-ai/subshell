@@ -201,3 +201,16 @@ export interface SshMachineReadiness {
   canConfigure: boolean;
   blockers: { code: string; message: string }[];
 }
+
+/** Only a disabled SSH flag may be changed as part of starting a connection. */
+export function sshCanEnableOnStart(machine: SshMachineReadiness | undefined): boolean {
+  return (
+    !!machine &&
+    !machine.node.sshEnabled &&
+    machine.canConfigure &&
+    machine.node.canLaunch &&
+    machine.node.status === "online" &&
+    machine.blockers.length === 1 &&
+    machine.blockers[0].code === "SSH_GATE_OFF"
+  );
+}

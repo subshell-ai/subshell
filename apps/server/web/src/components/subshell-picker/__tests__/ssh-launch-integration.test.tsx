@@ -114,8 +114,7 @@ async function settle() {
 async function launchSsh() {
   fireEvent.click(await screen.findByRole("button", { name: "New subshell" }));
   fireEvent.click(await screen.findByRole("button", { name: "SSH terminal" }));
-  fireEvent.click(await screen.findByRole("radio", { name: "Connect to a destination" }));
-  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  await settle();
   const field = await screen.findByLabelText("SSH destination");
   fireEvent.change(field, { target: { value: "deploy@example.com:2222" } });
   await settle();

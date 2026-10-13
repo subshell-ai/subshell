@@ -179,10 +179,14 @@ values, and dynamic tokens fall back to “Destination determined when connectin
 Opening the picker never runs SSH configuration commands. Older nodes may omit
 previews, so the field remains optional on the wire.
 
-**The SSH tab opens with two radio choices and descriptions.** Each task has one
-form: Connect to a destination or Enable SSH on a node. The connection form shows destination, connecting node, and key source
-together. Selecting another node's keys reveals its picker and key roster inline.
-Node setup ends with Done. Key selection stays inside the connection form. Personal SSH settings open the same forms. Node overviews show an SSH settings card with the current state and an owner/admin enable or disable action.
+**The SSH tab opens directly on the connection form.** Destination, connecting
+node, and key source appear together. Selecting another node's keys reveals its
+picker and key roster inline. If only the connecting node's SSH flag blocks
+launch and the viewer can configure it, a gold notice explains that Start will
+enable outgoing SSH. The submission guard covers enablement, fresh readiness
+checks, launch, and attachment; a failure stops the sequence. Other blockers and
+missing configuration permissions keep Start disabled. Node settings retain an
+explicit SSH toggle for independent configuration.
 The original parent callback still owns workspace selection or split attachment,
 and busy state lasts until asynchronous attachment finishes. Changing a parent
 mode keeps the destination, canonical suggestion, machine, scoped fingerprints,
@@ -191,8 +195,7 @@ and remember choice.
 Enabling SSH is an explicit owner/admin configuration act, independent of launch
 access. Offline, maintenance, version, missing-access, and read-failure blockers
 remain visible and retryable; selections never silently change when readiness
-changes. Node selection includes the authorized Enable SSH action and keeps
-the form’s primary action disabled until the selected node is ready. Adding nodes belongs on the
+changes. Node selection keeps the primary action disabled unless the node is ready or eligible for enablement on Start. Adding nodes belongs on the
 Nodes page, outside SSH setup.
 Polling lives only on mounted open SSH surfaces.
 

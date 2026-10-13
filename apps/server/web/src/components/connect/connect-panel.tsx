@@ -1,5 +1,5 @@
 import type { Node } from "@internal/node-admin";
-import { Button, Label } from "@internal/node-admin";
+import { Button, errMessage, Label } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronDown } from "lucide-react";
 import { type JSX, useCallback, useEffect, useRef, useState } from "react";
@@ -11,7 +11,6 @@ import { type SshRefusalCopy, sshLaunchRefusal } from "@/components/connect/ssh-
 import {
   type SshInitialChoices,
   type SshSessionDraft,
-  type SshWizardIntent,
   sshDestination,
   sshDraftProblems,
   sshKeySelectionProblem,
@@ -27,6 +26,7 @@ import {
   useLaunchSsh,
   useSaveSshHost,
   useSetDefaultNode,
+  useSetSshEnabled,
   useSshAliases,
   useSshNodeRoster,
   useSshReadiness,
@@ -35,6 +35,7 @@ import {
 import { fieldErrorToned, makeForm, useSubmitDisabled } from "@/lib/form";
 import { nodeOptionLabel } from "@/lib/node-label";
 import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
+import { sshCanEnableOnStart } from "@/lib/ssh";
 
 /** Shared SSH launch form for new subshells, workspace additions and splits.
  * A picked suggestion retains its canonical destination; editing it submits
@@ -59,14 +60,12 @@ export function ConnectPanel({
   draft: controlledDraft,
   onDraftChange,
   startInWizard = true,
-  wizardIntent,
   onDone,
 }: {
   initial?: SshInitialChoices;
   draft?: SshSessionDraft;
   onDraftChange?: (draft: SshSessionDraft) => void;
   startInWizard?: boolean;
-  wizardIntent?: SshWizardIntent;
   onDone?: () => void;
   onCreated?: (id: string) => Promise<void> | void;
   onLeave?: () => void;
@@ -83,6 +82,7 @@ export function ConnectPanel({
     machines?.some((machine) => machine.node.id === id && machine.canConnect) ?? false;
   const { data: ledger, isPending: ledgerPending } = useSshSavedHosts();
   const launch = useLaunchSsh();
+  const enableSsh = useSetSshEnabled();
   const [submitting, setSubmitting] = useState(false);
   useEffect(() => {
     onPendingChange?.(submitting);
@@ -211,10 +211,11 @@ export function ConnectPanel({
     void form.validate("change");
   }, [draft, form]);
   const disabled = useSubmitDisabled(form, submitting || !!createdId || !machineReady || !keyReady || !rosterReady);
+  const enableOnStart = wizard && sshCanEnableOnStart(machines?.find((m) => m.node.id === nodeId));
   const canSubmit =
     !submitting &&
     !createdId &&
-    machineReady &&
+    (machineReady || enableOnStart) &&
     keyReady &&
     rosterReady &&
     Object.keys(sshDraftProblems(draft)).length === 0;
@@ -227,7 +228,21 @@ export function ConnectPanel({
     setSubmitting(true);
     setRefusal(null);
     let launchedId: string | null = null;
+    let preparing = enableOnStart;
     try {
+      if (enableOnStart) {
+        const fresh = await nodesQuery.refetch();
+        const current = fresh.data?.machines.find((m) => m.node.id === nodeId);
+        if (fresh.isError || !current || (!current.canConnect && !sshCanEnableOnStart(current)))
+          throw new Error("This node can't enable outgoing SSH right now. Check its status and your permissions.");
+        if (!current.node.sshEnabled) await enableSsh.mutateAsync({ id: nodeId, on: true });
+        const refreshed = await nodesQuery.refetch();
+        if (refreshed.isError || !refreshed.data?.machines.find((m) => m.node.id === nodeId)?.canConnect)
+          throw new Error(
+            "SSH was enabled, but this node isn't ready to connect. Check its status before trying again.",
+          );
+      }
+      preparing = false;
       const created = await launch.mutateAsync({
         node: nodeId,
         destination,
@@ -253,7 +268,9 @@ export function ConnectPanel({
               field: "destination",
               text: "SSH subshell was created but could not be attached. Add it from the existing subshell list instead.",
             }
-          : sshLaunchRefusal(err, selectedNode),
+          : preparing
+            ? { field: "machine", text: errMessage(err, "Couldn’t enable SSH and start the subshell.") }
+            : sshLaunchRefusal(err, selectedNode),
       );
     } finally {
       setSubmitting(false);
@@ -289,14 +306,12 @@ export function ConnectPanel({
     return (
       <div className="flex flex-col gap-4">
         <SshWizard
-          intent={wizardIntent}
           draft={draft}
           onDraftChange={setDraft}
           machines={machines ?? []}
           readiness={nodesQuery}
           onStart={submit}
           onCancel={onLeave ?? onDone ?? (() => setWizard(false))}
-          onDone={onDone ?? onLeave ?? (() => setWizard(false))}
           onLeave={onLeave}
           busy={submitting}
           launchBlocked={createdId !== null}

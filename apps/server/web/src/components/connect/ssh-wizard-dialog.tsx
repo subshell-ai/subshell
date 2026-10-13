@@ -1,7 +1,7 @@
 import { Button } from "@internal/node-admin";
 import { useState } from "react";
 import { ConnectPanel } from "@/components/connect/connect-panel";
-import type { SshInitialChoices, SshWizardIntent } from "@/components/connect/ssh-session-draft";
+import type { SshInitialChoices } from "@/components/connect/ssh-session-draft";
 import {
   Dialog,
   DialogContent,
@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dialog";
 
 /** Settings entry mounts the same content only while open; it can return to the connection form in-place. */
-export function SshWizardDialog({ initial, intent }: { initial?: SshInitialChoices; intent?: SshWizardIntent }) {
+export function SshWizardDialog({ initial }: { initial?: SshInitialChoices }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   return (
@@ -35,7 +35,6 @@ export function SshWizardDialog({ initial, intent }: { initial?: SshInitialChoic
             <ConnectPanel
               initial={initial}
               startInWizard
-              wizardIntent={intent}
               onPendingChange={setBusy}
               onDone={() => setOpen(false)}
               onLeave={() => setOpen(false)}

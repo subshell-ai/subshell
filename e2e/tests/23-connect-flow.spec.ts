@@ -30,7 +30,7 @@ test.skip(missing.length > 0, `SSH binaries absent on this host (${missing.join(
 const SSH_DISCLOSURE_COPY =
   "Connecting uses this machine’s SSH configuration, including any local commands configured with Match exec.";
 const SSH_VIEW_ONLY_COPY = "Only the owner can type in this SSH subshell.";
-const MACHINE_OFF_REASON = "SSH is disabled in Subshell. An admin can enable it in this machine’s settings.";
+const MACHINE_OFF_REASON = "Outgoing SSH is disabled on this node.";
 /** The seeded control-plane host's display name (seed-local.ts): the picker reads names, not ids. */
 const LOCAL_NODE_NAME = "Server";
 /** `configGroupLabel(selectedNode.name)` for that row. */
@@ -281,8 +281,6 @@ async function openConnectPage(page: Page, showForm = true): Promise<void> {
   await expect(page.getByRole("dialog", { name: "New subshell", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "SSH terminal", exact: true })).toHaveAttribute("aria-pressed", "true");
   if (showForm) {
-    await page.getByRole("radio", { name: "Connect to a destination", exact: true }).check();
-    await page.getByRole("button", { name: "Continue", exact: true }).click();
   }
 }
 
@@ -296,20 +294,19 @@ function requirePaneId(): string {
   return paneId;
 }
 
-test("gate off: the wizard shows the host’s blocker and requires explicit setup before launch", async ({ page }) => {
+test("gate off: the form explains enablement on Start", async ({ page }) => {
   await login(page, ADMIN.email, ADMIN.password);
   await openConnectPage(page, false);
-  await expect(page.locator("#ssh-wizard-destination")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toHaveCount(0);
-  await page.getByRole("radio", { name: "Connect to a destination", exact: true }).check();
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.locator("#ssh-wizard-destination")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toBeDisabled();
   await page.getByLabel("SSH destination", { exact: true }).fill(SSH_FIXTURE_ALIAS);
   await page.getByRole("combobox", { name: "Connect from", exact: true }).click();
   const serverRow = page.getByRole("option", { name: /Server/ });
   await expect(serverRow).toContainText(MACHINE_OFF_REASON);
   await serverRow.click();
-  await expect(page.getByRole("button", { name: "Enable SSH", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Enable SSH", exact: true })).toHaveCount(0);
+  await expect(page.getByText("Starting this subshell will enable outgoing SSH on this node.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toBeEnabled();
 });
 
 test("the disclosure names the Match exec risk above Start SSH subshell before launch", async ({ page }) => {
