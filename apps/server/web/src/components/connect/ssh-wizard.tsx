@@ -140,7 +140,10 @@ export function SshWizard({
             />
             <FieldLabel htmlFor="ssh-keys-connecting" className="flex min-w-0 cursor-pointer flex-col gap-1">
               <span id="ssh-keys-connecting-label">Use the connecting node’s keys</span>
-              <span id="ssh-keys-node-name" className="break-all text-detail text-muted-foreground">
+              <span
+                id="ssh-keys-node-name"
+                className={machine ? "break-all text-detail text-muted-foreground" : "text-detail text-warning"}
+              >
                 {machine?.node.name ?? "Choose a connecting node"}
               </span>
             </FieldLabel>
