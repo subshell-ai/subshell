@@ -326,7 +326,7 @@ it("holds launch and navigation until the parent attaches the subshell", async (
 });
 it("settings opens the connection form and Cancel closes without launching", async () => {
   const { calls } = await setup({ initial: { node: "keys" }, settingsEntry: true });
-  await click("Set up SSH");
+  await click("Connect over SSH");
   expect(screen.getByLabelText("SSH destination")).toBeTruthy();
   await click("Cancel");
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());

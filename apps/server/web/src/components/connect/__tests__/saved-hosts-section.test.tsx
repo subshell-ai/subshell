@@ -129,7 +129,7 @@ describe("SavedHostsSection", () => {
   it("the two empty states are one short sentence each", async () => {
     const { restore } = await renderSection({ saved: [], recent: [], defaultNodeId: null });
     try {
-      expect(screen.getByText("No remembered destinations yet.")).toBeDefined();
+      expect(screen.getByText("No saved destinations yet.")).toBeDefined();
       expect(screen.getByText("No recent destinations yet.")).toBeDefined();
     } finally {
       restore();

@@ -101,7 +101,7 @@ test("enables the connecting node when Start is selected", async ({ page }) => {
 test("settings connection form selects keys without launching", async ({ page }) => {
   const { launches } = await wire(page);
   await page.goto("/settings/ssh");
-  await page.getByRole("button", { name: "Set up SSH", exact: true }).click();
+  await page.getByRole("button", { name: "Connect over SSH", exact: true }).click();
   await page.getByRole("radio", { name: "Use another node’s keys", exact: true }).check();
   await page.getByRole("combobox", { name: "Use keys from", exact: true }).click();
   await page.getByRole("option", { name: "Named server", exact: true }).click();
@@ -128,4 +128,45 @@ test("polls while waiting for the owner to enable SSH", async ({ page }) => {
   await expect(page.getByText("Waiting for SSH to be enabled…")).toHaveCount(0, { timeout: 8000 });
   await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toBeEnabled();
   expect(enables).toHaveLength(0);
+});
+
+test("SSH settings keeps empty and populated cards usable at narrow and wide widths", async ({ page }) => {
+  await wire(page);
+  await page.goto("/settings/ssh");
+  await expect(page.getByText("No saved destinations yet.")).toBeVisible();
+  await expect(page.getByText("No recent destinations yet.")).toBeVisible();
+  const longDestination = `developer@${"long-host-".repeat(12)}.example.com:2222`;
+  await page.route("**/api/ssh/saved-hosts", (route) =>
+    route.fulfill({
+      json: {
+        saved: [
+          {
+            id: "saved",
+            destination: longDestination,
+            alias: "Production",
+            nodeId: "desk",
+            savedAt: "2026-10-01T00:00:00Z",
+            lastConnectAt: "2026-10-01T00:00:00Z",
+          },
+        ],
+        recent: [],
+        defaultNodeId: "desk",
+      },
+    }),
+  );
+  await page.reload();
+  await expect(page.getByText(longDestination, { exact: true })).toBeVisible();
+  for (const width of [320, 1600]) {
+    await page.setViewportSize({ width, height: 1000 });
+    for (const name of ["Connect over SSH", "Add host key", "Forget Production"]) {
+      const button = page.getByRole("button", { name, exact: true });
+      await expect(button).toBeVisible();
+      const bounds = await button.boundingBox();
+      if (!bounds) throw new Error(`${name} has no visible bounds`);
+      expect(bounds.x).toBeGreaterThanOrEqual(0);
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    }
+    expect(await page.locator("main").evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.screenshot({ path: `test-results/ssh-settings-${width}.png`, fullPage: true });
+  }
 });

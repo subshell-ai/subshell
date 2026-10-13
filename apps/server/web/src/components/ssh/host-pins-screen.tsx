@@ -43,12 +43,12 @@ export function HostPinsScreen() {
   const [addOpen, setAddOpen] = useState(false);
   return (
     <Card>
-      <CardHeader className="flex-row items-start justify-between gap-4">
-        <div className="space-y-1.5">
+      <CardHeader className="flex flex-col items-start justify-between gap-4 sm:flex-row">
+        <div className="flex min-w-0 flex-col gap-2">
           <CardTitle>Saved host keys</CardTitle>
           <CardDescription>
-            Subshell saves host keys to check that you’re connecting to the same destination. If a key changes, verify
-            the replacement with the destination’s administrator before removing the saved key.
+            When another node supplies your SSH keys, Subshell uses saved host keys to verify the destination. If a host
+            key changes, verify the replacement with the destination’s administrator before removing it.
           </CardDescription>
         </div>
         <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}>
@@ -60,11 +60,10 @@ export function HostPinsScreen() {
           <SshQueryStatus query={query} label="destination trust" />
         ) : pins.length === 0 ? (
           <p className="text-detail text-muted-foreground">
-            No host keys saved yet. When you first connect using keys from another machine, Subshell saves the
-            destination’s host key from that machine’s known_hosts file.
+            No host keys saved yet. Subshell saves them from the node supplying your keys when you first connect.
           </p>
         ) : (
-          <ul className="space-y-4">
+          <ul className="flex flex-col divide-y">
             {pins.map((pin) => (
               <PinRow key={pin.id} pin={pin} />
             ))}
@@ -93,7 +92,7 @@ function PinRow({ pin }: { pin: SshHostPin }) {
   }
 
   return (
-    <li className="flex items-start gap-3">
+    <li className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
       <div className="min-w-0 flex-1 space-y-1">
         <div className="break-all font-strong text-label">{pin.destination}</div>
         <div className="break-all font-mono text-detail">

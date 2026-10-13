@@ -43,10 +43,14 @@ test("loading and failed reads never claim an empty SSH settings ledger; retry r
     </QueryClientProvider>,
   );
   expect(await screen.findByText("Loading destination trust…")).toBeTruthy();
-  expect(screen.queryByText("Nothing is waiting for an answer.")).toBeNull();
+  expect(screen.queryByText("No saved destinations yet.")).toBeNull();
+  expect(screen.queryByText("No recent destinations yet.")).toBeNull();
   respond();
   expect(await screen.findByText("Could not load destination trust.")).toBeTruthy();
+  expect(await screen.findByText("Could not load saved destinations.")).toBeTruthy();
+  expect(screen.queryByText("No saved destinations yet.")).toBeNull();
   failing = false;
   for (const button of screen.getAllByRole("button", { name: "Retry" })) fireEvent.click(button);
   expect(await screen.findByText(/No host keys saved yet/)).toBeTruthy();
+  expect(await screen.findByText("No saved destinations yet.")).toBeTruthy();
 });

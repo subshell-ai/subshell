@@ -1,5 +1,7 @@
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, errMessage } from "@internal/node-admin";
 import { Star, Trash2 } from "lucide-react";
 import type { JSX } from "react";
+import { SshQueryStatus } from "@/components/ssh/query-status";
 import { useNodes } from "@/hooks/use-nodes";
 import { useDeleteSshHost, useSaveSshHost, useSshSavedHosts } from "@/hooks/use-ssh";
 import type { SshSavedHost } from "@/lib/ssh";
@@ -19,7 +21,8 @@ import type { SshSavedHost } from "@/lib/ssh";
  * a ledger row is cheap to remake, and the ACT that matters is the launch.
  */
 export function SavedHostsSection(): JSX.Element {
-  const { data: ledger } = useSshSavedHosts();
+  const query = useSshSavedHosts();
+  const ledger = query.data;
   const { data: nodeData } = useNodes();
   const save = useSaveSshHost();
   const remove = useDeleteSshHost();
@@ -30,52 +33,78 @@ export function SavedHostsSection(): JSX.Element {
   const nameById = new Map<string, string>(
     (Array.isArray(nodeData?.nodes) ? nodeData.nodes : []).map((n) => [n.id, n.name]),
   );
-  const machineName = (row: SshSavedHost): string => nameById.get(row.nodeId) ?? row.nodeId;
+  const machineName = (row: SshSavedHost): string => nameById.get(row.nodeId) ?? "Node unavailable";
 
   return (
-    <div className="space-y-6 border-t pt-6">
-      <div className="space-y-2">
-        <h2 className="font-strong text-label">Remembered</h2>
-        {saved.length === 0 ? (
-          <p className="text-detail text-muted-foreground">No remembered destinations yet.</p>
-        ) : (
-          <ul className="space-y-1">
-            {saved.map((row) => (
-              <LedgerRow
-                key={row.id}
-                row={row}
-                detail={[machineName(row), row.savedAt?.slice(0, 10)].filter(Boolean).join(" · ")}
-                action={{
-                  label: `Forget ${row.alias ?? row.destination}`,
-                  icon: Trash2,
-                  onSelect: () => remove.mutate(row.id),
-                }}
-              />
-            ))}
-          </ul>
-        )}
-      </div>
-      <div className="space-y-2">
-        <h2 className="font-strong text-label">Recent</h2>
-        {recent.length === 0 ? (
-          <p className="text-detail text-muted-foreground">No recent destinations yet.</p>
-        ) : (
-          <ul className="space-y-1">
-            {recent.map((row) => (
-              <LedgerRow
-                key={row.id}
-                row={row}
-                detail={`${machineName(row)} · ${row.lastConnectAt.slice(0, 10)}`}
-                action={{
-                  label: `Remember ${row.alias ?? row.destination}`,
-                  icon: Star,
-                  onSelect: () => save.mutate({ node: row.nodeId, destination: row.destination }),
-                }}
-              />
-            ))}
-          </ul>
-        )}
-      </div>
+    <div className="flex flex-col gap-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Saved destinations</CardTitle>
+          <CardDescription>Destinations you’ve remembered appear in the SSH destination picker.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {query.isPending || query.isError ? (
+            <SshQueryStatus query={query} label="saved destinations" />
+          ) : saved.length === 0 ? (
+            <p className="text-detail text-muted-foreground">No saved destinations yet.</p>
+          ) : (
+            <ul className="flex flex-col divide-y">
+              {saved.map((row) => (
+                <LedgerRow
+                  key={row.id}
+                  row={row}
+                  detail={[machineName(row), row.savedAt?.slice(0, 10)].filter(Boolean).join(" · ")}
+                  action={{
+                    disabled: remove.isPending,
+                    label: `Forget ${row.alias ?? row.destination}`,
+                    icon: Trash2,
+                    onSelect: () => remove.mutate(row.id),
+                  }}
+                />
+              ))}
+            </ul>
+          )}
+          {remove.isError && (
+            <p role="alert" className="text-destructive text-detail">
+              {errMessage(remove.error, "Couldn’t remove the destination. Try again.")}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent destinations</CardTitle>
+          <CardDescription>Save a recent destination to keep it in your saved suggestions.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {query.isPending || query.isError ? (
+            <SshQueryStatus query={query} label="recent destinations" />
+          ) : recent.length === 0 ? (
+            <p className="text-detail text-muted-foreground">No recent destinations yet.</p>
+          ) : (
+            <ul className="flex flex-col divide-y">
+              {recent.map((row) => (
+                <LedgerRow
+                  key={row.id}
+                  row={row}
+                  detail={`${machineName(row)} · ${row.lastConnectAt.slice(0, 10)}`}
+                  action={{
+                    disabled: save.isPending,
+                    label: `Remember ${row.alias ?? row.destination}`,
+                    icon: Star,
+                    onSelect: () => save.mutate({ node: row.nodeId, destination: row.destination }),
+                  }}
+                />
+              ))}
+            </ul>
+          )}
+          {save.isError && (
+            <p role="alert" className="text-destructive text-detail">
+              {errMessage(save.error, "Couldn’t save the destination. Try again.")}
+            </p>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -88,24 +117,28 @@ function LedgerRow({
 }: {
   row: SshSavedHost;
   detail: string;
-  action: { label: string; icon: typeof Star; onSelect: () => void };
+  action: { label: string; icon: typeof Star; onSelect: () => void; disabled: boolean };
 }): JSX.Element {
   const Icon = action.icon;
   return (
-    <li className="flex items-center gap-3">
+    <li className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
       <div className="min-w-0 flex-1">
-        <div className="truncate font-strong text-label">{row.alias ?? row.destination}</div>
-        <div className="truncate text-detail text-muted-foreground">{detail}</div>
+        <div className="break-all font-strong text-label">{row.alias ?? row.destination}</div>
+        {row.alias && <div className="break-all text-detail text-muted-foreground">{row.destination}</div>}
+        <div className="break-words text-detail text-muted-foreground">{detail}</div>
       </div>
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="icon"
+        disabled={action.disabled}
         aria-label={action.label}
         title={action.label}
         onClick={action.onSelect}
-        className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground"
+        className="shrink-0"
       >
-        <Icon className="h-3.5 w-3.5" />
-      </button>
+        <Icon />
+      </Button>
     </li>
   );
 }

@@ -21,7 +21,7 @@ export interface PageHeaderProps {
  */
 export function PageHeader({ title, subtitle, action }: PageHeaderProps) {
   return (
-    <header className="mb-6 flex items-center justify-between">
+    <header className="mb-6 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
       <div>
         <h1 className="font-strong text-heading">{title}</h1>
         {/* Rendered only when present: an empty <p> is zero-height today but
