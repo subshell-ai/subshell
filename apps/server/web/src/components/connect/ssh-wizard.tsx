@@ -118,10 +118,10 @@ export function SshWizard({
           nodeName={machine?.node.name}
           ready={machine?.canConnect ?? false}
         />
-        <Field>
-          <h3 id="ssh-authentication-heading" className="text-body text-foreground">
+        <fieldset className="flex min-w-0 flex-col gap-2">
+          <legend id="ssh-authentication-heading" className="mb-2 font-strong text-label">
             Authentication
-          </h3>
+          </legend>
           <RadioGroup
             aria-labelledby="ssh-authentication-heading"
             value={draft.authentication === "password" ? "password" : useRemote ? "remote" : "connecting"}
@@ -144,7 +144,11 @@ export function SshWizard({
                 <span id="ssh-keys-connecting-label">Use the connecting node’s keys</span>
                 <span
                   id="ssh-keys-node-name"
-                  className={machine ? "break-all text-detail text-muted-foreground" : "text-detail text-warning"}
+                  className={
+                    machine
+                      ? "break-all font-regular text-detail text-muted-foreground"
+                      : "font-regular text-detail text-warning"
+                  }
                 >
                   {machine?.node.name ?? "Choose a node to connect from first"}
                 </span>
@@ -189,13 +193,13 @@ export function SshWizard({
               />
               <FieldLabel htmlFor="ssh-auth-password" className="flex min-w-0 cursor-pointer flex-col gap-1">
                 <span id="ssh-auth-password-label">Enter a password when connecting</span>
-                <span id="ssh-auth-password-description" className="text-detail text-muted-foreground">
+                <span id="ssh-auth-password-description" className="font-regular text-detail text-muted-foreground">
                   Enter your password in the terminal when SSH asks for it. Subshell won’t save it.
                 </span>
               </FieldLabel>
             </Field>
           </RadioGroup>
-        </Field>
+        </fieldset>
         {remote && (!noOtherKeyNodes || keyProblem || keyMachine) && (
           <FieldGroup>
             {!noOtherKeyNodes && (

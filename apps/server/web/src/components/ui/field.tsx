@@ -1,4 +1,4 @@
-import { cn } from "@internal/node-admin";
+import { cn, Label } from "@internal/node-admin";
 import type { ComponentProps } from "react";
 
 export function FieldGroup({ className, ...props }: ComponentProps<"div">) {
@@ -11,8 +11,8 @@ export function Field({ className, ...props }: ComponentProps<"div">) {
 
 export function FieldLabel({ className, htmlFor, children, ...props }: ComponentProps<"label">) {
   return (
-    <label htmlFor={htmlFor} className={cn("text-body text-foreground", className)} {...props}>
+    <Label htmlFor={htmlFor} className={className} {...props}>
       {children}
-    </label>
+    </Label>
   );
 }
