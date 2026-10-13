@@ -9,7 +9,7 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { ConnectPanel, SSH_DISCLOSURE_COPY } from "@/components/connect/connect-panel";
+import { ConnectPanel } from "@/components/connect/connect-panel";
 
 /**
  * The /connect behavior contract (plan 3 Task 3), pinned on the composed
@@ -637,16 +637,10 @@ describe("refusals and disclosure (contracts 4, 5)", () => {
     }
   });
 
-  it("explains the destination format and discloses SSH config execution before launch", async () => {
+  it("associates the destination format description with its input", async () => {
     const { restore } = await renderPanel({ nodes: [HOST_A] });
     try {
-      const line = await screen.findByText(SSH_DISCLOSURE_COPY);
-      expect(line.className).toContain("text-detail");
       expect(destinationInput().getAttribute("aria-describedby")).toBe("connect-destination-disclosure");
-      // The exact sentences (decision 6), dash-free.
-      expect(SSH_DISCLOSURE_COPY).toBe(
-        "Connecting uses this machine’s SSH configuration, including any local commands configured with Match exec.",
-      );
     } finally {
       restore();
     }

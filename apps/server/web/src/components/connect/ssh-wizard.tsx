@@ -118,79 +118,84 @@ export function SshWizard({
           nodeName={machine?.node.name}
           ready={machine?.canConnect ?? false}
         />
-        <RadioGroup
-          aria-label="SSH keys"
-          value={draft.authentication === "password" ? "password" : useRemote ? "remote" : "connecting"}
-          onValueChange={(value) => {
-            setUseRemote(value === "remote");
-            patch({
-              authentication: value === "password" ? "password" : undefined,
-              ...(value !== "remote" ? { keyHome: "" } : {}),
-            });
-          }}
-        >
-          <Field className="flex-row items-start gap-3">
-            <RadioGroupItem
-              id="ssh-keys-connecting"
-              value="connecting"
-              aria-labelledby="ssh-keys-connecting-label"
-              aria-describedby="ssh-keys-node-name"
-            />
-            <FieldLabel htmlFor="ssh-keys-connecting" className="flex min-w-0 cursor-pointer flex-col gap-1">
-              <span id="ssh-keys-connecting-label">Use the connecting node’s keys</span>
-              <span
-                id="ssh-keys-node-name"
-                className={machine ? "break-all text-detail text-muted-foreground" : "text-detail text-warning"}
-              >
-                {machine?.node.name ?? "Choose a node to connect from first"}
-              </span>
-            </FieldLabel>
-          </Field>
-          <Field className="flex-row items-start gap-3">
-            <RadioGroupItem
-              id="ssh-keys-remote"
-              value="remote"
-              aria-labelledby="ssh-keys-remote-label"
-              aria-describedby={remote && noOtherKeyNodes ? "ssh-keys-empty" : undefined}
-            />
-            <div className="flex min-w-0 flex-col gap-1">
-              <FieldLabel htmlFor="ssh-keys-remote" className="cursor-pointer">
-                <span id="ssh-keys-remote-label">Use another node’s keys</span>
-              </FieldLabel>
-              {remote && noOtherKeyNodes && (
-                <span id="ssh-keys-empty" role="status" className="text-detail text-warning">
-                  <label htmlFor="ssh-keys-remote" className="cursor-pointer">
-                    No other nodes are available to supply keys. Use the connecting node’s keys or{" "}
-                  </label>
-                  <a
-                    href="/nodes"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline"
-                    aria-label="Add another node (opens in a new tab)"
-                  >
-                    add another node
-                  </a>
-                  .
+        <Field>
+          <h3 id="ssh-authentication-heading" className="text-body text-foreground">
+            Authentication
+          </h3>
+          <RadioGroup
+            aria-labelledby="ssh-authentication-heading"
+            value={draft.authentication === "password" ? "password" : useRemote ? "remote" : "connecting"}
+            onValueChange={(value) => {
+              setUseRemote(value === "remote");
+              patch({
+                authentication: value === "password" ? "password" : undefined,
+                ...(value !== "remote" ? { keyHome: "" } : {}),
+              });
+            }}
+          >
+            <Field className="flex-row items-start gap-3">
+              <RadioGroupItem
+                id="ssh-keys-connecting"
+                value="connecting"
+                aria-labelledby="ssh-keys-connecting-label"
+                aria-describedby="ssh-keys-node-name"
+              />
+              <FieldLabel htmlFor="ssh-keys-connecting" className="flex min-w-0 cursor-pointer flex-col gap-1">
+                <span id="ssh-keys-connecting-label">Use the connecting node’s keys</span>
+                <span
+                  id="ssh-keys-node-name"
+                  className={machine ? "break-all text-detail text-muted-foreground" : "text-detail text-warning"}
+                >
+                  {machine?.node.name ?? "Choose a node to connect from first"}
                 </span>
-              )}
-            </div>
-          </Field>
-          <Field className="flex-row items-start gap-3">
-            <RadioGroupItem
-              id="ssh-auth-password"
-              value="password"
-              aria-labelledby="ssh-auth-password-label"
-              aria-describedby="ssh-auth-password-description"
-            />
-            <FieldLabel htmlFor="ssh-auth-password" className="flex min-w-0 cursor-pointer flex-col gap-1">
-              <span id="ssh-auth-password-label">Enter a password when connecting</span>
-              <span id="ssh-auth-password-description" className="text-detail text-muted-foreground">
-                Enter your password in the terminal when SSH asks for it. Subshell won’t save it.
-              </span>
-            </FieldLabel>
-          </Field>
-        </RadioGroup>
+              </FieldLabel>
+            </Field>
+            <Field className="flex-row items-start gap-3">
+              <RadioGroupItem
+                id="ssh-keys-remote"
+                value="remote"
+                aria-labelledby="ssh-keys-remote-label"
+                aria-describedby={remote && noOtherKeyNodes ? "ssh-keys-empty" : undefined}
+              />
+              <div className="flex min-w-0 flex-col gap-1">
+                <FieldLabel htmlFor="ssh-keys-remote" className="cursor-pointer">
+                  <span id="ssh-keys-remote-label">Use another node’s keys</span>
+                </FieldLabel>
+                {remote && noOtherKeyNodes && (
+                  <span id="ssh-keys-empty" role="status" className="text-detail text-warning">
+                    <label htmlFor="ssh-keys-remote" className="cursor-pointer">
+                      No other nodes are available to supply keys. Use the connecting node’s keys or{" "}
+                    </label>
+                    <a
+                      href="/nodes"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline"
+                      aria-label="Add another node (opens in a new tab)"
+                    >
+                      add another node
+                    </a>
+                    .
+                  </span>
+                )}
+              </div>
+            </Field>
+            <Field className="flex-row items-start gap-3">
+              <RadioGroupItem
+                id="ssh-auth-password"
+                value="password"
+                aria-labelledby="ssh-auth-password-label"
+                aria-describedby="ssh-auth-password-description"
+              />
+              <FieldLabel htmlFor="ssh-auth-password" className="flex min-w-0 cursor-pointer flex-col gap-1">
+                <span id="ssh-auth-password-label">Enter a password when connecting</span>
+                <span id="ssh-auth-password-description" className="text-detail text-muted-foreground">
+                  Enter your password in the terminal when SSH asks for it. Subshell won’t save it.
+                </span>
+              </FieldLabel>
+            </Field>
+          </RadioGroup>
+        </Field>
         {remote && (!noOtherKeyNodes || keyProblem || keyMachine) && (
           <FieldGroup>
             {!noOtherKeyNodes && (
@@ -234,9 +239,6 @@ export function SshWizard({
             )}
           </FieldGroup>
         )}
-        <p className="text-detail text-muted-foreground">
-          Connecting uses this machine’s SSH configuration, including any local commands configured with Match exec.
-        </p>
       </FieldGroup>
       <div className="flex flex-wrap justify-end gap-2">
         <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>

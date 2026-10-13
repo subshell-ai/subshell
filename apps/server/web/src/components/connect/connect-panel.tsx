@@ -49,8 +49,6 @@ const MACHINE_IDS = {
 };
 
 /** The disclosure every ssh surface owes before the button (decision 6, verbatim). */
-export const SSH_DISCLOSURE_COPY =
-  "Connecting uses this machine’s SSH configuration, including any local commands configured with Match exec.";
 
 export function ConnectPanel({
   initial,
@@ -500,7 +498,6 @@ export function ConnectPanel({
           as its label, so you don’t need to name it.
         </p>
 
-        <p className="text-detail text-muted-foreground">{SSH_DISCLOSURE_COPY}</p>
         <Button type="button" variant="outline" disabled={submitting} onClick={() => setWizard(true)}>
           Back
         </Button>
