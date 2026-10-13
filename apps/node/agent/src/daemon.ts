@@ -1452,6 +1452,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
     }
   } finally {
     clearInterval(transferSweepTimer);
+    clearInterval(sshDirSweepTimer);
     if (retentionTimer !== undefined) clearInterval(retentionTimer);
     registerRestart(null);
     setDaemonState({ connected: false });
