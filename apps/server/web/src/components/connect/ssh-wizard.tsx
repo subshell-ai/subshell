@@ -100,12 +100,6 @@ export function SshWizard({
     <section className="flex flex-col gap-4" aria-label="SSH setup">
       <FieldGroup>
         <SshQueryStatus query={readiness} label="connecting machines" />
-        <SshDestinationStep
-          draft={draft}
-          onChange={onDraftChange}
-          nodeName={machine?.node.name}
-          ready={machine?.canConnect ?? false}
-        />
         <SshMachineStep
           machines={machines}
           value={draft.nodeId}
@@ -123,6 +117,12 @@ export function SshWizard({
             onLeave={onLeave}
           />
         ) : null}
+        <SshDestinationStep
+          draft={draft}
+          onChange={onDraftChange}
+          nodeName={machine?.node.name}
+          ready={machine?.canConnect ?? false}
+        />
         <RadioGroup
           aria-label="SSH keys"
           value={useRemote ? "remote" : "connecting"}
