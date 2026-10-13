@@ -141,6 +141,7 @@ export function ConnectPanel({
     saved: ledger?.saved ?? [],
     recent: ledger?.recent ?? [],
     aliases,
+    destinations: aliasesQ.data?.destinations,
     machineName: selectedNode?.name ?? null,
     typed: dest.typed,
   });

@@ -121,11 +121,16 @@ export function DestinationField({
                   type="button"
                   onMouseDown={(e) => e.preventDefault()} // keep the input's focus through the press
                   onClick={() => pick(option)}
-                  className="flex w-full items-center rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                  aria-label={option.label}
+                  aria-describedby={option.reason ? `${id}-${encodeURIComponent(option.value)}-detail` : undefined}
+                  className="flex w-full flex-col items-start rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
                 >
                   <span className="truncate">{option.label}</span>
                   {option.reason ? (
-                    <span className="ml-auto max-w-[45%] truncate pl-3 text-detail text-muted-foreground">
+                    <span
+                      id={`${id}-${encodeURIComponent(option.value)}-detail`}
+                      className="break-all text-detail text-muted-foreground"
+                    >
                       {option.reason}
                     </span>
                   ) : null}

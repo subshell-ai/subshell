@@ -7,8 +7,8 @@ import { cleanup, tempRoot } from "./helpers.js";
 /**
  * Discovery is a NAME-HUNT with budgets (ssh-discover.ts module doc): what it
  * must get right is which names appear, which are excluded, and what the
- * two "the list may be incomplete" facts report. Config CONTENT never
- * escapes the walk — the answers carry no directive values at all.
+ * two "the list may be incomplete" facts report. Only literal destination previews leave the walk; other directive values
+ * stay local.
  */
 
 let root: string;
@@ -155,4 +155,27 @@ describe("discoverSshAliases", () => {
     expect(blob).not.toContain("private_key_material");
     expect(blob).not.toContain("supersecret");
   });
+});
+
+it("previews literal destinations using first-match values and preserves aliases", () => {
+  const configPath = fixtureConfig(
+    "preview",
+    "Host * !demo\n User other\nHost demo\n HostName 127.0.0.1\n User developer\n Port 22222\nHost demo\n User ignored\n",
+  );
+  expect(discoverSshAliases({ configPath }).destinations).toEqual([
+    { alias: "demo", destination: "developer@127.0.0.1:22222" },
+  ]);
+});
+
+it("does not guess destinations for conditional, included, tokenized, or incomplete configs", () => {
+  for (const [i, body] of [
+    "Host demo\n HostName example.com\n User dev\n",
+    "Host demo\n HostName %h.example.com\n User dev\n Port 22\n",
+    "Host demo\n HostName example.com\n User dev\n Port 22\nMatch exec false\n User other\n",
+    "Include missing.conf\nHost demo\n HostName example.com\n User dev\n Port 22\n",
+  ].entries()) {
+    const result = discoverSshAliases({ configPath: fixtureConfig(`preview-unknown-${i}`, body) });
+    expect(result.aliases).toEqual(["demo"]);
+    expect(result.destinations).toBeUndefined();
+  }
 });

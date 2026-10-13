@@ -8,8 +8,8 @@ import { connectingHomeDir, resolveSshBin, SSH_GATE_REFUSAL } from "./ssh-shared
  * The two human-config SSH executors that touch no connection state (spec
  * 2026-10-07 §5/§7):
  *
- * - `ssh_discover_aliases` — bounded config parse answering NAMES only
- *   (discovery answers names, never config file contents). The answer is
+ * - `ssh_discover_aliases` — bounded config parse answering names and optional
+ *   literal destination previews, never raw config files. The answer is
  *   run through the frozen wire validator on the way out.
  * - `ssh_resolve_config` — `ssh -G` evaluation of one alias through
  *   pane-runtime's `resolveSshAliasConfig`, plus this machine's connecting
@@ -45,6 +45,7 @@ export async function execSshDiscoverAliases(ctx: CommandContext): Promise<Comma
   const found = discoverSshAliases({ homeDir: home, configPath: defaultSshConfigPath(home) });
   const validated = parseNodeSshAliasList({
     aliases: found.aliases,
+    ...(found.destinations ? { destinations: found.destinations } : {}),
     includeCycle: found.includeCycle,
     truncated: found.truncated,
   });

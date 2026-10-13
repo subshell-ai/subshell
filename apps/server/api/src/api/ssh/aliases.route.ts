@@ -38,6 +38,7 @@ export const sshAliasesRoute = new Elysia()
           aliases: t.Array(t.String({ description: "Alias name (sorted, deduplicated, concrete names only)" }), {
             description: "Usable alias NAMES, at most 500",
           }),
+          destinations: t.Optional(t.Array(t.Object({ alias: t.String(), destination: t.String() }))),
           includeCycle: t.Boolean({ description: "An include cycle was detected; the list is what parsed before it" }),
           truncated: t.Boolean({ description: "The alias cap was hit; more exist" }),
         }),

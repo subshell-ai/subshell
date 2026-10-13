@@ -575,7 +575,30 @@ export function parseNodeAgentLogSlice(data: unknown): NodeAgentLogSlice | null 
 export function parseNodeSshAliasList(data: unknown): NodeSshAliasListResult | null {
   if (!isRecord(data) || !isBool(data.includeCycle) || !isBool(data.truncated)) return null;
   if (!isStrArray(data.aliases) || (data.aliases as string[]).length > SSH_MAX_DISCOVERED_ALIASES) return null;
-  return { aliases: [...(data.aliases as string[])], includeCycle: data.includeCycle, truncated: data.truncated };
+  const destinations: { alias: string; destination: string }[] = [];
+  if (data.destinations !== undefined) {
+    if (!Array.isArray(data.destinations) || data.destinations.length > SSH_MAX_DISCOVERED_ALIASES) return null;
+    for (const item of data.destinations) {
+      if (
+        !isRecord(item) ||
+        !isStr(item.alias) ||
+        !data.aliases.includes(item.alias) ||
+        !isStr(item.destination) ||
+        item.destination.length > SSH_NAME_MAX_CHARS ||
+        !/^[a-zA-Z0-9_.-]+@(?:[a-zA-Z0-9_.-]+|\[[a-fA-F0-9:]+\]):\d{1,5}$/.test(item.destination)
+      )
+        return null;
+      const port = Number(item.destination.slice(item.destination.lastIndexOf(":") + 1));
+      if (port < 1 || port > 65535) return null;
+      destinations.push({ alias: item.alias, destination: item.destination });
+    }
+  }
+  return {
+    aliases: [...(data.aliases as string[])],
+    ...(data.destinations !== undefined ? { destinations } : {}),
+    includeCycle: data.includeCycle,
+    truncated: data.truncated,
+  };
 }
 
 /**

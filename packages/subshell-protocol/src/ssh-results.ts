@@ -14,14 +14,16 @@ import type { SshErrorCode } from "./ssh-errors.js";
  */
 
 /**
- * `ssh_discover_aliases` answer: NAMES of usable aliases, never config file
- * contents (docs/superpowers/specs/2026-10-07-ssh-anywhere-design.md). Wildcard-only entries are already excluded
+ * `ssh_discover_aliases` answer: usable aliases and optional literal destination
+ * previews, never raw config files (docs/superpowers/specs/2026-10-07-ssh-anywhere-design.md). Wildcard-only entries are already excluded
  * and include cycles detected (the cycle is a FACT the human reviewing the
  * list needs, never a silent stop).
  */
 export interface NodeSshAliasListResult {
   /** Alias names, sorted, deduplicated, at most {@link SSH_MAX_DISCOVERED_ALIASES}. */
   aliases: string[];
+  /** Literal configured destinations, when safe to preview without running SSH. */
+  destinations?: { alias: string; destination: string }[];
   /** An include cycle was detected during the bounded parse; the list is what parsed before it. */
   includeCycle: boolean;
   /** The alias cap was hit; more exist. */

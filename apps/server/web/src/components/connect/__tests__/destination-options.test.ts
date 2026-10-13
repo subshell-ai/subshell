@@ -88,3 +88,18 @@ describe("buildDestinationOptions", () => {
     expect(options).toEqual([]);
   });
 });
+
+it("displays and searches configured destinations while still launching the alias", () => {
+  const { options, candidates } = buildDestinationOptions({
+    saved: [],
+    recent: [],
+    aliases: ["demo", "dynamic"],
+    destinations: [{ alias: "demo", destination: "developer@127.0.0.1:22222" }],
+    machineName: "Server",
+    typed: "",
+  });
+  expect(options[0]?.reason).toBe("developer@127.0.0.1:22222");
+  expect(options[0]?.searchText).toBe("developer@127.0.0.1:22222");
+  expect(candidates.get("config:demo")?.destination).toBe("demo");
+  expect(options[1]?.reason).toBe("Destination determined when connecting");
+});

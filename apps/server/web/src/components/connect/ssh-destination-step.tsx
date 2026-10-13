@@ -23,6 +23,7 @@ export function SshDestinationStep({
     saved: ledger.data?.saved ?? [],
     recent: ledger.data?.recent ?? [],
     aliases: aliases.data?.aliases ?? [],
+    destinations: aliases.data?.destinations,
     machineName: nodeName ?? null,
     typed: draft.destination.typed,
   });

@@ -42,6 +42,7 @@ export function buildDestinationOptions(args: {
   recent: readonly SshSavedHost[];
   /** The picked machine's alias names, fetched only while its gate is on */
   aliases: readonly string[];
+  destinations?: readonly { alias: string; destination: string }[];
   /** The picked machine's display name, for the config group header */
   machineName: string | null;
   /** The field's current typed text - the mirror row's source */
@@ -89,7 +90,15 @@ export function buildDestinationOptions(args: {
     for (const token of args.aliases) {
       push(
         `${CONFIG_PREFIX}${token}`,
-        { value: `${CONFIG_PREFIX}${token}`, label: token, group: configGroupLabel(args.machineName) },
+        {
+          value: `${CONFIG_PREFIX}${token}`,
+          label: token,
+          group: configGroupLabel(args.machineName),
+          reason:
+            args.destinations?.find((item) => item.alias === token)?.destination ??
+            "Destination determined when connecting",
+          searchText: args.destinations?.find((item) => item.alias === token)?.destination,
+        },
         { destination: token, aliasToken: token },
       );
     }

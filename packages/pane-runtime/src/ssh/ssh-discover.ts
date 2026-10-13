@@ -8,8 +8,8 @@ import { SSH_MAX_DISCOVERED_ALIASES, SSH_NAME_MAX_CHARS } from "@internal/subshe
  * discover aliases by bounded parsing of the account's config and includes;
  * omit wildcard-only entries, detect include cycles.
  *
- * This parser answers NAMES, never config contents, and it is deliberately a
- * NAME-HUNT and not an implementation of ssh_config semantics: the authoritative
+ * This parser discovers names and previews explicit, literal destinations from
+ * simple configs. It does not implement all ssh_config semantics: the authoritative
  * resolution of what an alias means is `ssh -G` (`ssh-resolve.ts`), which is
  * OpenSSH's own evaluator. What must not be outsourced is the BOUNDS: reading
  * the account's config is the one step an alias-rich `Include` chain can turn
@@ -30,6 +30,7 @@ import { SSH_MAX_DISCOVERED_ALIASES, SSH_NAME_MAX_CHARS } from "@internal/subshe
 export interface SshAliasDiscovery {
   /** Alias names, deduplicated, sorted; wildcard-only and negated patterns excluded. */
   aliases: string[];
+  destinations?: { alias: string; destination: string }[];
   /** One config file appeared in another's include ANCESTRY chain; the list is what parsed before the repeat. */
   includeCycle: boolean;
   /** A budget was exhausted or the name cap was reached; more may exist than were returned. */
@@ -46,6 +47,8 @@ export interface SshHostBlock {
 
 /** What one bounded walk produced, for discovery AND resolution to share. */
 export interface SshConfigWalk {
+  /** Preview only simple configs; Include and Match require OpenSSH evaluation. */
+  previewUnsafe: boolean;
   /** Every `Host` block in include order, plus the pre-first-Host global directives. */
   hostBlocks: SshHostBlock[];
   /** Directives seen before any `Host` line (the implicit-global context). */
@@ -253,6 +256,7 @@ function peelQuotes(token: string): string {
 export function walkSshConfig(rootFile: string, homeDir: string, budget: SshWalkBudget = {}): SshConfigWalk {
   const caps = { ...DEFAULT_BUDGET, ...budget };
   const walk: SshConfigWalk = {
+    previewUnsafe: false,
     hostBlocks: [],
     globalDirectives: [],
     matchExecSeen: false,
@@ -309,6 +313,7 @@ export function walkSshConfig(rootFile: string, homeDir: string, budget: SshWalk
           .filter((t) => t !== "")
           .map(peelQuotes);
       } else if (keyword === "include") {
+        walk.previewUnsafe = true;
         const tokens = arg
           .split(/\s+/)
           .filter((t) => t !== "")
@@ -319,11 +324,13 @@ export function walkSshConfig(rootFile: string, homeDir: string, budget: SshWalk
           }
         }
       } else if (keyword === "match") {
+        walk.previewUnsafe = true;
         // `Match exec …` runs a command locally (the execution fact resolution refuses on); the
         // criteria keyword pair is what matters, not the command.
         const criteria = arg.toLowerCase();
         if (/(^|\s)exec(\s|$)/.test(criteria)) walk.matchExecSeen = true;
       } else if (keyword !== "") {
+        if (keyword.startsWith("canonicalize")) walk.previewUnsafe = true;
         (currentBlock ? currentBlock.directives : walk.globalDirectives).push({ keyword, value: arg });
       }
     }
@@ -336,8 +343,8 @@ export function walkSshConfig(rootFile: string, homeDir: string, budget: SshWalk
 
 /**
  * The `ssh_discover_aliases` engine: walk the account's config and answer the
- * deduplicated, sorted alias names under the wire cap. Returns NAMES only —
- * the frozen result envelope carries no config content, and neither does this.
+ * deduplicated, sorted alias names under the wire cap. Optional destination
+ * previews expose only user, host and port; commands and credentials stay local.
  *
  * @param opts.homeDir - the connecting account's home (default: this process's)
  * @param opts.configPath - the account's config file (default: `<home>/.ssh/config`)
@@ -360,5 +367,41 @@ export function discoverSshAliases(
     aliases = aliases.slice(0, SSH_MAX_DISCOVERED_ALIASES);
     truncated = true;
   }
-  return { aliases, includeCycle: walk.includeCycle, truncated };
+  const destinations =
+    walk.previewUnsafe || walk.truncated || walk.includeCycle
+      ? []
+      : aliases.flatMap((alias) => {
+          // First value wins, including global defaults and matching wildcard blocks.
+          // Require all three literal values: omitted fields may come from system config.
+          const values = new Map<string, string>();
+          const take = (directives: SshHostBlock["directives"]) => {
+            for (const { keyword, value } of directives)
+              if (!values.has(keyword)) values.set(keyword, peelQuotes(value));
+          };
+          take(walk.globalDirectives);
+          for (const block of walk.hostBlocks) {
+            const matches = (pattern: string) => globToRe(pattern.toLowerCase()).test(alias.toLowerCase());
+            if (block.tokens.some((token) => token.startsWith("!") && matches(token.slice(1)))) continue;
+            if (block.tokens.some((token) => !token.startsWith("!") && matches(token))) take(block.directives);
+          }
+          const host = values.get("hostname");
+          const user = values.get("user");
+          const port = values.get("port");
+          if (
+            !host ||
+            !user ||
+            !port ||
+            !/^[a-zA-Z0-9_.:-]+$/.test(host) ||
+            !/^[a-zA-Z0-9_.-]+$/.test(user) ||
+            !/^\d+$/.test(port) ||
+            Number(port) < 1 ||
+            Number(port) > 65535
+          )
+            return [];
+          if (host.includes(":") && !/^[a-fA-F0-9:]+$/.test(host)) return [];
+          const destination = `${user}@${host.includes(":") ? `[${host}]` : host}:${Number(port)}`;
+          if (destination.length > SSH_NAME_MAX_CHARS) return [];
+          return [{ alias, destination }];
+        });
+  return { aliases, ...(destinations.length ? { destinations } : {}), includeCycle: walk.includeCycle, truncated };
 }

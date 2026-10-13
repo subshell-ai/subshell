@@ -119,8 +119,9 @@ export interface SshSavedHostsView {
   defaultNodeId: string | null;
 }
 
-/** The `GET /api/ssh/aliases?node=` body: names only, never config contents. */
+/** The `GET /api/ssh/aliases?node=` body: names and optional literal destination previews. */
 export interface SshAliasesView {
+  destinations?: { alias: string; destination: string }[];
   /** Usable alias NAMES (sorted, deduplicated, concrete names only), at most 500 */
   aliases: string[];
   /** An include cycle was detected; the list is what parsed before it */

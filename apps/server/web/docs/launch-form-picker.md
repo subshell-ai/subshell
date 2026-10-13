@@ -172,6 +172,12 @@ an explicit selection of current SSH-agent fingerprints; no keys are selected
 automatically, and a disappeared selected key blocks launch. The server can
 connect or supply remote agent keys under the same launch-access rule as nodes.
 Saved destination management lives in Settings → SSH.
+Config alias suggestions keep the alias as the launch token and show an optional
+user@host:port preview beneath it. Discovery returns previews only for explicit
+literal values in simple configs; Match, Include, canonicalization, missing
+values, and dynamic tokens fall back to “Destination determined when connecting.”
+Opening the picker never runs SSH configuration commands. Older nodes may omit
+previews, so the field remains optional on the wire.
 
 **The SSH tab opens with the setup choices.** Personal SSH settings and each
 node's overview also offer Set up SSH. The flow stays inside the caller's

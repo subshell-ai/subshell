@@ -248,3 +248,19 @@ describe("parseNodeSshMachinePinRepair (spec 2026-10-08 §4.5, Task 17)", () => 
     expect(parsed).toEqual({ repaired: true, peerNodeId: "node-b" });
   });
 });
+
+test("validates optional alias destinations without accepting unrelated aliases or invalid ports", () => {
+  const result = {
+    aliases: ["demo"],
+    includeCycle: false,
+    truncated: false,
+    destinations: [{ alias: "demo", destination: "developer@127.0.0.1:22222" }],
+  };
+  expect(parseNodeSshAliasList(result)).toEqual(result);
+  expect(
+    parseNodeSshAliasList({ ...result, destinations: [{ alias: "other", destination: "dev@host:22" }] }),
+  ).toBeNull();
+  expect(
+    parseNodeSshAliasList({ ...result, destinations: [{ alias: "demo", destination: "dev@host:65536" }] }),
+  ).toBeNull();
+});
