@@ -234,7 +234,7 @@ export function SshWizard({
       )}
       <div className="flex flex-wrap justify-end gap-2">
         <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
-          Cancel setup
+          Cancel
         </Button>
         {current !== "intent" && (
           <Button

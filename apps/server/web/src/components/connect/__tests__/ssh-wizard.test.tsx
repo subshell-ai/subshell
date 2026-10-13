@@ -322,7 +322,7 @@ it("preserves an explicit subset when the connecting machine becomes its key sou
   expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
   await click("Continue");
   expect(calls.some((call) => call.path === "/api/ssh/launch")).toBe(false);
-  await click("Cancel setup");
+  await click("Cancel");
   await choose("Connect from", "desk");
   expect(screen.getByRole("checkbox", { name: "Work key" }).getAttribute("aria-checked")).toBe("true");
   await click("Start SSH subshell");
@@ -395,7 +395,7 @@ it("retains canonical destination, remember, and explicit keys across wizard can
   await next();
   await next();
   expect(screen.getByRole("checkbox", { name: "Work key" }).getAttribute("aria-checked")).toBe("true");
-  await click("Cancel setup");
+  await click("Cancel");
   expect((screen.getByLabelText("SSH destination") as HTMLInputElement).value).toBe("target");
   expect((screen.getByLabelText("Remember this destination") as HTMLInputElement).checked).toBe(true);
   await click("Start SSH subshell");
@@ -486,7 +486,7 @@ it("holds one launch through an asynchronous creation callback and cannot submit
   await click("Start SSH subshell");
   expect(created).toEqual(["created-ssh"]);
   expect((screen.getByRole("button", { name: "Starting SSH subshell…" }) as HTMLButtonElement).disabled).toBe(true);
-  expect((screen.getByRole("button", { name: "Cancel setup" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Starting SSH subshell…" }));
   expect(calls.filter((c) => c.path === "/api/ssh/launch")).toHaveLength(1);
   await act(async () => {
