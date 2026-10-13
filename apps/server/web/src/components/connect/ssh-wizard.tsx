@@ -234,15 +234,6 @@ export function SshWizard({
             )}
           </FieldGroup>
         )}
-        <Field className="flex-row items-center gap-3">
-          <input
-            id="ssh-remember"
-            type="checkbox"
-            checked={draft.remember}
-            onChange={(event) => patch({ remember: event.target.checked })}
-          />
-          <FieldLabel htmlFor="ssh-remember">Remember this destination</FieldLabel>
-        </Field>
         <p className="text-detail text-muted-foreground">
           Connecting uses this machine’s SSH configuration, including any local commands configured with Match exec.
         </p>

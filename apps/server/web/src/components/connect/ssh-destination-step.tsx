@@ -47,6 +47,15 @@ export function SshDestinationStep({
         <p className="text-detail text-muted-foreground">
           Enter the destination you want to access, for example deploy@example.com:22, or choose a saved destination.
         </p>
+        <Field className="flex-row items-center gap-3">
+          <input
+            id="ssh-remember"
+            type="checkbox"
+            checked={draft.remember}
+            onChange={(event) => onChange({ ...draft, remember: event.target.checked })}
+          />
+          <FieldLabel htmlFor="ssh-remember">Remember this destination</FieldLabel>
+        </Field>
         {(ledger.isError || aliases.isError) && (
           <div className="flex flex-col items-start gap-2">
             <p role="alert" className="text-destructive text-detail">
