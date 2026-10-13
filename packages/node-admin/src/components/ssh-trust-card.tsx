@@ -38,25 +38,28 @@ export function NodeSshTrustCard({
   node,
   renderPeerAction,
   allowLocal = false,
+  embedded = false,
 }: {
   node: NodeDetail;
   renderPeerAction?: (peer: NodeSshTrustPeer) => ReactNode;
   /** The control plane opts in only for an authenticated admin; node dashboards remain agent-only. */
   allowLocal?: boolean;
+  /** Render inside an existing SSH card without nesting another card. */
+  embedded?: boolean;
 }): JSX.Element | null {
   if (node.kind === "local" ? !allowLocal || !node.canManage : node.access !== "owner" && node.access !== "edit")
     return null;
   const trust = node.sshTrust;
   if (!trust) return null;
-  return (
-    <Card>
-      <CardHeader>
+  const content = (
+    <>
+      <CardHeader className={embedded ? "p-0" : undefined}>
         <CardTitle className="flex items-center gap-2">
           SSH machine identities
           {trust.stale && <Badge variant="warning">Stale</Badge>}
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className={embedded ? "p-0" : undefined}>
         <p className="text-detail text-muted-foreground">
           {trust.stale
             ? "This machine is offline. These are the last fingerprints it reported."
@@ -92,8 +95,9 @@ export function NodeSshTrustCard({
           )}
         </dl>
       </CardContent>
-    </Card>
+    </>
   );
+  return embedded ? <section className="flex flex-col gap-3">{content}</section> : <Card>{content}</Card>;
 }
 
 /** One labelled fingerprint: `label` over a mono `detail`, the line-item shape. */

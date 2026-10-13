@@ -8,7 +8,7 @@ import { useRepairSshMachinePin } from "@/hooks/use-ssh";
 /** Machine fingerprints and explicit peer-pin repair: agent owners may repair their own pins,
  * while only cookie admins may inspect or change the server's pin store.
  * The displayed copy still needs comparison with each machine through a trusted channel. */
-export function SshTrustSection({ node }: { node: NodeDetail }) {
+export function SshTrustSection({ node, embedded = false }: { node: NodeDetail; embedded?: boolean }) {
   const { data: nodeData } = useNodes();
   const { data: settings } = usePublicSettings();
   const localAdmin = node.kind === "local" && node.canManage && settings?.viewerIsAdmin === true;
@@ -21,8 +21,9 @@ export function SshTrustSection({ node }: { node: NodeDetail }) {
   const isOwner = node.kind === "local" ? localAdmin : node.access === "owner";
 
   return (
-    <div className="space-y-3">
+    <div className={cn("flex w-full flex-col gap-3", embedded && "border-t pt-4")}>
       <NodeSshTrustCard
+        embedded={embedded}
         node={node}
         allowLocal={localAdmin}
         renderPeerAction={

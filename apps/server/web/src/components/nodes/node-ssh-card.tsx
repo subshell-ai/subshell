@@ -9,10 +9,11 @@ import {
   type NodeDetail,
   Switch,
 } from "@internal/node-admin";
+import type { ReactNode } from "react";
 import { useSetSshEnabled } from "@/hooks/use-ssh";
 
 /** The node's configuration permission is supplied by the same server gate as the update route. */
-export function NodeSshCard({ node }: { node: NodeDetail }) {
+export function NodeSshCard({ node, children }: { node: NodeDetail; children?: ReactNode }) {
   const update = useSetSshEnabled();
   return (
     <Card>
@@ -51,6 +52,7 @@ export function NodeSshCard({ node }: { node: NodeDetail }) {
             {errMessage(update.error, "Couldn't update the SSH setting.")}
           </p>
         )}
+        {children}
       </CardContent>
     </Card>
   );

@@ -244,7 +244,9 @@ function NodeDetailPage() {
             </dl>
           </div>
 
-          <NodeSshCard key={n.id} node={n} />
+          <NodeSshCard key={n.id} node={n}>
+            <SshTrustSection node={n} embedded />
+          </NodeSshCard>
 
           {/* Whether this machine takes new work at all (spec 2026-09-14).
               Every kind, and on the Overview: the rules of a machine live
@@ -279,7 +281,6 @@ function NodeDetailPage() {
               section adds the plane-only halves: the "display only" honesty
               line (§4.6: this rendering proves nothing, the two dashboards
               do) and the owner-only re-pair act on each peer (§4.5). */}
-          <SshTrustSection node={n} />
           {n.kind === "local" && <ServerIdentityRecovery />}
 
           {/* The node's RULES live on its page, not in a tab of one card:
