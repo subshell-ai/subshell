@@ -780,6 +780,7 @@ describe("SSH readiness and grantless relay authorization", () => {
         machines: { node: { id: string }; canConnect: boolean; canConfigure: boolean; blockers: unknown[] }[];
       };
       expect(machines.find((machine) => machine.node.id === NODE_ON)).toMatchObject({
+        ownerLabel: ownerEmail,
         canConnect: true,
         canConfigure: false,
         blockers: [],

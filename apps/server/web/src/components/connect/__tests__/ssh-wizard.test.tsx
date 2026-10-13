@@ -467,3 +467,14 @@ it("switches from another node's keys to an interactive password without sending
     authentication: "password",
   });
 });
+
+for (const ownerLabel of ["Alex Smith", "alex@example.com"]) {
+  it(`names the shared node owner as ${ownerLabel}`, async () => {
+    await setup({
+      initial: { node: "shared", destination: "target" },
+      machines: [{ ...machine("shared", false, false), ownerLabel }],
+    });
+    expect(screen.getByText(`Ask this node’s owner (${ownerLabel}) to enable it.`, { exact: false })).toBeTruthy();
+    expect(disabled()).toBe(true);
+  });
+}

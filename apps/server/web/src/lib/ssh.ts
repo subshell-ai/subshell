@@ -197,6 +197,8 @@ export function sshSelectionError(fingerprints: readonly string[]): string | nul
 }
 
 export interface SshMachineReadiness {
+  /** Owner name, falling back to email, for visible shared-node guidance. */
+  ownerLabel?: string;
   node: import("@internal/node-admin").Node;
   canConnect: boolean;
   canConfigure: boolean;
