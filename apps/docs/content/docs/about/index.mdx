@@ -7,11 +7,6 @@ Subshell gives you a shared web interface for running CLI coding agents and term
 
 A subshell is a terminal session running an agent or a shell. You launch a subshell, choose where it runs, and interact with its terminal from a browser or Subshell Client. Subshell keeps the session available when you close the browser tab, so you can return to the same running process from another device.
 
-<figure className="docs-screenshot">
-  <ImageZoom src="/screenshots/active-codex-dashboard.png" alt="Full Subshell dashboard with an active Codex session reviewing a TypeScript function, session navigation, workspaces, nodes, and presets in the sidebar." width="1280" height="800" loading="lazy" decoding="async" unoptimized />
-  <figcaption>An active Codex session inside Subshell, with the dashboard sidebar for switching sessions and managing workspaces, nodes, and presets. Select the image to enlarge it.</figcaption>
-</figure>
-
 ## Why use Subshell?
 
 Subshell is self-hosted and open source. You run the server on your own infrastructure and control its accounts, configuration, and access to enrolled machines. The [source code](https://github.com/subshell-ai/subshell) is public, so you can inspect how it works, contribute improvements, or modify it under its licenses. Server code is AGPL-3.0-only; the rest of the project is Apache-2.0. See [Contribute to Subshell](/developers/contribute) for licensing and contribution details.
@@ -34,8 +29,8 @@ Use Subshell to keep coding agents running beyond a single terminal window, work
 The dashboard groups your sessions by machine and shows their activity and recent output. Open a session to use its live terminal. You can run a plain shell with **Terminal**, or install a supported coding agent CLI on the execution machine.
 
 <figure className="docs-screenshot">
-  <ImageZoom src="/screenshots/session-dashboard.png" alt="Subshell dashboard listing Claude Code review and Codex review, with working directories, last-output times, uptime, and a New subshell button." width="1420" height="655" loading="lazy" decoding="async" unoptimized />
-  <figcaption>The dashboard brings sessions on a machine into one view. This example shows Codex and Claude Code sessions reviewing a sample project. Select the image to enlarge it.</figcaption>
+  <ImageZoom src="/screenshots/session-dashboard.png" alt="Subshell dashboard listing Project shell and Test results in List view, with a New subshell button." width="932" height="391" loading="lazy" decoding="async" unoptimized />
+  <figcaption>The dashboard brings your sessions into one view. This example shows two terminal sessions for a sample project. Select the image to enlarge it.</figcaption>
 </figure>
 
 Subshell includes harnesses for [Claude Code](/agents/claude-code), [Codex](/agents/codex), [OpenCode](/agents/opencode), [Hermes Agent](/agents/hermes), and [pi](/agents/pi). You install and authenticate the agent CLI under the OS account where it runs. Subshell manages the session and provides access to it; the agent uses its own provider account and credentials.
@@ -47,8 +42,8 @@ Closing a browser tab disconnects your view. The session can keep running while 
 A workspace brings related sessions into a saved layout. For example, you can keep a coding agent and a shell for checking its changes together. On smaller screens, workspace panes appear as tabs.
 
 <figure className="docs-screenshot">
-  <ImageZoom src="/screenshots/workspace-layout.png" alt="Code review workspace with Codex and Claude Code running side by side." width="1423" height="898" loading="lazy" decoding="async" unoptimized />
-  <figcaption>Codex and Claude Code review the same sample project in separate workspace panes. Select the image to enlarge it.</figcaption>
+  <ImageZoom src="/screenshots/workspace-layout.png" alt="Project workspace with a shell and test results side by side." width="1056" height="310" loading="lazy" decoding="async" unoptimized />
+  <figcaption>A project shell and its test results run in separate workspace panes. Select the image to enlarge it.</figcaption>
 </figure>
 
 [Presets](/presets) save settings you want to reuse. [Reusable Prompts](/prompts) keep reusable task text. [Workspaces](/guides/workspaces) organize the sessions themselves.

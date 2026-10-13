@@ -167,3 +167,14 @@ real form state and a real first-connection refusal. It cancels confirmation
 and checks that no destination trust was saved, then cleans up its processes
 and temporary state. Review the images and update their intrinsic dimensions
 in `guides/ssh.mdx` if the layout changes. Never point it at the live server.
+
+For the other documentation screenshots, run `bun e2e/capture-docs.ts` after
+building the SPA. It uses the same isolated stack with sample presets, prompts,
+a workspace, and real terminal sessions running a small temporary project.
+No coding-agent responses are simulated. The script also refreshes the five
+marketing-site WebP copies using `ffmpeg`, which must be installed.
+
+Review every capture, update intrinsic dimensions in the referring MDX and
+`apps/website/components/feature-showcase.tsx`, and check the captions against
+the actual controls. The example address and QR code are public sample values;
+no setup key is generated. Remove obsolete assets and their references together.
