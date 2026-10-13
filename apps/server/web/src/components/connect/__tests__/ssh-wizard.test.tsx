@@ -229,7 +229,7 @@ it("shows owner guidance and blocks unauthorized configuration", async () => {
   });
   await task();
   expect(screen.queryByRole("button", { name: "Enable SSH" })).toBeNull();
-  expect(screen.getByText(/This machine’s owner can enable SSH/)).toBeTruthy();
+  expect(screen.getByText(/Ask this node’s owner to enable it/)).toBeTruthy();
   expect(disabled()).toBe(true);
   expect(calls.some((c) => c.method === "PUT")).toBe(false);
 });

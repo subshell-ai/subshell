@@ -38,13 +38,7 @@ export function sshPolicy(
         : "You need permission to start subshells on this machine before using it for SSH.",
     );
   }
-  if (gate.row.sshEnabled !== 1)
-    block(
-      BackendErrorCodes.SSH_GATE_OFF,
-      gate.row.kind === "local"
-        ? "SSH is disabled in Subshell. An admin can enable it in this machine’s settings."
-        : "SSH is disabled in Subshell. This machine’s owner can enable it in its settings.",
-    );
+  if (gate.row.sshEnabled !== 1) block(BackendErrorCodes.SSH_GATE_OFF, "Outgoing SSH is disabled on this node.");
   if (gate.row.maintenance === 1)
     block(
       BackendErrorCodes.NODE_IN_MAINTENANCE,

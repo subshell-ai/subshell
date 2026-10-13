@@ -87,7 +87,7 @@ export function SshMachineSetup({
       {showName && <p className="font-strong text-body">{machine.node.name}</p>}
       {machine.canConnect ? (
         <p role="status" className="text-detail">
-          SSH is enabled in Subshell. You can try connecting to your destination.
+          Outgoing SSH is enabled on this node. You can try connecting to your destination.
         </p>
       ) : (
         <>
@@ -108,8 +108,7 @@ export function SshMachineSetup({
               </Button>
             ) : (
               <p className="text-detail text-muted-foreground">
-                {machine.node.kind === "local" ? "An admin" : "This machine’s owner"} can enable SSH. Launch access does
-                not allow changing its configuration.
+                {machine.node.kind === "local" ? "Ask an admin to enable it." : "Ask this node’s owner to enable it."}
               </p>
             ))}
           {!onlyNeedsEnable && (
