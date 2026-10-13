@@ -47,9 +47,8 @@ export function HostPinsScreen() {
         <div className="flex min-w-0 flex-col gap-2">
           <CardTitle>Saved host keys</CardTitle>
           <CardDescription>
-            You only need this section when you choose “Use another node’s keys.” Subshell normally copies the
-            destination’s host key from that node automatically. It uses this key to check that you’re connecting to the
-            same machine next time.
+            A host key is an SSH key that identifies the destination machine. Your login key identifies you. This
+            section stores the destination’s public host keys, not your login keys or passwords.
           </CardDescription>
         </div>
         <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}>
@@ -57,6 +56,10 @@ export function HostPinsScreen() {
         </Button>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
+        <p className="text-detail text-muted-foreground">
+          You only need this section when you choose “Use another node’s keys.” Subshell normally copies the
+          destination’s host key from that node automatically and checks it on later connections.
+        </p>
         <p className="text-detail text-muted-foreground">
           If starting a subshell fails because that node has no host key for the destination, connect to the destination
           from that node once and verify its identity. Or ask the destination’s administrator for a verified host key
