@@ -196,7 +196,7 @@ function disabled(name = "Start SSH subshell") {
 }
 it("uses radio task choices and a single connection form", async () => {
   const { calls } = await setup({ initial: { node: "desk", destination: "target" } });
-  expect(screen.getAllByRole("radio")).toHaveLength(3);
+  expect(screen.getAllByRole("radio")).toHaveLength(2);
   await task();
   expect(screen.getByLabelText("SSH destination")).toBeTruthy();
   expect(screen.getByRole("combobox", { name: "Connect from" })).toBeTruthy();
@@ -257,13 +257,14 @@ it("reveals the remote node picker and explicit keys inline", async () => {
     fingerprints: ["SHA256:AAAA"],
   });
 });
-it("applies remote keys to the connection form without launching", async () => {
+it("selects remote keys in the connection form without launching", async () => {
   const { calls } = await setup({ initial: { node: "desk", destination: "target" } });
-  await task("Use keys from another machine");
+  await task();
+  fireEvent.click(screen.getByRole("radio", { name: "Use another node’s keys" }));
+  await settle();
   await choose("Use keys from", "keys");
   fireEvent.click(screen.getByRole("checkbox", { name: "Work key" }));
   await settle();
-  await click("Use these keys");
   expect((screen.getByLabelText("SSH destination") as HTMLInputElement).value).toBe("target");
   expect(calls.some((c) => c.path === "/api/ssh/launch")).toBe(false);
 });
@@ -338,7 +339,9 @@ it("node settings setup has one form and Done closes without launching", async (
 
 it("keeps the chosen remote node selected when returning through the task chooser", async () => {
   await setup({ initial: { node: "desk", destination: "target" } });
-  await task("Use keys from another machine");
+  await task();
+  fireEvent.click(screen.getByRole("radio", { name: "Use another node’s keys" }));
+  await settle();
   await choose("Use keys from", "keys");
   await click("Back");
   await task();

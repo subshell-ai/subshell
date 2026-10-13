@@ -18,7 +18,7 @@ import { makeForm, useSubmitDisabled } from "@/lib/form";
 import type { SshMachineReadiness } from "@/lib/ssh";
 
 export interface SshWizardProps {
-  /** Optional entry intent. Null opens the three intent actions. */
+  /** Optional entry intent. Null opens the task choices. */
   intent?: SshWizardIntent;
   /** Shared with the connection form and retained by the outer dialog. */
   draft: SshSessionDraft;
@@ -42,10 +42,18 @@ export interface SshWizardProps {
   launchBlocked?: boolean;
 }
 
-const choices: { value: SshWizardIntent; label: string }[] = [
-  { value: "connect", label: "Connect to a destination" },
-  { value: "prepare", label: "Enable SSH on a node" },
-  { value: "remote-keys", label: "Use keys from another machine" },
+const choices: { value: SshWizardIntent; label: string; description: string }[] = [
+  {
+    value: "connect",
+    label: "Connect to a destination",
+    description: "Start an SSH subshell. Choose your destination, the node to connect from, and which keys to use.",
+  },
+  {
+    value: "prepare",
+    label: "Enable SSH on a node",
+    description:
+      "Allow a node to make outgoing SSH connections through Subshell. This doesn't enable incoming SSH access.",
+  },
 ];
 
 /** Each task stays on one form; changing tasks preserves the shared connection draft. */
@@ -67,7 +75,7 @@ export function SshWizard({
   const [useRemote, setUseRemote] = useState(!!draft.keyHome);
   const machine = machines.find((item) => item.node.id === draft.nodeId);
   const keyMachine = machines.find((item) => item.node.id === draft.keyHome);
-  const remote = intent === "remote-keys" || (intent === "connect" && useRemote);
+  const remote = intent === "connect" && useRemote;
   const keyProblem = remote ? sshKeySourceProblem(draft) : null;
   const fingerprints = draft.selections[draft.keyHome] ?? [];
   const roster = useSshNodeRoster(remote && !keyProblem && keyMachine?.canConnect ? draft.keyHome : null);
@@ -109,11 +117,6 @@ export function SshWizard({
         onDone();
         return;
       }
-      if (intent === "remote-keys") {
-        setUseRemote(true);
-        setIntent("connect");
-        return;
-      }
       await onStart();
     },
   });
@@ -129,9 +132,18 @@ export function SshWizard({
       {!intent ? (
         <RadioGroup aria-label="SSH action" value={choice} onValueChange={setChoice}>
           {choices.map((item) => (
-            <Field key={item.value} className="flex-row items-center gap-3">
-              <RadioGroupItem id={`ssh-action-${item.value}`} value={item.value} />
-              <FieldLabel htmlFor={`ssh-action-${item.value}`}>{item.label}</FieldLabel>
+            <Field key={item.value} className="flex-row items-start gap-3">
+              <RadioGroupItem
+                id={`ssh-action-${item.value}`}
+                value={item.value}
+                aria-describedby={`ssh-action-${item.value}-description`}
+              />
+              <div className="flex min-w-0 flex-col gap-1">
+                <FieldLabel htmlFor={`ssh-action-${item.value}`}>{item.label}</FieldLabel>
+                <p id={`ssh-action-${item.value}-description`} className="text-detail text-muted-foreground">
+                  {item.description}
+                </p>
+              </div>
             </Field>
           ))}
         </RadioGroup>
@@ -247,9 +259,7 @@ export function SshWizard({
               ? "Continue"
               : intent === "connect"
                 ? "Start SSH subshell"
-                : intent === "prepare"
-                  ? "Done"
-                  : "Use these keys"}
+                : "Done"}
         </Button>
       </div>
     </section>

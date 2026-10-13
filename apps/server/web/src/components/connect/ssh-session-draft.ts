@@ -1,7 +1,7 @@
 import type { DestinationCandidate } from "@/components/connect/destination-options";
 import { type SshAgentIdentity, sshSelectionError } from "@/lib/ssh";
 
-export type SshWizardIntent = "connect" | "prepare" | "remote-keys";
+export type SshWizardIntent = "connect" | "prepare";
 export type SshInitialChoices = { node?: string; destination?: string; keyHome?: string; fingerprints?: string[] };
 
 /** A dialog owns this draft across form, wizard, and parent mode changes. */

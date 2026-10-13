@@ -104,15 +104,15 @@ test("enables an existing node on its dedicated form and finishes without launch
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
-test("settings key form applies keys without launching and preserves them on the connection form", async ({ page }) => {
+test("settings connection form selects keys without launching", async ({ page }) => {
   const { launches } = await wire(page);
   await page.goto("/settings/ssh");
   await page.getByRole("button", { name: "Set up SSH", exact: true }).click();
-  await openTask(page, "Use keys from another machine");
+  await openTask(page, "Connect to a destination");
+  await page.getByRole("radio", { name: "Use another node’s keys", exact: true }).check();
   await page.getByRole("combobox", { name: "Use keys from", exact: true }).click();
   await page.getByRole("option", { name: "Named server", exact: true }).click();
   await page.getByRole("checkbox", { name: "Work key", exact: true }).check();
-  await page.getByRole("button", { name: "Use these keys", exact: true }).click();
   expect(launches).toHaveLength(0);
   await expect(page.getByLabel("SSH destination", { exact: true })).toBeVisible();
   await expect(page.getByRole("checkbox", { name: "Work key", exact: true })).toBeChecked();
