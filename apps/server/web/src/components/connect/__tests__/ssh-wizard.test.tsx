@@ -384,3 +384,15 @@ it("blocks automatic enablement when another blocker exists", async () => {
   expect(screen.queryByRole("button", { name: "Enable SSH" })).toBeNull();
   expect(calls.some((c) => c.method === "PUT")).toBe(false);
 });
+
+it("shows guidance instead of a key picker when no other nodes are available", async () => {
+  await setup({ initial: { node: "desk", destination: "target" }, machines: [machine("desk")] });
+  fireEvent.click(screen.getByRole("radio", { name: "Use another node’s keys" }));
+  await settle();
+  expect(screen.queryByRole("combobox", { name: "Use keys from" })).toBeNull();
+  expect(screen.getByText(/No other nodes are available to supply keys/)).toBeTruthy();
+  expect(disabled()).toBe(true);
+  fireEvent.click(screen.getByRole("radio", { name: "Use the connecting node’s keys" }));
+  await settle();
+  expect(disabled()).toBe(false);
+});

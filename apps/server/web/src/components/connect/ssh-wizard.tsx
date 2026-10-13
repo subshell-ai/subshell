@@ -52,6 +52,9 @@ export function SshWizard({
   const machine = machines.find((item) => item.node.id === draft.nodeId);
   const keyMachine = machines.find((item) => item.node.id === draft.keyHome);
   const remote = useRemote;
+  const keyMachines = machines.filter((item) => item.node.canLaunch);
+  const noOtherKeyNodes =
+    !readiness.isPending && !readiness.isError && !keyMachines.some((item) => item.node.id !== draft.nodeId);
   const keyProblem = remote ? sshKeySourceProblem(draft) : null;
   const fingerprints = draft.selections[draft.keyHome] ?? [];
   const roster = useSshNodeRoster(remote && !keyProblem && keyMachine?.canConnect ? draft.keyHome : null);
@@ -149,17 +152,23 @@ export function SshWizard({
         </RadioGroup>
         {remote && (
           <FieldGroup>
-            <SshMachineStep
-              machines={machines.filter((item) => item.node.canLaunch)}
-              value={draft.keyHome}
-              onChange={(keyHome) => {
-                setUseRemote(true);
-                patch({ keyHome });
-              }}
-              exclude={draft.nodeId}
-              id="ssh-keys-machine"
-              label="Use keys from"
-            />
+            {noOtherKeyNodes ? (
+              <p role="status" className="text-detail text-muted-foreground">
+                No other nodes are available to supply keys. Use the connecting node’s keys or add another node.
+              </p>
+            ) : (
+              <SshMachineStep
+                machines={keyMachines}
+                value={draft.keyHome}
+                onChange={(keyHome) => {
+                  setUseRemote(true);
+                  patch({ keyHome });
+                }}
+                exclude={draft.nodeId}
+                id="ssh-keys-machine"
+                label="Use keys from"
+              />
+            )}
             {keyProblem && (
               <p role="alert" className="text-destructive text-detail">
                 {keyProblem}
