@@ -114,19 +114,10 @@ async function settle() {
 async function launchSsh() {
   fireEvent.click(await screen.findByRole("button", { name: "New subshell" }));
   fireEvent.click(await screen.findByRole("button", { name: "SSH terminal" }));
-  fireEvent.click(await screen.findByRole("button", { name: "Connect to a destination" }));
+  fireEvent.click(await screen.findByRole("radio", { name: "Connect to a destination" }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   const field = await screen.findByLabelText("SSH destination");
   fireEvent.change(field, { target: { value: "deploy@example.com:2222" } });
-  await settle();
-  for (let step = 0; step < 2; step++) {
-    const next = await screen.findByRole("button", { name: "Continue" });
-    await waitFor(() => expect((next as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(next);
-    await settle();
-  }
-  fireEvent.click(await screen.findByRole("radio", { name: "Use the connecting node’s keys" }));
-  await settle();
-  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   await settle();
   const start = screen.getByRole("button", { name: "Start SSH subshell" });
   await waitFor(() => expect((start as HTMLButtonElement).disabled).toBe(false));

@@ -424,10 +424,11 @@ and uses the connecting machine's own keys. A relay launch carries explicit
 fingerprints, retained for “Set up Subshell here”; never silently substitute or
 widen the selection when keys disappear or a machine goes offline.
 
-The reusable SSH wizard lives inside the existing dialog and preserves the
-launch choices and workspace/split context. Its intents cover connecting,
-preparing a machine, and selecting another machine's keys. Finishing setup
-returns to the form and requires a fresh Start SSH subshell click. Settings
+The reusable SSH forms live inside the existing dialog and preserve the
+launch choices and workspace/split context. Radio choices open dedicated forms
+for connecting, enabling SSH, and selecting another node's keys. The connection
+form shows its node and key controls inline; applying keys never starts a
+subshell and still requires an explicit Start SSH subshell click. Settings
 and machine pages open the same wizard. Old `/connect` links open the same
 subshell dialog through `/new?kind=ssh`. Failed reads must stay distinct from
 empty lists, with retry actions. Read `docs/launch-form-picker.md` for the

@@ -295,12 +295,8 @@ export function ConnectPanel({
           machines={machines ?? []}
           readiness={nodesQuery}
           onStart={submit}
-          onApplySetup={() => {
-            setAdvanced(!!draft.keyHome);
-            setWizard(false);
-          }}
-          onCancel={() => setWizard(false)}
-          onDone={onDone ?? (() => setWizard(false))}
+          onCancel={onLeave ?? onDone ?? (() => setWizard(false))}
+          onDone={onDone ?? onLeave ?? (() => setWizard(false))}
           onLeave={onLeave}
           busy={submitting}
           launchBlocked={createdId !== null}

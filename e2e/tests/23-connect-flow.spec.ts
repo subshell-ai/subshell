@@ -281,9 +281,8 @@ async function openConnectPage(page: Page, showForm = true): Promise<void> {
   await expect(page.getByRole("dialog", { name: "New subshell", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "SSH terminal", exact: true })).toHaveAttribute("aria-pressed", "true");
   if (showForm) {
-    await page.getByRole("button", { name: "Enable SSH on a node", exact: true }).click();
+    await page.getByRole("radio", { name: "Connect to a destination", exact: true }).check();
     await page.getByRole("button", { name: "Continue", exact: true }).click();
-    await page.getByRole("button", { name: "Connect now", exact: true }).click();
   }
 }
 
@@ -300,19 +299,17 @@ function requirePaneId(): string {
 test("gate off: the wizard shows the host’s blocker and requires explicit setup before launch", async ({ page }) => {
   await login(page, ADMIN.email, ADMIN.password);
   await openConnectPage(page, false);
-  await expect(page.locator("#connect-destination")).toHaveCount(0);
+  await expect(page.locator("#ssh-wizard-destination")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "Connect to a destination", exact: true }).click();
-  await page.getByLabel("SSH destination", { exact: true }).fill(SSH_FIXTURE_ALIAS);
+  await page.getByRole("radio", { name: "Connect to a destination", exact: true }).check();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByLabel("SSH destination", { exact: true }).fill(SSH_FIXTURE_ALIAS);
   await page.getByRole("combobox", { name: "Connect from", exact: true }).click();
   const serverRow = page.getByRole("option", { name: /Server/ });
   await expect(serverRow).toContainText(MACHINE_OFF_REASON);
   await serverRow.click();
-  await expect(page.getByRole("heading", { name: "Choose a node to connect from", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Enable SSH", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toBeDisabled();
 });
 
 test("the disclosure names the Match exec risk above Start SSH subshell before launch", async ({ page }) => {
@@ -349,17 +346,17 @@ test("gate on: destination-first launch reaches a live ssh pane whose remote she
 
   // Exactly one SSH-enabled machine and no preference: pre-selected honestly
   // and still on screen (decision 2), labelled with the node's own name.
-  await expect(page.locator("#connect-machine")).toHaveValue(/Server/);
+  await expect(page.locator("#ssh-wizard-machine")).toHaveValue(/Server/);
 
   // The destination picker's config group (the handoff): the BROWSER session
   // fetches the machine's aliases; the fixture's alias rides under it.
-  await page.locator("#connect-destination").click();
-  const panel = page.locator("#connect-destination-panel");
+  await page.locator("#ssh-wizard-destination").click();
+  const panel = page.locator("#ssh-wizard-destination-panel");
   await expect(panel.getByText(CONFIG_GROUP, { exact: true })).toBeVisible({ timeout: READY_TIMEOUT });
   await panel.getByRole("button", { name: SSH_FIXTURE_ALIAS, exact: true }).click();
   // The committed pick: the field's text is the row's label, and the wire
   // value behind it is the alias token (buildDestinationOptions).
-  await expect(page.locator("#connect-destination")).toHaveValue(SSH_FIXTURE_ALIAS);
+  await expect(page.locator("#ssh-wizard-destination")).toHaveValue(SSH_FIXTURE_ALIAS);
 
   // Connect: one POST, and the router lands on the pane's page. Arm the
   // attach socket BEFORE the click (spec 15's rule): typing needs the live

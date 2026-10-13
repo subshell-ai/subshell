@@ -179,12 +179,12 @@ values, and dynamic tokens fall back to “Destination determined when connectin
 Opening the picker never runs SSH configuration commands. Older nodes may omit
 previews, so the field remains optional on the wire.
 
-**The SSH tab opens with the setup choices.** Personal SSH settings and each
-node's overview also offer Set up SSH. The flow stays inside the caller's
-existing dialog: Connect to a destination, Enable SSH on a node, and Use
-keys from another machine share one draft and adapt their steps to current
-readiness. Setup completion never launches a pane. Prepare ends with Done or
-Connect now; remote keys ends with Use this setup, returning to the same form.
+**The SSH tab opens with radio choices for three tasks.** Each task has one
+form: Connect to a destination, Enable SSH on a node, and Use keys from another
+machine. The connection form shows destination, connecting node, and key source
+together. Selecting another node's keys reveals its picker and key roster inline.
+Node setup ends with Done; Use these keys returns to the connection form without
+launching. Personal SSH settings and node overviews open the same forms.
 The original parent callback still owns workspace selection or split attachment,
 and busy state lasts until asynchronous attachment finishes. Changing a parent
 mode keeps the destination, canonical suggestion, machine, scoped fingerprints,
@@ -194,7 +194,7 @@ Enabling SSH is an explicit owner/admin configuration act, independent of launch
 access. Offline, maintenance, version, missing-access, and read-failure blockers
 remain visible and retryable; selections never silently change when readiness
 changes. Node selection includes the authorized Enable SSH action and keeps
-Continue disabled until the selected node is ready. Adding nodes belongs on the
+the form’s primary action disabled until the selected node is ready. Adding nodes belongs on the
 Nodes page, outside SSH setup.
 Polling lives only on mounted open SSH surfaces.
 

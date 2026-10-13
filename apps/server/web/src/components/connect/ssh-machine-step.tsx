@@ -12,19 +12,21 @@ export function SshMachineStep({
   onChange,
   label,
   exclude,
+  id = "ssh-wizard-machine",
 }: {
   machines: SshMachineReadiness[];
   value: string;
   onChange: (id: string) => void;
   label: string;
   exclude?: string;
+  id?: string;
 }) {
   return (
     <FieldGroup>
       <Field>
-        <FieldLabel htmlFor="ssh-wizard-machine">{label}</FieldLabel>
+        <FieldLabel htmlFor={id}>{label}</FieldLabel>
         <SearchableSelect
-          id="ssh-wizard-machine"
+          id={id}
           value={value}
           placeholder="Choose a machine"
           options={machines

@@ -68,65 +68,54 @@ async function wire(page: Page, ready = true) {
   return { launches, enables };
 }
 
-test("remote key wizard retains the connection draft and sends only explicitly selected keys", async ({ page }) => {
+async function openTask(page: Page, name: string) {
+  await page.getByRole("radio", { name, exact: true }).check();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+}
+
+test("connection form reveals remote keys inline and launches only the selected keys", async ({ page }) => {
   const { launches } = await wire(page);
   await page.goto("/connect");
-  await expect(page.getByRole("button", { name: "SSH terminal", exact: true })).toBeFocused();
-  await expect(page.getByRole("heading", { name: "What would you like to do?" })).toHaveCount(0);
-  await page.screenshot({ path: "/home/theo/t3-ssh-check/wizard-intents.png", fullPage: true });
-  await page.getByRole("button", { name: "Use keys from another machine", exact: true }).click();
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await page.getByRole("combobox", { name: "Use keys from" }).click();
+  await openTask(page, "Connect to a destination");
+  await page.getByLabel("SSH destination", { exact: true }).fill(destination);
+  await page.getByRole("radio", { name: "Use another node’s keys", exact: true }).check();
+  await page.getByRole("combobox", { name: "Use keys from", exact: true }).click();
   await page.getByRole("option", { name: "Named server", exact: true }).click();
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(page.getByRole("checkbox", { name: "Work key" })).not.toBeChecked();
-  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
-  await page.getByRole("checkbox", { name: "Work key" }).check();
-  await page.screenshot({ path: "/home/theo/t3-ssh-check/wizard-key-selection.png", fullPage: true });
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  expect(launches).toHaveLength(0);
-  await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "Use this setup", exact: true }).click();
-  await page.getByPlaceholder("user@hostname:22 or an SSH alias").fill(destination);
-  await page.getByRole("checkbox", { name: "Remember this destination" }).check();
+  await expect(page.getByRole("checkbox", { name: "Work key", exact: true })).not.toBeChecked();
+  await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toBeDisabled();
+  await page.getByRole("checkbox", { name: "Work key", exact: true }).check();
+  await expect(page.getByRole("button", { name: "Continue", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Start SSH subshell", exact: true }).click();
   expect(launches).toEqual([{ node: "desk", keyHome: "local", fingerprints: [fingerprint], destination }]);
   await expect(page.getByText("Test connection stopped before launch.")).toBeVisible();
-  await expect(page.getByRole("dialog")).toHaveCount(1);
 });
 
-test("empty SSH setup enables an existing machine inline and completes without launching", async ({ page }) => {
+test("enables an existing node on its dedicated form and finishes without launching", async ({ page }) => {
   const { launches, enables } = await wire(page, false);
   await page.goto("/connect");
-  await expect(page.getByRole("button", { name: "Connect to a destination", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Open .* settings/ })).toHaveCount(0);
-  await page.getByRole("button", { name: "Enable SSH on a node", exact: true }).click();
+  await openTask(page, "Enable SSH on a node");
   await page.getByRole("combobox", { name: "Node to set up" }).click();
   await page.getByRole("option", { name: /Connecting desktop/ }).click();
-  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Done", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Enable SSH", exact: true }).click();
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Your SSH setup", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
   expect(enables).toEqual(["desk"]);
   expect(launches).toHaveLength(0);
-  await page.getByRole("button", { name: "Connect now", exact: true }).click();
-  await expect(page.getByPlaceholder("user@hostname:22 or an SSH alias")).toBeVisible();
-  await expect(page.getByRole("dialog")).toHaveCount(1);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
-test("settings wizard returns to settings on Done and connects in the same dialog on request", async ({ page }) => {
-  await wire(page);
+test("settings key form applies keys without launching and preserves them on the connection form", async ({ page }) => {
+  const { launches } = await wire(page);
   await page.goto("/settings/ssh");
   await page.getByRole("button", { name: "Set up SSH", exact: true }).click();
-  await page.getByRole("button", { name: "Enable SSH on a node", exact: true }).click();
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await openTask(page, "Use keys from another machine");
+  await page.getByRole("combobox", { name: "Use keys from", exact: true }).click();
+  await page.getByRole("option", { name: "Named server", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Work key", exact: true }).check();
+  await page.getByRole("button", { name: "Use these keys", exact: true }).click();
+  expect(launches).toHaveLength(0);
+  await expect(page.getByLabel("SSH destination", { exact: true })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Work key", exact: true })).toBeChecked();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "SSH", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Set up SSH", exact: true }).click();
-  await page.getByRole("button", { name: "Enable SSH on a node", exact: true }).click();
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await page.getByRole("button", { name: "Connect now", exact: true }).click();
-  await expect(page.getByPlaceholder("user@hostname:22 or an SSH alias")).toBeVisible();
-  await expect(page.getByRole("dialog")).toHaveCount(1);
 });

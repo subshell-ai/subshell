@@ -348,7 +348,9 @@ describe("machine disclosure (contract 1)", () => {
     try {
       fireEvent.click(screen.getByRole("button", { name: "Set up SSH" }));
       await settle();
-      fireEvent.click(screen.getByRole("button", { name: "Enable SSH on a node" }));
+      fireEvent.click(screen.getByRole("radio", { name: "Enable SSH on a node" }));
+      await settle();
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
       await settle();
       expect(screen.queryByRole("button", { name: "Add a machine" })).toBeNull();
     } finally {

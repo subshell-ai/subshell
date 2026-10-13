@@ -1,20 +1,20 @@
 import { Button } from "@internal/node-admin";
-import { KeyRound, Network, Server } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
 import { SshDestinationStep } from "@/components/connect/ssh-destination-step";
 import { SshKeyStep } from "@/components/connect/ssh-key-step";
 import { SshMachineSetup, SshMachineStep } from "@/components/connect/ssh-machine-step";
 import {
-  SSH_STEP_LABELS,
   type SshSessionDraft,
   type SshWizardIntent,
   sshDestination,
   sshKeySelectionProblem,
+  sshKeySourceProblem,
 } from "@/components/connect/ssh-session-draft";
 import { SshQueryStatus } from "@/components/ssh/query-status";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { useSshWizardController } from "@/hooks/use-ssh-wizard-controller";
+import { useSshNodeRoster } from "@/hooks/use-ssh";
+import { makeForm, useSubmitDisabled } from "@/lib/form";
 import type { SshMachineReadiness } from "@/lib/ssh";
 
 export interface SshWizardProps {
@@ -30,8 +30,6 @@ export interface SshWizardProps {
   readiness: { isPending: boolean; isError: boolean; refetch: () => unknown };
   /** Actual launch only; setup completion never invokes it. */
   onStart: () => Promise<void>;
-  /** Return to the same host's connection form. */
-  onApplySetup: () => void;
   /** Setup-only completion. */
   onDone: () => void;
   /** Return to the prior form without undoing completed machine changes. */
@@ -44,7 +42,13 @@ export interface SshWizardProps {
   launchBlocked?: boolean;
 }
 
-/** Content-only wizard: stable step ids, explicit setup acts, no nested dialog or navigation on creation. */
+const choices: { value: SshWizardIntent; label: string }[] = [
+  { value: "connect", label: "Connect to a destination" },
+  { value: "prepare", label: "Enable SSH on a node" },
+  { value: "remote-keys", label: "Use keys from another machine" },
+];
+
+/** Each task stays on one form; changing tasks preserves the shared connection draft. */
 export function SshWizard({
   intent: initialIntent,
   draft,
@@ -52,222 +56,201 @@ export function SshWizard({
   machines,
   readiness,
   onStart,
-  onApplySetup,
   onDone,
   onCancel,
   onLeave,
   busy,
   launchBlocked,
 }: SshWizardProps) {
-  const {
-    intent,
-    current,
-    setCurrent,
-    machine,
-    keyMachine,
-    keySourceProblem,
-    remote,
-    keyChoice,
-    setKeyChoice,
-    fingerprints,
-    roster,
-    steps,
-    index,
-    form,
-    disabled,
-    selectIntent,
-    patch,
-    chooseKeys,
-  } = useSshWizardController({
-    intent: initialIntent,
-    draft,
-    onDraftChange,
-    machines,
-    readiness,
-    onStart,
-    onApplySetup,
-    onDone,
-    onCancel,
-    onLeave,
-    busy,
-    launchBlocked,
+  const [intent, setIntent] = useState<SshWizardIntent | null>(initialIntent ?? null);
+  const [choice, setChoice] = useState<string>(initialIntent ?? "connect");
+  const [useRemote, setUseRemote] = useState(!!draft.keyHome);
+  const machine = machines.find((item) => item.node.id === draft.nodeId);
+  const keyMachine = machines.find((item) => item.node.id === draft.keyHome);
+  const remote = intent === "remote-keys" || (intent === "connect" && useRemote);
+  const keyProblem = remote ? sshKeySourceProblem(draft) : null;
+  const fingerprints = draft.selections[draft.keyHome] ?? [];
+  const roster = useSshNodeRoster(remote && !keyProblem && keyMachine?.canConnect ? draft.keyHome : null);
+  const patch = (value: Partial<SshSessionDraft>) => onDraftChange({ ...draft, ...value });
+  const problems = (): Record<string, string> => {
+    if (!intent) return {};
+    if (!draft.nodeId) return { node: "Choose a node." };
+    if (intent === "connect" && !sshDestination(draft)) return { destination: "Enter an SSH destination." };
+    if (remote) {
+      const error = !draft.keyHome
+        ? "Choose a node to supply keys."
+        : keyProblem || sshKeySelectionProblem(fingerprints);
+      if (error) return { keys: error };
+    }
+    return {};
+  };
+  const blocked =
+    busy ||
+    (intent !== null &&
+      (readiness.isPending ||
+        readiness.isError ||
+        !machine?.canConnect ||
+        (intent === "connect" && !!launchBlocked) ||
+        (remote &&
+          (!keyMachine?.canConnect ||
+            roster.isPending ||
+            roster.isError ||
+            sshKeySelectionProblem(fingerprints, roster.data?.identities) !== null))));
+  const form = makeForm({
+    defaultValues: { draft, intent, remote },
+    validator: problems,
+    onSubmit: async () => {
+      if (blocked || Object.keys(problems()).length) return;
+      if (!intent) {
+        setIntent(choice as SshWizardIntent);
+        return;
+      }
+      if (intent === "prepare") {
+        onDone();
+        return;
+      }
+      if (intent === "remote-keys") {
+        setUseRemote(true);
+        setIntent("connect");
+        return;
+      }
+      await onStart();
+    },
   });
-  const heading = useRef<HTMLHeadingElement>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: every step transition must move keyboard focus
   useEffect(() => {
-    heading.current?.focus();
-  }, [current]);
-
+    form.setFieldValue("draft", draft);
+    form.setFieldValue("intent", intent);
+    form.setFieldValue("remote", remote);
+    void form.validate("change");
+  }, [draft, intent, remote, form]);
+  const disabled = useSubmitDisabled(form, blocked);
   return (
-    <section className="flex flex-col gap-4" aria-label="Set up SSH">
-      {current !== "intent" && (
-        <div className="flex flex-col gap-1">
-          <h2 ref={heading} tabIndex={-1} className="font-strong text-section">
-            {SSH_STEP_LABELS[current]}
-          </h2>
-          <p className="text-detail text-muted-foreground">
-            {intent
-              ? `Step ${index + 1} of ${steps.length}${steps[index + 1] ? ` · Next: ${SSH_STEP_LABELS[steps[index + 1]]}` : ""}`
-              : "Choose what you want to set up."}
-          </p>
-        </div>
-      )}
-      <SshQueryStatus query={readiness} label="connecting machines" />
-      {keySourceProblem && intent !== "prepare" && current !== "intent" && (
-        <div className="flex flex-col items-start gap-2">
-          <p role="alert" className="text-destructive text-detail">
-            {keySourceProblem}
-          </p>
-          {["keys", "review", "readiness"].includes(current) && (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy}
-              onClick={() => setCurrent(intent === "connect" ? "key-choice" : "key-source")}
-            >
-              Change key source
-            </Button>
-          )}
-        </div>
-      )}
-      {current === "intent" && (
-        <div className="flex flex-col gap-2">
-          <Button type="button" variant="outline" onClick={() => selectIntent("connect")}>
-            <Network data-icon="inline-start" />
-            Connect to a destination
-          </Button>
-          <Button type="button" variant="outline" onClick={() => selectIntent("prepare")}>
-            <Server data-icon="inline-start" />
-            Enable SSH on a node
-          </Button>
-          <Button type="button" variant="outline" onClick={() => selectIntent("remote-keys")}>
-            <KeyRound data-icon="inline-start" />
-            Use keys from another machine
-          </Button>
-        </div>
-      )}
-      {current === "destination" && (
-        <SshDestinationStep
-          draft={draft}
-          onChange={onDraftChange}
-          nodeName={machine?.node.name}
-          ready={machine?.canConnect ?? false}
-        />
-      )}
-      {current === "machine" && (
+    <section className="flex flex-col gap-4" aria-label="SSH setup">
+      {!intent ? (
+        <RadioGroup aria-label="SSH action" value={choice} onValueChange={setChoice}>
+          {choices.map((item) => (
+            <Field key={item.value} className="flex-row items-center gap-3">
+              <RadioGroupItem id={`ssh-action-${item.value}`} value={item.value} />
+              <FieldLabel htmlFor={`ssh-action-${item.value}`}>{item.label}</FieldLabel>
+            </Field>
+          ))}
+        </RadioGroup>
+      ) : (
         <FieldGroup>
+          <SshQueryStatus query={readiness} label="connecting machines" />
+          {intent === "connect" && (
+            <SshDestinationStep
+              draft={draft}
+              onChange={onDraftChange}
+              nodeName={machine?.node.name}
+              ready={machine?.canConnect ?? false}
+            />
+          )}
           <SshMachineStep
             machines={machines}
             value={draft.nodeId}
-            onChange={(nodeId) => {
-              patch({ nodeId });
-            }}
+            onChange={(nodeId) => patch({ nodeId })}
             label={intent === "prepare" ? "Node to set up" : "Connect from"}
           />
-          <p className="text-detail text-muted-foreground">Choose the node that will make the SSH connection.</p>
-          {machine && !machine.canConnect && (
-            <SshMachineSetup machine={machine} retry={readiness.refetch} onLeave={onLeave} />
+          {intent !== "prepare" && (
+            <p className="text-detail text-muted-foreground">Choose the node that will make the SSH connection.</p>
           )}
-        </FieldGroup>
-      )}
-      {current === "key-choice" && (
-        <RadioGroup aria-label="SSH keys" value={keyChoice} onValueChange={setKeyChoice}>
-          <Field className="flex-row items-start gap-3">
-            <RadioGroupItem id="ssh-keys-connecting" value="connecting" aria-describedby="ssh-keys-node-name" />
-            <div className="flex min-w-0 flex-col gap-1">
-              <FieldLabel htmlFor="ssh-keys-connecting">Use the connecting node’s keys</FieldLabel>
-              <p id="ssh-keys-node-name" className="break-all text-detail text-muted-foreground">
-                {machine?.node.name ?? "Selected node unavailable"}
-              </p>
-            </div>
-          </Field>
-          <Field className="flex-row items-center gap-3">
-            <RadioGroupItem id="ssh-keys-remote" value="remote" />
-            <FieldLabel htmlFor="ssh-keys-remote">Use another node’s keys</FieldLabel>
-          </Field>
-        </RadioGroup>
-      )}
-      {current === "key-source" && (
-        <>
-          <SshMachineStep
-            machines={machines.filter((machine) => machine.node.canLaunch)}
-            value={draft.keyHome}
-            onChange={chooseKeys}
-            exclude={draft.nodeId}
-            label="Use keys from"
-          />
-          {keyMachine && !keySourceProblem && !keyMachine.canConnect && (
-            <SshMachineSetup machine={keyMachine} retry={readiness.refetch} onLeave={onLeave} />
+          {machine && (intent === "prepare" || !machine.canConnect) && (
+            <SshMachineSetup showName={false} machine={machine} retry={readiness.refetch} onLeave={onLeave} />
           )}
-        </>
-      )}
-      {current === "keys" && (
-        <SshKeyStep
-          nodeId={!keySourceProblem && keyMachine?.canConnect ? draft.keyHome : null}
-          fingerprints={fingerprints}
-          onChange={(selection) => patch({ selections: { ...draft.selections, [draft.keyHome]: selection } })}
-        />
-      )}
-      {(current === "review" || current === "readiness") && (
-        <FieldGroup>
-          <p className="text-body">
-            {machine?.node.name ?? "Selected machine unavailable"}
-            {sshDestination(draft) && ` → ${sshDestination(draft)}`}
-          </p>
-          <SshMachineSetup showName={false} machine={machine} retry={readiness.refetch} onLeave={onLeave} />
-          {remote && intent !== "prepare" && (
-            <>
-              <p className="text-detail">
-                Keys from {keyMachine?.node.name ?? "unavailable machine"}: {fingerprints.join(", ")}
-              </p>
-              <SshMachineSetup showName={false} machine={keyMachine} retry={readiness.refetch} onLeave={onLeave} />
-              {!keySourceProblem && <SshQueryStatus query={roster} label="SSH agent keys" />}
-              {!keySourceProblem && sshKeySelectionProblem(fingerprints, roster.data?.identities) && (
+          {intent === "connect" && (
+            <RadioGroup
+              aria-label="SSH keys"
+              value={useRemote ? "remote" : "connecting"}
+              onValueChange={(value) => {
+                setUseRemote(value === "remote");
+                if (value === "connecting") patch({ keyHome: "" });
+              }}
+            >
+              <Field className="flex-row items-start gap-3">
+                <RadioGroupItem id="ssh-keys-connecting" value="connecting" aria-describedby="ssh-keys-node-name" />
+                <div className="flex min-w-0 flex-col gap-1">
+                  <FieldLabel htmlFor="ssh-keys-connecting">Use the connecting node’s keys</FieldLabel>
+                  <p id="ssh-keys-node-name" className="break-all text-detail text-muted-foreground">
+                    {machine?.node.name ?? "Choose a connecting node"}
+                  </p>
+                </div>
+              </Field>
+              <Field className="flex-row items-center gap-3">
+                <RadioGroupItem id="ssh-keys-remote" value="remote" />
+                <FieldLabel htmlFor="ssh-keys-remote">Use another node’s keys</FieldLabel>
+              </Field>
+            </RadioGroup>
+          )}
+          {remote && (
+            <FieldGroup>
+              <SshMachineStep
+                machines={machines.filter((item) => item.node.canLaunch)}
+                value={draft.keyHome}
+                onChange={(keyHome) => {
+                  setUseRemote(true);
+                  patch({ keyHome });
+                }}
+                exclude={draft.nodeId}
+                id="ssh-keys-machine"
+                label="Use keys from"
+              />
+              {keyProblem && (
                 <p role="alert" className="text-destructive text-detail">
-                  {sshKeySelectionProblem(fingerprints, roster.data?.identities)}
+                  {keyProblem}
                 </p>
               )}
+              {keyMachine && !keyProblem && !keyMachine.canConnect && (
+                <SshMachineSetup showName={false} machine={keyMachine} retry={readiness.refetch} onLeave={onLeave} />
+              )}
+              {keyMachine?.canConnect && !keyProblem && (
+                <SshKeyStep
+                  nodeId={draft.keyHome}
+                  fingerprints={fingerprints}
+                  onChange={(selection) => patch({ selections: { ...draft.selections, [draft.keyHome]: selection } })}
+                />
+              )}
+            </FieldGroup>
+          )}
+          {intent === "connect" && (
+            <>
+              <Field className="flex-row items-center gap-3">
+                <input
+                  id="ssh-remember"
+                  type="checkbox"
+                  checked={draft.remember}
+                  onChange={(event) => patch({ remember: event.target.checked })}
+                />
+                <FieldLabel htmlFor="ssh-remember">Remember this destination</FieldLabel>
+              </Field>
+              <p className="text-detail text-muted-foreground">
+                Connecting uses this machine’s SSH configuration, including any local commands configured with Match
+                exec.
+              </p>
             </>
           )}
-          <p className="text-detail text-muted-foreground">
-            Starting the subshell tries to sign in to your destination. It reads this machine’s SSH configuration, which
-            can run local commands through Match exec.
-          </p>
         </FieldGroup>
       )}
       <div className="flex flex-wrap justify-end gap-2">
         <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
           Cancel
         </Button>
-        {current !== "intent" && (
-          <Button
-            type="button"
-            variant="outline"
-            disabled={busy}
-            onClick={() => {
-              if (current === "key-source" && intent === "connect") setCurrent("key-choice");
-              else setCurrent(steps[index - 1] ?? "intent");
-            }}
-          >
+        {intent && (
+          <Button type="button" variant="outline" disabled={busy} onClick={() => setIntent(null)}>
             Back
           </Button>
         )}
-        {current === "readiness" ? (
-          <>
-            <Button type="button" variant="outline" disabled={busy} onClick={onDone}>
-              Done
-            </Button>
-            <Button type="button" disabled={disabled} onClick={onApplySetup}>
-              {intent === "remote-keys" ? "Use this setup" : "Connect now"}
-            </Button>
-          </>
-        ) : (
-          current !== "intent" && (
-            <Button type="button" disabled={disabled} onClick={() => void form.handleSubmit()}>
-              {busy ? "Starting SSH subshell…" : current === "review" ? "Start SSH subshell" : "Continue"}
-            </Button>
-          )
-        )}
+        <Button type="button" disabled={disabled} onClick={() => void form.handleSubmit()}>
+          {busy
+            ? "Starting SSH subshell…"
+            : !intent
+              ? "Continue"
+              : intent === "connect"
+                ? "Start SSH subshell"
+                : intent === "prepare"
+                  ? "Done"
+                  : "Use these keys"}
+        </Button>
       </div>
     </section>
   );
