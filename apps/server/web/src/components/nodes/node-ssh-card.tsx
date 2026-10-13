@@ -34,12 +34,11 @@ export function NodeSshCard({ node }: { node: NodeDetail }) {
           <Label htmlFor="node-ssh-enabled">Allow SSH</Label>
         </div>
         {node.canManage ? (
-          node.sshEnabled && (
-            <p className="text-detail text-muted-foreground">
-              Turning this off prevents new SSH connections from this node and stops it from providing keys to other
-              nodes. Incoming SSH access to this machine is unaffected.
-            </p>
-          )
+          <p className="text-detail text-muted-foreground">
+            {node.sshEnabled
+              ? "Turning this off prevents new SSH connections from this node and stops it from providing keys to other nodes. Incoming SSH access to this machine is unaffected."
+              : "Turning this on allows SSH connections from this node and lets it provide keys to other nodes through Subshell. It doesn't enable incoming SSH access to this machine."}
+          </p>
         ) : (
           <p className="text-detail text-muted-foreground">
             {node.kind === "local"
