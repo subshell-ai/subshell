@@ -144,7 +144,7 @@ export function SshWizard({
                 id="ssh-keys-node-name"
                 className={machine ? "break-all text-detail text-muted-foreground" : "text-detail text-warning"}
               >
-                {machine?.node.name ?? "Choose a connecting node"}
+                {machine?.node.name ?? "Choose a node to connect from first"}
               </span>
             </FieldLabel>
           </Field>

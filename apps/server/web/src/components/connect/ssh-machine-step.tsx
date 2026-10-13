@@ -32,7 +32,7 @@ export function SshMachineStep({
         <SearchableSelect
           id={id}
           value={value}
-          placeholder="Choose a machine"
+          placeholder="Choose a node"
           options={machines
             .filter((m) => m.node.id !== exclude || m.node.id === value)
             .map((m) => ({

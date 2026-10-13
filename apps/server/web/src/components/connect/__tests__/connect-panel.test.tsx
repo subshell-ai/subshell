@@ -194,7 +194,7 @@ function openMachinePopup(): void {
 }
 
 function machineInput(): HTMLInputElement {
-  return screen.getByPlaceholderText("Choose a machine") as HTMLInputElement;
+  return screen.getByPlaceholderText("Choose a node") as HTMLInputElement;
 }
 
 function destinationInput(): HTMLInputElement {

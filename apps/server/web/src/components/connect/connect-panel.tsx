@@ -388,7 +388,7 @@ export function ConnectPanel({
           <SearchableSelect
             id={MACHINE_IDS.field}
             value={nodeId}
-            placeholder="Choose a machine"
+            placeholder="Choose a node"
             options={machineOptions}
             onValueChange={(id) => id !== "" && setNodeId(id)}
             describedBy={machineDescribedBy}
@@ -440,7 +440,7 @@ export function ConnectPanel({
               <Label htmlFor="connect-key-home">Use keys from</Label>
               <SearchableSelect
                 id="connect-key-home"
-                placeholder="Choose a machine for keys"
+                placeholder="Choose a node for keys"
                 value={keyHome || "connecting"}
                 options={keyOptions}
                 onValueChange={(id) => {
