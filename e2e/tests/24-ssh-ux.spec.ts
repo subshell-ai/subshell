@@ -45,7 +45,7 @@ async function wire(page: Page, ready = true) {
           machines: nodes.map((node) => ({
             node,
             canConnect: node.sshEnabled,
-            canConfigure: true,
+            canConfigure: node.canManage,
             blockers: node.sshEnabled ? [] : [{ code: "SSH_GATE_OFF", message: "SSH is off on this machine." }],
           })),
         },
@@ -65,7 +65,7 @@ async function wire(page: Page, ready = true) {
     if (path.endsWith("/host-pins")) return route.fulfill({ json: { pins: [] } });
     return route.continue();
   });
-  return { launches, enables };
+  return { launches, enables, nodes };
 }
 
 test("connection form reveals remote keys inline and launches only the selected keys", async ({ page }) => {
@@ -111,4 +111,21 @@ test("settings connection form selects keys without launching", async ({ page })
   await expect(page.getByRole("checkbox", { name: "Work key", exact: true })).toBeChecked();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("polls while waiting for the owner to enable SSH", async ({ page }) => {
+  const { nodes, enables } = await wire(page, false);
+  nodes[0].canManage = false;
+  nodes[0].access = "edit";
+  await page.goto("/connect");
+  await page.getByRole("combobox", { name: "Connect from" }).click();
+  await page.getByRole("option", { name: /Connecting desktop/ }).click();
+  await page.getByLabel("SSH destination", { exact: true }).fill(destination);
+  await expect(page.getByText("Waiting for SSH to be enabled…")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Check again", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toBeDisabled();
+  nodes[0].sshEnabled = true;
+  await expect(page.getByText("Waiting for SSH to be enabled…")).toHaveCount(0, { timeout: 8000 });
+  await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toBeEnabled();
+  expect(enables).toHaveLength(0);
 });

@@ -107,16 +107,11 @@ export function SshWizard({
           label="Connect from"
           description="Choose the node that will make the SSH connection."
           notice={enableOnStart ? "Starting this subshell will enable outgoing SSH on this node." : undefined}
-        />
-        {!enableOnStart && machine && !machine.canConnect ? (
-          <SshMachineSetup
-            showName={false}
-            allowEnable={false}
-            machine={machine}
-            retry={readiness.refetch}
-            onLeave={onLeave}
-          />
-        ) : null}
+        >
+          {!enableOnStart && machine && !machine.canConnect ? (
+            <SshMachineSetup showName={false} machine={machine} polling={!readiness.isError} onLeave={onLeave} />
+          ) : null}
+        </SshMachineStep>
         <SshDestinationStep
           draft={draft}
           onChange={onDraftChange}
@@ -197,21 +192,21 @@ export function SshWizard({
                     ? "Starting this subshell will enable SSH on the node supplying keys. You’ll then choose which keys to use before connecting."
                     : undefined
                 }
-              />
+              >
+                {keyMachine && !keyProblem && !keyMachine.canConnect && !enableKeysOnStart && (
+                  <SshMachineSetup
+                    showName={false}
+                    machine={keyMachine}
+                    polling={!readiness.isError}
+                    onLeave={onLeave}
+                  />
+                )}
+              </SshMachineStep>
             )}
             {keyProblem && (
               <p role="alert" className="text-destructive text-detail">
                 {keyProblem}
               </p>
-            )}
-            {keyMachine && !keyProblem && !keyMachine.canConnect && !enableKeysOnStart && (
-              <SshMachineSetup
-                showName={false}
-                allowEnable={false}
-                machine={keyMachine}
-                retry={readiness.refetch}
-                onLeave={onLeave}
-              />
             )}
             {keyMachine?.canConnect && !keyProblem && (
               <SshKeyStep

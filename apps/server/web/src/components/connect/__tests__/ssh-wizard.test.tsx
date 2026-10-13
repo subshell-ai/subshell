@@ -432,3 +432,20 @@ it("cannot implicitly enable another owner's key-source node", async () => {
   expect(screen.queryByRole("button", { name: "Enable SSH" })).toBeNull();
   expect(screen.getByText(/Ask this node’s owner to enable it/)).toBeTruthy();
 });
+
+it("removes the waiting notice when refreshed readiness reports SSH enabled", async () => {
+  const { state, client } = await setup({
+    initial: { node: "shared", destination: "target" },
+    machines: [machine("shared", false, false)],
+  });
+  const guidance = screen.getByText(/Ask this node’s owner to enable it/);
+  expect(guidance.textContent).toContain("SSH is off on this machine.");
+  expect(screen.getByText("Waiting for SSH to be enabled…")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
+  state.machines = [machine("shared", true, false)];
+  await act(async () => {
+    await client.invalidateQueries({ queryKey: ["ssh-readiness"] });
+  });
+  await waitFor(() => expect(screen.queryByText("Waiting for SSH to be enabled…")).toBeNull());
+  await waitFor(() => expect(disabled()).toBe(false));
+}, 10000);

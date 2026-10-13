@@ -1,8 +1,9 @@
-import { Button, errMessage } from "@internal/node-admin";
+import { Button } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
+import { LoaderCircle } from "lucide-react";
+import type { ReactNode } from "react";
 import { SearchableSelect } from "@/components/ui/combobox";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { useSetSshEnabled } from "@/hooks/use-ssh";
 import type { SshMachineReadiness } from "@/lib/ssh";
 
 /** Lists visible machines even when they need preparation; launch and configuration are distinct rights. */
@@ -13,6 +14,7 @@ export function SshMachineStep({
   label,
   description,
   notice,
+  children,
   exclude,
   id = "ssh-wizard-machine",
 }: {
@@ -22,6 +24,7 @@ export function SshMachineStep({
   label: string;
   description?: string;
   notice?: string;
+  children?: ReactNode;
   exclude?: string;
   id?: string;
 }) {
@@ -48,6 +51,7 @@ export function SshMachineStep({
         />
         {description && <p className="text-detail text-muted-foreground">{description}</p>}
         {notice && <p className="text-detail text-warning">{notice}</p>}
+        {children}
         {value && !machines.some((m) => m.node.id === value) && (
           <p role="alert" className="text-destructive text-detail">
             The selected machine is no longer available to you. Choose another machine.
@@ -58,21 +62,18 @@ export function SshMachineStep({
   );
 }
 
-/** Explicitly enables SSH only where the readiness response authorizes configuration. */
+/** Readiness guidance stays beside its picker while the parent polls for changes. */
 export function SshMachineSetup({
   machine,
-  retry,
   onLeave,
   showName = true,
-  allowEnable = true,
+  polling = true,
 }: {
   machine?: SshMachineReadiness;
-  retry: () => unknown;
   showName?: boolean;
-  allowEnable?: boolean;
+  polling?: boolean;
   onLeave?: () => void;
 }) {
-  const enable = useSetSshEnabled();
   const navigate = useNavigate();
   if (!machine)
     return (
@@ -80,18 +81,13 @@ export function SshMachineSetup({
         The selected machine is no longer available to you. Go back and choose another machine.
       </p>
     );
-  const onlyNeedsEnable =
-    !machine.node.sshEnabled &&
-    machine.canConfigure &&
-    machine.blockers.length === 1 &&
-    machine.blockers[0].code === "SSH_GATE_OFF";
   const needsSettings =
     machine.blockers.some(
       (blocker) => blocker.code === "NODE_IN_MAINTENANCE" || blocker.code === "NODE_PROTOCOL_HELD",
     ) ||
     (machine.node.kind === "agent" && !machine.node.canLaunch);
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-2">
       {showName && <p className="font-strong text-body">{machine.node.name}</p>}
       {machine.canConnect ? (
         <p role="status" className="text-detail">
@@ -99,32 +95,20 @@ export function SshMachineSetup({
         </p>
       ) : (
         <>
-          {machine.blockers.map((blocker) => (
-            <p key={`${blocker.code}:${blocker.message}`} className="text-detail text-warning">
-              {blocker.message}
-            </p>
-          ))}
-          {!machine.node.sshEnabled &&
-            (machine.canConfigure ? (
-              allowEnable ? (
-                <Button
-                  type="button"
-                  className="self-start"
-                  disabled={enable.isPending}
-                  onClick={() => enable.mutate({ id: machine.node.id, on: true })}
-                >
-                  {enable.isPending ? "Enabling SSH…" : "Enable SSH"}
-                </Button>
-              ) : null
-            ) : (
-              <p className="text-detail text-muted-foreground">
+          <p className="text-detail text-warning">
+            {machine.blockers.map((blocker) => blocker.message).join(" ")}
+            {!machine.node.sshEnabled && !machine.canConfigure && (
+              <>
+                {" "}
                 {machine.node.kind === "local" ? "Ask an admin to enable it." : "Ask this node’s owner to enable it."}
-              </p>
-            ))}
-          {!onlyNeedsEnable && (
-            <Button type="button" variant="outline" className="self-start" onClick={() => void retry()}>
-              Check again
-            </Button>
+              </>
+            )}
+          </p>
+          {!machine.node.sshEnabled && !machine.canConfigure && polling && (
+            <p role="status" className="flex items-center gap-2 text-detail text-warning">
+              <LoaderCircle aria-hidden="true" className="size-4 shrink-0 animate-spin motion-reduce:animate-none" />
+              Waiting for SSH to be enabled…
+            </p>
           )}
           {machine.canConfigure && needsSettings && (
             <Button
@@ -140,11 +124,6 @@ export function SshMachineSetup({
             </Button>
           )}
         </>
-      )}
-      {enable.isError && (
-        <p role="alert" className="text-destructive text-detail">
-          {errMessage(enable.error, "Couldn't enable SSH. Try again when the machine is available.")}
-        </p>
       )}
     </div>
   );
