@@ -11,7 +11,6 @@ import {
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ConnectPanel } from "@/components/connect/connect-panel";
 import type { SshInitialChoices } from "@/components/connect/ssh-session-draft";
-import { SshWizardDialog } from "@/components/connect/ssh-wizard-dialog";
 import type { SshMachineReadiness } from "@/lib/ssh";
 
 const original = globalThis.fetch;
@@ -49,7 +48,6 @@ async function setup({
   readyError = false,
   enrollmentAllowed = true,
   start = true,
-  settingsEntry = false,
   onCreated,
 }: {
   initial?: SshInitialChoices;
@@ -57,7 +55,6 @@ async function setup({
   readyError?: boolean;
   enrollmentAllowed?: boolean;
   start?: boolean;
-  settingsEntry?: boolean;
   onCreated?: (id: string) => Promise<void> | void;
 } = {}) {
   const state = {
@@ -136,12 +133,7 @@ async function setup({
       createRoute({
         getParentRoute: () => root,
         path: "/",
-        component: () =>
-          settingsEntry ? (
-            <SshWizardDialog initial={initial} />
-          ) : (
-            <ConnectPanel initial={initial} startInWizard={start} onCreated={onCreated ?? (() => {})} />
-          ),
+        component: () => <ConnectPanel initial={initial} startInWizard={start} onCreated={onCreated ?? (() => {})} />,
       }),
       createRoute({ getParentRoute: () => root, path: "/nodes/$id", component: () => <p>Machine settings</p> }),
     ]),
@@ -324,15 +316,6 @@ it("holds launch and navigation until the parent attaches the subshell", async (
   expect(calls.filter((c) => c.path === "/api/ssh/launch")).toHaveLength(1);
   await act(async () => finish());
 });
-it("settings opens the connection form and Cancel closes without launching", async () => {
-  const { calls } = await setup({ initial: { node: "keys" }, settingsEntry: true });
-  await click("Connect over SSH");
-  expect(screen.getByLabelText("SSH destination")).toBeTruthy();
-  await click("Cancel");
-  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  expect(calls.some((c) => c.path === "/api/ssh/launch")).toBe(false);
-});
-
 it("keeps the chosen remote node selected while choosing keys", async () => {
   await setup({ initial: { node: "desk", destination: "target" } });
   await task();

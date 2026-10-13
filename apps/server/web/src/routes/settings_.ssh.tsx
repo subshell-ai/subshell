@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { SavedHostsSection } from "@/components/connect/saved-hosts-section";
-import { SshWizardDialog } from "@/components/connect/ssh-wizard-dialog";
 import { DashboardPage } from "@/components/dashboard-page";
 import { PageHeader } from "@/components/page-header";
 import { sshConnectSearch } from "@/lib/ssh-connect-search";
@@ -18,7 +17,7 @@ function SshSettingsRoute() {
 export function SshSettingsPage() {
   return (
     <DashboardPage>
-      <PageHeader title="SSH" subtitle="Manage your saved and recent destinations." action={<SshWizardDialog />} />
+      <PageHeader title="SSH" subtitle="Manage your saved and recent destinations." />
       <SavedHostsSection />
     </DashboardPage>
   );

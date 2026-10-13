@@ -98,10 +98,9 @@ test("enables the connecting node when Start is selected", async ({ page }) => {
   expect(launches).toHaveLength(1);
 });
 
-test("settings connection form selects keys without launching", async ({ page }) => {
+test("connection form selects keys without launching", async ({ page }) => {
   const { launches } = await wire(page);
-  await page.goto("/settings/ssh");
-  await page.getByRole("button", { name: "Connect over SSH", exact: true }).click();
+  await page.goto("/connect");
   await page.getByRole("radio", { name: "Use another node’s keys", exact: true }).check();
   await page.getByRole("combobox", { name: "Use keys from", exact: true }).click();
   await page.getByRole("option", { name: "Named server", exact: true }).click();
@@ -158,7 +157,7 @@ test("SSH settings keeps empty and populated cards usable at narrow and wide wid
   await expect(page.getByText(longDestination, { exact: true })).toBeVisible();
   for (const width of [320, 1600]) {
     await page.setViewportSize({ width, height: 1000 });
-    for (const name of ["Connect over SSH", "Forget Production"]) {
+    for (const name of ["Forget Production"]) {
       const button = page.getByRole("button", { name, exact: true });
       await expect(button).toBeVisible();
       const bounds = await button.boundingBox();

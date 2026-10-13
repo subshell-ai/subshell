@@ -153,3 +153,17 @@ spec 23-ssh-relay checks real discovery and acceptance before relay authenticati
 Run all SSH specs together with `01-setup-wizard.spec.ts` (which seeds the account for spec 24).
 CI mounts its Docker socket into the e2e job so Testcontainers can start the
 same destination fixture.
+
+## SSH documentation screenshots
+
+After building `@internal/server-web`, run `bun e2e/capture-ssh-docs.ts` from
+the repository root. It starts the isolated e2e stack, two real node daemons,
+a disposable SSH agent, and a Testcontainers destination. Docker and the
+Playwright Chromium browser are required. The normal `E2E_PORT_*` overrides
+apply when another suite is running.
+
+The script writes three cropped PNGs to `apps/docs/public/screenshots/`, using
+real form state and a real first-connection refusal. It cancels confirmation
+and checks that no destination trust was saved, then cleans up its processes
+and temporary state. Review the images and update their intrinsic dimensions
+in `guides/ssh.mdx` if the layout changes. Never point it at the live server.

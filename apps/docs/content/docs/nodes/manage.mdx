@@ -19,6 +19,14 @@ The server host's node is named **Server** by default. Its internal ID remains `
 
 Node owners manage the machine's settings. A share may allow launching there without granting ownership of service, directory, or enrollment controls.
 
+## Outgoing SSH
+
+In the server dashboard, open **Nodes**, select your node, and find the **SSH** card on its overview. **Allow SSH** lets Subshell make outgoing SSH connections from this node and use its SSH agent to supply keys to other nodes. It doesn’t enable incoming SSH access to the node.
+
+Only the node’s owner can change this setting. An administrator manages it for the built-in node on the server host. Turning it off prevents new outgoing connections and stops the node from supplying keys, including to active connections.
+
+You can also enable it when starting an SSH subshell: the connection form explains the change before you submit. See [Connect over SSH](/guides/ssh).
+
 ## Service and logs
 
 Where you have management access, review the service and log sections. A node may be online from a terminal process even when no service is installed.
