@@ -36,7 +36,8 @@ export function NodeSshCard({ node }: { node: NodeDetail }) {
         {node.canManage ? (
           node.sshEnabled && (
             <p className="text-detail text-muted-foreground">
-              Disabling SSH blocks new connections and stops this node from supplying keys to active connections.
+              Turning this off prevents new SSH connections from this node and stops it from providing keys to other
+              nodes. Incoming SSH access to this machine is unaffected.
             </p>
           )
         ) : (
