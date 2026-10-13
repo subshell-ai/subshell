@@ -54,8 +54,8 @@ for (const enabled of [false, true]) {
       return new Response("{}");
     }) as unknown as typeof fetch;
     mount(node({ sshEnabled: enabled }));
-    expect(screen.getByRole("status").textContent).toBe(enabled ? "Enabled" : "Disabled");
-    fireEvent.click(screen.getByRole("button", { name: enabled ? "Disable SSH" : "Enable SSH" }));
+    expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe(String(enabled));
+    fireEvent.click(screen.getByRole("switch", { name: "Allow SSH" }));
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0].url).toContain("/api/nodes/node1/ssh-enabled");
     expect(calls[0].init?.method).toBe("PUT");
@@ -64,14 +64,14 @@ for (const enabled of [false, true]) {
 }
 it("shows configuration to edit viewers without offering changes", () => {
   mount(node({ access: "edit", canManage: false }));
-  expect(screen.queryByRole("button")).toBeNull();
+  expect(screen.getByRole("switch").hasAttribute("data-disabled")).toBe(true);
   expect(screen.getByText("Only this node’s owner can change this setting.")).toBeTruthy();
 });
 it("shows failed writes without changing the reported state", async () => {
   globalThis.fetch = (async () =>
     new Response(JSON.stringify({ message: "Permission changed." }), { status: 403 })) as unknown as typeof fetch;
   mount(node());
-  fireEvent.click(screen.getByRole("button", { name: "Enable SSH" }));
+  fireEvent.click(screen.getByRole("switch", { name: "Allow SSH" }));
   await screen.findByRole("alert");
-  expect(screen.getByRole("status").textContent).toBe("Disabled");
+  expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("false");
 });

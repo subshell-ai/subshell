@@ -1,12 +1,13 @@
 import {
-  Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
   errMessage,
+  Label,
   type NodeDetail,
+  Switch,
 } from "@internal/node-admin";
 import { useSetSshEnabled } from "@/hooks/use-ssh";
 
@@ -23,25 +24,21 @@ export function NodeSshCard({ node }: { node: NodeDetail }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col items-start gap-3">
-        <p role="status" className="text-body">
-          {node.sshEnabled ? "Enabled" : "Disabled"}
-        </p>
+        <div className="flex items-center gap-4">
+          <Switch
+            id="node-ssh-enabled"
+            checked={node.sshEnabled}
+            disabled={!node.canManage || update.isPending}
+            onCheckedChange={(on) => update.mutate({ id: node.id, on })}
+          />
+          <Label htmlFor="node-ssh-enabled">Allow SSH</Label>
+        </div>
         {node.canManage ? (
-          <>
-            {node.sshEnabled && (
-              <p className="text-detail text-muted-foreground">
-                Disabling SSH blocks new connections and stops this node from supplying keys to active connections.
-              </p>
-            )}
-            <Button
-              type="button"
-              variant="outline"
-              disabled={update.isPending}
-              onClick={() => update.mutate({ id: node.id, on: !node.sshEnabled })}
-            >
-              {update.isPending ? "Saving…" : node.sshEnabled ? "Disable SSH" : "Enable SSH"}
-            </Button>
-          </>
+          node.sshEnabled && (
+            <p className="text-detail text-muted-foreground">
+              Disabling SSH blocks new connections and stops this node from supplying keys to active connections.
+            </p>
+          )
         ) : (
           <p className="text-detail text-muted-foreground">
             {node.kind === "local"
