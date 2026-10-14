@@ -258,13 +258,19 @@ can act on; it rides EVERY protocol bump, the same commit raising it and
 direction: no compatibility window, no per-feature gating; the server
 and the node ship together, so bump it whenever a frame changes,
 additive or not, and release both. Since spec 2026-09-15 §5.3 a refusal
-never CLOSES: `holdRefusedNode` parks the socket in
-`node-registry.ts`'s `held` map: offline for every purpose but
+never CLOSES: the socket is parked in `node-registry.ts`'s `held` map
+(`holdRefusedNode` on the `ready` path, or the handshake binding itself
+since spec 2026-10-13): offline for every purpose but
 `update`, the 4406 carrying the relayed reason coming only when the hold
-ends. The identity is persisted BEFORE either gate. The two gates carry
+ends. The identity is persisted BEFORE either gate (the binding path
+writes no new facts: a held row shows its last honest `ready`, or the
+fallbacks). The two gates carry
 distinct meanings and emit distinct refusals; never infer one from the
-other (a node meeting both conditions hears the floor's). Chips,
-roll-up, bump history: `apps/server/api/docs/node-gates.md`.
+other; the floor's sentence still wins on the ready path, but a PINNED
+dial meeting both conditions hears the PROTOCOL one, because the binding
+decides the protocol before any version gate can run. Chips,
+roll-up, bump history, the binding-arm ruling:
+`apps/server/api/docs/node-gates.md`.
 
 Neither gate touches geometry: `paneSize` answers the same way on a local and a
 remote pane, so nothing downstream of the attach branches on where a pane runs.

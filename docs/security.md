@@ -1003,11 +1003,14 @@ consequences are:
   (`plaintextAllowed = true`) still runs plaintext until it registers.
 - **The plaintext carve-out is exactly one command.** `update` still reaches a
   HELD pre-14 agent as plaintext, because that socket is held precisely for not
-  speaking the current contract: you cannot ask a downgrade to negotiate. Every
-  held socket is a LEGACY classification (a handshake row's plaintext `ready` is
-  refused before the gates ever run), so the frozen rescue rides the
-  `plaintextAllowed = true` arm. The command's wire shape is frozen across
-  protocol bumps for this, and a regression lock pins the full path through the
+  speaking the current contract: you cannot ask a downgrade to negotiate. That
+  arm is now the LEGACY one (a handshake row's plaintext `ready` is still
+  refused before the gates ever run, so a LEGACY hold rides
+  `plaintextAllowed = true`): since spec 2026-10-13 a pinned wrong-protocol
+  agent is held FROM THE BINDING (link established, `update` sealed) instead of
+  refused 4410, same posture, reachable from protocol 14 up. The command's
+  wire shape is frozen across protocol bumps for this, and a regression lock
+  pins the full path through the
   classifier: below-floor plaintext `ready` → held → plaintext `update` out →
   plaintext `result` in → RPC completes (`node-ws-handler.test.ts`, "(h) the held
   `update` path…"). Every other command to a held node rejects `offline`.
@@ -3316,7 +3319,10 @@ would have got at once; and `disconnectNode` closes it too, so rotating or
 deleting a node key takes away the one command a held socket could still carry.
 The `update` command's wire shape is FROZEN across protocol bumps for this
 reason alone: it is the one command sent to an agent whose protocol the plane
-does not share.
+does not share. Since spec 2026-10-13 the held set has TWO arms: a LEGACY hold
+is reached in plaintext as always, and a pinned wrong-protocol agent is held
+FROM THE BINDING instead of refused 4410 (link established, so the rescue
+arrives sealed), same posture, reachable from protocol 14 up.
 
 **Automatic update backups are full instance archives**: the database,
 configuration, identities, plugins and their secret store. Archives are 0600 in
