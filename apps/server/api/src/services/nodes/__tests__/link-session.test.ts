@@ -202,6 +202,65 @@ describe("handshake mode — happy path", () => {
     expect(fwd).toEqual({ forwarded: readyJson });
   });
 
+  it("a wrong protocol on a passing identity establishes, acks, and PROPOSES the hold (spec 2026-10-13)", async () => {
+    const h = await makeHarness();
+    const data = handshakeData(h.nodeStatic.publicKey);
+    await handleLinkFrame(h.deps, { data }, kxText(h));
+    const outcome = await handleLinkFrame(
+      h.deps,
+      { data },
+      bindingBytes(h, { protocolVersion: NODE_PROTOCOL_VERSION - 5 }),
+    );
+    // Established, not refused: the ack is the same sealed {t:"ok"} the match
+    // arm sends, and the CLIENT's session opens it.
+    if (!("established" in outcome) || !("sendBytes" in outcome)) {
+      throw new Error(`expected established+hold, got ${JSON.stringify(outcome)}`);
+    }
+    expect(outcome.hold).toEqual({ protocolVersion: NODE_PROTOCOL_VERSION - 5 });
+    const ackText = h.client.session.openFrame(outcome.sendBytes);
+    expect(ackText).not.toBeNull();
+    expect(JSON.parse(ackText ?? "")).toEqual({ t: "ok" });
+    // The phase moves, and this line is load-bearing: WITHOUT it the agent's
+    // NEXT sealed frame — its `ready`, which shipping agents send the instant
+    // the ack opens — re-enters completeBinding and is refused as "binding
+    // malformed": the redial loop one gate deeper.
+    expect(data.linkPhase).toBe("established");
+    const next = await handleLinkFrame(
+      h.deps,
+      { data },
+      { bytes: h.client.session.sealFrame(JSON.stringify({ type: "ready" })) },
+    );
+    expect("forwarded" in next).toBe(true);
+  });
+
+  it("identity refusals still close with 4410 and NEVER carry `established`, whatever the protocol says", async () => {
+    const h = await makeHarness();
+    const data = handshakeData(h.nodeStatic.publicKey);
+    await handleLinkFrame(h.deps, { data }, kxText(h));
+    // Dead node key AND a wrong protocol: identity decides first, and the
+    // hold proposal must not leak into a refusal outcome.
+    const dead = await handleLinkFrame(
+      h.deps,
+      { data },
+      bindingBytes(h, { nodeKey: "no-such-key", protocolVersion: NODE_PROTOCOL_VERSION - 5 }),
+    );
+    if (!("close" in dead)) throw new Error(`expected a refusal, got ${JSON.stringify(dead)}`);
+    expect(dead.close.code).toBe(CLOSE_4410);
+    expect(dead.close.reason).toContain("nodeKey");
+    expect("established" in dead).toBe(false);
+    expect("hold" in dead).toBe(false);
+    expect(data.linkPhase).toBe("awaiting-binding");
+  });
+
+  it("the matching arm stays exactly as it was: established, acked, and NO hold field", async () => {
+    const h = await makeHarness();
+    const data = handshakeData(h.nodeStatic.publicKey);
+    const { binding } = await driveHandshake(h, data);
+    expect("established" in binding && "sendBytes" in binding).toBe(true);
+    expect("hold" in binding).toBe(false);
+    expect(data.linkPhase).toBe("established");
+  });
+
   it("re-proves the nodeKey through the SAME comparison the upgrade ran (re-runs verifyApiKey)", async () => {
     const h = await makeHarness();
     const data = handshakeData(h.nodeStatic.publicKey);
@@ -212,7 +271,7 @@ describe("handshake mode — happy path", () => {
   });
 });
 
-describe("handshake mode — every refusal is 4410", () => {
+describe("handshake mode — the 4410 refusals (and the protocol arm that no longer closes)", () => {
   it("rejects a kx eph that does not decode to 32 bytes", async () => {
     const h = await makeHarness();
     const sodium = await ensureSodium();
@@ -367,7 +426,12 @@ describe("handshake mode — every refusal is 4410", () => {
     expectClose(outcome, "nodeKey");
   });
 
-  it("closes a binding whose protocolVersion is not this server's", async () => {
+  // Spec 2026-10-13 moved the protocol arm OUT of this refusal set: a binding
+  // that passes every identity check and only disagrees on the protocol number
+  // establishes and PROPOSES the hold instead of closing 4410. The full new
+  // decision is pinned in the happy-path describe; this line keeps the
+  // inventory honest about what is no longer a refusal.
+  it("a protocol-mismatch binding is NOT a close (spec 2026-10-13): established, with a hold proposal", async () => {
     const h = await makeHarness();
     const data = handshakeData(h.nodeStatic.publicKey);
     await handleLinkFrame(h.deps, { data }, kxText(h));
@@ -376,7 +440,8 @@ describe("handshake mode — every refusal is 4410", () => {
       { data },
       bindingBytes(h, { protocolVersion: NODE_PROTOCOL_VERSION - 1 }),
     );
-    expectClose(outcome, "protocol");
+    expect("close" in outcome).toBe(false);
+    expect("established" in outcome && "hold" in outcome).toBe(true);
   });
 
   it("closes any plaintext frame once established", async () => {

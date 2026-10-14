@@ -163,22 +163,28 @@ export interface NodeConnection {
   /**
    * The encrypted link negotiated on this socket (spec 2026-09-24), or
    * `undefined` while the connection speaks the legacy plaintext envelope —
-   * every held socket, every agent that predates the handshake, and every
-   * connection from before its `kx` completed. `node-rpc.sendCommand` seals
-   * outbound commands through it when present; the `/ws/node` handshake
-   * acceptor is its only writer.
+   * every agent that predates the handshake, and every connection from
+   * before its `kx` completed. The held map now holds TWO kinds: a LEGACY
+   * hold sits with no link (the plaintext rescue, unchanged), while a
+   * binding-arm hold (spec 2026-10-13) has its link set and takes the
+   * sealed arm. `node-rpc.sendCommand` seals outbound commands through it
+   * when present; the `/ws/node` handshake acceptor is its only writer.
    */
   link?: LinkSession;
   /**
    * Whether a PLAINTEXT frame may be written to this socket at all (ruling
    * I-2, spec 2026-09-24). `handleNodeOpen` sets it beside the attach: true
    * for a LEGACY classification (a pin-less row legitimately runs plaintext
-   * until it registers — and every held socket is one), false for HANDSHAKE
+   * until it registers — and every LEGACY hold is one), false for HANDSHAKE
    * (a protocol-14 socket in the open→established window, where `link` is
    * not yet set). `sendCommand` refuses with `offline` rather than emit
-   * plaintext while `link` is unset and this is false — the frozen held-
-   * `update` rescue rides the `true` arm untouched. UNSET means "never
-   * classified" (a hand-built test conn): never a refusal.
+   * plaintext while `link` is unset and this is false. Both held arms still
+   * receive the frozen rescue: a LEGACY hold rides the `true` arm
+   * untouched, and a binding-arm hold (spec 2026-10-13) is HANDSHAKE-classified
+   * `false` WITH its link already set — that path wires the link before the
+   * hold, so `sendCommand`'s I-2 refusal cannot fire and its rescue seals.
+   * UNSET means "never classified" (a hand-built test conn): never a
+   * refusal.
    */
   plaintextAllowed?: boolean;
 }
@@ -272,8 +278,15 @@ const held = new Map<string, HeldConnection>();
  * The plane must not accumulate sockets it will not use, and the agent's own
  * "update required" line must keep appearing where an operator at the machine
  * would look. Ten minutes is long enough for a person to notice the row, press
- * Update and have a ~70 MB download finish; after it the agent's backoff loop
- * reconnects and is held again, so nothing is lost but the socket.
+ * Update and have a ~70 MB download finish; after it the node redials and is
+ * held again, so nothing is lost but the socket, same budget on either held
+ * arm. The redial is NOT the agent's own doing: the 4406 is TERMINAL for
+ * every agent that can reach a hold (verified across the tag history back to
+ * `cli-node-v0.13.0` — the daemon reverts any update transaction it left
+ * pending, logs the refusal, and exits), so what brings the node back is
+ * the SERVICE MANAGER's restart, or a human at the machine. An unsupervised
+ * held agent simply stays offline until one of the two runs — which is also
+ * when it can self-rescue with `subshell update`.
  */
 export const HELD_IDLE_MS = 10 * 60 * 1000;
 

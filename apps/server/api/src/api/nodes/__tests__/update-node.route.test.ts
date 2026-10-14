@@ -29,6 +29,7 @@ import {
   attachConnection,
   getHeld,
   getLive,
+  type HeldReason,
   holdConnection,
   type NodeSocket,
   resetNodeRegistryForTests,
@@ -327,15 +328,19 @@ describe("POST /api/nodes/:id/update", () => {
   }
 
   /** Attach a socket and HOLD it, as the ws handler does for a refused agent. */
-  function goHeld(nodeId: string, protocolVersion: number = NODE_PROTOCOL_VERSION): ReturnType<typeof fakeSocket> {
+  function goHeld(
+    nodeId: string,
+    protocolVersion: number = NODE_PROTOCOL_VERSION,
+    entry: Partial<{ agentVersion: string; os: string; arch: string; reason: HeldReason }> = {},
+  ): ReturnType<typeof fakeSocket> {
     const sock = fakeSocket();
     const conn = attachConnection(nodeId, sock);
     holdConnection(nodeId, conn, {
-      reason: "below-floor",
-      agentVersion: "0.8.0",
+      reason: entry.reason ?? "below-floor",
+      agentVersion: entry.agentVersion ?? "0.8.0",
       protocolVersion,
-      os: "linux",
-      arch: "x64",
+      os: entry.os ?? "linux",
+      arch: entry.arch ?? "x64",
       onIdle: () => undefined,
     });
     return sock;
@@ -530,6 +535,35 @@ describe("POST /api/nodes/:id/update", () => {
     const res = await req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
     expect(res.status).toBe(409);
     expect(((await res.json()) as { code: string }).code).toBe("NODE_AGENT_TOO_OLD");
+    expect(sock.sent).toEqual([]);
+  });
+
+  it("a binding-held never-ready node gets the named platform refusal, not a mispick (spec 2026-10-13)", async () => {
+    useFakeRelease();
+    // A row that NEVER readied (no `applyReady`): its os/arch/agentVersion are
+    // null — the exact row the binding-hold path falls back from.
+    const id = crypto.randomUUID();
+    await nodes.create({ id, ownerUserId: aliceId, name: `nu-${id.slice(0, 8)}`, kind: "agent", status: "offline" });
+    createdNodeIds.push(id);
+    // Exactly the held entry the binding path produces for such a row:
+    // signed-capable protocol (the gate passes), unknown platform, blank
+    // version. The route must refuse on the platform, by name — not mis-pick
+    // the linux-x64 artifact or write the blank anywhere.
+    const sock = goHeld(id, NODE_SIGNED_UPDATES_PROTOCOL_VERSION, {
+      agentVersion: "",
+      os: "unknown",
+      arch: "unknown",
+      reason: "protocol-mismatch",
+    });
+    const res = await req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    expect(res.status).toBe(409);
+    const err = (await res.json()) as { code: string; message: string };
+    // The refusal code, not just the sentence: the route's target-miss path
+    // answers NODE_UPDATE_UNAVAILABLE (update-node.route.ts), the same code the
+    // no-artifact and no-digest refusals carry.
+    expect(err.code).toBe("NODE_UPDATE_UNAVAILABLE");
+    expect(err.message).toContain("No subshell binary is published for unknown/unknown");
+    // And the refused node is never dispatched to, held link and all.
     expect(sock.sent).toEqual([]);
   });
 

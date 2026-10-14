@@ -116,7 +116,9 @@ export type LinkFrame = { text: string | object } | { bytes: Uint8Array };
  * - `{ consumed, established, sendBytes }` — the handshake just completed:
  *   `sendBytes` is the server's FIRST push, the sealed `{"t":"ok"}` (it
  *   carries the 24B secretstream header), to be sent as a binary frame;
- *   `established` is the live session for Task 8 to key its send path on.
+ *   `established` is the live session for Task 8 to key its send path on;
+ *   the arm may also carry the optional `hold` proposal (spec 2026-10-13),
+ *   which the handler applies after wiring.
  * - `{ forwarded }` — plaintext for the existing `parseNodeEvent` + gates
  *   path. From an established link this is the DECRYPTED string — bounded
  *   structurally, never re-measured (a ciphertext is 17 bytes larger than what
@@ -142,7 +144,18 @@ export type LinkFrame = { text: string | object } | { bytes: Uint8Array };
  */
 export type LinkOutcome =
   | { consumed: true }
-  | { consumed: true; established: LinkSession; sendBytes: Uint8Array }
+  | {
+      consumed: true;
+      established: LinkSession;
+      sendBytes: Uint8Array;
+      /**
+       * Present when every identity check passed and ONLY the protocol number
+       * disagreed (spec 2026-10-13): the machine establishes and acks, then
+       * PROPOSES §5.3's hold — the handler owns the socket, the row, and the
+       * held map. Identity refusals never carry this.
+       */
+      hold?: { protocolVersion: number };
+    }
   | { forwarded: string | object }
   | { holdEncryptionRequired: true }
   | { close: { code: number; reason: string } }
@@ -317,7 +330,9 @@ async function acceptKx(deps: LinkSessionDeps, data: LinkWsData, raw: string | o
 /**
  * The binding step (spec §4 step 4): decrypt, parse, then the THREE checks —
  * the claimed nodeId against the bearer's row, the nodeKey re-proved through
- * the upgrade's OWN verification chain, and the protocol exact-match. Each
+ * the upgrade's OWN verification chain, and the protocol exact-match. Only the
+ * protocol arm ESTABLISHES AND PROPOSES THE HOLD (spec 2026-10-13) instead of
+ * refusing: identity is proven, and the frozen `update` is the point. Each
  * refusal names which check failed, per the two-gates doctrine: a refusal
  * that could be one of five things is a refusal nobody can act on.
  */
@@ -338,9 +353,25 @@ async function completeBinding(
   const reProve = await reProveNodeKey(deps, data, binding.nodeKey);
   if (reProve) return reProve;
   if (binding.protocolVersion !== NODE_PROTOCOL_VERSION) {
-    return refuse(
-      `handshake refused: protocol mismatch (node ${binding.protocolVersion}, server ${NODE_PROTOCOL_VERSION})`,
-    );
+    // The §5.3 rescue, from the binding (spec 2026-10-13). Everything above
+    // PASSED — the binding decrypted under the pinned session, its nodeId
+    // names this row, its nodeKey re-proved the live credential — and only
+    // the protocol number disagrees. Closing 4410 here stranded the one
+    // agent this machine can still talk to past its own rescue: `update` is
+    // FROZEN precisely because a held agent must parse it forever, and the
+    // session that seals it exists the moment we ack. So: ack, MOVE THE
+    // PHASE (without it the agent's sealed `ready` — sent the instant the
+    // ack opens — re-enters completeBinding and is refused as "binding
+    // malformed", the redial loop one gate deeper), and propose the hold.
+    // The machine still writes and holds nothing; the decision it owns is
+    // this line's.
+    data.linkPhase = "established";
+    return {
+      consumed: true,
+      established: session,
+      sendBytes: session.sealFrame(JSON.stringify({ t: "ok" })),
+      hold: { protocolVersion: binding.protocolVersion },
+    };
   }
   const sendBytes = session.sealFrame(JSON.stringify({ t: "ok" }));
   data.linkPhase = "established";

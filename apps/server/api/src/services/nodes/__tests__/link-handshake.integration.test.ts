@@ -248,6 +248,8 @@ class FakeAgent {
       /** The pinned control static — WRONG on purpose in the negative tests. */
       controlStaticPub: string;
       mode: "handshake" | "register";
+      /** The protocol the binding CLAIMS — old on purpose in the rescue tests. */
+      protocolVersion?: number;
     },
     private readonly jtiLru: JtiLru,
   ) {}
@@ -290,7 +292,7 @@ class FakeAgent {
         JSON.stringify({
           nodeId: this.cfg.nodeId,
           nodeKey: this.cfg.key,
-          protocolVersion: NODE_PROTOCOL_VERSION,
+          protocolVersion: this.cfg.protocolVersion ?? NODE_PROTOCOL_VERSION,
         }),
       ),
     });
@@ -870,5 +872,119 @@ describe("perf sanity (spec §7) + the compiled run path", () => {
     }
     expect(seen.has(daemon)).toBe(true);
     expect(seen.has(linkCrypto)).toBe(true);
+  });
+});
+
+describe("the binding-arm hold — a pinned agent on a wrong protocol (spec 2026-10-13)", () => {
+  /** Dial an agent whose binding claims an old protocol, and wait for its hold. */
+  async function dialStaleAgent(nodeId: string, key: string, nodeStatic: LinkKeyPair, behind: number) {
+    const agent = new FakeAgent(
+      {
+        nodeId,
+        key,
+        nodeStatic,
+        controlStaticPub: serverStatic.publicKey,
+        mode: "handshake",
+        protocolVersion: NODE_PROTOCOL_VERSION - behind,
+      },
+      new JtiLru(),
+    );
+    await agent.dial();
+    await waitFor(() => agent.established, "sealed ok ack opened to a wrong-protocol agent");
+    await waitFor(() => getHeld(nodeId) !== undefined, "binding-arm hold lands");
+    return agent;
+  }
+
+  it("establishes, holds update-only with the row's last honest facts, and a sealed update reaches it", async () => {
+    const nodeStatic = await generateLinkKeyPair();
+    const { nodeId, key } = await fixtureNode({ pin: nodeStatic });
+    // The machine's honest history: it readied BEFORE the plane bumped its
+    // protocol, and the plane's boot then projected the row offline.
+    await nodes.applyReady(nodeId, {
+      agentVersion: "1.5.5",
+      protocolVersion: NODE_PROTOCOL_VERSION - 5,
+      os: "linux",
+      arch: "x64",
+      hostname: "pre-bump-box",
+      capabilities: [],
+    });
+    await nodes.setStatus(nodeId, "offline");
+
+    const agent = await dialStaleAgent(nodeId, key, nodeStatic, 5);
+
+    const entry = getHeld(nodeId);
+    if (!entry) throw new Error("no held entry");
+    expect(getLive(nodeId)).toBeUndefined();
+    expect(entry.reason).toBe("protocol-mismatch");
+    expect(entry.agentVersion).toBe("1.5.5");
+    expect(entry.os).toBe("linux");
+    expect(entry.protocolVersion).toBe(NODE_PROTOCOL_VERSION - 5);
+    expect((await nodes.findById(nodeId))?.status).toBe("offline");
+
+    // The agent believes it connected and arms: its `ready` and heartbeats
+    // arrive SEALED. They are forwarded (the machine's phase moved — this is
+    // NOT the "binding malformed" 4410 the rescue replaced) and dropped by
+    // the held gate: no row write, no new facts, and the idle deadline is
+    // untouched (it is armed once, at hold time).
+    agent.sealAndSend({
+      type: "ready",
+      agentVersion: "9.9.9",
+      protocolVersion: NODE_PROTOCOL_VERSION,
+      os: "linux",
+      arch: "x64",
+      hostname: "would-overwrite",
+      dataDir: "/tmp/agent",
+      capabilities: [],
+    });
+    agent.sealAndSend({ type: "heartbeat", ts: new Date().toISOString() });
+    await new Promise((r) => setTimeout(r, 120));
+    expect((await nodes.findById(nodeId))?.hostname).toBe("pre-bump-box");
+    expect(getHeld(nodeId)).toBeDefined();
+
+    // THE RESCUE: the frozen `update` command — real `sendCommand`, held
+    // fallback, control-key signing, sealed over the session the handshake
+    // derived — and the agent's own `result` settles the correlation.
+    const answer = await sendCommand(nodeId, {
+      type: "update",
+      version: "2.0.1",
+      url: `https://plane.example/api/downloads/node/linux-x64?update_token=nut_${unique("t")}`,
+      sha256: "a".repeat(64),
+    });
+    expect(answer).toEqual({ ack: "update" });
+    expect(agent.cmds.some((c) => c.cmd.type === "update" && c.cmd.version === "2.0.1")).toBe(true);
+    // Binary both directions from the kx on: the rescue never spoke plaintext
+    // to a handshake socket, and every envelope verified against the real
+    // control key.
+    expect(agent.wireIn.every((kind) => kind === "binary")).toBe(true);
+    expect(agent.unexpectedText).toEqual([]);
+    agent.close();
+  });
+
+  it("a redial while held supersedes the previous held socket with 4409", async () => {
+    const nodeStatic = await generateLinkKeyPair();
+    const { nodeId, key } = await fixtureNode({ pin: nodeStatic });
+    const first = await dialStaleAgent(nodeId, key, nodeStatic, 5);
+    const second = await dialStaleAgent(nodeId, key, nodeStatic, 5);
+    const gone = await first.waitClosed();
+    expect(gone.code).toBe(4409);
+    // The NEW socket is the held one; the row still reads offline.
+    expect(getHeld(nodeId)?.conn).toBeDefined();
+    expect(getLive(nodeId)).toBeUndefined();
+    expect((await nodes.findById(nodeId))?.status).toBe("offline");
+    second.close();
+  });
+
+  it("a row that never readied holds with the blank/unknown fallbacks", async () => {
+    const nodeStatic = await generateLinkKeyPair();
+    const { nodeId, key } = await fixtureNode({ pin: nodeStatic }); // no applyReady: os/arch/version null
+    const agent = await dialStaleAgent(nodeId, key, nodeStatic, 3);
+    const entry = getHeld(nodeId);
+    if (!entry) throw new Error("no held entry");
+    expect(entry.agentVersion).toBe("");
+    expect(entry.os).toBe("unknown");
+    expect(entry.arch).toBe("unknown");
+    // The held protocol comes from the BINDING, not the (absent) row.
+    expect(entry.protocolVersion).toBe(NODE_PROTOCOL_VERSION - 3);
+    agent.close();
   });
 });

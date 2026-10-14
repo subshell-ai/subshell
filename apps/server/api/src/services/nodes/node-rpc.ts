@@ -180,9 +180,12 @@ export function sendCommand(nodeId: string, cmd: NodeCommandBody, options: SendC
     // healthy handshake and costing the command a timeout). Read INSIDE the
     // step, so a handshake that completes while this queues still seals
     // normally. `plaintextAllowed === false` is exactly the classified
-    // handshake row; legacy and held sockets (true), and unclassified
+    // handshake row; legacy sockets and their holds (true), and unclassified
     // hand-built conns (undefined), take the ordinary paths unchanged — the
-    // frozen held-`update` rescue above and beside this line stays verbatim.
+    // frozen held-`update` rescue above and beside this line stays verbatim
+    // there. A binding-held socket (spec 2026-10-13) is `false` too, but its
+    // link is wired BEFORE the hold, so this guard cannot fire and its rescue
+    // seals through the branch below.
     if (!conn.link && conn.plaintextAllowed === false) {
       throw new NodeRpcError(
         "offline",
@@ -219,10 +222,12 @@ export function sendCommand(nodeId: string, cmd: NodeCommandBody, options: SendC
       timer,
     });
     // An encrypted link seals the envelope to binary ciphertext (spec
-    // 2026-09-24 §2); the plaintext branch is the legacy/held path and stays
-    // byte-for-byte what it always sent — a HANDSHAKE socket that got this
-    // far has a link, because the unestablished window was refused by the
-    // I-2 guard above. The seal happens INSIDE this
+    // 2026-09-24 §2); the plaintext branch is the legacy path and its holds,
+    // and stays byte-for-byte what it always sent — a HANDSHAKE socket that
+    // got this far has a link, because the unestablished window was refused
+    // by the I-2 guard above, and a binding-held socket (spec 2026-10-13)
+    // has one too: the handler wired it before the hold, so the frozen
+    // rescue reaches that agent sealed. The seal happens INSIDE this
     // connection's serialized step, so the secretstream ratchet advances in
     // exactly the order the frames hit the socket — the same invariant that
     // makes `seq` trustworthy.

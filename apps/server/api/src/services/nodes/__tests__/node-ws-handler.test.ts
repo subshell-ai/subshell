@@ -1896,13 +1896,15 @@ describe("handleNodeMessage through the link machine (spec 2026-09-24 §4/§5/§
     expect(big.closed[0]?.code).toBe(NODE_CLOSE_TOO_BIG);
   });
 
-  it("(g2) a tier-17 binding is refused, and no relay frame EVER reaches the seam on that socket (spec 2026-10-08 §11)", async () => {
-    // THE bump gate: relay frames are a new link frame kind, so an agent
-    // that ships no relay grammar must not pair at all. The exact-match
-    // check in the binding is what refuses it - BEFORE establishment, which
-    // is the only door a relay frame has (the machine hands plaintext only
-    // after `established`, and the switch never runs on an unestablished
-    // socket). The relay frame here is a VALID shape; it fails on the
+  it("(g2) a tier-17 binding is held, and no relay frame EVER reaches the seam on that socket (spec 2026-10-08 §11)", async () => {
+    // THE bump gate, held edition (spec 2026-10-13): relay frames are a new
+    // link frame kind, so an agent that ships no relay grammar must never be
+    // routed one. A wrong-protocol binding now ESTABLISHES and is HELD for the
+    // frozen `update` instead of being closed 4410. The gate that keeps relay
+    // frames out moved from "the socket never established" to: relay frames
+    // can only arrive on an ESTABLISHED socket, the only established
+    // wrong-protocol sockets are HELD ones, and the held gate routes nothing
+    // but a `result`. The relay frame here is a VALID shape; it fails on the
     // version, which is the point.
     resetRelayFramesForTests();
     const f = await handshakeFixture();
@@ -1915,14 +1917,66 @@ describe("handleNodeMessage through the link machine (spec 2026-09-24 §4/§5/§
         JSON.stringify({ nodeId: "n1", nodeKey: LIVE, protocolVersion: NODE_PROTOCOL_VERSION - 1 }),
       ),
     );
-    expect(ws.closed[0]?.code).toBe(NODE_CLOSE_HANDSHAKE_REQUIRED); // 4410
-    expect(ws.data.linkPhase).not.toBe("established");
-    // What the pre-18 agent tries anyway - first as plaintext junk, then as
-    // a WELL-FORMED sealed relay frame its own session can still encrypt.
+    // Established and ACKED (the binary ok is the same shape test (a) pins for
+    // the match arm), then held: the live registry misses, the held map answers
+    // with the binding's protocol number, and a held socket is never closed at
+    // hold time.
+    expect(ws.data.linkPhase).toBe("established");
+    expect(ws.data.nodeConn?.link).toBeDefined();
+    expect(ws.sent).toHaveLength(1);
+    expect(Buffer.isBuffer(ws.sent[0])).toBe(true);
+    expect(client.session.openFrame(ws.sent[0] as Uint8Array)).toBe('{"t":"ok"}');
+    expect(getHeld("n1")).toMatchObject({ reason: "protocol-mismatch", protocolVersion: NODE_PROTOCOL_VERSION - 1 });
+    expect(getLive("n1")).toBeUndefined();
+    expect(ws.closed).toHaveLength(0);
+    // What the pre-18 agent tries anyway - first as plaintext, which the
+    // machine still refuses on an established link (ciphertext only), then as
+    // a WELL-FORMED sealed relay frame its own session can still encrypt,
+    // which the held gate drops before dispatch. Neither door routes.
     const relayFrame = { type: "relay", ref: "r-1", seq: 0, direction: "B2A", blob: "QUJD" };
     await handleNodeMessage(h.deps, ws, JSON.stringify(relayFrame));
+    expect(ws.closed[ws.closed.length - 1]?.code).toBe(NODE_CLOSE_HANDSHAKE_REQUIRED); // 4410, the plaintext rule
     await handleNodeMessage(h.deps, ws, client.session.sealFrame(JSON.stringify(relayFrame)));
-    expect(relayFramesSeenFor("n1")).toBeUndefined(); // refused at the version match, never routed
+    expect(relayFramesSeenFor("n1")).toBeUndefined(); // never routed, either spelling
+    expect(getHeld("n1")).toBeDefined(); // the drops leave the hold undisturbed
+  });
+
+  it("(g2b) the binding-held socket's idle close carries the protocol refusal the agent reads (spec 2026-10-13)", async () => {
+    // The message a refused agent actually logs rides the timer `holdSocket`
+    // armed for THIS socket, and no test said so on the binding arm until now:
+    // `held-connections.test.ts` pins the registry side (the armed timer
+    // exists, release disarms it) with its own injected `onIdle`. This is the
+    // end-to-end arm: the production closer, fired without waiting the ten
+    // minutes. Bun 1.4.2 has no fake timers (measured: `mock.timers` is
+    // undefined), so the armed timeout's own Node-compatible `_onTimeout`
+    // handle runs the callback, and the still-scheduled timer is cleared after
+    // so nothing re-fires against a later test.
+    const f = await handshakeFixture();
+    const { h, ws } = f;
+    await handleNodeMessage(h.deps, ws, kxText(f));
+    await handleNodeMessage(
+      h.deps,
+      ws,
+      f.client.session.sealFrame(
+        JSON.stringify({ nodeId: "n1", nodeKey: LIVE, protocolVersion: NODE_PROTOCOL_VERSION - 1 }),
+      ),
+    );
+    const entry = getHeld("n1");
+    const timer = entry?.timer;
+    expect(timer).toBeDefined();
+    expect(ws.closed).toHaveLength(0); // held, not closed, at hold time
+
+    (timer as unknown as { _onTimeout(): void })._onTimeout();
+    clearTimeout(timer);
+    // Release-before-close is the registry timer's own ordering, preserved:
+    // the close handler finds nothing left to release.
+    expect(getHeld("n1")).toBeUndefined();
+    expect(ws.closed).toHaveLength(1);
+    expect(ws.closed[0]?.code).toBe(NODE_CLOSE_UPDATE_REQUIRED); // 4406
+    // The sentence the agent relays to its own log, pinned against the
+    // handler's template rather than restated.
+    expect(ws.closed[0]?.reason).toContain(`protocol v${NODE_PROTOCOL_VERSION} required`);
+    expect(ws.closed[0]?.reason).toContain(`this node speaks v${NODE_PROTOCOL_VERSION - 1}`);
   });
 
   it("(g3) an established tier-18 link routes a sealed relay frame verbatim to the seam; over-cap is refused by name", async () => {
