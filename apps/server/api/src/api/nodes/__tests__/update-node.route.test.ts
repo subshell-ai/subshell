@@ -549,7 +549,7 @@ describe("POST /api/nodes/:id/update", () => {
     // signed-capable protocol (the gate passes), unknown platform, blank
     // version. The route must refuse on the platform, by name — not mis-pick
     // the linux-x64 artifact or write the blank anywhere.
-    goHeld(id, NODE_SIGNED_UPDATES_PROTOCOL_VERSION, {
+    const sock = goHeld(id, NODE_SIGNED_UPDATES_PROTOCOL_VERSION, {
       agentVersion: "",
       os: "unknown",
       arch: "unknown",
@@ -558,7 +558,13 @@ describe("POST /api/nodes/:id/update", () => {
     const res = await req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
     expect(res.status).toBe(409);
     const err = (await res.json()) as { code: string; message: string };
+    // The refusal code, not just the sentence: the route's target-miss path
+    // answers NODE_UPDATE_UNAVAILABLE (update-node.route.ts), the same code the
+    // no-artifact and no-digest refusals carry.
+    expect(err.code).toBe("NODE_UPDATE_UNAVAILABLE");
     expect(err.message).toContain("No subshell binary is published for unknown/unknown");
+    // And the refused node is never dispatched to, held link and all.
+    expect(sock.sent).toEqual([]);
   });
 
   it("refuses a never-ready node too — unknown capability is refused, not assumed", async () => {
