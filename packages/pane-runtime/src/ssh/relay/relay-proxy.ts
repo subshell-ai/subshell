@@ -220,6 +220,15 @@ export async function startAgentProxy(args: AgentProxyArgs): Promise<AgentProxyH
   let outstanding: OutstandingSlot | null = null;
   /** True while a seal is in flight: no slot has been taken, and no other request starts. */
   let sealedInFlight = false;
+  /**
+   * The connection whose request is mid-`sealRelayEnvelope` (the one sendRequest
+   * is awaiting). It is neither `outstanding` (no slot taken yet) nor in `queue`
+   * (already shifted), so `poisonSession` must know it by name to tear it down
+   * too — otherwise a forged reply that poisons the session while a request is
+   * sealing lets that request complete against a live connection, and the pane
+   * keeps riding an exchange whose whole posture is "refuse everything".
+   */
+  let sealingConn: ConnState | null = null;
   const queue: { conn: ConnState; payload: Buffer }[] = [];
   let closed = false;
 
@@ -244,14 +253,17 @@ export async function startAgentProxy(args: AgentProxyArgs): Promise<AgentProxyH
     say(`relay session ${args.ref}: ${why}; refusing the frame and failing pending agent connections`);
     const waiting = outstanding?.conn;
     if (waiting) failConn(waiting);
+    // The mid-seal request is in neither `outstanding` nor `queue`; fail it by
+    // name so it does not complete against a live socket. Its sendRequest wakes
+    // to find `conns.has(conn)` false and drops without taking the slot.
+    if (sealingConn) failConn(sealingConn);
     for (const q of queue.splice(0)) failConn(q.conn);
-    // A seal still in flight resolves into a dead connection: sendRequest's
-    // liveness re-check drops it and drains the (now empty) queue itself.
     releaseOutstanding();
   };
 
   /** Seal one agent request and hand the frame to the pump; then open the slot. */
   const sendRequest = async (conn: ConnState, payload: Buffer): Promise<void> => {
+    sealingConn = conn; // poisonSession must be able to fail this connection mid-seal
     const agentBytesB64 = base64UrlNoPad(new Uint8Array(payload));
     const reqSeq = signedSeq; // the anti-replay seq this request signs into its envelope
     const message = {
@@ -273,14 +285,17 @@ export async function startAgentProxy(args: AgentProxyArgs): Promise<AgentProxyH
         `relay session ${args.ref}: could not seal an agent request: ${err instanceof Error ? err.message : String(err)}`,
       );
       sealedInFlight = false;
+      sealingConn = null;
       failConn(conn);
       void pumpQueue();
       return;
     }
+    sealingConn = null; // past the seal: this is no longer the in-flight request
     if (closed) return;
     if (!conns.has(conn)) {
-      // The connection died mid-seal: its reply would have nowhere to go, so
-      // the slot is not taken and the queue drains straight away.
+      // The connection died mid-seal (or was poisoned mid-seal, which fails it
+      // here): its reply would have nowhere to go, so the slot is not taken and
+      // the queue drains straight away.
       sealedInFlight = false;
       void pumpQueue();
       return;

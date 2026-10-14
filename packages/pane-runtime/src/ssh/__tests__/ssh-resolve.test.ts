@@ -362,6 +362,14 @@ describe("resolveSshAliasConfig", () => {
     });
     expect(explicit.out.accepted && explicit.out.snapshot.authAgentSocket).toBe("/home/ops/.ssh/custom-agent.sock");
 
+    // PR #379 review: `unix:/abs` is OpenSSH's explicit-socket spelling and
+    // `ssh -G` echoes it verbatim. It must resolve to the socket it NAMES, not
+    // be quietly swapped for the account's env agent.
+    const unixSpelling = await resolveWith("app02", `${CLEAN_G}\nidentityagent unix:/home/ops/.ssh/named.sock`, {
+      env: { SSH_AUTH_SOCK: "/run/user/1000/ssh.sock" },
+    });
+    expect(unixSpelling.out.accepted && unixSpelling.out.snapshot.authAgentSocket).toBe("/home/ops/.ssh/named.sock");
+
     const none = await resolveWith("app02", `${CLEAN_G}\nidentityagent none`, {
       env: { SSH_AUTH_SOCK: "/run/user/1000/ssh.sock" },
     });

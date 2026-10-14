@@ -325,6 +325,13 @@ async function resolveConfig(
   let authAgentSocket: string | null = null;
   if (identityAgent?.startsWith("/")) {
     authAgentSocket = identityAgent;
+  } else if (identityAgent?.startsWith("unix:/")) {
+    // OpenSSH's explicit-socket spelling: `IdentityAgent unix:/abs/sock` names
+    // the SAME absolute path as the bare `/abs/sock` form, and `ssh -G` echoes
+    // it verbatim. Accept it as the path it means — dropping it into the
+    // env-agent branch below would silently connect a DIFFERENT agent's keys
+    // than the reviewed config approved.
+    authAgentSocket = identityAgent.slice("unix:".length);
   } else if (identityAgent !== "none" && env.SSH_AUTH_SOCK?.startsWith("/")) {
     // Everything that is not a path and not `none` — the explicit `ssh-agent`
     // spelling, any future one, and the keyword's absence — means "use the

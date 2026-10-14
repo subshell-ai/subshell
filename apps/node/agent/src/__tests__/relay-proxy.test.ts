@@ -122,6 +122,10 @@ async function startFixture(
   paneId = "pane-1",
   /** Overrides the pump entirely (a throwing pump tests deliver-or-throw); default collects. */
   send?: (frame: RelayFrame) => void,
+  /** Overrides the outbound seal primitive; default is the real mcp-core seal. */
+  seal: typeof mcpSeal = mcpSeal,
+  /** Captures the proxy's own log lines (default: dropped). */
+  log?: (line: string) => void,
 ): Promise<ProxyFixture> {
   const [aKeys, bKeys] = await Promise.all([aKeysReady, bKeysReady]);
   const dataDir = mkdtempSync(join(tmpdir(), "subshell-relay-proxy-"));
@@ -138,8 +142,9 @@ async function startFixture(
     ownEncryptionPublicJwk: bKeys.encryption.publicJwk,
     ownEncryptionPrivateJwk: bKeys.encryption.privateJwk,
     ownSigningPrivateJwk: bKeys.signing.privateJwk,
-    seal: mcpSeal,
+    seal,
     open: mcpOpen,
+    log,
     sendRelayFrame: (frame) => {
       if (send) {
         send(frame);
@@ -341,6 +346,56 @@ test("a reply signed by the WRONG key is refused: nothing written, the pending c
     f.proxy.deliverInboundRelayFrame(forged);
     await waitUntil(() => spyC.closed(), "connection failed");
     expect(spyC.chunks.length).toBe(0); // NEVER a forged reply on the wire to ssh
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("PR #379 review: a forgery that lands while a request is still sealing tears down that request too", async () => {
+  // The mid-seal window: poisonSession must fail the connection whose request
+  // is inside `await sealRelayEnvelope` — it is neither `outstanding` (no slot
+  // taken) nor in `queue` (already shifted), so it has to be failed by name.
+  // A seal primitive that pins the request there until released makes the
+  // ordering deterministic rather than raced. The observable proof is the
+  // frame count after the seal is released: WITH the fix the connection was
+  // already dropped, so sendRequest wakes to find its connection gone and
+  // never takes the slot (no B2A frame); WITHOUT it the request completes and
+  // emits the frame onto a session the pane should be refusing.
+  let sealEntered = false;
+  let releaseSeal: () => void = () => {};
+  const gate = new Promise<void>((res) => {
+    releaseSeal = res;
+  });
+  const heldSeal: typeof mcpSeal = async (user, sealed) => {
+    sealEntered = true;
+    await gate; // hold the request mid-`await sealRelayEnvelope`
+    return mcpSeal(user, sealed);
+  };
+  const proxyLog: string[] = [];
+  const f = await startFixture("pane-midseal", undefined, heldSeal, (l) => proxyLog.push(l));
+  const evil = await evilKeysReady;
+  try {
+    const conn = connectSocket(f.proxy.socketPath);
+    await new Promise<void>((res) => conn.on("connect", () => res()));
+
+    conn.write(agentFrame([SAMPLE_AGENT_REQUEST_A]));
+    await waitUntil(() => sealEntered, "request entered the seal (mid-seal window open)");
+    expect(f.frames.length).toBe(0); // the request is parked inside the seal, nothing out yet
+
+    const forged = await sealReply(f, {
+      seq: 0,
+      nB: newNonce(), // never matches the session; origin/binding verification fails
+      agentBytes: [SAMPLE_AGENT_ANSWER_A],
+      signerPrivateJwk: evil.privateJwk,
+    });
+    f.proxy.deliverInboundRelayFrame(forged);
+    await waitUntil(() => proxyLog.some((l) => l.includes("failing pending agent connections")), "poison ran");
+
+    // Release the seal: sendRequest resumes, sees its connection was failed
+    // mid-seal, and drops the request without taking the slot.
+    releaseSeal();
+    await sleep(40);
+    expect(f.frames.length).toBe(0); // the sealing request was torn down, not emitted
   } finally {
     f.cleanup();
   }
