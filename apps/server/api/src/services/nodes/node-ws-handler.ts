@@ -780,7 +780,8 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
           } else {
             // No connection record (a socket that never went through `open`)
             // — refuse it the old way, exactly as `holdRefusedNode`'s guard
-            // does: nothing can reach it to rescue it.
+            // does: nothing can reach it to rescue it. Defense only — in
+            // production `open` attaches a conn before any frame can land.
             ws.close(NODE_CLOSE_UPDATE_REQUIRED, message);
           }
         }

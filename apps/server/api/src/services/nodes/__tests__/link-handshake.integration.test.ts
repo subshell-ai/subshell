@@ -983,6 +983,8 @@ describe("the binding-arm hold — a pinned agent on a wrong protocol (spec 2026
     expect(entry.agentVersion).toBe("");
     expect(entry.os).toBe("unknown");
     expect(entry.arch).toBe("unknown");
+    // The held protocol comes from the BINDING, not the (absent) row.
+    expect(entry.protocolVersion).toBe(NODE_PROTOCOL_VERSION - 3);
     agent.close();
   });
 });
