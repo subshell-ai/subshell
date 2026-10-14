@@ -627,10 +627,10 @@ async function holdSocket(
 
 /**
  * Hold a socket the plane refuses at the `ready` path, instead of closing it
- * (spec 2026-09-15 §5.3). The parking itself — held map, idle 4406, row
- * projection, presence announce, the one warn line — is {@link holdSocket}'s;
- * this adapter checks there is a connection to hold and hands over the ready
- * frame's facts.
+ * (spec 2026-09-15 §5.3). The parking itself — held map, the idle
+ * {@link NODE_CLOSE_UPDATE_REQUIRED} (4406) close, row projection, presence
+ * announce, the one warn line — is {@link holdSocket}'s; this adapter checks
+ * there is a connection to hold and hands over the ready frame's facts.
  */
 async function holdRefusedNode(
   deps: NodeWsDeps,
@@ -755,6 +755,16 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
         // serialized (`handleNodeMessageQueued`), so the agent's synchronously
         // sent `ready` is processed only after this lands: by then the held
         // gate matches `ws.data.nodeConn === heldEntry.conn` and drops it.
+        // One honest exception to "the held socket receives nothing but the
+        // ack, `update` and its own `result`": between wiring `link` above and
+        // `holdSocket` moving this record out of the live map (which first
+        // awaits `findById`), the conn is briefly LIVE with a session, and a
+        // server-initiated command clicking through in those milliseconds
+        // seals and delivers. Benign by construction: the link only opened
+        // against this row's pinned key (the binding IS the authentication),
+        // and the command is one an operator was already sending; frames FROM
+        // the agent queue behind this handler turn, so the agent still meets
+        // the hold before its next inbound is processed.
         if (outcome.hold) {
           const row = await deps.nodes.findById(nodeId);
           const message = `protocol v${NODE_PROTOCOL_VERSION} required (this node speaks v${outcome.hold.protocolVersion})`;
