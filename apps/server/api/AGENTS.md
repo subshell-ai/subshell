@@ -261,8 +261,10 @@ additive or not, and release both. Since spec 2026-09-15 §5.3 a refusal
 never CLOSES: the socket is parked in `node-registry.ts`'s `held` map
 (`holdRefusedNode` on the `ready` path, or the handshake binding itself
 since spec 2026-10-13): offline for every purpose but
-`update`, the 4406 carrying the relayed reason coming only when the hold
-ends. The identity is persisted BEFORE either gate (the binding path
+`update`, the 4406 carrying the relayed reason coming with the IDLE close
+(the other ways a hold ends carry their own codes: a superseding socket
+4409, revocation and disable their refusal codes). The identity is
+persisted BEFORE either gate (the binding path
 writes no new facts: a held row shows its last honest `ready`, or the
 fallbacks). The two gates carry
 distinct meanings and emit distinct refusals; never infer one from the
