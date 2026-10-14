@@ -1,5 +1,11 @@
 # @internal/website
 
+## 0.2.12
+
+### Patch Changes
+
+- [#379](https://github.com/subshell-ai/subshell/pull/379) [`db33a2d`](https://github.com/subshell-ai/subshell/commit/db33a2dc1a8a3cd1717033bad7b8898cf0740d57) Thanks [@theogravity](https://github.com/theogravity)! - Refresh product screenshots to match the current interface and remove unused screenshots of earlier designs.
+
 ## 0.2.11
 
 ### Patch Changes
