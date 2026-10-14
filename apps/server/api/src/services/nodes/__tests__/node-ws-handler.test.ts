@@ -1941,6 +1941,44 @@ describe("handleNodeMessage through the link machine (spec 2026-09-24 §4/§5/§
     expect(getHeld("n1")).toBeDefined(); // the drops leave the hold undisturbed
   });
 
+  it("(g2b) the binding-held socket's idle close carries the protocol refusal the agent reads (spec 2026-10-13)", async () => {
+    // The message a refused agent actually logs rides the timer `holdSocket`
+    // armed for THIS socket, and no test said so on the binding arm until now:
+    // `held-connections.test.ts` pins the registry side (the armed timer
+    // exists, release disarms it) with its own injected `onIdle`. This is the
+    // end-to-end arm: the production closer, fired without waiting the ten
+    // minutes. Bun 1.4.2 has no fake timers (measured: `mock.timers` is
+    // undefined), so the armed timeout's own Node-compatible `_onTimeout`
+    // handle runs the callback, and the still-scheduled timer is cleared after
+    // so nothing re-fires against a later test.
+    const f = await handshakeFixture();
+    const { h, ws } = f;
+    await handleNodeMessage(h.deps, ws, kxText(f));
+    await handleNodeMessage(
+      h.deps,
+      ws,
+      f.client.session.sealFrame(
+        JSON.stringify({ nodeId: "n1", nodeKey: LIVE, protocolVersion: NODE_PROTOCOL_VERSION - 1 }),
+      ),
+    );
+    const entry = getHeld("n1");
+    const timer = entry?.timer;
+    expect(timer).toBeDefined();
+    expect(ws.closed).toHaveLength(0); // held, not closed, at hold time
+
+    (timer as unknown as { _onTimeout(): void })._onTimeout();
+    clearTimeout(timer);
+    // Release-before-close is the registry timer's own ordering, preserved:
+    // the close handler finds nothing left to release.
+    expect(getHeld("n1")).toBeUndefined();
+    expect(ws.closed).toHaveLength(1);
+    expect(ws.closed[0]?.code).toBe(NODE_CLOSE_UPDATE_REQUIRED); // 4406
+    // The sentence the agent relays to its own log, pinned against the
+    // handler's template rather than restated.
+    expect(ws.closed[0]?.reason).toContain(`protocol v${NODE_PROTOCOL_VERSION} required`);
+    expect(ws.closed[0]?.reason).toContain(`this node speaks v${NODE_PROTOCOL_VERSION - 1}`);
+  });
+
   it("(g3) an established tier-18 link routes a sealed relay frame verbatim to the seam; over-cap is refused by name", async () => {
     resetRelayFramesForTests();
     const f = await handshakeFixture();
