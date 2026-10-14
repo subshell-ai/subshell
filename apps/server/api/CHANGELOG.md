@@ -1,5 +1,11 @@
 # @internal/server
 
+## 2.0.1
+
+### Patch Changes
+
+- [#382](https://github.com/subshell-ai/subshell/pull/382) [`baba37a`](https://github.com/subshell-ai/subshell/commit/baba37a8f5f14e0feb05768538dd5add4f959975) Thanks [@theogravity](https://github.com/theogravity)! - Hold nodes the protocol gate refused mid-handshake, so Update can reach them. An encrypted-link agent one protocol behind an upgraded server used to be closed with "protocol mismatch" and redial forever, showing only as offline with an Update button that refused. It now finishes its handshake, is held offline-for-everything-but-update, and the Updates page's Update button rescues it in one click.
+
 ## 2.0.0
 
 ### Major Changes

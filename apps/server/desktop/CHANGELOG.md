@@ -1,5 +1,12 @@
 # @internal/desktop-server
 
+## 1.4.14
+
+### Patch Changes
+
+- Updated dependencies [[`baba37a`](https://github.com/subshell-ai/subshell/commit/baba37a8f5f14e0feb05768538dd5add4f959975)]:
+  - @internal/server@2.0.1
+
 ## 1.4.13
 
 ### Patch Changes
