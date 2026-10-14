@@ -271,7 +271,7 @@ describe("handshake mode — happy path", () => {
   });
 });
 
-describe("handshake mode — every refusal is 4410", () => {
+describe("handshake mode — the 4410 refusals (and the protocol arm that no longer closes)", () => {
   it("rejects a kx eph that does not decode to 32 bytes", async () => {
     const h = await makeHarness();
     const sodium = await ensureSodium();
