@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { BackendErrorCodes } from "@internal/backend-errors";
 import type { NodeGate } from "@/api/nodes/node-gate.js";
-import { sshPolicy } from "@/services/ssh-policy.service.js";
+import { blockersRevokeAccess, sshPolicy } from "@/services/ssh-policy.service.js";
 import { selectRelayFingerprints } from "@/services/ssh-relay-launch.service.js";
 
 const ready = { lockdown: false, serverAccountEnabled: true, held: false, online: true, ready: true };
@@ -58,6 +58,29 @@ describe("SSH policy follows existing launch permission", () => {
       BackendErrorCodes.NODE_IN_MAINTENANCE,
     );
     expect(sshPolicy({ ...owner, row: { ...owner.row, sshEnabled: 0 } }, ready).canConnect).toBe(false);
+  });
+});
+
+describe("access revocation excludes maintenance", () => {
+  test("a maintenance-only row is not an authorization loss", () => {
+    // This is the exact blocker set `sshAccessRevoked` sees when the neutralized
+    // state clears lockdown/liveness but the row still carries maintenance=1:
+    // a key-home machine in maintenance must NOT cut a live relay on the other
+    // node, so it cannot read as a revocation.
+    const maintOnly = [{ code: BackendErrorCodes.NODE_IN_MAINTENANCE, message: "in maintenance" }];
+    expect(blockersRevokeAccess(maintOnly)).toBe(false);
+  });
+  test("a genuine authorization loss revokes even alongside maintenance", () => {
+    expect(blockersRevokeAccess([{ code: BackendErrorCodes.SSH_GATE_OFF, message: "ssh off" }])).toBe(true);
+    expect(
+      blockersRevokeAccess([
+        { code: BackendErrorCodes.NODE_IN_MAINTENANCE, message: "in maintenance" },
+        { code: BackendErrorCodes.SSH_GATE_OFF, message: "launch access gone" },
+      ]),
+    ).toBe(true);
+  });
+  test("no blockers means still authorized", () => {
+    expect(blockersRevokeAccess([])).toBe(false);
   });
 });
 

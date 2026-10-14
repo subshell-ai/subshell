@@ -81,6 +81,18 @@ export async function sshReadiness(gate: NodeGate, config?: SshPolicyConfig) {
 }
 
 /**
+ * Which policy blockers count as the viewer LOSING authorization to keep a
+ * live session. Maintenance is excluded: it's a routing preference, never a
+ * revocation, so a key-home machine slipping into maintenance must not cut a
+ * live relay whose pane runs on the OTHER node. `sshAccessRevoked` neutralizes
+ * lockdown and liveness through the policy state, but maintenance is a ROW fact
+ * that survives that neutralization, so it has to be filtered here too.
+ */
+export function blockersRevokeAccess(blockers: SshBlocker[]): boolean {
+  return blockers.some((b) => b.code !== BackendErrorCodes.NODE_IN_MAINTENANCE);
+}
+
+/**
  * Whether the viewer has lost the AUTHORIZATION to keep a live SSH session on
  * this machine: no row or gate left, launch access gone, outgoing SSH switched
  * off on it. Liveness (offline, held, still-connecting) and maintenance are
@@ -99,7 +111,7 @@ export async function sshAccessRevoked(viewerId: string, nodeId: string): Promis
     online: true,
     ready: true,
   });
-  return !policy.canConnect;
+  return blockersRevokeAccess(policy.blockers);
 }
 
 /** Invisible and absent machines have the same 404; refuse before any RPC. */

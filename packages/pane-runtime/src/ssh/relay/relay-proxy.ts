@@ -291,7 +291,10 @@ export async function startAgentProxy(args: AgentProxyArgs): Promise<AgentProxyH
       return;
     }
     sealingConn = null; // past the seal: this is no longer the in-flight request
-    if (closed) return;
+    if (closed) {
+      sealedInFlight = false; // keep the flag's "while a seal is in flight" invariant true, even post-close
+      return;
+    }
     if (!conns.has(conn)) {
       // The connection died mid-seal (or was poisoned mid-seal, which fails it
       // here): its reply would have nowhere to go, so the slot is not taken and
