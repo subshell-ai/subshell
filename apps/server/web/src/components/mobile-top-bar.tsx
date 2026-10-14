@@ -27,14 +27,16 @@ export function MobileNav() {
 
   if (hasSidebar) return null;
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
+    <Sheet open={open} onOpenChange={setOpen} disablePointerDismissal={false}>
       <SheetTrigger
         aria-label="Open navigation"
         className="flex h-9 w-9 touch-manipulation items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground"
       >
         <Menu className="h-5 w-5" />
       </SheetTrigger>
-      <SheetContent side="left" className="p-0" showClose={false}>
+      {/* Keep the sheet's safe-area padding: this portal sits outside the
+          app frame that normally clears the iPhone's camera and status bar. */}
+      <SheetContent side="left" showClose={false}>
         <SheetTitle className="sr-only">Navigation</SheetTitle>
         <AppSidebar
           forceExpanded
@@ -49,7 +51,7 @@ export function MobileNav() {
           headerEnd={
             <SheetClose
               aria-label="Close"
-              className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+              className="flex size-11 shrink-0 cursor-pointer touch-manipulation items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
             >
               <X className="h-4 w-4" />
             </SheetClose>

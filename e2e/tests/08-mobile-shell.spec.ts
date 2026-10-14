@@ -89,6 +89,40 @@ test("shell chrome follows the 1024px rule", async ({ page }) => {
   }
 });
 
+test("drawer closes by backdrop or a close button below the phone safe area", async ({ page, context }) => {
+  test.skip(!isPhone(), "phone-only drawer flow");
+  const cdp = await context.newCDPSession(page);
+  // Device descriptors don't emulate the PWA's camera/status-bar inset.
+  // Override the browser environment value so the real CSS layout is tested.
+  await cdp.send("Emulation.setSafeAreaInsetsOverride", {
+    insets: { top: 59, bottom: 34, left: 0, right: 0 },
+  });
+  await page.goto("/");
+  const open = page.getByRole("button", { name: "Open navigation" });
+  const drawer = page.getByRole("dialog", { name: "Navigation" });
+  await open.tap();
+  const close = drawer.getByRole("button", { name: "Close", exact: true });
+  await expect(close).toBeVisible();
+  const box = await close.boundingBox();
+  if (!box) throw new Error("The sidebar close button has no bounding box");
+  expect(box.y).toBeGreaterThanOrEqual(59);
+  expect(box.width).toBeGreaterThanOrEqual(44);
+  expect(box.height).toBeGreaterThanOrEqual(44);
+  await close.tap();
+  await expect(drawer).toHaveCount(0);
+
+  await open.tap();
+  await expect(drawer).toBeVisible();
+  // An ordinary tap inside the drawer must not dismiss it.
+  // Locator taps wait for the opening slide animation to finish.
+  await drawer.tap({ position: { x: 4, y: 200 } });
+  await expect(drawer).toBeVisible();
+  const width = await page.evaluate(() => window.innerWidth);
+  await page.touchscreen.tap(width - 8, 200);
+  await expect(drawer).toHaveCount(0);
+  await cdp.detach();
+});
+
 test("drawer quick-add: inline ✕, dialog opens, drawer dismissed", async ({ page }) => {
   // The 2026-09-04 phone reports: the drawer's floating ✕ landed on the
   // quick-add + row (taps hit the X instead), and the quick-add dialog was
