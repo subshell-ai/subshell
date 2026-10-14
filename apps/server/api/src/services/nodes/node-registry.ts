@@ -280,10 +280,13 @@ const held = new Map<string, HeldConnection>();
  * would look. Ten minutes is long enough for a person to notice the row, press
  * Update and have a ~70 MB download finish; after it the node redials and is
  * held again, so nothing is lost but the socket, same budget on either held
- * arm. For protocol-15 agents the 4406 itself is TERMINAL (verified against
- * `cli-node-v1.5.5`'s daemon close arm): the agent reverts any refused update
- * transaction and exits, and the SERVICE MANAGER brings it back to redial;
- * older agents reconnect through their own in-process backoff.
+ * arm. The redial is NOT the agent's own doing: the 4406 is TERMINAL for
+ * every agent that can reach a hold (verified across the tag history back to
+ * `cli-node-v0.13.0` — the daemon logs the refusal, reverts any update
+ * transaction it left pending, and exits), so what brings the node back is
+ * the SERVICE MANAGER's restart, or a human at the machine. An unsupervised
+ * held agent simply stays offline until one of the two runs — which is also
+ * when it can self-rescue with `subshell update`.
  */
 export const HELD_IDLE_MS = 10 * 60 * 1000;
 

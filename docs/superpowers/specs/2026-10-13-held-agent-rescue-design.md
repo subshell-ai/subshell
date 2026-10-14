@@ -195,13 +195,21 @@ the whole point is that a build we cannot talk to writes no machine facts).
   close path's held release (existing code).
 - The idle close (HELD_IDLE_MS, armed once at hold time and reset by NO
   frame — forwarded heartbeats do not touch it) closes 4406 with the
-  "update required" sentence, and from protocol-15 agents on that close is
-  TERMINAL for the daemon: 1.5.5's `onClosed` arm runs `revertAfterRefusal`
+  "update required" sentence, and that close is TERMINAL for EVERY agent
+  that can reach a hold: 1.5.5's `onClosed` arm runs `revertAfterRefusal`
   (an in-flight update transaction keeps its `.previous` and rolls back) and
-  `stop(1)`, and the SERVICE MANAGER brings the daemon back to redial into
-  the hold again. `node-registry.ts`'s HELD_IDLE docstring says "the agent's
-  backoff loop reconnects" — true of pre-15 agents only, and its comment
-  must say both mechanisms. The timing interlock already favors us: the
+  `stop(1)`, and what brings the node back to redial into the hold again is
+  the SERVICE MANAGER's restart, or a human at the machine; an unsupervised
+  held agent simply stays offline until one of the two runs, which is also
+  when it can self-rescue with `subshell update`. Review-round correction:
+  this paragraph first claimed the terminality began with protocol 15 and
+  that older agents reconnected through their in-process backoff. Task 5's
+  review checked the tag history back to `cli-node-v0.13.0` (v1.0.0 and
+  v1.4.0 print `the control plane refused this agent (close 4406): ... ;
+  exiting` verbatim) and the backoff claim was wrong, not merely dated: the
+  backoff loop serves ordinary network closes, never 4406. The
+  `node-registry.ts` HELD_IDLE docstring now carries the corrected
+  sentence. The timing interlock already favors us: the
   agent's `UPDATE_ACCEPTED_MS` settle timer is 15 min against the plane's
   10-min hold, so a rescue accepted at the deadline's edge reverts through
   the 4406 path rather than losing its rollback.
@@ -226,8 +234,10 @@ the whole point is that a build we cannot talk to writes no machine facts).
   link. The frozen rescue rides the sealed arm for it and the plaintext arm
   for the legacy holds — one sentence, both true.
 - `node-registry.ts`, HELD_IDLE docstring: "the agent's backoff loop
-  reconnects" — pre-15 agents only (see the boundary above: terminal 4406 +
-  service-manager restart from 1.5.5 on).
+  reconnects" — wrong for every agent that can reach a hold, not merely
+  dated (see the corrected boundary above: terminal 4406 for all of them,
+  and the redial is the service manager's restart or a human, verified
+  back to `cli-node-v0.13.0`).
 - `completeBinding` docstring: the three checks still exist; what changed is
   the third one's failure shape.
 - `holdRefusedNode` docstring: add the binding entry point (the shared

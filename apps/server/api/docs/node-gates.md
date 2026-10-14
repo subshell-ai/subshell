@@ -6,13 +6,16 @@ since spec 2026-09-15 §5.3 neither CLOSES any more; a refusal is
 (`holdRefusedNode` on the `ready` path; since spec 2026-10-13 the
 handshake binding can park it directly), so the node is
 offline for every purpose but `update`, its inbound frames are
-dropped unparsed, and the 4406 close carrying the refusal reason the node
-RELAYS to its own log comes only when the hold ends: ten idle minutes
-(`HELD_IDLE_MS`), a newer socket, or `disconnectNode` on key rotation or
-deletion. From protocol-15 agents that idle 4406 is TERMINAL for the
-daemon (it reverts any refused update transaction and exits; the service
-manager brings it back to redial), older agents reconnect in-process, and
-either way the node lands held again; the held window is exactly what lets
+dropped after the envelope parse and before the dispatch, and the 4406
+close carrying the refusal reason the node RELAYS to its own log comes
+with the IDLE close (`HELD_IDLE_MS`); the other ways a hold ends carry
+their own codes: a superseding socket closes the old one 4409, and
+revocation and disable use their refusal codes. That idle 4406 is
+TERMINAL for every agent that can reach a hold (verified across the tag
+history back to `cli-node-v0.13.0`: the daemon logs the refusal, reverts
+any update transaction it left pending, and exits), so the redial that
+lands it held again is the SERVICE MANAGER's restart, or a human at the
+machine; the held window is exactly what lets
 the Updates surface send the one command that fixes it, plaintext on the
 legacy arm and sealed through its own link on a binding-held socket):
 
