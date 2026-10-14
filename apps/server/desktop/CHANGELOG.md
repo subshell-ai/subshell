@@ -1,5 +1,17 @@
 # @internal/desktop-server
 
+## 1.4.13
+
+### Patch Changes
+
+- [#379](https://github.com/subshell-ai/subshell/pull/379) [`db33a2d`](https://github.com/subshell-ai/subshell/commit/db33a2dc1a8a3cd1717033bad7b8898cf0740d57) Thanks [@theogravity](https://github.com/theogravity)! - Open SSH terminals from the subshell launch dialog using local keys, a jump host, or selected SSH-agent keys on another accessible machine. The connection form supports key and password authentication and enables outgoing SSH when the node’s owner starts a connection. Saved destinations, workspace launches, view-only access, and destination enrollment share the same flow.
+  
+  Encrypted agent relays keep private keys on their home machine and restrict signing to the selected fingerprints. Existing machine launch access authorizes both ends; there are no separate SSH grants or approval requests. Host keys and machine identities stay pinned, and changing them requires explicit recovery. The server can participate as either relay endpoint. Unfamiliar relay destinations ask for confirmation in the connection flow; users no longer need to paste or manage host keys in settings.
+  
+  Update the server before the nodes. This feature requires node protocol 20. SSH stays disabled by default on each machine. Migrations add the SSH capability, saved destinations, and trust records; migration 0053 removes obsolete grant and approval tables while preserving destination trust and audit history.
+- Updated dependencies [[`48383c2`](https://github.com/subshell-ai/subshell/commit/48383c283823a852c39bfe781228cca6fb705804), [`5869a79`](https://github.com/subshell-ai/subshell/commit/5869a794dc64c77dfbe0dca0caa071d6af76c568), [`db33a2d`](https://github.com/subshell-ai/subshell/commit/db33a2dc1a8a3cd1717033bad7b8898cf0740d57)]:
+  - @internal/server@2.0.0
+
 ## 1.4.12
 
 ### Patch Changes

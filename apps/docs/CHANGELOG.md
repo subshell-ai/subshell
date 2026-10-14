@@ -1,5 +1,19 @@
 # @internal/docs
 
+## 0.8.0
+
+### Minor Changes
+
+- [#379](https://github.com/subshell-ai/subshell/pull/379) [`db33a2d`](https://github.com/subshell-ai/subshell/commit/db33a2dc1a8a3cd1717033bad7b8898cf0740d57) Thanks [@theogravity](https://github.com/theogravity)! - Document SSH connections, authentication choices, destination verification, and saved destinations with screenshots of the connection flow.
+
+### Patch Changes
+
+- [#379](https://github.com/subshell-ai/subshell/pull/379) [`db33a2d`](https://github.com/subshell-ai/subshell/commit/db33a2dc1a8a3cd1717033bad7b8898cf0740d57) Thanks [@theogravity](https://github.com/theogravity)! - Correct SSH input permissions, node connection reload guidance, protocol details, and workspace layout behavior against the current implementation.
+
+- [#377](https://github.com/subshell-ai/subshell/pull/377) [`5869a79`](https://github.com/subshell-ai/subshell/commit/5869a794dc64c77dfbe0dca0caa071d6af76c568) Thanks [@theogravity](https://github.com/theogravity)! - Paired nodes now look for a faster verified LAN connection at startup and reconnect, keeping the configured server address as a fallback. Discovery protects node credentials with the pinned control-plane identity and uses one-use connection tickets. Healthy connections stay in place to avoid interrupting running work.
+
+- [#379](https://github.com/subshell-ai/subshell/pull/379) [`db33a2d`](https://github.com/subshell-ai/subshell/commit/db33a2dc1a8a3cd1717033bad7b8898cf0740d57) Thanks [@theogravity](https://github.com/theogravity)! - Refresh documentation screenshots for the current dashboard, forms, tables, and dialogs. Remove the obsolete dashboard capture and update preset editing instructions and screenshot captions.
+
 ## 0.7.2
 
 ### Patch Changes
