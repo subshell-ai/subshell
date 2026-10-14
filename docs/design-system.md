@@ -197,6 +197,9 @@ Close (×) button counts. Apply this in the shared dialog primitives across the
 web dashboard, node dashboard, and desktop apps. Native mobile modals follow the
 same rule. Popovers and menus aren't dialogs and keep their outside-dismiss behavior.
 
+The mobile navigation sidebar is an exception: tapping its backdrop closes it.
+Keep its Close button inside the screen's safe area as another way to dismiss it.
+
 Escape and native Back keep their existing behavior. New/edit forms may block
 Escape to protect unsaved work, and running operations may temporarily block
 closing when interruption isn't supported; explain that state beside the controls.
