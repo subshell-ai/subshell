@@ -672,6 +672,17 @@ describe("relay launch with current launch access", () => {
       },
     );
     try {
+      // Start stays disabled until the key-home roster query settles
+      // (rosterReady). The fixed settle() in renderPanel doesn't guarantee that
+      // under a loaded CI runner, so a bare click can land on the still-pending
+      // gate and send nothing. Wait for the control to go live before clicking.
+      await waitFor(
+        () =>
+          expect((screen.getByRole("button", { name: /^Start SSH subshell$/ }) as HTMLButtonElement).disabled).toBe(
+            false,
+          ),
+        { timeout: 4000 },
+      );
       await clickConnect();
       expect(calls.find((c) => c.url === "/api/ssh/launch")?.body).toEqual({
         node: HOST_A.id,
