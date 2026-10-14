@@ -3,10 +3,6 @@
 "@internal/node": major
 "@internal/desktop-server": patch
 "@internal/desktop-client": patch
-"@internal/subshell-protocol": minor
-"@internal/pane-runtime": minor
-"@internal/server-web": minor
-"@internal/mobile": minor
 ---
 
 Open SSH terminals from the subshell launch dialog using local keys, a jump host, or selected SSH-agent keys on another accessible machine. The connection form supports key and password authentication and enables outgoing SSH when the node’s owner starts a connection. Saved destinations, workspace launches, view-only access, and destination enrollment share the same flow.
