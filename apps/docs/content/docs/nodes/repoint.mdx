@@ -27,10 +27,9 @@ continue to use the configured address.
 
 ```bash
 subshell configure --server https://server.example.com
-subshell service restart
 ```
 
-Replace the example URL with your server's new address. If you run the daemon in the foreground, restart it through the program or terminal that launched it.
+Replace the example URL with your server's new address. A running daemon reloads valid connection settings on its next heartbeat and reconnects automatically. Terminal streams can briefly disconnect while it reconnects. If the daemon is stopped, start it through its service or the terminal where you normally run it.
 
 Changing the server URL clears the saved WebSocket address so the node can discover where to connect.
 
@@ -46,7 +45,7 @@ If you obtained a rotated node credential through the API, store it on that mach
 subshell configure --key REPLACE_WITH_ROTATED_NODE_KEY
 ```
 
-Restart the daemon to apply it. A setup key beginning with `nsk_` isn't a rotated node key; it belongs to `setup` or `enroll`.
+A running daemon reloads the credential and reconnects automatically. A setup key beginning with `nsk_` isn't a rotated node key; it belongs to `setup` or `enroll`.
 
 ## Change control planes
 

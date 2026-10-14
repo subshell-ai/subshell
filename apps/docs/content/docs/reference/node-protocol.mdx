@@ -114,7 +114,7 @@ A success event has `type: "result"`, `ref`, `ok: true`, and optional `data`. A 
 
 The server normally waits up to 10 seconds for a command result. Updates, `archive_create`, and `archive_extract` use a five-minute deadline; `tree_manifest` gets a minute and each `transfer_write` chunk thirty seconds. The command's signature expiry governs acceptance, not the maximum duration of an already-accepted operation. A timeout doesn't prove that the node performed no work; inspect state before retrying an operation that could create or change something.
 
-A command that runs for minutes is queued behind every other command on that node's serialized connection: while a node builds or extracts an archive, its pane input waits its turn. Transfers are bounded so the wait stays finite: relay windows are capped at 512 KiB of raw bytes per frame, and one archive at 4 GiB uncompressed.
+Most commands execute in arrival order on a shared queue, so a long archive operation can delay captures, resizes, and other management commands. Terminal input has its own ordered queue and doesn't wait behind those operations. Transfer relay windows are capped at 512 KiB of raw bytes per frame, and one archive at 4 GiB uncompressed.
 
 ### Command families
 
@@ -126,7 +126,9 @@ A command that runs for minutes is queued behind every other command on that nod
 | Files and directories | `stat_dir`, `fs_ls`, `path_exists`, `write_file`, `remove_paths`, `set_allowed_dirs`. |
 | Archive transfer | `archive_create`, `file_read`, `transfer_write`, `archive_extract`, `tree_manifest`. |
 | Machine information | `inventory`, `detect`, `ping`. |
-| Node management | `service`, `agent_log_read`, `set_server_url`, `set_log_level`, `set_maintenance`, `update`. |
+| Node management | `service`, `agent_log_read`, `set_server_url`, `set_log_level`, `set_maintenance`, `set_ssh_enabled`, `update`. |
+| SSH discovery and trust | `ssh_discover_aliases`, `ssh_resolve_config`, `ssh_register_identity`, `ssh_agent_identities`, `ssh_host_key`, `ssh_machine_pin_repair`. |
+| SSH relay and remote setup | `ssh_relay_open`, `ssh_relay_close`, `ssh_exec`, `ssh_exec_status`. |
 
 A command existing on the wire doesn't grant every user access to it. Server routes enforce ownership, grants, and administrator requirements before dispatch. The daemon also applies local checks, including directory rules, maintenance refusals, and service-manager safety checks.
 
@@ -171,7 +173,7 @@ The server applies two distinct gates to readiness:
 1. The node release must meet the server's minimum supported release version.
 2. Its protocol version must match the server's protocol exactly.
 
-The implemented protocol is **15**. Its number is independent of the package release version. Additive wire changes also require a protocol bump and coordinated rollout; there is no per-feature compatibility window.
+The implemented protocol is **20**. Its number is independent of the package release version. Additive wire changes also require a protocol bump and coordinated rollout; there is no per-feature compatibility window.
 
 A refused node can remain connected in a **held** state for updates while staying unavailable for launches and ordinary management commands. Only `update` can use that held connection. Older nodes on the legacy path receive that update command in its frozen plaintext recovery format; they aren't admitted for normal plaintext operation. Invalid credentials and disabled owners are authentication failures, not update holds.
 
@@ -195,7 +197,7 @@ Common close signals include:
 
 The daemon uses full-jitter exponential reconnect backoff with a one-second initial ceiling and a 60-second maximum ceiling. A successful socket open resets the backoff ladder. Authentication or pairing failures require diagnosis rather than repeated launch attempts.
 
-Key rotation replaces the node credential and clears the server-side encryption pin. Apply the new node credential on the execution machine and restart; automatic re-pairing doesn't supply the replacement credential. A lost node-side encryption identity against an already-pinned server record may require explicit credential rotation and repair. See [Repoint a node](/nodes/repoint#store-a-rotated-key) and [Node troubleshooting](/troubleshooting/nodes).
+Key rotation replaces the node credential and clears the server-side encryption pin. Store the new node credential on the execution machine with `subshell configure --key`; a running daemon reloads it and reconnects. Automatic re-pairing doesn't supply the replacement credential. A lost node-side encryption identity against an already-pinned server record may require explicit credential rotation and repair. See [Repoint a node](/nodes/repoint#store-a-rotated-key) and [Node troubleshooting](/troubleshooting/nodes).
 
 ## Security boundaries and implementation reference
 

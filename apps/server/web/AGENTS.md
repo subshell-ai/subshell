@@ -413,3 +413,42 @@ tap-only strip never takes draggable tabs off a window holding a mouse.
 **Working on the terminal, dockview, touch/swipe handling, or shared-grid
 sizing, and before ANY `dockview-react` upgrade (which a standing hand-run
 probe gates): read apps/server/web/docs/terminal-gotchas.md first.**
+
+## SSH relay launch and setup
+
+The SSH terminal choice in New subshell can use loaded SSH-agent keys from
+another machine the user can launch on. Both the connecting machine and key
+source follow existing machine launch access; configuration stays owner/admin.
+There are no separate SSH grants or approvals. The default omits `keyHome`
+and uses the connecting machine's own keys. A relay launch carries explicit
+fingerprints, retained for “Set up Subshell here”; never silently substitute or
+widen the selection when keys disappear or a machine goes offline.
+
+The SSH tab opens directly on its connection form and preserves launch choices
+and workspace/split context. Selecting another node's keys reveals its picker
+and key roster inline. Start SSH subshell enables outgoing SSH on the connecting
+node only when the viewer can configure it and the disabled flag is its sole
+blocker, with a gold notice before submission. Recheck readiness before enabling
+and before launching. Node pages manage SSH through their settings card.
+When a relay connection has no trusted destination identity, its launch refusal
+opens a one-time confirmation in the connection flow. Cancellation saves nothing;
+acceptance submits the server-issued token and retries the captured launch once.
+Changed identities never use that prompt. SSH settings manages saved destinations,
+not host keys. Verification details can reveal the public fingerprint without
+requiring a user to paste or manage key material.
+Old `/connect` links open the same
+subshell dialog through `/new?kind=ssh`. Failed reads must stay distinct from
+empty lists, with retry actions. Read `docs/launch-form-picker.md` for the
+shared draft, readiness, and launch-callback contracts.
+
+“Set up Subshell here” can be dismissed while running. Its owner-scoped status
+read observes stages selected by the server, never installer output. Reopening
+or refreshing joins the same running operation; a duplicate POST also joins it.
+Completed results remain for one hour in the running server process. This is
+not a durable job across server restarts: after a restart, check Nodes and the
+destination before retrying an interrupted install. Keep that limitation honest
+in any future recovery UI.
+
+Enrollment without a confirmed connection is terminal status `enrolled`, with
+the node id retained. Link to that node and its service recovery; do not offer
+another install or describe it as connected.

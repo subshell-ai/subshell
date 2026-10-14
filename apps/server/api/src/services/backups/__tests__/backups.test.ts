@@ -163,6 +163,27 @@ describe("instance archive", () => {
     await expect(backup(source)).rejects.toThrow("required identity: data/identities/sess-one.json");
   });
 
+  it("roundtrips server relay identity and pins, and refuses a registered identity without its file", async () => {
+    const source = fixture("relay-source");
+    const db = new Database(source.databasePath);
+    db.exec("CREATE TABLE identities(principal_id TEXT)");
+    db.query("INSERT INTO identities VALUES (?)").run("node:local");
+    db.close();
+    await expect(backup(source)).rejects.toThrow("required identity: data/ssh-relay/identity.json");
+    put(join(source.dataDir, "ssh-relay", "identity.json"), "relay-private-identity");
+    put(join(source.dataDir, "ssh-relay", "ssh-machine-pins.json"), "relay-trust-pins");
+    const staged = await stage(await backup(source));
+    const destination = fixture("relay-destination");
+    const transaction = await restoreInstanceBackup(staged, { destination });
+    expect(readFileSync(join(destination.dataDir, "ssh-relay", "identity.json"), "utf8")).toBe(
+      "relay-private-identity",
+    );
+    expect(readFileSync(join(destination.dataDir, "ssh-relay", "ssh-machine-pins.json"), "utf8")).toBe(
+      "relay-trust-pins",
+    );
+    await finalizeInstanceRestore(transaction.journalPath);
+  });
+
   it("rejects wrong password, truncated ciphertext and authenticated-header tampering", async () => {
     const path = await backup(fixture("source"), "unique archive password");
     await expect(stage(path)).rejects.toThrow("requires a password");

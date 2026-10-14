@@ -79,6 +79,23 @@ export interface SubshellTable {
    */
   crossAgent: number;
   /**
+   * an SSH-terminal pane carries its approved snapshot here; the value's
+   * presence is the owner-only-input rule's trigger (spec §5.4). JSON-encoded
+   * `SshConnectionSnapshotWire` plus optional `relayFingerprints: string[]`
+   * recording the exact selected keys for relay panes. Never serialized to
+   * clients, the launch answer included. See migration 0048.
+   */
+  ssh: string | null;
+  /**
+   * For a relay-mode ssh pane: the key home whose agent signed the
+   * connection, chosen at launch and IMMUTABLE after (spec 2026-10-08 §7,
+   * migration 0052). "Set up Subshell here" re-opens that pairing to reach
+   * the destination again, and the 30 s relay session itself is plane-memory
+   * by then - this column is the pane's only durable word on which A
+   * authorized it. NULL on every direct (M1) pane.
+   */
+  keyHomeNodeId: string | null;
+  /**
    * DEPRECATED (spec 2026-09-03): the terminal history cap moved per-USER
    * (`user_meta.terminal_replay_lines`, migration 0020). This column is
    * read and written by nothing; it stays so a rollback finds its data.
@@ -113,6 +130,8 @@ export type NewSubshell = Omit<
   | "lastPushUrgency"
   | "nodeId"
   | "crossAgent"
+  | "ssh"
+  | "keyHomeNodeId"
   | "terminalReplayLines"
 > & {
   /** Preset launched with; omitted = NULL (presetless launch). Defaults on insert. */
@@ -121,6 +140,10 @@ export type NewSubshell = Omit<
   nodeId?: string;
   /** 1 = agent-launched cross-agent comms pane; omitted = DB default 0 (human) */
   crossAgent?: number;
+  /** SSH snapshot JSON for an ssh pane; omitted = NULL = not an ssh pane (migration 0048) */
+  ssh?: string | null;
+  /** Relay pane's key home; omitted = NULL = direct (migration 0052) */
+  keyHomeNodeId?: string | null;
   /** Per-subshell terminal replay cap; omitted = NULL = instance default */
   terminalReplayLines?: number | null;
   harnessSessionId?: string | null;
@@ -142,6 +165,10 @@ export type NewSubshell = Omit<
 /**
  * The patch shape for row updates. `crossAgent` is excluded beside `id` and
  * `userId` because provenance is written exactly once, by the create path:
- * "no later act un-stamps it" is a type fact, not a convention.
+ * "no later act un-stamps it" is a type fact, not a convention. `ssh` is
+ * excluded for the same reason (spec 2026-10-07 decision 5): the approved
+ * snapshot is written once at create, and it IS the input rule's kind fact,
+ * the restart refusal's trigger, and the delete sweep's pointer. No later
+ * act may rewrite or clear it, so no update can name it.
  */
-export type SubshellUpdate = Partial<Omit<SubshellTable, "id" | "userId" | "crossAgent">>;
+export type SubshellUpdate = Partial<Omit<SubshellTable, "id" | "userId" | "crossAgent" | "ssh" | "keyHomeNodeId">>;

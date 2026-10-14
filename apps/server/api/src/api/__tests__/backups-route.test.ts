@@ -287,10 +287,18 @@ describe("admin archive endpoints", () => {
       (await app.fetch(authedRequest(`/api/admin/backups/jobs/${id}`, admin.token, { method: "DELETE" }))).status,
     ).toBe(200);
     expect((await app.fetch(authedRequest(`/api/admin/backups/download/${id}`, admin.token))).status).toBe(409);
+    // The cancel retires the job record on the async cleanup path, NOT inside
+    // the DELETE response, so the 404 arrives a beat later. CI's throttled
+    // 0.4-CPU slice starved the old fixed 100x10ms (~1s) budget past ~1.8s and
+    // this test flaked twice across the ssh stack (#336, #337) while passing on
+    // rerun - a runner-speed-dependent budget, which is never deterministic. A
+    // wall deadline is: it exits the instant 404 lands and only spends the extra
+    // room when cleanup is genuinely slow.
     let status = 200;
-    for (let attempt = 0; attempt < 100 && status !== 404; attempt++) {
+    const goneBy = Date.now() + 8_000;
+    while (status !== 404 && Date.now() < goneBy) {
       status = (await app.fetch(authedRequest(`/api/admin/backups/jobs/${id}`, admin.token))).status;
-      if (status !== 404) await Bun.sleep(10);
+      if (status !== 404) await Bun.sleep(20);
     }
     expect(status).toBe(404);
   });

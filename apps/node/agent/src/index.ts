@@ -17,7 +17,7 @@ export {
   wsUrlFor,
 } from "./daemon.js";
 export { type EnrollOptions, type EnrollResult, mapOs, type NodeOs, runEnroll } from "./enroll.js";
-export { identityPath, loadOrCreateIdentity, type NodeIdentity } from "./identity.js";
+export { identityPath, loadOrCreateIdentity, type NodeIdentity, signingIdentityPath } from "./identity.js";
 export { buildInventoryEvent, type InventoryEvent } from "./inventory.js";
 export { clearLock, type DaemonLock, isPidAlive, lockPath, readLock, writeLock } from "./lock.js";
 export { runNodeMcp } from "./mcp/main.js";

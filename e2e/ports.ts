@@ -26,6 +26,20 @@
  * never repeat there. A clean-machine claim needs a clean instance, and this
  * port is where spec 15 boots one — its own temp DB, its own data dir, and
  * every agent-CLI override pointed at a file that does not exist.
+ *
+ * `ssh` belongs to spec 22's SECOND backend for the same shared-DB reason,
+ * plus one that is its own: the ssh tier reads the connecting account's HOME
+ * (its `~/.ssh/config` is the alias source and `ssh -G` runs as that account),
+ * and bun caches `os.homedir()` per process — so that backend must be SPAWNED
+ * with `HOME=<fixture home>` in its env, which the shared stack can never
+ * carry for the other specs. Its own temp DB, its own data dir (whose
+ * `ssh/<id>` dir the spec asserts on through the filesystem), and its own
+ * tmux base.
+ *
+ * `connect` belongs to spec 23, the browser twin of `ssh`: the same HOME-
+ * override reason, and a FRESH slot rather than a reuse because spec 22 keeps
+ * its instance alive across its own retries — two ssh backends boot in one
+ * run and must never collide on the same port.
  */
 const envPort = (name: string, fallback: number): number => {
   const raw = process.env[name];
@@ -42,6 +56,17 @@ export const PORTS = {
   fakeRegistry: envPort("E2E_PORT_FAKE_REGISTRY", 3198),
   fakeIdp: envPort("E2E_PORT_FAKE_IDP", 3197),
   onboarding: envPort("E2E_PORT_ONBOARDING", 3200),
+  ssh: envPort("E2E_PORT_SSH", 3201),
+  connect: envPort("E2E_PORT_CONNECT", 3202),
+  /*
+   * `relay` belongs to spec 23-ssh-relay (milestone 2's crown jewel): a THIRD
+   * standalone backend, because the relay story spans two REAL enrolled agent
+   * nodes (A holds the key in its agent, B holds none) whose plane must see
+   * protocol 18 and whose data dirs the spec watches for the proxy sockets.
+   * It also carries the relay-capture preload's file path and the node
+   * artifact dir the "Set up Subshell here" install fetches from.
+   */
+  relay: envPort("E2E_PORT_RELAY", 3203),
 } as const;
 
 export const BASE_URL = `http://127.0.0.1:${PORTS.backend}`;

@@ -85,6 +85,8 @@ export interface SubshellView {
   unseenPush: boolean;
   /** The caller's effective access to this subshell (viewer-relative; drives which controls render) */
   access: SubshellAccess;
+  /** True when this pane is an SSH-terminal pane: only its owner can type into it. */
+  ssh: boolean;
   /**
    * How many sharing grants this subshell carries; 0 = private to its owner.
    * Optional for the same reason `nodeId` is — a payload cached by a client

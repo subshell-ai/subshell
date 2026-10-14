@@ -65,7 +65,7 @@ Owners can share sessions with named users or **Everyone**, meaning all signed-i
 - **Edit** adds terminal input and operations such as rename, restart, and termination.
 - Deletion, managing shares, and the owner's notification bell remain owner-only, including for administrators.
 
-A view grant can expose credentials printed in terminal output. An edit grant lets the recipient send input to a real shell or agent. Sharing also exposes attached viewer information, such as device labels and whether a viewer can type. These permissions don't create an isolated copy of the process.
+A view grant can expose credentials printed in terminal output. An edit grant lets the recipient send input to a real shell or agent, except in an SSH subshell. SSH input requires its owner’s browser session; edit grantees and bearer credentials cannot type into it. Sharing also exposes attached viewer information, such as device labels and whether a viewer can type. These permissions don't create an isolated copy of the process.
 
 Sharing a node is a separate decision: even a view grant on a node permits the recipient to launch their own sessions there. The execution account and machine can access those processes and their files. Sharing a node doesn't automatically share every session on it. See [Access model](/concepts/access), [Share a subshell](/guides/sharing), and [Share a node](/nodes/sharing).
 

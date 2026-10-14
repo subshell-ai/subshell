@@ -1,6 +1,10 @@
-import type { NodeEvent, NodeMaintenanceWire } from "@internal/subshell-protocol";
+import { rm } from "node:fs/promises";
+import { dirname } from "node:path";
+import { buildSshConfigPath } from "@internal/pane-runtime";
+import type { NodeEvent, NodeMaintenanceWire, NodeSshEnabledWire } from "@internal/subshell-protocol";
 import { log } from "../log.js";
 import { readMaintenance, reportableMaintenance, writeMaintenance } from "../maintenance.js";
+import { readSshEnabled, reportableSshEnabled } from "../ssh-enabled.js";
 import type { CommandContext, WatcherRegistration } from "./context.js";
 
 /**
@@ -145,6 +149,65 @@ export function seedMaintenanceMemo(ctx: CommandContext): NodeMaintenanceWire | 
   return ctx.lastReportedMaintenance;
 }
 
+/**
+ * Announce one SSH-capability mirror state to the plane and remember having
+ * done so (spec 2026-10-07 §4.3).
+ *
+ * The memo update is not bookkeeping: it is what keeps the next heartbeat tick
+ * silent about a value the plane already holds — and what keeps a
+ * `set_ssh_enabled` the plane just pushed from coming back as an event.
+ *
+ * @param ctx - the daemon's command context (owns the socket seam and the memo)
+ * @param state - the mirror's answer, sent verbatim (never re-stamped here)
+ */
+export function reportSshEnabled(ctx: CommandContext, state: NodeSshEnabledWire): void {
+  ctx.ws.send({ type: "ssh_enabled", on: state.on, changedAt: state.changedAt });
+  ctx.lastReportedSshEnabled = state;
+}
+
+/**
+ * Report the SSH mirror IF it has moved since this connection last spoke
+ * about it — the heartbeat belt, and by far the quieter one.
+ *
+ * With no node-side writer, the common steady state says nothing: an
+ * off-or-absent mirror has nothing to announce (the plane's own row is
+ * authoritative, and silence reads as refusal on both ends), and an on mirror
+ * only speaks up once. What this loop exists to catch is the file changing
+ * UNDER the connection — corruption flipping a machine from allowed to
+ * refused mid-session — so the plane learns it now and pushes its row (the
+ * repair) rather than discovering the disagreement at the next reconnect.
+ *
+ * There is no absent-restore half (the maintenance path above has one for its
+ * keyboard writer): hand-deleting this file is not an interface, and the next
+ * `ready` reconciles it in the plane's direction.
+ *
+ * @param ctx - the daemon's command context
+ */
+export function maybeReportSshEnabled(ctx: CommandContext): void {
+  const state = reportableSshEnabled(readSshEnabled(ctx.config.dataDir));
+  if (!state) return;
+  const last = ctx.lastReportedSshEnabled;
+  if (last?.on === state.on && last.changedAt === state.changedAt) return;
+  reportSshEnabled(ctx, state);
+}
+
+/**
+ * Seed this connection's SSH memo from the mirror on disk.
+ *
+ * Called once per connect, immediately before `ready` — which carries the same
+ * value, so the first heartbeat must not repeat it — and again on every
+ * reconnect, because a new socket has told the plane nothing. The one read of
+ * the file builds both, so the frame and the memo cannot disagree.
+ *
+ * @param ctx - the daemon's command context
+ * @returns the value `ready` should carry, or undefined when there is nothing
+ * truthful to report
+ */
+export function seedSshEnabledMemo(ctx: CommandContext): NodeSshEnabledWire | undefined {
+  ctx.lastReportedSshEnabled = reportableSshEnabled(readSshEnabled(ctx.config.dataDir));
+  return ctx.lastReportedSshEnabled;
+}
+
 /** Stop the shared tick if one is running (idempotent). */
 function stopLoop(ctx: CommandContext): void {
   if (ctx.watchTick !== undefined) {
@@ -173,7 +236,9 @@ export function stopWatcher(ctx: CommandContext, subshellId: string): void {
  * it — or stops ANSWERING for {@link NODE_EXIT_UNREACHABLE_TICKS} consecutive
  * ticks (design §1: one blip never reports a live pane dead) — the shared tick
  * emits exactly one `exit` event and cleans up (unregister,
- * forget the meta record, drop the subshell's tail pumps). Re-registering for
+ * forget the meta record, drop the subshell's tail pumps, and — for a pane
+ * whose meta named the ssh harness — best-effort remove its rendered ssh
+ * config dir, spec 2026-10-07 decision 4). Re-registering for
  * the same id REPLACES the old entry with a fresh registration token — a
  * relaunch on a restarted row rotates its socket, and the tick that
  * snapshotted the old pane sees the token mismatch and never reports the live
@@ -314,6 +379,13 @@ async function reportDeath(ctx: CommandContext, socket: string, subshellId: stri
   // to report. (On the unreachable path the socket is not answering, so
   // this reads null — the same shape a dead server always produced.)
   const exitCode = (await ctx.tmux.paneExitCode(socket, subshellId)) ?? null;
+  // Read the meta's KIND here, before the forget below erases the record:
+  // the ssh sweep at the end of this sequence fires only for a pane whose
+  // record named the ssh harness (spec 2026-10-07 decision 4). Absence is
+  // not a kind — an ssh pane that lost its meta file keeps its config (a
+  // leftover file is swept by the delete path; wiping an unknown pane's
+  // directory is not).
+  const paneMeta = await ctx.meta.get(subshellId);
   ctx.watchers.delete(subshellId); // stop-first: at most one event per registration
   // LOAD-BEARING ORDER (spec 2026-09-14 §4.3): the flag goes out BEFORE the
   // death it explains. The plane serialises frames per socket, so a
@@ -349,6 +421,22 @@ async function reportDeath(ctx: CommandContext, socket: string, subshellId: stri
     } catch {
       // Already gone is the outcome we wanted; anything else costs an idle
       // process, never correctness.
+    }
+    // Sweep the ssh config (spec 2026-10-07 decision 4). The pane was its only
+    // reader; leaving it means a signed launch leaves a file forever. Gated on
+    // the meta kind read BEFORE the forget (only the ssh harness ever owned
+    // one), and on the SAME relaunch re-check that guards the tails and the
+    // reap: a relaunched pane owns the path now. The whole per-pane ssh DIR
+    // goes, not just the file — the launch may have added host keys beside the
+    // config. Best-effort by contract: a throwing rm costs a log line and
+    // NEVER refuses the death report or unwinds the sequence.
+    if (paneMeta?.harnessId === "ssh") {
+      const sshDir = dirname(buildSshConfigPath(ctx.config.dataDir, subshellId));
+      try {
+        await rm(sshDir, { recursive: true, force: true });
+      } catch (err) {
+        log(`ssh config sweep failed for ${subshellId}: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   }
 }

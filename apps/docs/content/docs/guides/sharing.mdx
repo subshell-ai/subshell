@@ -17,7 +17,7 @@ Only the owner can change sharing. The recipient needs an account on the same in
 4. Save the sharing settings.
 
 <figure className="docs-screenshot">
-  <ImageZoom src="/screenshots/session-sharing.png" alt="Sharing dialog with Everyone granted View access and separate View + edit controls." width="855" height="593" loading="lazy" decoding="async" unoptimized />
+  <ImageZoom src="/screenshots/session-sharing.png" alt="Sharing dialog with Everyone granted View access and separate View + edit controls." width="536" height="384" loading="lazy" decoding="async" unoptimized />
   <figcaption>Select an access level for each recipient, then save the grants. Select the image to enlarge it.</figcaption>
 </figure>
 
@@ -29,10 +29,12 @@ Only the owner can change sharing. The recipient needs an account on the same in
 | Edit | View access plus input, rename, restart, and terminate through the API. |
 | Owner | Manage sharing, notification preferences, and permanent deletion. |
 
+For [SSH subshells](/guides/ssh), only the owner can type in the terminal. Recipients can view output even when their share grants edit access.
+
 ## What recipients see
 
 > [!warning] Terminal disclosure
-> View access exposes terminal output, including any secrets displayed there. Edit access also allows input into the running process.
+> View access exposes terminal output, including any secrets displayed there. Edit access also allows input into the running process, except in SSH subshells, where input remains owner-only.
 
 Attached viewers can see other viewers' device names and terminal dimensions. Notifications remain owner-targeted and aren't added by a sharing grant.
 

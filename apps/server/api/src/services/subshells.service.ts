@@ -18,6 +18,7 @@ import type { PresetTable } from "@/db/types/presets.db-types.js";
 import type { SubshellSharePermission } from "@/db/types/subshell-shares.db-types.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch, nodeCanLaunchOn } from "@/lib/node-access.js";
+import { paneInputAllowed } from "@/lib/ssh-pane-access.js";
 import { type Access, accessAtLeast, loadSubshellAccess, resolveSubshellAccess } from "@/lib/subshell-access.js";
 import { BaseService, type CommonServiceParams } from "@/services/base.service.js";
 import { publishLive } from "@/services/live-bus.js";
@@ -38,11 +39,14 @@ import {
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { getNotifyService } from "@/services/notify.service.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
+import { sweepLocalSshDir } from "@/services/ssh-launch.service.js";
+import { closeRelayForPaneExit, sweepRelayForPane } from "@/services/ssh-relay.service.js";
 import {
   PROMPT_POLL_MS,
   PROMPT_SETTLE_TIMEOUT_MS,
   RestartInFlightSwapError,
   readSubshellLogWindow,
+  type SshLaunchPlumbing,
   SubshellManagerService,
 } from "@/services/subshell-manager.service.js";
 import { extendSubshellToken, subshellTokenTtlSeconds } from "@/services/subshell-tokens.js";
@@ -52,6 +56,30 @@ import { logger } from "@/utils/logger.js";
 type SubshellView = NonNullable<Awaited<ReturnType<SubshellManagerService["getSubshell"]>>> & {
   sharedWithViewer?: boolean;
 };
+
+/**
+ * The view-layer downgrade for ssh panes (spec 2026-10-07 §5.4, plan 3
+ * decision 1): a resolved `edit` on an ssh row reads as `view` to its holder,
+ * so the client's single truth (`readOnly = access === "view"`) already says
+ * what enforcement has said since tier 2: the input doors refuse every
+ * non-owner on an ssh pane (`paneInputAllowed`, unchanged here). Ordinary
+ * panes are untouched; `owner` and `view` pass through as resolved. No
+ * `viewerId` parameter is needed because the resolver returns `edit` only to
+ * non-owners (an owner resolves to `owner` before the boost and grants are
+ * ever consulted). The rule keys on the snapshot column's PRESENCE, never its
+ * content: the pane's kind fact, same as the input door.
+ *
+ * Both view paths apply it, so REST list/detail, the live snapshot and the
+ * MCP `list_subshells`/`get_subshell` reads all ride the one answer.
+ * Exported for test; consumers should go through the service methods.
+ */
+export function effectiveViewerAccess(
+  row: Pick<SubshellTable, "ssh" | "userId">,
+  access: Exclude<Access, "none">,
+): Exclude<Access, "none"> {
+  if (access === "edit" && row.ssh !== null) return "view";
+  return access;
+}
 
 /** A sharing grant as returned to the client, with the grantee label resolved. */
 interface SubshellShareView {
@@ -412,6 +440,10 @@ export class SubshellsService extends BaseService {
     nodeId,
     machineActor,
     crossAgent,
+    ssh,
+    presetFlags,
+    extraPaneEnv,
+    subshellId,
   }: {
     /** Owner of the new subshell (never taken from the body). */
     userId: string;
@@ -449,6 +481,19 @@ export class SubshellsService extends BaseService {
      * they can still turn it on from the pane's menu.
      */
     crossAgent: boolean;
+    /**
+     * The composed ssh pane (Task 7 plumbing, spec 2026-10-07 §5/decision 4),
+     * forwarded to the manager untouched: the snapshot column, the LaunchPlan
+     * config member, the flags preset, the merged pane env, the pre-assigned
+     * id the config path was derived from. The ssh-launch service
+     * (`services/ssh-launch.service.ts`) is the only caller that passes these;
+     * every other door (REST create, MCP, mobile) launches panes the ordinary
+     * way and passes none of them.
+     */
+    ssh?: SshLaunchPlumbing;
+    presetFlags?: string[];
+    extraPaneEnv?: Record<string, string>;
+    subshellId?: string;
   }): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
     // Lockdown is the FIRST question the instance asks of every create
     // (operator ask 2026-09-24): it answers valid bodies and invalid ones
@@ -611,6 +656,13 @@ export class SubshellsService extends BaseService {
         // OFF — agent-to-agent comms are not news a human needs rung for —
         // and it stays togglable exactly like any other pane's.
         notify: !crossAgent,
+        // The ssh plumbing rides to the manager untouched (its own doc there
+        // says what each part writes); `undefined` everywhere else keeps the
+        // pre-Task-7 launch byte-identical.
+        ...(ssh ? { ssh } : {}),
+        ...(presetFlags !== undefined ? { presetFlags } : {}),
+        ...(extraPaneEnv !== undefined ? { extraPaneEnv } : {}),
+        ...(subshellId !== undefined ? { subshellId } : {}),
       })
       .catch(rethrowLaunchRefusal);
     // Feed the picker's Recents (and the new-subshell form's pre-fill) from
@@ -644,7 +696,7 @@ export class SubshellsService extends BaseService {
     const accessBy = new Map<string, Exclude<Access, "none">>();
     for (const row of rows) {
       const access = resolveSubshellAccess(viewerId, row.userId, sharesBy.get(row.id) ?? []);
-      accessBy.set(row.id, access === "none" ? "view" : access);
+      accessBy.set(row.id, effectiveViewerAccess(row, access === "none" ? "view" : access));
     }
     const views = await this.#manager.toViews(rows, opts);
     return views.map((view) => ({
@@ -662,14 +714,33 @@ export class SubshellsService extends BaseService {
    * or on any enrolled node, since both reach this plane the same way.
    *
    * Thin by design: the route has already established that this is the
-   * subshell's own key, and the manager owns the one death transition the
-   * sweep also runs through — so nothing here decides anything, it only
-   * carries the timestamp.
+   * subshell's own key, and the manager owns the one death transition. The
+   * row read below decides nothing either — it only feeds the shared LOCAL
+   * ssh config sweep (its own guard skips every other row shape); the death
+   * transition itself carries just the timestamp.
+   *
+   * The sweep here is DELIBERATELY unconditional, not deferred to the
+   * transition below: `applySelfReportedExit` returns early when the row is
+   * already retired, and the hook-vs-retire race (a terminate kills the pane,
+   * its `pane-died` report lands after the row is gone) must still remove the
+   * config. The complementary gap — a `pane-died` hook lost entirely, so no
+   * report ever reaches here — is closed by the sweep in the shared
+   * `#applyDeath`, which the 60 s reconcile drives off the process being gone.
    *
    * @param id - the subshell whose pane exited
    * @param exitCode - tmux's `#{pane_dead_status}`, null when it could not be read
    */
   async reportExit(id: string, exitCode: number | null): Promise<void> {
+    // The read is part of the best-effort sweep too: a throwing row read costs
+    // a log line, never the death transition below (the pre-helper code had the
+    // read inside its try for exactly this).
+    sweepLocalSshDir(
+      await this.repos.subshells.findById(id).catch((err: unknown) => {
+        logger.withError(err).warn(`ssh config sweep skipped for pane ${id}; the row read failed`);
+        return null;
+      }),
+    );
+    closeRelayForPaneExit(id); // the pane's own report is the §5.6 child-exit signal
     await this.#manager.applySelfReportedExit(id, exitCode, new Date().toISOString());
   }
 
@@ -809,11 +880,13 @@ export class SubshellsService extends BaseService {
     if (!subshell) throw new SubshellError("not_found", "Subshell not found");
     // One extra read on a single-row path: the gate resolves access without
     // handing back the grants it looked at, and the disclosure warning needs
-    // the audience, not just the caller's own level.
+    // the audience, not just the caller's own level. The gate's resolver hands
+    // back the RAW level; the ssh view downgrade (plan 3 decision 1) rides the
+    // same helper the list applies, so both doors answer alike.
     const shares = (await this.repos.subshellShares.listForSubshells([id])).get(id) ?? [];
     return {
       ...subshell,
-      access: access === "none" ? "view" : access,
+      access: effectiveViewerAccess(row, access === "none" ? "view" : access),
       sharedWithViewer:
         access !== "owner" && shares.some((share) => share.granteeUserId === null || share.granteeUserId === viewerId),
       ...shareExposure(shares),
@@ -863,6 +936,29 @@ export class SubshellsService extends BaseService {
   }
 
   /**
+   * The ssh owner-only carve-out on an input act, applied AFTER the visibility
+   * + grant gate (so a stranger still gets the ordinary 404, and a `view`
+   * grantee the ordinary 403). An ssh pane runs a real shell under the OWNER's
+   * ssh identity on the far machine, so its input is the owner's alone: an
+   * `edit` grantee who is not the owner is refused, and so is any bearer
+   * machine credential (a pane must not type into itself). Ordinary panes
+   * (`ssh === null`) pass through untouched. The rule lives in
+   * {@link paneInputAllowed}, shared with the WS keystroke door (spec
+   * 2026-10-07 §5.4, decision 5).
+   * @throws ApiError 403 SSH_OWNER_INPUT_ONLY, before anything is typed.
+   */
+  #requireInputAuthority(row: SubshellTable, viewerId: string, actor: GuardActor): void {
+    // A bearer actor is a `subshell-key` OR a `system-key`; a human is `cookie`.
+    if (!paneInputAllowed(row, viewerId, actor !== "cookie")) {
+      throwApiError({
+        code: BackendErrorCodes.SSH_OWNER_INPUT_ONLY,
+        message: "Only the owner can type in this SSH subshell",
+        doNotLog: true,
+      });
+    }
+  }
+
+  /**
    * Types text into a RUNNING pane over REST (spec 2026-09-25 MCP DX), the
    * input the live attach socket already carries, given an HTTP door for
    * machine callers. Gated at `edit`, the level the posture assigns to
@@ -898,6 +994,9 @@ export class SubshellsService extends BaseService {
    *         nothing is typed into a row that is not there), and 409
    *         NODE_OFFLINE when its agent node has no live connection (the
    *         create/restart mapper again).
+   * @throws ApiError 403 SSH_OWNER_INPUT_ONLY when the pane is an ssh pane and
+   *         the caller is not its owner (or is a bearer credential), before the
+   *         launcher is resolved and nothing is typed.
    */
   async sendSubshellInput(
     viewerId: string,
@@ -907,6 +1006,7 @@ export class SubshellsService extends BaseService {
     actor: GuardActor,
   ): Promise<{ ok: true }> {
     const { row } = await this.#gate(viewerId, id, "edit", actor);
+    this.#requireInputAuthority(row, viewerId, actor);
     // The TWO facts, both required — a lesson from the live incident
     // (2026-09-25): `status` is the lifecycle INTENT and a pane that exited
     // on its own parks at `status: "running"` with `alive: 0` (parked is what
@@ -957,7 +1057,9 @@ export class SubshellsService extends BaseService {
    *         a terminal; 409 EXEC_IN_FLIGHT when another exec already holds the
    *         pane's lease; 409 EXEC_PANE_BUSY when the quiet probe finds the
    *         log growing. All four refuse before anything is typed, and any
-   *         launcher refusal maps through the create/restart mapper.
+   *         launcher refusal maps through the create/restart mapper. Exec on
+   *         an ssh pane also carries the input rule: a non-owner 403s
+   *         SSH_OWNER_INPUT_ONLY before even the first quiet probe (spec §5.4).
    */
   async execInTerminal(
     viewerId: string,
@@ -967,6 +1069,10 @@ export class SubshellsService extends BaseService {
     actor: GuardActor,
   ): Promise<ExecAnswer> {
     const { row } = await this.#gate(viewerId, id, "edit", actor);
+    // The ssh carve-out precedes the running/harness/quiet checks: exec TYPES,
+    // so it carries the input rule verbatim, and a non-owner never reaches the
+    // first quiet probe (spec 2026-10-07 §5.4).
+    this.#requireInputAuthority(row, viewerId, actor);
     if (row.status !== "running" || row.alive !== 1) {
       throwApiError({
         code: BackendErrorCodes.SUBSHELL_NOT_RUNNING,
@@ -1226,6 +1332,19 @@ export class SubshellsService extends BaseService {
     prompt?: string,
   ): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
     const { row } = await this.#gate(viewerId, id, "edit", actor);
+    // An ssh pane refuses restart (spec 2026-10-07 decision 7): its session
+    // lives on the far end of a socket, and a restart would spawn a NEW ssh
+    // process the human never asked to reconnect — the launcher is the way
+    // back in. Keyed to the `subshells.ssh` column (the kind fact, migration
+    // 0048), asked AFTER the visibility gate so a stranger still gets the
+    // ordinary 404, and before anything this path reads or writes.
+    if (row.ssh !== null) {
+      throwApiError({
+        code: BackendErrorCodes.SSH_NO_RESTART,
+        message: "SSH panes are not restarted; launch a new one to reconnect",
+        doNotLog: true,
+      });
+    }
     // Lockdown is instance-wide, so it is asked before anything machine-shaped
     // is read. It names no machine, per the restart path's own rule (the row's
     // owner is the only guaranteed viewer of this refusal). And a stopped row's
@@ -1353,6 +1472,14 @@ export class SubshellsService extends BaseService {
   async terminateSubshell(viewerId: string, id: string, actor: GuardActor): Promise<{ ok: true }> {
     const { row } = await this.#gate(viewerId, id, "edit", actor);
     await this.#manager.terminateSubshell(row.userId, id);
+    // AFTER the kill, the same sweep the dying hook runs — and it cannot be
+    // left TO the hook: terminate revokes the pane's token synchronously with
+    // the kill, so the `pane-died` report can arrive 401 and never sweep
+    // (e2e spec 22). The hand that killed removes the dir; the hook, whenever
+    // it lands, stays the second sure thing (its sweep is idempotent). The
+    // helper's guard no-ops this for every non-local-ssh row.
+    sweepLocalSshDir(row);
+    sweepRelayForPane(row); // terminate kills the ssh child too: its relay dies with it
     return { ok: true };
   }
 

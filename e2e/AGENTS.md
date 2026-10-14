@@ -50,9 +50,23 @@ its providers via the admin cookie at `POST /api/auth-providers` (whose save gat
 runs discovery against this fake), and no spec ever dials a real IdP.
 
 Every fixed port in `ports.ts` takes an env override (`E2E_PORT_BACKEND`,
-`E2E_PORT_FAKE_REGISTRY`, `E2E_PORT_FAKE_IDP`, `E2E_PORT_ONBOARDING`) with the
-committed defaults unchanged, the escape hatch for two suites running side by
-side on one machine, which the defaults collide on.
+`E2E_PORT_FAKE_REGISTRY`, `E2E_PORT_FAKE_IDP`, `E2E_PORT_ONBOARDING`,
+`E2E_PORT_SSH`, `E2E_PORT_CONNECT`, `E2E_PORT_RELAY`) with the committed
+defaults unchanged, the escape hatch for two suites running side by side on one
+machine, which the defaults collide on.
+
+`E2E_TMUX_TMPDIR` overrides the short `/tmp` root used for isolated tmux
+sockets. Use an existing, short directory when `/tmp` is full; `TMPDIR` still
+controls other fixtures. Keep the resolved path short enough for Unix sockets.
+
+Spec `22` boots its own backend too (port 3201) for a reason the shared stack
+cannot serve: the ssh tier reads the connecting account's HOME and bun caches
+`os.homedir()` per process, so that child is SPAWNED with `HOME=<fixture home>`
+plus the spec's `ssh-agent` socket, on its own temp DB/data dir/tmux base.
+Spec `23` repeats that boot on port 3202 (its own fresh slot, since spec 22's
+instance lives across its retries) and drives the same fixture through the
+browser: the SSH flow inside the new-subshell dialog, the gate flip, and a
+view-only SSH pane.
 
 Spec `12` extends the stack itself: it spawns the **real `subshell` from
 source** (`bun apps/node/agent/src/main.ts enroll|run` via `stub/client.ts`, with
@@ -113,3 +127,54 @@ Channels are machine-facing (no browser UI): spec `07` is API-only, seals with
 real crypto from `seal.ts` (a thin re-export of `@internal/mcp-core`, the same
 module the backend and node run, so drift is structurally impossible), and
 asserts recipient-filtered reads.
+
+## SSH container coverage
+
+`23-connect-flow.spec.ts` requires a running Docker-compatible daemon.
+Testcontainers builds `fixtures/ssh-container/Dockerfile`, publishes sshd on a
+random port, and owns container cleanup. Missing Docker fails setup rather
+than silently skipping coverage. The container creates disposable developer
+and operator accounts for real password login; no host accounts or SSH files
+are changed. Host keys are generated under the test's temporary directory and
+trusted explicitly by the connecting process.
+
+The browser exercises key login, password prompts and retry, terminal I/O,
+view-only sharing, saving distinct usernames on one host, forgetting and
+re-saving destinations. Password checks
+cover HTTP bodies, terminal history, saved-host responses, and database bytes;
+Playwright failure traces can still contain fixture passwords typed into the
+terminal, so these are disposable test credentials.
+
+Specs 22 and 23-ssh-relay retain their host-process fixtures for terminal
+lifecycle and cross-node cryptographic relay coverage.
+
+Spec 24 covers the browser’s first-connection confirmation and cancellation;
+spec 23-ssh-relay checks real discovery and acceptance before relay authentication.
+Run all SSH specs together with `01-setup-wizard.spec.ts` (which seeds the account for spec 24).
+CI mounts its Docker socket into the e2e job so Testcontainers can start the
+same destination fixture.
+
+## SSH documentation screenshots
+
+After building `@internal/server-web`, run `bun e2e/capture-ssh-docs.ts` from
+the repository root. It starts the isolated e2e stack, two real node daemons,
+a disposable SSH agent, and a Testcontainers destination. Docker and the
+Playwright Chromium browser are required. The normal `E2E_PORT_*` overrides
+apply when another suite is running.
+
+The script writes three cropped PNGs to `apps/docs/public/screenshots/`, using
+real form state and a real first-connection refusal. It cancels confirmation
+and checks that no destination trust was saved, then cleans up its processes
+and temporary state. Review the images and update their intrinsic dimensions
+in `guides/ssh.mdx` if the layout changes. Never point it at the live server.
+
+For the other documentation screenshots, run `bun e2e/capture-docs.ts` after
+building the SPA. It uses the same isolated stack with sample presets, prompts,
+a workspace, and real terminal sessions running a small temporary project.
+No coding-agent responses are simulated. The script also refreshes the five
+marketing-site WebP copies using `ffmpeg`, which must be installed.
+
+Review every capture, update intrinsic dimensions in the referring MDX and
+`apps/website/components/feature-showcase.tsx`, and check the captions against
+the actual controls. The example address and QR code are public sample values;
+no setup key is generated. Remove obsolete assets and their references together.

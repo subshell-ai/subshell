@@ -27,7 +27,10 @@ import { NodeReregister } from "@/components/nodes/node-reregister";
 import { osLabel } from "@/components/nodes/node-row";
 import { managesNodeSections } from "@/components/nodes/node-section-nav";
 import { NodeSharingDialog } from "@/components/nodes/node-sharing-dialog";
+import { NodeSshCard } from "@/components/nodes/node-ssh-card";
 import { NodeUpdateCard } from "@/components/nodes/node-update-card";
+import { ServerIdentityRecovery } from "@/components/ssh/server-identity-recovery";
+import { SshTrustSection } from "@/components/ssh/trust-section";
 import { useDeleteNode, useRenameNode } from "@/hooks/use-nodes";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 
@@ -88,6 +91,7 @@ function NodeDetailPage() {
   return (
     <NodePageShell
       id={id}
+      errorContent={id === "local" ? <ServerIdentityRecovery /> : undefined}
       title={
         // Rename is owner-gated: `canManage` is exactly that gate — a real
         // owner on an agent node, or an admin on `local`, whose boost is
@@ -240,6 +244,10 @@ function NodeDetailPage() {
             </dl>
           </div>
 
+          <NodeSshCard key={n.id} node={n}>
+            <SshTrustSection node={n} embedded />
+          </NodeSshCard>
+
           {/* Whether this machine takes new work at all (spec 2026-09-14).
               Every kind, and on the Overview: the rules of a machine live
               where every machine shows them, and the tabs are for driving
@@ -262,6 +270,18 @@ function NodeDetailPage() {
           {n.kind === "agent" && <NodeReregister nodeId={n.id} nodeName={n.name} canRetire={n.canRetire} />}
 
           <NodeHarnessCard nodeId={n.id} />
+
+          {/* The §4.6 machine trust block (spec 2026-10-08): own and pinned
+              peers' key fingerprints, for the out-of-band compare each side
+              can verify against its own machine. The server serializes the
+              field only for owner/edit on agent nodes, so a `view` grantee
+              never receives it and the card renders nothing; the card's own
+              kind/access check is the belt. Live report while the machine is
+              connected, durable mirror marked stale when it is not. The
+              section adds the plane-only halves: the "display only" honesty
+              line (§4.6: this rendering proves nothing, the two dashboards
+              do) and the owner-only re-pair act on each peer (§4.5). */}
+          {n.kind === "local" && <ServerIdentityRecovery />}
 
           {/* The node's RULES live on its page, not in a tab of one card:
               the allowlist gates launches on this machine including the

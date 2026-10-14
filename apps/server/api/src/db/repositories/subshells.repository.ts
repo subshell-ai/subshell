@@ -64,6 +64,9 @@ export class SubshellsRepository extends BaseRepository {
         // Node pin defaults in the DB (migration 0017); mirror it so the typed
         // insert is complete and the row reads back whole.
         nodeId: subshell.nodeId ?? LOCAL_NODE_ID,
+        // The relay key home (migration 0052); a direct pane's row carries the
+        // column's own NULL default.
+        keyHomeNodeId: subshell.keyHomeNodeId ?? null,
         // Cross-agent provenance defaults to "human" (migration 0039); mirror it.
         crossAgent: subshell.crossAgent ?? 0,
         createdAt: new Date().toISOString(),

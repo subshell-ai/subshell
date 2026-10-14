@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { buildSshConfigPath } from "@internal/pane-runtime";
 import type { LaunchPlan, NodeLauncher } from "@/services/nodes/node-launcher.js";
 import { attachConnection, detachConnection, type NodeFacts, type NodeSocket } from "@/services/nodes/node-registry.js";
 
@@ -107,10 +108,15 @@ export class FakeNodeLauncher implements NodeLauncher {
   /**
    * Mirrors {@link RemoteLauncher.subshellArtifacts}: the delete-time triple,
    * with the MCP path composed under `nodeOnline()`'s default `/node-data`
-   * dataDir (the same source the manager's inline delete reads).
+   * dataDir (the same source the manager's inline delete reads), plus the
+   * ssh config at the node-derived path for an ssh pane (spec 2026-10-07
+   * decision 4) — the fake takes the row's kind flag exactly the real
+   * launcher does, so a test can pin WHO passes it.
    */
-  subshellArtifacts(id: string): string[] {
-    return [this.logPath(id), `/node-data/mcp/${id}.json`, this.metaArtifactPath(id)];
+  subshellArtifacts(id: string, sshPane = false): string[] {
+    const artifacts = [this.logPath(id), `/node-data/mcp/${id}.json`, this.metaArtifactPath(id)];
+    if (sshPane) artifacts.push(buildSshConfigPath("/node-data", id));
+    return artifacts;
   }
   async readLogTail(): Promise<{ lines: string[]; truncated: boolean }> {
     return { lines: [], truncated: false };

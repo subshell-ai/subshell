@@ -646,3 +646,14 @@ same constants for browser input limits. Keep identifier/locale/time-zone
 filters bounded, validate locale and time zone before reading workspace rows,
 and retain enum validation for select filters. See `docs/security.md`'s
 Dashboard list search inputs section for the security constraints.
+
+### First-connection SSH destination confirmation
+
+The cookie-only `/api/ssh/verify-destination` routes handle unfamiliar relay
+destinations. Discovery asks the connecting node for the public host identity,
+without authentication or a trust write. A five-minute, one-use token binds the
+viewer, selected nodes, resolved destination and exact identity. Acceptance
+rechecks current access and alias resolution, then uses the existing pin store's
+no-overwrite rule. Existing or conflicting trust cannot enter this path; the
+host-pins API remains available for explicit operator recovery. See the SSH trust
+accounting in `docs/security.md` §6.

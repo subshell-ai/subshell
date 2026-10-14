@@ -23,6 +23,7 @@ const BUILT_INS = [
   "netbird",
   "opencode",
   "pi",
+  "ssh",
   "tailscale",
   "terminal",
 ] as const;

@@ -104,6 +104,7 @@ describe("the Server Settings group's open/close wiring", () => {
     const restoreFetch = stubFetch(true);
     const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
       openLaunch: () => {},
+      openSshLaunch: () => {},
       openNewWorkspace: () => {},
     });
     try {
@@ -183,6 +184,7 @@ describe("the Server Settings group's open/close wiring", () => {
     const restoreFetch = stubFetch(false);
     const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
       openLaunch: () => {},
+      openSshLaunch: () => {},
       openNewWorkspace: () => {},
     });
     try {
@@ -221,6 +223,7 @@ describe("the Settings group", () => {
     const restoreFetch = stubFetch(false); // NOT an admin: the group is ungated
     const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
       openLaunch: () => {},
+      openSshLaunch: () => {},
       openNewWorkspace: () => {},
     });
     try {

@@ -9,7 +9,7 @@ Understand the permissions applied to people and machine credentials.
 
 A subshell is private to its owner by default. The owner can grant view or edit to named users or Everyone on the instance.
 
-View grants include output and live terminal viewing. Edit adds input, rename, restart, and termination. Neither grants deletion, re-sharing, or control of the owner's notification bell.
+View grants include output and live terminal viewing. Edit adds input, rename, restart, and termination. Neither grants deletion, re-sharing, or control of the owner's notification bell. SSH subshells have an additional restriction: only their owner, signed in to the dashboard, can send input. Edit grants and bearer credentials don't allow SSH terminal input.
 
 ## Administrators
 

@@ -65,11 +65,29 @@ describe("IdentitiesRepository", () => {
   beforeEach(wipe);
 
   it("registers and upserts (rotate) by principal", async () => {
-    const first = await repo.register({ principalId: "sess:a", publicKey: "JWK-1", displayName: "Alpha" });
+    const first = await repo.register({
+      principalId: "sess:a",
+      publicKey: "JWK-1",
+      signingPublicKey: null,
+      displayName: "Alpha",
+    });
     expect(first.publicKey).toBe("JWK-1");
-    const rotated = await repo.register({ principalId: "sess:a", publicKey: "JWK-2", displayName: null });
+    expect(first.signingPublicKey).toBeNull();
+    const rotated = await repo.register({
+      principalId: "sess:a",
+      publicKey: "JWK-2",
+      signingPublicKey: "ES-JWK",
+      displayName: null,
+    });
     expect(rotated.publicKey).toBe("JWK-2");
-    expect(await repo.findByPrincipal("sess:a")).toMatchObject({ publicKey: "JWK-2", displayName: null });
+    // The signing slot rotates with the record in the one write (spec
+    // 2026-10-08 §4.2): an insert and an upsert both carry it.
+    expect(rotated.signingPublicKey).toBe("ES-JWK");
+    expect(await repo.findByPrincipal("sess:a")).toMatchObject({
+      publicKey: "JWK-2",
+      signingPublicKey: "ES-JWK",
+      displayName: null,
+    });
     expect(await repo.findByPrincipal("sess:ghost")).toBeUndefined();
   });
 });

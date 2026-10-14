@@ -1,7 +1,6 @@
 import { parseClientFrame } from "@internal/subshell-protocol";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
-import { accessAtLeast } from "@/lib/subshell-access.js";
 import { launcherFor } from "@/services/nodes/launcher-registry.js";
 import { replayLineCap } from "@/services/nodes/log-tail.js";
 import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
@@ -92,7 +91,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     ws.close(resolved.code, resolved.reason);
     return;
   }
-  const { row, access, params, attendsPush } = resolved;
+  const { row, access, canInput, params, attendsPush } = resolved;
   // Stash WHO authenticated onto the socket before either path continues —
   // the local `Object.assign` and the remote relay's both build their own
   // `data` literals, and this channel is what lets an account disable find
@@ -115,7 +114,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     // The WHOLE params struct, not a hand-picked few: this call site is where
     // `hidden` went missing for node panes, because it took each input as its
     // own positional argument and one of them was simply never added.
-    await attachRemoteSubshellWs(ws, row, launcher as RemoteLauncher, access, params);
+    await attachRemoteSubshellWs(ws, row, launcher as RemoteLauncher, access, params, canInput);
     return;
   }
   // Split out so the rest of this function sees a non-null socket, and so the
@@ -157,8 +156,9 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     // session's holds.
     nodeId: row.nodeId,
     logFile: subshellLogPath(row.id),
-    // Only `edit`/`owner` may type into the pane; a `view` grantee watches.
-    canInput: accessAtLeast(access, "edit"),
+    // Whether THIS socket may type: `edit`/`owner` grant AND the ssh owner-only
+    // carve-out, both folded at the one authority (`resolveAttach`).
+    canInput,
     // This viewer's own capacity, from the connect URL. One input to the
     // shared decision below — never applied on its own.
     capacity: params.size ?? undefined,

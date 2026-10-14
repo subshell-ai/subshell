@@ -36,17 +36,22 @@ describe("visibleNavItems", () => {
     for (const flag of [false, undefined]) {
       const paths = visibleNavItems(flag).map((i) => i.to);
       for (const page of GROUP_PAGES) expect(paths).not.toContain(page);
-      expect(paths).toEqual(["/", "/workspaces", "/nodes", "/presets", "/prompts"]);
+      // `/settings/ssh` rides the PERSONAL group: its path is under
+      // /settings but the page is the caller's own ledger (spec 2026-10-08
+      // §8), so a member reaches it and the gate never hides it.
+      expect(paths).toEqual(["/", "/workspaces", "/nodes", "/presets", "/prompts", "/settings/ssh"]);
     }
   });
 
   it("gives an admin every group page, flattened in rail order", () => {
     expect(visibleNavItems(true).map((i) => i.to)).toEqual([
       "/",
+
       "/workspaces",
       "/nodes",
       "/presets",
       "/prompts",
+      "/settings/ssh",
       ...GROUP_PAGES,
     ]);
   });

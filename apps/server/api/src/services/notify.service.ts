@@ -9,7 +9,6 @@ import { NotificationsRepository } from "@/db/repositories/notifications.reposit
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import type { Database } from "@/db/types/index.js";
-import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import { beginBackupStateWrite } from "@/services/backup-capture-lock.js";
 import {
   badgeCount,
@@ -34,6 +33,7 @@ import { logger } from "@/utils/logger.js";
  * `/attention` route's body union — hooks can only report
  * `turn_complete`/`needs_attention`.
  */
+/** Subshell lifecycle notifications. */
 export type NotifyKind = "turn_complete" | "needs_attention" | "exited" | "crashed" | "crashed_final" | "maintenance";
 
 const BODY: Record<NotifyKind, string> = {
@@ -136,11 +136,17 @@ export function createNotifyService(deps: NotifyServiceDeps) {
    * rows pruned only on the relay's DeviceNotRegistered verdict. A service
    * built without the device transport behaves exactly as it did before the
    * mobile app existed (invariant 2).
+   *
    */
   /** @returns the number of relay-usable device tokens this fan-out targeted */
-  async function notifyDevices(row: SubshellTable, kind: NotifyKind): Promise<number> {
+  async function fanOutExpo(
+    userId: string,
+    subjectId: string,
+    kind: NotifyKind,
+    waitingSince: string | null,
+  ): Promise<number> {
     if (!deps.devices) return 0;
-    const enrolled = await deps.devices.listByUser(row.userId);
+    const enrolled = await deps.devices.listByUser(userId);
     if (enrolled.length === 0) return 0;
     // One pass partitions relay-usable rows from junk; the junk rows are ones
     // the relay can never use, so they go now rather than on every send.
@@ -156,11 +162,11 @@ export function createNotifyService(deps: NotifyServiceDeps) {
     // unreachable — the blessed predicate comes from the registry (importing
     // it from subshell-manager would cycle: subshell-manager already imports
     // this module).
-    const counts = await subshellsRepo.countsByUser(row.userId, isNodeOffline);
-    const badge = badgeCount(counts.waiting, kind, row.waitingSince);
+    const counts = await subshellsRepo.countsByUser(userId, isNodeOffline);
+    const badge = badgeCount(counts.waiting, kind, waitingSince);
     const messages = buildExpoMessages(
       live.map((t) => t.token),
-      row.id,
+      subjectId,
       kind,
       badge,
     );
@@ -182,6 +188,37 @@ export function createNotifyService(deps: NotifyServiceDeps) {
       logger.withError(err).warn(`expo push send failed (kept) for ${live.length} device(s)`);
     }
     return live.length;
+  }
+
+  /**
+   * Web-push fan-out for one user, the transport the subshell bell has always
+   * used. Returns the number of subscriptions ATTEMPTED (the unseen gate's
+   * "an attempt happened" test), pruning only the permanently-dead endpoints
+   * (403/404/410) the sender contract names.
+   */
+  async function fanOutWebPush(userId: string, payload: object): Promise<number> {
+    const subs = await deps.subs.listByUser(userId);
+    if (subs.length === 0) return 0;
+    const serialized = JSON.stringify(payload);
+    for (const sub of subs) {
+      try {
+        await send({ endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth }, serialized);
+      } catch (err) {
+        const status = (err as { statusCode?: number }).statusCode;
+        // 404/410 = the endpoint is gone. 403 = the gateway rejects our
+        // VAPID JWT for this binding (Apple's BadJwtToken: the
+        // subscription was made against a different server key — e.g.
+        // after vapid.json rotation). Nothing we sign can ever heal it,
+        // so it joins the prune set; the client re-subscribes on its
+        // next enablePush (which now re-binds unconditionally).
+        if (status === 403 || status === 404 || status === 410) {
+          await deps.subs.deleteByEndpoint(sub.endpoint);
+        } else {
+          logger.withError(err).warn(`push send failed (kept): ${sub.endpoint.slice(0, 60)}…`);
+        }
+      }
+    }
+    return subs.length;
   }
 
   return {
@@ -217,29 +254,8 @@ export function createNotifyService(deps: NotifyServiceDeps) {
         // The transports are independent. Start the device fan-out NOW, before
         // the sequential web-push loop, so a phone never waits behind N HTTPS
         // round-trips to browser push gateways (review, efficiency #6).
-        const deviceDelivery = notifyDevices(row, kind);
-        const subs = await deps.subs.listByUser(row.userId);
-        if (subs.length > 0) {
-          const payload = JSON.stringify(buildNotificationPayload(row, kind));
-          for (const sub of subs) {
-            try {
-              await send({ endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth }, payload);
-            } catch (err) {
-              const status = (err as { statusCode?: number }).statusCode;
-              // 404/410 = the endpoint is gone. 403 = the gateway rejects our
-              // VAPID JWT for this binding (Apple's BadJwtToken: the
-              // subscription was made against a different server key — e.g.
-              // after vapid.json rotation). Nothing we sign can ever heal it,
-              // so it joins the prune set; the client re-subscribes on its
-              // next enablePush (which now re-binds unconditionally).
-              if (status === 403 || status === 404 || status === 410) {
-                await deps.subs.deleteByEndpoint(sub.endpoint);
-              } else {
-                logger.withError(err).warn(`push send failed (kept): ${sub.endpoint.slice(0, 60)}…`);
-              }
-            }
-          }
-        }
+        const deviceDelivery = fanOutExpo(row.userId, row.id, kind, row.waitingSince);
+        const attempted = await fanOutWebPush(row.userId, buildNotificationPayload(row, kind));
         const liveDevices = await deviceDelivery;
         // The urgency sticks only behind an ATTEMPTED delivery: the condition
         // is targets existing (a send was made to at least one), not a gateway
@@ -247,7 +263,7 @@ export function createNotifyService(deps: NotifyServiceDeps) {
         // received nothing and was attempted nothing — such an owner must not
         // have the pane's future escalations silenced by an attempt that never
         // existed.
-        if (subs.length > 0 || liveDevices > 0) {
+        if (attempted > 0 || liveDevices > 0) {
           await subshellsRepo.update(subshellId, { lastPushUrgency: urgency });
           publishLive({ kind: "subshell.changed", id: subshellId });
         }

@@ -157,3 +157,62 @@ Mobile's New
 screen does NOT mirror this tier (operator scope call: web only;
 `agent-default.ts` keeps its "change one, change both" for the AGENT rule
 only).
+
+## SSH subshells
+
+New subshell, Add/Split, and New workspace offer the same `SubshellKindPicker`:
+Agent or terminal, or SSH terminal. The SSH choice uses `ConnectPanel`, with
+callbacks that attach the created subshell to the caller's workspace instead
+of navigating away. Keep launch pending until that attachment finishes.
+
+The SSH destination accepts typed text directly; suggestions retain their
+canonical destination until edited. Explain the connecting machine beside its
+picker. Alternate key machines belong under Advanced SSH options and require
+an explicit selection of current SSH-agent fingerprints; no keys are selected
+automatically, and a disappeared selected key blocks launch. The server can
+connect or supply remote agent keys under the same launch-access rule as nodes.
+Saved destination management lives in Settings → SSH.
+Config alias suggestions keep the alias as the launch token and show an optional
+user@host:port preview beneath it. Discovery returns previews only for explicit
+literal values in simple configs; Match, Include, canonicalization, missing
+values, and dynamic tokens fall back to “Destination determined when connecting.”
+Opening the picker never runs SSH configuration commands. Older nodes may omit
+previews, so the field remains optional on the wire.
+
+The authentication choices include entering a password when connecting. This
+sends only `authentication: "password"`, never a password, to the launch API.
+OpenSSH prompts in the terminal with public-key authentication and agent access
+disabled; keyboard-interactive authentication remains available for MFA. Switching
+to password clears the key-source node without discarding saved key selections.
+
+**The SSH tab opens directly on the connection form.** Destination, connecting
+node, and key source appear together. Selecting another node's keys reveals its
+picker and key roster inline. If only the connecting node's SSH flag blocks
+launch and the viewer can configure it, a gold notice explains that Start will
+enable outgoing SSH. The submission guard covers enablement, fresh readiness
+checks, launch, and attachment; a failure stops the sequence. A disabled key-source node follows the same permission and blocker checks. Start
+enables it, then pauses for explicit key selection before connecting, because the
+node won't expose its roster while SSH is disabled. The gold notice explains this
+extra step. Other blockers and missing configuration permissions keep Start disabled. Node settings retain an
+explicit SSH toggle for independent configuration.
+The original parent callback still owns workspace selection or split attachment,
+and busy state lasts until asynchronous attachment finishes. Changing a parent
+mode keeps the destination, canonical suggestion, machine, scoped fingerprints,
+and remember choice.
+
+Enabling SSH is an explicit owner/admin configuration act, independent of launch
+access. Offline, maintenance, version, missing-access, and read-failure blockers
+remain visible and retryable; selections never silently change when readiness
+changes. Node selection keeps the primary action disabled unless the node is ready or eligible for enablement on Start. Adding nodes belongs on the
+Nodes page, outside SSH setup.
+Polling lives only on mounted open SSH surfaces.
+
+Remote key enumeration reads the Subshell process's SSH agent. An empty roster
+means keys need loading; an unreachable agent means that process needs access to
+`SSH_AUTH_SOCK`, which may differ from an interactive login shell's environment.
+Normal same-machine SSH can use identity files without any agent. Readiness does
+not claim that authentication to the destination has been tested.
+
+`/connect` is a compatibility redirect to `/new?kind=ssh`, preserving validated
+connection choices. The quick-add provider opens the shared dialog over the
+subshell list; there is no separate Connect navigation item or page.

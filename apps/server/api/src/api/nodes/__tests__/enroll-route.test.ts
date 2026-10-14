@@ -29,6 +29,15 @@ async function jwkString(withD = false): Promise<string> {
 }
 
 /**
+ * Fresh ES256 signing keypair as a JWK string (the M2 relay identity, spec
+ * 2026-10-08 §4.1); `withD` exports the PRIVATE half, which enroll must refuse.
+ */
+async function signingJwkString(withD = false): Promise<string> {
+  const { publicKey, privateKey } = await generateKeyPair("ES256", { crv: "P-256", extractable: true });
+  return JSON.stringify(await exportJWK(withD ? privateKey : publicKey));
+}
+
+/**
  * Snapshot of the constants module taken before any `mock.module` swap, so the
  * wsUrl subpath test can restore the real values for the suites that share this
  * process (`bun test` runs every file against one DB in one process).
@@ -53,6 +62,7 @@ describe("/api/nodes/enroll", () => {
   const createdNodeIds: string[] = [];
   const createdSetupKeyIds: string[] = [];
   let goodJwk: string;
+  let goodSigningJwk: string;
 
   beforeAll(async () => {
     await setupAuthTables();
@@ -64,6 +74,7 @@ describe("/api/nodes/enroll", () => {
     });
     await signIn(aliceEmail, pw); // exercise the real auth stack; enroll itself needs no cookie
     goodJwk = await jwkString();
+    goodSigningJwk = await signingJwkString();
   });
 
   afterAll(async () => {
@@ -105,6 +116,10 @@ describe("/api/nodes/enroll", () => {
       hostname: "host-a",
       agentVersion: "0.1.0",
       publicKey: goodJwk,
+      // The M2 relay signing key (spec 2026-10-08 §4.2): a post-M2 agent
+      // carries it; the pre-M2 posture is `signingPublicKey: undefined`,
+      // which JSON.stringify drops from the body.
+      signingPublicKey: goodSigningJwk,
       ...over,
     };
   }
@@ -129,9 +144,11 @@ describe("/api/nodes/enroll", () => {
     expect(node?.agentVersion).toBe("0.1.0");
     expect(node?.apiKeyId).toBeTruthy();
 
-    // The identity row carries the exact validated JWK string under node:<id>.
+    // The identity row carries the exact validated JWK string under node:<id>,
+    // and the M2 signing slot (spec 2026-10-08 §4.2) rides the SAME record.
     const identity = await identities.findByPrincipal(`node:${body.nodeId}`);
     expect(identity?.publicKey).toBe(goodJwk);
+    expect(identity?.signingPublicKey).toBe(goodSigningJwk);
     expect(identity?.displayName).toBe("mini-one");
 
     // The node key is a real `subshell_` bearer; the setup key cannot redeem again.
@@ -194,6 +211,7 @@ describe("/api/nodes/enroll", () => {
       timer: setTimeout(() => {}, 30000),
     });
     const freshJwk = await jwkString();
+    const freshSigningJwk = await signingJwkString();
     const link = await generateLinkKeyPair();
     const freshEncryptPublicKey = link.publicKey;
     const res = await enroll(
@@ -201,6 +219,7 @@ describe("/api/nodes/enroll", () => {
         name: "ignored replacement name",
         hostname: "replacement-host",
         publicKey: freshJwk,
+        signingPublicKey: freshSigningJwk,
         encryptPublicKey: freshEncryptPublicKey,
       }),
     );
@@ -222,7 +241,11 @@ describe("/api/nodes/enroll", () => {
     expect(current.hostname).toBe("replacement-host");
     expect(current.publicKey).toBe(freshJwk);
     expect(current.encryptPublicKey).toBe(freshEncryptPublicKey);
-    expect((await identities.findByPrincipal(`node:${original.nodeId}`))?.publicKey).toBe(freshJwk);
+    // Both identity halves swap together: re-registration replaces the whole
+    // machine identity, signing slot included (spec 2026-10-08 §4.2).
+    const recoveredIdentity = await identities.findByPrincipal(`node:${original.nodeId}`);
+    expect(recoveredIdentity?.publicKey).toBe(freshJwk);
+    expect(recoveredIdentity?.signingPublicKey).toBe(freshSigningJwk);
     expect(await db.selectFrom("nodeShares").selectAll().where("nodeId", "=", original.nodeId).execute()).toHaveLength(
       1,
     );
@@ -492,6 +515,73 @@ describe("/api/nodes/enroll", () => {
     const setupKey = await makeKey();
     const res = await enroll(bodyFor(setupKey, { publicKey: await jwkString(true) }));
     expect(res.status).toBe(400);
+    expect(await repo.peekValid(setupKey)).toBe(true);
+  });
+
+  // ── Relay signing identity (spec 2026-10-08 §4.1/§4.2): enroll carries the
+  // machine's ES256 public key into the SAME `node:` identity record, and a
+  // bad one burns nothing.
+
+  it("a valid signingPublicKey registers beside the encryption key", async () => {
+    const setupKey = await makeKey();
+    const res = await enroll(bodyFor(setupKey, { name: "relay-id" }));
+    expect(res.status).toBe(201);
+    const { nodeId } = (await res.json()) as { nodeId: string };
+    createdNodeIds.push(nodeId);
+    const identity = await identities.findByPrincipal(`node:${nodeId}`);
+    expect(identity?.signingPublicKey).toBe(goodSigningJwk);
+    // The relay half lives only in the identities record, never on the node row.
+    expect(await nodes.findById(nodeId)).not.toHaveProperty("signingPublicKey");
+  });
+
+  it("an absent signingPublicKey (pre-M2 agent) still enrolls and registers NULL", async () => {
+    // The field is optional so an old binary enrolls unchanged; §4.3's
+    // bootstrap delivers the signing key over the node link later. Until then
+    // the slot is NULL, exactly the shape every pre-M2 row carries.
+    const setupKey = await makeKey();
+    const res = await enroll(bodyFor(setupKey, { name: "pre-m2-one", signingPublicKey: undefined }));
+    expect(res.status).toBe(201);
+    const { nodeId } = (await res.json()) as { nodeId: string };
+    createdNodeIds.push(nodeId);
+    const identity = await identities.findByPrincipal(`node:${nodeId}`);
+    expect(identity?.publicKey).toBe(goodJwk);
+    expect(identity?.signingPublicKey).toBeNull();
+  });
+
+  it("malformed signingPublicKey fails BEFORE consume — key stays redeemable", async () => {
+    // THE ordering test for the new field (same position the publicKey checks
+    // hold): a body that cannot be stored must not spend the single-use key.
+    // The fixture stays above the schema's minLength so it genuinely reaches
+    // the route's own decode branches.
+    const setupKey = await makeKey();
+
+    const notJson = await enroll(bodyFor(setupKey, { signingPublicKey: "this-is-not-json-at-all" }));
+    expect(notJson.status).toBe(400);
+    expect(((await notJson.json()) as { message: string }).message).toInclude("signingPublicKey");
+    expect(await repo.peekValid(setupKey)).toBe(true);
+
+    // Well-formed, right shape, coordinates off the curve: only the real
+    // import proves a curve point (the publicKey discipline, measured).
+    const offCurve = await enroll(
+      bodyFor(setupKey, {
+        signingPublicKey: JSON.stringify({ kty: "EC", crv: "P-256", x: "A".repeat(43), y: "B".repeat(43) }),
+      }),
+    );
+    expect(offCurve.status).toBe(400);
+    expect(((await offCurve.json()) as { message: string }).message).toInclude("signingPublicKey");
+    expect(await repo.peekValid(setupKey)).toBe(true);
+
+    // The very same key still redeems with a good signing JWK.
+    const ok = await enroll(bodyFor(setupKey));
+    expect(ok.status).toBe(201);
+    createdNodeIds.push(((await ok.json()) as { nodeId: string }).nodeId);
+  });
+
+  it("private signing JWK (carries `d`) → 400 + key unconsumed", async () => {
+    const setupKey = await makeKey();
+    const res = await enroll(bodyFor(setupKey, { signingPublicKey: await signingJwkString(true) }));
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { message: string }).message).toInclude("signingPublicKey");
     expect(await repo.peekValid(setupKey)).toBe(true);
   });
 

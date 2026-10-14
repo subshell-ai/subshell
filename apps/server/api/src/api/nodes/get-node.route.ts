@@ -2,7 +2,7 @@ import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
-import { GetNodeResponseSchema, toNodeShareViews, toNodeView } from "@/api/nodes/node-view.js";
+import { GetNodeResponseSchema, sshTrustView, toNodeShareViews, toNodeView } from "@/api/nodes/node-view.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { apiErrorBody } from "@/lib/api-error.js";
@@ -11,6 +11,7 @@ import { apiModels } from "@/schema/index.js";
 import { detectOnNodeBestEffort } from "@/services/nodes/inventory.js";
 import { getLive } from "@/services/nodes/node-registry.js";
 import { nodeUpdateBlockReason } from "@/services/server-update.js";
+import { localSshTrustReport } from "@/services/ssh-local-participant.js";
 
 /**
  * `GET /api/nodes/:id` — one node view for the caller. Missing and invisible
@@ -49,6 +50,16 @@ export const getNodeRoute = new Elysia()
       // stale by definition. `local` reports nothing: the control-plane host's
       // own deployment is the Service page's subject, not a node's.
       const runtime = gate.row.kind === "agent" ? getLive(gate.row.id)?.agent?.runtime : undefined;
+      // The §4.6 trust block, on the SAME config-capable gate as the two
+      // fields around it and for the same reason: the fingerprints name which
+      // machines this one has paired with, which is machine-relationship
+      // disclosure, not a launch need (spec 2026-10-08 §4.6/§6). Live report
+      // when the socket has one; the durable mirror, STALE-marked, otherwise;
+      // Server trust is read directly for administrators; enrolled nodes use their live report or mirror.
+      const sshTrust =
+        gate.row.kind === "local" && gate.isAdmin
+          ? { ...(await localSshTrustReport()), stale: false }
+          : sshTrustView(gate.row, runtime?.sshFingerprint);
       // What entering maintenance would cost, on a NARROWER gate than the two
       // fields above (spec 2026-09-14 §5.5): `canManage`, not
       // `nodeCanConfigure`. Only a manager can flip that switch, so only a
@@ -63,6 +74,7 @@ export const getNodeRoute = new Elysia()
         updateBlockedReason: nodeUpdateBlockReason(),
         shares: await toNodeShareViews(gate.shares),
         ...(runtime ? { runtime } : {}),
+        ...(sshTrust ? { sshTrust } : {}),
         ...(runningSubshells === undefined ? {} : { runningSubshells }),
       };
     },

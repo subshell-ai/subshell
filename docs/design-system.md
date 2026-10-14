@@ -279,7 +279,12 @@ admitted here.
 - **Required input**: a gold `*` (`RequiredMark`) stands beside every
   REQUIRED label at rest, and the submit is disabled until the one schema is
   satisfied. When the caret LEAVES a field still empty, the sentence appears
-  under it in the same gold. Gold means "nothing typed yet".
+  under it in the same gold. Gold means "nothing typed yet". A REQUIRED
+  control with no caret-leave moment - a picker whose nothing-picked-yet state
+  itself disables the submit - wears the gold sentence at rest instead, once
+  its options have settled, since its emptiness is already the "nothing chosen
+  yet" fact and waiting for a blur that never comes would be the same silent
+  disabled button the ruling kills.
   *(The disabled button was honest but silent: an untouched dialog said
   nothing about what it demanded, and a live-tester dismissed a half-filled
   preset deciding the form "didn't want the name". Operator ruling,
@@ -350,6 +355,12 @@ admitted here.
   control plus dead space (2026-09-18), not as a page tab. *(Users page at a
   wide window: "Members" and "Pending approval" each took half the page
   (operator ruling, 2026-09-25).)*
+- **Radio descriptions are clickable**: put each option’s title and description
+  inside its associated label, so clicking either selects that option. Keep
+  disabled controls disabled and links or other interactive controls outside the
+  label. Use `aria-labelledby` for the title and `aria-describedby` for the
+  description so assistive technology announces their separate roles. This applies
+  to native radios and shared radio components across web and desktop surfaces.
 - **Choice group**: radios inside `role="radiogroup"` with an `aria-label`; a
   dependent setting sits BELOW the group after a rule, never indented under one
   option; its dependency is a disabled control that says why and names what

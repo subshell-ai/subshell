@@ -17,6 +17,7 @@ import {
   type NodeProbeEntry,
   normalizeLabel,
   parseNodeProbeEntries,
+  type SshConnectionSnapshotWire,
 } from "@internal/subshell-protocol";
 import { harnessUsable } from "@/api/harness-utils.js";
 import type { PresetsRepository } from "@/db/repositories/presets.repository.js";
@@ -58,6 +59,8 @@ import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
 import { EMPTY_PRESET, parsePreset } from "@/services/preset-definition.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
+import { sweepLocalSshDir } from "@/services/ssh-launch.service.js";
+import { closeRelayForPaneExit, sweepRelayForPane } from "@/services/ssh-relay.service.js";
 import { issueSubshellToken, revokeSubshellToken } from "@/services/subshell-tokens.js";
 import { logger } from "@/utils/logger.js";
 
@@ -127,6 +130,32 @@ const defaultNotify: (subshellId: string, kind: NotifyKind) => Promise<void> = a
   // construct the real notify service (and never load web-push).
   await getNotifyService().notifySubshell(id, kind);
 };
+
+/**
+ * The composed half of an ssh-pane launch (spec 2026-10-07 decision 4, Task 7
+ * plumbing): the derived config path, the rendered bytes, and the APPROVED
+ * snapshot and relay selection the row keeps. `createSubshell` serializes
+ * both into `subshells.ssh`; the LaunchPlan member carries only
+ * `configPath`/`fileContent` (the snapshot never rides the wire — the
+ * launcher re-derives the path and the renderer produced the bytes).
+ */
+export interface SshLaunchPlumbing {
+  /** `buildSshConfigPath(<target dataDir>, <this pane's id>)` — derived, never chosen. */
+  configPath: string;
+  /** `renderSshConfigContents(snapshot)`. */
+  fileContent: string;
+  /** The snapshot the resolver approved (grammar-validated at each boundary already). */
+  snapshot: SshConnectionSnapshotWire;
+  /**
+   * RELAY MODE (spec 2026-10-08 §7): the key home whose agent signed the
+   * connection, stored on the row (migration 0052) so "Set up Subshell here"
+   * can re-open the pairing after the relay session's own memory is gone.
+   * Absent on every direct launch.
+   */
+  keyHomeNodeId?: string;
+  /** Exact keys used by the relay, retained for later acts without widening. */
+  relayFingerprints?: readonly string[];
+}
 
 /**
  * Orchestrates agent subshells: validate inputs, spawn a tmux-backed harness,
@@ -317,6 +346,10 @@ export class SubshellManagerService {
     notify,
     nodeId,
     crossAgent,
+    ssh,
+    presetFlags,
+    extraPaneEnv,
+    subshellId,
   }: {
     userId: string;
     /** Harness plugin to launch — required, with or without a preset. */
@@ -356,7 +389,40 @@ export class SubshellManagerService {
      * silent. Only creation writes it; a restart reuses the row.
      */
     crossAgent?: number;
+    /**
+     * The composed ssh pane (Task 7 plumbing): the row gets
+     * `ssh = JSON.stringify(snapshot)`, the LaunchPlan gets the config member,
+     * and the launch is refused nothing else — an ssh pane is a terminal-type
+     * harness whose flags arrive through `presetFlags`.
+     */
+    ssh?: SshLaunchPlumbing;
+    /**
+     * The launch preset's flags when a caller composes them (the ssh service
+     * does; no one else does today). Present ⇒ the launch preset is
+     * `{ ...EMPTY_PRESET, flags }` — a FRESH object, since EMPTY_PRESET is the
+     * shared frozen constant every other presetless launch reads. Ignored when
+     * a preset row is also given (the row wins: presetFlags exists for the
+     * presetless compose path, not to edit somebody's saved preset).
+     */
+    presetFlags?: string[];
+    /**
+     * Env additions merged into the pane's `subshellEnv` at the compose site
+     * (spec 2026-10-07 decision 3: an ssh pane's `SSH_AUTH_SOCK` — the pane's
+     * command IS the ssh process, so the pane env is the ssh env). Merged
+     * AFTER the preset-independent `SUBSHELL_*` block, before the launch.
+     */
+    extraPaneEnv?: Record<string, string>;
+    /**
+     * Pre-assigned row id, for callers that must compose id-derived facts
+     * BEFORE the row exists (the ssh config path is derived from the pane's
+     * id; Task 7). Shape-guarded; production callers pass nothing and get the
+     * `crypto.randomUUID()` they always got.
+     */
+    subshellId?: string;
   }): Promise<{ id: string; tmuxSocket: string; apiKey: string; promptDelivered: boolean }> {
+    if (subshellId !== undefined && !/^[a-zA-Z0-9_-]{1,64}$/.test(subshellId)) {
+      throw new Error("createSubshell: subshellId is outside the id grammar");
+    }
     const presetRow = presetId ? await this.#presets.findById(presetId) : undefined;
     if (presetId && (!presetRow || presetRow.userId !== userId)) {
       throw new Error("Preset not found");
@@ -373,13 +439,21 @@ export class SubshellManagerService {
     const launcher = this.#launcherFor(targetNode);
     const realPath = await launcher.validateWorkingDir(workingDir);
     await assertDirAllowed(targetNode, realPath);
-    const preset = presetRow ? parsePreset(presetRow) : EMPTY_PRESET;
+    const preset = presetRow
+      ? parsePreset(presetRow)
+      : presetFlags !== undefined
+        ? // Fresh object every time: EMPTY_PRESET is the shared frozen constant
+          // every presetless launch reads, and mutating it (or handing out the
+          // shared reference with new flags hung on it) would leak ssh option
+          // tokens into unrelated panes.
+          { ...EMPTY_PRESET, flags: [...presetFlags] }
+        : EMPTY_PRESET;
     const binary = await launcher.resolveBinary(harness);
     if (!binary) {
       throw new Error(`Harness "${harness.name}" is not installed on this machine.`);
     }
 
-    const id = crypto.randomUUID();
+    const id = subshellId ?? crypto.randomUUID();
     const socket = tmuxSocketFor(id);
     // Display name vs LAUNCH name (titling spec 2026-09-03): only a name a
     // HUMAN chose travels to the pane command — an unnamed create passes ""
@@ -423,6 +497,19 @@ export class SubshellManagerService {
       // How the pane was OPENED, recorded once; the rail's category and the
       // caller's bell default both read this. 0 = the DB default, human.
       crossAgent: crossAgent === 1 ? 1 : 0,
+      // The ssh snapshot column IS the pane's kind fact (migration 0048): the
+      // owner-only input rule, the restart refusal and the delete sweep all
+      // read its presence. NULL for every pane this call did not compose from
+      // an approved snapshot.
+      ssh: ssh
+        ? JSON.stringify({
+            ...ssh.snapshot,
+            ...(ssh.relayFingerprints !== undefined ? { relayFingerprints: ssh.relayFingerprints } : {}),
+          })
+        : null,
+      // The relay pane's key home, recorded with the row (migration 0052):
+      // immutable thereafter, and no direct pane carries it.
+      keyHomeNodeId: ssh?.keyHomeNodeId ?? null,
     });
 
     // The token is minted AFTER the row exists (issueSubshellToken writes the
@@ -448,6 +535,10 @@ export class SubshellManagerService {
         // means nothing on the node; the agent's own dataDir is the truth there.
         subshellEnv.SUBSHELL_DATA_DIR = facts.dataDir;
       }
+      // Caller-composed env (Task 7: the ssh pane's SSH_AUTH_SOCK, decision 3)
+      // merges after the SUBSHELL_* block — `subshellEnv` is a per-launch
+      // object built just above, never a shared constant, so assigning is safe.
+      if (extraPaneEnv) Object.assign(subshellEnv, extraPaneEnv);
       // Command assembly happens INSIDE launch, which runs inside this try:
       // a rejected env key throws there, and the row + token must roll back
       // like any other spawn failure below.
@@ -464,6 +555,9 @@ export class SubshellManagerService {
         mcpConfigPath,
         harnessSession,
         reporter,
+        // The composed ssh member (spec 2026-10-07 decision 4). Conditional
+        // spread: absent on every non-ssh launch, byte-identical plan there.
+        ...(ssh ? { ssh: { configPath: ssh.configPath, fileContent: ssh.fileContent } } : {}),
       });
       if (prompt?.trim()) {
         promptDelivered = await this.#deliverPrompt(
@@ -486,6 +580,15 @@ export class SubshellManagerService {
       } catch {
         // kill is best-effort; the row + token rollback below must still run
       }
+      // A LOCAL ssh launch writes its config inside `launch`, before the spawn
+      // that threw here — so retiring the row must retire the dir too, or a
+      // half-built `<dataDir>/ssh/<id>` leaks until a manual delete. The guard
+      // no-ops every non-local / non-ssh create; `targetNode` keeps a remote
+      // pane's dir on ITS node's disk untouched.
+      sweepLocalSshDir({ id, nodeId: targetNode, ssh: ssh ? JSON.stringify(ssh.snapshot) : null });
+      // A relay session (M2) bound to this pane must die with the create too:
+      // the B proxy socket would otherwise outlive the row it was named for.
+      closeRelayForPaneExit(id);
       await this.#subshells.markTerminated(id, new Date().toISOString());
       await this.#revokeTokenOrUnlink(id);
       publishLive({ kind: "subshell.changed", id });
@@ -936,12 +1039,12 @@ export class SubshellManagerService {
    * Terminate one subshell because its NODE entered maintenance
    * (spec 2026-09-14 §5.2).
    *
-   * {@link terminateSubshell} plus a push, and the push is the whole reason
-   * this exists as a second method rather than a flag: that path is
-   * deliberately silent because the operator clicked it, and here they did
-   * not. A node owner's window stops subshells belonging to everyone the node
-   * was shared with — people who cannot see the node, did not act, and would
-   * otherwise find a dead pane with no account of why.
+   * {@link terminateSubshell} plus a push and the local ssh config sweep, and
+   * the push is the whole reason this exists as a second method rather than a
+   * flag: that path is deliberately silent because the operator clicked it,
+   * and here they did not. A node owner's window stops subshells belonging to
+   * everyone the node was shared with — people who cannot see the node, did
+   * not act, and would otherwise find a dead pane with no account of why.
    *
    * The row's OWN `userId` is passed through, never an actor's: the terminate
    * path is owner-keyed and would silently skip every row but the caller's.
@@ -959,10 +1062,21 @@ export class SubshellManagerService {
    * the claim too, which is right: nothing was running to stop, and its owner
    * heard about that death when it happened.
    *
+   * The sweep runs whether or not this call claimed the transition (it is an
+   * idempotent `rm -rf`, and the helper's guard no-ops every row that is not
+   * a LOCAL ssh pane): the kill inside {@link terminateSubshell} revokes the
+   * pane's token at the same moment, so the dying hook's report can arrive
+   * 401 and sweep nothing — exactly the race the terminate verb documented
+   * (e2e spec 22). The hand that kills removes the dir; without this, a
+   * maintenance window left every local ssh config dir behind.
+   *
    * @param row - the running row to stop, freshly read
    */
   async terminateForMaintenance(row: SubshellTable): Promise<void> {
-    if (await this.terminateSubshell(row.userId, row.id)) void this.#notify(row.id, "maintenance");
+    const stopped = await this.terminateSubshell(row.userId, row.id);
+    sweepLocalSshDir(row); // guard: local node ∧ snapshot; agent rows skip (their disk, their watcher)
+    sweepRelayForPane(row); // relay sessions are per-pane and die with the pane (M2 §5.6 child-exit)
+    if (stopped) void this.#notify(row.id, "maintenance");
   }
 
   /**
@@ -998,15 +1112,28 @@ export class SubshellManagerService {
     // attach-replay artifact; the MCP config holds no secrets but nothing
     // should be left behind). The layout lives behind the launcher seam
     // (spec §6.4): a local row leaves exactly its replay log; an agent node
-    // names the triple (log + MCP config + the agent's own meta record —
-    // deliberately left behind by a kill, so the DELETE unlinks it) from its
-    // live `ready` facts, and an OFFLINE agent answers `[]`: no facts, no
-    // layout to name paths from, artifacts age out with the node (§5.6).
+    // names its triple (log + MCP config + the agent's own meta record —
+    // deliberately left behind by a kill, so the DELETE unlinks it) plus the
+    // ssh config at the node-derived path, from its live `ready` facts, and
+    // an OFFLINE agent answers `[]`: no facts, no layout to name paths from,
+    // artifacts age out with the node (§5.6).
     // The local short-circuit is row-keyed because a TEST launcher answers for
     // EVERY node id (the phase-0 suites) — a fake standing in for `local`
     // must keep receiving the local artifact set, never the agent triple.
-    const artifacts = row.nodeId === LOCAL_NODE_ID ? [launcher.logPath(id)] : launcher.subshellArtifacts(id);
+    // A LOCAL ssh pane's config is deliberately NOT in that list: it lives in
+    // its own directory under the server's dataDir, and unlinking the file
+    // while leaving the DIR is not a removal. `sweepLocalSshDir` (the one
+    // sweep function, shared with the exit report and terminate) removes the
+    // dir, keyed on the same row facts the old list entry consulted: the
+    // node id here, the snapshot column (`row.ssh !== null`, migration 0048)
+    // inside the guard — a row that merely NAMES the ssh harness has no
+    // config to find, and a snapshot under any other harness id still owns
+    // one.
+    const sshPane = row.ssh !== null;
+    const artifacts = row.nodeId === LOCAL_NODE_ID ? [launcher.logPath(id)] : launcher.subshellArtifacts(id, sshPane);
     await launcher.removeArtifacts(artifacts);
+    sweepLocalSshDir(row); // guard: local node ∧ snapshot; agent rows skip (their disk, their watcher)
+    sweepRelayForPane(row); // the pane stops existing in every flavor: any brokered relay ends here
     // And the generated MCP config (no secrets, but nothing to leave behind).
     try {
       unlinkSync(subshellMcpConfigPath(id));
@@ -1334,6 +1461,14 @@ export class SubshellManagerService {
             publishLive({ kind: "subshell.changed", id: row.id });
             logger.info(`subshell process absent (no socket): ${row.id}`);
             await this.#notifyDeath(row);
+            // This no-socket branch stamps alive→dead directly rather than
+            // through #applyDeath, so the ssh-config sweep that lives there must
+            // be repeated here (guard no-ops every non-local / non-ssh row). A
+            // real ssh pane always carries a socket at create, so this is the
+            // fixture-shaped belt that keeps "whichever hand first notices
+            // removes the dir" true for EVERY alive→dead stamp, not most.
+            sweepLocalSshDir(row);
+            closeRelayForPaneExit(row.id); // the same belt for relay sessions
           }
         }
         continue;
@@ -1469,16 +1604,19 @@ export class SubshellManagerService {
   }
 
   /**
-   * The shared death transition — the ONE place a running row is stamped
-   * alive→dead. Every entry point that learns of a death calls this: the
-   * sweep (local tmux probe or the agent `probe`/`exit` census), an agent
-   * `exit` event, and the `subshells_report` reconnect census. Idempotent by
-   * construction: the stamp + death push fire only while the FRESH row is
-   * still `running` with `alive: 1`, and a row a restart owns
-   * (`restartInFlight`) is off-limits. After the (possible) transition the
-   * auto-restart ladder runs for parked rows, and a subshell that will never
-   * come back — opted out or backoff-exhausted — has its bearer revoked here.
-   * The cached preview dies with the pane.
+   * The shared death transition — where a probe- or report-driven death is
+   * stamped alive→dead AND the pane's artifacts (preview cache, ssh config dir,
+   * idle tmux server) are cleared. Every entry point that learns a LIVE pane is
+   * gone calls this: the sweep (local tmux probe or the agent `probe`/`exit`
+   * census), an agent `exit` event, and the `subshells_report` reconnect census.
+   * (The reconcile's no-socket fast path — a row that cannot be alive — stamps
+   * directly rather than routing here, and repeats the ssh sweep so no
+   * alive→dead path misses it.) Idempotent by construction: the stamp + death
+   * push fire only while the FRESH row is still `running` with `alive: 1`, and a
+   * row a restart owns (`restartInFlight`) is off-limits. After the (possible)
+   * transition the auto-restart ladder runs for parked rows, and a subshell that
+   * will never come back — opted out or backoff-exhausted — has its bearer
+   * revoked here.
    * @param row - the row as the caller saw it; only its id must still be true
    * @param opts.exitCode - the observed pane exit code (null = never seen)
    * @param opts.endedAt - ISO stamp for the death (the agent's clock for remote events)
@@ -1518,6 +1656,19 @@ export class SubshellManagerService {
     // "Never" means opted out OR the backoff limit was exhausted (the
     // sweep gives up at that count, so the bearer would linger otherwise).
     const restarted = await this.maybeAutoRestart(fresh);
+    // The ssh config dir is a pane artifact like the preview cache and the idle
+    // tmux server below: it dies with the pane, HERE, in the ONE shared
+    // transition. Doing it only from the tmux `pane-died` hook's self-report
+    // left a gap — the hook is best-effort, and a report lost to a 401 or a
+    // dropped exec left the dir behind until a manual teardown; the 60 s
+    // reconcile reaches this same line whenever the process is gone, so this is
+    // the deterministic sweep. Guarded on `!restarted` (never clobber a live
+    // re-render) and by the helper itself (local ∧ ssh; every other row no-ops).
+    // The relay cut runs whatever the restart ladder decided: an agent-capable
+    // ssh pane never auto-restarts (M1 decision 7), and a restart of anything
+    // else must not strand the relay session of the process that just died.
+    closeRelayForPaneExit(fresh.id);
+    if (!restarted) sweepLocalSshDir(fresh);
     if (!restarted && (fresh.restartOnExit !== 1 || fresh.backoffCount >= 5)) {
       // Terminal: this subshell will never come back, so its bearer must
       // not linger. Revoke failures here must not abort the sweep for the
@@ -2081,6 +2232,8 @@ export function toSubshellView(
     waitingSince: string | null;
     lastPushUrgency: number | null;
     crossAgent: number;
+    /** The ssh snapshot column (migration 0048); read for presence only, never parsed here. */
+    ssh: string | null;
   },
   status: string,
   /** The subshell's current screen, bottom-first-trimmed; empty when not running. */
@@ -2139,6 +2292,9 @@ export function toSubshellView(
     // (spec 2026-09-23) — what turns the rail's dot into a bell.
     unseenPush: row.lastPushUrgency !== null,
     access,
+    // The pane's KIND fact: the ssh snapshot column's PRESENCE (migration
+    // 0048). The snapshot itself stays never-serialized (its db-types doc).
+    ssh: row.ssh !== null,
     // Agent node unreachable right now (see the param doc) — the UI's
     // "node offline" chip; false for every local subshell.
     nodeOffline,

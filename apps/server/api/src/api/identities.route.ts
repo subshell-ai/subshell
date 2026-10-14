@@ -42,9 +42,13 @@ export const identityRoutes = new Elysia({ prefix: "/api/identities" })
       // Must be a P-256 PUBLIC key jose can IMPORT — a merely parseable
       // object would poison seal() for every co-member (see public-jwk.ts).
       await assertImportablePublicJwk(parsed);
+      // Pane/user principals have no relay signing identity: the slot is
+      // stated null so the machine-only column (spec 2026-10-08 §4.2) is
+      // never filled through this door.
       return await new IdentitiesRepository(db).register({
         principalId: principal,
         publicKey: body.publicKey,
+        signingPublicKey: null,
         displayName: body.displayName ?? null,
       });
     },

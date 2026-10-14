@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "launch",
+    "ssh",
     "lifecycle",
     "workspaces",
     "clone",

@@ -31,6 +31,7 @@ async function fixture() {
         applyInventory: async () => undefined,
         touch: async () => undefined,
         setStatus: async () => undefined,
+        setSshFingerprint: async () => undefined,
       },
     },
   };

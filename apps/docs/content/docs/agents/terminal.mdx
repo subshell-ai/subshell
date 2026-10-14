@@ -11,16 +11,18 @@ The target machine needs tmux and an available shell. Terminal has no provider l
 
 ## Launch
 
-1. Open the launch dialog.
+1. In the server dashboard’s sidebar, open **Subshells** and choose **New subshell**.
 2. Select **Terminal**.
 3. Choose the node and working directory.
 4. Launch and run `pwd` to confirm the directory.
 
 The Terminal plugin uses the execution environment's shell selection, with `bash` as its detection binary. It has no agent settings, resume capability, or attention reporting.
 
+To open a terminal on another machine, choose **SSH terminal** in the new-subshell dialog instead. See [Connect over SSH](/guides/ssh).
+
 ## Session behavior
 
-Closing a tab leaves the shell running. Choosing **Close** in the subshell menu permanently removes the session and its captured history.
+Closing the browser tab leaves the shell running. Choosing **Close** in the subshell menu permanently removes the session and its captured history.
 
 A restarted shell is a new process. Subshell doesn't restore a shell's in-memory state or turn it into a resumable agent conversation.
 

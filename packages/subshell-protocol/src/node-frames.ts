@@ -1,5 +1,7 @@
 import { BASE64_RE, isBool, isInt, isNum, isRecord, isStr, isStrArray, isStringMap } from "./guards.js";
 import type { JsonValue } from "./json.js";
+import { isSshFingerprint, parseSshNodeCommandBody, type SshNodeCommandBody } from "./ssh-frames.js";
+import { SSH_CONFIG_FILE_MAX_BYTES, SSH_PATH_MAX_CHARS, SSH_RELAY_FRAME_MAX_BYTES } from "./ssh-limits.js";
 
 /**
  * Node ↔ control-plane wire contract (spec 2026-08-31 §3).
@@ -133,8 +135,49 @@ import type { JsonValue } from "./json.js";
  * log-confined beside the generalized `file_read`, and `write_file`'s upload
  * roots stay exactly as narrow as they are while `transfer_write` arrives as
  * its own policy-gated sibling.
+ *
+ * **15 → 16 is the node SSH capability gate (spec 2026-10-07 §4.3).** One
+ * owner-controlled flag per machine saying "this machine may take part in
+ * Subshell SSH at all", off by default and fail-closed: `set_ssh_enabled`
+ * carries the plane's value to the node's mirror file, `ready.sshEnabled`
+ * states that mirror at connect, and the `ssh_enabled` event reports a mirror
+ * that moved underneath the connection. Unlike maintenance there is no
+ * node-side writer — the plane is the sole author and every reconcile pushes
+ * the row, never the other way. Additive, and breaking anyway, because the
+ * gate is exact-match — and breaking is the POINT here rather than a formality
+ * to shrug through: a pre-16 agent never sees `set_ssh_enabled` and reports no
+ * `sshEnabled`, which on the wire is indistinguishable from a 16 agent whose
+ * mirror simply says no. A capability gate cannot live with that ambiguity
+ * (spec §4.3), so the number is what refuses the old agent, not the frame.
+ *
+ * **16 -> 17:** the ssh launch block and the two discovery/resolve commands.
+ * A lagging agent is HELD (update-only) until crossed, per the
+ * capability-gate doctrine in docs/superpowers/specs/2026-10-07-ssh-anywhere-design.md
+ * §4.3; the desktop update path is the crossing. The ambiguity the bump
+ * refuses: a tier-1 agent that ignores the launch frame's `ssh` member would
+ * spawn a bare `ssh` pane with no `-F` config (§4.3's gate doctrine refuses to
+ * live with that).
+ *
+ * **17 -> 18:** the sealed agent relay
+ * (docs/superpowers/specs/2026-10-08-ssh-agent-relay-design.md §5.1). The
+ * `relay` link frame - a NEW frame kind on the established link, carrying one
+ * sealed envelope keyed by the opaque routing ref, with no per-message
+ * command signing - plus the `ssh_relay_open` / `ssh_relay_close` signed
+ * commands that broker a session. This one cannot ride a silent tier: a
+ * tier-17 agent understands no `relay` frame at all, and the exact-match
+ * gate is what refuses pairing BEFORE any relay command is sent (§5.1's own
+ * bump argument, §11's never-half-relay rule). Server first, as always.
+ *
+ * **18 -> 19:** relay-open carries the per-connection key
+ * selection without a standing grant id. `access-revoked` replaces the
+ * old grant-specific close reason. Exact protocol matching keeps both
+ * relay endpoints on this authorization contract.
+ *
+ * **19 -> 20:** ssh_host_key can discover a destination’s presented identity
+ * without writing trust. The server requires this distinction before offering
+ * a first-connection confirmation.
  */
-export const NODE_PROTOCOL_VERSION = 15;
+export const NODE_PROTOCOL_VERSION = 20;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an
@@ -457,6 +500,95 @@ export interface NodeRuntimeReport {
   tmuxPath: string | null;
   /** The agent binary this process re-enters (`selfInvoke.command`). */
   binaryPath: string;
+  /**
+   * The machine's SSH trust block (spec 2026-10-08 §4.6): this machine's own
+   * signing and encryption key fingerprints, and the pinned half of every
+   * relay peer, as the canonical `SHA256:` form of `fingerprintJwk`.
+   *
+   * Fingerprints are the DISPLAY form of the trust the node enforces as raw
+   * byte equality (`machine-pin-store.ts`): this block carries no key
+   * material, only public identifiers, and exists so an operator can compare
+   * what one machine STORED about a peer against what the peer COMPUTES from
+   * its own keys. Absent from agents that predate M2, and dropped rather than
+   * fatal when malformed, like `logging`.
+   */
+  sshFingerprint?: NodeSshFingerprintReport;
+}
+
+/**
+ * One machine's two public relay halves as `SHA256:` fingerprints (spec
+ * 2026-10-08 §4.5): the ES256 signing key and the ECDH-ES encryption key.
+ */
+export interface NodeSshFingerprintPair {
+  /** Fingerprint of the ES256 machine-signing public key. */
+  signing: string;
+  /** Fingerprint of the ECDH-ES encryption public key. */
+  encryption: string;
+}
+
+/** One pinned peer, named by id, with both of its fingerprints. */
+export interface NodeSshPeerFingerprint extends NodeSshFingerprintPair {
+  /** The pinned peer's node id. */
+  nodeId: string;
+}
+
+/**
+ * The §4.6 trust block: what this machine pins for itself and every peer,
+ * computed from its OWN key files, never from the plane's copy of them. The
+ * plane mirrors it onto `nodes.ssh_fingerprint` (the trust card's stale half).
+ */
+export interface NodeSshFingerprintReport {
+  /** This machine's own both halves. */
+  own: NodeSshFingerprintPair;
+  /** Every pinned peer; the empty array is the honest "no peers yet". */
+  peers: NodeSshPeerFingerprint[];
+}
+
+// The canonical fingerprint spelling of `fingerprintJwk` is the ONE predicate
+// `ssh-frames.ts` exports (`isSshFingerprint`: the `SHA256:` prefix over exactly
+// the 43 unpadded base64url characters of a 32-byte SHA-256 digest). The plane
+// mirrors and renders bytes it cannot re-derive, and a second, drifting copy of
+// that grammar is how one canonical spelling grows two answers.
+
+/**
+ * Node ids as the plane mints them: uuid text (hex and hyphens). THE guard,
+ * called, not copied: a peer id reaching the block is the same registry id
+ * the path-interpolation policy admits, and one regex must not drift from the
+ * other.
+ */
+function isPeerNodeId(value: unknown): value is string {
+  return typeof value === "string" && isNodeSubshellId(value);
+}
+
+/** The `{ signing, encryption }` pair, or null when either half is off. */
+function parseFingerprintPair(value: unknown): NodeSshFingerprintPair | null {
+  if (!isRecord(value)) return null;
+  if (!isSshFingerprint(value.signing) || !isSshFingerprint(value.encryption)) return null;
+  return { signing: value.signing, encryption: value.encryption };
+}
+
+/**
+ * Shape-check a `NodeSshFingerprintReport` (the runtime report's §4.6 block).
+ * STRICT inside, like every required field of the runtime report it rides:
+ * a half-refused block would print a trust card whose compare is meaningless,
+ * so one bad entry refuses the whole block (the block itself is dropped from
+ * the runtime report leniently, the `logging` way: the card is lost, not the
+ * connection).
+ * @param value - the candidate, typically `ready.runtime.sshFingerprint`
+ * @returns the narrowed report, or null when malformed
+ */
+export function parseNodeSshFingerprintReport(value: unknown): NodeSshFingerprintReport | null {
+  if (!isRecord(value) || !Array.isArray(value.peers)) return null;
+  const own = parseFingerprintPair(value.own);
+  if (own === null) return null;
+  const peers: NodeSshPeerFingerprint[] = [];
+  for (const entry of value.peers) {
+    if (!isRecord(entry) || !isPeerNodeId(entry.nodeId)) return null;
+    const pair = parseFingerprintPair(entry);
+    if (pair === null) return null;
+    peers.push({ nodeId: entry.nodeId, signing: pair.signing, encryption: pair.encryption });
+  }
+  return { own, peers };
 }
 
 /** The agent's debug state, or the default when it did not say it properly. */
@@ -502,6 +634,11 @@ export function parseNodeRuntimeReport(value: unknown): NodeRuntimeReport | null
   ) {
     return null;
   }
+  // Lenient like `logging`, strict inside: a present-but-malformed block
+  // drops the BLOCK (no trust card), never the runtime report beside it
+  // (paths, supervision, the verbs). A valid one passes through narrowed.
+  const sshFingerprint =
+    value.sshFingerprint === undefined ? null : parseNodeSshFingerprintReport(value.sshFingerprint);
   return {
     startedAt: value.startedAt,
     supervised: value.supervised,
@@ -528,6 +665,7 @@ export function parseNodeRuntimeReport(value: unknown): NodeRuntimeReport | null
     logHint: value.logHint,
     tmuxPath: value.tmuxPath,
     binaryPath: value.binaryPath,
+    ...(sshFingerprint ? { sshFingerprint } : {}),
   };
 }
 
@@ -658,6 +796,16 @@ export type NodeCommandBody =
        * node-supplied: it is self-knowledge, not plugin knowledge.
        */
       mcp?: { path: string; fileContent: string; args?: string[]; env?: Record<string, string> };
+      /**
+       * The ssh pane's rendered config: the content the plane composed from
+       * the approved snapshot, plus the absolute node-side path the agent
+       * writes it to. The file-placement contract is the `mcp` block's: 0600
+       * in a 0700 dir, derived from the node's own `dataDir`, written before
+       * spawn, and the exit watch deletes the derived path beside the pane's
+       * other artifacts. The pane's argv names `-F` at this path; present
+       * only for ssh launches, absent for every harness pane.
+       */
+      ssh?: { configPath: string; fileContent: string };
       /** Resume pin for harnesses that support it */
       harnessSession?: HarnessSessionWire;
       /** tmux subshell name (the subshell id) */
@@ -908,6 +1056,28 @@ export type NodeCommandBody =
     }
   | {
       /**
+       * Write this node's SSH-capability mirror file (spec 2026-10-07 §4.3).
+       *
+       * The plane's ONLY writing copy of the flag — unlike maintenance there
+       * is no keyboard verb to race, so this is the only frame that ever
+       * changes the file apart from a repair of a corrupt one. It writes the
+       * file and nothing else: turning SSH off kills no panes (SSH acts are
+       * short-lived per-command work, and turning it ON widens nothing this
+       * machine was already refusing mid-flight).
+       *
+       * Carries the plane's own `changedAt` rather than letting the node stamp
+       * its own: both copies must end byte-identical, so a later `ready`
+       * report reads as agreement rather than a disagreement this process
+       * invented.
+       */
+      type: "set_ssh_enabled";
+      /** True = this machine may be used for Subshell SSH. */
+      on: boolean;
+      /** The plane's stamp for this value; stored verbatim. */
+      changedAt: string;
+    }
+  | {
+      /**
        * Replace this agent's own binary and restart into it (spec 2026-09-15 §5.2).
        *
        * **THIS SHAPE IS FROZEN ACROSS FUTURE PROTOCOL BUMPS.** Every other
@@ -1067,7 +1237,11 @@ export type NodeCommandBody =
        * sizing round trips is the caller that knows the frame cap.
        */
       maxBytes: number;
-    };
+    }
+  // The SSH commands: three members folded in as one union member so the SSH
+  // grammar lives in `ssh-frames.ts` beside the commands it narrows; their
+  // answers are validated by the ssh result parsers in `node-results.ts`.
+  | SshNodeCommandBody;
 
 /**
  * One node's maintenance state, as it travels in either direction.
@@ -1088,6 +1262,31 @@ export interface NodeMaintenanceWire {
 
 /** A {@link NodeMaintenanceWire}, or null when the value is not one. */
 export function parseNodeMaintenance(value: unknown): NodeMaintenanceWire | null {
+  if (!isRecord(value) || !isBool(value.on) || !isStr(value.changedAt)) return null;
+  return { on: value.on, changedAt: value.changedAt };
+}
+
+/**
+ * One node's SSH capability, as it travels in either direction (spec
+ * 2026-10-07 §4.3) — the same `{ on, changedAt }` shape as maintenance, with
+ * the default and the reconcile direction inverted: `on` means this machine
+ * MAY take part in Subshell SSH, and only the plane writes it.
+ *
+ * `changedAt` is the stamp of the write that produced `on`, carried verbatim
+ * in both directions so the two copies stay byte-identical and neither side
+ * can mistake a relay for a new decision. Nothing here compares stamps: the
+ * plane is authoritative and every disagreement ends with the plane's value
+ * pushed down.
+ */
+export interface NodeSshEnabledWire {
+  /** True = this machine may be used for Subshell SSH. */
+  on: boolean;
+  /** ISO 8601 stamp of the write that produced this value. */
+  changedAt: string;
+}
+
+/** A {@link NodeSshEnabledWire}, or null when the value is not one. */
+export function parseNodeSshEnabled(value: unknown): NodeSshEnabledWire | null {
   if (!isRecord(value) || !isBool(value.on) || !isStr(value.changedAt)) return null;
   return { on: value.on, changedAt: value.changedAt };
 }
@@ -1189,6 +1388,136 @@ export type PluginReportWire = {
   restartRequired?: boolean;
 };
 
+/* ------------------------------------------------------------------ */
+/* sealed agent relay link frame (spec 2026-10-08 §5.1)                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The relay directions as a runtime list beside the type: one definition, and
+ * everything that iterates or validates reads these (code-style rule).
+ */
+export const RELAY_DIRECTIONS = ["B2A", "A2B"] as const;
+
+/** Which way one relay envelope travels inside its session (spec §5.1). */
+export type RelayDirection = (typeof RELAY_DIRECTIONS)[number];
+
+/** Whether `value` is one of the two relay directions (narrows to the type). */
+export function isRelayDirection(value: unknown): value is RelayDirection {
+  return (RELAY_DIRECTIONS as readonly unknown[]).includes(value);
+}
+
+/**
+ * The `relay` link frame: ONE sealed envelope per frame, on the established
+ * (protocol-18) link, keyed by the opaque routing ref (§5.1). It is NOT a
+ * command and NOT signed per message: the link already authenticates the
+ * machine, and origin rides the inner ES256 signature the endpoints exchange
+ * (§5.6), which the plane never sees. The plane's only roles are open,
+ * route, close - so `blob` is opaque BY CONTRACT: this grammar validates the
+ * SHAPE and the size and decodes nothing in between. `seq` is the frame's
+ * transport slot (the anti-replay `seq` lives SIGNED inside the envelope,
+ * §5.6); here it only needs to be a non-negative integer both ends can log.
+ *
+ * The frame travels BOTH directions of the link. On the plane's inbound path
+ * it arrives like every other agent frame (it joins {@link NodeEvent} for
+ * that); the plane-to-node leg serializes the same object down the
+ * established link and the node parses it with {@link parseRelayFrame}
+ * directly. The routing ref pairs the two legs; the broker (Task 8) owns
+ * that pairing, never this grammar.
+ */
+export interface RelayFrame {
+  type: "relay";
+  /** The opaque routing ref the relay-open command established. */
+  ref: string;
+  /** Per-frame counter on THIS leg; monotonic, non-negative. */
+  seq: number;
+  /** The envelope's logical direction inside the session, both spellings. */
+  direction: RelayDirection;
+  /** The sealed envelope, strict base64, raw payload at most SSH_RELAY_FRAME_MAX_BYTES. */
+  blob: string;
+}
+
+/**
+ * Exact raw length a strict-base64 string carries: 3 bytes per whole group
+ * minus the pad. BASE64_RE already forces the length to a multiple of 4, so
+ * the trailing-`=` count alone closes the last group. Measuring the cap on
+ * the RAW payload (not the inflated string) is what makes the bound honest:
+ * a char-length cap would let a padded group carry one byte past
+ * {@link SSH_RELAY_FRAME_MAX_BYTES} while reading exactly as long.
+ */
+function base64RawLength(b64: string): number {
+  let pad = 0;
+  for (let i = b64.length - 1; i >= 0 && b64[i] === "="; i -= 1) pad += 1;
+  return (b64.length / 4) * 3 - pad;
+}
+
+/**
+ * Validates and narrows a relay link frame (raw JSON text or the
+ * already-parsed object, same intake as {@link parseNodeEvent}). A present-
+ * but-undecodable blob is malformed, not deferred; an over-cap blob is
+ * REFUSED here because the cap is law (§5.1: over-cap frame refused, session
+ * closed with a named reason - the close is the broker's, the refusal is
+ * this function's). The blob's CONTENTS are never inspected: blindness is
+ * the point (§5.5).
+ *
+ * @param raw - candidate frame as received
+ * @returns the narrowed frame, or null when malformed / not a relay frame
+ */
+export function parseRelayFrame(raw: string | object): RelayFrame | null {
+  let value: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      value = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!isRecord(value) || value.type !== "relay") return null;
+  if (!isStr(value.ref) || value.ref.length === 0) return null;
+  if (!isInt(value.seq) || (value.seq as number) < 0) return null;
+  if (!isRelayDirection(value.direction)) return null;
+  if (!isStr(value.blob) || value.blob.length === 0 || !BASE64_RE.test(value.blob)) return null;
+  if (base64RawLength(value.blob) > SSH_RELAY_FRAME_MAX_BYTES) return null;
+  return { type: "relay", ref: value.ref, seq: value.seq as number, direction: value.direction, blob: value.blob };
+}
+
+/**
+ * The routing ref of a WELL-FORMED `relay` candidate (the same shape checks
+ * {@link parseRelayFrame} runs, in the same order) whose decoded blob
+ * EXCEEDS SSH_RELAY_FRAME_MAX_BYTES - i.e. exactly the one refusal reason
+ * `parseRelayFrame` answers with a plain null, which §5.1 says must end the
+ * session with a NAMED reason instead. The strict parse stays strict (the
+ * `NodeEvent` union must not carry an over-cap frame); this probe exists so
+ * the caller that just got a null back can tell "junk, drop quietly" from
+ * "over-cap, name the refusal". Only shape + the raw length of the blob are
+ * examined; the bytes themselves are never decoded or copied (§5.5's
+ * blindness). Junk of any kind answers null, never an error.
+ *
+ * @param value - candidate frame, raw JSON text or the already-parsed object
+ * @returns the routing ref when the candidate is relay-shaped AND over-cap,
+ *   null for anything else (junk, malformed relay, under-cap)
+ */
+export function relayFrameRefIfOverCap(value: unknown): string | null {
+  let parsed: unknown = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  if (!isRecord(parsed) || parsed.type !== "relay") return null;
+  if (!isStr(parsed.ref) || parsed.ref.length === 0) return null;
+  if (!isInt(parsed.seq) || (parsed.seq as number) < 0) return null;
+  if (!isRelayDirection(parsed.direction)) return null;
+  if (!isStr(parsed.blob) || parsed.blob.length === 0 || !BASE64_RE.test(parsed.blob)) return null;
+  return base64RawLength(parsed.blob) > SSH_RELAY_FRAME_MAX_BYTES ? parsed.ref : null;
+}
+
+/** Whether `value` is a well-formed `relay` candidate carrying an over-cap blob. */
+export function relayFrameOverCap(value: unknown): boolean {
+  return relayFrameRefIfOverCap(value) !== null;
+}
+
 export type NodeEvent =
   | {
       type: "ready";
@@ -1243,6 +1572,16 @@ export type NodeEvent =
        * own record, which is the only way that file gets repaired.
        */
       maintenance?: NodeMaintenanceWire;
+      /**
+       * This machine's SSH-capability mirror, as its file reads at connect
+       * (spec 2026-10-07 §4.3). Absent means the node has no file — which for
+       * SSH reads as REFUSED (fail-closed), not as agreeing with the row.
+       *
+       * Dropped rather than fatal when malformed, exactly like `maintenance`:
+       * the refusal is the safe direction, and the plane reconciles the
+       * disagreement from its own row on the very same `ready`.
+       */
+      sshEnabled?: NodeSshEnabledWire;
     }
   | {
       /**
@@ -1257,6 +1596,24 @@ export type NodeEvent =
       /** True = this node accepts no new subshells. */
       on: boolean;
       /** ISO 8601 stamp of the write on the machine. */
+      changedAt: string;
+    }
+  | {
+      /**
+       * This machine's SSH mirror moved underneath the connection (spec
+       * 2026-10-07 §4.3) — the heartbeat belt's carrier.
+       *
+       * With no node-side writer there is no keyboard flip to report (that is
+       * what `set_maintenance`'s sibling event exists for); what this carries
+       * is a file that changed by some other means — chiefly CORRUPTION, which
+       * flips a machine from "allowed" to "refused" silently and would
+       * otherwise stay a secret until the next reconnect. The plane's answer
+       * to any disagreement is a push of its row, which is also the repair.
+       */
+      type: "ssh_enabled";
+      /** The refusal/allowance this machine is acting on, as its mirror reads. */
+      on: boolean;
+      /** ISO 8601 stamp from the file (its own mtime when the file is unreadable). */
       changedAt: string;
     }
   | {
@@ -1294,7 +1651,17 @@ export type NodeEvent =
   | { type: "output"; subshellId: string; subId: string; fromByte: number; toByte: number; data_b64: string }
   | { type: "exit"; subshellId: string; exitCode: number | null; at: string }
   | { type: "subshells_report"; subshells: { subshellId: string; alive: boolean; exitCode: number | null }[] }
-  | { type: "error"; code: string; message: string };
+  | { type: "error"; code: string; message: string }
+  /**
+   * The sealed agent-relay leg (spec 2026-10-08 §5.1). Folded in for the
+   * PLANE's inbound path: every relay frame the plane reads arrives on an
+   * agent socket, where `parseNodeEvent` is the one kind dispatcher and the
+   * held-gate/supersede-probe that follow are exactly the guards a shuttle
+   * frame should pass through. On the plane-to-node leg the node parses the
+   * same shape with {@link parseRelayFrame} directly; "event" here names the
+   * inbound-to-plane position, not a claim that the node volunteered it.
+   */
+  | RelayFrame;
 
 /* ------------------------------------------------------------------ */
 /* validators (hand-rolled, parseClientFrame style — spec §3)          */
@@ -1357,6 +1724,20 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
         if (!isRecord(m) || !isStr(m.path) || !isStr(m.fileContent)) return null;
         if ("args" in m && !isStrArray(m.args)) return null;
         if ("env" in m && !isStringMap(m.env)) return null;
+      }
+      if ("ssh" in value) {
+        const ssh = value.ssh as unknown;
+        if (
+          typeof ssh !== "object" ||
+          ssh === null ||
+          typeof (ssh as { configPath?: unknown }).configPath !== "string" ||
+          !(ssh as { configPath: string }).configPath.startsWith("/") ||
+          (ssh as { configPath: string }).configPath.length > SSH_PATH_MAX_CHARS ||
+          typeof (ssh as { fileContent?: unknown }).fileContent !== "string" ||
+          (ssh as { fileContent: string }).fileContent.length > SSH_CONFIG_FILE_MAX_BYTES
+        ) {
+          return null;
+        }
       }
       if ("harnessSession" in value) {
         const h = value.harnessSession;
@@ -1507,6 +1888,10 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       const state = parseNodeMaintenance(value);
       return state ? { type: "set_maintenance", ...state } : null;
     }
+    case "set_ssh_enabled": {
+      const state = parseNodeSshEnabled(value);
+      return state ? { type: "set_ssh_enabled", ...state } : null;
+    }
     case "update": {
       // Shape only, like `set_server_url` above: WHICH url is acceptable is
       // the plane's to decide, and the digest is checked against the bytes
@@ -1605,6 +1990,19 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       return "cursor" in value
         ? { type: "tree_manifest", root: value.root, cursor: value.cursor as string, maxBytes: value.maxBytes }
         : { type: "tree_manifest", root: value.root, maxBytes: value.maxBytes as number };
+    case "ssh_discover_aliases":
+    case "ssh_resolve_config":
+    case "ssh_register_identity":
+    case "ssh_agent_identities":
+    case "ssh_host_key":
+    case "ssh_relay_open":
+    case "ssh_relay_close":
+    case "ssh_exec":
+    case "ssh_exec_status":
+    case "ssh_machine_pin_repair":
+      // Delegation, not a second parser: the SSH grammar (all arms, one
+      // file) lives in ssh-frames.ts beside the commands it narrows.
+      return parseSshNodeCommandBody(value);
     default:
       return null;
   }
@@ -1644,19 +2042,26 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
       ) {
         return null;
       }
-      // `runtime` and `maintenance` are additive: a malformed one is dropped
-      // so the connection still comes up without it, rather than refused.
+      // `runtime`, `maintenance` and `sshEnabled` are additive: a malformed
+      // one is dropped so the connection still comes up without it, rather
+      // than refused. For `sshEnabled` the drop is also SAFE in a way the
+      // others are not quite: the plane answers silence with its row (a row
+      // that says on pushes down), so a malformed field cannot strand a
+      // machine on the wrong side of the gate.
       const {
         runtime: rawRuntime,
         maintenance: rawMaintenance,
+        sshEnabled: rawSshEnabled,
         ...rest
-      } = value as Record<string, unknown> & { runtime?: unknown; maintenance?: unknown };
+      } = value as Record<string, unknown> & { runtime?: unknown; maintenance?: unknown; sshEnabled?: unknown };
       const runtime = rawRuntime === undefined ? null : parseNodeRuntimeReport(rawRuntime);
       const maintenance = rawMaintenance === undefined ? null : parseNodeMaintenance(rawMaintenance);
+      const sshEnabled = rawSshEnabled === undefined ? null : parseNodeSshEnabled(rawSshEnabled);
       return {
         ...(rest as unknown as Extract<NodeEvent, { type: "ready" }>),
         ...(runtime ? { runtime } : {}),
         ...(maintenance ? { maintenance } : {}),
+        ...(sshEnabled ? { sshEnabled } : {}),
       };
     }
     case "inventory": {
@@ -1674,6 +2079,12 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
       // opposite of what the machine is doing.
       const state = parseNodeMaintenance(value);
       return state ? { type: "maintenance", ...state } : null;
+    }
+    case "ssh_enabled": {
+      // Strict for the same reason: this frame is the machine reporting what
+      // it is acting on; half of it is not an answer.
+      const state = parseNodeSshEnabled(value);
+      return state ? { type: "ssh_enabled", ...state } : null;
     }
     case "heartbeat": {
       if (!isStr(value.ts)) return null;
@@ -1715,6 +2126,11 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
       return isStr(value.code) && isStr(value.message)
         ? { type: "error", code: value.code, message: value.message }
         : null;
+    case "relay":
+      // Delegation, like the SSH commands: the relay frame's whole contract
+      // (ref, seq, direction, capped opaque blob) lives in parseRelayFrame
+      // beside the type it narrows.
+      return parseRelayFrame(value);
     default:
       return null;
   }
