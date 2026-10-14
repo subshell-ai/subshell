@@ -12,8 +12,8 @@ with the IDLE close (`HELD_IDLE_MS`); the other ways a hold ends carry
 their own codes: a superseding socket closes the old one 4409, and
 revocation and disable use their refusal codes. That idle 4406 is
 TERMINAL for every agent that can reach a hold (verified across the tag
-history back to `cli-node-v0.13.0`: the daemon logs the refusal, reverts
-any update transaction it left pending, and exits), so the redial that
+history back to `cli-node-v0.13.0`: the daemon reverts any update
+transaction it left pending, logs the refusal, and exits), so the redial that
 lands it held again is the SERVICE MANAGER's restart, or a human at the
 machine; the held window is exactly what lets
 the Updates surface send the one command that fixes it, plaintext on the

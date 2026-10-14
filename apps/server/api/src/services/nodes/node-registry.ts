@@ -282,8 +282,8 @@ const held = new Map<string, HeldConnection>();
  * held again, so nothing is lost but the socket, same budget on either held
  * arm. The redial is NOT the agent's own doing: the 4406 is TERMINAL for
  * every agent that can reach a hold (verified across the tag history back to
- * `cli-node-v0.13.0` — the daemon logs the refusal, reverts any update
- * transaction it left pending, and exits), so what brings the node back is
+ * `cli-node-v0.13.0` — the daemon reverts any update transaction it left
+ * pending, logs the refusal, and exits), so what brings the node back is
  * the SERVICE MANAGER's restart, or a human at the machine. An unsupervised
  * held agent simply stays offline until one of the two runs — which is also
  * when it can self-rescue with `subshell update`.
