@@ -441,9 +441,11 @@ export async function handleNodeOpen(
   // window, where `conn.link` is unset: `sendCommand` refuses `offline` there
   // instead of killing the in-flight handshake with a frame the agent will
   // refuse anyway. A LEGACY row legitimately runs plaintext until it
-  // registers — which is also how every HELD socket reaches us (a handshake
-  // row's plaintext `ready` never survives to the gates that hold it), so the
-  // frozen `update` rescue keeps its plaintext verbatim.
+  // registers — which is how every legacy hold reaches us, and those keep the
+  // frozen `update` rescue's plaintext verbatim. A HANDSHAKE row's
+  // wrong-protocol agent is now held from the binding itself (spec
+  // 2026-10-13) with its link set, and reaches that same frozen rescue
+  // SEALED.
   conn.plaintextAllowed = ws.data.linkMode === "legacy";
   ws.data.nodeConn = conn;
   logger.debug(`node ws: ${nodeId} connected`);
@@ -744,6 +746,43 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
         if (ws.data.handshakeTimer) {
           clearTimeout(ws.data.handshakeTimer);
           ws.data.handshakeTimer = undefined;
+        }
+        // The binding-arm hold (spec 2026-10-13): the machine proposed it —
+        // identity proven, protocol refused. Wire FIRST (above), hold second:
+        // `sendCommand` seals through the link this block just set, so the
+        // frozen rescue leaves sealed, which is the ONLY form a handshake
+        // agent's negotiator opens. Frame handling on this socket is
+        // serialized (`handleNodeMessageQueued`), so the agent's synchronously
+        // sent `ready` is processed only after this lands: by then the held
+        // gate matches `ws.data.nodeConn === heldEntry.conn` and drops it.
+        if (outcome.hold) {
+          const row = await deps.nodes.findById(nodeId);
+          const message = `protocol v${NODE_PROTOCOL_VERSION} required (this node speaks v${outcome.hold.protocolVersion})`;
+          if (linkConn) {
+            await holdSocket(
+              deps,
+              linkConn,
+              nodeId,
+              {
+                // The row's last honest `ready`'s facts — this path never
+                // runs `applyReady`, and a build we cannot talk to writes no
+                // machine facts. "" is the "unversioned" spelling the route
+                // already renders; "unknown" is the ready grammar's own
+                // spelling, so the route's triple refusal reads honestly.
+                agentVersion: row?.agentVersion ?? "",
+                protocolVersion: outcome.hold.protocolVersion,
+                os: row?.os ?? "unknown",
+                arch: row?.arch ?? "unknown",
+              },
+              "protocol-mismatch",
+              message,
+            );
+          } else {
+            // No connection record (a socket that never went through `open`)
+            // — refuse it the old way, exactly as `holdRefusedNode`'s guard
+            // does: nothing can reach it to rescue it.
+            ws.close(NODE_CLOSE_UPDATE_REQUIRED, message);
+          }
         }
       }
       return;

@@ -116,7 +116,9 @@ export type LinkFrame = { text: string | object } | { bytes: Uint8Array };
  * - `{ consumed, established, sendBytes }` — the handshake just completed:
  *   `sendBytes` is the server's FIRST push, the sealed `{"t":"ok"}` (it
  *   carries the 24B secretstream header), to be sent as a binary frame;
- *   `established` is the live session for Task 8 to key its send path on.
+ *   `established` is the live session for Task 8 to key its send path on;
+ *   the arm may also carry the optional `hold` proposal (spec 2026-10-13),
+ *   which the handler applies after wiring.
  * - `{ forwarded }` — plaintext for the existing `parseNodeEvent` + gates
  *   path. From an established link this is the DECRYPTED string — bounded
  *   structurally, never re-measured (a ciphertext is 17 bytes larger than what
