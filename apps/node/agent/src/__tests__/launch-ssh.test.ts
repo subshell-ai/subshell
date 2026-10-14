@@ -2,13 +2,16 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test"
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildSshConfigPath } from "@internal/pane-runtime";
+import { buildSshConfigPath, SSH_GATE_REFUSAL } from "@internal/pane-runtime";
 import { HARNESS_BINARY_PLACEHOLDER, type NodeCommandBody, type NodeEvent } from "@internal/subshell-protocol";
 import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
 import { runExitWatchTick, startExitWatcher, stopWatcher } from "../commands/report.js";
 import type { NodeConfig } from "../config.js";
+import { writeSshEnabled } from "../ssh-enabled.js";
 import { SubshellMetaStore } from "../subshell-meta.js";
+
+const MIRROR_STAMP = "2026-10-08T09:00:00.000Z";
 
 /**
  * Task 5 (spec 2026-10-07 decision 4): the ssh pane's rendered config, landed
@@ -51,9 +54,12 @@ afterAll(() => {
   rmSync(base, { recursive: true, force: true });
 });
 
-async function freshDataDir(tag: string): Promise<string> {
+async function freshDataDir(tag: string, seedMirror = true): Promise<string> {
   const dir = join(base, tag);
   mkdirSync(dir, { recursive: true });
+  // The ssh launch now consults the node's fail-closed `ssh-enabled` mirror
+  // like every other SSH arm, so config-write tests must open that gate.
+  if (seedMirror) writeSshEnabled(dir, { on: true, changedAt: MIRROR_STAMP });
   return dir;
 }
 
@@ -185,6 +191,21 @@ describe("execLaunch ssh config write (spec 2026-10-07 decision 4)", () => {
     // pane still spawns exactly once and the file survives the launch.
     expect(calls.map((c) => c.method)).toEqual(["newSubshell", "pipePane"]);
     stopWatcher(ctx, S1);
+  });
+
+  it("PR #379 review: an absent ssh-enabled mirror refuses the ssh launch by name, writing nothing", async () => {
+    // The arm that runs ssh(1) must honor the node's own fail-closed gate. With
+    // the mirror absent (the exact corrupt/unprovisioned state the `ssh_enabled`
+    // heartbeat reports), a plane that believes SSH is on still gets a refusal
+    // and NO config file, NO pane, NO exported agent socket.
+    const dataDir = await freshDataDir("no-mirror", false);
+    const { ctx, calls } = makeCtx(dataDir, spawnAndPipeStub(), []);
+    const configPath = buildSshConfigPath(dataDir, S1);
+    const result = await dispatchCommand(ctx, sshLaunchCmd({ ssh: { configPath, fileContent: SSH_CONTENT } }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe(SSH_GATE_REFUSAL);
+    expect(existsSync(configPath)).toBe(false);
+    expect(calls.map((c) => c.method)).toEqual([]);
   });
 
   it("the write is visible at newSubshell time (config BEFORE spawn)", async () => {

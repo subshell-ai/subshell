@@ -1,8 +1,7 @@
 import { defaultSshConfigPath, discoverSshAliases, resolveSshAliasConfig } from "@internal/pane-runtime";
 import { type JsonValue, parseNodeSshAliasList, parseNodeSshResolveOutcome } from "@internal/subshell-protocol";
-import { readSshEnabled, sshAllowed } from "../ssh-enabled.js";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
-import { connectingHomeDir, resolveSshBin, SSH_GATE_REFUSAL } from "./ssh-shared.js";
+import { connectingHomeDir, gateOpen, resolveSshBin, SSH_GATE_REFUSAL } from "./ssh-shared.js";
 
 /**
  * The two human-config SSH executors that touch no connection state (spec
@@ -32,11 +31,6 @@ import { connectingHomeDir, resolveSshBin, SSH_GATE_REFUSAL } from "./ssh-shared
  * resolve and launch route descriptions (`/api/ssh/resolve`,
  * `/api/ssh/launch`), and the launcher UI copy ships with Plan 3.
  */
-
-/** Does this machine permit SSH right now? (the one question every arm asks first) */
-function gateOpen(ctx: CommandContext): boolean {
-  return sshAllowed(readSshEnabled(ctx.config.dataDir));
-}
 
 /** Execute `ssh_discover_aliases`. */
 export async function execSshDiscoverAliases(ctx: CommandContext): Promise<CommandResult> {

@@ -1,9 +1,14 @@
-import type { JsonValue, SshRelayCloseCommand, SshRelayOpenCommand } from "@internal/subshell-protocol";
+import {
+  type JsonValue,
+  NODE_RESULT_MAINTENANCE,
+  type SshRelayCloseCommand,
+  type SshRelayOpenCommand,
+} from "@internal/subshell-protocol";
 import { log } from "../log.js";
-import { readSshEnabled, sshAllowed } from "../ssh-enabled.js";
+import { readMaintenance } from "../maintenance.js";
 import type { CommandContext, CommandResult } from "./context.js";
 import { type ARelaySessionArgs, type BRelaySessionArgs, openARelaySession, openBRelaySession } from "./ssh-relay.js";
-import { SSH_GATE_REFUSAL } from "./ssh-shared.js";
+import { gateOpen, SSH_GATE_REFUSAL } from "./ssh-shared.js";
 
 /**
  * The two relay command arms (spec 2026-10-08 §5.1, Task 8 acceptance (a)):
@@ -52,11 +57,6 @@ export interface RelayOpenSeams {
   log?: (line: string) => void;
 }
 
-/** Does this machine permit SSH right now? (the one question every SSH arm asks first) */
-function gateOpen(ctx: CommandContext): boolean {
-  return sshAllowed(readSshEnabled(ctx.config.dataDir));
-}
-
 /** Execute `ssh_relay_open`: branch on the command's own `role`. */
 export async function execSshRelayOpen(
   ctx: CommandContext,
@@ -64,6 +64,14 @@ export async function execSshRelayOpen(
   seams?: RelayOpenSeams,
 ): Promise<CommandResult> {
   if (!gateOpen(ctx)) return { ok: false, error: SSH_GATE_REFUSAL };
+  // Maintenance is a machine's own "take no new work" switch, and both roles
+  // here do LOCAL work (A signs+connects; B binds a proxy socket under
+  // <dataDir>/ssh/<paneId>/). `ssh_exec` on this same act already refuses
+  // NODE_RESULT_MAINTENANCE; an open that skipped it would bind a socket on a
+  // machine that has withdrawn itself, orphaned until the hour-scale sweep.
+  const maintenance = readMaintenance(ctx.config.dataDir);
+  if (maintenance.kind === "unreadable" || (maintenance.kind === "state" && maintenance.state.on))
+    return { ok: false, error: NODE_RESULT_MAINTENANCE };
   const relay = ctx.relay;
   if (!relay) {
     // Not a user-facing condition: a daemon that runs commands without the

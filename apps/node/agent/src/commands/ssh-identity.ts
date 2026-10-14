@@ -1,9 +1,8 @@
 import { type AgentIdentitiesSeams, readMachineAgentIdentities } from "@internal/pane-runtime";
 import { type JsonValue, parseNodeSshIdentity } from "@internal/subshell-protocol";
 import { loadOrCreateIdentity } from "../identity.js";
-import { readSshEnabled, sshAllowed } from "../ssh-enabled.js";
 import type { CommandContext, CommandResult } from "./context.js";
-import { SSH_GATE_REFUSAL } from "./ssh-shared.js";
+import { gateOpen, SSH_GATE_REFUSAL } from "./ssh-shared.js";
 
 /**
  * `ssh_register_identity` (spec 2026-10-08 §4.3): the machine reports its
@@ -41,6 +40,6 @@ export async function execSshAgentIdentities(
   ctx: CommandContext,
   seams?: AgentIdentitiesSeams,
 ): Promise<CommandResult> {
-  if (!sshAllowed(readSshEnabled(ctx.config.dataDir))) return { ok: false, error: SSH_GATE_REFUSAL };
+  if (!gateOpen(ctx)) return { ok: false, error: SSH_GATE_REFUSAL };
   return readMachineAgentIdentities(seams);
 }

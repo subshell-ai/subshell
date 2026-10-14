@@ -18,6 +18,7 @@ import { selfInvocation } from "../self-invoke.js";
 import { isSubshellId } from "../subshell-meta.js";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
 import { reportMaintenance, startExitWatcher } from "./report.js";
+import { gateOpen, SSH_GATE_REFUSAL } from "./ssh-shared.js";
 
 /**
  * The `launch` executor (spec 2026-08-31 §6.4/§7) — the agent-side twin of
@@ -145,6 +146,12 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
   // for it — and a plane that could point the write anywhere would turn a
   // signed launch into an arbitrary-file write.
   if (cmd.ssh) {
+    // The arm that actually runs ssh(1) asks the same fail-closed local mirror
+    // every other SSH arm asks first. The plane's row is not enough: a corrupt
+    // or absent `ssh-enabled.json` is the exact fail-closed condition the
+    // `ssh_enabled` heartbeat reports, and this launch would otherwise spawn an
+    // outbound ssh with the account's SSH_AUTH_SOCK exported into the pane.
+    if (!gateOpen(ctx)) return { ok: false, error: SSH_GATE_REFUSAL };
     const derivedPath = buildSshConfigPath(ctx.config.dataDir, cmd.subshellId);
     if (cmd.ssh.configPath !== derivedPath) {
       // A bare message, no path interpolation: the byte-equality failure is

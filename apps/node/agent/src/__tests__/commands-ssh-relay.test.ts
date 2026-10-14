@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  NODE_RESULT_MAINTENANCE,
   type NodeCommandBody,
   type RelayFrame,
   SSH_RELAY_MAX_PER_NODE,
@@ -12,6 +13,7 @@ import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
 import { type BRelaySessionArgs, RelaySessions } from "../commands/ssh-relay.js";
 import { execSshRelayClose, execSshRelayOpen, type RelayOpenSeams } from "../commands/ssh-relay-exec.js";
+import { writeMaintenance } from "../maintenance.js";
 import { writeSshEnabled } from "../ssh-enabled.js";
 
 /**
@@ -292,6 +294,35 @@ describe("RelaySessions close tombstones (fix round T8 MAJOR 2)", () => {
     // The remembered close is observable in the log (ids and the named
     // reason only - the same refusal vocabulary every relay line keeps).
     expect(lines.some((l) => l.includes("r-0") && l.includes("access-revoked"))).toBe(true);
+  });
+});
+
+describe("the maintenance gate (PR #379 review)", () => {
+  it("ssh_relay_open refuses NODE_RESULT_MAINTENANCE for both roles: no socket bound", async () => {
+    // Maintenance is the machine's own "take no new work." Both roles do local
+    // work (A signs+connects, B binds a proxy socket under the data dir), and
+    // `ssh_exec` on the same act already refuses maintenance — an open that
+    // skipped it would bind a socket on a withdrawn machine, orphaned until the
+    // hour-scale sweep.
+    for (const role of ["A", "B"] as const) {
+      const { ctx } = makeCtx(`maint-${role}`, { gateOn: true });
+      writeMaintenance(ctx.config.dataDir, { on: true, changedAt: STAMP });
+      const seams: RelayOpenSeams = {
+        openA: async () => {
+          throw new Error("A must not run under maintenance");
+        },
+        openB: async () => {
+          throw new Error("B must not bind a socket under maintenance");
+        },
+      };
+      const result = await execSshRelayOpen(
+        ctx,
+        openCmd({ role, ...(role === "B" ? { aNodeId: "node-peer", bNodeId: "node-self" } : {}) }),
+        seams,
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toBe(NODE_RESULT_MAINTENANCE);
+    }
   });
 });
 
