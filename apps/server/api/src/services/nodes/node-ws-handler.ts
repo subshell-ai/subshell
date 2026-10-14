@@ -560,7 +560,9 @@ function normalizeLinkFrame(raw: string | object): LinkFrame {
 }
 
 /**
- * Hold a socket the plane refuses, instead of closing it (spec 2026-09-15 §5.3).
+ * Park a refused connection in the held map and project the row offline —
+ * the shared machinery behind both hold sites (spec 2026-09-15 §5.3;
+ * the binding arm joined it in spec 2026-10-13).
  *
  * The agent behind this socket speaks a protocol this server does not. Two
  * things follow, and both are the point:
@@ -581,6 +583,52 @@ function normalizeLinkFrame(raw: string | object): LinkFrame {
  * immediately, so an operator at the machine still reads "update required" in
  * its log — ten minutes later rather than at once, which is the price of the
  * window in which the plane could have fixed it from a browser.
+ *
+ * THE ROW GOES BACK TO OFFLINE, and this is the line the hold cannot do
+ * without. `applyReady` above sets `status: "online"` — deliberately, since
+ * it is what persists the identity a page needs to say "this node needs an
+ * update" — and before the hold the socket closed in the same turn, so the
+ * close path projected `offline` a moment later. A held socket never closes,
+ * so without this the row would read online for a machine no command can
+ * reach, and `isNodeOffline` (the registry) and the DB projection would
+ * disagree permanently. The binding site never ran `applyReady`, so its
+ * projection is a re-assert of the offline the row was left at, not a reversal.
+ */
+async function holdSocket(
+  deps: NodeWsDeps,
+  conn: NodeConnection,
+  nodeId: string,
+  facts: { agentVersion: string; protocolVersion: number; os: string; arch: string },
+  reason: HeldReason,
+  message: string,
+): Promise<void> {
+  holdConnection(nodeId, conn, {
+    reason,
+    agentVersion: facts.agentVersion,
+    protocolVersion: facts.protocolVersion,
+    os: facts.os,
+    arch: facts.arch,
+    onIdle: () => {
+      try {
+        conn.ws.close(NODE_CLOSE_UPDATE_REQUIRED, message);
+      } catch {
+        // already gone — the registry entry is what mattered and it is dropped
+      }
+    },
+  });
+  await deps.nodes.setStatus(nodeId, "offline" satisfies NodeStatus);
+  announceNodePresence(nodeId);
+  logger
+    .withMetadata({ nodeId, agentVersion: facts.agentVersion, protocolVersion: facts.protocolVersion })
+    .warn(`node ws: holding ${nodeId} for update — ${message}`);
+}
+
+/**
+ * Hold a socket the plane refuses at the `ready` path, instead of closing it
+ * (spec 2026-09-15 §5.3). The parking itself — held map, idle 4406, row
+ * projection, presence announce, the one warn line — is {@link holdSocket}'s;
+ * this adapter checks there is a connection to hold and hands over the ready
+ * frame's facts.
  */
 async function holdRefusedNode(
   deps: NodeWsDeps,
@@ -597,33 +645,19 @@ async function holdRefusedNode(
     ws.close(NODE_CLOSE_UPDATE_REQUIRED, message);
     return;
   }
-  holdConnection(nodeId, conn, {
-    reason,
-    agentVersion: event.agentVersion,
-    protocolVersion: event.protocolVersion,
-    os: event.os,
-    arch: event.arch,
-    onIdle: () => {
-      try {
-        conn.ws.close(NODE_CLOSE_UPDATE_REQUIRED, message);
-      } catch {
-        // already gone — the registry entry is what mattered and it is dropped
-      }
+  await holdSocket(
+    deps,
+    conn,
+    nodeId,
+    {
+      agentVersion: event.agentVersion,
+      protocolVersion: event.protocolVersion,
+      os: event.os,
+      arch: event.arch,
     },
-  });
-  // THE ROW GOES BACK TO OFFLINE, and this is the line the hold cannot do
-  // without. `applyReady` above sets `status: "online"` — deliberately, since
-  // it is what persists the identity a page needs to say "this node needs an
-  // update" — and before the hold the socket closed in the same turn, so the
-  // close path projected `offline` a moment later. A held socket never closes,
-  // so without this the row would read online for a machine no command can
-  // reach, and `isNodeOffline` (the registry) and the DB projection would
-  // disagree permanently.
-  await deps.nodes.setStatus(nodeId, "offline" satisfies NodeStatus);
-  announceNodePresence(nodeId);
-  logger
-    .withMetadata({ nodeId, agentVersion: event.agentVersion, protocolVersion: event.protocolVersion })
-    .warn(`node ws: holding ${nodeId} for update — ${message}`);
+    reason,
+    message,
+  );
 }
 
 /**
