@@ -32,8 +32,11 @@ base to keep compatible.) **The release a node is offered is the newest one
 whose SIGNED `release-manifest.json` says it speaks THIS server's
 `NODE_PROTOCOL_VERSION`** (`compatibleNodeRelease`), not merely the newest
 above `MIN_NODE_VERSION`: the
-old rule could install a node this plane cannot talk to, which enrolls,
-reconnects and is closed 4406 forever. A release carrying no manifest, which is every
+old rule could install a node this plane cannot talk to. Since spec 2026-10-13
+such an agent (a pinned row, dials through the handshake binding) enrolls and is
+HELD: the link stands and it answers nothing but the frozen `update`, and the
+4406 arrives at the idle close, terminal for the daemon, which the service
+manager brings back to redial into the hold again. A release carrying no manifest, which is every
 cut before 2026-09-15, is refused BY NAME rather than guessed at, and since
 spec 2026-09-17 so is an UNSIGNED or unverifiable one (every cut before
 2026-09-17): `release-manifest.json.sig` must minisign-verify against
