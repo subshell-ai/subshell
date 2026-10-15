@@ -43,7 +43,7 @@ The private keys stay with the node supplying them. Subshell relays encrypted si
 
 ### Use a key from your machine
 
-Select **Use a key from my machine** to see the key controls and security information. Choose an OpenSSH-format Ed25519, ECDSA, or RSA private key.
+Select **Use a key from my machine** to see the key controls and security information. Choose an OpenSSH-format Ed25519 or ECDSA private key. Browser mode also supports RSA.
 
 Keep the browser page or desktop app open until authentication finishes. The connecting node and destination must support OpenSSH host-bound authentication. Jump hosts and host-key aliases aren't supported for this option. A remote server must use HTTPS; local loopback HTTP is allowed.
 
@@ -63,6 +63,8 @@ Subshell reads the selected file after you approve the destination and signs one
 If an attempt fails or you cancel the destination confirmation, the form keeps the selected file and passphrase so you can correct the problem and retry. Changing the destination before starting also keeps them; the next attempt asks you to approve that destination. The passphrase remains in the browser's password field until the signing flow succeeds, you leave the form, or you switch authentication methods. Choosing another key clears the passphrase too.
 
 #### In a desktop app
+
+The desktop picker supports Ed25519 and ECDSA private keys and host keys. For RSA, open the server in your browser instead.
 
 In an updated Subshell desktop app, select **Start SSH subshell** to open the native destination confirmation and file picker, which starts in your home directory's `.ssh` folder. Encrypted keys ask for their passphrase in a separate native app window. The private key and passphrase stay outside the dashboard page, server, and connecting node. The native signer also releases its key after one authentication attempt or within 90 seconds; this isn't a guarantee of physical memory erasure by the operating system.
 

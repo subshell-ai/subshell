@@ -124,8 +124,10 @@ export function BrowserKeyFields({ selection, busy }: { selection: BrowserKeySel
         does not upload or save your SSH key, but complete erasure from browser memory cannot be guaranteed.
       </p>
       <p className="text-detail text-muted-foreground">
-        The key is used for one authentication, with a 90-second limit after you start. Subshell then releases its
-        temporary copy of your key from browser memory.
+        Signing is limited to one authentication and 90 seconds. Subshell then releases the copy used for signing from
+        browser memory. If the attempt fails or you cancel confirmation, this form keeps access to your selected file
+        and retains your passphrase for retry. The form clears that selection and passphrase when the signing flow
+        succeeds, you close this form, or you switch authentication methods.
       </p>
       <Field className="flex-row items-center gap-2">
         <Checkbox

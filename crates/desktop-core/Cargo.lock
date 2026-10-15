@@ -236,7 +236,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
 dependencies = [
  "const-oid",
- "pem-rfc7468",
  "zeroize",
 ]
 
@@ -864,7 +863,6 @@ checksum = "3b86f5297f0f04d08cabaa0f6bff7cb6aec4d9c3b49d87990d63da9d9156a8c3"
 dependencies = [
  "bcrypt-pbkdf",
  "ed25519-dalek",
- "num-bigint-dig",
  "p256",
  "p384",
  "p521",
@@ -891,10 +889,8 @@ dependencies = [
  "objc2-photos",
  "objc2-user-notifications",
  "rand",
- "rsa",
  "serde",
  "serde_json",
- "sha2",
  "signature",
  "ssh-key",
  "wait-timeout",

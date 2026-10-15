@@ -53,9 +53,11 @@ and an expiration. `desktop-core::ssh_signer` accepts only identity listing,
 a verified `session-bind@openssh.com` for the approved host key, and one
 `publickey-hostbound-v00@openssh.com` authentication matching that session,
 username, service, algorithm, key, and host key. Forwarding, rebinding,
-arbitrary challenges, unbound publickey authentication, and RSA SHA1 fail.
-RSA SHA256 and SHA512 flags are honored. The private key is released before
-the successful signature response returns.
+arbitrary challenges, unbound publickey authentication, and RSA keys fail.
+Native signing accepts Ed25519 and ECDSA private and host keys only. RSA
+cryptography is disabled in `ssh-key` features because of RUSTSEC-2023-0071;
+the browser signer retains RSA support through Web Crypto. The private key is
+released before the successful signature response returns.
 
 The 90-second deadline starts when the file is read, includes unlocking, and
 is enforced natively without page cooperation. Explicit release, main-window
