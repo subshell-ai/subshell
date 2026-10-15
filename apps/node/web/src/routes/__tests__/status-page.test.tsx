@@ -50,6 +50,7 @@ function localView(): NodeDetail {
     maintenanceAt: null,
     maintenanceSource: null,
     sshEnabled: true,
+    sshWideForwards: false,
     held: null,
     serverUrl: "http://127.0.0.1:3080",
     // No `runtime`: the page then skips the Runtime/Service cards, and this
