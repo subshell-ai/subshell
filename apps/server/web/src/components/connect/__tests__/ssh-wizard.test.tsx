@@ -64,6 +64,7 @@ async function setup({
     readyError,
     savedError: false,
     presetError: false,
+    preset422: false,
     launchError: false,
     presets: [] as unknown[],
     enableError: false,
@@ -82,6 +83,8 @@ async function setup({
     if (path === "/api/presets") {
       if (method === "GET") return json(state.presets);
       if (state.presetError) return json({ message: "Preset save failed" }, 409);
+      if (state.preset422)
+        return json({ outcome: { accepted: false, code: "unsupported_setting", settings: ["ProxyCommand"] } }, 422);
       const row = {
         ...JSON.parse(String(init?.body)),
         id: "saved-preset",
@@ -626,6 +629,22 @@ it("saves before launching and reuses the saved preset after a launch failure", 
   expect(calls.filter((c) => c.path === "/api/presets" && c.method === "POST")).toHaveLength(1);
   expect(calls.filter((c) => c.path === "/api/ssh/launch")).toHaveLength(2);
 });
+it("routes a 422 during save-before-launch through the cause copy under the save heading", async () => {
+  const { state, calls } = await setup({ initial: { node: "desk", destination: "target" } });
+  await task();
+  state.preset422 = true;
+  fireEvent.click(screen.getByRole("checkbox", { name: "Save as preset" }));
+  fireEvent.change(screen.getByLabelText("Preset name"), { target: { value: "Build" } });
+  await task();
+  await click("Start SSH subshell");
+  // The act that failed was the save: heading names the save, and the body is
+  // the mapped cause, not a raw API 422 slice of the outcome JSON.
+  await screen.findByText("Couldn’t save preset");
+  await screen.findByText(/uses settings Subshell doesn't support: ProxyCommand/);
+  expect(document.body.textContent?.includes("API 422") ?? false).toBe(false);
+  expect(calls.some((c) => c.path === "/api/ssh/launch")).toBe(false);
+});
+
 it("keeps a failed save open without launching", async () => {
   const { state, calls } = await setup({ initial: { node: "desk", destination: "target" } });
   await task();

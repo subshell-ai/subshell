@@ -66,7 +66,7 @@ export function SshPresetLibrary({
         </p>
       )}
       <SshQueryStatus query={query} label="SSH presets" />
-      {query.isSuccess && !query.data.length && (
+      {query.isSuccess && !query.data.length && !creating && (
         <EmptyState
           icon={Terminal}
           title="No SSH presets yet"
@@ -122,7 +122,9 @@ export function SshPresetLibrary({
                         {preset.destination}
                       </td>
                       <td className="@sm:table-cell hidden h-8 max-w-0 truncate whitespace-nowrap py-0 pr-4 text-muted-foreground">
-                        {nodes.data?.nodes.find((node) => node.id === preset.nodeId)?.name ?? "Node unavailable"}
+                        {nodes.data
+                          ? (nodes.data.nodes.find((node) => node.id === preset.nodeId)?.name ?? "Node unavailable")
+                          : ""}
                       </td>
                       <td className="@lg:table-cell hidden h-8 whitespace-nowrap py-0 pr-4 text-muted-foreground">
                         {SSH_AUTHENTICATION_LABELS[preset.authentication]}

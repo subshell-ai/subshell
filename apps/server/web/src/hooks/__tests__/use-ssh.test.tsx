@@ -9,7 +9,7 @@ import { useLaunchSsh, useSshAliases, useSshRecentDestinations } from "@/hooks/u
  * `use-instance-plugins.test.tsx` asserts its invalidations — a hook that
  * stops refreshing cannot pass by invalidating some other key.
  *
- * Three facts: the ledger fetches once under `["ssh-saved-hosts"]`; aliases
+ * Three facts: the ledger fetches once under `["ssh-recent-destinations"]`; aliases
  * are per-machine and gated (a null picker asks the node nothing); and a
  * successful launch refetches the ledger ONLY — the recency row moved, the
  * machine's config did not.

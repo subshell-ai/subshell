@@ -28,10 +28,12 @@ describe("apiFetch error classes", () => {
   });
 
   it("204 No Content resolves undefined — a body-less success is not a parse failure", async () => {
-    // The ssh saved-host DELETE answers 204 with NO body (a 204 may not carry
-    // one); parsing one is a throw, so the helper must return before it tries.
+    // Helper contract, not a live route: a 204 may not carry a body, and
+    // parsing one is a throw, so the helper must resolve undefined before it
+    // tries. No SSH route answers 204 today; any future body-less success
+    // rides this path.
     globalThis.fetch = (async () => new Response(null, { status: 204 })) as unknown as typeof fetch;
-    await expect(apiFetch("/api/ssh/recent-destinations/x")).resolves.toBeUndefined();
+    await expect(apiFetch("/api/example-204")).resolves.toBeUndefined();
   });
 
   it("isNetworkError matches only NetworkError (plain errors stay fail-fast)", () => {
