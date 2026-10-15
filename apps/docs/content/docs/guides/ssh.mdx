@@ -1,6 +1,6 @@
 ---
 title: "Connect over SSH"
-description: "Open an SSH terminal through a node, choose keys or a password, verify unfamiliar destinations, and reuse connection choices as SSH presets."
+description: "Open an SSH terminal through a node, choose keys or a password, verify unfamiliar destinations, forward ports through the connection, and reuse connection choices as SSH presets."
 ---
 
 Open an SSH terminal on another machine through one of your Subshell nodes.
@@ -115,6 +115,27 @@ The authentication options determine what you save now and what you supply when 
 Presets never store your private key, key file, passphrase, native approval, or destination password.
 
 If you select **Save as preset** while launching and the connection fails, the saved preset remains available. Retrying the same choices doesn't create another copy. Previously remembered destinations aren't converted into named presets; create presets for the connections you want to reuse.
+
+## Port forwards
+
+Some services, like a database or an admin API, live behind the destination and have no other route. A connection can open a port that reaches them: in the connection form, choose **Advanced SSH options**, then **Add port forward**. Every forward belongs to that connection, and the port closes when the subshell ends.
+
+| Kind | Where the port opens | What it does |
+| --- | --- | --- |
+| **Local** (`-L`) | The connecting node | Programs on that node reach a host the destination can see. |
+| **Remote** (`-R`) | The destination | The destination reaches a host the connecting node can see. The destination's own SSH server configuration decides whether and how it binds the port. |
+| **Dynamic SOCKS** (`-D`) | The connecting node | Tools configured to use the SOCKS proxy pick their own destinations at runtime and reach them through the connection. |
+
+Fill in a **Local port** (or **Remote port** for a remote forward), and for local and remote kinds the **Target host** and **Target port** you want to reach. A local or dynamic forward can also name a **Bind address**; left blank, the port binds the node's loopback address, so only programs on that node use it.
+
+A non-loopback bind lets other machines route through the port into whatever the connection reaches. That's a decision about the machine, not the connection, so it stays off until the node's owner turns on **Allow wide port forwards** on the node's SSH card. A launch that asks for a wide bind is refused until then; turning the setting off again refuses future wide binds while forwards that are already running keep going until their subshell closes.
+
+If the port you asked for is already taken on the node, the destination's shell still opens, and the terminal prints SSH's warning that the forward didn't bind.
+
+A preset carries forwards beside its other connection choices, so connecting from the preset fills the same rows; you can still edit or remove them before you start. The forward rows themselves are not stored anywhere else, and every launch records them in the audit trail with the connection.
+
+> [!note]
+> A forward extends the reach your SSH login already grants; it doesn't add a new credential or a new trust. Forwards end with the subshell: to reopen a port after a disconnect, start a new SSH subshell.
 
 ## Make the destination a node
 
