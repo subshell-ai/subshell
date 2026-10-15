@@ -37,7 +37,6 @@ Under **Authentication**, choose keys on a node, a key on your own machine, or a
 | **Use a key from my machine** | Choose a private key on your machine. Your browser or desktop app signs one login without uploading the key. |
 | **Enter a password when connecting** | Enter the destination account's password in the terminal when SSH prompts. Subshell doesn't save it. The destination must allow password authentication. |
 
-
 When using another node's keys, those keys must be loaded in an SSH agent that the node's Subshell process can access. Keys available in an interactive terminal might not be available to a background service. If the list is empty or unavailable, ask that node's owner to check its SSH agent and the service's `SSH_AUTH_SOCK` environment, then select **Reload keys**. See [Files and paths](/reference/paths) for the node's configuration locations.
 
 The private keys stay with the node supplying them. Subshell relays encrypted signing requests between the two nodes for the keys you selected. Both nodes must remain available for authentication. If SSH is disabled on a key source you own, the form explains that starting will enable it; you'll then select keys before connecting.
@@ -46,13 +45,34 @@ The private keys stay with the node supplying them. Subshell relays encrypted si
 
 Select **Use a key from my machine** to see the key controls and security information. Choose an OpenSSH-format Ed25519, ECDSA, or RSA private key.
 
-In a browser, read the warning and select **I trust this website and its operator**, then **Choose key…**. Browse to your `.ssh` directory; browsers cannot open that directory automatically. If your key is encrypted, enter its passphrase. Select **Start SSH subshell**, then verify the destination, username, port, and host-key fingerprint before continuing. Compare the fingerprint with one obtained from the destination's administrator through a trusted channel.
+Keep the browser page or desktop app open until authentication finishes. The connecting node and destination must support OpenSSH host-bound authentication. Jump hosts and host-key aliases aren't supported for this option. A remote server must use HTTPS; local loopback HTTP is allowed.
 
-The browser signs locally without uploading or saving your key or passphrase. Only use this option on a website whose operator you trust: compromised page code could steal your key. Subshell releases the loaded key after one authentication attempt, cancellation, or expiry, within 90 seconds of loading it. Complete erasure from browser memory cannot be guaranteed. Your original file stays untouched.
+#### In a browser
+
+> [!warning] Trust the website before choosing a key
+> Subshell does not upload or save your SSH key or passphrase. Compromised page code could still steal them, so only continue if you trust this website and its operator. Complete erasure from browser memory cannot be guaranteed.
+
+1. Read the warning and select **I trust this website and its operator**.
+2. Select **Choose key…** and browse to your private key. If your `.ssh` folder is hidden, follow the operating-system tip beneath the button to show hidden files in the file dialog.
+3. If the key is encrypted, enter its passphrase under **Key passphrase (if encrypted)**.
+4. Select **Start SSH subshell**. In **Use this key to connect?**, check **Connecting node**, **Key file**, and **SSH command**. The command shows the destination account and host, with `-p` for a port other than 22.
+5. Compare **Host fingerprint** with one obtained from the destination's administrator through a trusted channel. The named connecting node supplied the fingerprint; it isn't independent proof of the destination's identity. Select **Use key and connect** when you've verified it.
+
+Subshell reads the selected file after you approve the destination and signs one authentication, with a 90-second limit. It then releases the temporary signing copy of your key from browser memory. Cancellation, errors, and expiry also release that copy.
+
+If an attempt fails or you cancel the destination confirmation, the form keeps the selected file and passphrase so you can correct the problem and retry. Changing the destination before starting also keeps them; the next attempt asks you to approve that destination. The passphrase remains in the browser's password field until the signing flow succeeds, you leave the form, or you switch authentication methods. Choosing another key clears the passphrase too.
+
+#### In a desktop app
 
 In an updated Subshell desktop app, select **Start SSH subshell** to open the native destination confirmation and file picker, which starts in your home directory's `.ssh` folder. Encrypted keys ask for their passphrase in a separate native app window. The private key and passphrase stay outside the dashboard page, server, and connecting node. The native signer also releases its key after one authentication attempt or within 90 seconds; this isn't a guarantee of physical memory erasure by the operating system.
 
-Keep the browser page or desktop app open until authentication finishes. The connecting node and destination must support OpenSSH host-bound authentication. Jump hosts and host-key aliases aren't supported for this option. A remote server must use HTTPS; local loopback HTTP is allowed.
+### If a connection with your key fails
+
+Read the reason shown under **Connection failed** or **Connection needs attention** in the form. If SSH ends before requesting a signature, check that the selected key is authorized for the destination account. If it is, check that the connecting node and destination support host-bound SSH authentication.
+
+When an attempt fails before signing, Subshell removes the subshell it created. You can retry with your selected file and passphrase in the browser; the desktop app asks you to choose the key again. If removal fails, follow the message to remove the failed subshell from the list before retrying.
+
+Once a signature has been issued, a connection error can leave the login's outcome uncertain. Subshell keeps that subshell because it may contain a working connection. Check its terminal before starting another connection. A subshell opened with this one-use key needs a new SSH connection to authenticate again after it exits.
 
 ## Start and verify the connection
 
@@ -74,13 +94,13 @@ For these connections, Subshell stores the public host key and destination in th
 
 Connections using the connecting node's own keys or a password use that node's OpenSSH trust records instead. They automatically remember a previously unknown host key and reject a changed one. To verify a destination before that first connection, have the node's owner establish its trusted host key on the node first.
 
-Once connected, the terminal shows the destination's shell. If you selected password authentication, wait for its password prompt before typing. Only the owner signed in to the dashboard can type in an SSH subshell; MCP and other bearer credentials cannot send input. Session [sharing](/guides/sharing) lets other users view its output.
+Once connected, the terminal shows the destination's shell. Its top bar has an **SSH connection** icon with a tooltip identifying it as an SSH connection. If you selected password authentication, wait for its password prompt before typing. Only the owner signed in to the dashboard can type in an SSH subshell; MCP and other bearer credentials cannot send input. Session [sharing](/guides/sharing) lets other users view its output.
 
 ## Saved and recent destinations
 
 Open **Settings → SSH** in the dashboard sidebar to manage your destinations. **Saved destinations** contains entries you've remembered; **Recent destinations** lets you save one later. Use a row's **Forget** action to remove it from saved suggestions.
 
-You don't need a separate label. Subshell uses the address or SSH alias, and keeps different usernames on the same host as separate destinations. For example, `developer@build.example.com:22` and `operator@build.example.com:22` are distinct entries.
+You don't need a separate label. Subshell uses the address or SSH alias. In the connection form, saved and recent suggestions with an alias show the stored username, host, and port beneath it. Subshell keeps different usernames on the same host as separate destinations. For example, `developer@build.example.com:22` and `operator@build.example.com:22` are distinct entries.
 
 Remembering a destination saves a suggestion, not a password. Forgetting it doesn't close an open subshell or reset its verified identity.
 
