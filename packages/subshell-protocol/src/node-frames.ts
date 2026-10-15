@@ -1366,6 +1366,12 @@ export type PluginReportWire = {
   icon?: string;
   /** One-line description */
   description: string;
+  /**
+   * The manifest's own refusal to be listed in launch pickers (present only
+   * as `false`; absence means pickable). The control plane's row carries it
+   * so the web picker drops the plugin without knowing its id.
+   */
+  pickable?: false;
   /** Which optional members it implements */
   capabilities: string[];
   /** Settings rendered in the preset editor */

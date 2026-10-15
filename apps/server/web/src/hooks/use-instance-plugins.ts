@@ -17,6 +17,13 @@ export interface InstancePluginRow {
   description: string;
   /** Icon label */
   icon?: string;
+  /**
+   * Present only as false: the plugin declares its own refusal to be listed
+   * in launch pickers (it drives a pane that needs more than a pick, like
+   * SSH needing a destination). Absent means pickable; the row still exists
+   * and a launch by id still works.
+   */
+  pickable?: false;
   /** Driven program's command name, from the plugin this process resolves */
   binary?: string;
   /** Installed package version (absent when not installed) */

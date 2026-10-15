@@ -15,7 +15,10 @@ import { usableFirst } from "@/lib/option-order";
  */
 
 /** The plugin fields the Agent pickers read. */
-export type LaunchAgent = Pick<InstancePluginRow, "id" | "name" | "icon" | "installed" | "enabled" | "broken" | "type">;
+export type LaunchAgent = Pick<
+  InstancePluginRow,
+  "id" | "name" | "icon" | "installed" | "enabled" | "broken" | "type" | "pickable"
+>;
 
 /**
  * Why a harness cannot launch on a node.
@@ -67,13 +70,14 @@ export function buildAgentOptions(plugins: readonly LaunchAgent[], node: Node | 
     // never be launched under any conditions, so a greyed row with a reason
     // would be inventing a story about a choice that does not exist.
     plugins
-      // Networks are dropped as never-on-the-list; `ssh` is dropped as
-      // un-launchable-from-here (operator ruling 2026-10-15): a bare ssh
-      // launch carries no destination and dies at ssh's usage prompt, while
-      // every real SSH flow is the connect form on the SSH terminal tab.
-      // The terminal-equivalent API route PR 379 ruled stays exactly as it
-      // was; this only stops the picker offering a pick that does nothing.
-      .filter((p) => p.type !== "network" && p.id !== SSH_PLUGIN_ID)
+      // `pickable: false` drops the same way, and it is the PLUGIN's own
+      // word: only a plugin knows whether a bare launch means something.
+      // SSH declares it in its manifest (a bare ssh launch carries no
+      // destination and dies at the usage prompt; the connect form on the
+      // SSH terminal tab is its door). Absence means pickable, so every
+      // plugin written before the field is untouched, and no surface
+      // accumulates a list of ids to special-case.
+      .filter((p) => p.type !== "network" && p.pickable !== false)
       .map((p) => {
         const opt: ComboboxOption = { value: p.id, label: p.name, disabled: false };
         // Every option gets a mark: `PluginIcon` draws the plugin's own when it
@@ -109,7 +113,6 @@ export function buildAgentOptions(plugins: readonly LaunchAgent[], node: Node | 
 
 /** The built-in plain shell, by plugin id; the fallback tier's favorite. */
 const TERMINAL_PLUGIN_ID = "terminal";
-const SSH_PLUGIN_ID = "ssh";
 
 /**
  * The agent the picker should hold when the user has not chosen one: the most

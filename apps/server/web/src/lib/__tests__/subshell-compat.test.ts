@@ -51,6 +51,7 @@ function plugin(p: {
   broken?: string;
   type?: "agent-harness" | "terminal" | "network";
   icon?: string;
+  pickable?: boolean;
 }): LaunchAgent {
   const row: InstancePluginRow = {
     id: p.id,
@@ -61,6 +62,7 @@ function plugin(p: {
     builtIn: true,
     ...(p.broken !== undefined ? { broken: p.broken } : {}),
     ...(p.type !== undefined ? { type: p.type } : {}),
+    ...(p.pickable === false ? { pickable: false as const } : {}),
     ...(p.icon !== undefined ? { icon: p.icon } : {}),
   };
   return row;
@@ -229,7 +231,9 @@ describe("defaultAgentId", () => {
     // way it drops networks. Every real SSH flow is the connect form on the
     // SSH terminal tab. The 2026-10-08 clean-machine regression (a defaulted
     // first launch landing on `ssh`) is now prevented by the drop itself.
-    const SSH = plugin({ id: "ssh", name: "SSH", type: "terminal" });
+    // The fixture mirrors the shipping manifest: the row carries the
+    // plugin's own `pickable: false`, and the id is no part of the rule.
+    const SSH = plugin({ id: "ssh", name: "SSH", type: "terminal", pickable: false });
     const plugins = [SSH, TERM, CLAUDE];
     expect(
       buildAgentOptions(plugins, null)
@@ -244,9 +248,18 @@ describe("defaultAgentId", () => {
   it("an ssh-only catalog offers nothing", () => {
     // Not even as the last resort: an option that cannot do anything is not
     // made pickable by being alone.
-    const SSH = plugin({ id: "ssh", name: "SSH", type: "terminal" });
+    const SSH = plugin({ id: "ssh", name: "SSH", type: "terminal", pickable: false });
     expect(buildAgentOptions([SSH], null)).toEqual([]);
     expect(defaultAgentId(buildAgentOptions([SSH], null), [SSH], null)).toBeNull();
+  });
+  it("the refusal is the manifest flag, never the id", () => {
+    // A plugin with any other id that says `pickable: false` is dropped the
+    // same way, and `ssh` WITHOUT the flag is offered: the exclusion lives
+    // in the declaration, so no surface accumulates an id list.
+    const MYSTERY = plugin({ id: "tardis", name: "TARDIS", type: "terminal", pickable: false });
+    expect(buildAgentOptions([MYSTERY, TERM], null).map((o) => o.value)).toEqual(["terminal"]);
+    const SSH_PLAIN = plugin({ id: "ssh", name: "SSH", type: "terminal" });
+    expect(buildAgentOptions([SSH_PLAIN], null).map((o) => o.value)).toEqual(["ssh"]);
   });
   it("null when nothing is usable — and on an empty catalog", () => {
     const plugins = [plugin({ id: "x", name: "X", installed: false })];

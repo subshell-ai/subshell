@@ -46,6 +46,7 @@ export async function buildPluginReports(dataDir: string): Promise<PluginReportW
         type: installed.manifest.type,
         version: installed.version,
         description: installed.manifest.description,
+        ...(installed.manifest.pickable === false ? { pickable: false as const } : {}),
         capabilities: [],
         broken: installed.broken,
       });
@@ -61,6 +62,7 @@ export async function buildPluginReports(dataDir: string): Promise<PluginReportW
         version: installed.version,
         ...(installed.manifest.icon ? { icon: installed.manifest.icon } : {}),
         description: installed.manifest.description,
+        ...(installed.manifest.pickable === false ? { pickable: false as const } : {}),
         capabilities: [],
         broken: loaded.error,
         // A broken plugin with a newer copy on disk is the case an upgrade
@@ -91,6 +93,7 @@ export async function buildPluginReports(dataDir: string): Promise<PluginReportW
         version: installed.version,
         ...(manifest.icon ? { icon: manifest.icon } : {}),
         description: manifest.description,
+        ...(manifest.pickable === false ? { pickable: false as const } : {}),
         capabilities: plugin.capabilities(),
         ...(harness
           ? {

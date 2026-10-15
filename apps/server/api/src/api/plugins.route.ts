@@ -84,10 +84,16 @@ const PluginRowSchema = t.Object({
   name: t.String({ description: "Display name, from the installed plugin or this build's manifest" }),
   type: t.Union([t.Literal("agent-harness"), t.Literal("terminal"), t.Literal("network")], {
     description:
-      "Manifest plugin type: an agent CLI, a plain shell, or a network this host can be reached over. The web Agent picker takes `agent-harness` only; `network` rows are managed from Settings → Networking",
+      "Manifest plugin type: an agent CLI, a plain shell, or a network this host can be reached over. `network` rows are managed from Settings → Networking and never offered as launch options",
   }),
   description: t.String({ description: "One-line description" }),
   icon: t.Optional(t.String({ description: "Icon label" })),
+  pickable: t.Optional(
+    t.Boolean({
+      description:
+        "Present only as false: the plugin's own declaration that launch pickers must not list it even though it drives a pane. Absent means pickable; launching by id still works for the flow that supplies its inputs",
+    }),
+  ),
   binary: t.Optional(
     t.String({
       description: "Driven program's command name, from the plugin this process resolves (built-in or installed)",
@@ -218,6 +224,9 @@ function toRow(id: string, s: CatalogSources): Static<typeof PluginRowSchema> | 
     type: pluginTypeOf(report?.type) ?? harness?.type ?? "terminal",
     description: report?.description ?? harness?.description ?? "",
     ...(icon ? { icon } : {}),
+    // Whichever source knows the id says whether it refuses the picker; the
+    // installed report wins over the catalog copy the way name and type do.
+    ...(report?.pickable === false || (!report && harness?.pickable === false) ? { pickable: false } : {}),
     ...(harness ? { binary: harness.binaryName } : {}),
     ...(report?.version ? { version: report.version } : {}),
     installed: report !== undefined,

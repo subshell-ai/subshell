@@ -104,6 +104,13 @@ export interface HarnessPlugin {
   description: string;
   /** Optional emoji/icon label */
   icon?: string;
+  /**
+   * The manifest's `subshell.pickable`, carried only when it says false: a
+   * plugin that drives a pane but must not appear in the launch pickers.
+   * Absent means pickable; this is the plugin's own declaration, not a
+   * surface's special case.
+   */
+  pickable?: false;
   /** Official install instructions, shown when detection fails */
   installHint: InstallHint;
   /** Whether the harness ships enabled out of the box */

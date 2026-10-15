@@ -84,6 +84,9 @@ export function adaptPlugin(manifest: SubshellManifest, plugin: SubshellPlugin):
     ...(manifest.hostEnv ? { hostEnv: [...manifest.hostEnv] } : {}),
     description: manifest.description,
     icon: manifest.icon,
+    // The refusal to be listed rides through as the manifest's own word;
+    // consumers (the web Agent picker) never special-case an id.
+    ...(manifest.pickable === false ? { pickable: false as const } : {}),
     installHint: manifest.install ?? { command: "", docsUrl: "" },
     // A legacy field the plugin model replaces: "enabled by default" becomes
     // "installed" once the node owns its plugin set. Not worth a manifest
