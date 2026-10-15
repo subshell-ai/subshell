@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import type { SshForwardWire } from "@internal/subshell-protocol";
 import {
   buildAgentSocketPath,
   buildSshConfigPath,
@@ -364,6 +365,136 @@ describe("renderSshConfigContents relay mode (spec 2026-10-08 §9)", () => {
       typeof baseSnapshot
     >;
     expect(() => renderSshConfigContents(smuggled, relay)).toThrow("not renderable");
+  });
+});
+
+describe("renderSshConfigContents port forwards (spec 2026-10-15)", () => {
+  const localRow: SshForwardWire = {
+    kind: "local",
+    listenPort: 5432,
+    bindHost: null,
+    targetHost: "db.internal",
+    targetPort: 5432,
+  };
+  const wideRow: SshForwardWire = {
+    kind: "local",
+    listenPort: 8080,
+    bindHost: "10.0.0.5",
+    targetHost: "api.internal",
+    targetPort: 80,
+  };
+  const remoteRow: SshForwardWire = {
+    kind: "remote",
+    listenPort: 9090,
+    bindHost: null,
+    targetHost: "node.internal",
+    targetPort: 3000,
+  };
+  const dynamicRow: SshForwardWire = {
+    kind: "dynamic",
+    listenPort: 1080,
+    bindHost: null,
+    targetHost: null,
+    targetPort: null,
+  };
+
+  it("absent or empty rows render byte-identical to the rowless posture, clear included", () => {
+    const snap = baseSnapshot();
+    expect(renderSshConfigContents(snap, undefined, [])).toBe(renderSshConfigContents(snap));
+    expect(renderSshConfigContents(snap, undefined, [localRow])).not.toBe(renderSshConfigContents(snap));
+  });
+
+  it("renders each kind as a line under the exact destination Host, loopback binds explicit", () => {
+    const out = renderSshConfigContents(baseSnapshot(), undefined, [localRow, wideRow, remoteRow, dynamicRow]);
+    expect(out).toContain("Host app-02.example.com");
+    expect(out).toContain("    LocalForward 127.0.0.1:5432 db.internal:5432");
+    expect(out).toContain("    LocalForward 10.0.0.5:8080 api.internal:80");
+    // A remote row with no bind host stays bare: D's own GatewayPorts policy
+    // is the authority there, and inventing a name we did not approve would
+    // be the opposite lie of the one the renderer refuses elsewhere.
+    expect(out).toContain("    RemoteForward 9090 node.internal:3000");
+    expect(out).toContain("    DynamicForward 127.0.0.1:1080");
+  });
+
+  it("the row block comes AFTER the Host * policy section, under its own header", () => {
+    const out = renderSshConfigContents(baseSnapshot(), undefined, [localRow]);
+    const policy = out.indexOf("Host *");
+    const block = out.indexOf("Host app-02.example.com");
+    expect(policy).toBeGreaterThanOrEqual(0);
+    expect(block).toBeGreaterThan(policy);
+    // No LocalForward byte exists BEFORE the exact-Host header: the rows are
+    // under their own section, not smuggled into the policy one (the whole
+    // jump-child isolation argument rests on this shape).
+    expect(out.indexOf("LocalForward")).toBeGreaterThan(block);
+  });
+
+  it("drops ONLY the ClearAllForwardings line; every other confinement stands", () => {
+    const out = renderSshConfigContents(baseSnapshot(), undefined, [localRow]);
+    expect(out).not.toContain("ClearAllForwardings");
+    for (const [key, value] of [
+      ["ForwardAgent", "no"],
+      ["ForwardX11", "no"],
+      ["Tunnel", "no"],
+      ["PermitRemoteOpen", "none"],
+      ["PermitLocalCommand", "no"],
+      ["EscapeChar", "none"],
+      ["ControlMaster", "no"],
+    ] as [string, string][]) {
+      expect(out).toContain(`    ${key} ${value}`);
+    }
+  });
+
+  it("coexists with relay mode: pinned trust bytes AND the row block", () => {
+    const out = renderSshConfigContents(baseSnapshot(), { hostPinPath: "/data/ssh/s1/known_hosts" }, [dynamicRow]);
+    expect(out).toContain("    StrictHostKeyChecking yes");
+    expect(out).toContain("    UserKnownHostsFile /data/ssh/s1/known_hosts");
+    expect(out).toContain("    DynamicForward 127.0.0.1:1080");
+    expect(out).not.toContain("ClearAllForwardings");
+  });
+
+  it("refuses the whole render on a malformed row (no partial forward list, ever)", () => {
+    expect(() => renderSshConfigContents(baseSnapshot(), undefined, [localRow, { kind: "tunnel" } as never])).toThrow(
+      /grammar re-validation/,
+    );
+  });
+
+  it("refuses rows when a ProxyJump hop names the destination host (case-insensitively)", () => {
+    const snap = baseSnapshot({
+      host: "dup.example.com",
+      proxyJumps: [{ host: "DUP.example.com", user: null, port: 22 }],
+    });
+    expect(() => renderSshConfigContents(snap, undefined, [localRow])).toThrow(/ProxyJump names the destination/);
+    // Rowless, the same snapshot still renders: the guard belongs to forwards only.
+    expect(renderSshConfigContents(snap)).toContain("Host *");
+  });
+
+  it.skipIf(!Bun.which("ssh"))("real OpenSSH parses a rendered forward config without complaint", async () => {
+    const root = tempRoot("ssh-render-forwards-");
+    try {
+      const path = join(root, "config");
+      writeFileSync(
+        path,
+        renderSshConfigContents(
+          baseSnapshot({ identityFiles: [], certificateFiles: [], knownHostsFiles: [] }),
+          undefined,
+          [localRow, wideRow, remoteRow, dynamicRow],
+        ),
+      );
+      // -G evaluates the config for a host without connecting. The destination
+      // host's pass must exit clean; ssh would warn on a bad keyword or value.
+      const child = Bun.spawn([Bun.which("ssh") as string, "-G", "-F", path, "app-02.example.com"], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const stderr = await new Response(child.stderr).text();
+      expect(await child.exited).toBe(0);
+      // OpenSSH 10.2 answers -G on a non-tty stdin with a pseudo-terminal
+      // NOTICE regardless of the config; the honest check is that no CONFIG
+      // complaint rides along (a bad keyword or value names itself).
+      expect(stderr).not.toMatch(/bad configuration|unknown|invalid|overlong/i);
+    } finally {
+      cleanup(root);
+    }
   });
 });
 

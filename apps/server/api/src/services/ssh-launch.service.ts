@@ -21,6 +21,7 @@ import {
   parseSshConnectionSnapshot,
   SSH_NAME_MAX_CHARS,
   type SshConnectionSnapshotWire,
+  type SshForwardWire,
 } from "@internal/subshell-protocol";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
@@ -142,6 +143,15 @@ export function composeSshLaunch(args: {
    */
   hostPinPath?: string;
   authentication?: "password";
+  /**
+   * User-declared port-forward rows (docs/superpowers/specs/2026-10-15-ssh-port-forwards-design.md).
+   * The launch route has already gate-checked them (wide binds against the
+   * machine's setting); the renderer re-validates the SHAPE here as the last
+   * station before the bytes, same impossible-state posture as the snapshot
+   * line below - a refusal that dropped rows silently would tell the user a
+   * forward exists when nothing binds it.
+   */
+  forwards?: SshForwardWire[];
 }): {
   configPath: string;
   fileContent: string;
@@ -154,6 +164,7 @@ export function composeSshLaunch(args: {
   let fileContent = renderSshConfigContents(
     approved,
     args.hostPinPath === undefined ? undefined : { hostPinPath: args.hostPinPath },
+    args.forwards,
   );
   if (args.authentication === "password") {
     if (args.hostPinPath) throw new Error("Password authentication cannot use a key relay.");

@@ -1,7 +1,9 @@
 import {
   parseSshConnectionSnapshot,
+  parseSshForwardRows,
   SSH_PATH_MAX_CHARS,
   type SshConnectionSnapshotWire,
+  type SshForwardWire,
   type SshHopWire,
 } from "@internal/subshell-protocol";
 
@@ -75,6 +77,9 @@ const MANDATORY_POLICY: readonly [string, string][] = [
   ["ForwardX11", "no"],
   ["ForwardX11Trusted", "no"],
   // no local/remote/dynamic forwards or tunnels, whatever any config said
+  // (the ONE conditional policy line: omitted when the launch carries
+  // approved forward rows, which this clear would wipe anyway - see the
+  // render function's doc for the measured OpenSSH fact)
   ["ClearAllForwardings", "yes"],
   ["Tunnel", "no"],
   ["PermitRemoteOpen", "none"],
@@ -146,6 +151,28 @@ export interface SshRelayRenderOption {
 /** The two spellings of the ONE host-key-checking line: the M1 posture and the relay block. */
 const HOST_KEY_CHECK: Record<"direct" | "relay", string> = { direct: "accept-new", relay: "yes" };
 
+/** The ssh_config keyword each approved forward kind renders to (the row's kind is grammar-closed, so this lookup is total). */
+const FORWARD_KEYWORD: Record<SshForwardWire["kind"], string> = {
+  local: "LocalForward",
+  remote: "RemoteForward",
+  dynamic: "DynamicForward",
+};
+
+/**
+ * One approved forward as one config line, under the exact-destination `Host`
+ * block. The listen spelling carries no whitespace risk (the row grammar
+ * validates every host member), so no quoting seam is needed here; a null
+ * `bindHost` renders ssh's own loopback default EXPLICITLY for local/dynamic
+ * (127.0.0.1 is the name the audit and the reviewer both read), and stays
+ * spelled bare for remote, where D's `GatewayPorts` policy is the authority
+ * and adding a name we did not approve would be a lie of the opposite kind.
+ */
+function forwardLine(row: SshForwardWire): string {
+  const listen = row.bindHost === null ? (row.kind === "remote" ? "" : "127.0.0.1:") : `${row.bindHost}:`;
+  const head = `${FORWARD_KEYWORD[row.kind]} ${listen}${row.listenPort}`;
+  return `    ${row.kind === "dynamic" ? head : `${head} ${row.targetHost}:${row.targetPort}`}`;
+}
+
 /**
  * Render the runtime ssh_config FILE for one snapshot: the policy above,
  * every hop included, plus the snapshot's trust refs and identity refs under
@@ -167,9 +194,46 @@ const HOST_KEY_CHECK: Record<"direct" | "relay", string> = { direct: "accept-new
  * B's `/etc/ssh/ssh_known_hosts` must not authenticate D either. Absent the
  * option (every M1 launch) the bytes are the accept-new posture
  * byte-for-byte, untouched: the direct branch never names the global file.
+ *
+ * User-declared port forwards (the third argument, spec 2026-10-15) change two
+ * bytes-worth of policy and nothing else: the `ClearAllForwardings yes` line
+ * is dropped, and an exact-destination `Host` block carrying the approved
+ * rows is appended. The drop is measured, not assumed (OpenSSH 10.2p1, real
+ * sshd, observable listener): `ClearAllForwardings` applies at the END of the
+ * whole config load, not where it is written, so forwardings survive it
+ * neither from a later block nor from the command line; keeping the line
+ * would silently undo the rows, and silently dropping a forward is precisely
+ * the lie the resolver's refusal-by-name exists to prevent. Omitting it is
+ * honest because the forward channels left are our own lines and the
+ * root-owned system file - `-F` replaces the user config outright, and the
+ * system file is the "root's to decide" class this file's header already
+ * names. The rows enter under the EXACT destination host because ProxyJump
+ * children re-read this file matching their own host: they get the `Host *`
+ * policy and never the row block, so a forward cannot leak onto a hop.
+ * Absent or empty rows, every byte is what renders today, clear included.
  */
-export function renderSshConfigContents(snapshot: SshConnectionSnapshotWire, relay?: SshRelayRenderOption): string {
+export function renderSshConfigContents(
+  snapshot: SshConnectionSnapshotWire,
+  relay?: SshRelayRenderOption,
+  forwards?: SshForwardWire[],
+): string {
   assertRenderable(snapshot);
+  // Rows are re-validated HERE, at the last station before bytes a machine
+  // writes: a refused row THROWS rather than dropping, because half an
+  // approved forward list is a lie about what the user approved (the same
+  // no-partial-approval discipline as the snapshot parse).
+  let rows: SshForwardWire[] = [];
+  if (forwards !== undefined) {
+    const parsed = parseSshForwardRows(forwards);
+    if (parsed === null) throw new Error("forward rows failed grammar re-validation");
+    rows = parsed;
+  }
+  if (rows.length > 0 && snapshot.proxyJumps.some((h) => h.host.toLowerCase() === snapshot.host.toLowerCase())) {
+    // The exact-`Host` pattern would match the hop child too, handing a
+    // forward to the wrong connection. The route refuses this launch for the
+    // user first; this is the impossible-state guard beneath it.
+    throw new Error("port forwards cannot ride a launch whose ProxyJump names the destination host");
+  }
   if (relay !== undefined) {
     // The same path discipline `sshOptionTokens` applies to the config path:
     // this value is interpolated into a file ssh reads verbatim, and a
@@ -192,7 +256,12 @@ export function renderSshConfigContents(snapshot: SshConnectionSnapshotWire, rel
         ]
       : []),
     "Host *",
-    ...MANDATORY_POLICY.map(([key, value]) => `    ${key} ${key === "StrictHostKeyChecking" ? checking : value}`),
+    ...MANDATORY_POLICY.filter(
+      // The clear wipes approved rows too, measured (see the function doc):
+      // a launch with approved forwards drops the line, every other key of
+      // the policy stays, and so does the line for every rowless launch.
+      ([key]) => !(rows.length > 0 && key === "ClearAllForwardings"),
+    ).map(([key, value]) => `    ${key} ${key === "StrictHostKeyChecking" ? checking : value}`),
     // Relay: the pinned file is the ONE trust source - the snapshot's own
     // refs must not ride beside it, and neither may the system-wide DB
     // (`yes` consults GlobalKnownHostsFile too, so it is /dev/null'd; one
@@ -209,6 +278,16 @@ export function renderSshConfigContents(snapshot: SshConnectionSnapshotWire, rel
           ...snapshot.identityFiles.map((f) => `    IdentityFile ${configPathValue(f)}`),
           ...snapshot.certificateFiles.map((f) => `    CertificateFile ${configPathValue(f)}`),
         ]),
+    // User-declared forwards (spec 2026-10-15): a separate exact-Host section,
+    // never inside the `Host *` policy - the pattern is the whole point, it
+    // marks the final connection and only the final one.
+    ...(rows.length > 0
+      ? [
+          "# User-declared port forwards, approved at launch (spec 2026-10-15).",
+          `Host ${snapshot.host}`,
+          ...rows.map(forwardLine),
+        ]
+      : []),
     "",
   ];
   return lines.join("\n");
