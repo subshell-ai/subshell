@@ -18,7 +18,7 @@ const SshPresetFields = {
         minLength: 1,
         maxLength: 253,
         description:
-          "Original SSH token whose alias-scoped routing and key settings are reused with the saved canonical destination constraint; unlike alias, a null here never clears the stored token, it falls back to the destination",
+          "Original SSH token whose alias-scoped routing and key settings are reused with the saved canonical destination constraint; unlike alias, a null here never clears the stored token, resolution falls back to the stored token when the destination is unchanged and to the destination otherwise",
       }),
     ),
   ),
@@ -28,7 +28,7 @@ const SshPresetFields = {
         minLength: 1,
         maxLength: 253,
         description:
-          "Display alias, never used to resolve a saved destination; omitted on update keeps the stored one, null clears it",
+          "Display alias, never used to resolve a saved destination; omitted on update keeps the stored one, null or whitespace-only clears it",
       }),
     ),
   ),
