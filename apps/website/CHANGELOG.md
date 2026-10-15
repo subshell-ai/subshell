@@ -1,5 +1,11 @@
 # @internal/website
 
+## 0.2.14
+
+### Patch Changes
+
+- [#386](https://github.com/subshell-ai/subshell/pull/386) [`2013aed`](https://github.com/subshell-ai/subshell/commit/2013aedc387322d823a119a00f63651e9b5c2efa) Thanks [@theogravity](https://github.com/theogravity)! - Add an SSH feature section describing remote shells, authentication options, and saved connection presets.
+
 ## 0.2.13
 
 ### Patch Changes

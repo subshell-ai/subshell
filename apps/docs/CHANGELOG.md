@@ -1,5 +1,11 @@
 # @internal/docs
 
+## 0.8.2
+
+### Patch Changes
+
+- [#386](https://github.com/subshell-ai/subshell/pull/386) [`2013aed`](https://github.com/subshell-ai/subshell/commit/2013aedc387322d823a119a00f63651e9b5c2efa) Thanks [@theogravity](https://github.com/theogravity)! - Document agent and SSH presets, the New preset menu, and connection settings saved by SSH presets. Explain when local keys and passwords are supplied and how saved destinations are checked before connecting.
+
 ## 0.8.1
 
 ### Patch Changes
