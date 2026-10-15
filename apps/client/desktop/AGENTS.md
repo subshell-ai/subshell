@@ -55,9 +55,11 @@ passphrases never reach the control plane page or the server.
 The shared `desktop-core::ssh_signer` verifies OpenSSH's session binding and
 signs exactly one host-bound authentication for the approved host key and user.
 It refuses arbitrary signing, other users or host keys, forwarding, rebinding,
-and RSA SHA-1. Native RSA uses AWS-LC via OpenSSL bindings; ssh-key’s
-RustCrypto RSA backend stays disabled. Browser RSA uses Web Crypto. Native buffers are zeroized; physical RAM erasure and operating
-system copies cannot be guaranteed. Keys expire after 90 seconds from reading,
+and RSA SHA-1. Native RSA uses AWS-LC through the OpenSSL bindings, with
+ssh-key’s RustCrypto RSA backend kept disabled; browser RSA uses Web Crypto.
+AWS-LC cleanses the key allocations it releases; transient parser copies,
+physical RAM erasure and operating-system copies cannot be guaranteed. Keys
+expire after 90 seconds from reading,
 and native timers, navigation, window close, and explicit release clean up
 without depending on the remote page. See the
 [signer boundary](../../server/desktop/docs/ipc-boundary.md#local-ssh-keys).

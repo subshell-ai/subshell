@@ -114,7 +114,7 @@ test.describe("server service page", () => {
   });
 
   test("answers whether this server comes back, and never offers a switch a browser cannot mean", async ({ page }) => {
-    // Deliberately not "nothing is installed". The stack is hand-spawned, but
+    // Deliberately not "nothing is installed". The stack is hand-spawned and
     // its HOME is isolated, but service-manager availability still depends on
     // the machine running the suite. Don't assume one host's service state.
     //
