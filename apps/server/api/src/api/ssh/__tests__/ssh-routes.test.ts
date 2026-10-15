@@ -998,6 +998,13 @@ describe("SSH preset CRUD", () => {
       expect(await kept.json()).toMatchObject({ alias: "work", description: "kept note" });
       // Omitting decided nothing, so no re-resolution rode the update.
       expect(scripted.cmdsOf("ssh_resolve_config")).toHaveLength(1); // the create only
+      // A whitespace-only alias says "no alias" once trimmed, like the name's rule.
+      const blanked = await put({ alias: "   " });
+      expect(blanked.status).toBe(200);
+      expect(await blanked.json()).toMatchObject({ alias: null });
+      const renamed = await put({ alias: "  Tight alias  " });
+      expect(renamed.status).toBe(200);
+      expect(await renamed.json()).toMatchObject({ alias: "Tight alias" });
       const cleared = await put({ alias: null, description: null });
       expect(cleared.status).toBe(200);
       expect(await cleared.json()).toMatchObject({ alias: null, description: null });
@@ -1093,6 +1100,28 @@ describe("SSH preset CRUD", () => {
       } finally {
         refused.detach();
       }
+      // The server-derived guard: the NEW node answers accepted, but the alias
+      // resolves to a different address than the stored destination. That is
+      // CONFIG_INVALID, not a silent rewrite of a still-correct row.
+      const altDrift = attachScriptedNode(alt, {
+        ssh_resolve_config: (cmd) =>
+          cmd.type === "ssh_resolve_config" && cmd.alias === "work"
+            ? { accepted: true, snapshot: snapshot({ host: "elsewhere.test" }) }
+            : REFUSED,
+      });
+      try {
+        const drifted = await sshFetch(`/api/presets/${row.id}`, {
+          method: "PUT",
+          cookie: ownerCookie,
+          body: switchBody(alt),
+        });
+        expect(drifted.status).toBe(400);
+        const stayed = (await readSsh()).find((p) => p.id === row.id);
+        expect(stayed?.nodeId).toBe(NODE_ON);
+        expect(stayed?.destination).toBe(CANON);
+      } finally {
+        altDrift.detach();
+      }
       // The stored ALIAS must carry the re-resolve, not the canonical string
       // (which the new machine would read as a literal host and rewrite
       // nonsense), and the saved address must guard it.
@@ -1122,6 +1151,28 @@ describe("SSH preset CRUD", () => {
     } finally {
       on.detach();
     }
+  });
+  it("audits NOTHING across create, update, and delete (prompts precedent)", async () => {
+    const scripted = silentScript(NODE_ON);
+    const auditCount = () => db.selectFrom("auditEvents").select("id").execute();
+    const before = await auditCount();
+    try {
+      const created = await save(body("Audit silent"));
+      expect(created.status).toBe(200);
+      const row = (await created.json()) as { id: string };
+      const { kind: _kind, ...update } = body("Audit silent");
+      const updated = await sshFetch(`/api/presets/${row.id}`, {
+        method: "PUT",
+        cookie: ownerCookie,
+        body: { ...update, destination: CANON, description: "edited note" },
+      });
+      expect(updated.status).toBe(200);
+      expect((await sshFetch(`/api/presets/${row.id}`, { method: "DELETE", cookie: ownerCookie })).status).toBe(200);
+    } finally {
+      scripted.detach();
+    }
+    // A preference row is not an event; preset CRUD never touches the trail.
+    expect((await auditCount()).length).toBe(before.length);
   });
   it("creates canonical owner-scoped presets without touching recents or launching", async () => {
     const scripted = silentScript(NODE_ON);

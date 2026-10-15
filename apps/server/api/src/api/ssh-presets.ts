@@ -18,7 +18,7 @@ const SshPresetFields = {
         minLength: 1,
         maxLength: 253,
         description:
-          "Original SSH token whose alias-scoped routing and key settings are reused with the saved canonical destination constraint",
+          "Original SSH token whose alias-scoped routing and key settings are reused with the saved canonical destination constraint; unlike alias, a null here never clears the stored token, it falls back to the destination",
       }),
     ),
   ),

@@ -391,7 +391,10 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
           }),
         ),
       }),
-      response: t.Array(t.Union([PresetSchema, SshPresetSchema]), { description: "User's presets" }),
+      response: {
+        200: t.Array(t.Union([PresetSchema, SshPresetSchema]), { description: "User's presets" }),
+        403: "ApiErrorResponse",
+      },
       detail: {
         operationId: "listPresets",
         tags: ["presets"],
