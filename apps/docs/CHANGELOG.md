@@ -1,5 +1,13 @@
 # @internal/docs
 
+## 0.8.1
+
+### Patch Changes
+
+- [#384](https://github.com/subshell-ai/subshell/pull/384) [`448a3c2`](https://github.com/subshell-ai/subshell/commit/448a3c2c1111aab321b7282a10f1819e323d3c4d) Thanks [@theogravity](https://github.com/theogravity)! - Recapture documentation screenshots at twice the pixel density, with consistent margins and frames for clearer text and enlarged views.
+
+- [#384](https://github.com/subshell-ai/subshell/pull/384) [`448a3c2`](https://github.com/subshell-ai/subshell/commit/448a3c2c1111aab321b7282a10f1819e323d3c4d) Thanks [@theogravity](https://github.com/theogravity)! - Explain how to connect with a key from your machine, including browser risks, destination confirmation, temporary local signing, and compatibility requirements. Document retry behavior, passphrase retention, failed-connection cleanup, and resolved addresses in recent suggestions. Remove the outdated authentication screenshot.
+
 ## 0.8.0
 
 ### Minor Changes

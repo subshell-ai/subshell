@@ -1,5 +1,11 @@
 # @internal/website
 
+## 0.2.13
+
+### Patch Changes
+
+- [#384](https://github.com/subshell-ai/subshell/pull/384) [`448a3c2`](https://github.com/subshell-ai/subshell/commit/448a3c2c1111aab321b7282a10f1819e323d3c4d) Thanks [@theogravity](https://github.com/theogravity)! - Replace feature screenshots with sharp, lossless captures and consistent product-colored frames.
+
 ## 0.2.12
 
 ### Patch Changes
