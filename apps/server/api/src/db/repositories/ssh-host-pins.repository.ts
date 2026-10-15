@@ -16,7 +16,7 @@ import type { SshHostPinTable } from "@/db/types/ssh-host-pins.db-types.js";
  * line, and the row is the durable record the audit names only a fingerprint
  * of; nothing in this file logs or echoes the bytes.
  *
- * Every read and write is OWNER-SCOPED at the WHERE clause, the saved-hosts
+ * Every read and write is OWNER-SCOPED at the WHERE clause, the recent-destinations
  * posture verbatim: a foreign row is absent, never "forbidden".
  */
 export class SshHostPinsRepository extends BaseRepository {

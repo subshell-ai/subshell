@@ -39,7 +39,7 @@ describe("visibleNavItems", () => {
       // `/settings/ssh` rides the PERSONAL group: its path is under
       // /settings but the page is the caller's own ledger (spec 2026-10-08
       // §8), so a member reaches it and the gate never hides it.
-      expect(paths).toEqual(["/", "/workspaces", "/nodes", "/presets", "/prompts", "/settings/ssh"]);
+      expect(paths).toEqual(["/", "/workspaces", "/nodes", "/presets", "/prompts"]);
     }
   });
 
@@ -51,7 +51,6 @@ describe("visibleNavItems", () => {
       "/nodes",
       "/presets",
       "/prompts",
-      "/settings/ssh",
       ...GROUP_PAGES,
     ]);
   });

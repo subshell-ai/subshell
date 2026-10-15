@@ -52,6 +52,7 @@ export async function launchWithLocalKey(
     prepared = await apiPost<LocalKeyPreparation>("/api/ssh/local-key", {
       node: request.node,
       destination: request.destination,
+      ...(request.expectedDestination ? { expectedDestination: request.expectedDestination } : {}),
     });
     check();
     if (browser) {

@@ -1,22 +1,34 @@
 import type { DestinationCandidate } from "@/components/connect/destination-options";
 import { type SshAgentIdentity, sshSelectionError } from "@/lib/ssh";
 
-export type SshInitialChoices = { node?: string; destination?: string; keyHome?: string; fingerprints?: string[] };
+export type SshInitialChoices = {
+  preset?: string;
+  node?: string;
+  destination?: string;
+  keyHome?: string;
+  fingerprints?: string[];
+};
 
 /** A dialog owns this draft across form, wizard, and parent mode changes. */
 export interface SshSessionDraft {
   /** Machine that runs SSH. Empty means no deliberate choice yet. */
   nodeId: string;
   /** Authentication preference only; credentials are entered in the terminal. */
-  authentication?: "password" | "local-key";
+  authentication?: "connecting" | "remote" | "password" | "local-key";
   /** Explicit key machine; retain it even if the connecting machine changes to this id. Empty means own keys. */
   keyHome: string;
   /** Explicit selections, separately scoped to each key machine. */
   selections: Record<string, string[]>;
   /** Display text and canonical suggestion travel together. */
   destination: { pick: DestinationCandidate | null; pickId: string | null; typed: string };
-  /** Save this destination after a successful launch. */
-  remember: boolean;
+  initialPresetId?: string;
+  /** Reuse alias-scoped settings while requiring the preset’s saved address. Destination edits clear both. */
+  resolutionAlias?: string;
+  expectedDestination?: string;
+  /** Prevent default-node seeding from replacing a preset’s missing node. */
+  presetApplied?: boolean;
+  saveAsPreset?: boolean;
+  presetName?: string;
 }
 
 export function sshSessionDraft(initial?: SshInitialChoices): SshSessionDraft {
@@ -29,12 +41,12 @@ export function sshSessionDraft(initial?: SshInitialChoices): SshSessionDraft {
       pickId: null,
       typed: initial?.destination ?? "",
     },
-    remember: false,
+    initialPresetId: initial?.preset,
   };
 }
 
 export function sshDestination(draft: SshSessionDraft): string {
-  return draft.destination.pick?.destination ?? draft.destination.typed.trim();
+  return draft.resolutionAlias ?? draft.destination.pick?.destination ?? draft.destination.typed.trim();
 }
 
 export function sshKeySelectionProblem(fingerprints: string[], identities?: SshAgentIdentity[]): string | null {
@@ -53,6 +65,8 @@ export function sshKeySourceProblem(draft: SshSessionDraft): string | null {
 }
 
 export function sshDraftProblems(draft: SshSessionDraft): Record<string, string> {
+  if (draft.saveAsPreset && !draft.presetName?.trim()) return { name: "Enter a name for the new preset." };
+  if (draft.authentication === "remote" && !draft.keyHome) return { keys: "Choose a node to supply keys." };
   if (!draft.nodeId) return { node: "Choose a node to connect from first." };
   if (!sshDestination(draft)) return { destination: "Enter an SSH destination." };
   const error =

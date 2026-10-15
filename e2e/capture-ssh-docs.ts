@@ -100,16 +100,17 @@ try {
   await page.getByRole("combobox", { name: "Connect from", exact: true }).click();
   await page.getByRole("option", { name: "Build node", exact: true }).click();
   await page.getByLabel("SSH destination", { exact: true }).fill("developer@build.example.com:22");
-  await page.getByLabel("Remember this destination", { exact: true }).check();
+  await page.getByLabel("Save as preset", { exact: true }).check();
+  await page.getByLabel("Preset name", { exact: true }).fill("Build terminal");
   await page.getByRole("heading", { name: "New subshell", exact: true }).click();
   await capture(
     page,
     "ssh-connection.png",
     page.getByRole("combobox", { name: "Connect from" }).locator(".."),
-    page.getByLabel("Remember this destination").locator("../.."),
+    page.getByLabel("Save as preset").locator("../.."),
   );
   await page.getByLabel("SSH destination", { exact: true }).fill("build");
-  await page.getByLabel("Remember this destination", { exact: true }).uncheck();
+  await page.getByLabel("Save as preset", { exact: true }).uncheck();
   await page.getByRole("radio", { name: "Use another node’s keys", exact: true }).check();
   await page.getByRole("combobox", { name: "Use keys from", exact: true }).click();
   await page.getByRole("option", { name: "Personal node", exact: true }).click();

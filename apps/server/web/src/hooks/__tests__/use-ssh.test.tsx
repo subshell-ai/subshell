@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { useLaunchSsh, useSshAliases, useSshSavedHosts } from "@/hooks/use-ssh";
+import { useLaunchSsh, useSshAliases, useSshRecentDestinations } from "@/hooks/use-ssh";
 
 /**
  * The keys and URLs this file states, asserted on the WIRE the way
@@ -46,15 +46,15 @@ const savedHosts = { saved: [], recent: [], defaultNodeId: null };
 
 afterEach(cleanup);
 
-describe("useSshSavedHosts", () => {
-  it("fetches the ledger once at /api/ssh/saved-hosts", async () => {
-    const { calls, restore } = mockFetch({ "GET /api/ssh/saved-hosts": () => json(savedHosts) });
+describe("useSshRecentDestinations", () => {
+  it("fetches the ledger once at /api/ssh/recent-destinations", async () => {
+    const { calls, restore } = mockFetch({ "GET /api/ssh/recent-destinations": () => json(savedHosts) });
     try {
       const { wrapper } = makeWrapper();
-      const { result } = renderHook(() => useSshSavedHosts(), { wrapper });
+      const { result } = renderHook(() => useSshRecentDestinations(), { wrapper });
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(calls.filter((c) => c.url === "/api/ssh/saved-hosts")).toEqual([
-        { method: "GET", url: "/api/ssh/saved-hosts" },
+      expect(calls.filter((c) => c.url === "/api/ssh/recent-destinations")).toEqual([
+        { method: "GET", url: "/api/ssh/recent-destinations" },
       ]);
     } finally {
       restore();
@@ -95,7 +95,7 @@ describe("useSshAliases", () => {
 describe("useLaunchSsh", () => {
   it("refetches the ledger and nothing else on success", async () => {
     const { calls, restore } = mockFetch({
-      "GET /api/ssh/saved-hosts": () => json(savedHosts),
+      "GET /api/ssh/recent-destinations": () => json(savedHosts),
       "GET /api/ssh/aliases": () => json({ aliases: [], includeCycle: false, truncated: false }),
       "POST /api/ssh/launch": () => json({ subshell: { id: "s1" } }, 201),
     });
@@ -103,7 +103,7 @@ describe("useLaunchSsh", () => {
       const { wrapper } = makeWrapper();
       // Both lists mounted as observers: only the ledger may move.
       const { result } = renderHook(
-        () => ({ launch: useLaunchSsh(), hosts: useSshSavedHosts(), aliases: useSshAliases("n1") }),
+        () => ({ launch: useLaunchSsh(), hosts: useSshRecentDestinations(), aliases: useSshAliases("n1") }),
         {
           wrapper,
         },
@@ -122,7 +122,7 @@ describe("useLaunchSsh", () => {
 
 function counts(calls: Call[]): { saved: number; aliases: number } {
   return {
-    saved: calls.filter((c) => c.url === "/api/ssh/saved-hosts").length,
+    saved: calls.filter((c) => c.url === "/api/ssh/recent-destinations").length,
     aliases: calls.filter((c) => c.url.startsWith("/api/ssh/aliases")).length,
   };
 }

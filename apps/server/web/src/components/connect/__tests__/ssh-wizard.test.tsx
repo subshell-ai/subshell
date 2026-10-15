@@ -63,6 +63,9 @@ async function setup({
     machines,
     readyError,
     savedError: false,
+    presetError: false,
+    launchError: false,
+    presets: [] as unknown[],
     enableError: false,
     aliasesError: false,
     identities: [{ fingerprint: "SHA256:AAAA", comment: "Work key" }],
@@ -76,6 +79,21 @@ async function setup({
     const path = new URL(String(input), "http://localhost").pathname;
     const method = init?.method ?? "GET";
     calls.push({ path, method, ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) });
+    if (path === "/api/presets") {
+      if (method === "GET") return json(state.presets);
+      if (state.presetError) return json({ message: "Preset save failed" }, 409);
+      const row = {
+        ...JSON.parse(String(init?.body)),
+        id: "saved-preset",
+        destination: "user@canonical:22",
+        createdAt: "t",
+        updatedAt: "t",
+      };
+      state.presets.push(row);
+      return json(row, 201);
+    }
+    if (path === "/api/ssh/launch" && state.launchError)
+      return json({ code: "SSH_RELAY_OPEN_FAILED", message: "Launch failed" }, 409);
     if (path === "/api/settings/public")
       return json({
         allowNodeEnrollment: state.enrollmentAllowed,
@@ -85,7 +103,7 @@ async function setup({
       });
     if (path === "/api/ssh/readiness")
       return state.readyError ? json({ message: "read failed" }, 503) : json({ machines: state.machines });
-    if (path === "/api/ssh/saved-hosts")
+    if (path === "/api/ssh/recent-destinations")
       return state.savedError
         ? json({ message: "saved read failed" }, 503)
         : json({ saved: [], recent: [], defaultNodeId: null });
@@ -193,14 +211,9 @@ it("opens directly on the connection form", async () => {
   expect(screen.getByRole("combobox", { name: "Connect from" })).toBeTruthy();
   expect(screen.getByRole("radio", { name: "Use the connecting node’s keys" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
-  fireEvent.click(screen.getByLabelText("Remember this destination"));
-  await settle();
   await click("Start SSH subshell");
   expect(calls.find((c) => c.path === "/api/ssh/launch")?.body).toEqual({ node: "desk", destination: "target" });
-  expect(calls.find((c) => c.path === "/api/ssh/saved-hosts" && c.method === "PUT")?.body).toEqual({
-    node: "desk",
-    destination: "target",
-  });
+  expect(calls.filter((c) => c.path === "/api/presets" && c.method === "POST")).toHaveLength(0);
 });
 it("enables an owned node only when starting the subshell", async () => {
   const { calls } = await setup({
@@ -292,7 +305,7 @@ it("blocks vanished keys and unavailable SSH agents", async () => {
 it("retains draft choices after failed readiness reads", async () => {
   const { state, client } = await setup({ initial: { node: "desk", destination: "keep-me" } });
   await task();
-  fireEvent.click(screen.getByLabelText("Remember this destination"));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Save as preset" }));
   state.readyError = true;
   await act(async () => {
     await client.invalidateQueries({ queryKey: ["ssh-readiness"] });
@@ -300,7 +313,7 @@ it("retains draft choices after failed readiness reads", async () => {
   await settle();
   expect(disabled()).toBe(true);
   expect((screen.getByLabelText("SSH destination") as HTMLInputElement).value).toBe("keep-me");
-  expect((screen.getByLabelText("Remember this destination") as HTMLInputElement).checked).toBe(true);
+  expect(screen.getByRole("checkbox", { name: "Save as preset" }).getAttribute("aria-checked")).toBe("true");
 });
 it("holds launch and navigation until the parent attaches the subshell", async () => {
   let finish!: () => void;
@@ -594,3 +607,34 @@ for (const action of ["cancel", "unmount"] as const) {
     }
   });
 }
+
+it("saves before launching and reuses the saved preset after a launch failure", async () => {
+  const { state, calls } = await setup({ initial: { node: "desk", destination: "target" } });
+  await task();
+  state.launchError = true;
+  fireEvent.click(screen.getByRole("checkbox", { name: "Save as preset" }));
+  expect(disabled()).toBe(true);
+  fireEvent.change(screen.getByLabelText("Preset name"), { target: { value: "Build" } });
+  await task();
+  await click("Start SSH subshell");
+  await screen.findByText("Launch failed");
+  const writes = calls.filter((c) => c.method === "POST");
+  expect(writes.map((c) => c.path)).toEqual(["/api/presets", "/api/ssh/launch"]);
+  expect(writes[1].body).toMatchObject({ destination: "target", expectedDestination: "user@canonical:22" });
+  state.launchError = false;
+  await click("Start SSH subshell");
+  expect(calls.filter((c) => c.path === "/api/presets" && c.method === "POST")).toHaveLength(1);
+  expect(calls.filter((c) => c.path === "/api/ssh/launch")).toHaveLength(2);
+});
+it("keeps a failed save open without launching", async () => {
+  const { state, calls } = await setup({ initial: { node: "desk", destination: "target" } });
+  await task();
+  state.presetError = true;
+  fireEvent.click(screen.getByRole("checkbox", { name: "Save as preset" }));
+  fireEvent.change(screen.getByLabelText("Preset name"), { target: { value: "Build" } });
+  await task();
+  await click("Start SSH subshell");
+  await screen.findByText(/Preset save failed/);
+  expect(calls.some((c) => c.path === "/api/ssh/launch")).toBe(false);
+  expect((screen.getByLabelText("Preset name") as HTMLInputElement).value).toBe("Build");
+});

@@ -40,9 +40,10 @@ it("routes only public replies and closes both sides after a single signature", 
   }) as typeof fetch;
   let launched: string | undefined;
   const result = await launchWithLocalKey(
-    { node: "n", destination: "alice@host" },
+    { node: "n", destination: "original-alias", expectedDestination: "alice@host:22" },
     async (request) => {
       expect(request.localKeyId).toBe("request");
+      expect(request.expectedDestination).toBe("alice@host:22");
       return { subshell: { id: "pane" } };
     },
     (id) => {
@@ -52,6 +53,7 @@ it("routes only public replies and closes both sides after a single signature", 
   );
   expect(result?.subshell.id).toBe("pane");
   expect(launched).toBe("pane");
+  expect(bodies).toContainEqual({ node: "n", destination: "original-alias", expectedDestination: "alice@host:22" });
   expect(bodies).toContainEqual({ reply: { seq: 0, payload: "Dg==" } });
   expect(JSON.stringify(bodies)).not.toContain("native-handle");
   expect(calls).toContain("desktop_ssh_key_close");

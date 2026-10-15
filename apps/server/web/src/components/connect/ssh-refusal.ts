@@ -60,6 +60,13 @@ export function sshLaunchRefusal(
   // They aren't API responses and must not disappear into the launch fallback.
   if (localKey && err instanceof Error && !(err instanceof ApiError)) return { field: "keys", text: err.message };
   if (err instanceof ApiError) {
+    if (err.code === "CONFIG_INVALID") {
+      const message =
+        err.body && typeof err.body === "object" && "message" in err.body && typeof err.body.message === "string"
+          ? err.body.message
+          : err.message;
+      return { field: "destination", text: message };
+    }
     if (
       err.code?.startsWith("SSH_RELAY_") ||
       err.code?.startsWith("SSH_HOST_PIN_") ||

@@ -1,6 +1,11 @@
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
-import { SshDestinationField, SshResolveOutcomeViewSchema, throwCodedRefusal } from "@/api/ssh/ssh-views.js";
+import {
+  SshDestinationField,
+  SshExpectedDestinationField,
+  SshResolveOutcomeViewSchema,
+  throwCodedRefusal,
+} from "@/api/ssh/ssh-views.js";
 import { apiModels } from "@/schema/index.js";
 import { sshResolveDestination } from "@/services/ssh-launch.service.js";
 
@@ -12,7 +17,7 @@ import { sshResolveDestination } from "@/services/ssh-launch.service.js";
  * **A refusal is a 200 carrying `accepted: false`** (tier-1 grammar): "this
  * config needs a ProxyCommand" is a fact the human reads and goes and edits,
  * which settings blocked — not a transport error. The endpoint that ACTS
- * (`/launch`, saved-hosts PUT) is where a refusal-shaped outcome becomes a
+ * (`/launch`, SSH preset save) is where a refusal-shaped outcome becomes a
  * 422; here nothing is launched and nothing is stored.
  *
  * Same gate as every ssh surface (launch access and readiness, before any command), and the
@@ -26,7 +31,7 @@ export const sshResolveRoute = new Elysia()
     "/resolve",
     async ({ body, user, actor }) => {
       requireCookieActor(actor, "SSH resolution is restricted to browser sessions");
-      const answer = await sshResolveDestination(user.id, body.node, body.alias);
+      const answer = await sshResolveDestination(user.id, body.node, body.alias, body.expectedDestination);
       if (!answer.ok) return throwCodedRefusal(answer.refusal);
       return answer.value;
     },
@@ -34,6 +39,7 @@ export const sshResolveRoute = new Elysia()
       body: t.Object({
         node: t.String({ minLength: 1, description: "Node to resolve on ('local' = the control-plane host)" }),
         alias: SshDestinationField,
+        expectedDestination: SshExpectedDestinationField,
       }),
       response: {
         200: SshResolveOutcomeViewSchema,

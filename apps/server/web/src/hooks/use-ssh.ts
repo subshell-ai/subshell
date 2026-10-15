@@ -6,32 +6,17 @@ import type {
   SshHostPin,
   SshLaunchRequest,
   SshLaunchResponse,
-  SshSavedHost,
-  SshSavedHostsView,
-  SshSaveHostRequest,
+  SshRecentDestinationsView,
 } from "@/lib/ssh";
 
-/**
- * The SSH launcher's data (spec 2026-10-07 §7), following `use-prompts.ts`:
- * one key per list, one URL per key, mutations invalidate rather than patch.
- *
- * The saved-hosts view carries the ledger AND the default-machine preference,
- * so every mutation that can move either one invalidates `["ssh-saved-hosts"]`
- * and nothing else: a launch touched the recency row server-side, a save or
- * delete moves the ledger, the preference PATCH moves `defaultNodeId`. The
- * aliases are the MACHINE's config, which none of these acts edits, so no
- * mutation invalidates them — the machine disclosure refetches them only when
- * the chosen machine changes.
- */
-
-export const SSH_SAVED_HOSTS_QUERY_KEY = ["ssh-saved-hosts"] as const;
+export const SSH_RECENT_DESTINATIONS_QUERY_KEY = ["ssh-recent-destinations"] as const;
 export const sshAliasesQueryKey = (nodeId: string) => ["ssh-aliases", nodeId] as const;
 
-/** The owner's saved + recent destinations and their default connecting machine. */
-export function useSshSavedHosts() {
+/** The owner's recent destinations and their default connecting machine. */
+export function useSshRecentDestinations() {
   return useQuery({
-    queryKey: SSH_SAVED_HOSTS_QUERY_KEY,
-    queryFn: () => apiFetch<SshSavedHostsView>("/api/ssh/saved-hosts"),
+    queryKey: SSH_RECENT_DESTINATIONS_QUERY_KEY,
+    queryFn: () => apiFetch<SshRecentDestinationsView>("/api/ssh/recent-destinations"),
   });
 }
 
@@ -49,35 +34,9 @@ export function useSshAliases(nodeId: string | null) {
 }
 
 /** Invalidate the ledger after an act that moved it (the one rule the mutations share). */
-function useInvalidateSavedHosts(): () => Promise<void> {
+function useInvalidateRecentDestinations(): () => Promise<void> {
   const queryClient = useQueryClient();
-  return () => queryClient.invalidateQueries({ queryKey: SSH_SAVED_HOSTS_QUERY_KEY });
-}
-
-/**
- * `PUT /api/ssh/saved-hosts` — resolves the destination first, so a
- * refusal-shaped outcome answers 422 `{outcome}` (an `ApiError` with status
- * 422) and stores nothing. Both callers treat it best-effort: the connect
- * panel's Remember act and the Recent-star act do not render that refusal,
- * because a row already exists from the launch's server-side recency touch,
- * so a failed save costs only the `savedAt` pin, never the destination.
- */
-export function useSaveSshHost() {
-  const invalidate = useInvalidateSavedHosts();
-  return useMutation({
-    mutationFn: (draft: SshSaveHostRequest) =>
-      apiFetch<SshSavedHost>("/api/ssh/saved-hosts", { method: "PUT", body: JSON.stringify(draft) }),
-    onSuccess: () => void invalidate(),
-  });
-}
-
-/** `DELETE /api/ssh/saved-hosts/:id` — 204 no body; a foreign row is the same 404 as an absent one. */
-export function useDeleteSshHost() {
-  const invalidate = useInvalidateSavedHosts();
-  return useMutation({
-    mutationFn: (id: string) => apiFetch(`/api/ssh/saved-hosts/${encodeURIComponent(id)}`, { method: "DELETE" }),
-    onSuccess: () => void invalidate(),
-  });
+  return () => queryClient.invalidateQueries({ queryKey: SSH_RECENT_DESTINATIONS_QUERY_KEY });
 }
 
 /**
@@ -87,7 +46,7 @@ export function useDeleteSshHost() {
  * there is the picker defaulting to the wrong machine.
  */
 export function useSetDefaultNode() {
-  const invalidate = useInvalidateSavedHosts();
+  const invalidate = useInvalidateRecentDestinations();
   return useMutation({
     mutationFn: (defaultNodeId: string | null) =>
       apiFetch<{ defaultNodeId: string | null }>("/api/ssh/preferences", {
@@ -105,7 +64,7 @@ export function useSetDefaultNode() {
  * untouched by the act.
  */
 export function useLaunchSsh() {
-  const invalidate = useInvalidateSavedHosts();
+  const invalidate = useInvalidateRecentDestinations();
   return useMutation({
     mutationFn: (draft: SshLaunchRequest) => apiPost<SshLaunchResponse>("/api/ssh/launch", draft),
     onSuccess: () => void invalidate(),

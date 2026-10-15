@@ -142,16 +142,15 @@ are changed. Host keys are generated under the test's temporary directory and
 trusted explicitly by the connecting process.
 
 The browser exercises key login, password prompts and retry, terminal I/O,
-view-only sharing, saving distinct usernames on one host, forgetting and
-re-saving destinations. Password checks
-cover HTTP bodies, terminal history, saved-host responses, and database bytes;
+view-only sharing, and saving named SSH presets for distinct usernames on one host. Password checks
+cover HTTP bodies, terminal history, preset responses, and database bytes;
 Playwright failure traces can still contain fixture passwords typed into the
 terminal, so these are disposable test credentials.
 
 Specs 22 and 23-ssh-relay retain their host-process fixtures for terminal
 lifecycle and cross-node cryptographic relay coverage.
 
-Spec 24 covers the browser’s first-connection confirmation and cancellation;
+Spec 24 covers SSH preset CRUD, restoring authentication choices, save-before-launch retries, and the browser’s first-connection confirmation and cancellation;
 spec 23-ssh-relay checks real discovery and acceptance before relay authentication.
 Spec 25 runs the browser signer against a real sshd on the host (not
 Testcontainers): it needs `ssh`, `sshd` and `ssh-keygen` present, and it skips

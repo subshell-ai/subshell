@@ -5,7 +5,9 @@ description: "Launch with saved configuration, edit or clone a preset, and enabl
 
 Reuse a saved preset when starting another subshell.
 
-## Launch from the dashboard
+For SSH presets, select **SSH** on the **Presets** page. A preset’s **Connect** action opens a filled connection form without starting it. See [Connect over SSH](/guides/ssh#ssh-presets-and-recent-destinations).
+
+## Launch an agent from the dashboard
 
 1. In the server dashboard sidebar, open **Subshells** and select **New subshell**.
 2. Choose the agent and your saved preset.
@@ -26,7 +28,7 @@ To remove a library entry, choose **Delete preset** from its **⋯** menu and re
 
 ## Use from an agent
 
-MCP's `list_presets` returns your saved preset IDs and `crossCommReady`. A preset is ready for agent-created launches only when its MCP switch is enabled and a machine and directory are saved. Catalog entries aren't saved presets: an agent harness catalog entry needs a saved preset before `create_subshell` can launch it, while a plain terminal harness can launch presetless (see [Terminal sessions](/mcp/terminals)).
+MCP's `list_presets` returns agent presets only, including your saved preset IDs and `crossCommReady`. A preset is ready for agent-created launches only when its MCP switch is enabled and a machine and directory are saved. Catalog entries aren't saved presets: an agent harness catalog entry needs a saved preset before `create_subshell` can launch it, while a plain terminal harness can launch presetless (see [Terminal sessions](/mcp/terminals)).
 
 ```mermaid
 %% An agent lists the owner's presets, chooses an eligible saved preset ID, requests a helper, and the server checks access and availability before launching on the preset's node.

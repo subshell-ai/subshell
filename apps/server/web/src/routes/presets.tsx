@@ -1,6 +1,6 @@
 import { apiFetch, Button, Card, CardContent, CardHeader, confirmAction, errMessage } from "@internal/node-admin";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Copy, Pencil, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
+import { Copy, Pencil, Plus, SlidersHorizontal, Terminal, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { DashboardPage } from "@/components/dashboard-page";
 import { EmptyState } from "@/components/empty-state";
@@ -10,6 +10,14 @@ import { PageHeader } from "@/components/page-header";
 import { PluginIcon } from "@/components/plugin-icon";
 import { CreatePresetDialog } from "@/components/presets/create-preset-dialog";
 import { PresetTableRow } from "@/components/presets/preset-table-row";
+import { SshPresetLibrary } from "@/components/presets/ssh-preset-library";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Segmented } from "@/components/ui/segmented";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useInvalidatePresets, usePresets } from "@/hooks/use-presets";
 import { presetFormFromRow, suggestCloneName } from "@/lib/preset-form";
@@ -17,6 +25,7 @@ import type { PresetRow } from "@/types/preset";
 
 export const Route = createFileRoute("/presets")({
   component: PresetsPage,
+  validateSearch: (search: Record<string, unknown>): { type?: "ssh" } => (search.type === "ssh" ? { type: "ssh" } : {}),
 });
 
 /** Presets under their agent's header, agents in catalog order. Rows whose
@@ -43,6 +52,8 @@ function groupByHarness(presets: PresetRow[], pluginOrder: string[]): [string, P
 
 function PresetsPage() {
   const navigate = useNavigate();
+  const { type } = Route.useSearch();
+  const active = type ?? "agent";
   const invalidate = useInvalidatePresets();
   const { data: presets, isLoading, isError, refetch } = usePresets();
   const { data: pluginData } = useInstancePlugins();
@@ -65,6 +76,12 @@ function PresetsPage() {
     [presets, plugins],
   );
 
+  function createPreset(kind: "agent" | "ssh") {
+    setCloneSource(null);
+    setShowCreate(true);
+    void navigate({ to: "/presets", search: kind === "ssh" ? { type: "ssh" } : {} });
+  }
+
   async function deletePreset(id: string) {
     const ok = await confirmAction({
       title: "Delete this preset?",
@@ -85,138 +102,172 @@ function PresetsPage() {
     <DashboardPage>
       <PageHeader
         title="Presets"
-        subtitle="Saved launch settings, per agent"
+        subtitle="Saved launch settings for agents and SSH connections"
         action={
-          <Button onClick={() => setShowCreate(true)}>
-            <Plus /> New preset
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger render={<Button />}>
+              <Plus /> New preset
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => createPreset("agent")}>
+                <SlidersHorizontal /> New agent preset
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => createPreset("ssh")}>
+                <Terminal /> New SSH preset
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         }
       />
 
-      {listError && <p className="text-destructive text-detail">{listError}</p>}
+      <Segmented
+        ariaLabel="Preset type"
+        fill={false}
+        options={[
+          { value: "agent", label: "Agent" },
+          { value: "ssh", label: "SSH" },
+        ]}
+        value={active}
+        onChange={(next) => {
+          setShowCreate(false);
+          setCloneSource(null);
+          void navigate({ to: "/presets", search: next === "ssh" ? { type: "ssh" } : {} });
+        }}
+      />
+      {active === "ssh" ? (
+        <SshPresetLibrary
+          creating={showCreate}
+          onCreate={() => createPreset("ssh")}
+          onCreatedClose={() => setShowCreate(false)}
+        />
+      ) : (
+        <>
+          {listError && <p className="text-destructive text-detail">{listError}</p>}
 
-      {/* A dialog rather than a card that pushes the list down the page
+          {/* A dialog rather than a card that pushes the list down the page
           (user report 2026-09-11): creating a preset is a decision with an
           end, and the list behind it is the thing being added to. Same shape
           as every other "new X" in the app — the launch dialog, the
           workspace dialog, Add a node. The create dialog and the inline one
           in the launch form are the SAME component, unlocked here. */}
-      {showCreate && <CreatePresetDialog open onOpenChange={(next) => !next && setShowCreate(false)} />}
+          {showCreate && <CreatePresetDialog open onOpenChange={(next) => !next && setShowCreate(false)} />}
 
-      {cloneSource && (
-        <CreatePresetDialog
-          open
-          onOpenChange={(next) => !next && setCloneSource(null)}
-          initialForm={{
-            ...presetFormFromRow(cloneSource),
-            name: suggestCloneName(presets ?? [], cloneSource),
-          }}
-        />
-      )}
+          {cloneSource && (
+            <CreatePresetDialog
+              open
+              onOpenChange={(next) => !next && setCloneSource(null)}
+              initialForm={{
+                ...presetFormFromRow(cloneSource),
+                name: suggestCloneName(presets ?? [], cloneSource),
+              }}
+            />
+          )}
 
-      {isLoading && <LoadingCard message="Loading presets…" />}
+          {isLoading && <LoadingCard message="Loading presets…" />}
 
-      {/* A failed list load is not an empty account: say so, and offer the
+          {/* A failed list load is not an empty account: say so, and offer the
           retry the old silent blank denied. */}
-      {isError && (
-        <ErrorBanner
-          message="Couldn't load presets."
-          className="rounded-md border"
-          action={
-            <Button
-              variant="link"
-              size="sm"
-              className="h-auto p-0 text-detail text-inherit underline"
-              onClick={() => void refetch()}
-            >
-              Retry
-            </Button>
-          }
-        />
-      )}
+          {isError && (
+            <ErrorBanner
+              message="Couldn't load presets."
+              className="rounded-md border"
+              action={
+                <Button
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0 text-detail text-inherit underline"
+                  onClick={() => void refetch()}
+                >
+                  Retry
+                </Button>
+              }
+            />
+          )}
 
-      {!isLoading && !isError && presets?.length === 0 && !showCreate && (
-        <EmptyState
-          icon={SlidersHorizontal}
-          title="No presets yet"
-          description="A preset is saved launch settings for one agent: env vars, flags, and whether its subshells restart themselves. You can always start a subshell without one."
-          actionLabel="Create your first preset"
-          onAction={() => setShowCreate(true)}
-        />
-      )}
+          {!isLoading && !isError && presets?.length === 0 && !showCreate && (
+            <EmptyState
+              icon={SlidersHorizontal}
+              title="No agent presets yet"
+              description="An agent preset is saved launch settings for one agent: env vars, flags, and whether its subshells restart themselves. You can always start a subshell without one."
+              actionLabel="Create your first agent preset"
+              onAction={() => setShowCreate(true)}
+            />
+          )}
 
-      {/* Rows grouped under their agent (icon + plugin name, fallback
+          {/* Rows grouped under their agent (icon + plugin name, fallback
           harnessId — the same reading grammar everywhere the catalog might
           not know a row's harness). The binary for the launch-command
           preview comes from the plugin row; an unknown harness falls back to
           its id so the row still renders something honest. */}
-      {groups.length > 0 && (
-        <div className="flex flex-col gap-6">
-          {groups.map(([harnessId, rows]) => {
-            const plugin = plugins.find((p) => p.id === harnessId);
-            return (
-              <Card key={harnessId} className="min-w-0">
-                {/* A real heading, not styled text: the e2e group-header probe
+          {groups.length > 0 && (
+            <div className="flex flex-col gap-6">
+              {groups.map(([harnessId, rows]) => {
+                const plugin = plugins.find((p) => p.id === harnessId);
+                return (
+                  <Card key={harnessId} className="min-w-0">
+                    {/* A real heading, not styled text: the e2e group-header probe
                     queries by role because a presetless row's launch-command
                     preview renders the bare harness id — text matching would
                     collide. PageHeader carries the h1; these are the h2s. */}
-                <CardHeader className="flex-row items-center gap-2 space-y-0">
-                  <PluginIcon pluginId={harnessId} name={plugin?.name} />
-                  <h2 className="font-strong text-sm">{plugin?.name ?? harnessId}</h2>
-                </CardHeader>
-                <CardContent>
-                  <div className="@container overflow-x-auto">
-                    <table className="w-full text-sm" aria-label={`${plugin?.name ?? harnessId} presets`}>
-                      <thead>
-                        <tr className="border-b text-left text-muted-foreground">
-                          <th scope="col" className="pr-4 pb-2 font-strong">
-                            Name
-                          </th>
-                          <th scope="col" className="@sm:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">
-                            Auto-restart
-                          </th>
-                          <th scope="col" className="@lg:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">
-                            Cross-agent use
-                          </th>
-                          <th scope="col" className="pb-2 text-right font-strong">
-                            <span className="sr-only">Actions</span>
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows.map((p) => (
-                          <PresetTableRow
-                            key={p.id}
-                            preset={p}
-                            binary={plugin?.binary ?? harnessId}
-                            items={[
-                              {
-                                label: "Edit",
-                                icon: Pencil,
-                                onSelect: () => void navigate({ to: "/presets/$id", params: { id: p.id } }),
-                              },
-                              {
-                                label: "Clone preset",
-                                icon: Copy,
-                                onSelect: () => setCloneSource(p),
-                              },
-                              {
-                                label: "Delete preset",
-                                icon: Trash2,
-                                destructive: true,
-                                onSelect: () => void deletePreset(p.id),
-                              },
-                            ]}
-                          />
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+                    <CardHeader className="flex-row items-center gap-2 space-y-0">
+                      <PluginIcon pluginId={harnessId} name={plugin?.name} />
+                      <h2 className="font-strong text-sm">{plugin?.name ?? harnessId}</h2>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="@container overflow-x-auto">
+                        <table className="w-full text-sm" aria-label={`${plugin?.name ?? harnessId} presets`}>
+                          <thead>
+                            <tr className="border-b text-left text-muted-foreground">
+                              <th scope="col" className="pr-4 pb-2 font-strong">
+                                Name
+                              </th>
+                              <th scope="col" className="@sm:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">
+                                Auto-restart
+                              </th>
+                              <th scope="col" className="@lg:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">
+                                Cross-agent use
+                              </th>
+                              <th scope="col" className="pb-2 text-right font-strong">
+                                <span className="sr-only">Actions</span>
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map((p) => (
+                              <PresetTableRow
+                                key={p.id}
+                                preset={p}
+                                binary={plugin?.binary ?? harnessId}
+                                items={[
+                                  {
+                                    label: "Edit",
+                                    icon: Pencil,
+                                    onSelect: () => void navigate({ to: "/presets/$id", params: { id: p.id } }),
+                                  },
+                                  {
+                                    label: "Clone preset",
+                                    icon: Copy,
+                                    onSelect: () => setCloneSource(p),
+                                  },
+                                  {
+                                    label: "Delete preset",
+                                    icon: Trash2,
+                                    destructive: true,
+                                    onSelect: () => void deletePreset(p.id),
+                                  },
+                                ]}
+                              />
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
     </DashboardPage>
   );

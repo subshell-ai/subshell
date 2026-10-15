@@ -67,7 +67,8 @@ interface WireOpts {
   settings?: unknown;
   ledger?: unknown;
   aliases?: string[];
-  launch?: () => Response;
+  launch?: () => Response | Promise<Response>;
+  presets?: () => Response | Promise<Response>;
 }
 
 /** Mock the whole /connect surface and record every call with its body. */
@@ -111,13 +112,21 @@ function mockFetch(opts: WireOpts = {}) {
       );
     if (path === "/api/ssh/identities")
       return Promise.resolve(json({ identities: [{ fingerprint: "SHA256:AAAA", comment: "Work key" }] }));
-    if (path === "/api/ssh/saved-hosts" && method === "GET") {
+    if (path === "/api/ssh/recent-destinations" && method === "GET") {
       return Promise.resolve(json(opts.ledger ?? { saved: [], recent: [], defaultNodeId: null }));
     }
-    if (path === "/api/ssh/saved-hosts" && method === "PUT") {
-      return Promise.resolve(
-        json({ id: "r1", destination: "x", alias: null, nodeId: "a1", savedAt: "t", lastConnectAt: "t" }),
-      );
+    if (path === "/api/presets") {
+      if (method === "POST")
+        return Promise.resolve(
+          json({
+            ...JSON.parse(String(init?.body)),
+            id: "ssh-preset",
+            destination: "resolved.example:22",
+            createdAt: "t",
+            updatedAt: "t",
+          }),
+        );
+      return Promise.resolve(opts.presets?.() ?? json([]));
     }
     if (path === "/api/ssh/preferences") return Promise.resolve(json({ defaultNodeId: "a1" }));
     if (path === "/api/ssh/aliases") {
@@ -140,7 +149,7 @@ interface Rendered {
 
 async function renderPanel(
   opts: WireOpts,
-  initial?: { node?: string; keyHome?: string; destination?: string; fingerprints?: string[] },
+  initial?: { preset?: string; node?: string; keyHome?: string; destination?: string; fingerprints?: string[] },
 ): Promise<Rendered> {
   const { calls, restore } = mockFetch(opts);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -406,18 +415,8 @@ describe("machine disclosure (contract 1)", () => {
 });
 
 describe("destination field (contract 2)", () => {
-  it("feeds the grouped rows: Saved, Recent, and the picked machine's config", async () => {
+  it("feeds the grouped rows: Recent, and the picked machine's config", async () => {
     const ledger = {
-      saved: [
-        {
-          id: "s1",
-          destination: "web01.example.com:22",
-          alias: "web",
-          nodeId: "a1",
-          savedAt: "2026-10-01T00:00:00.000Z",
-          lastConnectAt: "2026-10-05T00:00:00.000Z",
-        },
-      ],
       recent: [
         {
           id: "r1",
@@ -441,10 +440,8 @@ describe("destination field (contract 2)", () => {
         return el;
       });
       // Scoped to the popup: "Recent" is also the ledger's own heading below.
-      expect(within(popup).getByText("Saved")).toBeDefined();
       expect(within(popup).getByText("Recent")).toBeDefined();
       expect(within(popup).getByText("From mac mini's config")).toBeDefined();
-      expect(within(popup).getByRole("button", { name: "web" })).toBeDefined();
       expect(within(popup).getByRole("button", { name: "workbox" })).toBeDefined();
     } finally {
       restore();
@@ -484,7 +481,7 @@ describe("destination field (contract 2)", () => {
     }
   });
 
-  it("a config-alias pick launches the token, and the save sends it as the alias", async () => {
+  it("saving a config alias preserves alias settings under the saved canonical guard", async () => {
     const { calls, restore } = await renderPanel({ nodes: [HOST_A], aliases: ["workbox"] });
     try {
       await waitFor(() => expect(machineInput().value).toBe("mac mini"));
@@ -492,12 +489,24 @@ describe("destination field (contract 2)", () => {
       await settle();
       fireEvent.click(await screen.findByRole("button", { name: "workbox" }));
       await settle();
-      fireEvent.click(screen.getByLabelText("Remember this destination"));
+      fireEvent.click(screen.getByRole("checkbox", { name: "Save as preset" }));
+      fireEvent.change(screen.getByLabelText("Preset name"), { target: { value: "Work" } });
       await clickConnect();
-      expect(calls.find((c) => c.url === "/api/ssh/launch")?.body).toEqual({ node: "a1", destination: "workbox" });
-      await waitFor(() => expect(calls.some((c) => c.method === "PUT" && c.url === "/api/ssh/saved-hosts")).toBe(true));
-      const put = calls.find((c) => c.method === "PUT" && c.url === "/api/ssh/saved-hosts");
-      expect(put?.body).toEqual({ node: "a1", destination: "workbox", alias: "workbox" });
+      expect(calls.find((c) => c.url === "/api/ssh/launch")?.body).toEqual({
+        node: "a1",
+        destination: "workbox",
+        expectedDestination: "resolved.example:22",
+      });
+      await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url === "/api/presets")).toBe(true));
+      const put = calls.find((c) => c.method === "POST" && c.url === "/api/presets");
+      expect(put?.body).toMatchObject({
+        kind: "ssh",
+        name: "Work",
+        nodeId: "a1",
+        destination: "workbox",
+        alias: "workbox",
+        authentication: "connecting",
+      });
     } finally {
       restore();
     }
@@ -518,7 +527,8 @@ describe("connect and the ledger (contracts 3, 6)", () => {
         return Promise.resolve(
           json({ machines: [{ node: HOST_A, canConnect: true, canConfigure: true, blockers: [] }] }),
         );
-      if (url.pathname === "/api/ssh/saved-hosts")
+      if (url.pathname === "/api/presets") return Promise.resolve(json([]));
+      if (url.pathname === "/api/ssh/recent-destinations")
         return Promise.resolve(json({ saved: [], recent: [], defaultNodeId: null }));
       return Promise.resolve(json({}));
     }) as typeof fetch;
@@ -556,14 +566,14 @@ describe("connect and the ledger (contracts 3, 6)", () => {
     }
   });
 
-  it("Remember starts unchecked; a checked launch PUTs the saved row with no alias, unchecked PUTs nothing", async () => {
+  it("Save as preset starts unchecked and creates only when selected", async () => {
     const off = await renderPanel({ nodes: [HOST_A] });
     try {
-      expect((screen.getByLabelText("Remember this destination") as HTMLInputElement).checked).toBe(false);
+      expect(screen.getByRole("checkbox", { name: "Save as preset" }).getAttribute("aria-checked")).toBe("false");
       await commitTyped("box.example");
       await clickConnect();
       await settle();
-      expect(off.calls.filter((c) => c.method === "PUT" && c.url === "/api/ssh/saved-hosts")).toEqual([]);
+      expect(off.calls.filter((c) => c.method === "POST" && c.url === "/api/presets")).toEqual([]);
     } finally {
       off.restore();
     }
@@ -571,13 +581,12 @@ describe("connect and the ledger (contracts 3, 6)", () => {
     const on = await renderPanel({ nodes: [HOST_A] });
     try {
       await commitTyped("box.example");
-      fireEvent.click(screen.getByLabelText("Remember this destination"));
+      fireEvent.click(screen.getByRole("checkbox", { name: "Save as preset" }));
+      fireEvent.change(screen.getByLabelText("Preset name"), { target: { value: "Work" } });
       await clickConnect();
-      await waitFor(() =>
-        expect(on.calls.some((c) => c.method === "PUT" && c.url === "/api/ssh/saved-hosts")).toBe(true),
-      );
-      const put = on.calls.find((c) => c.method === "PUT" && c.url === "/api/ssh/saved-hosts");
-      expect(put?.body).toEqual({ node: "a1", destination: "box.example" });
+      await waitFor(() => expect(on.calls.some((c) => c.method === "POST" && c.url === "/api/presets")).toBe(true));
+      const put = on.calls.find((c) => c.method === "POST" && c.url === "/api/presets");
+      expect(put?.body).toMatchObject({ kind: "ssh", name: "Work", nodeId: "a1", destination: "box.example" });
     } finally {
       on.restore();
     }
@@ -707,4 +716,50 @@ describe("relay launch with current launch access", () => {
       restore();
     }
   });
+});
+
+it("a delayed URL preset cannot overwrite an edited draft during or after a pending launch", async () => {
+  let releasePresets!: (response: Response) => void;
+  let releaseLaunch!: (response: Response) => void;
+  const presets = new Promise<Response>((resolve) => {
+    releasePresets = resolve;
+  });
+  const pendingLaunch = new Promise<Response>((resolve) => {
+    releaseLaunch = resolve;
+  });
+  const { calls, restore } = await renderPanel(
+    { nodes: [HOST_A], presets: () => presets, launch: () => pendingLaunch },
+    { preset: "slow", node: "a1" },
+  );
+  try {
+    await commitTyped("my-edited-host");
+    fireEvent.click(screen.getByRole("button", { name: "Start SSH subshell" }));
+    await waitFor(() => expect(calls.some((call) => call.url === "/api/ssh/launch")).toBe(true));
+    releasePresets(
+      json([
+        {
+          id: "slow",
+          kind: "ssh",
+          name: "Late preset",
+          nodeId: "a1",
+          destination: "late-host:22",
+          authentication: "local-key",
+          keyHome: null,
+          fingerprints: [],
+        },
+      ]),
+    );
+    await settle();
+    await settle();
+    expect(destinationInput().value).toBe("my-edited-host");
+    expect(calls.find((call) => call.url === "/api/ssh/launch")?.body).toEqual({
+      node: "a1",
+      destination: "my-edited-host",
+    });
+    releaseLaunch(json({ code: "SSH_RELAY_OPEN_FAILED", message: "Try again" }, 409));
+    await screen.findByText("Try again");
+    expect(destinationInput().value).toBe("my-edited-host");
+  } finally {
+    restore();
+  }
 });

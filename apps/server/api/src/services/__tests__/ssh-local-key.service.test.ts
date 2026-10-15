@@ -192,3 +192,24 @@ it("maps a stale-sequence bridge refusal to the ended-request code, not a 500", 
   expect(thrown).toBeInstanceOf(ApiError);
   expect((thrown as ApiError).code).toBe(BackendErrorCodes.SSH_RELAY_OPEN_FAILED);
 });
+
+it.each([{ host: "changed.test" }, { user: "root" }, { port: 2222 }])(
+  "blocks preset redirection before host discovery or retaining a preparation: %j",
+  async (change) => {
+    let discoveries = 0;
+    setLocalSshKeyDepsForTests({
+      ...fakeDeps,
+      resolve: async () => ({ ok: true, value: { accepted: true, snapshot: { ...snapshot, ...change } } }),
+      hostKey: async () => {
+        discoveries++;
+        return { lines: [pin] };
+      },
+    });
+    await expect(prepareLocalSshKey("u1", "s1", "n1", "host", "alice@host.example:22")).rejects.toThrow(
+      "different destination",
+    );
+    expect(discoveries).toBe(0);
+    expect(captures).toBe(0);
+    expect(sent).toHaveLength(0);
+  },
+);

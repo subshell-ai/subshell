@@ -176,6 +176,30 @@ export function FeatureShowcase() {
           <Screenshot shot={SHOTS.nodes} />
         </div>
       </section>
+      <section
+        aria-labelledby="ssh-feature"
+        className="grid items-center gap-8 border-t border-[var(--hairline)] pt-12 lg:grid-cols-[.8fr_1.5fr] lg:gap-14"
+      >
+        <div>
+          <p className="font-mono text-[12px] uppercase tracking-[.12em] text-[var(--orchid)]">SSH</p>
+          <h2
+            id="ssh-feature"
+            className="mt-3 text-[28px] font-semibold leading-tight tracking-[-.035em] sm:text-[36px]"
+          >
+            Open a remote shell from your dashboard.
+          </h2>
+        </div>
+        <div>
+          <p className="max-w-[60ch] text-[15px] leading-[1.8] text-[var(--dim)]">
+            Connect over SSH and work in the terminal alongside your agents. Use keys from a connected node, choose a
+            key from your own machine, or enter a password when connecting. Save frequently used connections as SSH
+            presets.
+          </p>
+          <div className="mt-5">
+            <DocumentationLink path="/guides/ssh">Explore SSH connections</DocumentationLink>
+          </div>
+        </div>
+      </section>
       <SecuritySection />
       <SelfHostedSection />
     </div>

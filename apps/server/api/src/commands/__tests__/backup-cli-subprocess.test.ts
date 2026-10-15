@@ -398,15 +398,15 @@ test("real entry: available older upgrade snapshot restores and migrates before 
   // means the strip set moves with it in the same commit.
   const migrationRows = db
     .query(
-      "SELECT * FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity','0050-ssh-grants','0051-ssh-request-destination','0052-subshell-key-home','0053-drop-ssh-grants') ORDER BY name",
+      "SELECT * FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity','0050-ssh-grants','0051-ssh-request-destination','0052-subshell-key-home','0053-drop-ssh-grants','0054-ssh-presets') ORDER BY name",
     )
     .all() as { name: string; timestamp: string }[];
   db.exec(
-    "ALTER TABLE nodes DROP COLUMN ssh_enabled_at; ALTER TABLE nodes DROP COLUMN ssh_enabled; DROP TABLE ssh_saved_hosts; ALTER TABLE subshells DROP COLUMN ssh; ALTER TABLE identities DROP COLUMN signing_public_key; ALTER TABLE nodes DROP COLUMN ssh_fingerprint; ALTER TABLE subshells DROP COLUMN key_home_node_id; DROP TABLE ssh_host_pins; DELETE FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity','0050-ssh-grants','0051-ssh-request-destination','0052-subshell-key-home','0053-drop-ssh-grants'); CREATE TABLE migration_restore_probe(value TEXT); INSERT INTO migration_restore_probe VALUES ('older snapshot');",
+    "ALTER TABLE nodes DROP COLUMN ssh_enabled_at; ALTER TABLE nodes DROP COLUMN ssh_enabled; DROP TABLE ssh_presets; DROP TABLE ssh_recent_destinations; ALTER TABLE subshells DROP COLUMN ssh; ALTER TABLE identities DROP COLUMN signing_public_key; ALTER TABLE nodes DROP COLUMN ssh_fingerprint; ALTER TABLE subshells DROP COLUMN key_home_node_id; DROP TABLE ssh_host_pins; DELETE FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity','0050-ssh-grants','0051-ssh-request-destination','0052-subshell-key-home','0053-drop-ssh-grants','0054-ssh-presets'); CREATE TABLE migration_restore_probe(value TEXT); INSERT INTO migration_restore_probe VALUES ('older snapshot');",
   );
   db.query("VACUUM INTO ?").run(snapshot);
   db.exec(
-    "ALTER TABLE nodes ADD COLUMN ssh_enabled integer NOT NULL DEFAULT 0; ALTER TABLE nodes ADD COLUMN ssh_enabled_at text; CREATE TABLE ssh_saved_hosts(id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL REFERENCES user(id), destination TEXT NOT NULL, alias TEXT, node_id TEXT NOT NULL, saved_at TEXT, last_connect_at TEXT NOT NULL); ALTER TABLE subshells ADD COLUMN ssh text; ALTER TABLE identities ADD COLUMN signing_public_key text; ALTER TABLE nodes ADD COLUMN ssh_fingerprint text; ALTER TABLE subshells ADD COLUMN key_home_node_id text; CREATE TABLE ssh_host_pins(id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL REFERENCES user(id), destination TEXT NOT NULL, host_key TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); UPDATE migration_restore_probe SET value='newer destination';",
+    "ALTER TABLE nodes ADD COLUMN ssh_enabled integer NOT NULL DEFAULT 0; ALTER TABLE nodes ADD COLUMN ssh_enabled_at text; CREATE TABLE ssh_recent_destinations(id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL REFERENCES user(id), destination TEXT NOT NULL, alias TEXT, node_id TEXT NOT NULL, last_connect_at TEXT NOT NULL); CREATE TABLE ssh_presets(id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES user(id), name TEXT NOT NULL, description TEXT, node_id TEXT REFERENCES nodes(id) ON DELETE SET NULL, destination TEXT NOT NULL, alias TEXT, authentication TEXT NOT NULL, key_home TEXT REFERENCES nodes(id) ON DELETE SET NULL, fingerprints TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); ALTER TABLE subshells ADD COLUMN ssh text; ALTER TABLE identities ADD COLUMN signing_public_key text; ALTER TABLE nodes ADD COLUMN ssh_fingerprint text; ALTER TABLE subshells ADD COLUMN key_home_node_id text; CREATE TABLE ssh_host_pins(id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL REFERENCES user(id), destination TEXT NOT NULL, host_key TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); UPDATE migration_restore_probe SET value='newer destination';",
   );
   for (const row of migrationRows)
     db.query("INSERT INTO kysely_migration(name,timestamp) VALUES (?,?)").run(row.name, row.timestamp);
@@ -420,7 +420,7 @@ test("real entry: available older upgrade snapshot restores and migrates before 
   expect(
     offline
       .query(
-        "SELECT name FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity','0050-ssh-grants','0051-ssh-request-destination','0052-subshell-key-home','0053-drop-ssh-grants')",
+        "SELECT name FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity','0050-ssh-grants','0051-ssh-request-destination','0052-subshell-key-home','0053-drop-ssh-grants','0054-ssh-presets')",
       )
       .all(),
   ).toEqual([]);
@@ -430,7 +430,7 @@ test("real entry: available older upgrade snapshot restores and migrates before 
   expect(
     migrated
       .query(
-        "SELECT name FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity','0050-ssh-grants','0051-ssh-request-destination','0052-subshell-key-home','0053-drop-ssh-grants') ORDER BY name",
+        "SELECT name FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity','0050-ssh-grants','0051-ssh-request-destination','0052-subshell-key-home','0053-drop-ssh-grants','0054-ssh-presets') ORDER BY name",
       )
       .all(),
   ).toEqual([
@@ -441,6 +441,7 @@ test("real entry: available older upgrade snapshot restores and migrates before 
     { name: "0051-ssh-request-destination" },
     { name: "0052-subshell-key-home" },
     { name: "0053-drop-ssh-grants" },
+    { name: "0054-ssh-presets" },
   ]);
   expect(migrated.query("SELECT value FROM migration_restore_probe").get()).toEqual({ value: "older snapshot" });
   expect(
@@ -448,8 +449,8 @@ test("real entry: available older upgrade snapshot restores and migrates before 
       .query("SELECT name FROM pragma_table_info('nodes') WHERE name IN ('ssh_enabled','ssh_enabled_at') ORDER BY name")
       .all(),
   ).toEqual([{ name: "ssh_enabled" }, { name: "ssh_enabled_at" }]);
-  expect(migrated.query("SELECT name FROM sqlite_schema WHERE name='ssh_saved_hosts'").get()).toEqual({
-    name: "ssh_saved_hosts",
+  expect(migrated.query("SELECT name FROM sqlite_schema WHERE name='ssh_recent_destinations'").get()).toEqual({
+    name: "ssh_recent_destinations",
   });
   expect(migrated.query("SELECT name FROM pragma_table_info('subshells') WHERE name='ssh'").get()).toEqual({
     name: "ssh",

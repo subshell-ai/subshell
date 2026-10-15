@@ -183,3 +183,22 @@ it("validates the request and authenticates before asking any node", async () =>
   expect((await post("verify-destination", { ...request, destination: "x".repeat(254) })).status).toBe(400);
   expect(scans).toBe(0);
 });
+
+it("blocks redirected preset discovery before scanning or offering trust", async () => {
+  const result = await post("verify-destination", { ...request, expectedDestination: "developer@original.test:2222" });
+  expect(result.status).not.toBe(200);
+  expect(await result.json()).toMatchObject({ code: "CONFIG_INVALID" });
+  expect(scans).toBe(0);
+  expect(await db.selectFrom("sshHostPins").selectAll().execute()).toEqual([]);
+});
+it("rechecks the preset constraint when accepting a trust challenge", async () => {
+  const result = await post("verify-destination", { ...request, expectedDestination: dest });
+  expect(result.status).toBe(200);
+  const offer = (await result.json()) as { token: string };
+  snapshot = { ...snapshot, host: "changed.test" };
+  const accepted = await post("verify-destination/accept", { token: offer.token });
+  expect(accepted.status).not.toBe(200);
+  expect(await accepted.json()).toMatchObject({ code: "CONFIG_INVALID" });
+  expect(scans).toBe(1);
+  expect(await db.selectFrom("sshHostPins").selectAll().execute()).toEqual([]);
+});

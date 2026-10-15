@@ -1,7 +1,7 @@
 import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 import { isSshKnownHostsPinLine } from "@internal/subshell-protocol";
-import { sshCanonicalDestination } from "@/db/types/ssh-saved-hosts.db-types.js";
 import { SshRpcError, sshHostKey } from "@/services/nodes/ssh-rpc.js";
+import { sshCanonicalDestination, sshExpectedDestinationProblem } from "@/services/ssh-destination.js";
 import {
   captureHostPin,
   hostKeyFingerprints,
@@ -17,6 +17,7 @@ interface Request {
   node: string;
   keyHome: string;
   destination: string;
+  expectedDestination?: string;
 }
 interface Challenge extends Request {
   canonical: string;
@@ -44,11 +45,13 @@ function fail(message: string): never {
 async function resolve(request: Request) {
   const keyGate = await deps.gate(request.viewerId, request.keyHome);
   if (!keyGate.ok) refuse(keyGate.refusal);
-  const answer = await deps.resolve(request.viewerId, request.node, request.destination);
+  const answer = await deps.resolve(request.viewerId, request.node, request.destination, request.expectedDestination);
   if (!answer.ok) refuse(answer.refusal);
   if (!answer.value.accepted)
     fail("This destination’s SSH configuration isn’t supported. Check the connecting node’s settings.");
   const snapshot = answer.value.snapshot;
+  const problem = sshExpectedDestinationProblem(snapshot, request.expectedDestination);
+  if (problem) throwApiError({ code: BackendErrorCodes.CONFIG_INVALID, message: problem, doNotLog: true });
   // A direct scan cannot follow jump routes or emulate HostKeyAlias. Never scan a different path silently.
   if (snapshot.proxyJumps.length || snapshot.hostKeyAlias)
     fail(

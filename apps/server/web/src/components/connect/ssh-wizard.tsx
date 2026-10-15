@@ -1,10 +1,11 @@
 import { Button } from "@internal/node-admin";
 import { CircleAlert } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { BrowserKeyFields, type BrowserKeySelection } from "@/components/connect/browser-key-fields";
 import { SshDestinationStep } from "@/components/connect/ssh-destination-step";
 import { SshKeyStep } from "@/components/connect/ssh-key-step";
 import { SshMachineSetup, SshMachineStep } from "@/components/connect/ssh-machine-step";
+import { SaveSshPresetFields } from "@/components/connect/ssh-preset-controls";
 import {
   type SshSessionDraft,
   sshDestination,
@@ -40,6 +41,8 @@ export interface SshWizardProps {
   /** A pane already exists; attachment failure must not create a second one. */
   launchBlocked?: boolean;
   refusal?: string;
+  /** Saving choices does not select a local key, enable SSH, or launch. */
+  presetEditor?: { name: string; unchangedDestination?: boolean };
 }
 
 export function SshWizard({
@@ -54,16 +57,17 @@ export function SshWizard({
   busy,
   launchBlocked,
   refusal,
+  presetEditor,
 }: SshWizardProps) {
   const errorRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (refusal) errorRef.current?.focus();
   }, [refusal]);
-  const [useRemote, setUseRemote] = useState(!!draft.keyHome);
+  const useRemote = draft.authentication === "remote" || (!draft.authentication && !!draft.keyHome);
   const machine = machines.find((item) => item.node.id === draft.nodeId);
   const keyMachine = machines.find((item) => item.node.id === draft.keyHome);
   const remote = useRemote;
-  const enableKeysOnStart = remote && sshCanEnableOnStart(keyMachine);
+  const enableKeysOnStart = !presetEditor && remote && sshCanEnableOnStart(keyMachine);
   const keyMachines = machines.filter((item) => item.node.canLaunch);
   const noOtherKeyNodes =
     !readiness.isPending && !readiness.isError && !keyMachines.some((item) => item.node.id !== draft.nodeId);
@@ -71,34 +75,52 @@ export function SshWizard({
   const fingerprints = draft.selections[draft.keyHome] ?? [];
   const roster = useSshNodeRoster(remote && !keyProblem && keyMachine?.canConnect ? draft.keyHome : null);
   const patch = (value: Partial<SshSessionDraft>) => onDraftChange({ ...draft, ...value });
-  const problems = (): Record<string, string> => {
-    if (draft.authentication === "local-key" && !isDesktop()) {
+  const problems = (values?: { draft: SshSessionDraft; presetName: string }): Record<string, string> => {
+    const value = values?.draft ?? draft;
+    const name = value.presetName ?? presetEditor?.name ?? "";
+    const remote = value.authentication === "remote" || (!value.authentication && !!value.keyHome);
+    if (presetEditor && !name.trim()) return { draft: "Enter a preset name." };
+    if (!presetEditor && value.saveAsPreset && !value.presetName?.trim())
+      return { draft: "Enter a name for the new preset." };
+    if (!presetEditor && value.authentication === "local-key" && !isDesktop()) {
       const problem = browserKey.problem();
       if (problem) return { draft: problem };
     }
-    if (!draft.nodeId) return { draft: "Choose a node." };
-    if (!sshDestination(draft)) return { draft: "Enter an SSH destination." };
+    if (!value.nodeId) return { draft: "Choose a node." };
+    if (!sshDestination(value)) return { draft: "Enter an SSH destination." };
     if (remote) {
-      const error = !draft.keyHome ? "Choose a node to supply keys." : keyProblem;
+      const error = !value.keyHome ? "Choose a node to supply keys." : sshKeySourceProblem(value);
       if (error) return { draft: error };
+      if (presetEditor) {
+        const selectionError = sshKeySelectionProblem(value.selections[value.keyHome] ?? []);
+        if (selectionError) return { draft: selectionError };
+      }
     }
     return {};
   };
-  const enableOnStart = sshCanEnableOnStart(machine);
+  const enableOnStart = !presetEditor && sshCanEnableOnStart(machine);
   const blocked =
     busy ||
     readiness.isPending ||
     readiness.isError ||
-    (!machine?.canConnect && !enableOnStart) ||
+    (!!presetEditor && (!machine?.node.canLaunch || (remote && !keyMachine?.node.canLaunch))) ||
+    (!machine?.canConnect && !enableOnStart && !presetEditor?.unchangedDestination) ||
     !!launchBlocked ||
-    (remote &&
+    (!presetEditor &&
+      remote &&
       !enableKeysOnStart &&
       (!keyMachine?.canConnect ||
         roster.isPending ||
         roster.isError ||
         sshKeySelectionProblem(fingerprints, roster.data?.identities) !== null));
   const form = makeForm({
-    defaultValues: { draft, remote, keyName: browserKey.name, trusted: browserKey.trusted },
+    defaultValues: {
+      draft,
+      remote,
+      presetName: presetEditor?.name ?? "",
+      keyName: browserKey.name,
+      trusted: browserKey.trusted,
+    },
     validator: problems,
     onSubmit: async () => {
       if (blocked || Object.keys(problems()).length) return;
@@ -107,11 +129,12 @@ export function SshWizard({
   });
   useEffect(() => {
     form.setFieldValue("draft", draft);
+    form.setFieldValue("presetName", presetEditor?.name ?? "");
     form.setFieldValue("remote", remote);
     form.setFieldValue("keyName", browserKey.name);
     form.setFieldValue("trusted", browserKey.trusted);
     void form.validate("change");
-  }, [draft, remote, form, browserKey.name, browserKey.trusted]);
+  }, [draft, remote, form, browserKey.name, browserKey.trusted, presetEditor?.name]);
   const disabled = useSubmitDisabled(form, blocked);
   return (
     <section className="flex flex-col gap-4" aria-label="SSH setup">
@@ -143,9 +166,8 @@ export function SshWizard({
             aria-labelledby="ssh-authentication-heading"
             value={draft.authentication ?? (useRemote ? "remote" : "connecting")}
             onValueChange={(value) => {
-              setUseRemote(value === "remote");
               patch({
-                authentication: value === "password" || value === "local-key" ? value : undefined,
+                authentication: value as SshSessionDraft["authentication"],
                 ...(value !== "remote" ? { keyHome: "" } : {}),
               });
             }}
@@ -155,11 +177,15 @@ export function SshWizard({
                 id="ssh-keys-connecting"
                 value="connecting"
                 aria-labelledby="ssh-keys-connecting-label"
-                aria-describedby={!draft.authentication && !remote ? "ssh-keys-node-name" : undefined}
+                aria-describedby={
+                  (!draft.authentication || draft.authentication === "connecting") && !remote
+                    ? "ssh-keys-node-name"
+                    : undefined
+                }
               />
               <FieldLabel htmlFor="ssh-keys-connecting" className="flex min-w-0 cursor-pointer flex-col gap-1">
                 <span id="ssh-keys-connecting-label">Use the connecting node’s keys</span>
-                {!draft.authentication && !remote && (
+                {(!draft.authentication || draft.authentication === "connecting") && !remote && (
                   <span
                     id="ssh-keys-node-name"
                     className={
@@ -180,7 +206,7 @@ export function SshWizard({
                 aria-labelledby="ssh-keys-remote-label"
                 aria-describedby={remote && noOtherKeyNodes ? "ssh-keys-empty" : undefined}
               />
-              <div className="flex min-w-0 flex-col gap-1">
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <FieldLabel htmlFor="ssh-keys-remote" className="cursor-pointer">
                   <span id="ssh-keys-remote-label">Use another node’s keys</span>
                 </FieldLabel>
@@ -201,6 +227,51 @@ export function SshWizard({
                     .
                   </span>
                 )}
+                {remote && (!noOtherKeyNodes || keyProblem || keyMachine) && (
+                  <FieldGroup className="mt-2">
+                    {!noOtherKeyNodes && (
+                      <SshMachineStep
+                        machines={keyMachines}
+                        value={draft.keyHome}
+                        onChange={(keyHome) => {
+                          patch({ keyHome, authentication: "remote" });
+                        }}
+                        exclude={draft.nodeId}
+                        id="ssh-keys-machine"
+                        label="Use keys from"
+                        hideLabel
+                        notice={
+                          enableKeysOnStart
+                            ? "Starting this subshell will enable SSH on the node supplying keys. You’ll then choose which keys to use before connecting."
+                            : undefined
+                        }
+                      >
+                        {keyMachine && !keyProblem && !keyMachine.canConnect && !enableKeysOnStart && (
+                          <SshMachineSetup
+                            showName={false}
+                            machine={keyMachine}
+                            polling={!readiness.isError}
+                            onLeave={onLeave}
+                          />
+                        )}
+                      </SshMachineStep>
+                    )}
+                    {keyProblem && (
+                      <p role="alert" className="text-destructive text-detail">
+                        {keyProblem}
+                      </p>
+                    )}
+                    {keyMachine?.canConnect && !keyProblem && (
+                      <SshKeyStep
+                        nodeId={draft.keyHome}
+                        fingerprints={fingerprints}
+                        onChange={(selection) =>
+                          patch({ selections: { ...draft.selections, [draft.keyHome]: selection } })
+                        }
+                      />
+                    )}
+                  </FieldGroup>
+                )}
               </div>
             </Field>
             <Field className="flex-row items-start gap-3">
@@ -210,18 +281,23 @@ export function SshWizard({
                 aria-labelledby="ssh-auth-local-key-label"
                 aria-describedby={
                   draft.authentication === "local-key"
-                    ? isDesktop()
+                    ? isDesktop() || presetEditor
                       ? "ssh-auth-local-key-description"
                       : "ssh-browser-key-risk"
                     : undefined
                 }
               />
-              <div className="flex min-w-0 flex-1 flex-col gap-3">
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <FieldLabel htmlFor="ssh-auth-local-key" className="cursor-pointer">
                   <span id="ssh-auth-local-key-label">Use a key from my machine</span>
                 </FieldLabel>
                 {draft.authentication === "local-key" &&
-                  (isDesktop() ? (
+                  (presetEditor ? (
+                    <p id="ssh-auth-local-key-description" className="font-regular text-detail text-muted-foreground">
+                      Choose a key from your machine when creating a new SSH subshell. Your key isn’t saved in the
+                      preset.
+                    </p>
+                  ) : isDesktop() ? (
                     <p id="ssh-auth-local-key-description" className="font-regular text-detail text-muted-foreground">
                       Choose a key when you start. It stays on your machine and is released after one authentication
                       attempt or 90 seconds.
@@ -242,63 +318,27 @@ export function SshWizard({
                 <span id="ssh-auth-password-label">Enter a password when connecting</span>
                 {draft.authentication === "password" && (
                   <span id="ssh-auth-password-description" className="font-regular text-detail text-muted-foreground">
-                    Enter your password in the terminal when SSH asks for it. Subshell won’t save it.
+                    {presetEditor
+                      ? "When creating a new SSH subshell with this preset, enter your password in the terminal when SSH asks for it. The preset won’t save your password."
+                      : "Enter your password in the terminal when SSH asks for it. Subshell won’t save it."}
                   </span>
                 )}
               </FieldLabel>
             </Field>
           </RadioGroup>
         </fieldset>
-        {remote && (!noOtherKeyNodes || keyProblem || keyMachine) && (
-          <FieldGroup>
-            {!noOtherKeyNodes && (
-              <SshMachineStep
-                machines={keyMachines}
-                value={draft.keyHome}
-                onChange={(keyHome) => {
-                  setUseRemote(true);
-                  patch({ keyHome });
-                }}
-                exclude={draft.nodeId}
-                id="ssh-keys-machine"
-                label="Use keys from"
-                notice={
-                  enableKeysOnStart
-                    ? "Starting this subshell will enable SSH on the node supplying keys. You’ll then choose which keys to use before connecting."
-                    : undefined
-                }
-              >
-                {keyMachine && !keyProblem && !keyMachine.canConnect && !enableKeysOnStart && (
-                  <SshMachineSetup
-                    showName={false}
-                    machine={keyMachine}
-                    polling={!readiness.isError}
-                    onLeave={onLeave}
-                  />
-                )}
-              </SshMachineStep>
-            )}
-            {keyProblem && (
-              <p role="alert" className="text-destructive text-detail">
-                {keyProblem}
-              </p>
-            )}
-            {keyMachine?.canConnect && !keyProblem && (
-              <SshKeyStep
-                nodeId={draft.keyHome}
-                fingerprints={fingerprints}
-                onChange={(selection) => patch({ selections: { ...draft.selections, [draft.keyHome]: selection } })}
-              />
-            )}
-          </FieldGroup>
-        )}
       </FieldGroup>
+      {!presetEditor && <SaveSshPresetFields draft={draft} onChange={onDraftChange} busy={busy} />}
       {refusal && (
         <div ref={errorRef} tabIndex={-1} role="alert" className="flex items-start gap-2">
           <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-destructive" />
-          <div className="flex min-w-0 flex-col gap-1">
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
             <p className="font-strong text-destructive text-detail">
-              {launchBlocked ? "Connection needs attention" : "Connection failed"}
+              {presetEditor
+                ? "Couldn’t save preset"
+                : launchBlocked
+                  ? "Connection needs attention"
+                  : "Connection failed"}
             </p>
             <p className="break-words text-detail text-muted-foreground">{refusal}</p>
           </div>
@@ -308,8 +348,12 @@ export function SshWizard({
         <Button
           type="button"
           variant="outline"
-          disabled={busy && draft.authentication !== "local-key"}
-          disabledReason="Wait for SSH startup to finish, or close the native key picker to cancel selection."
+          disabled={busy && (!!presetEditor || draft.authentication !== "local-key")}
+          disabledReason={
+            presetEditor
+              ? "Wait for the preset to finish saving."
+              : "Wait for SSH startup to finish, or close the native key picker to cancel selection."
+          }
           onClick={onCancel}
         >
           Cancel
@@ -319,7 +363,9 @@ export function SshWizard({
           disabled={disabled}
           disabledReason={
             busy
-              ? "SSH startup is in progress."
+              ? presetEditor
+                ? "Saving the preset."
+                : "SSH startup is in progress."
               : launchBlocked
                 ? "This SSH subshell already exists. Open it from the subshell list."
                 : (Object.values(problems())[0] ??
@@ -335,7 +381,7 @@ export function SshWizard({
           }
           onClick={() => void form.handleSubmit()}
         >
-          {busy ? "Starting SSH subshell…" : "Start SSH subshell"}
+          {presetEditor ? (busy ? "Saving…" : "Save preset") : busy ? "Starting SSH subshell…" : "Start SSH subshell"}
         </Button>
       </div>
     </section>

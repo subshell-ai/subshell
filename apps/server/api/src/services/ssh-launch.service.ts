@@ -26,15 +26,15 @@ import { loadNodeGate } from "@/api/nodes/node-gate.js";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
-import { SshSavedHostsRepository } from "@/db/repositories/ssh-saved-hosts.repository.js";
+import { SshRecentDestinationsRepository } from "@/db/repositories/ssh-recent-destinations.repository.js";
 import { LOCAL_NODE_ID, type NodeTable } from "@/db/types/nodes.db-types.js";
-import type { SshSavedHostTable } from "@/db/types/ssh-saved-hosts.db-types.js";
-import { sshCanonicalDestination } from "@/db/types/ssh-saved-hosts.db-types.js";
+import type { SshRecentDestinationTable } from "@/db/types/ssh-recent-destinations.db-types.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import { audit } from "@/services/audit.js";
 import { getLive } from "@/services/nodes/node-registry.js";
 import { SshRpcError, sshAgentIdentities, sshDiscover, sshResolve } from "@/services/nodes/ssh-rpc.js";
 import { subshellSshConfigPath } from "@/services/nodes/subshell-paths.js";
+import { sshCanonicalDestination, sshExpectedDestinationProblem } from "@/services/ssh-destination.js";
 import { closeLocalSshKey, openLocalSshKey } from "@/services/ssh-local-key.service.js";
 import { gateSshNode } from "@/services/ssh-policy.service.js";
 import { prepareRelayLeg } from "@/services/ssh-relay-launch.service.js";
@@ -62,7 +62,7 @@ import { logger } from "@/utils/logger.js";
  *    snapshot the resolver did not approve.
  * 3. The refusal shape splits by endpoint, per the frozen doctrine: `resolve`
  *    answers a refusal outcome IN THE DATA (200, a fact the human reads);
- *    `launch` and `saved-hosts PUT` refuse it (422 `{outcome}`), because
+ *    `launch` and SSH preset saves refuse it (422 `{outcome}`), because
  *    acting on an unapproved destination is the act they are.
  * 4. Compose happens only against a snapshot re-validated by
  *    `parseSshConnectionSnapshot` at THIS trust boundary (the RPC validator
@@ -73,7 +73,7 @@ import { logger } from "@/utils/logger.js";
  *    the same posture as `subshell.create`, which the manager records only
  *    once the spawn returned. A refused resolve, a thrown create, an offline
  *    machine: the trail stays silent about the act that did not happen.
- *    Saved-host CRUD audits nothing (the prompts precedent: a preference row
+ *    Preset CRUD audits nothing (the prompts precedent: a preference row
  *    is not an event).
  */
 
@@ -358,13 +358,19 @@ export async function sshResolveDestination(
   viewerId: string,
   nodeId: string,
   destination: string,
+  expectedDestination?: string,
 ): Promise<SshAnswer<NodeSshResolveOutcomeWire>> {
   const gate = await gateSshNode(viewerId, nodeId);
   if (!gate.ok) return gate;
   if (!isWireSafeSshDestination(destination)) {
     return codedRefusal(400, BackendErrorCodes.ALIAS_UNSAFE, UNSAFE_DESTINATION_COPY);
   }
-  return await nodeResolve(gate.value.row, destination);
+  const resolved = await nodeResolve(gate.value.row, destination);
+  if (resolved.ok && resolved.value.accepted) {
+    const problem = sshExpectedDestinationProblem(resolved.value.snapshot, expectedDestination);
+    if (problem) return codedRefusal(400, BackendErrorCodes.CONFIG_INVALID, problem);
+  }
+  return resolved;
 }
 
 const UNSAFE_DESTINATION_COPY =
@@ -384,6 +390,8 @@ export async function sshLaunch(args: {
   viewerId: string;
   nodeId: string;
   destination: string;
+  /** Canonical destination saved by a preset; checked before trust or launch effects. */
+  expectedDestination?: string;
   name?: string;
   /** Optional key machine; current launch access on both machines authorizes relay use. */
   keyHomeNodeId?: string;
@@ -433,6 +441,8 @@ export async function sshLaunch(args: {
   if (!resolved.ok) return resolved;
   if (!resolved.value.accepted) return refusedRefusal(resolved.value);
   const snapshot = resolved.value.snapshot; // parseNodeSshResolveOutcome already narrowed + rebuilt it
+  const destinationProblem = sshExpectedDestinationProblem(snapshot, args.expectedDestination);
+  if (destinationProblem) return codedRefusal(400, BackendErrorCodes.CONFIG_INVALID, destinationProblem);
   if (args.keyHomeNodeId !== undefined) {
     const refusal = relaySnapshotRefusal(snapshot);
     if (refusal) return refusal;
@@ -546,10 +556,10 @@ export async function sshLaunch(args: {
   // recentPaths posture); the audit sink never throws by contract.
   const destination = sshCanonicalDestination({ host: snapshot.host, port: snapshot.port, user: snapshot.user });
   const now = new Date().toISOString();
-  await new SshSavedHostsRepository(db)
+  await new SshRecentDestinationsRepository(db)
     .touch({ ownerUserId: args.viewerId, destination, nodeId: row.id, alias: snapshot.alias, at: now })
     .catch((err: unknown) => {
-      logger.withError(err).warn(`ssh saved-hosts recency touch failed for ${args.viewerId}/${destination}`);
+      logger.withError(err).warn(`ssh recent-destination touch failed for ${args.viewerId}/${destination}`);
     });
   // Success-only, matching the manager's own `subshell.create` posture (which
   // is recorded after the spawn returned): a refusal writes nothing to that
@@ -569,43 +579,6 @@ export async function sshLaunch(args: {
   return ok({ subshellId: created.id });
 }
 
-/**
- * `PUT /api/ssh/saved-hosts` — save a destination: the SAME gate + resolve
- * (the canonical key must come from a validated snapshot's fields, handoff
- * 1), refusal-shaped outcomes refuse with 422 exactly as a launch would.
- * Unaudited (prompts precedent: this is a preference row, not an event).
- */
-export async function sshSaveHost(args: {
-  viewerId: string;
-  nodeId: string;
-  destination: string;
-  /** Explicit display token; absent falls back to the snapshot's alias. */
-  alias?: string;
-}): Promise<SshAnswer<SshSavedHostTable>> {
-  const gate = await gateSshNode(args.viewerId, args.nodeId);
-  if (!gate.ok) return gate;
-  if (!isWireSafeSshDestination(args.destination)) {
-    return codedRefusal(400, BackendErrorCodes.ALIAS_UNSAFE, UNSAFE_DESTINATION_COPY);
-  }
-  const resolved = await nodeResolve(gate.value.row, args.destination);
-  if (!resolved.ok) return resolved;
-  if (!resolved.value.accepted) return refusedRefusal(resolved.value);
-  const snapshot = resolved.value.snapshot;
-  const row = await new SshSavedHostsRepository(db).markSaved({
-    ownerUserId: args.viewerId,
-    destination: sshCanonicalDestination({ host: snapshot.host, port: snapshot.port, user: snapshot.user }),
-    nodeId: gate.value.row.id,
-    alias: args.alias ?? snapshot.alias,
-    at: new Date().toISOString(),
-  });
-  return ok(row);
-}
-
-/** `DELETE /api/ssh/saved-hosts/:id` — false for foreign AND absent (one 404). */
-export async function sshRemoveSavedHost(viewerId: string, id: string): Promise<boolean> {
-  return await new SshSavedHostsRepository(db).remove(viewerId, id);
-}
-
 /** The public key roster, gated exactly like discovery, resolve and launch. */
 export async function listNodeAgentIdentities(args: {
   viewerId: string;
@@ -622,18 +595,13 @@ export async function listNodeAgentIdentities(args: {
 }
 
 /** The GET payload of the launcher screen: the owner's rows plus their default machine. */
-export async function sshSavedHostsView(viewerId: string): Promise<{
-  saved: SshSavedHostTable[];
-  recent: SshSavedHostTable[];
+export async function sshRecentDestinationsView(viewerId: string): Promise<{
+  recent: SshRecentDestinationTable[];
   defaultNodeId: string | null;
 }> {
-  const repo = new SshSavedHostsRepository(db);
-  const [saved, recent, defaultNodeId] = await Promise.all([
-    repo.listSaved(viewerId),
-    repo.listRecent(viewerId),
-    getSshDefaultNode(viewerId),
-  ]);
-  return { saved, recent, defaultNodeId };
+  const repo = new SshRecentDestinationsRepository(db);
+  const [recent, defaultNodeId] = await Promise.all([repo.listRecent(viewerId), getSshDefaultNode(viewerId)]);
+  return { recent, defaultNodeId };
 }
 
 /* ------------------------------------------------------------------ */

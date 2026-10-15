@@ -1218,8 +1218,18 @@ Its saved metadata records that authentication was single-use. A later
 **Set up Subshell here** request refuses instead of falling back to the
 connecting node's credentials. Restart still requires a new SSH connection.
 
-The connection form is **New subshell → SSH terminal**. **Settings → SSH**
-manages saved and recent destinations; it has no host-key editor. Node Overview's
+The connection form is **New subshell → SSH terminal**. **Settings → Presets → SSH**
+manages saved connection choices; it has no host-key editor. SSH presets retain
+the resolved destination, original SSH resolution token, and authentication choice.
+The token preserves alias-scoped routing and key settings; an optional
+`expectedDestination` constraint checks the resolved username, host, and port
+before save/clone, local-key preparation, trust discovery/acceptance, or launch
+effects. Preset application supplies its saved canonical destination, and a
+deliberate destination edit releases that constraint. Another node’s selected
+key fingerprints are saved and rechecked at launch; a key from the user’s
+machine is selected afresh. Presets never store private keys, passphrases,
+local key filenames, signing identifiers, or destination approvals. Selecting
+a preset fills the form without starting a connection. Node Overview's
 **SSH → Allow SSH** switch controls outgoing connections and supplying agent
 keys. It does not configure `sshd` or grant incoming SSH access.
 
@@ -1228,7 +1238,8 @@ keys. It does not configure `sshd` or grant incoming SSH access.
 | `/api/ssh/readiness`, `/aliases`, `/resolve`, `/identities` | Browser session required. Node discovery and operations follow the caller's node access and the applicable readiness gates; alias/configuration data and public agent identities are not anonymous information. |
 | `POST /api/ssh/launch` | Browser session and launch access to the connecting node; relays also require launch access to the key source. Both participants must pass SSH and readiness checks. |
 | `PUT /api/nodes/:id/ssh-enabled` | Browser session and node owner, or administrator for the built-in node. An edit share alone cannot enable SSH. The setting can be changed while a node is offline and is reconciled on reconnect. |
-| `/api/ssh/saved-hosts` and `/preferences` | Browser session, scoped to the caller. Saved suggestions are separate from destination trust; forgetting a suggestion neither removes its host pin nor closes a session. |
+| `/api/ssh/recent-destinations` and `/preferences` | Browser session, scoped to the caller. Recent suggestions and the default connecting node are separate from destination trust. |
+| `/api/presets` with SSH kind | Browser session, scoped to the caller. Saving resolves the destination through the existing node gate and checks access to any key node; it does not enable SSH or approve trust. Launch rechecks access, readiness, fingerprints, and trust. Deleting a preset neither removes its host pin nor closes a subshell. |
 | `/api/ssh/verify-destination` and `/verify-destination/accept` | Browser session, current access checks, and the one-use confirmation binding described above. These are destination network probes and trust writes, not login attempts. |
 | `/api/ssh/host-pins` | Browser session, owner-scoped compatibility API for explicit recovery. Creation refuses a conflicting key; deletion is a deliberate trust reset. Removing the UI did not remove this API. |
 | Terminal WebSocket input and REST input/exec | SSH input requires the subshell owner's cookie identity. Edit grantees and all bearer actors are refused, including the pane's own token. Output still follows ordinary view grants. |
@@ -2600,7 +2611,7 @@ Audit events are written, grouped by family:
   dialed out to which canonical `host:port` and the pane that came of it, and
   never a config value, path list, or key material (§13). It is written AFTER
   the pane spawned, success only, the same posture as `subshell.create`, and
-  saved-host CRUD audits nothing (the prompts precedent: a preference row is
+  SSH preset CRUD audits nothing (the prompts precedent: a preference row is
   not an event).
 - **The server process**: `server.config.update`, `server.restart`,
   `server.logging.update`, `server.autostart.update`, `server.update`, and

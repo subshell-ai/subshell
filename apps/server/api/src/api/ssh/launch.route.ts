@@ -2,7 +2,12 @@ import { normalizeLabel, SSH_ROSTER_MAX_IDENTITIES } from "@internal/subshell-pr
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { SubshellSchema } from "@/api/models.js";
-import { SshDestinationField, SshResolveRefusalViewSchema, throwCodedRefusal } from "@/api/ssh/ssh-views.js";
+import {
+  SshDestinationField,
+  SshExpectedDestinationField,
+  SshResolveRefusalViewSchema,
+  throwCodedRefusal,
+} from "@/api/ssh/ssh-views.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 import { sshLaunch } from "@/services/ssh-launch.service.js";
@@ -34,6 +39,7 @@ export const sshLaunchRoute = new Elysia()
         viewerId: user.id,
         nodeId: body.node,
         destination: body.destination,
+        expectedDestination: body.expectedDestination,
         // The same label rule every human-chosen name takes (idempotent
         // through the manager's choke-point re-normalization).
         name: body.name === undefined ? undefined : normalizeLabel(body.name, 120),
@@ -63,6 +69,7 @@ export const sshLaunchRoute = new Elysia()
         ),
         node: t.String({ minLength: 1, description: "Connecting machine ('local' = the control-plane host)" }),
         destination: SshDestinationField,
+        expectedDestination: SshExpectedDestinationField,
         name: t.Optional(t.String({ minLength: 1, maxLength: 120, description: "Pane display name" })),
         fingerprints: t.Optional(
           t.Array(t.String({ minLength: 1, maxLength: 135 }), { maxItems: SSH_ROSTER_MAX_IDENTITIES }),

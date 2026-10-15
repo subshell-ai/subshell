@@ -101,6 +101,7 @@ try {
   await expect(page.getByRole("button", { name: "Repository review", exact: true })).toBeVisible();
   await capture(page, "preset-library", page.locator("main h1"), card.last());
   await page.getByRole("button", { name: "New preset", exact: true }).click();
+  await page.getByRole("menuitem", { name: "New agent preset", exact: true }).click();
   await page.locator("#preset-harness").click();
   await page.getByRole("option", { name: "Codex", exact: true }).click();
   await page.locator("#preset-name").fill("Repository review");

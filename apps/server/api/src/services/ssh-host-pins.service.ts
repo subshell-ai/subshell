@@ -4,9 +4,9 @@ import { isSshKnownHostsPinLine, type NodeSshHostKeyResult } from "@internal/sub
 import { db } from "@/db/index.js";
 import { SshHostPinsRepository } from "@/db/repositories/ssh-host-pins.repository.js";
 import type { SshHostPinTable } from "@/db/types/ssh-host-pins.db-types.js";
-import { parseSshCanonicalDestination } from "@/db/types/ssh-saved-hosts.db-types.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
 import { SshRpcError, sshHostKey } from "@/services/nodes/ssh-rpc.js";
+import { parseSshCanonicalDestination } from "@/services/ssh-destination.js";
 import { logger } from "@/utils/logger.js";
 
 /**

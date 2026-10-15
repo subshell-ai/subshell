@@ -17,6 +17,7 @@ export async function launchWithDestinationVerification(
       node: request.node,
       keyHome: request.keyHome,
       destination: request.destination,
+      ...(request.expectedDestination ? { expectedDestination: request.expectedDestination } : {}),
     },
   );
   const accepted = await confirmAction({

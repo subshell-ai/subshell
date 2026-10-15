@@ -171,7 +171,7 @@ picker. Alternate key machines belong under Advanced SSH options and require
 an explicit selection of current SSH-agent fingerprints; no keys are selected
 automatically, and a disappeared selected key blocks launch. The server can
 connect or supply remote agent keys under the same launch-access rule as nodes.
-Saved destination management lives in Settings → SSH.
+Named SSH presets live under Presets → SSH. The legacy `/settings/ssh` route redirects to `/presets?type=ssh`. The SSH preset picker fills connection settings without launching and clears any selected local key. Save as preset requires a name, saves the canonical resolved destination before launch, and retains that preset when launch fails; an unchanged retry reuses it. Recent destinations remain suggestions through `/api/ssh/recent-destinations`. Remote presets restore the key source and fingerprints with fresh launch validation. Local-key presets store only the authentication choice, never key material, files, passphrases, or approval.
 Config alias suggestions keep the alias as the launch token and show an optional
 user@host:port preview beneath it. Discovery returns previews only for explicit
 literal values in simple configs; Match, Include, canonicalization, missing

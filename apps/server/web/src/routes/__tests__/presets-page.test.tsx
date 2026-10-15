@@ -182,25 +182,21 @@ describe("/presets page", () => {
     try {
       renderPage();
       expect(await screen.findByRole("heading", { name: "Presets" })).toBeDefined();
-      expect(screen.getByText("Saved launch settings, per agent")).toBeDefined();
+      expect(screen.getByText("Saved launch settings for agents and SSH connections")).toBeDefined();
       fireEvent.click(screen.getByRole("button", { name: "New preset" }));
+      fireEvent.click(await screen.findByRole("menuitem", { name: "New agent preset" }));
       expect(await screen.findByRole("dialog", { name: "Create preset" })).toBeDefined();
     } finally {
       restore();
     }
   });
 
-  it("empty account: the frozen empty state, naming the option of launching without one", async () => {
+  it("empty account: the agent empty state offers creation", async () => {
     const { restore } = mockFetch({ presets: [] });
     try {
       renderPage();
-      expect(await screen.findByText("No presets yet")).toBeDefined();
-      expect(
-        screen.getByText(
-          "A preset is saved launch settings for one agent: env vars, flags, and whether its subshells restart themselves. You can always start a subshell without one.",
-        ),
-      ).toBeDefined();
-      expect(screen.getByRole("button", { name: "Create your first preset" })).toBeDefined();
+      expect(await screen.findByText("No agent presets yet")).toBeDefined();
+      expect(screen.getByRole("button", { name: "Create your first agent preset" })).toBeDefined();
     } finally {
       restore();
     }

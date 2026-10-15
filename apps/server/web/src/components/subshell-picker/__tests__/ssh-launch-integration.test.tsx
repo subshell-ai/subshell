@@ -45,7 +45,7 @@ function api() {
                 },
               ],
             }
-          : path === "/api/ssh/saved-hosts"
+          : path === "/api/ssh/recent-destinations"
             ? { saved: [], recent: [], defaultNodeId: "local" }
             : path === "/api/ssh/aliases"
               ? { aliases: [] }

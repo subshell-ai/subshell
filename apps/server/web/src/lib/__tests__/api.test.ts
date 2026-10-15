@@ -31,7 +31,7 @@ describe("apiFetch error classes", () => {
     // The ssh saved-host DELETE answers 204 with NO body (a 204 may not carry
     // one); parsing one is a throw, so the helper must return before it tries.
     globalThis.fetch = (async () => new Response(null, { status: 204 })) as unknown as typeof fetch;
-    await expect(apiFetch("/api/ssh/saved-hosts/x")).resolves.toBeUndefined();
+    await expect(apiFetch("/api/ssh/recent-destinations/x")).resolves.toBeUndefined();
   });
 
   it("isNetworkError matches only NetworkError (plain errors stay fail-fast)", () => {

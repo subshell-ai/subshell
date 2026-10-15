@@ -90,8 +90,8 @@ export type SshResolveOutcome =
       settings: string[];
     };
 
-/** One saved/recency row as its owner sees it. */
-export interface SshSavedHost {
+/** One recent destination row as its owner sees it. */
+export interface SshRecentDestination {
   /** Row id (uuid) */
   id: string;
   /** Canonical host:port (or user@host:port), the resolved destination as key */
@@ -100,18 +100,14 @@ export interface SshSavedHost {
   alias: string | null;
   /** The connecting machine of the most recent launch to this destination */
   nodeId: string;
-  /** ISO 8601 the human saved it; null = recency-only row */
-  savedAt: string | null;
   /** ISO 8601 of the most recent launch to this destination */
   lastConnectAt: string;
 }
 
-/** The `GET /api/ssh/saved-hosts` body: the destination field's feed and the machine preference. */
-export interface SshSavedHostsView {
-  /** Rows a human saved, newest save first (max 20) */
-  saved: SshSavedHost[];
-  /** Most-recently-connected destinations, saved or not, newest first (max 20) */
-  recent: SshSavedHost[];
+/** The `GET /api/ssh/recent-destinations` body: the destination field's feed and the machine preference. */
+export interface SshRecentDestinationsView {
+  /** Most-recently-connected destinations, newest first (max 20) */
+  recent: SshRecentDestination[];
   /**
    * The caller's default connecting machine, or null. A node deleted since
    * reads back as the stored id; the client decides.
@@ -130,16 +126,6 @@ export interface SshAliasesView {
   truncated: boolean;
 }
 
-/** `PUT /api/ssh/saved-hosts` body: the machine gates the resolve, the alias is a display override. */
-export interface SshSaveHostRequest {
-  /** Machine to resolve the destination on (the gate owner) */
-  node: string;
-  /** Destination token (1..253): an alias from the machine's config or a concrete host */
-  destination: string;
-  /** Display label override; absent keeps the resolved snapshot's own alias */
-  alias?: string;
-}
-
 /** `POST /api/ssh/launch` body: name is the pane's display name, optional. */
 export interface SshLaunchRequest {
   /** One-use native signing preparation, never key material. */
@@ -152,6 +138,8 @@ export interface SshLaunchRequest {
   node: string;
   /** Destination token (1..253), resolved on the machine before anything launches */
   destination: string;
+  /** Preset’s canonical address, checked against current SSH configuration before effects. */
+  expectedDestination?: string;
   /** Pane display name */
   name?: string;
 }
