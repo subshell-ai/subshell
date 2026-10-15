@@ -194,6 +194,7 @@ const BOX = {
   maintenanceAt: null,
   maintenanceSource: null,
   sshEnabled: false,
+  sshWideForwards: false,
   held: null,
 };
 

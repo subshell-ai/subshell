@@ -1,5 +1,6 @@
 import type { DestinationCandidate } from "@/components/connect/destination-options";
 import { type SshAgentIdentity, sshSelectionError } from "@/lib/ssh";
+import { type SshForwardDraftRow, sshForwardListProblems } from "@/lib/ssh-forwards";
 import { sshDestinationProblem, sshPresetNameProblem } from "@/lib/ssh-input-validation";
 
 export type SshInitialChoices = {
@@ -30,6 +31,8 @@ export interface SshSessionDraft {
   presetApplied?: boolean;
   saveAsPreset?: boolean;
   presetName?: string;
+  /** Declared port forwards as FORM rows (strings; untyped rows are ignored). Spec 2026-10-15. */
+  forwards: SshForwardDraftRow[];
 }
 
 export function sshSessionDraft(initial?: SshInitialChoices): SshSessionDraft {
@@ -43,6 +46,7 @@ export function sshSessionDraft(initial?: SshInitialChoices): SshSessionDraft {
       typed: initial?.destination ?? "",
     },
     initialPresetId: initial?.preset,
+    forwards: [],
   };
 }
 
@@ -72,6 +76,8 @@ export function sshDraftProblems(draft: SshSessionDraft): Record<string, string>
   if (!draft.nodeId) return { node: "Choose a node to connect from first." };
   const destinationProblem = sshDestinationProblem(sshDestination(draft));
   if (destinationProblem) return { destination: destinationProblem };
+  const forwardProblem = sshForwardListProblems(draft.forwards);
+  if (forwardProblem) return { forwards: forwardProblem };
   const error =
     sshKeySourceProblem(draft) ||
     (draft.keyHome ? sshKeySelectionProblem(draft.selections[draft.keyHome] ?? []) : null);

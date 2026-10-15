@@ -178,6 +178,14 @@ export interface Node {
    */
   sshEnabled: boolean;
   /**
+   * Whether SSH port forwards on this machine may bind non-loopback
+   * addresses (spec 2026-10-15 §6). Off by default: forwards bind loopback
+   * only, and the launch refuses a wide bind while this is false. The
+   * launch form reads it to decide whether to offer the bind-host field at
+   * all.
+   */
+  sshWideForwards: boolean;
+  /**
    * This node is connected but REFUSED — held open for exactly one
    * command and offline for every other purpose (spec 2026-09-15 §5.3).
    *

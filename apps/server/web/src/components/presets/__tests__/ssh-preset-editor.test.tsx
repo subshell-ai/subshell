@@ -32,6 +32,7 @@ const preset: SshPreset = {
   authentication: "local-key",
   keyHome: null,
   fingerprints: [],
+  forwards: [],
   createdAt: "t",
   updatedAt: "t",
 };
@@ -112,9 +113,35 @@ it("saves the local-key radio choice without requiring a file or approval", asyn
         authentication: "local-key",
         keyHome: null,
         fingerprints: [],
+        forwards: [],
       },
     },
   ]);
+});
+
+it("saves a declared port forward alongside the connection choices", async () => {
+  const { writes, closed } = await setup();
+  await waitFor(() => expect(disabled()).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
+  fireEvent.change(screen.getByLabelText(/Local port/), { target: { value: "5432" } });
+  fireEvent.change(screen.getByLabelText(/Target host/), { target: { value: "db.internal" } });
+  fireEvent.change(screen.getByLabelText(/Target port/), { target: { value: "5432" } });
+  await waitFor(() => expect(disabled()).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "Save preset" }));
+  await waitFor(() => expect(closed()).toBe(true));
+  expect(writes[0]?.body.forwards).toEqual([
+    { kind: "local", listenPort: 5432, bindHost: null, targetHost: "db.internal", targetPort: 5432 },
+  ]);
+});
+
+it("an incomplete forward row holds Save", async () => {
+  const { writes } = await setup();
+  await waitFor(() => expect(disabled()).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
+  fireEvent.change(screen.getByLabelText(/Local port/), { target: { value: "5432" } });
+  fireEvent.change(screen.getByLabelText(/Target port/), { target: { value: "5432" } });
+  await waitFor(() => expect(disabled()).toBe(true));
+  expect(writes).toHaveLength(0);
 });
 it("allows unrelated edits while the saved connecting node is offline", async () => {
   const { writes } = await setup(false);

@@ -41,6 +41,7 @@ const NODE: Node = {
   maintenanceAt: null,
   maintenanceSource: null,
   sshEnabled: false,
+  sshWideForwards: false,
   held: null,
 };
 

@@ -50,6 +50,7 @@ function node(overrides: Partial<Node>): Node {
     maintenanceAt: null,
     maintenanceSource: null,
     sshEnabled: false,
+    sshWideForwards: false,
     held: null,
     ...overrides,
   };
@@ -759,6 +760,53 @@ it("a delayed URL preset cannot overwrite an edited draft during or after a pend
     releaseLaunch(json({ code: "SSH_RELAY_OPEN_FAILED", message: "Try again" }, 409));
     await screen.findByText("Try again");
     expect(destinationInput().value).toBe("my-edited-host");
+  } finally {
+    restore();
+  }
+});
+
+it("carries declared port forwards in the launch body, and holds Start until the row is valid (spec 2026-10-15)", async () => {
+  const { calls, restore } = await renderPanel({
+    nodes: [HOST_A],
+    launch: () => json({ subshell: { id: "pane-fwd" } }, 201),
+  });
+  try {
+    fireEvent.change(destinationInput(), { target: { value: "build.example" } });
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Advanced SSH options" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
+    await settle();
+    // Loopback-only machine: no bind field offered, and the reason is on screen.
+    expect(screen.queryByLabelText(/Bind address/)).toBeNull();
+    expect(screen.getByText(/loopback/i)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Local port/), { target: { value: "5432" } });
+    await settle();
+    // Half a row: the listen port alone is not a launchable forward.
+    expect((screen.getByRole("button", { name: /^Start SSH subshell$/ }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText(/Target host/), { target: { value: "db.internal" } });
+    fireEvent.change(screen.getByLabelText(/Target port/), { target: { value: "5432" } });
+    await settle();
+    await clickConnect();
+    await waitFor(() => expect(calls.some((call) => call.url === "/api/ssh/launch")).toBe(true));
+    expect(calls.find((call) => call.url === "/api/ssh/launch")?.body).toMatchObject({
+      node: "a1",
+      destination: "build.example",
+      forwards: [{ kind: "local", listenPort: 5432, bindHost: null, targetHost: "db.internal", targetPort: 5432 }],
+    });
+  } finally {
+    restore();
+  }
+});
+
+it("offers the bind address on a machine whose owner allows wide binds", async () => {
+  const HOST_WIDE = node({ id: "w1", name: "router box", sshEnabled: true, sshWideForwards: true });
+  const { restore } = await renderPanel({ nodes: [HOST_WIDE] });
+  try {
+    fireEvent.click(screen.getByRole("button", { name: "Advanced SSH options" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
+    await settle();
+    expect(screen.getByLabelText(/Bind address/)).toBeTruthy();
+    expect(screen.queryByText(/owner can allow other bind addresses/i)).toBeNull();
   } finally {
     restore();
   }

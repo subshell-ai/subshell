@@ -126,6 +126,26 @@ export interface SshAliasesView {
   truncated: boolean;
 }
 
+/**
+ * One declared port-forward row, mirroring the server's `SshForwardWire`
+ * (docs/security.md's SSH section; spec 2026-10-15). Hosts are canonical
+ * names; nulls mean the omitted spelling (loopback for local/dynamic, the
+ * destination's policy for remote). Checked against the route schema in
+ * `apps/server/api/src/api/ssh/launch.route.ts`.
+ */
+export interface SshForwardRow {
+  /** local (-L, binds on the connecting machine), remote (-R, binds on the destination), dynamic (-D SOCKS) */
+  kind: "local" | "remote" | "dynamic";
+  /** Port to bind, 1..65535, always explicit */
+  listenPort: number;
+  /** Listen bind host; null is the omitted default */
+  bindHost: string | null;
+  /** Target host through the connection; null only for dynamic */
+  targetHost: string | null;
+  /** Target port; null only for dynamic */
+  targetPort: number | null;
+}
+
 /** `POST /api/ssh/launch` body: name is the pane's display name, optional. */
 export interface SshLaunchRequest {
   /** One-use native signing preparation, never key material. */
@@ -142,6 +162,8 @@ export interface SshLaunchRequest {
   expectedDestination?: string;
   /** Pane display name */
   name?: string;
+  /** User-declared port forwards this connection carries (spec 2026-10-15); omitted launches none */
+  forwards?: SshForwardRow[];
 }
 
 /**

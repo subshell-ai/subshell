@@ -7,6 +7,7 @@ import { useBrowserKeySelection } from "@/components/connect/browser-key-fields"
 import { DestinationField } from "@/components/connect/destination-field";
 import { buildDestinationOptions } from "@/components/connect/destination-options";
 import { NoSshTargets } from "@/components/connect/no-ssh-targets";
+import { SshForwardFields } from "@/components/connect/ssh-forward-fields";
 import { SshKeyStep } from "@/components/connect/ssh-key-step";
 import { SaveSshPresetFields, SshPresetPicker } from "@/components/connect/ssh-preset-controls";
 import { type SshRefusalCopy, sshLaunchRefusal } from "@/components/connect/ssh-refusal";
@@ -41,6 +42,7 @@ import { fieldErrorToned, makeForm, useSubmitDisabled } from "@/lib/form";
 import { nodeOptionLabel } from "@/lib/node-label";
 import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 import { sshCanEnableOnStart } from "@/lib/ssh";
+import { sshForwardRowsToWire } from "@/lib/ssh-forwards";
 import { sshDestinationProblem } from "@/lib/ssh-input-validation";
 import { launchWithLocalKey } from "@/lib/ssh-local-key";
 import { sshDraftFromPreset, sshPresetPayload } from "@/lib/ssh-preset";
@@ -232,6 +234,7 @@ export function ConnectPanel({
   const selectionError = sshKeySelectionProblem(fingerprints, roster.data?.identities);
   const rosterReady = !keyHome || (!roster.isPending && !roster.isError && selectionError === null);
   const destination = sshDestination(draft);
+  const forwardRows = sshForwardRowsToWire(draft.forwards);
   // A committed row's label is the field's text; while that echo stands the
   // list is UNFILTERED (the whole ledger again), because the echo is display,
   // not a search. Any keystroke releases the pick, and text becomes query.
@@ -344,6 +347,7 @@ export function ConnectPanel({
         destination,
         ...(expectedDestination ? { expectedDestination } : {}),
         ...(keyHome ? { keyHome, fingerprints } : {}),
+        ...(forwardRows.length > 0 ? { forwards: forwardRows } : {}),
       };
       const created =
         draft.authentication === "local-key"
@@ -381,6 +385,7 @@ export function ConnectPanel({
                 destination,
                 ...(expectedDestination ? { expectedDestination } : {}),
                 ...(keyHome ? { keyHome, fingerprints } : {}),
+                ...(forwardRows.length > 0 ? { forwards: forwardRows } : {}),
               },
               launch.mutateAsync,
             );
@@ -566,14 +571,17 @@ export function ConnectPanel({
         <div>
           <Button
             variant="ghost"
-            aria-expanded={advanced || !!keySourceProblem || refusal?.field === "keys"}
+            aria-expanded={advanced || !!keySourceProblem || refusal?.field === "keys" || draft.forwards.length > 0}
             aria-controls="ssh-advanced-options"
             onClick={() => setAdvanced((value) => !value)}
           >
             Advanced SSH options
             <ChevronDown data-icon="inline-end" aria-hidden="true" />
           </Button>
-          <div id="ssh-advanced-options" hidden={!advanced && !keySourceProblem && refusal?.field !== "keys"}>
+          <div
+            id="ssh-advanced-options"
+            hidden={!advanced && !keySourceProblem && refusal?.field !== "keys" && draft.forwards.length === 0}
+          >
             <Field className="mt-3">
               <Label htmlFor="connect-key-home">Use keys from</Label>
               <SearchableSelect
@@ -618,6 +626,14 @@ export function ConnectPanel({
                 />
               )}
             </Field>
+            <div className="mt-3">
+              <SshForwardFields
+                rows={draft.forwards}
+                allowWideBind={selectedNode?.sshWideForwards ?? false}
+                busy={submitting}
+                onChange={(forwards) => setDraft({ ...draft, forwards })}
+              />
+            </div>
           </div>
         </div>
 

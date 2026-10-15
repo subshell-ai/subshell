@@ -1,4 +1,5 @@
 import { type SshSessionDraft, sshDestination, sshSessionDraft } from "@/components/connect/ssh-session-draft";
+import { sshForwardRowsFromWire, sshForwardRowsToWire } from "@/lib/ssh-forwards";
 import type { SshPreset, SshPresetPayload } from "@/types/preset";
 
 export const SSH_AUTHENTICATION_LABELS = {
@@ -19,6 +20,7 @@ export function sshDraftFromPreset(preset: SshPreset): SshSessionDraft {
     keyHome: preset.authentication === "remote" ? (preset.keyHome ?? "") : "",
     selections:
       preset.authentication === "remote" && preset.keyHome ? { [preset.keyHome]: [...preset.fingerprints] } : {},
+    forwards: sshForwardRowsFromWire(preset.forwards),
   };
 }
 
@@ -37,5 +39,6 @@ export function sshPresetPayload(draft: SshSessionDraft, name: string, descripti
     authentication,
     keyHome: authentication === "remote" ? draft.keyHome : null,
     fingerprints: authentication === "remote" ? (draft.selections[draft.keyHome] ?? []) : [],
+    forwards: sshForwardRowsToWire(draft.forwards),
   };
 }

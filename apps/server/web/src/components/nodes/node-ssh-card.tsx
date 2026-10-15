@@ -9,11 +9,12 @@ import {
   Switch,
 } from "@internal/node-admin";
 import type { ReactNode } from "react";
-import { useSetSshEnabled } from "@/hooks/use-ssh";
+import { useSetSshEnabled, useSetSshWideForwards } from "@/hooks/use-ssh";
 
 /** The node's configuration permission is supplied by the same server gate as the update route. */
 export function NodeSshCard({ node, children }: { node: NodeDetail; children?: ReactNode }) {
   const update = useSetSshEnabled();
+  const wide = useSetSshWideForwards();
   return (
     <Card>
       <CardHeader>
@@ -46,6 +47,32 @@ export function NodeSshCard({ node, children }: { node: NodeDetail; children?: R
           <p role="alert" className="text-destructive text-detail">
             {errMessage(update.error, "Couldn't update the SSH setting.")}
           </p>
+        )}
+        {node.sshEnabled && (
+          <div className="flex flex-col items-start gap-2">
+            <div className="flex items-center gap-4">
+              <Switch
+                id="node-ssh-wide-forwards"
+                checked={node.sshWideForwards}
+                disabled={!node.canManage || wide.isPending}
+                onCheckedChange={(on) => wide.mutate({ id: node.id, on })}
+              />
+              <Label htmlFor="node-ssh-wide-forwards">Allow wide port forwards</Label>
+            </div>
+            <p className="text-detail text-muted-foreground">
+              {node.sshWideForwards
+                ? "Port forwards can bind an address other machines can reach, so this machine routes their traffic into whatever the connection reaches. Turning this off refuses future wide binds; running forwards keep going until their pane closes."
+                : "Port forwards bind this machine's own loopback address only, so just programs on this machine can use them. Turn this on to let a forward bind an address other machines can reach."}
+            </p>
+            {!node.canManage && (
+              <p className="text-detail text-warning">Only this node’s owner can change this setting.</p>
+            )}
+            {wide.isError && (
+              <p role="alert" className="text-destructive text-detail">
+                {errMessage(wide.error, "Couldn't update the port-forward setting.")}
+              </p>
+            )}
+          </div>
         )}
         {children}
       </CardContent>

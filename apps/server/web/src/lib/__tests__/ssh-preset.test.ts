@@ -13,6 +13,7 @@ const preset: SshPreset = {
   authentication: "remote",
   keyHome: "keys",
   fingerprints: ["SHA256:one"],
+  forwards: [],
   createdAt: "t",
   updatedAt: "t",
 };
@@ -47,6 +48,7 @@ it("projects the local-key preference without key, credential, or stale remote s
     authentication: "local-key",
     keyHome: null,
     fingerprints: [],
+    forwards: [],
   });
 });
 it.each(["connecting", "remote", "local-key", "password"] as const)(
