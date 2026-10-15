@@ -29,6 +29,10 @@ export async function up(db: Kysely<any>): Promise<void> {
 }
 
 export async function down(db: Kysely<any>): Promise<void> {
+  // DESTRUCTIVE both directions, deliberately (the 0029 drafts precedent):
+  // up() discarded the saved_at rows, and down() drops every SSH preset this
+  // schema added. The pre-0054 schema cannot express a named preset, so a
+  // rollback restores the shape, never the data.
   await db.schema.dropTable("ssh_presets").execute();
   await db.schema.alterTable("ssh_recent_destinations").renameTo("ssh_saved_hosts").execute();
   await db.schema.alterTable("ssh_saved_hosts").addColumn("saved_at", "text").execute();

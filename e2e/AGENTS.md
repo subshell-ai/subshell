@@ -167,11 +167,11 @@ a disposable SSH agent, and a Testcontainers destination. Docker and the
 Playwright Chromium browser are required. The normal `E2E_PORT_*` overrides
 apply when another suite is running.
 
-The script writes two cropped PNGs to `apps/docs/public/screenshots/`, using
-real form state and a real first-connection refusal. It cancels confirmation
-and checks that no destination trust was saved, then cleans up its processes
-and temporary state. Review the images and update their intrinsic dimensions
-in `guides/ssh.mdx` if the layout changes. Never point it at the live server.
+The script writes one cropped PNG to `apps/docs/public/screenshots/`, from a
+real first-connection refusal. It cancels confirmation and checks that no
+destination trust was saved, then cleans up its processes and temporary state.
+Review the image and update its intrinsic dimensions in `guides/ssh.mdx` if the
+layout changes. Never point it at the live server.
 
 For the other documentation screenshots, run `bun e2e/capture-docs.ts` after
 building the SPA. It uses the same isolated stack with sample presets, prompts,

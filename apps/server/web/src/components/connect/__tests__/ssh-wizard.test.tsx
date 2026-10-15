@@ -635,6 +635,10 @@ it("keeps a failed save open without launching", async () => {
   await task();
   await click("Start SSH subshell");
   await screen.findByText(/Preset save failed/);
+  // The heading names the act that failed. "Connection failed" above a
+  // sentence saying the connection never started is the bug this pins out.
+  expect(screen.getByText("Couldn’t save preset")).toBeDefined();
+  expect(screen.queryByText("Connection failed") === null).toBe(true);
   expect(calls.some((c) => c.path === "/api/ssh/launch")).toBe(false);
   expect((screen.getByLabelText("Preset name") as HTMLInputElement).value).toBe("Build");
 });

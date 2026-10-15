@@ -1,6 +1,7 @@
 import { ApiError, errMessage } from "@internal/node-admin";
 import { useState } from "react";
 import { useBrowserKeySelection } from "@/components/connect/browser-key-fields";
+import { isSshResolveRefusal, refusalFromOutcome } from "@/components/connect/ssh-refusal";
 import { sshSessionDraft } from "@/components/connect/ssh-session-draft";
 import { SshWizard } from "@/components/connect/ssh-wizard";
 import { SshPresetNameField } from "@/components/presets/ssh-preset-name-field";
@@ -16,6 +17,21 @@ import { useSshReadiness } from "@/hooks/use-ssh";
 import { useSaveSshPreset } from "@/hooks/use-ssh-presets";
 import { sshDraftFromPreset, sshPresetPayload } from "@/lib/ssh-preset";
 import type { SshPreset } from "@/types/preset";
+
+/**
+ * A refused save in words. The resolve refusal (422) carries the outcome in
+ * the body, not an error sentence, so read the cause there rather than
+ * rendering an `API 422:` JSON slice; everything else keeps the generic
+ * message. Same doctrine as `ssh-refusal.ts` for the launch panel.
+ */
+function presetSaveRefusal(error: unknown): string {
+  if (error instanceof ApiError && error.status === 422) {
+    const outcome =
+      typeof error.body === "object" && error.body !== null ? (error.body as { outcome?: unknown }).outcome : undefined;
+    if (isSshResolveRefusal(outcome)) return refusalFromOutcome(outcome);
+  }
+  return errMessage(error, "Couldn’t save this preset. Check the connection details and try again.");
+}
 
 /** A fresh mount is one editing session, including clones. No credential is requested here. */
 export function SshPresetEditor({
@@ -81,11 +97,7 @@ export function SshPresetEditor({
             unchangedDestination:
               editing && draft.nodeId === preset.nodeId && draft.destination.typed === preset.destination,
           }}
-          refusal={
-            save.error && !duplicateName
-              ? errMessage(save.error, "Couldn’t save this preset. Check the connection details and try again.")
-              : undefined
-          }
+          refusal={save.error && !duplicateName ? presetSaveRefusal(save.error) : undefined}
           onStart={async () => {
             try {
               const payload = sshPresetPayload(draft, name, preset?.description ?? "");

@@ -67,7 +67,11 @@ async function wire(page: Page, ready = true) {
   });
   const presets: Record<string, unknown>[] = [];
   const saves: unknown[] = [];
-  await page.route("**/api/presets?kind=ssh", (route) => route.fulfill({ json: presets }));
+  // A predicate, not a glob: in URL globs `?` is a single-character wildcard.
+  await page.route(
+    (url) => url.pathname === "/api/presets" && url.searchParams.get("kind") === "ssh",
+    (route) => route.fulfill({ json: presets }),
+  );
   await page.route("**/api/presets", async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     const payload = route.request().postDataJSON();

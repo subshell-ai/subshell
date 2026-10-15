@@ -9,7 +9,6 @@ import {
   CreateSshPresetSchema,
   SSH_PRESET_KEYS,
   SshPresetSchema,
-  saveSshPreset,
   sshPresetView,
   UpdateSshPresetSchema,
 } from "@/api/ssh-presets.js";
@@ -20,8 +19,10 @@ import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SshPresetsRepository } from "@/db/repositories/ssh-presets.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch, nodeCanLaunchOn } from "@/lib/node-access.js";
+import { apiModels } from "@/schema/index.js";
 import { PORTABLE_MCP_LAUNCH } from "@/services/mcp-resolve.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
+import { saveSshPreset } from "@/services/ssh-presets.service.js";
 
 /** Max joined prompt text, same cap as the launch form's `prompt` field. */
 const MAX_PRESET_PROMPT_CHARS = 20_000;
@@ -158,7 +159,11 @@ function findInvalidEnvName(env: Record<string, string> | undefined): string | u
 }
 
 const CreatePresetBodySchema = t.Object({
-  kind: t.Optional(t.Literal("agent")),
+  kind: t.Optional(
+    t.Literal("agent", {
+      description: "Create an agent preset (the default); send kind ssh on the union body to create an SSH preset",
+    }),
+  ),
   harnessId: t.String({ minLength: 1, description: "Harness plugin id" }),
   name: t.String({ minLength: 1, maxLength: 120, description: "Preset name" }),
   description: t.Optional(t.String({ maxLength: 500, description: "Longer description" })),
@@ -238,6 +243,7 @@ const UPDATE_PRESET_KEYS = new Set([
  * and harvest its bearer token. Machine credentials must not manage presets.
  */
 export const presetRoutes = new Elysia({ prefix: "/api/presets" })
+  .use(apiModels)
   .use(authGuard)
   .post(
     "/",
@@ -321,7 +327,13 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       body: t.Union([CreatePresetBodySchema, CreateSshPresetSchema]),
       response: {
         200: t.Union([PresetSchema, SshPresetSchema]),
+        400: "ApiErrorResponse",
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+        404: "ApiErrorResponse",
+        409: "ApiErrorResponse",
         422: t.Object({ outcome: SshResolveRefusalViewSchema }),
+        502: "ApiErrorResponse",
       },
       detail: {
         operationId: "createPreset",
@@ -369,8 +381,15 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
     },
     {
       query: t.Object({
-        harnessId: t.Optional(t.String({ description: "Filter by harness id" })),
-        kind: t.Optional(t.Union([t.Literal("agent"), t.Literal("ssh"), t.Literal("all")])),
+        harnessId: t.Optional(
+          t.String({ description: "Filter by harness id (applies to agent rows; SSH rows have no harness)" }),
+        ),
+        kind: t.Optional(
+          t.Union([t.Literal("agent"), t.Literal("ssh"), t.Literal("all")], {
+            description:
+              "Which kinds to list; defaults to agent only. SSH and all require a browser session; machine actors are refused",
+          }),
+        ),
       }),
       response: t.Array(t.Union([PresetSchema, SshPresetSchema]), { description: "User's presets" }),
       detail: {
@@ -509,7 +528,13 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       body: t.Union([UpdatePresetBodySchema, UpdateSshPresetSchema]),
       response: {
         200: t.Union([PresetSchema, SshPresetSchema]),
+        400: "ApiErrorResponse",
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+        404: "ApiErrorResponse",
+        409: "ApiErrorResponse",
         422: t.Object({ outcome: SshResolveRefusalViewSchema }),
+        502: "ApiErrorResponse",
       },
       detail: {
         operationId: "updatePreset",

@@ -30,6 +30,8 @@ export type RefusalField = "destination" | "machine" | "keys";
 export interface SshRefusalCopy {
   text: string;
   field: RefusalField;
+  /** Names the act that failed, so a heading can say which one; the wizard's default is "Connection failed". */
+  title?: string;
 }
 
 /** What the panel knows about the connecting machine at submit time. */
@@ -37,7 +39,7 @@ export type SshMachineFacts = Pick<Node, "name" | "kind" | "sshEnabled">;
 
 /** The settings-bearing sentence names each blocked keyword verbatim; the
  *  code-only arms (empty settings) name the fact and the place to fix it. */
-function refusalFromOutcome(outcome: Extract<SshResolveOutcome, { accepted: false }>): string {
+export function refusalFromOutcome(outcome: Extract<SshResolveOutcome, { accepted: false }>): string {
   return outcome.settings.length > 0
     ? `This SSH configuration uses settings Subshell doesn't support: ${outcome.settings.join(", ")}. Update them on the connecting machine and try again.`
     : "Subshell can't connect using this SSH configuration. Update it on the connecting machine and try again.";

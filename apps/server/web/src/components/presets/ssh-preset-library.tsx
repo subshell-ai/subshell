@@ -1,13 +1,4 @@
-import {
-  apiFetch,
-  Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  confirmAction,
-  errMessage,
-} from "@internal/node-admin";
+import { apiFetch, Card, CardContent, CardHeader, CardTitle, confirmAction, errMessage } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { Copy, Pencil, Play, Terminal, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -18,6 +9,7 @@ import { SshQueryStatus } from "@/components/ssh/query-status";
 import { useNodes } from "@/hooks/use-nodes";
 import { useInvalidatePresets } from "@/hooks/use-presets";
 import { useSshPresets } from "@/hooks/use-ssh-presets";
+import { SSH_PRESET_NAME_MAX } from "@/lib/ssh-input-validation";
 import { SSH_AUTHENTICATION_LABELS } from "@/lib/ssh-preset";
 import type { SshPreset } from "@/types/preset";
 
@@ -38,13 +30,12 @@ export function SshPresetLibrary({
   const [editor, setEditor] = useState<{ preset: SshPreset; cloneName?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   function clone(preset: SshPreset) {
+    // Case folding mirrors the server's ASCII NOCASE index, same as
+    // suggestCloneName's set on the Agent tab.
     const names = new Set(query.data?.map((p) => p.name.toLowerCase()));
-    let name = `${preset.name.slice(0, 113)} (copy)`;
-    let index = 2;
-    while (names.has(name.toLowerCase())) {
-      const suffix = ` (copy ${index++})`;
-      name = preset.name.slice(0, 120 - suffix.length) + suffix;
-    }
+    const withSuffix = (suffix: string) => preset.name.slice(0, SSH_PRESET_NAME_MAX - suffix.length) + suffix;
+    let name = withSuffix(" (copy)");
+    for (let index = 2; names.has(name.toLowerCase()); index++) name = withSuffix(` (copy ${index})`);
     setEditor({ preset, cloneName: name });
   }
   async function remove(preset: SshPreset) {
@@ -90,34 +81,53 @@ export function SshPresetLibrary({
             <CardTitle>SSH presets</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
+            <div className="@container overflow-x-auto">
               <table className="w-full text-sm" aria-label="SSH presets">
                 <thead>
                   <tr className="border-b text-left text-muted-foreground">
-                    {["Name", "Destination", "Connect from", "Authentication"].map((label) => (
-                      <th key={label} scope="col" className="whitespace-nowrap pr-4 pb-2 font-strong">
-                        {label}
-                      </th>
-                    ))}
-                    <th scope="col" className="pb-2 text-right">
+                    <th scope="col" className="pr-4 pb-2 font-strong">
+                      Name
+                    </th>
+                    <th scope="col" className="@sm:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">
+                      Destination
+                    </th>
+                    <th scope="col" className="@sm:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">
+                      Connect from
+                    </th>
+                    <th scope="col" className="@lg:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">
+                      Authentication
+                    </th>
+                    <th scope="col" className="pb-2 text-right font-strong">
                       <span className="sr-only">Actions</span>
                     </th>
                   </tr>
                 </thead>
                 <tbody>
                   {query.data.map((preset) => (
-                    <tr key={preset.id} className="border-b last:border-0">
-                      <td className="py-2 pr-4">
-                        <Button variant="link" className="h-auto p-0" onClick={() => setEditor({ preset })}>
+                    <tr key={preset.id} className="border-b align-middle last:border-0">
+                      {/* The name opens the editor, same act as the menu's Edit. Not a
+                          disclosure: this row already prints the preset's four facts, so
+                          there is nothing the name could expand that Edit doesn't show. */}
+                      <td className="h-8 @sm:w-1/3 w-full max-w-0 py-0 pr-4">
+                        <button
+                          type="button"
+                          title={preset.name}
+                          className="block max-w-full truncate rounded-md text-left font-strong hover:underline"
+                          onClick={() => setEditor({ preset })}
+                        >
                           {preset.name}
-                        </Button>
+                        </button>
                       </td>
-                      <td className="py-2 pr-4 font-mono">{preset.destination}</td>
-                      <td className="py-2 pr-4">
+                      <td className="@sm:table-cell hidden h-8 max-w-0 truncate whitespace-nowrap py-0 pr-4 font-mono text-muted-foreground">
+                        {preset.destination}
+                      </td>
+                      <td className="@sm:table-cell hidden h-8 max-w-0 truncate whitespace-nowrap py-0 pr-4 text-muted-foreground">
                         {nodes.data?.nodes.find((node) => node.id === preset.nodeId)?.name ?? "Node unavailable"}
                       </td>
-                      <td className="py-2 pr-4">{SSH_AUTHENTICATION_LABELS[preset.authentication]}</td>
-                      <td className="w-px py-2 text-right">
+                      <td className="@lg:table-cell hidden h-8 whitespace-nowrap py-0 pr-4 text-muted-foreground">
+                        {SSH_AUTHENTICATION_LABELS[preset.authentication]}
+                      </td>
+                      <td className="h-8 w-px py-0 text-right">
                         <ActionsMenu
                           label={preset.name}
                           items={[

@@ -270,6 +270,7 @@ export {
   parseSshNodeCommandBody,
   redactSshSetupKeyLines,
   SSH_COMMAND_TYPES,
+  SSH_FINGERPRINT_PATTERN,
   SSH_RELAY_CLOSE_REASONS,
   type SshAgentIdentitiesCommand,
   type SshDiscoverAliasesCommand,

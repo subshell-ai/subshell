@@ -415,7 +415,13 @@ function isIdStr(value: unknown): value is string {
  * rule is also what stops control characters reaching a future audit row
  * through a field that promises to be a fingerprint.
  */
-const SSH_FINGERPRINT_RE = /^SHA256:[A-Za-z0-9_-]{43}$/;
+/**
+ * The fingerprint grammar as a source string, so an API schema can carry the
+ * SAME rule as this predicate instead of restating it and drifting.
+ */
+export const SSH_FINGERPRINT_PATTERN = "^SHA256:[A-Za-z0-9_-]{43}$";
+
+const SSH_FINGERPRINT_RE = new RegExp(SSH_FINGERPRINT_PATTERN);
 
 /**
  * Whether `value` is ONE fingerprint in the canonical display grammar. THE

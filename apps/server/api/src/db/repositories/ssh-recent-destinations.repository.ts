@@ -56,18 +56,4 @@ export class SshRecentDestinationsRepository extends BaseRepository {
       .limit(limit)
       .execute();
   }
-
-  /**
-   * Delete one of the owner's rows. A foreign id and an absent id answer the
-   * same `false` — the caller renders both as the 404 the ownership axis
-   * demands (ids are never existence oracles, docs/security.md §3).
-   */
-  async remove(ownerUserId: string, id: string): Promise<boolean> {
-    const res = await this.db
-      .deleteFrom("sshRecentDestinations")
-      .where("id", "=", id)
-      .where("ownerUserId", "=", ownerUserId)
-      .executeTakeFirst();
-    return Number(res.numDeletedRows ?? 0n) > 0;
-  }
 }

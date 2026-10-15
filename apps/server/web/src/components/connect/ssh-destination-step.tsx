@@ -3,6 +3,7 @@ import { DestinationField } from "@/components/connect/destination-field";
 import { buildDestinationOptions } from "@/components/connect/destination-options";
 import { type SshSessionDraft, sshDestination } from "@/components/connect/ssh-session-draft";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { RequiredMark } from "@/components/ui/required-mark";
 import { useSshAliases, useSshRecentDestinations } from "@/hooks/use-ssh";
 import { sshDestinationProblem } from "@/lib/ssh-input-validation";
 
@@ -31,7 +32,10 @@ export function SshDestinationStep({
   return (
     <FieldGroup>
       <Field>
-        <FieldLabel htmlFor="ssh-wizard-destination">SSH destination</FieldLabel>
+        <FieldLabel htmlFor="ssh-wizard-destination">
+          SSH destination
+          <RequiredMark />
+        </FieldLabel>
         <DestinationField
           problem={sshDestinationProblem(sshDestination(draft))}
           id="ssh-wizard-destination"

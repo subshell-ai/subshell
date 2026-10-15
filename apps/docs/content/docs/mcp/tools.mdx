@@ -20,7 +20,7 @@ Successful MCP responses contain JSON encoded in a text content block. Failures 
 | `list_subshells` | List visible sessions and output previews. |
 | `get_subshell` | Inspect one session. |
 | `list_nodes` | List owned machines and launch availability. |
-| `list_presets` | List saved presets and harness catalog entries. |
+| `list_presets` | List saved agent presets and harness catalog entries. |
 | `create_subshell` | Launch from a saved preset, or open a plain terminal without one. |
 | `restart_subshell` | Revive a session in place. |
 | `terminate_subshell` | Stop the process and keep the session record. |
@@ -64,7 +64,7 @@ Each harness row has `harnessId`, `name`, `installed`, and an optional refusal `
 
 ## list_presets
 
-Arguments: `{}`. Returns rows with `id`, `name`, and `harnessId`.
+Arguments: `{}`. Returns agent presets and harness catalog entries with `id`, `name`, and `harnessId`; SSH presets are dashboard-only and never appear here.
 
 Real presets include `crossCommReady`, true when communication is enabled and the preset supplies a node and directory. Harness catalog rows have `catalogOnly: true`; an agent harness catalog row is informational and needs a human to save a preset before it can launch, but a plain terminal harness can launch presetless straight from `create_subshell`.
 

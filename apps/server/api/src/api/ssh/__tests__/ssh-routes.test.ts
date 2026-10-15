@@ -45,7 +45,7 @@ import { attachScriptedNode, ok, SCRIPTED_DATA_DIR, statDirEcho } from "@/test-h
  *   `sendCommand`; a held agent is refused before the resolve round trip;
  *   discovery, resolve and launch all sit behind the same gate.
  * - **Refusal placement**: `POST /resolve` answers a refusal outcome IN THE
- *   DATA (200, tier-1 grammar); `POST /launch` and `PUT /saved-hosts` refuse a
+ *   DATA (200, tier-1 grammar); `POST /launch` and the SSH preset save refuse a
  *   refusal-shaped outcome with 422 carrying `{outcome}`.
  * - **Compose**: the launch frame carries the config at the NODE's derived
  *   path, the rendered bytes, and the option tail `-F … -- host`; the row
@@ -208,6 +208,7 @@ afterAll(async () => {
   resetNodeRegistryForTests();
   for (const id of createdSubshellIds) await new SubshellsRepository(db).delete(id).catch(() => {});
   await db.deleteFrom("sshRecentDestinations").execute();
+  await db.deleteFrom("sshPresets").execute();
   for (const id of createdNodeIds.concat(NODE_ON, NODE_OFF)) await nodes.deleteById(id).catch(() => {});
   await db
     .updateTable("nodes")
@@ -577,7 +578,7 @@ describe("/api/ssh/preferences (default connecting machine)", () => {
     return sshFetch("/api/ssh/preferences", { method: "PATCH", body: { defaultNodeId }, cookie });
   }
 
-  it("stores a visible node's id, reads it back on the saved-hosts view, and null clears it", async () => {
+  it("stores a visible node's id, reads it back on the recent-destinations view, and null clears it", async () => {
     const set = await patchPreferences(ownerCookie, NODE_ON);
     expect(set.status).toBe(200);
     expect(((await set.json()) as { defaultNodeId: string | null }).defaultNodeId).toBe(NODE_ON);
@@ -973,6 +974,38 @@ describe("SSH preset CRUD", () => {
       scripted.detach();
     }
   });
+  it("keeps stored alias and description when an update omits them, and clears only on explicit null", async () => {
+    const scripted = silentScript(NODE_ON);
+    const created = await save({ ...body("Omit keeps"), description: "kept note" });
+    try {
+      expect(created.status).toBe(200);
+      const row = (await created.json()) as { id: string };
+      const put = (extra: Record<string, unknown>) =>
+        sshFetch(`/api/presets/${row.id}`, {
+          method: "PUT",
+          cookie: ownerCookie,
+          body: {
+            name: "Omit keeps",
+            nodeId: NODE_ON,
+            destination: CANON,
+            authentication: "connecting",
+            fingerprints: [],
+            ...extra,
+          },
+        });
+      const kept = await put({});
+      expect(kept.status).toBe(200);
+      expect(await kept.json()).toMatchObject({ alias: "work", description: "kept note" });
+      // Omitting decided nothing, so no re-resolution rode the update.
+      expect(scripted.cmdsOf("ssh_resolve_config")).toHaveLength(1); // the create only
+      const cleared = await put({ alias: null, description: null });
+      expect(cleared.status).toBe(200);
+      expect(await cleared.json()).toMatchObject({ alias: null, description: null });
+      await sshFetch(`/api/presets/${row.id}`, { method: "DELETE", cookie: ownerCookie });
+    } finally {
+      scripted.detach();
+    }
+  });
   it("creates canonical owner-scoped presets without touching recents or launching", async () => {
     const scripted = silentScript(NODE_ON);
     try {
@@ -1179,6 +1212,7 @@ describe("SSH preset CRUD", () => {
       expect((await save({ ...body("invisible"), nodeId: "no-node" })).status).toBe(404);
       expect((await save({ ...body("refused"), destination: "proxy-box" })).status).toBe(422);
     } finally {
+      await db.deleteFrom("sshPresets").where("name", "=", "remote offline").execute();
       scripted.detach();
     }
   });

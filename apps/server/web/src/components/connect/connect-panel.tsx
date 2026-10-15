@@ -396,6 +396,7 @@ export function ConnectPanel({
         savingPreset && !(err instanceof ApiError && err.status === 422)
           ? {
               field: "destination",
+              title: "Couldn’t save preset",
               text: errMessage(err, "Couldn’t save this preset. Your connection hasn’t started."),
             }
           : launchedId
@@ -411,7 +412,12 @@ export function ConnectPanel({
               }
             : preparing
               ? { field: "machine", text: errMessage(err, "Couldn’t enable SSH and start the subshell.") }
-              : sshLaunchRefusal(err, selectedNode, draft.authentication === "local-key"),
+              : (() => {
+                  const mapped = sshLaunchRefusal(err, selectedNode, draft.authentication === "local-key");
+                  // A 422 during the save step gets the launch mapper's cause,
+                  // but the act that failed was still the save.
+                  return savingPreset && mapped ? { ...mapped, title: "Couldn’t save preset" } : mapped;
+                })(),
       );
     } finally {
       if (localKeyAbort.current === attempt) {
@@ -466,6 +472,7 @@ export function ConnectPanel({
           busy={submitting}
           launchBlocked={createdId !== null}
           refusal={refusal?.text}
+          refusalTitle={refusal?.title}
         />
       </div>
     );
@@ -485,7 +492,10 @@ export function ConnectPanel({
       {presetPicker}
       <FieldGroup className="gap-4">
         <Field>
-          <Label htmlFor={DESTINATION_IDS.field}>SSH destination</Label>
+          <Label htmlFor={DESTINATION_IDS.field}>
+            SSH destination
+            <RequiredMark />
+          </Label>
           <DestinationField
             problem={sshDestinationProblem(sshDestination(draft))}
             id={DESTINATION_IDS.field}

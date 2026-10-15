@@ -130,7 +130,8 @@ stay at the source. Bounded configuration scanning does not prevent all local
 execution during `ssh -G`; trust the connecting account’s SSH configuration. First-use destination confirmation cannot replace
 a conflicting pin. Host-pin recovery APIs remain even though their settings UI is
 gone. Passwords enter through the terminal, are not saved as credentials, and are
-still visible to trusted transport endpoints. Saved destinations are not trust pins.
+still visible to trusted transport endpoints. Recent suggestions and SSH presets
+are not trust pins.
 **Local key signing** (`/api/ssh/local-key*`, cookie-session only) feeds signatures
 through a session-scoped, sequence-checked, one-use bridge: one key, ≤8 requests,
 90 s. The browser worker's disposal is a lifetime boundary, NOT a defense against

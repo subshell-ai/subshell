@@ -14,8 +14,8 @@ import { UsersRepository } from "@/db/repositories/users.repository.js";
  *   the same destination as two rows;
  * - recency (`last_connect_at`) rides EVERY launch whether or not the row was
  *   ever saved; `saved_at` is only what the human gave (null = recency-only);
- * - the list reads never carry another owner's rows, and `remove` refuses a
- *   foreign id exactly like an absent one (the ownership axis, docs/security.md §3).
+ * - the list reads never carry another owner's rows (the ownership axis,
+ *   docs/security.md §3).
  */
 
 const repo = new SshRecentDestinationsRepository(db);
@@ -143,28 +143,5 @@ describe("ssh-recent-destinations repository", () => {
     inserted.push(...rows.map((r) => r.id));
     expect(await repo.listRecent(ownerA)).toHaveLength(20);
     expect(await repo.listRecent(ownerA, 5)).toHaveLength(5);
-  });
-
-  it("remove deletes the owner's row; a foreign id and an absent id both answer false", async () => {
-    const destination = "remove.test:22";
-    await repo.touch({
-      ownerUserId: ownerA,
-      destination,
-      nodeId: "n",
-      ...at("2026-10-07T10:00:00.000Z"),
-    });
-    const row = await db
-      .selectFrom("sshRecentDestinations")
-      .selectAll()
-      .where("ownerUserId", "=", ownerA)
-      .where("destination", "=", destination)
-      .executeTakeFirstOrThrow();
-    expect(await repo.remove(ownerB, row.id)).toBe(false); // foreign: refused like an absent one (no existence oracle)
-    expect(
-      await db.selectFrom("sshRecentDestinations").select("id").where("id", "=", row.id).executeTakeFirst(),
-    ).toBeDefined();
-    expect(await repo.remove(ownerA, row.id)).toBe(true);
-    expect(await repo.remove(ownerA, row.id)).toBe(false); // already gone
-    expect(await repo.remove(ownerA, "never-an-id")).toBe(false);
   });
 });

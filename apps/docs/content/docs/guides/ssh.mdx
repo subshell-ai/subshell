@@ -1,6 +1,6 @@
 ---
 title: "Connect over SSH"
-description: "Open an SSH terminal through a node, choose keys or a password, and verify unfamiliar destinations."
+description: "Open an SSH terminal through a node, choose keys or a password, verify unfamiliar destinations, and reuse connection choices as SSH presets."
 ---
 
 Open an SSH terminal on another machine through one of your Subshell nodes.
@@ -103,13 +103,13 @@ Enter a **Name**, choose the connecting node and destination, then select an aut
 
 A preset's **⋯** menu offers **Edit**, **Clone preset**, **Delete preset**, and **Connect**. **Connect** opens the new-subshell form with those settings filled in; review them and select **Start SSH subshell** when you're ready. Editing or deleting a preset doesn't change an existing connection or reset a verified destination identity.
 
-Presets save the resolved username, host, and port, along with the original SSH alias so its routing and key settings still apply. If that alias later resolves to a different address, Subshell blocks the connection until you edit the preset’s destination to approve the new address. Recent destinations remain available as suggestions in the connection form, including separate entries for different usernames on the same host.
+Presets save the resolved username, host, and port, along with the original SSH alias so its routing and key settings still apply. If that alias later resolves to a different address, Subshell blocks the connection until you edit the preset's destination to approve the new address. Recent destinations remain available as suggestions in the connection form, including separate entries for different usernames on the same host.
 
 The authentication options determine what you save now and what you supply when creating a new SSH subshell:
 
-- **Use the connecting node’s keys** uses that node’s SSH configuration when connecting.
+- **Use the connecting node’s keys** uses that node's SSH configuration when connecting.
 - **Use another node’s keys** reveals a node picker directly beneath the option. Choose the node and keys to save their source and public-key fingerprints. Subshell checks access and available keys again before connecting.
-- **Use a key from my machine** saves the authentication preference. Choose and approve a key when creating a new SSH subshell; your key isn’t saved in the preset.
+- **Use a key from my machine** saves the authentication preference. Choose and approve a key when creating a new SSH subshell; your key isn't saved in the preset.
 - **Enter a password when connecting** saves the authentication preference. When creating a new SSH subshell, enter your password in the terminal when SSH asks for it.
 
 Presets never store your private key, key file, passphrase, native approval, or destination password.
@@ -120,7 +120,7 @@ If you select **Save as preset** while launching and the connection fails, the s
 
 As the SSH subshell's owner, open its **⋯** menu and choose **Set up Subshell here…** when available. Review the confirmation before running the installer: it installs Subshell on the destination and enrolls it as a node you own. Your SSH subshell keeps running.
 
-A subshell opened with a one-time key cannot reuse that key for this installer. Run the node setup command in its existing terminal, or reconnect using a node’s keys first.
+A subshell opened with a one-time key cannot reuse that key for this installer. Run the node setup command in its existing terminal, or reconnect using a node's keys first.
 
 This requires node enrollment to be allowed and an SSH login that works without interactive prompts. Password-only login can't supply a stored password to the installer. You can close and reopen the dialog to check progress. Results remain available for one hour while the server keeps running. Progress isn't retained across a server restart; check **Nodes** and the destination before retrying an interrupted installation. If it reports enrollment without a confirmed connection, open the new node's page and check its service before trying another installation.
 

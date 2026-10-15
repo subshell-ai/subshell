@@ -42,6 +42,8 @@ export interface SshWizardProps {
   /** A pane already exists; attachment failure must not create a second one. */
   launchBlocked?: boolean;
   refusal?: string;
+  /** Names the act a refusal refers to, so the heading isn't always "Connection failed". */
+  refusalTitle?: string;
   /** Saving choices does not select a local key, enable SSH, or launch. */
   presetEditor?: { name: string; unchangedDestination?: boolean };
 }
@@ -58,6 +60,7 @@ export function SshWizard({
   busy,
   launchBlocked,
   refusal,
+  refusalTitle,
   presetEditor,
 }: SshWizardProps) {
   const errorRef = useRef<HTMLDivElement>(null);
@@ -339,7 +342,7 @@ export function SshWizard({
                 ? "Couldn’t save preset"
                 : launchBlocked
                   ? "Connection needs attention"
-                  : "Connection failed"}
+                  : (refusalTitle ?? "Connection failed")}
             </p>
             <p className="break-words text-detail text-muted-foreground">{refusal}</p>
           </div>
@@ -374,11 +377,15 @@ export function SshWizard({
                     ? "Checking which nodes can connect."
                     : readiness.isError
                       ? "Reload the connecting nodes before starting."
-                      : !machine?.canConnect && !enableOnStart
-                        ? "The connecting node isn't ready. Check the requirements above."
-                        : remote
-                          ? "Choose available SSH keys from a ready node."
-                          : "Complete the connection details above."))
+                      : presetEditor && machine && !machine.node.canLaunch
+                        ? "This machine isn't accepting new subshells right now."
+                        : presetEditor && remote && keyMachine && !keyMachine.node.canLaunch
+                          ? "The key machine isn't accepting new subshells right now."
+                          : !machine?.canConnect && !enableOnStart
+                            ? "The connecting node isn't ready. Check the requirements above."
+                            : remote
+                              ? "Choose available SSH keys from a ready node."
+                              : "Complete the connection details above."))
           }
           onClick={() => void form.handleSubmit()}
         >

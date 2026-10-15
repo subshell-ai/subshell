@@ -171,6 +171,25 @@ it("shows name and destination problems on blur and blocks saving until correcte
   await waitFor(() => expect(disabled()).toBe(false));
 });
 
+it("renders a resolve refusal as its cause and remedy, not the raw 422 body", async () => {
+  await setup();
+  fireEvent.blur(screen.getByLabelText("Name"));
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+    if (init?.method === "PUT")
+      return Response.json(
+        { outcome: { accepted: false, code: "unsupported_setting", settings: ["ProxyCommand"] } },
+        { status: 422 },
+      );
+    return previousFetch(input as RequestInfo, init);
+  }) as typeof fetch;
+  await waitFor(() => expect(disabled()).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "Save preset" }));
+  const cause = await screen.findByText(/uses settings Subshell doesn't support: ProxyCommand/);
+  expect(cause.textContent ?? "").toContain("connecting machine");
+  expect(document.body.textContent?.includes("API 422") ?? false).toBe(false);
+});
+
 it("places a duplicate-name refusal beside the name and clears it when edited", async () => {
   await setup();
   fireEvent.blur(screen.getByLabelText("Name"));

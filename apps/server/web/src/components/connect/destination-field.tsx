@@ -1,7 +1,8 @@
-import { Input } from "@internal/node-admin";
+import { cn, Input } from "@internal/node-admin";
 import type { JSX } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { ComboboxOption } from "@/components/ui/combobox";
+import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 
 /**
  * The destination field: a real input, because the answer may be a host no
@@ -117,7 +118,13 @@ export function DestinationField({
         }}
       />
       {error && (
-        <p id={`${id}-error`} role="alert" className="text-destructive text-detail">
+        // Gold for the empty field after the caret leaves (ruling 2026-09-30);
+        // red for what validation or the server refuses.
+        <p
+          id={`${id}-error`}
+          role="alert"
+          className={cn(!typed.trim() ? REQUIREMENT_CAPTION_CLASS : "text-destructive text-detail")}
+        >
           {error}
         </p>
       )}
