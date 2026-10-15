@@ -1201,8 +1201,9 @@ The launch pins the destination host key, disables password fallback and
 ambient identity files, and requires host-bound public-key authentication.
 If initial local-key authentication fails before a signature is issued, the
 browser deletes the subshell created by that attempt and allows retry while
-retaining the selected file and passphrase input (the native path re-picks both). A failed cleanup blocks
-retry and reports that the subshell still needs removal. After a signature
+retaining the selected file and passphrase input (the native path re-picks
+both). A failed cleanup blocks retry and reports that the subshell still needs
+removal. After a signature
 has been issued, a transport failure leaves the outcome uncertain, so the
 client preserves the subshell rather than risking a working connection.
 Its saved metadata records that authentication was single-use. A later

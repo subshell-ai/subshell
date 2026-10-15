@@ -1,5 +1,5 @@
 import { Button, Input } from "@internal/node-admin";
-import { SSH_LOCAL_KEY_MAX_BYTES } from "@internal/subshell-protocol";
+import { SSH_LOCAL_KEY_MAX_BYTES, SSH_LOCAL_KEY_MAX_PASSPHRASE_BYTES } from "@internal/subshell-protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldLabel } from "@/components/ui/field";
@@ -88,7 +88,7 @@ export function useBrowserKeySelection() {
       const password = new TextEncoder().encode(passphrase.current?.value ?? "");
       // Keep the selection and input for retry. The worker gets a disposable
       // byte copy; success or leaving the flow clears the input separately.
-      if (password.length > 4096) {
+      if (password.length > SSH_LOCAL_KEY_MAX_PASSPHRASE_BYTES) {
         password.fill(0);
         throw new Error("Use a key passphrase no longer than 4 KiB once encoded.");
       }

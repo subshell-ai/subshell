@@ -2,9 +2,10 @@
  * Subshell Client's bundled page — the `node` window, as an assistant.
  *
  * NOT the app's only window. `main` shows a control plane's own UI, loaded
- * from the plane's own origin and granted exactly one command (open a page of
- * that plane in the system browser); this page is the other half, and the only
- * surface that drives the `subshell` CLI.
+ * from the plane's own origin and granted five narrow commands (open a page of
+ * that plane in the system browser, plus the four one-use SSH signer commands
+ * of 2026-10-14, which never see a key or passphrase); this page is the other
+ * half, and the only surface that drives the `subshell` CLI.
  *
  * **The first run asks what you came to do** (spec 2026-09-18). A fresh
  * install walks Welcome → Choice → either *register this machine as a node*

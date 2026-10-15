@@ -6,6 +6,8 @@ import { SSH_MAX_HOST_PIN_LINE_CHARS } from "./ssh-limits.js";
 export const SSH_LOCAL_KEY_TTL_MS = 90_000;
 export const SSH_LOCAL_KEY_MAX_BYTES = 65_536;
 export const SSH_LOCAL_KEY_MAX_BASE64 = 87_384;
+/** Encoded-passphrase bound (bytes): both signing paths check this single number. */
+export const SSH_LOCAL_KEY_MAX_PASSPHRASE_BYTES = 4_096;
 
 /** The agent's SSH_AGENT_FAILURE reply, as it crosses the bridge: byte 5, base64. */
 export const SSH_AGENT_FAILURE_BASE64 = "BQ==";

@@ -241,7 +241,7 @@ the global off while the marker ships kills the title-bar handshake, the
 server pill, native notifications and window dragging, and kills them
 SILENTLY: the bridge never throws and the ACL stays green. Subshell Client
 ships `true` as well since 2026-09-14; its plane window carries a
-`SubshellClient/…` marker and one command now, and the same pair rule applies
+`SubshellClient/…` marker and five narrow commands now, and the same pair rule applies
 there. The pair, not either half, is what `tauri-config.test.ts` pins in both
 apps.
 

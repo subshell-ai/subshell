@@ -20,7 +20,7 @@ no command to a page it has never granted one.
 **Tauri's own `zoom_hotkeys_enabled` was rejected, and the reason is the trust
 boundary.** On macOS and Linux it injects a page script that invokes
 `plugin:webview|set_webview_zoom`, so it works only on a window granted that
-command, and this app's `main` window is granted exactly one, which opens a browser rather than resizing anything, since a control plane's origin cannot be enumerated ahead of time and the grant there has to stay argument-narrow. It also keeps its level in a page-local variable, which a
+command, and this app's `main` window is granted five narrow commands (a browser opener and the four SSH signer commands), none of which resizes anything, since a control plane's origin cannot be enumerated ahead of time and the grants there have to stay argument-narrow. It also keeps its level in a page-local variable, which a
 reload resets. `set_zoom` called from Rust touches no ACL at all.
 
 **Both menus' items share one id set, and it is routed in exactly one place**:

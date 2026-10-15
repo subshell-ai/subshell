@@ -1,4 +1,8 @@
-import { SSH_LOCAL_KEY_MAX_BYTES, SSH_LOCAL_KEY_TTL_MS } from "@internal/subshell-protocol";
+import {
+  SSH_LOCAL_KEY_MAX_BYTES,
+  SSH_LOCAL_KEY_MAX_PASSPHRASE_BYTES,
+  SSH_LOCAL_KEY_TTL_MS,
+} from "@internal/subshell-protocol";
 import { createBrowserSshSigner } from "./ssh-browser-signer-core";
 
 let signer: Awaited<ReturnType<typeof createBrowserSshSigner>> | undefined;
@@ -34,7 +38,7 @@ self.onmessage = async ({ data }: MessageEvent) => {
         data.file.size === 0 ||
         data.file.size > SSH_LOCAL_KEY_MAX_BYTES ||
         !(passphrase instanceof Uint8Array) ||
-        passphrase.length > 4096 ||
+        passphrase.length > SSH_LOCAL_KEY_MAX_PASSPHRASE_BYTES ||
         !Number.isFinite(expiresAt) ||
         expiresAt <= Date.now()
       )

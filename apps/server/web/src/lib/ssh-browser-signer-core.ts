@@ -14,7 +14,7 @@ export interface BrowserSignerScope {
 }
 
 /** The agent's SSH_AGENT_FAILURE reply (byte 5, base64) — the bridge's only negative answer. */
-export const FAILURE = SSH_AGENT_FAILURE_BASE64;
+const FAILURE = SSH_AGENT_FAILURE_BASE64;
 const EXPIRED = "The local SSH key request expired. Start the connection again.";
 const KEY_ERROR = "Couldn't read that SSH key. Choose a supported OpenSSH private key and check its passphrase.";
 

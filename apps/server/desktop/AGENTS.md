@@ -217,7 +217,7 @@ from `UNUserNotificationCenter` / `PHPhotoLibrary` in `crates/desktop-core`,
 behind a bundle guard that runs before every call: the UN API aborts a
 non-bundle process, so `tauri dev` answers `unavailable` BY DESIGN. Both
 states ride the probe, and the dashboard reads them through
-`desktop_permissions` (read-only, argument-free, one of `main`'s seven);
+`desktop_permissions` (read-only, argument-free, one of `main`'s original seven);
 everything that ACTS stays `wizard`-only and argument-free, and the Photos
 request must hop to the MAIN THREAD through an injected dispatcher.
 `wire-names.test.ts` pins the three crossing enums to Rust's spelling.
