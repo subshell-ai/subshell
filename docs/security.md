@@ -1142,11 +1142,16 @@ user-authentication request for the chosen username and key. Arbitrary
 signing, ordinary unbound public-key authentication, forwarding, different
 hosts or users, and a second signature are refused. This requires a client
 and destination that support OpenSSH's host-bound authentication extension.
-The native picker accepts only OpenSSH-format Ed25519 and ECDSA private keys
-and requires an Ed25519 or ECDSA host key. RSA cryptography is disabled at the
-Cargo feature boundary, and the `rsa` crate is removed from the native dependency
-graph because RUSTSEC-2023-0071 remains unresolved. The browser path still
-supports RSA through Web Crypto with SHA-2 signatures, not SHA-1. No jump hosts or host-key aliases are supported here.
+The native picker accepts OpenSSH-format Ed25519, ECDSA and RSA keys. Native
+RSA signing and host-proof verification use AWS-LC through the OpenSSL Rust
+bindings; `ssh-key` parses the file with its optional RustCrypto RSA backend
+disabled, keeping the crate affected by RUSTSEC-2023-0071 out of the active
+dependency graph. RSA moduli are bounded to 2,048–8,192 bits and public
+exponents to 33 bits. AWS-LC checks the private components before a signer is
+created and performs blinded, constant-time private exponentiation; application
+code does not derive CRT parameters. Its default allocator cleanses released
+key allocations. SHA-256 and SHA-512 flags must match the requested algorithm;
+SHA-1 is refused for both signing and host proofs. Browser RSA uses Web Crypto. No jump hosts or host-key aliases are supported here.
 
 The signer drops its key before returning its one signature, and has an
 independent 90-second lifetime. Cancellation, navigation, and window closure

@@ -780,6 +780,11 @@ jobs:
       # The image installs rustup with `--profile minimal`, which does NOT
       # carry rustfmt or clippy — and this job is nothing but those two plus
       # tests. Idempotent, so it is a no-op once the image bakes them in.
+      - name: Ensure native crypto build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends cmake clang libclang-dev
+
       - name: Ensure rustfmt and clippy
         run: |
           set -euo pipefail
@@ -854,6 +859,11 @@ jobs:
       # image's /root/.gitconfig is never read. Same step release.yml carries.
       - name: Trust the bind-mounted workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Ensure native crypto build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends cmake clang libclang-dev
 
       - name: Ensure rustfmt and clippy
         run: |

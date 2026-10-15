@@ -25,6 +25,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 #   tmux        — this is now the CI image too (test.yml), and both the
 #                 TmuxRunner suite and the e2e session-lifecycle specs drive a
 #                 REAL tmux server
+#   cmake, clang, libclang-dev — build AWS-LC and its Rust bindings for native SSH RSA
 #   jq          — the compiled-binary smoke reads package.json's version with it
 #
 # Deliberately NOT installed: patchelf. It is a linuxdeploy requirement, and
@@ -38,6 +39,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libssl-dev \
       libgtk-3-dev \
       build-essential \
+      cmake \
+      clang \
+      libclang-dev \
       pkg-config \
       ca-certificates \
       curl \

@@ -6,7 +6,7 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use rand::{rngs::OsRng, RngCore};
 use serde::Serialize;
 use signature::{Signer, Verifier};
-use ssh_key::{Algorithm, HashAlg, PrivateKey, PublicKey, Signature};
+use ssh_key::{HashAlg, PrivateKey, PublicKey, Signature};
 use std::{
     collections::HashMap,
     io::Read,
@@ -14,6 +14,13 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use zeroize::Zeroizing;
+
+mod rsa;
+
+enum SigningKey {
+    Ssh(Box<PrivateKey>),
+    Rsa(openssl::pkey::PKey<openssl::pkey::Private>),
+}
 
 pub const MAX_BYTES: usize = 65536;
 pub const LIFETIME: Duration = Duration::from_secs(90);
@@ -85,8 +92,10 @@ pub fn load_key(path: &Path) -> Result<PrivateKey, String> {
 pub fn host_key(encoded: &str) -> Result<(Vec<u8>, String), String> {
     let bytes = decode(encoded)?;
     let key = PublicKey::from_bytes(&bytes).map_err(|_| "The SSH host key isn't valid.")?;
-    if !matches!(key.algorithm(), Algorithm::Ed25519 | Algorithm::Ecdsa { .. }) {
-        return Err("The desktop picker needs an Ed25519 or ECDSA host key. Open this server in your browser to connect to a destination with an RSA host key.".into());
+    match key.key_data() {
+        ssh_key::public::KeyData::Rsa(parts) if rsa::public(parts).is_some() => {}
+        ssh_key::public::KeyData::Ed25519(_) | ssh_key::public::KeyData::Ecdsa(_) => {}
+        _ => return Err("Choose a destination with an Ed25519, ECDSA, or 2,048–8,192-bit RSA host key.".into()),
     }
     if key.to_bytes().map_err(|_| "The SSH host key isn't valid.")? != bytes {
         return Err("The SSH host key isn't valid.".into());
@@ -105,7 +114,7 @@ struct Session {
     user: String,
     host_key: Vec<u8>,
     public_key: Vec<u8>,
-    key: PrivateKey,
+    key: SigningKey,
     expires: Instant,
     binding: Option<Vec<u8>>,
 }
@@ -130,15 +139,20 @@ impl Signers {
         if key.is_encrypted() {
             return Err("Unlock the SSH key first.".into());
         }
-        match key.algorithm() {
-            Algorithm::Ed25519 | Algorithm::Ecdsa { .. } => {}
-            Algorithm::Rsa { .. } => return Err("RSA private keys aren't supported by the desktop picker. Choose an Ed25519 or ECDSA key, or open this server in your browser to use RSA.".into()),
-            _ => return Err("Choose an Ed25519 or ECDSA SSH key.".into()),
-        }
         let public_key = key
             .public_key()
             .to_bytes()
             .map_err(|_| "Couldn't read the key's public identity.")?;
+        let key = match key.key_data() {
+            ssh_key::private::KeypairData::Rsa(parts) => SigningKey::Rsa(rsa::private(parts)
+                .ok_or("That RSA key isn't valid or supported. Choose a 2,048–8,192-bit RSA key with a public exponent no larger than 33 bits.")?),
+            ssh_key::private::KeypairData::Ed25519(_) | ssh_key::private::KeypairData::Ecdsa(_) => SigningKey::Ssh(Box::new(key)),
+            _ => return Err("Choose an Ed25519, ECDSA, or RSA SSH key.".into()),
+        };
+        // Key validation can take time; never publish a handle past its deadline.
+        if deadline <= Instant::now() {
+            return Err("The local SSH key request expired.".into());
+        }
         self.close_owner(&owner.window);
         let id = random_id();
         let selected = Selected {
@@ -256,7 +270,10 @@ impl Session {
         }
         let signature = Signature::try_from(signature_bytes).ok()?;
         let key = PublicKey::from_bytes(&self.host_key).ok()?;
-        Verifier::verify(&key, session, &signature).ok()?;
+        match key.key_data() {
+            ssh_key::public::KeyData::Rsa(parts) => rsa::verify(parts, session, &signature)?,
+            _ => Verifier::verify(&key, session, &signature).ok()?,
+        }
         self.binding = Some(session.to_vec());
         Some(vec![6])
     }
@@ -284,15 +301,15 @@ impl Session {
         if auth.string()? != self.public_key || auth.string()? != self.host_key || !auth.finished() {
             return None;
         }
-        // Keep RSA cryptography disabled: the native backend's timing advisory
-        // (RUSTSEC-2023-0071) is unresolved. Browser RSA uses Web Crypto.
-        if !matches!(self.key.algorithm(), Algorithm::Ed25519 | Algorithm::Ecdsa { .. })
-            || flags != 0
-            || algorithm != self.key.algorithm().as_str().as_bytes()
-        {
-            return None;
-        }
-        let signature = self.key.try_sign(data).ok()?;
+        let signature = match &self.key {
+            SigningKey::Rsa(key) => rsa::sign(key, data, algorithm, flags)?,
+            SigningKey::Ssh(key) => {
+                if flags != 0 || algorithm != key.algorithm().as_str().as_bytes() {
+                    return None;
+                }
+                key.try_sign(data).ok()?
+            }
+        };
         let wire = Vec::<u8>::try_from(signature).ok()?;
         let mut response = vec![14];
         put(&mut response, &wire);
@@ -343,6 +360,7 @@ pub use zeroize::Zeroizing as Secret;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ssh_key::Algorithm;
     fn owner() -> Owner {
         Owner {
             window: "main".into(),
@@ -500,7 +518,62 @@ mod tests {
         }
     }
     #[test]
-    fn rsa_private_keys_are_refused_before_creating_a_signer() {
+    fn rsa_sha256_and_sha512_flags_are_respected_and_sha1_is_refused() {
+        let private = rsa::fixture_key(2048);
+        let host = key();
+        for (flags, algorithm, expected_hash) in [
+            (2u32, b"rsa-sha2-256".as_slice(), HashAlg::Sha256),
+            (4u32, b"rsa-sha2-512".as_slice(), HashAlg::Sha512),
+        ] {
+            let mut signers = Signers::default();
+            let selected = signers
+                .insert(
+                    owner(),
+                    "alice".into(),
+                    host.public_key().to_bytes().unwrap(),
+                    private.clone(),
+                    Instant::now() + LIFETIME,
+                )
+                .unwrap();
+            request(&mut signers, &selected, &bind(&host, SESSION));
+            let mut data = Vec::new();
+            put(&mut data, SESSION);
+            data.push(50);
+            put(&mut data, b"alice");
+            put(&mut data, b"ssh-connection");
+            put(&mut data, b"publickey-hostbound-v00@openssh.com");
+            data.push(1);
+            put(&mut data, algorithm);
+            put(&mut data, &private.public_key().to_bytes().unwrap());
+            put(&mut data, &host.public_key().to_bytes().unwrap());
+            let mut packet = sign(&private, &data);
+            // A legacy (SHA1) flags field and a mismatching SHA2 flags field
+            // must both fail while leaving the valid one-use request possible.
+            assert_eq!(request(&mut signers, &selected, &packet).response, "BQ==");
+            let end = packet.len();
+            packet[end - 4..].copy_from_slice(&(6 - flags).to_be_bytes());
+            assert_eq!(request(&mut signers, &selected, &packet).response, "BQ==");
+            packet[end - 4..].copy_from_slice(&flags.to_be_bytes());
+            let reply = request(&mut signers, &selected, &packet);
+            assert!(reply.done);
+            let bytes = STANDARD.decode(reply.response).unwrap();
+            let mut r = Reader(&bytes);
+            assert_eq!(r.byte(), Some(14));
+            let signature = Signature::try_from(r.string().unwrap()).unwrap();
+            assert_eq!(
+                signature.algorithm(),
+                Algorithm::Rsa {
+                    hash: Some(expected_hash)
+                }
+            );
+            rsa::verify(private.public_key().key_data().rsa().unwrap(), &data, &signature).unwrap();
+            assert_eq!(request(&mut signers, &selected, &packet).response, "BQ==");
+            assert!(signers.sessions.is_empty());
+        }
+    }
+
+    #[test]
+    fn undersized_rsa_keys_are_refused_before_creating_a_signer() {
         // Tiny mathematical RSA fixture, never used for cryptography: parsing
         // must remain possible so users get the specific unsupported-key error.
         let private = PrivateKey::new(
@@ -520,9 +593,7 @@ mod tests {
         )
         .unwrap();
         let encoded_host = STANDARD.encode(private.public_key().to_bytes().unwrap());
-        assert!(host_key(&encoded_host)
-            .unwrap_err()
-            .contains("Ed25519 or ECDSA host key"));
+        assert!(host_key(&encoded_host).unwrap_err().contains("RSA host key"));
         let mut signers = Signers::default();
         let result = signers.insert(
             owner(),
@@ -531,7 +602,7 @@ mod tests {
             private,
             Instant::now() + LIFETIME,
         );
-        assert!(result.err().unwrap().contains("RSA private keys aren't supported"));
+        assert!(result.err().unwrap().contains("RSA key isn't valid or supported"));
         assert!(signers.sessions.is_empty());
     }
 

@@ -53,10 +53,11 @@ and an expiration. `desktop-core::ssh_signer` accepts only identity listing,
 a verified `session-bind@openssh.com` for the approved host key, and one
 `publickey-hostbound-v00@openssh.com` authentication matching that session,
 username, service, algorithm, key, and host key. Forwarding, rebinding,
-arbitrary challenges, unbound publickey authentication, and RSA keys fail.
-Native signing accepts Ed25519 and ECDSA private and host keys only. RSA
-cryptography is disabled in `ssh-key` features because of RUSTSEC-2023-0071;
-the browser signer retains RSA support through Web Crypto. The private key is
+arbitrary challenges, unbound publickey authentication, and RSA SHA-1 fail.
+Native signing accepts Ed25519, ECDSA and 2,048–8,192-bit RSA private and host
+keys. RSA uses AWS-LC through OpenSSL bindings, with exact SHA-256/SHA-512
+flag matching. The affected RustCrypto RSA backend remains disabled in
+`ssh-key` features; browser RSA uses Web Crypto. The private key is
 released before the successful signature response returns.
 
 The 90-second deadline starts when the file is read, includes unlocking, and

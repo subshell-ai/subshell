@@ -47,6 +47,20 @@ impl Drop for Fixture {
 #[test]
 #[ignore = "requires an installed OpenSSH sshd; run explicitly for SSH signer changes"]
 fn real_openssh_accepts_one_native_hostbound_signature() {
+    run_connection(false, false, "rsa-sha2-512");
+}
+
+#[test]
+#[ignore = "requires an installed OpenSSH sshd; run explicitly for SSH signer changes"]
+fn real_openssh_accepts_encrypted_rsa_and_rsa_host_keys() {
+    for algorithm in ["rsa-sha2-256", "rsa-sha2-512"] {
+        run_connection(true, false, algorithm);
+        run_connection(true, true, algorithm);
+        run_connection(false, true, algorithm);
+    }
+}
+
+fn run_connection(rsa_private: bool, rsa_host: bool, algorithm: &str) {
     let root = std::env::temp_dir().join(format!(
         "subshell-native-wire-{}",
         ssh_signer::random_id().replace('/', "_")
@@ -59,8 +73,32 @@ fn real_openssh_accepts_one_native_hostbound_signature() {
         stopped: Arc::new(AtomicBool::new(false)),
         agent: None,
     };
-    let host = PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap();
-    let private = PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap();
+    let generate = |name: &str, password: &str| {
+        let path = root.join(name);
+        let status = Command::new("ssh-keygen")
+            .args(["-q", "-t", "rsa", "-b", "2048", "-N", password, "-f"])
+            .arg(&path)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let loaded = ssh_signer::load_key(&path).unwrap();
+        if password.is_empty() {
+            loaded
+        } else {
+            ssh_signer::unlock_key(&loaded, password).unwrap()
+        }
+    };
+    let host = if rsa_host {
+        generate("generated-host", "")
+    } else {
+        PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap()
+    };
+    let private = if rsa_private {
+        generate("generated-client", "test-passphrase")
+    } else {
+        PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap()
+    };
+    ssh_signer::host_key(&STANDARD.encode(host.public_key().to_bytes().unwrap())).unwrap();
     fs::write(
         root.join("hostkey"),
         host.to_openssh(ssh_key::LineEnding::LF).unwrap().as_bytes(),
@@ -167,7 +205,14 @@ fn real_openssh_accepts_one_native_hostbound_signature() {
             }
         }
     }));
-    let mut ssh = Command::new("ssh")
+    let mut ssh = Command::new("ssh");
+    if rsa_private {
+        ssh.arg("-o").arg(format!("PubkeyAcceptedAlgorithms={algorithm}"));
+    }
+    if rsa_host {
+        ssh.arg("-o").arg(format!("HostKeyAlgorithms={algorithm}"));
+    }
+    let mut ssh = ssh
         .args([
             "-F",
             "/dev/null",

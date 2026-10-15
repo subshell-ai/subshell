@@ -746,6 +746,16 @@ jobs:
           # whichever Mac image the fleet hands the shard.
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
+      - name: Ensure native crypto build dependencies
+        if: startsWith(matrix.app, 'desktop-')
+        run: |
+          if [ "$(uname -s)" = Linux ]; then
+            apt-get update
+            apt-get install -y --no-install-recommends cmake clang libclang-dev
+          elif ! command -v cmake >/dev/null; then
+            brew install cmake
+          fi
+
       - name: Cache cargo
         if: startsWith(matrix.app, 'desktop-')
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -1368,6 +1378,16 @@ jobs:
           # and with both stds installed the named target always resolves,
           # whichever Mac image the fleet hands the shard.
           targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Ensure native crypto build dependencies
+        if: startsWith(matrix.app, 'desktop-')
+        run: |
+          if [ "$(uname -s)" = Linux ]; then
+            apt-get update
+            apt-get install -y --no-install-recommends cmake clang libclang-dev
+          elif ! command -v cmake >/dev/null; then
+            brew install cmake
+          fi
 
       - name: Cache cargo
         if: startsWith(matrix.app, 'desktop-')

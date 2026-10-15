@@ -55,8 +55,8 @@ passphrases never reach the control plane page or the server.
 The shared `desktop-core::ssh_signer` verifies OpenSSH's session binding and
 signs exactly one host-bound authentication for the approved host key and user.
 It refuses arbitrary signing, other users or host keys, forwarding, rebinding,
-and RSA keys. RSA cryptography is disabled in the native dependency features
-until its backend timing advisory is resolved; browser RSA uses Web Crypto. Native buffers are zeroized; physical RAM erasure and operating
+and RSA SHA-1. Native RSA uses AWS-LC via OpenSSL bindings; ssh-key’s
+RustCrypto RSA backend stays disabled. Browser RSA uses Web Crypto. Native buffers are zeroized; physical RAM erasure and operating
 system copies cannot be guaranteed. Keys expire after 90 seconds from reading,
 and native timers, navigation, window close, and explicit release clean up
 without depending on the remote page. See the
