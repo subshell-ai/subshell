@@ -41,9 +41,10 @@ export function isSshLocalKeyHostPin(value: unknown): value is string {
   // written verbatim into the known_hosts the pane's ssh trusts with
   // StrictHostKeyChecking, so a smuggled control character or option token
   // would become part of that trust, not just noise. The host token is a
-  // POSITIVE allow-list: a plain host label, a bracketed IPv6 address, or a
-  // canonical hashed `|1|salt|hash` token (how the operator's own file may
-  // spell the pin). Globs, comma option-lists, `@`/`!` markers, and trailing
+  // POSITIVE allow-list: a plain host label, a bracketed address (IPv6 or
+  // host) with optional `:port`, or a canonical hashed `|1|salt|hash` token
+  // (how the operator's own file may spell the pin). Globs, comma
+  // option-lists, `@`/`!` markers, and trailing
   // junk are refused here, at the last check before the file is written.
   if (
     typeof value !== "string" ||

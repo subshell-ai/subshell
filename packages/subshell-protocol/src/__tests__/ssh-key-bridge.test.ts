@@ -32,8 +32,11 @@ it("pins the hostPin line grammar the bridge will write verbatim", () => {
     `git.example.test ssh-ed25519 ${key} # operator comment`,
   ])
     expect(isSshLocalKeyHostPin(line), line).toBe(true);
-  // Refused: every widening or smuggling spelling the relay sibling also
-  // refuses, plus the option-list and negation forms known_hosts reserves.
+  // Refused: the line-hygiene spellings the relay sibling also refuses
+  // (trim, control chars, comment lead), plus every host-token and
+  // key-grammar widening this bridge adds on top of it. The sibling is
+  // shape-only and lets the glob, algorithm and junk-field rows through;
+  // here they are the whole point.
   for (const line of [
     `*.example.test ssh-ed25519 ${key}`,
     `git?.example ssh-ed25519 ${key}`,
