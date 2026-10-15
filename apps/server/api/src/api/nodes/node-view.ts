@@ -160,6 +160,10 @@ export const NodeViewSchema = t.Object({
     description:
       "Whether this machine may be used for Subshell SSH (outbound ssh and serving its keys). Opt-in per node, off by default on every row including the control-plane host; the launch gate refuses SSH here while false, whoever asks",
   }),
+  sshWideForwards: t.Boolean({
+    description:
+      "Whether SSH port forwards on this machine may bind non-loopback addresses. Off by default: forwards bind loopback only, and widening turns the machine into a router for whatever network reaches the bound port. The owner's decision, refused at launch while false",
+  }),
   held: t.Nullable(
     t.Object({
       reason: t.Union([t.Literal("below-floor"), t.Literal("protocol-mismatch"), t.Literal("encryption-required")], {
@@ -450,6 +454,7 @@ function nodeViewBase(
     maintenanceAt: row.maintenanceAt,
     maintenanceSource: row.maintenanceSource,
     sshEnabled: row.sshEnabled === 1,
+    sshWideForwards: row.sshWideForwards === 1,
     // Read from the LIVE registry rather than the row, for the same reason
     // `runtime` is: being held is a fact about a socket that exists right now,
     // and a column would go stale the moment the process ends. It is NOT

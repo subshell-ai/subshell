@@ -543,6 +543,172 @@ describe("POST /api/ssh/launch", () => {
   });
 });
 
+describe("POST /api/ssh/launch with port forwards (spec 2026-10-15)", () => {
+  const localRow = { kind: "local", listenPort: 5432, bindHost: null, targetHost: "db.internal", targetPort: 5432 };
+  const wideRow = { kind: "local", listenPort: 8080, bindHost: "10.0.0.5", targetHost: "api.internal", targetPort: 80 };
+
+  /** A node whose owner allowed wide binds; the flag is restored by the caller. */
+  async function wideOn(nodeId: string): Promise<void> {
+    await nodes.setSshWideForwards(nodeId, { on: true });
+  }
+  async function wideOff(nodeId: string): Promise<void> {
+    await nodes.setSshWideForwards(nodeId, { on: false });
+  }
+
+  function forwardingScript() {
+    return attachScriptedNode(NODE_ON, {
+      ssh_resolve_config: () => ({ accepted: true, snapshot: ACCEPTED }),
+      launch: ok,
+      stat_dir: statDirEcho,
+    });
+  }
+
+  it("a malformed row list is a 400 before the machine is asked anything", async () => {
+    const scripted = silentScript(NODE_ON);
+    try {
+      // dynamic-with-target: a contradiction the grammar refuses whole.
+      const res = await launch(
+        { node: NODE_ON, destination: "work", forwards: [{ ...localRow, kind: "dynamic" }] },
+        ownerCookie,
+      );
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { code: string }).code).toBe(BackendErrorCodes.CONFIG_INVALID);
+      expect(scripted.cmdTypes()).toEqual([]);
+    } finally {
+      scripted.detach();
+    }
+  });
+
+  it("a duplicate listen end is refused (two rows, one bind: a bug, not a configuration)", async () => {
+    const scripted = silentScript(NODE_ON);
+    try {
+      const res = await launch(
+        { node: NODE_ON, destination: "work", forwards: [localRow, { ...localRow, targetHost: "other.internal" }] },
+        ownerCookie,
+      );
+      expect(res.status).toBe(400);
+      expect(scripted.cmdTypes()).toEqual([]);
+    } finally {
+      scripted.detach();
+    }
+  });
+
+  it("a wide bind is refused before any resolve while the machine's setting is off", async () => {
+    const scripted = silentScript(NODE_ON);
+    try {
+      const res = await launch({ node: NODE_ON, destination: "work", forwards: [wideRow] }, ownerCookie);
+      expect(res.status).toBe(403);
+      expect(((await res.json()) as { code: string }).code).toBe(BackendErrorCodes.SSH_FORWARD_BIND_DENIED);
+      expect(scripted.cmdTypes()).toEqual([]);
+    } finally {
+      scripted.detach();
+    }
+  });
+
+  it("a loopback forward launches, renders into the exact-destination block, and reads in the audit", async () => {
+    const scripted = forwardingScript();
+    const beforeIds = new Set((await auditRows()).map((r) => r.id));
+    try {
+      const res = await launch({ node: NODE_ON, destination: "work", forwards: [localRow] }, ownerCookie);
+      expect(res.status).toBe(201);
+      const { subshell } = (await res.json()) as { subshell: { id: string } };
+      createdSubshellIds.push(subshell.id);
+
+      const cmd = scripted.cmdsOf("launch")[0] as {
+        ssh?: { fileContent: string };
+        argv?: string[];
+        preset?: { flags?: string[] };
+      };
+      expect(cmd.ssh?.fileContent).toBe(renderSshConfigContents(ACCEPTED as never, undefined, [localRow] as never));
+      expect(cmd.ssh?.fileContent).toContain("    LocalForward 127.0.0.1:5432 db.internal:5432");
+      expect(cmd.ssh?.fileContent).not.toContain("ClearAllForwardings");
+      // The forward rows must NOT ride the option argv (the policy file would
+      // clear them there; the config block is the one honest channel).
+      const flags = cmd.preset?.flags ?? [];
+      expect(flags.join(" ")).not.toMatch(/LocalForward|-L /);
+
+      const added = (await auditRows()).filter((r) => !beforeIds.has(r.id));
+      expect(added).toHaveLength(1);
+      expect(added[0].metadata).toEqual({
+        nodeId: NODE_ON,
+        destination: CANON,
+        subshellId: subshell.id,
+        forwards: [{ kind: "local", listen: "127.0.0.1:5432", target: "db.internal:5432" }],
+      });
+    } finally {
+      scripted.detach();
+    }
+  });
+
+  it("a wide bind launches once the owner allowed it, and the row carries the written address", async () => {
+    const scripted = forwardingScript();
+    await wideOn(NODE_ON);
+    try {
+      const res = await launch({ node: NODE_ON, destination: "work", forwards: [localRow, wideRow] }, ownerCookie);
+      expect(res.status).toBe(201);
+      const { subshell } = (await res.json()) as { subshell: { id: string } };
+      createdSubshellIds.push(subshell.id);
+      const cmd = scripted.cmdsOf("launch")[0] as { ssh?: { fileContent: string } };
+      expect(cmd.ssh?.fileContent).toContain("    LocalForward 10.0.0.5:8080 api.internal:80");
+    } finally {
+      await wideOff(NODE_ON);
+      scripted.detach();
+    }
+  });
+
+  it("forwards on a connection whose jump names the destination itself are refused after resolve", async () => {
+    const snap = snapshot({ proxyJumps: [{ host: "EXAMPLE.test", user: null, port: 22 }] });
+    const scripted = attachScriptedNode(NODE_ON, {
+      ssh_resolve_config: () => ({ accepted: true, snapshot: snap }),
+      launch: ok,
+      stat_dir: statDirEcho,
+    });
+    try {
+      const res = await launch({ node: NODE_ON, destination: "work", forwards: [localRow] }, ownerCookie);
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { message: string }).message).toContain("jump hop is the destination itself");
+      expect(scripted.countOf("launch")).toBe(0);
+    } finally {
+      scripted.detach();
+    }
+  });
+
+  it("a dynamic row launches with no target, and the audit says so", async () => {
+    const scripted = forwardingScript();
+    const beforeIds = new Set((await auditRows()).map((r) => r.id));
+    const dynamic = { kind: "dynamic", listenPort: 1080, bindHost: null, targetHost: null, targetPort: null };
+    try {
+      const res = await launch({ node: NODE_ON, destination: "work", forwards: [dynamic] }, ownerCookie);
+      expect(res.status).toBe(201);
+      const { subshell } = (await res.json()) as { subshell: { id: string } };
+      createdSubshellIds.push(subshell.id);
+      const cmd = scripted.cmdsOf("launch")[0] as { ssh?: { fileContent: string } };
+      expect(cmd.ssh?.fileContent).toContain("    DynamicForward 127.0.0.1:1080");
+      const added = (await auditRows()).filter((r) => !beforeIds.has(r.id));
+      expect(added[0].metadata).toMatchObject({
+        forwards: [{ kind: "dynamic", listen: "127.0.0.1:1080" }],
+      });
+    } finally {
+      scripted.detach();
+    }
+  });
+
+  it("a remote row with no bind host renders bare (D's policy spells it)", async () => {
+    const scripted = forwardingScript();
+    const remote = { kind: "remote", listenPort: 9090, bindHost: null, targetHost: "dev.local", targetPort: 3000 };
+    try {
+      const res = await launch({ node: NODE_ON, destination: "work", forwards: [remote] }, ownerCookie);
+      expect(res.status).toBe(201);
+      const { subshell } = (await res.json()) as { subshell: { id: string } };
+      createdSubshellIds.push(subshell.id);
+      const cmd = scripted.cmdsOf("launch")[0] as { ssh?: { fileContent: string } };
+      expect(cmd.ssh?.fileContent).toContain("    RemoteForward 9090 dev.local:3000");
+    } finally {
+      scripted.detach();
+    }
+  });
+});
+
 describe("/api/ssh/recent-destinations", () => {
   it("GET lists only the caller's recent destinations", async () => {
     // Owner A saves; owner B (a second human with their own node) must see

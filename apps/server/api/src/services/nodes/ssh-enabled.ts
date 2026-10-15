@@ -48,6 +48,32 @@ export async function setNodeSshEnabled(write: SshEnabledWrite): Promise<void> {
   pushSetSshEnabledBestEffort(write.nodeId, { on: write.on, changedAt: write.changedAt });
 }
 
+/**
+ * Flip one node's wide-bind allowance for SSH port forwards (spec 2026-10-15
+ * §6): row and audit in one function, same one-change-site posture as
+ * {@link setNodeSshEnabled}. The differences are all in what does NOT happen:
+ * no stamp, no push, no mirror, and no relay cut - the flag is read
+ * plane-side when a launch composes its config, so turning it off refuses
+ * every FUTURE wide bind while already-running forwards ride the connection
+ * that was approved when they started (the same honesty the SSH switch
+ * carries about already-authenticated sessions).
+ */
+export async function setNodeSshWideForwards(write: {
+  nodeId: string;
+  on: boolean;
+  actorUserId: string;
+}): Promise<void> {
+  const { repos } = getRequestlessContext();
+  await repos.nodes.setSshWideForwards(write.nodeId, { on: write.on });
+  await audit({
+    actorUserId: write.actorUserId,
+    action: "node.ssh_wide_forwards.update",
+    targetType: "node",
+    targetId: write.nodeId,
+    metadataJson: JSON.stringify({ on: write.on }),
+  });
+}
+
 /** The node-row fields {@link decideSshEnabled} reads — nothing else is relevant. */
 type SshRow = Pick<NodeTable, "sshEnabled" | "sshEnabledAt">;
 

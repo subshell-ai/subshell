@@ -7,7 +7,14 @@ import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
-import { setNodeSshEnabled } from "@/services/nodes/ssh-enabled.js";
+import { setNodeSshEnabled, setNodeSshWideForwards } from "@/services/nodes/ssh-enabled.js";
+
+const SshWideForwardsBodySchema = t.Object({
+  on: t.Boolean({
+    description:
+      "Allow SSH port forwards on this machine to bind non-loopback addresses. Off by default: forwards bind loopback only. Owner only; admin on the control-plane host.",
+  }),
+});
 
 const SshEnabledBodySchema = t.Object({
   on: t.Boolean({
@@ -77,6 +84,45 @@ export const setNodeSshEnabledRoute = new Elysia()
         tags: ["nodes"],
         description:
           "Allow or refuse Subshell SSH on a node (owner only; admin on the control-plane host). Off by default; enabling lets the plane dial out of and serve keys from this machine.",
+      },
+    },
+  )
+  // The wide-bind allowance rides THIS instance rather than a module of its
+  // own for a measured reason: a second mounted route module of this shape
+  // tips the Elysia `App` inference into TS2589 (the depth ceiling already
+  // recorded for new route files; `auth-rate-limit.route.ts` is the fold
+  // precedent). The acts are one family anyway, owner-only SSH flags on the
+  // machine's row, each written at exactly one change-site.
+  .put(
+    "/:id/ssh-wide-forwards",
+    async ({ params, body, user, actor, status }) => {
+      requireCookieActor(actor, "Node SSH wide-forwards settings are restricted to browser sessions");
+      const gate = await loadNodeGate(user.id, params.id);
+      if (!gate) {
+        return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));
+      }
+      if (!gate.canManage) throw new ForbiddenError();
+
+      await setNodeSshWideForwards({ nodeId: gate.row.id, on: body.on, actorUserId: user.id });
+      // The same re-read rule as the switch above: the view renders the row.
+      const row = (await new NodesRepository(db).findById(gate.row.id)) ?? gate.row;
+      return await toNodeView(row, gate.access, gate.isAdmin, gate.granted);
+    },
+    {
+      params: t.Object({ id: t.String({ description: "Node id" }) }),
+      body: SshWideForwardsBodySchema,
+      response: {
+        200: NodeViewSchema,
+        400: "ApiErrorResponse",
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+        404: "ApiErrorResponse",
+      },
+      detail: {
+        operationId: "setNodeSshWideForwards",
+        tags: ["nodes"],
+        description:
+          "Allow or refuse non-loopback binds for SSH port forwards on a node (owner only; admin on the control-plane host). Off by default: forwards bind loopback only, and enabling lets launches on this machine bind addresses other machines can reach. Turning it off refuses future wide binds; already-running forwards ride the connections approved when they started.",
       },
     },
   );

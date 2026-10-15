@@ -60,6 +60,7 @@ export class NodesRepository extends BaseRepository {
         // and the gate is opt-in per machine (spec 4.3); mirror it the same way.
         sshEnabled: input.sshEnabled ?? 0,
         sshEnabledAt: input.sshEnabledAt ?? null,
+        sshWideForwards: 0,
         createdAt: input.createdAt ?? now,
         updatedAt: now,
       })
@@ -268,6 +269,30 @@ export class NodesRepository extends BaseRepository {
       .set({
         sshEnabled: state.on ? 1 : 0,
         sshEnabledAt: state.changedAt,
+        updatedAt: new Date().toISOString(),
+      })
+      .where("id", "=", id)
+      .returningAll()
+      .executeTakeFirst();
+  }
+
+  /**
+   * Write the SSH wide-forwards allowance (spec 2026-10-15 §6). No stamp
+   * column: unlike {@link setSshEnabled} there is no node-side mirror to
+   * reconcile - the flag is read plane-side at launch, when the rendered
+   * config is composed, and nothing travels to the machine.
+   */
+  async setSshWideForwards(
+    id: string,
+    state: {
+      /** True = forwards on this machine may bind non-loopback addresses. */
+      on: boolean;
+    },
+  ): Promise<NodeTable | undefined> {
+    return await this.db
+      .updateTable("nodes")
+      .set({
+        sshWideForwards: state.on ? 1 : 0,
         updatedAt: new Date().toISOString(),
       })
       .where("id", "=", id)
