@@ -709,6 +709,111 @@ describe("POST /api/ssh/launch with port forwards (spec 2026-10-15)", () => {
   });
 });
 
+describe("SSH preset forwards (spec 2026-10-15 §7)", () => {
+  const fwd = { kind: "local", listenPort: 5432, bindHost: null, targetHost: "db.internal", targetPort: 5432 };
+  const dyn = { kind: "dynamic", listenPort: 1080, bindHost: null, targetHost: null, targetPort: null };
+  const presetBody = (name: string, extra: Record<string, unknown> = {}) => ({
+    kind: "ssh",
+    name,
+    nodeId: NODE_ON,
+    destination: "work",
+    authentication: "connecting",
+    fingerprints: [],
+    ...extra,
+  });
+
+  it("a saved list round-trips through the view and the row", async () => {
+    const scripted = silentScript(NODE_ON);
+    try {
+      const created = await sshFetch("/api/presets", {
+        method: "POST",
+        cookie: ownerCookie,
+        body: presetBody("Forward preset", { forwards: [fwd, dyn] }),
+      });
+      expect(created.status).toBe(200);
+      const view = (await created.json()) as { id: string; forwards: unknown[] };
+      expect(view.forwards).toEqual([fwd, dyn]);
+      const row = await db.selectFrom("sshPresets").select("forwards").where("id", "=", view.id).executeTakeFirst();
+      expect(JSON.parse(String(row?.forwards))).toEqual([fwd, dyn]);
+      await sshFetch(`/api/presets/${view.id}`, { method: "DELETE", cookie: ownerCookie });
+    } finally {
+      scripted.detach();
+    }
+  });
+
+  it("omission keeps the stored list, null clears it, an empty list clears it", async () => {
+    const scripted = silentScript(NODE_ON);
+    try {
+      const created = await sshFetch("/api/presets", {
+        method: "POST",
+        cookie: ownerCookie,
+        body: presetBody("Forward keeps", { forwards: [fwd] }),
+      });
+      const { id } = (await created.json()) as { id: string };
+      const put = (extra: Record<string, unknown>) =>
+        sshFetch(`/api/presets/${id}`, {
+          method: "PUT",
+          cookie: ownerCookie,
+          body: {
+            name: "Forward keeps",
+            nodeId: NODE_ON,
+            destination: CANON,
+            authentication: "connecting",
+            fingerprints: [],
+            ...extra,
+          },
+        });
+      const kept = await put({});
+      expect(kept.status).toBe(200);
+      expect(((await kept.json()) as { forwards: unknown[] }).forwards).toEqual([fwd]);
+      const cleared = await put({ forwards: null });
+      expect(((await cleared.json()) as { forwards: unknown[] }).forwards).toEqual([]);
+      const row = await db.selectFrom("sshPresets").select("forwards").where("id", "=", id).executeTakeFirst();
+      expect(row?.forwards).toBeNull();
+      await sshFetch(`/api/presets/${id}`, { method: "DELETE", cookie: ownerCookie });
+    } finally {
+      scripted.detach();
+    }
+  });
+
+  it("a malformed list is refused at save, before anything writes", async () => {
+    const scripted = silentScript(NODE_ON);
+    try {
+      const res = await sshFetch("/api/presets", {
+        method: "POST",
+        cookie: ownerCookie,
+        body: presetBody("Bad forwards", { forwards: [{ kind: "tunnel", listenPort: 1, bindHost: null }] }),
+      });
+      expect(res.status).toBe(400);
+      const rows = await db.selectFrom("sshPresets").select("id").where("name", "=", "Bad forwards").execute();
+      expect(rows).toHaveLength(0);
+    } finally {
+      scripted.detach();
+    }
+  });
+
+  it("a wide-bind row SAVES fine and refuses at launch until the machine allows it", async () => {
+    const scripted = silentScript(NODE_ON);
+    try {
+      const wide = { kind: "remote", listenPort: 9090, bindHost: "0.0.0.0", targetHost: "dev.local", targetPort: 3000 };
+      const created = await sshFetch("/api/presets", {
+        method: "POST",
+        cookie: ownerCookie,
+        body: presetBody("Wide preset", { forwards: [wide] }),
+      });
+      expect(created.status).toBe(200);
+      const { id } = (await created.json()) as { id: string };
+      // The save stores the wish; the launch enforces the machine's answer.
+      const res = await launch({ node: NODE_ON, destination: "work", forwards: [wide] }, ownerCookie);
+      expect(res.status).toBe(403);
+      expect(((await res.json()) as { code: string }).code).toBe(BackendErrorCodes.SSH_FORWARD_BIND_DENIED);
+      await sshFetch(`/api/presets/${id}`, { method: "DELETE", cookie: ownerCookie });
+    } finally {
+      scripted.detach();
+    }
+  });
+});
+
 describe("/api/ssh/recent-destinations", () => {
   it("GET lists only the caller's recent destinations", async () => {
     // Owner A saves; owner B (a second human with their own node) must see

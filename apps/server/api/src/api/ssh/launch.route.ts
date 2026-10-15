@@ -1,60 +1,17 @@
-import {
-  normalizeLabel,
-  SSH_MAX_FORWARD_ROWS,
-  SSH_NAME_MAX_CHARS,
-  SSH_ROSTER_MAX_IDENTITIES,
-} from "@internal/subshell-protocol";
+import { normalizeLabel, SSH_MAX_FORWARD_ROWS, SSH_ROSTER_MAX_IDENTITIES } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { SubshellSchema } from "@/api/models.js";
 import {
   SshDestinationField,
   SshExpectedDestinationField,
+  SshForwardRowSchema,
   SshResolveRefusalViewSchema,
   throwCodedRefusal,
 } from "@/api/ssh/ssh-views.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 import { sshLaunch } from "@/services/ssh-launch.service.js";
-
-/**
- * One forward row's ENVELOPE. The shape lives here so the OpenAPI docs read
- * honestly, and deliberately NOT the detailed grammar: `parseSshForwardRows`
- * in the protocol package is the single authority (host forms, kind rules,
- * duplicate listens), because the renderer re-runs that parser at the last
- * station before bytes and a second grammar here would be two that drift.
- */
-const SshForwardRowSchema = t.Object({
-  kind: t.Union([t.Literal("local"), t.Literal("remote"), t.Literal("dynamic")], {
-    description:
-      "local: bind a port on the connecting machine that reaches a host the destination can see; remote: ask the destination to bind a port that reaches a host the connecting machine can see; dynamic: a SOCKS proxy on the connecting machine",
-  }),
-  listenPort: t.Numeric({
-    minimum: 1,
-    maximum: 65535,
-    description: "Port to bind (always explicit; no auto ports). Integer-ness belongs to the protocol parser",
-  }),
-  bindHost: t.Nullable(
-    t.String({
-      minLength: 1,
-      maxLength: SSH_NAME_MAX_CHARS,
-      description:
-        "Address to bind (hostname, IPv4, or bracketed IPv6). Null means loopback for local/dynamic, and the destination's own policy for remote",
-    }),
-  ),
-  targetHost: t.Optional(
-    t.Nullable(
-      t.String({
-        minLength: 1,
-        maxLength: SSH_NAME_MAX_CHARS,
-        description: "Host to reach through the connection; required for local/remote, null for dynamic",
-      }),
-    ),
-  ),
-  targetPort: t.Optional(
-    t.Nullable(t.Numeric({ minimum: 1, maximum: 65535, description: "Port on the target host; same kind rule" })),
-  ),
-});
 
 /**
  * `POST /api/ssh/launch` `{node, destination, name?}` — open an interactive

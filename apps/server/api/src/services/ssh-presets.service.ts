@@ -1,3 +1,4 @@
+import { parseSshForwardRows } from "@internal/subshell-protocol";
 import type { Static } from "elysia";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
 import { throwCodedRefusal } from "@/api/ssh/ssh-views.js";
@@ -48,6 +49,21 @@ export async function saveSshPreset(
     if (!body.keyHome || body.keyHome === body.nodeId)
       throw new SshPresetError("bad_request", "Choose a different node to provide the SSH key");
     await validateNodeAccess(userId, body.keyHome);
+  }
+  // Declared port forwards (spec 2026-10-15 §7): saved through the protocol's
+  // own parser, so no row the launch renderer would refuse can ride a stored
+  // preset. Whether a WIDE bind is allowed is a connect-time decision, not a
+  // save-time one: a preset stores a wish, and the launch route checks the
+  // connecting machine's flag every time it is honored.
+  let forwardsJson: string | null = null;
+  if (body.forwards !== undefined && body.forwards !== null) {
+    const parsed = parseSshForwardRows(body.forwards);
+    if (parsed === null)
+      throw new SshPresetError(
+        "bad_request",
+        "That port-forward list isn't valid. Each forward needs a kind (local, remote, or dynamic), a listen port from 1 to 65535, and a target host and port except for dynamic. Two forwards can't bind the same port.",
+      );
+    if (parsed.length > 0) forwardsJson = JSON.stringify(parsed);
   }
   let destination = body.destination;
   // PUT omits a field it is not deciding about, so an absent alias keeps the
@@ -105,6 +121,9 @@ export async function saveSshPreset(
     keyHome: body.authentication === "remote" ? (body.keyHome ?? null) : null,
     fingerprints:
       body.authentication === "remote" && body.fingerprints != null ? JSON.stringify(body.fingerprints) : null,
+    // PUT convention, same as `description`: omitted keeps what is stored,
+    // null (or an emptied list) clears it.
+    forwards: body.forwards === undefined ? (existing?.forwards ?? null) : forwardsJson,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
