@@ -117,6 +117,7 @@ test.describe("touch explanations", () => {
 test("a disabled submit explains missing input above its dialog", async ({ page }) => {
   await page.goto("/presets");
   await page.getByRole("button", { name: "New preset", exact: true }).click();
+  await page.getByRole("menuitem", { name: "New agent preset", exact: true }).click();
   const submit = page.getByRole("dialog").getByRole("button", { name: "Create preset", exact: true });
   await expect(submit).toBeDisabled();
   await submit.hover();
