@@ -21,12 +21,13 @@ once.
 shadcn colour names), and `bun run lint:design` fails on a literal size,
 weight or colour outside the token file. Pick a role, never a number.
 
-## Two windows, and why that is the whole design
+## Window authority
 
 | window | page | granted |
 |---|---|---|
-| `main` | the control plane's own UI, at the plane's origin | **one command**: `desktop_open_in_browser` |
+| `main` | the control plane's own UI, at the plane's origin | `desktop_open_in_browser` and four constrained `desktop_ssh_key_*` commands |
 | `node` | `ui/dist/index.html`, the bundled assistant | every `node_*` command |
+| `ssh-key-unlock` | a separate bundled passphrase form | only `desktop_ssh_key_unlock` |
 
 `main` loads the plane's own page rather than a bundled copy because
 `apps/server/web` is hard same-origin (relative `apiFetch` with
@@ -34,59 +35,41 @@ weight or colour outside the token file. Pick a role, never a number.
 built from `window.location.host`), so a `tauri://` page could not carry the
 `SameSite=Lax` session cookie to any of them.
 
-**`capabilities/main.json` grants that window ONE command, and the narrowness
-is in the ARGUMENT rather than in the scope.** `apps/server/desktop` can pin
-its remote window to loopback because it manages the server serving it; a
-control plane can live on any host, so there is no equivalent pin here. The
-capability's `remote.urls` is therefore a WILDCARD (`http://*:*`,
-`https://*:*`; `http://*` alone does not match a non-default port in the
-`urlpattern` crate Tauri 2.11.5 uses, which would silently exclude the default
-`:3080` plane), and the command is what has to be safe.
+**The remote page holds browser navigation and constrained local SSH signing.**
+`capabilities/main.json` uses a wildcard http(s) scope because a chosen plane
+can live anywhere and OAuth redirects must work. That scope is not authority:
+`desktop_open_in_browser` joins a validated path to `PlanePin`, and
+`ssh_key.rs` allows local key operations only when the last committed
+main-frame origin equals that pin. HTTPS is required except on loopback.
+Provisional navigation URLs must never decide this check; `on_page_load`'s
+committed callback records the origin and cancels any previous signer.
 
-Until 2026-09-14 that file did not exist, and the ABSENCE was the boundary.
-That was right while a plane's page had nothing useful to ask for. "Open in
-browser" is useful: a webview has no address bar and no second tab, and the
-page a person wants in their real browser (with their profiles, their password
-manager, their extensions) is the one they are looking at.
+The four `desktop_ssh_key_*` commands expose availability, native key picking,
+public SSH-agent requests, and release. Picking first shows a native approval
+with the full SSH destination and host fingerprint and asks the person to
+verify it independently; the native picker starts in `~/.ssh`. No page can
+supply a file path. An encrypted key opens `ssh-key-unlock`, whose separate
+local capability grants only its one-use passphrase receiver. Private keys and
+passphrases never reach the control plane page or the server.
 
-- **`desktop_open_in_browser` takes a PATH.** It must start with `/`, must not
-  start with `//` (protocol-relative names a HOST), and may contain no `://`,
-  no backslash (`\` is `/` to the WHATWG URL parser, so `/\evil.test` is the
-  same attack in another spelling), no whitespace and no control characters.
-  The rule and its tests are `crates/desktop-core`'s `browser` module, shared
-  with the other app so the two cannot disagree about what a path is. The
-  ORIGIN comes from `PlanePin`: the origin this window was OPENED with, which
-  is no longer what `on_navigation` enforces (it follows any http(s) URL since
-  2026-09-18, so a plane behind an OAuth proxy can complete its sign-in). That
-  is precisely why the command reads the pin rather than the page: a page
-  anywhere a redirect leads can still only open a path of the plane this window
-  opened with. So
-  the page names the route and Rust names the host. The worst an XSS in a
-  plane's SPA gains is opening a page of that same plane, which the person can
-  do by typing the address.
-- **Nothing else.** No `node_*` verb, no plugin permission, no `core:default`;
-  `ui/src/__tests__/ipc-acl.test.ts` pins the scope, pins the permission list
-  at one entry, asserts every other manifest permission is the bundled page's,
-  and pins the Rust signature at `(app, path)`.
-- **A `SubshellClient/…` user-agent marker, new and paired with that grant.**
-  The marker is how `apps/server/web` decides it is in a desktop shell and
-  starts talking to Tauri; it was deliberately absent while nothing was
-  granted, because every call it invited would have been refused one at a time.
-  The SPA branches on the PRODUCT TOKEN now: `isServerDesktop()` gates Subshell
-  Server's chrome (overlay title bar, update, reset, supervision, native
-  notifications) and is false here, while `isDesktop()` gates only the two
-  "Open in browser" surfaces, the sidebar row and a subshell's actions menu.
-  So there is still no `shell_ready` handshake and no `bridge.rs` CustomEvent
-  bus here: this window's whole Tauri surface is one command.
-  `withGlobalTauri` is `true` for the same reason (see below).
-- **What IS kept:** an `on_navigation` SCHEME refusal (the origin pin went on
-  2026-09-18, see above; the window follows http(s) so a proxied sign-in
-  works, and non-http(s) is still refused so it cannot be steered into
-  anything the OS would act on), `disable_drag_drop_handler`
-  (Tauri's native file-drop handler otherwise swallows the HTML5 drags behind
-  drag-a-subshell-into-a-workspace and the terminal's uploads), and a 360x240
-  minimum size (a third of the SPA's 1024px tiling breakpoint), so the window
-  can be parked in a corner and renders the SPA's narrow chrome when it is.
+The shared `desktop-core::ssh_signer` verifies OpenSSH's session binding and
+signs exactly one host-bound authentication for the approved host key and user.
+It refuses arbitrary signing, other users or host keys, forwarding, rebinding,
+and RSA SHA-1. Native RSA uses AWS-LC through the OpenSSL bindings, with
+ssh-key’s RustCrypto RSA backend kept disabled; browser RSA uses Web Crypto.
+AWS-LC cleanses the key allocations it releases; transient parser copies,
+physical RAM erasure and operating-system copies cannot be guaranteed. Keys
+expire after 90 seconds from reading,
+and native timers, navigation, window close, and explicit release clean up
+without depending on the remote page. See the
+[signer boundary](../../server/desktop/docs/ipc-boundary.md#local-ssh-keys).
+
+No `node_*` command or generic file, dialog, event, or opener permission is
+available to the plane window. `ipc-acl.test.ts` pins the exact command sets,
+including the unlock window's separate authority. The SPA detects this app
+through its `SubshellClient` user-agent token and `withGlobalTauri`; the global
+itself grants no command. `disable_drag_drop_handler` preserves HTML drags,
+and navigation still refuses schemes other than http(s).
 
 **The node window is a FIXED 1024x720 assistant frame** (spec 2026-09-12 § 6.4),
 non-resizable and centred, and the window-state plugin is DENYLISTED for it.
@@ -137,8 +120,10 @@ Three things about it are load-bearing:
   generates it, so `ui/src/__tests__/ipc-acl.test.ts` reads
   `permissions/desktop.toml` and `capabilities/node.json` and asserts the
   granted command set is exactly the invoked one. That three-way mismatch is a
-  runtime permission rejection, not a compile error. The same file asserts what
-  the `main` window holds: one permission, one scope, one Rust signature.
+  runtime permission rejection, not a compile error. The same file pins the
+  `main` window's five commands (open-in-browser plus the four 2026-10-14 SSH
+  signer commands) against those sources and its wildcard scope, and pins the
+  one signature a remote page could aim anywhere: the browser command's.
 - **`withGlobalTauri` is `true`, and it is the OTHER window that needs it.**
   This page imports `invoke` from `@tauri-apps/api/core` and has no use for a
   global; it was `false` from the day that import landed. What changed on
@@ -147,8 +132,10 @@ Three things about it are load-bearing:
   and imports nothing by design: it must not pull `@tauri-apps/api` into a
   bundle served to browsers, and the repo forbids the dynamic import that would
   avoid that. The global GRANTS nothing; `capabilities/main.json` does. Turning
-  it back off would not close a hole, it would make that one command silently
-  unreachable: the bridge never throws, which is exactly the failure
+  it back off would not close a hole, it would make the plane window's five
+  commands silently unreachable (the bridge in `src/lib/desktop.ts` invokes the
+  browser command and all four SSH signer commands through the global): the
+  bridge never throws, which is exactly the failure
   `apps/server/desktop` measured on 2026-09-10 when its config was copied from
   this one. `ui/src/__tests__/tauri-config.test.ts` pins the PAIR: while
   `windows.rs` ships a marker, the global must exist.

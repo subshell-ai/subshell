@@ -52,12 +52,15 @@ describe("defaultAgentId", () => {
     // `ssh` (also type terminal, binary nearly always present) stands before
     // `terminal`; the last resort must still land on the plain shell, which
     // runs presetless, not on a bare `ssh` that exits without a host.
-    const SSH = plugin({ id: "ssh", name: "SSH", type: "terminal" });
+    const SSH = plugin({ id: "ssh", name: "SSH", type: "terminal", pickable: false });
     expect(defaultAgentId([SSH, TERMINAL], ALL_INSTALLED, null)).toBe("terminal");
     // A declared agent still outranks the shell tier.
     expect(defaultAgentId([SSH, TERMINAL, CLAUDE], ALL_INSTALLED, null)).toBe("claude-code");
-    // The shell tier is a preference, not a filter: ssh alone still fills.
-    expect(defaultAgentId([SSH], ALL_INSTALLED, null)).toBe("ssh");
+    // The shipping ssh row never reaches this rule at all: it is dropped
+    // from the catalog by `lib/plugin-visibility`, which has its own test.
+    // This function stays a mirror of web's tier order and does not read the
+    // flag, so the rows above only pass because the shell tier already
+    // outranks anything-usable.
   });
 
   it("a missing type (older server) is still pickable, but no longer outranks a declared agent", () => {

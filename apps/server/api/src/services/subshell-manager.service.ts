@@ -155,6 +155,8 @@ export interface SshLaunchPlumbing {
   keyHomeNodeId?: string;
   /** Exact keys used by the relay, retained for later acts without widening. */
   relayFingerprints?: readonly string[];
+  /** Authentication was single-use; later setup cannot reuse credentials. */
+  localKey?: true;
 }
 
 /**
@@ -504,6 +506,7 @@ export class SubshellManagerService {
       ssh: ssh
         ? JSON.stringify({
             ...ssh.snapshot,
+            ...(ssh.localKey ? { localKey: true } : {}),
             ...(ssh.relayFingerprints !== undefined ? { relayFingerprints: ssh.relayFingerprints } : {}),
           })
         : null,

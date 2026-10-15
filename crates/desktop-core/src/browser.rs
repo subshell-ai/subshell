@@ -1,7 +1,7 @@
 //! "Open in browser": turning a page-supplied PATH into a URL this app is
 //! willing to hand to the system browser.
 //!
-//! Both desktop apps grow one command that a REMOTE page may invoke —
+//! One of the commands both desktop apps grant to a REMOTE page —
 //! `desktop_open_in_browser` — and the whole of its safety is that the page
 //! names a path and never a host. The origin comes from the window the page is
 //! already in (the server app's loopback origin, the client's pinned plane),

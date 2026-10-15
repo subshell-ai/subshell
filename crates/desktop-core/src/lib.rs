@@ -81,6 +81,7 @@ pub mod reset_guards;
 pub mod settings;
 pub mod shell_env;
 pub mod sidecar;
+pub mod ssh_signer;
 pub mod tmux;
 pub mod tray;
 pub mod version;

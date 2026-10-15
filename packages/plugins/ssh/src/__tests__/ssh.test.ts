@@ -23,6 +23,15 @@ describe("ssh manifest", () => {
     expect(manifest.type).toBe("terminal");
   });
 
+  it("declares itself out of the launch pickers", () => {
+    // The web Agent list drops this plugin because the manifest says so, not
+    // because a surface special-cases the id (operator ruling 2026-10-15: a
+    // bare ssh launch carries no destination and dies at ssh's usage prompt).
+    // Flipping this flag would silently put a dead pick back in the list,
+    // which is why it is pinned rather than trusted to package.json.
+    expect(manifest.pickable).toBe(false);
+  });
+
   it("declares the ssh binary and the operator's pin seam", () => {
     // `SUBSHELL_SSH_PATH` is the same override the agent's tier-1 ssh-shared
     // ladder reads, so one operator setting names one binary everywhere.

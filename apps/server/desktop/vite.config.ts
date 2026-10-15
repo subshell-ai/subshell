@@ -58,12 +58,16 @@ export default defineConfig({
     modulePreload: { polyfill: false },
     assetsInlineLimit: 0,
     rollupOptions: {
-      // ONE bundled page: the assistant. `wizard.html` keeps that name
-      // because the name is an IDENTIFIER — `WebviewUrl::App("wizard.html")`
-      // in `windows.rs`, the `wizard` window label, and the capability file
-      // keyed to it — while the page it carries is first run, recovery,
-      // update and reset. Renaming it to `index.html` would move four things
-      // to rename one.
+      // TWO bundled pages, no more: the assistant and the SSH-key unlock
+      // form. `wizard.html` keeps that name because the name is an IDENTIFIER
+      // — `WebviewUrl::App("wizard.html")` in `windows.rs`, the `wizard`
+      // window label, and the capability file keyed to it — while the page it
+      // carries is first run, recovery, update and reset. Renaming it to
+      // `index.html` would move four things to rename one. `ssh-key-unlock.html`
+      // is the pinned 2026-10-14 addition: a fixed-position form that can only
+      // hand a passphrase to its own one-use receiver (`tauri-config.test.ts`
+      // keeps the count honest; a third page is a third window and is the loud
+      // case).
       //
       // Named explicitly rather than left to Vite's default, which is
       // `index.html`: there is no `index.html` here, and a default that found
@@ -71,6 +75,7 @@ export default defineConfig({
       // 404 with no build error anywhere. Pinned by tauri-config.test.ts.
       input: {
         wizard: path.resolve(dirname, "ui/wizard.html"),
+        sshKeyUnlock: path.resolve(dirname, "ui/ssh-key-unlock.html"),
       },
     },
   },

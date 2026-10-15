@@ -12,16 +12,21 @@
 # the bundled `node` page and nothing else; nothing that drives the `subshell`
 # CLI is reachable from a page this repo did not ship.
 #
-# `main` holds exactly ONE permission (2026-09-14),
-# `allow-desktop-open-in-browser`, and it is named `desktop_` rather than
-# `node_` to say out loud that it is not a node verb. A control plane can live
-# on any host, so `capabilities/main.json`'s scope is a WILDCARD;
-# `apps/server/desktop` can pin its remote window to loopback because it manages
-# the server serving it, and there is no equivalent pin here. The narrowness
-# therefore lives in the command's ARGUMENT instead: a path, refused if it could
-# name a host, joined onto the origin that window is already pinned to. A second
-# permission here is a change to the trust model, not a convenience; see
-# `docs/security.md` and the pin in `ui/src/__tests__/ipc-acl.test.ts`.
+# `main` holds FIVE permissions: `allow-desktop-open-in-browser` (2026-09-14)
+# and the four one-use `allow-desktop-ssh-key-*` commands (2026-10-14), all
+# named `desktop_` rather than `node_` to say out loud that none is a node
+# verb. A control plane can live on any host, so `capabilities/main.json`'s
+# scope is a WILDCARD; `apps/server/desktop` can pin its remote window to
+# loopback because it manages the server serving it, and there is no equivalent
+# pin here. The narrowness therefore lives in each command's ARGUMENT and
+# checks: the browser command takes a path, refused if it could name a host,
+# joined onto the origin that window is already pinned to. The key commands are
+# the argued exception to "filesystem verbs stay bundled": they ask the person
+# for one native approval, can name no file themselves (the OS picker answers),
+# and carry no key material or passphrase back to the page - see the SSH
+# signer's four-command grant in `docs/security.md` §8b. A sixth permission
+# here is a change to the trust model, not a convenience;
+# `ui/src/__tests__/ipc-acl.test.ts` pins the exact set.
 
 "$schema" = "schemas/schema.json"
 
@@ -82,7 +87,7 @@ commands.allow = ["node_settings"]
 
 [[permission]]
 identifier = "allow-node-open-plane"
-description = "Open the window showing a control plane's own UI, at the address the bundled page names, validated http/https. Opens are one-off (operator ruling 2026-09-22, the plane list): it stores nothing. That window holds exactly ONE command of its own, allow-desktop-open-in-browser, which takes a path and can name no host; nothing that drives the CLI is reachable from it."
+description = "Open the window showing a control plane's own UI, at the address the bundled page names, validated http/https. Opens are one-off (operator ruling 2026-09-22, the plane list): it stores nothing. That window holds five narrow commands of its own: allow-desktop-open-in-browser, which takes a path and can name no host, plus the four one-use local SSH signing commands of 2026-10-14; nothing that drives the CLI is reachable from it."
 commands.allow = ["node_open_plane"]
 
 [[permission]]
@@ -127,5 +132,30 @@ commands.allow = ["node_install_app_update"]
 
 [[permission]]
 identifier = "allow-desktop-open-in-browser"
-description = "Open one page of the control plane this window is already on, in the system browser. `desktop_`, not `node_`, because it is the one permission in this file that is NOT a node verb: it is granted to `main` (the plane's own page) and to nothing else, which is the opposite of every rule above it. It takes a PATH and nothing else (no scheme, no protocol-relative '//host', no backslash, no whitespace or control characters; see crates/desktop-core's browser::browser_url) and joins it onto the origin windows.rs's PlanePin holds, so the page names the route and this side names the host. The tray and menu-bar routes to the same act need no permission at all: they run in Rust."
+description = "Open one page of the control plane this window is already on, in the system browser. `desktop_`, not `node_`, because it is not a node verb: like the four one-use local SSH signing commands of 2026-10-14, it is granted to `main` (the plane's own page) and to nothing else, which is the opposite of every rule above it. It takes a PATH and nothing else (no scheme, no protocol-relative '//host', no backslash, no whitespace or control characters; see crates/desktop-core's browser::browser_url) and joins it onto the origin windows.rs's PlanePin holds, so the page names the route and this side names the host. The tray and menu-bar routes to the same act need no permission at all: they run in Rust."
 commands.allow = ["desktop_open_in_browser"]
+
+[[permission]]
+identifier = "allow-desktop-ssh-key-available"
+description = "Local SSH signing: available. Native approval, origin binding, host-bound authentication, one signature, and a 90-second lifetime apply."
+commands.allow = ["desktop_ssh_key_available"]
+
+[[permission]]
+identifier = "allow-desktop-ssh-key-pick"
+description = "Local SSH signing: pick. Native approval, origin binding, host-bound authentication, one signature, and a 90-second lifetime apply."
+commands.allow = ["desktop_ssh_key_pick"]
+
+[[permission]]
+identifier = "allow-desktop-ssh-key-request"
+description = "Local SSH signing: request. Native approval, origin binding, host-bound authentication, one signature, and a 90-second lifetime apply."
+commands.allow = ["desktop_ssh_key_request"]
+
+[[permission]]
+identifier = "allow-desktop-ssh-key-close"
+description = "Local SSH signing: close. Native approval, origin binding, host-bound authentication, one signature, and a 90-second lifetime apply."
+commands.allow = ["desktop_ssh_key_close"]
+
+[[permission]]
+identifier = "allow-desktop-ssh-key-unlock"
+description = "Local SSH signing: unlock. Native approval, origin binding, host-bound authentication, one signature, and a 90-second lifetime apply."
+commands.allow = ["desktop_ssh_key_unlock"]

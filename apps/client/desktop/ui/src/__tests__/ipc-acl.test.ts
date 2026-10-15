@@ -9,9 +9,10 @@
  *
  * `node.json` and not `main.json`, and that is the point of the second block
  * here: `main` is the window showing a CONTROL PLANE's own page, and it holds
- * exactly one command — one that takes a path and can name no host. Nothing
- * else about the CLI surface is reachable from a remote origin, which is what
- * that block asserts entry by entry.
+ * five narrow commands — one that takes a path and can name no host, plus the
+ * four one-use SSH signer commands of 2026-10-14. Nothing else about the CLI
+ * surface is reachable from a remote origin, which is what that block asserts
+ * entry by entry.
  */
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -61,7 +62,7 @@ function capabilityPermissions(): string[] {
   return capability.permissions;
 }
 
-/** What the PLANE's window is granted — one entry, pinned in its own block. */
+/** What the PLANE's window is granted — five entries, pinned in their own block. */
 function mainPermissions(): string[] {
   const capability = JSON.parse(readFileSync(join(TAURI_DIR, "capabilities/main.json"), "utf8")) as {
     permissions?: string[];
@@ -118,7 +119,10 @@ describe("the IPC contract", () => {
     // same runtime rejection read from the other end — and after a deletion it
     // is also how a dead command survives in Rust unnoticed. BOTH files, since
     // `main.json` arrived: one of the manifest's entries is granted only there.
-    const granted = new Set([...capabilityPermissions(), ...mainPermissions()]);
+    const unlock = JSON.parse(readFileSync(join(TAURI_DIR, "capabilities/ssh-key-unlock.json"), "utf8")) as {
+      permissions: string[];
+    };
+    const granted = new Set([...capabilityPermissions(), ...mainPermissions(), ...unlock.permissions]);
     for (const id of manifestPermissions().keys()) expect(granted.has(id), `${id} is granted nowhere`).toBe(true);
   });
 
@@ -136,7 +140,7 @@ describe("the IPC contract", () => {
 });
 
 /**
- * The window that is granted ONE command.
+ * The window that is granted five narrow commands.
  *
  * It was granted nothing until 2026-09-14, and the absence WAS the boundary: a
  * control plane can live on any host, so unlike `apps/server/desktop`'s
@@ -144,14 +148,20 @@ describe("the IPC contract", () => {
  * at all. That has not changed. What changed is that "Open in browser" is
  * chrome any shell owes its user — a webview has no address bar and no second
  * tab — so the boundary moved one level in: the SCOPE is a wildcard, and the
- * narrowness lives in the command's ARGUMENT.
+ * narrowness lives in the command's ARGUMENT. The 2026-10-14 SSH signer added
+ * the four `desktop_ssh_key_*` commands on the same principle: they name no
+ * file themselves, bind to the committed `PlanePin` over HTTPS off loopback,
+ * and hand the page only public wire bytes.
  *
  * Which makes three things worth pinning rather than one: that the scope is
- * exactly what was argued for, that the permission list is exactly one entry,
- * and that the Rust signature behind it takes a path and no host. Any of those
- * widening quietly is the failure this block exists to make loud.
+ * exactly what was argued for, that the permission list is exactly the five
+ * entries argued for (and no more), and that the browser command's signature
+ * still takes a path and no host. The signer commands' safety is not a
+ * signature shape; it lives in `ssh_key.rs` and its own tests. Any of this
+ * block's own invariants widening quietly is the failure it exists to make
+ * loud.
  */
-describe("the window that is granted one command", () => {
+describe("the window that is granted five narrow commands", () => {
   /** Every capability file the app ships, parsed. */
   function capabilities(): {
     file: string;
@@ -173,14 +183,14 @@ describe("the window that is granted one command", () => {
     return found;
   };
 
-  it("is the app's two capability files, and no more", () => {
+  it("keeps separate capabilities for the assistant, plane, and local key unlock form", () => {
     // A THIRD file is a third window, and a window added without a deliberate
     // grant list is exactly what `permissions/desktop.toml` exists to prevent.
     expect(
       capabilities()
         .map((c) => c.file)
         .sort(),
-    ).toEqual(["main.json", "node.json"]);
+    ).toEqual(["main.json", "node.json", "ssh-key-unlock.json"]);
   });
 
   it("keeps `main`'s scope to what was argued for", () => {
@@ -197,9 +207,15 @@ describe("the window that is granted one command", () => {
     expect(capability.windows).toEqual(["main"]);
   });
 
-  it("grants `main` exactly one permission, and nothing that drives the CLI", () => {
+  it("grants `main` browser navigation and constrained local key signing", () => {
     const permissions = main().permissions ?? [];
-    expect(permissions).toEqual(["allow-desktop-open-in-browser"]);
+    expect(permissions).toEqual([
+      "allow-desktop-open-in-browser",
+      "allow-desktop-ssh-key-available",
+      "allow-desktop-ssh-key-pick",
+      "allow-desktop-ssh-key-request",
+      "allow-desktop-ssh-key-close",
+    ]);
     // Stated as invariants too, not just as an equality: these are the
     // properties the equality is protecting, and they should be readable as
     // the reason it is there.
@@ -215,7 +231,7 @@ describe("the window that is granted one command", () => {
   it("keeps every CLI-driving command granted to `node` alone", () => {
     const nodeGrants = new Set(capabilityPermissions());
     for (const id of manifestPermissions().keys()) {
-      if (id === "allow-desktop-open-in-browser") continue;
+      if (id === "allow-desktop-open-in-browser" || id.startsWith("allow-desktop-ssh-key-")) continue;
       expect(nodeGrants.has(id), `${id} must be the bundled page's`).toBe(true);
       expect(main().permissions ?? [], id).not.toContain(id);
     }
@@ -248,8 +264,8 @@ describe("the window that is granted one command", () => {
     // harmless — one GET, nothing changed — and it still does not go on
     // `main`, because its sibling REPLACES THE APPLICATION and the wildcard
     // scope this window carries is exactly why nothing is added to it without
-    // an argument being made. The equality above already says `main` holds one
-    // permission; this says WHICH two must never move.
+    // an argument being made. The equality above already says exactly which
+    // permissions `main` holds; this says WHICH two must never move.
     const nodeGrants = new Set(capabilityPermissions());
     expect(nodeGrants.has("allow-node-check-app-update")).toBe(true);
     expect(nodeGrants.has("allow-node-install-app-update")).toBe(true);
@@ -361,5 +377,30 @@ describe("the invocations that must stay unreachable", () => {
     expect(verbs.sort()).toEqual(["autostart", "install", "restart", "start", "stop", "uninstall"]);
     expect(verbs).not.toContain("run");
     expect(verbs).not.toContain("mcp");
+  });
+});
+
+describe("local SSH key unlock isolation", () => {
+  it("grants the bundled unlock form exactly one command and no remote URLs", () => {
+    const capability = JSON.parse(readFileSync(join(TAURI_DIR, "capabilities/ssh-key-unlock.json"), "utf8")) as {
+      windows: string[];
+      permissions: string[];
+      remote?: unknown;
+    };
+    expect(capability.windows).toEqual(["ssh-key-unlock"]);
+    expect(capability.permissions).toEqual(["allow-desktop-ssh-key-unlock"]);
+    expect(capability.remote).toBeUndefined();
+    expect(JSON.parse(readFileSync(join(TAURI_DIR, "capabilities/main.json"), "utf8")).permissions).not.toContain(
+      "allow-desktop-ssh-key-unlock",
+    );
+  });
+
+  it("loads a separate bundled entry that submits only to the local unlock receiver", () => {
+    const html = readFileSync(join(UI_SRC, "../ssh-key-unlock.html"), "utf8");
+    expect(html).toContain('src="/src/ssh-key-unlock.tsx"');
+    expect(html).not.toMatch(/<script(?![^>]*\bsrc=)/);
+    const entry = readFileSync(join(UI_SRC, "ssh-key-unlock.tsx"), "utf8");
+    expect(entry).toContain('invoke("desktop_ssh_key_unlock", { passphrase })');
+    expect(entry).not.toMatch(/fetch\(|localStorage|sessionStorage|emit\(/);
   });
 });

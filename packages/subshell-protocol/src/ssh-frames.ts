@@ -43,6 +43,7 @@
  */
 
 import { BASE64_RE, isBool, isInt, isRecord, isStr, isStrArray } from "./guards.js";
+import { isSshLocalKeyHostPin, parseSshKeyBridgeReply, type SshKeyBridgeCommand } from "./ssh-key-bridge.js";
 import {
   SSH_CONFIG_FILE_MAX_BYTES,
   SSH_EXEC_COMMAND_MAX_CHARS,
@@ -358,6 +359,7 @@ export interface SshExecStatusCommand {
 
 /** Every SSH-family command body, as one union the {@link NodeCommandBody} union folds in. */
 export type SshNodeCommandBody =
+  | SshKeyBridgeCommand
   | SshDiscoverAliasesCommand
   | SshResolveConfigCommand
   | SshRegisterIdentityCommand
@@ -371,6 +373,7 @@ export type SshNodeCommandBody =
 
 /** Every SSH command `type`, for census tests and dispatch tables. */
 export const SSH_COMMAND_TYPES = [
+  "ssh_key_bridge",
   "ssh_discover_aliases",
   "ssh_resolve_config",
   "ssh_register_identity",
@@ -444,6 +447,9 @@ export function isSshPaneId(value: unknown): value is string {
   return isStr(value) && SSH_PANE_ID_RE.test(value);
 }
 
+/** The id grammar the local-key bridge accepts: a pane id that is also a lowercase uuid. */
+const SSH_LOCAL_KEY_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 /**
  * The selected fingerprint set: strings, every one in the `SHA256:`
  * display form (an empty or free-text entry matches no key yet would ride a
@@ -500,6 +506,22 @@ export function isSshKnownHostsPinLine(value: unknown): value is string {
 export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | null {
   if (!isRecord(value) || !isStr(value.type)) return null;
   switch (value.type) {
+    case "ssh_key_bridge": {
+      // The id IS the pane id (the launcher passes subshellId), but the bridge
+      // narrows further than SSH_PANE_ID_RE to the lowercase-uuid spelling it
+      // is always minted with: a stranger id never reaches this command.
+      if (typeof value.id !== "string" || !SSH_LOCAL_KEY_ID_RE.test(value.id)) return null;
+      const id = value.id;
+      if (value.op === "open")
+        return isSshLocalKeyHostPin(value.hostPin)
+          ? { type: "ssh_key_bridge", op: "open", id, hostPin: value.hostPin }
+          : null;
+      if (value.op === "close") return { type: "ssh_key_bridge", op: "close", id };
+      if (value.op !== "exchange") return null;
+      if (value.reply === undefined) return { type: "ssh_key_bridge", op: "exchange", id };
+      const reply = parseSshKeyBridgeReply(value.reply);
+      return reply ? { type: "ssh_key_bridge", op: "exchange", id, reply } : null;
+    }
     case "ssh_discover_aliases":
       return { type: "ssh_discover_aliases" };
     case "ssh_resolve_config":

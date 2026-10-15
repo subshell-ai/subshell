@@ -34,8 +34,10 @@ const TERMINAL_PLUGIN_ID = "terminal";
  * 2026-10-08): `ssh` is also type terminal and its binary is nearly always
  * present, and the catalog arrives id-sorted, so anything-usable would land
  * on a bare `ssh` that exits without a host. The plain shell runs presetless,
- * so it is the fallback; it stays a preference, not a filter, so an
- * ssh-only catalog still fills.
+ * so it is the fallback. Since 2026-10-15 the ssh row is dropped from the
+ * catalog before this rule sees it (`lib/plugin-visibility`, the plugin's own
+ * `pickable: false`); the tier stays because a catalog of only agent-harnesses
+ * plus a shell still has to pick the shell.
  *
  * @param plugins - the instance catalog (`GET /api/plugins`)
  * @param nodeHarnessInstalled - whether the SELECTED node reports this

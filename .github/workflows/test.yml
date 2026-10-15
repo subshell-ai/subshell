@@ -243,6 +243,11 @@ jobs:
       - name: Build workspace packages
         run: bun run build
 
+      # Browser signer tests generate real OpenSSH key fixtures.
+      - name: Ensure OpenSSH key generation
+        run: |
+          command -v ssh-keygen >/dev/null || { apt-get update && apt-get install -y --no-install-recommends openssh-client; }
+
       - name: Run web tests
         run: bunx turbo run test --continue --filter=@internal/server-web
 
@@ -775,6 +780,11 @@ jobs:
       # The image installs rustup with `--profile minimal`, which does NOT
       # carry rustfmt or clippy — and this job is nothing but those two plus
       # tests. Idempotent, so it is a no-op once the image bakes them in.
+      - name: Ensure native crypto build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends cmake clang libclang-dev
+
       - name: Ensure rustfmt and clippy
         run: |
           set -euo pipefail
@@ -849,6 +859,11 @@ jobs:
       # image's /root/.gitconfig is never read. Same step release.yml carries.
       - name: Trust the bind-mounted workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Ensure native crypto build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends cmake clang libclang-dev
 
       - name: Ensure rustfmt and clippy
         run: |
@@ -1040,7 +1055,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: playwright-report
-          path: e2e/playwright-report/
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
           retention-days: 7
 
       - name: Un-root the workspace

@@ -169,3 +169,8 @@ describe("sshLaunchRefusal", () => {
     expect(isSshResolveRefusal("outcome")).toBe(false);
   });
 });
+
+it("preserves a local key unlock failure instead of the generic launch fallback", () => {
+  const message = "Couldn't unlock that SSH key. Check its passphrase and try again.";
+  expect(sshLaunchRefusal(new Error(message), null, true)).toEqual({ field: "keys", text: message });
+});

@@ -49,6 +49,8 @@ interface PluginRow {
   builtIn: boolean;
   version?: string;
   broken?: string;
+  /** Mirror of PluginRowSchema: present only as false (the plugin's own word). */
+  pickable?: false;
 }
 interface Impact {
   presets: number;

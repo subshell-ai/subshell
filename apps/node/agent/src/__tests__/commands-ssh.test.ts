@@ -2,9 +2,16 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type JsonValue, NODE_PROTOCOL_VERSION, type NodeCommandBody } from "@internal/subshell-protocol";
+import { buildAgentSocketPath } from "@internal/pane-runtime";
+import {
+  type JsonValue,
+  NODE_PROTOCOL_VERSION,
+  NODE_RESULT_MAINTENANCE,
+  type NodeCommandBody,
+} from "@internal/subshell-protocol";
 import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
+import { writeMaintenance } from "../maintenance.js";
 import { writeSshEnabled } from "../ssh-enabled.js";
 import { captureLogs } from "./helpers/capture-logs.js";
 
@@ -171,7 +178,67 @@ describe("ssh_discover_aliases / ssh_resolve_config arms (gate ON)", () => {
   });
 });
 
-/** The bump M2's relay tier owns: the relay link frame + the open/close commands (spec 2026-10-08 §5.1). */
-it("NODE_PROTOCOL_VERSION is 20 (relay and destination identity discovery)", () => {
-  expect(NODE_PROTOCOL_VERSION).toBe(20);
+describe("ssh_key_bridge: a closed gate or maintenance destroys live signing, not just new ones", () => {
+  const pin = "example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+  async function openBridge(dir: string): Promise<{ id: string; socketPath: string }> {
+    const id = crypto.randomUUID();
+    const res = await dispatchCommand(makeCtx(dir), {
+      type: "ssh_key_bridge",
+      op: "open",
+      id,
+      hostPin: pin,
+    } satisfies NodeCommandBody);
+    expect(res.ok).toBe(true);
+    const socketPath = buildAgentSocketPath(dir, id);
+    await tick();
+    expect(existsSync(socketPath)).toBe(true);
+    return { id, socketPath };
+  }
+
+  it("switching SSH off mid-signing refuses the next exchange AND tears the live agent socket down", async () => {
+    const dir = dataDir("bridge-gate-flip", "on");
+    const { id, socketPath } = await openBridge(dir);
+    writeSshEnabled(dir, { on: false, changedAt: STAMP });
+    const res = await dispatchCommand(makeCtx(dir), {
+      type: "ssh_key_bridge",
+      op: "exchange",
+      id,
+    } satisfies NodeCommandBody);
+    expect(res).toEqual({ ok: false, error: GATE_REFUSAL });
+    await tick();
+    // The refusal is destruction, not deferral: nothing is left listening on
+    // the path the pane's ssh could still be pointed at.
+    expect(existsSync(socketPath)).toBe(false);
+    // Cleanup stays allowed through a closed gate.
+    const close = await dispatchCommand(makeCtx(dir), {
+      type: "ssh_key_bridge",
+      op: "close",
+      id,
+    } satisfies NodeCommandBody);
+    expect(close.ok).toBe(true);
+  });
+
+  it("maintenance on - and an unreadable maintenance mirror, which reads ON - tear the bridge down too", async () => {
+    for (const tag of ["bridge-maintenance-on", "bridge-maintenance-unreadable"]) {
+      const dir = dataDir(tag, "on");
+      const { id, socketPath } = await openBridge(dir);
+      if (tag.endsWith("unreadable")) writeFileSync(join(dir, "maintenance.json"), "not json at all");
+      else writeMaintenance(dir, { on: true, changedAt: STAMP });
+      const res = await dispatchCommand(makeCtx(dir), {
+        type: "ssh_key_bridge",
+        op: "exchange",
+        id,
+      } satisfies NodeCommandBody);
+      expect(res).toEqual({ ok: false, error: NODE_RESULT_MAINTENANCE });
+      await tick();
+      expect(existsSync(socketPath)).toBe(false);
+    }
+  });
+});
+
+/** Desktop signing requires the temporary key bridge command on the connecting node. */
+it("NODE_PROTOCOL_VERSION is 21 (temporary desktop key bridge)", () => {
+  expect(NODE_PROTOCOL_VERSION).toBe(21);
 });

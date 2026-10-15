@@ -8,7 +8,7 @@ export interface SshSessionDraft {
   /** Machine that runs SSH. Empty means no deliberate choice yet. */
   nodeId: string;
   /** Authentication preference only; credentials are entered in the terminal. */
-  authentication?: "password";
+  authentication?: "password" | "local-key";
   /** Explicit key machine; retain it even if the connecting machine changes to this id. Empty means own keys. */
   keyHome: string;
   /** Explicit selections, separately scoped to each key machine. */

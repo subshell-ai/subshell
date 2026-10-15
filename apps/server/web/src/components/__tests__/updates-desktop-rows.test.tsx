@@ -101,7 +101,7 @@ describe("inside Subshell Client", () => {
     setUA(CLIENT_UA);
     renderRows();
     expect(screen.getByText("Open the tray menu → This Machine… → Update.")).toBeTruthy();
-    // Its remote window holds exactly one command, and it is not this one.
+    // Its remote window holds five narrow commands, and an updater is not one of them.
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.queryByRole("link")).toBeNull();
   });

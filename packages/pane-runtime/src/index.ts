@@ -139,6 +139,7 @@ export {
   runBounded,
 } from "./run-bounded.js";
 export { shellQuote } from "./shell.js";
+export { closeSshKeyBridges, machineSshKeyBridge, SSH_KEY_BRIDGE_REFUSALS } from "./ssh/key-bridge.js";
 export { type AgentIdentitiesSeams, readMachineAgentIdentities } from "./ssh/relay/agent-identities.js";
 export { machineSshExec, machineSshExecStatus, resetSshExecRunsForTests, type SshExecSeams } from "./ssh/relay/exec.js";
 export { type HostKeySeams, readMachineHostKey, sshHostKeyCandidates } from "./ssh/relay/host-key.js";

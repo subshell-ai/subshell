@@ -55,6 +55,7 @@
       "binaryName": "ssh",
       "envOverride": "SUBSHELL_SSH_PATH",
       "knownPaths": ["/usr/bin/ssh", "/bin/ssh", "/usr/local/bin/ssh", "/opt/homebrew/bin/ssh"]
-    }
+    },
+    "pickable": false
   }
 }

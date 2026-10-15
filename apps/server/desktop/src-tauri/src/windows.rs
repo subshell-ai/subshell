@@ -327,7 +327,7 @@ pub fn open_main(app: &AppHandle, origin: &str, base_origin: Option<&str>) -> Re
             // or forever if it never does. Arming for the TARGET is the same
             // escalation that was removed from `on_navigation`, reached from
             // the app's side: a window sitting on a third origin (mid proxied
-            // sign-in, say) would hold all seven commands the moment someone
+            // sign-in, say) would hold all eleven commands the moment someone
             // clicked the tray, for as long as loopback took to answer.
             //
             // Nothing is lost by waiting: `PageLoadEvent::Started` fires
@@ -396,7 +396,7 @@ pub fn open_main(app: &AppHandle, origin: &str, base_origin: Option<&str>) -> Re
         // a third origin and back. Such a plane could not be shown in this app
         // at all.
         //
-        // What makes allowing it survivable — this window holds seven
+        // What makes allowing it survivable — this window holds eleven
         // commands, one of which switches who runs the server — is that the
         // handler RECOMPUTES what the page may do for every URL it commits to
         // (`crate::trust`), so the privileges belong to the address rather than
@@ -448,9 +448,10 @@ pub fn open_main(app: &AppHandle, origin: &str, base_origin: Option<&str>) -> Re
         // itself is `open_main`'s `navigate()`, which CLEARS before it
         // navigates. Keep it that way: an app-initiated load that did not clear
         // first would be the one way to record a URL the window is not on.
-        .on_page_load(|_webview, payload| {
+        .on_page_load(|webview, payload| {
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
                 crate::trust::window_state().committed(payload.url());
+                crate::ssh_key::committed(webview.app_handle(), payload.url());
             }
         })
         .on_new_window({

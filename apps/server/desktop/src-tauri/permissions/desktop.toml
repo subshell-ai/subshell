@@ -244,3 +244,28 @@ commands.allow = ["desktop_restore_apply"]
 identifier = "allow-desktop-restore-discard"
 description = "Bundled assistant backup and restore operation."
 commands.allow = ["desktop_restore_discard"]
+
+[[permission]]
+identifier = "allow-desktop-ssh-key-available"
+description = "Local SSH signing: available. Native approval, origin binding, host-bound authentication, one signature, and a 90-second lifetime apply."
+commands.allow = ["desktop_ssh_key_available"]
+
+[[permission]]
+identifier = "allow-desktop-ssh-key-pick"
+description = "Local SSH signing: pick. Native approval, origin binding, host-bound authentication, one signature, and a 90-second lifetime apply."
+commands.allow = ["desktop_ssh_key_pick"]
+
+[[permission]]
+identifier = "allow-desktop-ssh-key-request"
+description = "Local SSH signing: request. Native approval, origin binding, host-bound authentication, one signature, and a 90-second lifetime apply."
+commands.allow = ["desktop_ssh_key_request"]
+
+[[permission]]
+identifier = "allow-desktop-ssh-key-close"
+description = "Local SSH signing: close. Native approval, origin binding, host-bound authentication, one signature, and a 90-second lifetime apply."
+commands.allow = ["desktop_ssh_key_close"]
+
+[[permission]]
+identifier = "allow-desktop-ssh-key-unlock"
+description = "Local SSH signing: unlock. Native approval, origin binding, host-bound authentication, one signature, and a 90-second lifetime apply."
+commands.allow = ["desktop_ssh_key_unlock"]

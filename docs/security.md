@@ -1123,6 +1123,101 @@ consequences are:
 
 ### SSH surfaces and credential boundaries
 
+**One-use keys from the desktop machine.** The authentication form's
+**Use a key from my machine** option uses a native signer in either desktop
+app. It never uploads the private key. The remote page receives an opaque
+handle and public SSH-agent replies; encrypted-key passphrases are entered in
+a separately bundled window with its own narrow capability. A native
+confirmation shows the destination, username, port and host-key fingerprint
+before opening the file picker at `~/.ssh`. The operator must independently
+verify an unfamiliar fingerprint: a scan through the connecting node is not
+independent evidence of identity.
+
+The native signer checks the calling window's committed origin against the
+client app's pinned control plane or the server app's trusted-origin guard.
+It requires HTTPS except on loopback and binds a random handle to that
+window and origin. It verifies the destination's signature on
+the SSH session identifier before accepting a strictly parsed host-bound
+user-authentication request for the chosen username and key. Arbitrary
+signing, ordinary unbound public-key authentication, forwarding, different
+hosts or users, and a second signature are refused. This requires a client
+and destination that support OpenSSH's host-bound authentication extension.
+The native picker accepts OpenSSH-format Ed25519, ECDSA and RSA keys. Native
+RSA signing and host-proof verification use AWS-LC through the OpenSSL Rust
+bindings; `ssh-key` parses the file with its optional RustCrypto RSA backend
+disabled, keeping the crate affected by RUSTSEC-2023-0071 out of the active
+dependency graph. RSA moduli are bounded to 2,048–8,192 bits and public
+exponents to 33 bits. AWS-LC checks the private components before a signer is
+created and performs blinded, constant-time private exponentiation; application
+code does not derive CRT parameters. Its default allocator cleanses released
+key allocations. SHA-256 and SHA-512 flags must match the requested algorithm;
+SHA-1 is refused for both signing and host proofs. Browser RSA uses Web Crypto. No jump hosts or host-key aliases are supported here.
+
+The signer drops its key before returning its one signature, and has an
+independent 90-second lifetime. Cancellation, navigation, and window closure
+also revoke native access. Mutable native input buffers are zeroized, but
+neither allocator copies nor OS swap/crash dumps can be promised erased. The
+original selected file is never deleted or changed. The web page cannot read
+arbitrary files or request a raw signature through these commands.
+
+**One-use keys in a browser.** The same option supports a browser signer in
+secure contexts (HTTPS or loopback). Its risk warning and explicit trust
+acknowledgment appear only when selected, before enabling the file picker.
+The browser cannot default that picker to `~/.ssh`. The page holds a File
+reference and an uncontrolled passphrase input until destination confirmation;
+a dedicated worker then reads and imports the key. No private key or
+passphrase is uploaded, persisted, or included in launch metadata.
+
+The worker strictly parses OpenSSH files, including bcrypt/AES-CTR encrypted
+keys, and uses non-extractable WebCrypto signing keys. It verifies the host's
+session-binding proof and accepts exactly one host-bound authentication for
+the confirmed host, username, key and session. RSA uses SHA-2. Parent and
+worker lifetimes are bounded at 90 seconds, and expiry is checked again after
+asynchronous cryptographic operations. Signing completion, cancellation,
+navigation, errors and timeout terminate the worker. Mutable input buffers
+are cleared. A failed or declined attempt retains the selected File reference,
+passphrase input, and website acknowledgment for retry. The passphrase stays
+in the password input, outside form state and caches; each worker receives a
+disposable byte copy. Success, switching authentication, closing the form,
+and navigation clear the selection and input; choosing another key also
+clears the passphrase. Before Start, changing the destination retains the file
+selection; destination confirmation still precedes import and scopes signing
+to the approved destination. Changing the destination cancels any active attempt.
+
+This worker is a lifetime boundary, not protection against malicious page
+code or a compromised server distributing that code. Either could steal the
+selected file or passphrase before import, or replace the signer. The warning
+requires trusting the website and its operator and explicitly says complete
+browser memory erasure cannot be guaranteed. Garbage collection, immutable
+strings, browser internals, swap and crash dumps remain outside that promise.
+The resulting SSH connection still grants the connecting node the account's
+session authority; one signature does not limit what that connection can do.
+
+The server routes public agent traffic through cookie-only `/api/ssh/local-key`
+operations. Preparations are user-and-session scoped, expire after five
+minutes, and can be consumed once for the exact resolved destination, node,
+and pane. Every exchange checks current node launch permission, SSH readiness,
+and the same session. Messages are capped at 64 KiB; each node bridge permits
+one agent connection, one outstanding request, at most eight requests and a
+90-second lifetime. Replies are sequence-bound. Node transport uses the
+existing signed commands and encrypted link; the server sees public host
+proofs and authentication signatures, but no private keys or passphrases.
+The local host-bound verifier is the signing authorization boundary, subject
+to the browser code trust limitation above.
+
+The launch pins the destination host key, disables password fallback and
+ambient identity files, and requires host-bound public-key authentication.
+If initial local-key authentication fails before a signature is issued, the
+browser deletes the subshell created by that attempt and allows retry while
+retaining the selected file and passphrase input (the native path re-picks
+both). A failed cleanup blocks retry and reports that the subshell still needs
+removal. After a signature
+has been issued, a transport failure leaves the outcome uncertain, so the
+client preserves the subshell rather than risking a working connection.
+Its saved metadata records that authentication was single-use. A later
+**Set up Subshell here** request refuses instead of falling back to the
+connecting node's credentials. Restart still requires a new SSH connection.
+
 The connection form is **New subshell → SSH terminal**. **Settings → SSH**
 manages saved and recent destinations; it has no host-key editor. Node Overview's
 **SSH → Allow SSH** switch controls outgoing connections and supplying agent
@@ -2085,17 +2180,19 @@ below.
 
 ### The window that loads someone else's page
 
-The split is the boundary, and it is a split by window KIND: every command
-that touches a CLI, a config file, a service manager or the filesystem is
-granted to BUNDLED pages alone. Each app has **two** windows now, one remote,
-one bundled. The server app's `console` was deleted by spec 2026-09-12 and its
+The split is the boundary, and it is a split by window KIND: general commands
+that touch a CLI, a config file, a service manager or the filesystem are
+granted to BUNDLED pages alone. The SSH signer is a narrow exception: a remote
+page can request native confirmation and a native file picker, but cannot name
+a file or receive its contents. Each app has a remote main window, a bundled
+management window, and a temporary bundled SSH-key unlock window. The server app's `console` was deleted by spec 2026-09-12 and its
 management surface moved into the SPA, leaving the remote SPA page plus one
 bundled ASSISTANT (`capabilities/wizard.json`) that owns first run, recovery,
 update and reset. What differs between the apps is how much the remote window
 gets, and the difference follows from whether its origin can be known ahead of
 time.
 
-**Subshell Server: two trusted origins, seven commands.** Its `main` window
+**Subshell Server: two trusted origins, eleven commands.** Its `main` window
 opens on `Probe::window_origin`: the instance's configured `APP_BASE_URL`
 when that is https, and the SPA served by the very server this app manages
 at `http://127.0.0.1:<port>` otherwise. The https case is why the default
@@ -2107,25 +2204,26 @@ was the whole story; the window could go nowhere else, and the capability's
 loopback scope was the boundary. It is not any more (spec 2026-09-18 § 15,
 §11.11a below): the window may NAVIGATE anywhere http(s), because a control
 plane behind an OAuth proxy cannot be signed into otherwise, and what bounds
-the seven commands is a runtime guard instead.
+the commands is a runtime guard instead. The four SSH signer commands also
+require HTTPS except on loopback and bind each selection to its committed page.
 
 | Gate | What it does |
 | --- | --- |
-| `capabilities/main.json` | grants only `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_permissions`, `desktop_app_update`, `desktop_set_supervision` and window dragging, to one window (`local: false`, `windows: ["main"]`). Its `remote.urls` is a WILDCARD and no longer bounds anything |
+| `capabilities/main.json` | grants only `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_permissions`, `desktop_app_update`, `desktop_set_supervision`, the four `desktop_ssh_key_*` commands and window dragging, to one window (`local: false`, `windows: ["main"]`). Its `remote.urls` is a WILDCARD and no longer bounds anything |
 | `src/trust.rs` | refuses every command invoked from that window unless the page is on one of TWO origins: this machine's loopback (either spelling, http, any port) or the instance's configured `APP_BASE_URL`. Recomputed for every page the window COMMITS to, so a redirect chain cannot leave it true |
 | `Probe::origin` | builds the loopback URL the app PROBES to decide whether the server is READY: a validated port and a loopback host, never `APP_BASE_URL`'s own scheme or port. Since 2026-09-19 it is NOT what the window opens on (`Probe::window_origin` is, above); "Open in browser" joins its path onto the origin the window has COMMITTED to (`control.rs:371,507-516,2667-2676,2929-2942`) |
 | `open_main` | points the window at those same two origins and refuses every other, so reaching a third one is always a page's doing, never the app's |
 | `on_navigation` | refuses any scheme the OS would act on (`file:`, a custom handler) and nothing else. It arms nothing: it runs at REQUEST time and fires for subframes, so a navigation that never commits, and an embedded iframe, would otherwise move a flag that belongs to the document on screen |
 | `on_page_load` | recomputes the flag, on `PageLoadEvent::Started`, raised from `didCommitNavigation:` (macOS) and `LoadEvent::Committed` (GTK), main-frame only, after the document is really this window's |
 
-Six of the seven are chosen for what they cannot do: raise the assistant at a
+Six of the original seven are chosen for what they cannot do: raise the assistant at a
 named screen, drop this app's own title bar, display one fixed-shape
 notification, open a page of THIS server in the system browser (a path only;
 see below), read this app's own macOS permission states (no argument at
 all; see the paragraph after the table), and read this app's own two update
 version facts (no argument, no fetch; see the paragraph after that). The
 seventh, `desktop_set_supervision`,
-**does** drive the CLI and is the one deliberate exception; its accounting, including the three
+**does** drive the CLI and is the original deliberate exception; its accounting, including the three
 caveats that make it honest, is §11.11 below. The count is pinned by
 `ui/src/__tests__/ipc-acl.test.ts` and again in Rust by `control.rs`, because
 "a few harmless ones" is how a boundary erodes. What that file used to pin
@@ -2188,7 +2286,7 @@ must know whether an update is waiting before anyone presses anything, and
 only the app knows the version of its own binary. The server can tell a page
 what SERVER build is running; it cannot see the `.app` wrapped around it.
 
-**Subshell Client: any origin, and therefore ONE command.** Its `main` window
+**Subshell Client: configurable origin, five narrow commands.** Its `main` window
 loads a control plane's own UI, and a control plane can live on any host: a LAN
 address, a VPN name, a public hostname. That origin cannot be enumerated in a
 capability file, and that has not changed. What changed on 2026-09-14 is that
@@ -2197,15 +2295,19 @@ so the boundary moved one level in rather than away: the capability's scope is
 a wildcard (`http://*:*`, `https://*:*`; `http://*` alone does not match a
 non-default port in the `urlpattern` crate Tauri 2.11.5 uses, which would
 silently exclude the default `:3080` deployment), and the narrowness lives in
-the command's ARGUMENT instead.
+the browser command's ARGUMENT instead. Four SSH signer commands now accompany
+it. Unlike the browser command, those require the committed page to match
+`PlanePin`, with HTTPS except on loopback, and require native approval before
+loading a key. Their key scope and residual risks are described under
+**Use a key from my machine** above.
 
-The accounting, stated plainly:
+The browser command's accounting, stated plainly:
 
 - **What it can do.** `desktop_open_in_browser` opens one page of the plane
   this window is already on, in the person's default browser. The page supplies
   a PATH; the ORIGIN is `windows.rs`'s `PlanePin`, the same value that
-  window's navigation guard already enforces. So the widest thing an XSS in a
-  control plane's SPA gains is opening a page of that same plane, which the
+  window's navigation guard already enforces. So this command lets an XSS in a
+  control plane's SPA open a page of that same plane, which the
   person can do by typing the address.
 - **What it cannot do.** Name a host. The path must begin with `/`, must not
   begin with `//` (protocol-relative is another HOST), must contain no `://`,
@@ -2297,15 +2399,16 @@ same one this subsection has stated all along, applied to the second app:
 command that changes this machine: `node_reset`, `node_enroll`,
 `node_unenroll`, `node_service`, `node_install_agent`, and the plane
 add/remove verbs (`apps/client/desktop/src-tauri/capabilities/node.json`).
-Its remote window still holds its single path-argument command and nothing
-more (§ above). The boundary is window KIND in both apps, not app identity,
+Its remote window holds the path-argument browser command and four native
+SSH signer commands (§ above). The signer cannot expose a key or accept a path. The boundary is window KIND in both apps, not app identity,
 which is exactly why the second app's privileged surface belongs in this
 model's prose and not only in its capability file.
 
 Two limits worth stating rather than implying. Each `csp` in `tauri.conf.json`
 applies to that app's bundled page **only**: a remote window's page carries
 whatever CSP its origin sends, so an XSS in the server app's SPA reaches those
-seven commands, and in the client app exactly one. And each app's ACL manifest is
+eleven commands, and in the client app five. The signing commands require
+separate native consent and enforce destination and lifetime limits. And each app's ACL manifest is
 what makes any of this apply at all: Tauri leaves app commands ungated for local
 windows when no manifest exists.
 
@@ -2949,7 +3052,8 @@ What an XSS in the SPA can now do that it could not before: flip the machine
 to app mode, so the server dies when the app quits, or back. It cannot reach
 `desktop_reset`, `desktop_setup`, `desktop_service` or any other CLI verb;
 those stay assistant-only, and `ipc-acl.test.ts` (TS) and `control.rs` (Rust)
-both pin `main` at exactly seven app commands plus
+both pin `main` at exactly eleven app commands (the original seven and four
+SSH signer commands) plus
 `core:window:allow-start-dragging`. The dialog on the page is a confirmation
 for the PERSON, and is not counted as a defence against the page.
 
@@ -3044,7 +3148,8 @@ app stops the server and keeps every live pane.
 
 **Operator's decision, 2026-09-18, taken with the trade stated** (spec
 2026-09-18 § 15). Subshell Server's `main` window may now load and follow any
-http(s) address, and it keeps all seven commands. What forced it: a control
+http(s) address, and it kept the original seven commands. Four native SSH
+signer commands were added later with the additional restrictions above. What forced it: a control
 plane behind an OAuth proxy could not be shown in this app at all. The window
 refused any URL whose origin was not the one it opened with, and a proxied
 sign-in is precisely a bounce to an identity provider on a third origin and
@@ -3055,7 +3160,8 @@ back. Subshell Client was unblocked the same way for the same report
 static and an instance's address is a config value, so `remote.urls` could never
 name it; the scope is a wildcard now, as the client's already was. That makes
 the scope stop being a boundary, and unlike the client, which grants its plane
-window ONE path-only command, this window holds seven, one of which switches
+window a path-only browser command, this window holds seven management commands
+plus the four SSH signer commands shared by both apps. One management command switches
 who runs the server. So:
 
 - **The window may NAVIGATE anywhere http(s)**, which is what makes a proxied
@@ -3066,12 +3172,13 @@ who runs the server. So:
   main-frame load COMMITS (`on_page_load`), so an embedded iframe and a
   navigation that never arrives both leave it exactly as the document on screen
   earned it.
-- **The seven commands answer only while the page is on a TRUSTED origin**:
+- **The commands answer only while the page is on a TRUSTED origin**:
   this machine's loopback (either spelling, http, any port: exactly what the old
   scope named) or the instance's configured `APP_BASE_URL`. The check
   (`src-tauri/src/trust.rs`) runs at the invoke handler, in front of every app
   command, keyed on the calling webview's label, and it is uniform across all
-  seven. Three of them take no argument by design (`desktop_permissions` takes
+  commands. The SSH signer imposes its additional origin checks too. Three of
+  the original commands take no argument by design (`desktop_permissions` takes
   nothing at all), so a per-command check would have had to widen the very
   signatures §11.11 relies on being narrow; and a rule with exceptions is a rule
   someone has to re-derive.
@@ -3079,7 +3186,7 @@ who runs the server. So:
   navigation REQUEST.** It is recomputed for every document the window commits
   to, so a redirect chain that ends elsewhere cannot leave it true, and it is
   cleared when the window is destroyed. A navigation that is merely asked for
-  moves nothing, which is what stops an untrusted page arming all seven
+  moves nothing, which is what stops an untrusted page arming the
   commands by aiming at a loopback port that refuses the connection, and stops
   an embedded iframe arming them without the top frame moving at all. One
   second writer exists, and it only ever JUDGES the committed URL: when an

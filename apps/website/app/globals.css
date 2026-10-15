@@ -13,6 +13,9 @@
   --card: #241e33;
   --term: #181226;
   --border: #332c48;
+  /* Match the product screenshots and the documentation site's image frame. */
+  --screenshot-background: oklch(0.224 0.035 296);
+  --screenshot-border: oklch(0.33 0.035 296);
   --frost: #e6dbef;
   --dim: #b3a5c4;
   --dimmer: #7d7195;

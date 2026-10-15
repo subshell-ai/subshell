@@ -81,3 +81,11 @@ choices use “or the CLI” above their terminal installation command. The clie
 command installs the desktop app, including its bundled node; headless node
 setup uses a command and setup key from the server dashboard. Use sentence case, the serial comma,
 and descriptive captions that do not require knowing abbreviations such as PWA.
+
+## Feature screenshots
+
+The five feature screenshots come from `e2e/capture-docs.ts`, shared with the
+documentation site. Capture at 2× with `e2e/screenshot.ts`, retain lossless WebP
+encoding, and use the product-colored screenshot frame tokens. The PNGs already
+include a consistent 12px margin; don't add another inset or a modal backdrop.
+Keep the image dimensions in `feature-showcase.tsx` in sync with the actual files.

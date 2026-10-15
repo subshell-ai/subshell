@@ -46,6 +46,12 @@ export default defineConfig({
     // INLINE <script>, which that policy blocks silently; and an asset under
     // `assetsInlineLimit` becomes a `data:` URL, which `default-src 'self'`
     // blocks for every type this page could load.
+    rollupOptions: {
+      input: {
+        assistant: path.resolve(dirname, "ui/index.html"),
+        sshKeyUnlock: path.resolve(dirname, "ui/ssh-key-unlock.html"),
+      },
+    },
     modulePreload: { polyfill: false },
     assetsInlineLimit: 0,
   },

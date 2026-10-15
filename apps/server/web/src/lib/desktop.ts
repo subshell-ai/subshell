@@ -30,9 +30,9 @@ export type DesktopPlatform = "macos" | "linux";
  *   it drops its title bar for the SPA's overlay chrome, and it holds the
  *   commands behind the update, reset, supervision and notification surfaces.
  * - `client` — `apps/client/desktop` (Subshell Client). It is a window onto a
- *   plane that can live anywhere. It keeps a normal title bar and is granted
- *   exactly ONE command, so every server-only surface above must stay absent
- *   there.
+ *   plane that can live anywhere. It keeps a normal title bar and grants only
+ *   the path-only browser command and temporary native SSH signer commands.
+ *   Every server management surface above must stay absent there.
  */
 export type DesktopApp = "server" | "client";
 

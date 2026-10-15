@@ -15,7 +15,10 @@ import { usableFirst } from "@/lib/option-order";
  */
 
 /** The plugin fields the Agent pickers read. */
-export type LaunchAgent = Pick<InstancePluginRow, "id" | "name" | "icon" | "installed" | "enabled" | "broken" | "type">;
+export type LaunchAgent = Pick<
+  InstancePluginRow,
+  "id" | "name" | "icon" | "installed" | "enabled" | "broken" | "type" | "pickable"
+>;
 
 /**
  * Why a harness cannot launch on a node.
@@ -67,7 +70,14 @@ export function buildAgentOptions(plugins: readonly LaunchAgent[], node: Node | 
     // never be launched under any conditions, so a greyed row with a reason
     // would be inventing a story about a choice that does not exist.
     plugins
-      .filter((p) => p.type !== "network")
+      // `pickable: false` drops the same way, and it is the PLUGIN's own
+      // word: only a plugin knows whether a bare launch means something.
+      // SSH declares it in its manifest (a bare ssh launch carries no
+      // destination and dies at the usage prompt; the connect form on the
+      // SSH terminal tab is its door). Absence means pickable, so every
+      // plugin written before the field is untouched, and no surface
+      // accumulates a list of ids to special-case.
+      .filter((p) => p.type !== "network" && p.pickable !== false)
       .map((p) => {
         const opt: ComboboxOption = { value: p.id, label: p.name, disabled: false };
         // Every option gets a mark: `PluginIcon` draws the plugin's own when it

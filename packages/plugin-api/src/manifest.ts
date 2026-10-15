@@ -227,6 +227,18 @@ export interface SubshellManifest {
   hostEnv?: string[];
   /** Network facts. Present exactly when `type` is `network`. */
   network?: NetworkManifest;
+  /**
+   * False means the launch pickers must not offer this plugin, even though
+   * it drives a pane. Absent means true.
+   *
+   * The declaration belongs to the plugin because only it knows whether a
+   * bare launch means something: a harness whose useful launch needs inputs
+   * no picker carries (SSH needs a destination, which the connect form
+   * supplies through its own door) would otherwise be a row that starts a
+   * dying pane. This hides the entry, not the route: the plugin stays
+   * launchable by id for whatever flow does supply the inputs.
+   */
+  pickable?: boolean;
 }
 
 /** A parse failure, carrying the sentence to render. */
@@ -385,6 +397,13 @@ export function parseManifest(pkgJson: unknown): SubshellManifest | ManifestErro
     }
   }
 
+  // A declared boolean or nothing. `"false"`-as-string is refused rather than
+  // truthed, because the point of the field is that absence means pickable:
+  // a string here must not silently hide a plugin.
+  if (block.pickable !== undefined && typeof block.pickable !== "boolean") {
+    return { error: "`subshell.pickable` must be a boolean when present" };
+  }
+
   if (typeof block.entry !== "string" || block.entry.trim() === "") {
     return { error: "`subshell.entry` must be a non-empty relative path" };
   }
@@ -464,6 +483,9 @@ export function parseManifest(pkgJson: unknown): SubshellManifest | ManifestErro
     ...(install ? { install } : {}),
     ...(hostEnv ? { hostEnv } : {}),
     ...(parsedNetwork ? { network: parsedNetwork } : {}),
+    // Carried only when it says false: absence and `true` mean the same
+    // thing (pickable), so the parsed manifest stays minimal on the wire.
+    ...(block.pickable === false ? { pickable: false } : {}),
   };
 }
 

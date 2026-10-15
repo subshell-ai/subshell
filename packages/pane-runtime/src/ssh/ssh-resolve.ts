@@ -292,11 +292,11 @@ async function resolveConfig(
   const portRaw = Number(valuesOf(g, "port")[0] ?? "22");
   const port = Number.isInteger(portRaw) ? portRaw : NaN;
   const userRaw = valuesOf(g, "user")[0] ?? null;
-  // -G always prints SOME user (the connecting account's own default); null
-  // means exactly that default, so the snapshot stores null for it and a real
-  // value only when the config chose a different account.
+  // Preserve an explicitly chosen account even when it matches this node's
+  // default: local signers must bind approval to a concrete username.
+  // With no explicit choice, null still means the connecting account's default.
   // Login names are case-sensitive, even though hostnames are not.
-  const user = userRaw !== null && userRaw !== connectingAccount ? userRaw : null;
+  const user = userRaw !== null && (target.user !== null || userRaw !== connectingAccount) ? userRaw : null;
 
   // --- trust + identity refs (paths on THIS machine; the snapshot carries refs, never contents) ---
   // `-G` prints the DEFAULT identity files in tilde form (`identityfile

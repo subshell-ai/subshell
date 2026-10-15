@@ -9,8 +9,9 @@ import type { ReleaseRef, UpdatesView } from "@/types/updates";
  * Each surface gets what it is ALLOWED to do, which is why they differ:
  *
  * - **Subshell Client** gets a SENTENCE, because its remote window is granted
- *   exactly one command (`desktop_open_in_browser`) and no design here widens
- *   it. The update lives on its bundled node page, reached from the tray.
+ *   only five narrow commands (the browser opener and the four one-use SSH
+ *   signer commands) and no design here widens that. The update lives on its
+ *   bundled node page, reached from the tray.
  * - **A browser** gets links. Nothing here can install anything on a machine
  *   the page is not running on.
  *

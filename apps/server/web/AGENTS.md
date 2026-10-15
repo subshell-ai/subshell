@@ -26,6 +26,9 @@ and membership disclosures remain table detail rows.
 
 - Dev server: http://localhost:5174 (Vite), which proxies `/api` and `/ws` to the
   backend at 127.0.0.1:3080 so cookies and WS auth just work on one origin.
+  Set `DEV_API_ORIGIN` to use an isolated backend instead, for example
+  `DEV_API_ORIGIN=http://127.0.0.1:3199 bun run dev`. Use this hot-reload URL
+  for interactive UI testing so edits appear without rebuilding or refreshing.
 - Production: the app is built to `dist/` and served by the backend itself.
 
 ## Commands

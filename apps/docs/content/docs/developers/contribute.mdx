@@ -7,7 +7,7 @@ Build and test a contribution in the public Subshell repository.
 
 ## Before you start
 
-Install Git and the Bun version required by the root `package.json` (at least `1.4.0`). Install tmux if you'll run subshells or end-to-end tests. Desktop development also needs the platform's Tauri and Rust prerequisites; follow the owning desktop app's `AGENTS.md`.
+Install Git and the Bun version required by the root `package.json` (at least `1.4.0`). Install tmux if you'll run subshells or end-to-end tests. Desktop development also needs the platform's Tauri and Rust prerequisites, CMake, and Clang with libclang for the native RSA backend. On Ubuntu, install `cmake clang libclang-dev`; on macOS, use Xcode's command-line tools and install CMake with `brew install cmake`. Follow the owning desktop app's `AGENTS.md` for the remaining prerequisites.
 
 Clone the [repository](https://github.com/subshell-ai/subshell) and install its dependencies:
 

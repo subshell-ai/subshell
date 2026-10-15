@@ -25,6 +25,9 @@ backend, `NODE_ENV=development`, `SUBSHELL_TEST_MODE=false`) with:
   with a running `turbo watch dev`.
 - a fresh `mkdtemp` dir for `DATABASE_PATH` and `SUBSHELL_SERVER_DATA_DIR`, wiped on
   teardown, so every run is a pristine first-boot instance.
+- an isolated `HOME` with an empty `.ssh/config`, so SSH resolution uses an
+  explicit config instead of inheriting user or system settings such as Ubuntu's
+  environment forwarding defaults.
 - `PI_PATH` pointed at `e2e/stub/pi`, a loop-forever script that answers
   `--version` for detection, so the harness registry reports `pi` installed and
   subshells launch a real tmux pane without any agent CLI.
@@ -150,6 +153,9 @@ lifecycle and cross-node cryptographic relay coverage.
 
 Spec 24 covers the browser’s first-connection confirmation and cancellation;
 spec 23-ssh-relay checks real discovery and acceptance before relay authentication.
+Spec 25 runs the browser signer against a real sshd on the host (not
+Testcontainers): it needs `ssh`, `sshd` and `ssh-keygen` present, and it skips
+loudly naming the missing binaries where they are not.
 Run all SSH specs together with `01-setup-wizard.spec.ts` (which seeds the account for spec 24).
 CI mounts its Docker socket into the e2e job so Testcontainers can start the
 same destination fixture.
@@ -162,7 +168,7 @@ a disposable SSH agent, and a Testcontainers destination. Docker and the
 Playwright Chromium browser are required. The normal `E2E_PORT_*` overrides
 apply when another suite is running.
 
-The script writes three cropped PNGs to `apps/docs/public/screenshots/`, using
+The script writes two cropped PNGs to `apps/docs/public/screenshots/`, using
 real form state and a real first-connection refusal. It cancels confirmation
 and checks that no destination trust was saved, then cleans up its processes
 and temporary state. Review the images and update their intrinsic dimensions
@@ -178,3 +184,9 @@ Review every capture, update intrinsic dimensions in the referring MDX and
 `apps/website/components/feature-showcase.tsx`, and check the captions against
 the actual controls. The example address and QR code are public sample values;
 no setup key is generated. Remove obsolete assets and their references together.
+
+Both capture scripts use `screenshot.ts` for a 12px page-colored margin and 2×
+pixel density. The helper hides unrelated UI and modal backdrops only during
+capture; the photographed controls and their content remain unchanged. Keep
+PNG dimensions and the lossless marketing WebP copies at native resolution.
+The sites supply the same single border around each image, without extra padding.

@@ -36,9 +36,10 @@
  * 2. The **command names** are pinned by `__tests__/ipc-acl.test.ts`, which
  *    reads `src-tauri/permissions/desktop.toml` and the two capability files
  *    and asserts the set granted to `wizard` is exactly the set this page
- *    invokes, and that `main` still holds exactly its seven commands — six
+ *    invokes, and that `main` still holds exactly its eleven commands — six
  *    that cannot touch the machine, plus the argued `desktop_set_supervision`
- *    exception. A name that appears in only two of the three places is a
+ *    exception, plus the four `desktop_ssh_key_*` signer commands of
+ *    2026-10-14. A name that appears in only two of the three places is a
  *    runtime permission rejection, not a compile error.
  * 3. The **step union** is derived from `ProbeStep`'s serde values; a step
  *    this build has never heard of is the render path's problem, not a type

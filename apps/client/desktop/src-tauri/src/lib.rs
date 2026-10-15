@@ -16,6 +16,7 @@ mod app_update;
 mod control;
 mod node_bin;
 mod reset;
+mod ssh_key;
 // macOS only: a GTK menu bar is per-window chrome rather than a system bar, so
 // Linux has none — and a module compiled there would be entirely dead code.
 // Gated at the MODULE, never at the call site, so `cargo clippy` on Linux sees
@@ -48,9 +49,13 @@ const SETTINGS_PATHS: SettingsPaths = SettingsPaths {
 
 /// Windows whose geometry the window-state plugin must not save or restore.
 ///
-/// One name, and it is the assistant's. Kept as a constant so the plugin's
-/// configuration and the test that pins it read the same string.
-const DENYLIST: &[&str] = &[windows::NODE_LABEL];
+/// The assistant, and the SSH-key unlock window opened by `ssh_key.rs`
+/// (2026-10-14). Both are fixed, centred, non-resizable frames, and this is
+/// the geometry trap the app's own notes record: the plugin restores AFTER
+/// the builder's `center()`, so a tracked one would open wherever the last
+/// pick left it. Kept as a constant so the plugin's configuration and the
+/// test that pins it read the same string.
+const DENYLIST: &[&str] = &[windows::NODE_LABEL, ssh_key::UNLOCK];
 
 /// Environment variables this app refuses to pass on to the agent.
 ///
@@ -159,6 +164,7 @@ pub fn run() {
         // before handing the plugin exactly one URL.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(SettingsState::new(SETTINGS_PATHS))
+        .manage(ssh_key::State::default())
         .manage(windows::PlanePin::new())
         .manage(windows::PendingScreen::new())
         .manage(reset::Stash::default())
@@ -180,12 +186,30 @@ pub fn run() {
             control::node_open_plane,
             control::node_open_plane_url,
             control::desktop_open_in_browser,
+            ssh_key::desktop_ssh_key_available,
+            ssh_key::desktop_ssh_key_pick,
+            ssh_key::desktop_ssh_key_request,
+            ssh_key::desktop_ssh_key_close,
+            ssh_key::desktop_ssh_key_unlock,
             control::node_check_app_update,
             control::node_install_app_update,
             reset::node_arm_reset,
             reset::node_reset,
         ])
         .on_window_event(|window, event| {
+            if matches!(
+                event,
+                tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
+            ) {
+                ssh_key::closed(
+                    window.app_handle(),
+                    window.label(),
+                    matches!(event, tauri::WindowEvent::Destroyed),
+                );
+            }
+            if window.label() == "ssh-key-unlock" {
+                return;
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 // Close-to-tray is opt-in, and the check RE-PROBES the desktop
                 // here rather than trusting the stored preference: where no
@@ -207,6 +231,7 @@ pub fn run() {
         })
         .setup(|app| {
             let handle = app.handle().clone();
+            ssh_key::start_expiry(handle.clone());
             #[cfg(target_os = "macos")]
             app.set_menu(menu::build(&handle)?)?;
             // Registered on EVERY platform, and it is the ONE place text
@@ -302,6 +327,18 @@ mod tests {
     fn the_settings_identity_is_not_the_server_apps() {
         assert_ne!(SETTINGS_PATHS.macos_bundle_id, "dev.subshell.server");
         assert_ne!(SETTINGS_PATHS.linux_dir, "subshell-desktop-server");
+    }
+
+    /// Both are fixed, centred, non-resizable frames, so there is nothing a
+    /// person could have chosen — while `main`'s size IS such a choice, which
+    /// is why this denies labels rather than dropping `StateFlags::SIZE`
+    /// wholesale. Pinned against the literals rather than trusted to the
+    /// comment beside the constant: the symptom of a missed entry is a window
+    /// that opens at the wrong size and nothing else — no error, no failing
+    /// build.
+    #[test]
+    fn fixed_frames_are_not_tracked_by_the_window_state_plugin() {
+        assert_eq!(DENYLIST, ["node", "ssh-key-unlock"]);
     }
 
     /// The Linux directory is NOT the agent CLI's config home. That CLI keeps

@@ -472,10 +472,11 @@ fn dev_spa_origin() -> Option<String> {
 ///
 /// Loopback http only. The dashboard window holds privileged globals, and a
 /// convenience for developers is not the place to widen where those may be
-/// served from — a Vite server on a LAN address would be trusted with the
-/// seven commands for the life of the session. `open_main` refuses an
-/// untrusted origin independently (loopback, or the instance's configured
-/// base URL — never this variable's own idea of one), so this agreeing with it
+/// served from — a Vite server on a LAN address would be trusted with
+/// everything the window holds for the life of the session. `open_main`
+/// refuses an untrusted origin independently (loopback, or the instance's
+/// configured base URL — never this variable's own idea of one), so this
+/// agreeing with it
 /// is belt and braces rather than the only gate.
 fn dev_spa_origin_from(raw: Option<&str>) -> Option<String> {
     // Parsed with the SAME parser the webview will use, and reduced to an
@@ -2107,8 +2108,9 @@ pub(crate) fn service_now(settings: &SettingsState, verb: ServiceCommand, force:
 /// Move this machine between "a background service runs the server" and "this
 /// app runs it", and set whether that service starts at login.
 ///
-/// **Reachable from the served page, and it is the only command in this file
-/// that is.** Both directions leave the server unreachable for a moment — an
+/// **Reachable from the served page, and of everything that page can reach,
+/// the only command in this file that drives the service.** Both directions
+/// leave the server unreachable for a moment — an
 /// uninstall stops it, a mode switch restarts it — which is exactly why it
 /// cannot be an HTTP route: the actor has to outlive the server. It used to
 /// be assistant-only for that reason, and the SPA merely named the screen;
@@ -2138,8 +2140,8 @@ pub fn desktop_set_supervision(
     force: bool,
 ) -> Result<SupervisionResult, String> {
     // Refused rather than queued while anything else is running — see
-    // `ActionGuard::try_new`. This is the one command in this file a page we
-    // did not write can invoke.
+    // `ActionGuard::try_new`. This is the most destructive command in this
+    // file a page we did not write can invoke.
     let Some(_guard) = ActionGuard::try_new() else {
         return Err("Another action is already running on this machine.".into());
     };
@@ -3031,8 +3033,8 @@ fn browser_origin(app: &AppHandle) -> Option<String> {
 
 /// Open a page of THIS server in the system browser.
 ///
-/// The one command granted to the served SPA that takes a string, and the
-/// string is a PATH: `subshell_desktop_core::browser::browser_url` refuses
+/// The command granted to the served SPA whose one string is a PATH:
+/// `subshell_desktop_core::browser::browser_url` refuses
 /// anything that could name a host, and the origin comes from
 /// [`browser_origin`]. So the widest thing an XSS in the SPA gains here is
 /// opening a page of the very server it is already running in, in the person's
@@ -4097,8 +4099,8 @@ mod tests {
     /// with it.
     static GUARD_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-    /// The one command a page we did not write can invoke refuses to
-    /// interleave with anything else.
+    /// The one command a page we did not write can invoke that runs a chain
+    /// of CLI processes refuses to interleave with anything else.
     ///
     /// `ACTION_IN_FLIGHT` looked like it prevented this and never did: it is a
     /// hint for the watch thread, `new()` stores true unconditionally, and
@@ -4158,7 +4160,10 @@ mod tests {
     /// to catch is a command added to it by habit — a test that only forbade
     /// today's names would not see tomorrow's.
     ///
-    /// Seven of the eight cannot touch the CLI. The odd one,
+    /// Four local SSH signing commands also require native destination
+    /// approval, a pinned committed origin, host-bound authentication, and
+    /// a one-signature lifetime. The unlock receiver stays bundled-only.
+    /// Seven of the original eight cannot touch the CLI. The odd one,
     /// `desktop_set_supervision`, can — it is the ONE deliberate exception
     /// (operator's call, 2026-09-12): the dashboard confirms in its own dialog
     /// rather than raising the assistant, on the argument that a page already
@@ -4191,7 +4196,7 @@ mod tests {
     /// (`desktop_open_assistant`, held already), and nothing else (spec
     /// 2026-09-17 § 5.3).
     #[test]
-    fn the_remote_window_is_granted_seven_harmless_commands_and_one_deliberate_exception() {
+    fn the_remote_window_grants_only_shell_controls_and_constrained_local_signing() {
         assert_eq!(
             grants("main"),
             vec![
@@ -4203,6 +4208,10 @@ mod tests {
                 "allow-desktop-set-supervision",
                 "allow-desktop-permissions",
                 "allow-desktop-app-update",
+                "allow-desktop-ssh-key-available",
+                "allow-desktop-ssh-key-pick",
+                "allow-desktop-ssh-key-request",
+                "allow-desktop-ssh-key-close",
             ]
         );
     }

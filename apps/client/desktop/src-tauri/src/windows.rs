@@ -9,9 +9,11 @@
 //!   with `credentials: "include"`, an auth client with no `baseURL`, a
 //!   WebSocket URL built from `window.location.host` — so a bundled copy could
 //!   not carry the `SameSite=Lax` session cookie to any of them. It is remote
-//!   content, and it is granted exactly ONE command —
-//!   `desktop_open_in_browser`, which takes a path and can name no host. Every
-//!   other command is refused. See [`open_plane`].
+//!   content, and it is granted five narrow commands:
+//!   `desktop_open_in_browser`, which takes a path and can name no host, and
+//!   the four one-use `desktop_ssh_key_*` commands, which never name a file,
+//!   never see a key or passphrase, and require the person's native approval.
+//!   Every other command is refused. See [`open_plane`].
 //! - **`node`** is ours: a bundled page that must render with the plane
 //!   unreachable, and the only surface allowed to drive the `subshell` CLI —
 //!   enrol, install the agent, drive the service.
@@ -33,13 +35,13 @@ use tauri_plugin_opener::OpenerExt;
 /// It is `main` because that is what it is to the user, and because the
 /// window-state plugin and the Dock both key off labels.
 ///
-/// `capabilities/main.json` names it and grants it ONE command. That file was
-/// an absence until 2026-09-14, and the absence was the security boundary;
-/// what replaced it is a boundary of the same kind drawn one level in — the
-/// capability's scope is a wildcard, because a plane lives anywhere, so the
-/// narrowness has to live in the COMMAND's argument instead. Adding a second
-/// permission to that file is a change to the trust model, not a convenience,
-/// and `ui/src/__tests__/ipc-acl.test.ts` pins it at one.
+/// `capabilities/main.json` names it and grants it five narrow commands. That
+/// file was an absence until 2026-09-14, and the absence was the security
+/// boundary; what replaced it is a boundary of the same kind drawn one level in
+/// — the capability's scope is a wildcard, because a plane lives anywhere, so
+/// the narrowness has to live in each COMMAND's argument and checks. Adding a
+/// sixth permission to that file is a change to the trust model, not a
+/// convenience, and `ui/src/__tests__/ipc-acl.test.ts` pins the exact set.
 pub const PLANE_LABEL: &str = "main";
 
 /// The bundled node page's label.
@@ -99,7 +101,9 @@ impl PlanePin {
 /// refused one at a time. It carries one now because the SPA's chrome split in
 /// two — `isServerDesktop()` for everything that drives Subshell Server, and
 /// `isDesktop()` for the two surfaces that are true of any shell — and this
-/// window is granted exactly the one command those two need.
+/// window now holds commands for both walks: the browser command that chrome
+/// calls, and since 2026-10-14 the four one-use SSH signer commands behind
+/// the connection form.
 ///
 /// So the token is what matters: `SubshellClient`, which the SPA maps to
 /// `app: "client"` and which switches on nothing else.
@@ -261,9 +265,12 @@ pub fn open_node(app: &AppHandle) -> Result<WebviewWindow, String> {
 ///
 /// Three things about this window are deliberate and belong together:
 ///
-/// - **`capabilities/main.json` names it, and grants it exactly ONE command**
-///   (2026-09-14): `desktop_open_in_browser`, which takes a path and joins it
-///   onto the origin [`PlanePin`] already holds. A control plane is reachable
+/// - **`capabilities/main.json` names it, and grants it five narrow commands**
+///   (2026-09-14, extended 2026-10-14): `desktop_open_in_browser`, which takes
+///   a path and joins it onto the origin [`PlanePin`] already holds, plus the
+///   four one-use `desktop_ssh_key_*` commands, which bind to that same pin,
+///   require HTTPS off loopback, and get the person's native approval before
+///   any key is touched. A control plane is reachable
 ///   over a LAN or a VPN, so its origin cannot be enumerated the way
 ///   `apps/server/desktop` pins loopback — which is why that capability's scope
 ///   is a wildcard and why the COMMAND, not the scope, has to be the narrow
@@ -334,7 +341,7 @@ fn open_plane_window(app: &AppHandle, origin: &str) -> Result<WebviewWindow, Str
         // could not be signed into from this app at all.
         //
         // Allowing http(s) costs this window nothing, because the pin is what
-        // the one granted command reads, not the current page:
+        // the granted browser command reads, not the current page:
         // `desktop_open_in_browser` joins its path onto `PlanePin`'s origin
         // (`control.rs`), so a page at the identity provider — or anywhere else
         // a redirect chain leads — can still only open a path of the plane this
@@ -348,6 +355,11 @@ fn open_plane_window(app: &AppHandle, origin: &str) -> Result<WebviewWindow, Str
         // was what held the pin alive. It is not: the pin is app-managed state
         // that `control.rs` reads through `app.state::<PlanePin>()`.
         .on_navigation(|u| subshell_desktop_core::browser::browsable_scheme(u.scheme()))
+        .on_page_load(|webview, payload| {
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
+                crate::ssh_key::committed(webview.app_handle(), payload.url());
+            }
+        })
         // WebKitGTK needs a registered handler to save authenticated attachments.
         // Let the webview choose a unique filename in Downloads; no new IPC grant.
         .on_download(|webview, event| {
@@ -611,8 +623,8 @@ mod tests {
 
     // The plane window's label must NOT be the one `node.json` names. If these
     // two ever became one string, the control plane's own page would inherit
-    // the whole CLI surface — which is a different thing from the one command
-    // `main.json` grants it, and the failure this pin exists for.
+    // the whole CLI surface — which is a different thing from the five narrow
+    // commands `main.json` grants it, and the failure this pin exists for.
     #[test]
     fn the_plane_window_is_not_the_granted_one() {
         assert_ne!(PLANE_LABEL, NODE_LABEL);

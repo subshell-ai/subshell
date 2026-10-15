@@ -5,6 +5,7 @@ import path from "node:path";
 import { chromium, expect, type Locator, type Page, request } from "@playwright/test";
 import { startContainerSshFixture } from "./fixtures/sshd-container";
 import { BASE_URL, PORTS } from "./ports";
+import { captureScreenshot } from "./screenshot";
 import { shortTmuxBase, startStack, stopStack } from "./stack";
 import { startNode } from "./stub/client";
 import { sweepTmux } from "./stub/relay-spec";
@@ -17,16 +18,7 @@ const output = path.resolve(import.meta.dirname, "../apps/docs/public/screenshot
 const cleanup: (() => Promise<void> | void)[] = [() => rmSync(root, { recursive: true, force: true })];
 
 async function capture(page: Page, name: string, first: Locator, last = first) {
-  await first.scrollIntoViewIfNeeded();
-  const a = await first.boundingBox();
-  const b = await last.boundingBox();
-  if (!a || !b) throw new Error(`Missing screenshot bounds: ${name}`);
-  const x = Math.min(a.x, b.x) - 16;
-  const y = Math.min(a.y, b.y) - 16;
-  const width = Math.max(a.x + a.width, b.x + b.width) - x + 16;
-  const height = Math.max(a.y + a.height, b.y + b.height) - y + 16;
-  await page.screenshot({ path: path.join(output, name), clip: { x, y, width, height }, animations: "disabled" });
-  console.log(`${name}: ${Math.round(width)} × ${Math.round(height)}`);
+  await captureScreenshot(page, path.join(output, name), first, last);
 }
 
 try {
@@ -100,6 +92,7 @@ try {
     storageState: await api.storageState(),
     viewport: { width: 1000, height: 1400 },
     colorScheme: "dark",
+    deviceScaleFactor: 2,
   });
   const page = await context.newPage();
   page.setDefaultTimeout(20_000);
@@ -115,12 +108,6 @@ try {
     page.getByRole("combobox", { name: "Connect from" }).locator(".."),
     page.getByLabel("Remember this destination").locator("../.."),
   );
-  await capture(
-    page,
-    "ssh-authentication.png",
-    page.locator("fieldset").filter({ has: page.getByRole("radio", { name: "Enter a password when connecting" }) }),
-  );
-
   await page.getByLabel("SSH destination", { exact: true }).fill("build");
   await page.getByLabel("Remember this destination", { exact: true }).uncheck();
   await page.getByRole("radio", { name: "Use another node’s keys", exact: true }).check();

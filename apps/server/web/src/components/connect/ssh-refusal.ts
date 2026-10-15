@@ -50,8 +50,15 @@ function refusalFromOutcome(outcome: Extract<SshResolveOutcome, { accepted: fals
  * @param err - the value from the launch mutation's catch
  * @param machine - the picked node's facts (null when the row is unknown)
  */
-export function sshLaunchRefusal(err: unknown, machine: SshMachineFacts | null): SshRefusalCopy | null {
+export function sshLaunchRefusal(
+  err: unknown,
+  machine: SshMachineFacts | null,
+  localKey = false,
+): SshRefusalCopy | null {
   if (isNetworkError(err)) return null;
+  // Local key parsing/unlock errors already contain safe, actionable copy.
+  // They aren't API responses and must not disappear into the launch fallback.
+  if (localKey && err instanceof Error && !(err instanceof ApiError)) return { field: "keys", text: err.message };
   if (err instanceof ApiError) {
     if (
       err.code?.startsWith("SSH_RELAY_") ||

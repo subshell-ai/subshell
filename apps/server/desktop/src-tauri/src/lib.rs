@@ -15,6 +15,7 @@ mod backup_restore;
 #[cfg(target_os = "macos")]
 mod bridge;
 mod control;
+mod ssh_key;
 // macOS only: a GTK menu bar is per-window chrome rather than a system bar, so
 // Linux carries no ACTION menu (its one item, the predefined About on the
 // dashboard, is `about.rs`) — and a module compiled there would be entirely
@@ -51,9 +52,13 @@ const SETTINGS_PATHS: SettingsPaths = SettingsPaths {
 
 /// Windows whose geometry the window-state plugin must not save or restore.
 ///
-/// One name, and it is the assistant's. Kept as a constant so the plugin's
-/// configuration and the test that pins it read the same string.
-const DENYLIST: &[&str] = &["wizard"];
+/// The assistant, and the SSH-key unlock window opened by `ssh_key.rs`
+/// (2026-10-14). Both are fixed, centred, non-resizable frames, and this is
+/// the geometry trap both AGENTS notes record: the plugin restores AFTER the
+/// builder's `center()`, so a tracked one would open wherever the last pick
+/// left it. Kept as a constant so the plugin's configuration and the test
+/// that pins it read the same string.
+const DENYLIST: &[&str] = &["wizard", ssh_key::UNLOCK];
 
 /// The menu bar's own dispatch, where there is a menu bar.
 ///
@@ -161,6 +166,7 @@ pub fn run() {
         // before handing the plugin exactly one URL.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(SettingsState::new(SETTINGS_PATHS))
+        .manage(ssh_key::State::default())
         .manage(windows::ShellReady::new())
         // The reset's stashed plan and screen request live HERE, not on any
         // page: the consent is spent by the command that mutates the disk,
@@ -205,6 +211,11 @@ pub fn run() {
             control::desktop_notify,
             control::desktop_shell_ready,
             control::desktop_open_in_browser,
+            ssh_key::desktop_ssh_key_available,
+            ssh_key::desktop_ssh_key_pick,
+            ssh_key::desktop_ssh_key_request,
+            ssh_key::desktop_ssh_key_close,
+            ssh_key::desktop_ssh_key_unlock,
             control::desktop_permissions,
             control::desktop_request_notifications,
             control::desktop_request_photos,
@@ -214,6 +225,19 @@ pub fn run() {
             control::desktop_app_update,
         ]))
         .on_window_event(|window, event| {
+            if matches!(
+                event,
+                tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
+            ) {
+                ssh_key::closed(
+                    window.app_handle(),
+                    window.label(),
+                    matches!(event, tauri::WindowEvent::Destroyed),
+                );
+            }
+            if window.label() == "ssh-key-unlock" {
+                return;
+            }
             // The assistant's page can no longer hear an event once its window
             // is destroyed, and the flag that says it can must not outlive it —
             // a stale true here is how the dashboard's next raise emitted into
@@ -260,6 +284,7 @@ pub fn run() {
         })
         .setup(|app| {
             let handle = app.handle().clone();
+            ssh_key::start_expiry(handle.clone());
             // macOS only: a GTK menu bar is per-window chrome rather than a
             // system bar, and everything here is also on the tray. Linux's
             // one menu is the dashboard window's single About item, attached
@@ -448,17 +473,17 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    /// The ASSISTANT's geometry is never restored.
+    /// The ASSISTANT's and the SSH-key unlock form's geometry is never restored.
     ///
-    /// It is a fixed, non-resizable, centred frame, so there is nothing a
-    /// person could have chosen — and `open_main` inherits its position and
-    /// size, so a restored one would reach the dashboard too. Pinned against
-    /// the window label rather than trusted to the comment beside it, because
-    /// the symptom is a window that opens at the wrong size and nothing else:
-    /// no error, no failing build.
+    /// Both are fixed, non-resizable, centred frames, so there is nothing a
+    /// person could have chosen — and `open_main` inherits the assistant's
+    /// position and size, so a restored one would reach the dashboard too.
+    /// Pinned against the window labels rather than trusted to the comment
+    /// beside it, because the symptom is a window that opens at the wrong size
+    /// and nothing else: no error, no failing build.
     #[test]
-    fn the_assistant_is_not_tracked_by_the_window_state_plugin() {
-        assert_eq!(DENYLIST, ["wizard"]);
+    fn fixed_frames_are_not_tracked_by_the_window_state_plugin() {
+        assert_eq!(DENYLIST, ["wizard", "ssh-key-unlock"]);
     }
 
     /// The window-state plugin must not restore MAXIMIZED or FULLSCREEN.

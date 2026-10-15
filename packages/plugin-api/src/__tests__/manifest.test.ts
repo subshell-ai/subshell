@@ -128,6 +128,27 @@ describe("parseManifest", () => {
     expect("error" in parseManifest(pkg({ hostEnv: ["  "] }))).toBe(true);
   });
 
+  it("carries `pickable` only when it says false", () => {
+    // Absence and `true` mean the same thing (pickable), so the parsed
+    // manifest stays minimal; a surface reads `pickable === false` as the
+    // plugin's own refusal to be listed.
+    const falseRow = parseManifest(pkg({ pickable: false }));
+    expect("error" in falseRow).toBe(false);
+    if (!("error" in falseRow)) expect(falseRow.pickable).toBe(false);
+    for (const raw of [{ pickable: true }, {}]) {
+      const row = parseManifest(pkg(raw));
+      expect("error" in row).toBe(false);
+      if (!("error" in row)) expect(row.pickable).toBeUndefined();
+    }
+  });
+
+  it("refuses a `pickable` that is not a boolean", () => {
+    // The field's contract is that ONLY a false hides the plugin, so a
+    // truthy-looking string must not get to be the hider or the non-hider.
+    expect("error" in parseManifest(pkg({ pickable: "false" }))).toBe(true);
+    expect("error" in parseManifest(pkg({ pickable: 0 }))).toBe(true);
+  });
+
   it("carries the optional icon and install block through", () => {
     const result = parseManifest(pkg({ icon: "icon.svg" }));
     expect("error" in result).toBe(false);

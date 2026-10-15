@@ -1,10 +1,12 @@
+import { SquareTerminal } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { SubshellView } from "@/types/subshell";
 
 /** The header sentence a non-owner of an ssh pane sees (spec 2026-10-07 §5.4). */
 export const SSH_VIEW_ONLY_COPY = "Only the owner can type in this SSH subshell.";
 
 /**
- * The ssh facts a pane header states beside its other labels: an SSH badge
+ * The ssh facts a pane header states beside its other labels: an SSH icon
  * naming what kind of pane this is, and — only for a viewer who is not the
  * owner — the one sentence explaining why the terminal takes no input from
  * them. Enforcement is NOT here: the view layer already answers a non-owner
@@ -20,7 +22,14 @@ export function SshPaneLabels({ subshell }: { subshell?: SubshellView }) {
   if (subshell?.ssh !== true) return null;
   return (
     <>
-      <span className="text-detail text-muted-foreground">SSH</span>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger className="inline-flex shrink-0 items-center" aria-label="SSH connection">
+            <SquareTerminal className="size-3.5 text-warning" aria-hidden="true" />
+          </TooltipTrigger>
+          <TooltipContent>This subshell connects to another machine over SSH.</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
       {subshell.access === "view" && <span className="text-detail text-muted-foreground">{SSH_VIEW_ONLY_COPY}</span>}
     </>
   );
