@@ -955,8 +955,11 @@ describe("the workspace search filter (operator ask 2026-09-27)", () => {
       expect(screen.getByText("Docs")).toBeTruthy();
       // A partial narrows to the one hit.
       fireEvent.change(input, { target: { value: "Doc" } });
-      await waitFor(() => expect(screen.queryByText("Alpha") === null).toBe(true));
-      expect(screen.getByText("Docs")).toBeTruthy();
+      // An empty loading state also lacks Alpha; wait for the matching row.
+      await waitFor(() => {
+        expect(screen.getByText("Docs")).toBeTruthy();
+        expect(screen.queryByText("Alpha") === null).toBe(true);
+      });
       // A no-match clears the list but KEEPS the box, so the text can be cleared.
       fireEvent.change(input, { target: { value: "zzz" } });
       await waitFor(() => expect(screen.getByText("No workspaces match.")).toBeTruthy());

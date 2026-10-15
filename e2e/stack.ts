@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { BASE_URL, FAKE_IDP_URL, FAKE_REGISTRY_URL, PORTS } from "./ports";
@@ -121,6 +121,11 @@ async function waitForFakeIdp(idp: ReturnType<typeof spawn>, timeoutMs = 30_000)
 export async function startStack(): Promise<void> {
   // Test-owned source/config paths must not retain macOS's standard /var -> /private/var alias.
   const dir = mkdtempSync(path.join(realpathSync(tmpdir()), "subshell-e2e-"));
+  const home = path.join(dir, "home");
+  mkdirSync(path.join(home, ".ssh"), { recursive: true, mode: 0o700 });
+  // An explicit config makes the resolver use ssh -F, excluding host defaults
+  // such as Ubuntu's SendEnv. Real users' SSH settings must not steer fixtures.
+  writeFileSync(path.join(home, ".ssh/config"), "", { mode: 0o600 });
   chmodSync(STUB_PI, 0o755);
   // tmux only honours TMUX_TMPDIR when the directory already exists (it does
   // not mkdir the base itself on this build), so create it before the backend
@@ -166,6 +171,7 @@ export async function startStack(): Promise<void> {
       // ~/.config/subshell-server/config.env happens to carry
       // (SUBSHELL_EMERGENCY_PASSWORD, TRUSTED_ORIGINS, …) would leak in.
       SUBSHELL_SERVER_CONFIG_DIR: dir,
+      HOME: home,
       SERVER_PORT: String(PORTS.backend),
       HOST: "127.0.0.1",
       DATABASE_PATH: path.join(dir, "subshell.db"),

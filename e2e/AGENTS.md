@@ -25,6 +25,9 @@ backend, `NODE_ENV=development`, `SUBSHELL_TEST_MODE=false`) with:
   with a running `turbo watch dev`.
 - a fresh `mkdtemp` dir for `DATABASE_PATH` and `SUBSHELL_SERVER_DATA_DIR`, wiped on
   teardown, so every run is a pristine first-boot instance.
+- an isolated `HOME` with an empty `.ssh/config`, so SSH resolution uses an
+  explicit config instead of inheriting user or system settings such as Ubuntu's
+  environment forwarding defaults.
 - `PI_PATH` pointed at `e2e/stub/pi`, a loop-forever script that answers
   `--version` for detection, so the harness registry reports `pi` installed and
   subshells launch a real tmux pane without any agent CLI.

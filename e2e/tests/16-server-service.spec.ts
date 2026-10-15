@@ -115,10 +115,8 @@ test.describe("server service page", () => {
 
   test("answers whether this server comes back, and never offers a switch a browser cannot mean", async ({ page }) => {
     // Deliberately not "nothing is installed". The stack is hand-spawned, but
-    // it runs with the developer's own HOME, so whether a launchd plist or a
-    // systemd unit exists is a property of the machine running the suite —
-    // true on a laptop with Subshell Server installed, false in CI. Asserting
-    // either would be a test that passes in one place and fails in the other.
+    // its HOME is isolated, but service-manager availability still depends on
+    // the machine running the suite. Don't assume one host's service state.
     //
     // What IS invariant is the pair that can actually regress: this page is a
     // BROWSER, so the choice must be absent, and whatever sentence it does
