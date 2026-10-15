@@ -67,7 +67,13 @@ export function buildAgentOptions(plugins: readonly LaunchAgent[], node: Node | 
     // never be launched under any conditions, so a greyed row with a reason
     // would be inventing a story about a choice that does not exist.
     plugins
-      .filter((p) => p.type !== "network")
+      // Networks are dropped as never-on-the-list; `ssh` is dropped as
+      // un-launchable-from-here (operator ruling 2026-10-15): a bare ssh
+      // launch carries no destination and dies at ssh's usage prompt, while
+      // every real SSH flow is the connect form on the SSH terminal tab.
+      // The terminal-equivalent API route PR 379 ruled stays exactly as it
+      // was; this only stops the picker offering a pick that does nothing.
+      .filter((p) => p.type !== "network" && p.id !== SSH_PLUGIN_ID)
       .map((p) => {
         const opt: ComboboxOption = { value: p.id, label: p.name, disabled: false };
         // Every option gets a mark: `PluginIcon` draws the plugin's own when it
@@ -103,6 +109,7 @@ export function buildAgentOptions(plugins: readonly LaunchAgent[], node: Node | 
 
 /** The built-in plain shell, by plugin id; the fallback tier's favorite. */
 const TERMINAL_PLUGIN_ID = "terminal";
+const SSH_PLUGIN_ID = "ssh";
 
 /**
  * The agent the picker should hold when the user has not chosen one: the most

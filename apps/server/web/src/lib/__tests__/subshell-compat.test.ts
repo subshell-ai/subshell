@@ -223,24 +223,30 @@ describe("defaultAgentId", () => {
     const plugins = [plugin({ id: "claude-code", name: "Claude Code", installed: false }), TERM];
     expect(defaultAgentId(buildAgentOptions(plugins, null), plugins, null)).toBe("terminal");
   });
-  it("a second terminal-type plugin does not steal the shell default", () => {
-    // The clean-machine regression (CI e2e 2026-10-08): the ssh plugin is
-    // type `terminal`, its binary exists on nearly every host, and the
-    // catalog arrives id-sorted, so `ssh` stands BEFORE `terminal` and the
-    // old last-resort `usable[0]` defaulted a first launch to a bare `ssh`
-    // that exits without a destination. The plain shell stays the fallback.
+  it("never offers the ssh plugin as a pickable agent", () => {
+    // Operator ruling 2026-10-15: a bare ssh launch has no destination and
+    // dies at ssh's usage prompt, so the harness picker drops the plugin the
+    // way it drops networks. Every real SSH flow is the connect form on the
+    // SSH terminal tab. The 2026-10-08 clean-machine regression (a defaulted
+    // first launch landing on `ssh`) is now prevented by the drop itself.
     const SSH = plugin({ id: "ssh", name: "SSH", type: "terminal" });
-    const plugins = [SSH, TERM];
-    expect(defaultAgentId(buildAgentOptions(plugins, null), plugins, null)).toBe("terminal");
-    // And it stays so under an agent catalog too: the agent tier still wins.
-    const withAgent = [SSH, TERM, CLAUDE];
-    expect(defaultAgentId(buildAgentOptions(withAgent, null), withAgent, null)).toBe("claude-code");
+    const plugins = [SSH, TERM, CLAUDE];
+    expect(
+      buildAgentOptions(plugins, null)
+        .map((o) => o.value)
+        .sort(),
+    ).toEqual(["claude-code", "terminal"]);
+    expect(defaultAgentId(buildAgentOptions(plugins, null), plugins, null)).toBe("claude-code");
+    // A recent SSH pane (launched through the tab, harness `ssh`) must not
+    // reintroduce it as the default either.
+    expect(defaultAgentId(buildAgentOptions([SSH, TERM], null), [SSH, TERM], "ssh")).toBe("terminal");
   });
-  it("an ssh-only catalog still defaults to ssh", () => {
-    // The shell tier is a preference, not a filter: when the plain shell is
-    // not usable, the only pickable plugin must still fill the field.
+  it("an ssh-only catalog offers nothing", () => {
+    // Not even as the last resort: an option that cannot do anything is not
+    // made pickable by being alone.
     const SSH = plugin({ id: "ssh", name: "SSH", type: "terminal" });
-    expect(defaultAgentId(buildAgentOptions([SSH], null), [SSH], null)).toBe("ssh");
+    expect(buildAgentOptions([SSH], null)).toEqual([]);
+    expect(defaultAgentId(buildAgentOptions([SSH], null), [SSH], null)).toBeNull();
   });
   it("null when nothing is usable — and on an empty catalog", () => {
     const plugins = [plugin({ id: "x", name: "X", installed: false })];

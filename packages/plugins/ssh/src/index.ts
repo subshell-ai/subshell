@@ -58,6 +58,10 @@ const createPlugin: HarnessPluginFactory = (_host: PluginHost): SubshellPlugin =
   // `SSH_AUTH_SOCK`, resolve/discovery, and the owner-only-input kind, none
   // of which a preset-flag launch carries. Do not "fix" this: closing it
   // would mean taking preset flags off the terminal path too.
+  // The web launch form HIDES this plugin from its Agent picker (operator
+  // ruling 2026-10-15: a bare ssh launch dies at ssh's usage prompt, and the
+  // real SSH flow is the connect form); hiding the entry is not closing the
+  // route, which is still the one ruled above.
   buildCommand(input: BuildCommandInput): string[] {
     const { binary, preset, extraFlags } = input;
     // No name flag: ssh has no session-title notion, so the pane title is
