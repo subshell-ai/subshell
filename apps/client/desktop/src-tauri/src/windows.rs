@@ -9,9 +9,11 @@
 //!   with `credentials: "include"`, an auth client with no `baseURL`, a
 //!   WebSocket URL built from `window.location.host` — so a bundled copy could
 //!   not carry the `SameSite=Lax` session cookie to any of them. It is remote
-//!   content, and it is granted exactly ONE command —
-//!   `desktop_open_in_browser`, which takes a path and can name no host. Every
-//!   other command is refused. See [`open_plane`].
+//!   content, and it is granted five narrow commands:
+//!   `desktop_open_in_browser`, which takes a path and can name no host, and
+//!   the four one-use `desktop_ssh_key_*` commands, which never name a file,
+//!   never see a key or passphrase, and require the person's native approval.
+//!   Every other command is refused. See [`open_plane`].
 //! - **`node`** is ours: a bundled page that must render with the plane
 //!   unreachable, and the only surface allowed to drive the `subshell` CLI —
 //!   enrol, install the agent, drive the service.
@@ -33,13 +35,13 @@ use tauri_plugin_opener::OpenerExt;
 /// It is `main` because that is what it is to the user, and because the
 /// window-state plugin and the Dock both key off labels.
 ///
-/// `capabilities/main.json` names it and grants it ONE command. That file was
-/// an absence until 2026-09-14, and the absence was the security boundary;
-/// what replaced it is a boundary of the same kind drawn one level in — the
-/// capability's scope is a wildcard, because a plane lives anywhere, so the
-/// narrowness has to live in the COMMAND's argument instead. Adding a second
-/// permission to that file is a change to the trust model, not a convenience,
-/// and `ui/src/__tests__/ipc-acl.test.ts` pins it at one.
+/// `capabilities/main.json` names it and grants it five narrow commands. That
+/// file was an absence until 2026-09-14, and the absence was the security
+/// boundary; what replaced it is a boundary of the same kind drawn one level in
+/// — the capability's scope is a wildcard, because a plane lives anywhere, so
+/// the narrowness has to live in each COMMAND's argument and checks. Adding a
+/// sixth permission to that file is a change to the trust model, not a
+/// convenience, and `ui/src/__tests__/ipc-acl.test.ts` pins the exact set.
 pub const PLANE_LABEL: &str = "main";
 
 /// The bundled node page's label.
@@ -261,9 +263,12 @@ pub fn open_node(app: &AppHandle) -> Result<WebviewWindow, String> {
 ///
 /// Three things about this window are deliberate and belong together:
 ///
-/// - **`capabilities/main.json` names it, and grants it exactly ONE command**
-///   (2026-09-14): `desktop_open_in_browser`, which takes a path and joins it
-///   onto the origin [`PlanePin`] already holds. A control plane is reachable
+/// - **`capabilities/main.json` names it, and grants it five narrow commands**
+///   (2026-09-14, extended 2026-10-14): `desktop_open_in_browser`, which takes
+///   a path and joins it onto the origin [`PlanePin`] already holds, plus the
+///   four one-use `desktop_ssh_key_*` commands, which bind to that same pin,
+///   require HTTPS off loopback, and get the person's native approval before
+///   any key is touched. A control plane is reachable
 ///   over a LAN or a VPN, so its origin cannot be enumerated the way
 ///   `apps/server/desktop` pins loopback — which is why that capability's scope
 ///   is a wildcard and why the COMMAND, not the scope, has to be the narrow

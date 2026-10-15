@@ -49,9 +49,13 @@ const SETTINGS_PATHS: SettingsPaths = SettingsPaths {
 
 /// Windows whose geometry the window-state plugin must not save or restore.
 ///
-/// One name, and it is the assistant's. Kept as a constant so the plugin's
-/// configuration and the test that pins it read the same string.
-const DENYLIST: &[&str] = &[windows::NODE_LABEL];
+/// The assistant, and the SSH-key unlock window opened by `ssh_key.rs`
+/// (2026-10-14). Both are fixed, centred, non-resizable frames, and this is
+/// the geometry trap the app's own notes record: the plugin restores AFTER
+/// the builder's `center()`, so a tracked one would open wherever the last
+/// pick left it. Kept as a constant so the plugin's configuration and the
+/// test that pins it read the same string.
+const DENYLIST: &[&str] = &[windows::NODE_LABEL, ssh_key::UNLOCK];
 
 /// Environment variables this app refuses to pass on to the agent.
 ///

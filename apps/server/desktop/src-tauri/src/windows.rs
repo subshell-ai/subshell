@@ -327,7 +327,7 @@ pub fn open_main(app: &AppHandle, origin: &str, base_origin: Option<&str>) -> Re
             // or forever if it never does. Arming for the TARGET is the same
             // escalation that was removed from `on_navigation`, reached from
             // the app's side: a window sitting on a third origin (mid proxied
-            // sign-in, say) would hold all seven commands the moment someone
+            // sign-in, say) would hold all eleven commands the moment someone
             // clicked the tray, for as long as loopback took to answer.
             //
             // Nothing is lost by waiting: `PageLoadEvent::Started` fires
@@ -396,7 +396,7 @@ pub fn open_main(app: &AppHandle, origin: &str, base_origin: Option<&str>) -> Re
         // a third origin and back. Such a plane could not be shown in this app
         // at all.
         //
-        // What makes allowing it survivable — this window holds seven
+        // What makes allowing it survivable — this window holds eleven
         // commands, one of which switches who runs the server — is that the
         // handler RECOMPUTES what the page may do for every URL it commits to
         // (`crate::trust`), so the privileges belong to the address rather than

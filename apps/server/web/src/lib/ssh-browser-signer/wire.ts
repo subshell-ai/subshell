@@ -1,5 +1,4 @@
-/** The selected file and every agent packet have the same bounded size. */
-export const MAX_BYTES = 65_536;
+import { SSH_LOCAL_KEY_MAX_BASE64, SSH_LOCAL_KEY_MAX_BYTES } from "@internal/subshell-protocol";
 
 /** A fixed message safe to pass through the worker's public error boundary. */
 export class SignerError extends Error {}
@@ -84,13 +83,13 @@ export function base64(bytes: Uint8Array): string {
 /** Refuse noncanonical encodings and oversized packets before allocating them. */
 export function decode64(value: string): Uint8Array<ArrayBuffer> {
   if (
-    value.length > Math.ceil(MAX_BYTES / 3) * 4 ||
+    value.length > SSH_LOCAL_KEY_MAX_BASE64 ||
     !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)
   ) {
     throw new SignerError("The SSH data isn't valid base64 or is too large.");
   }
   const bytes = Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
-  if (bytes.length > MAX_BYTES || base64(bytes) !== value) {
+  if (bytes.length > SSH_LOCAL_KEY_MAX_BYTES || base64(bytes) !== value) {
     bytes.fill(0);
     throw new SignerError("The SSH data isn't valid base64 or is too large.");
   }

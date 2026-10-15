@@ -1,6 +1,7 @@
+import { SSH_AGENT_FAILURE_BASE64, SSH_LOCAL_KEY_MAX_BYTES } from "@internal/subshell-protocol";
 import { readEnvelope, unlockEnvelope } from "./ssh-browser-signer/envelope";
 import { importPrivate, importPublic, type PrivateIdentity, type PublicIdentity } from "./ssh-browser-signer/keys";
-import { base64, concat, decode64, equal, field, MAX_BYTES, Reader, SignerError, u32 } from "./ssh-browser-signer/wire";
+import { base64, concat, decode64, equal, field, Reader, SignerError, u32 } from "./ssh-browser-signer/wire";
 
 /** The destination approved locally before any private key is imported. */
 export interface BrowserSignerScope {
@@ -12,7 +13,8 @@ export interface BrowserSignerScope {
   expiresAt: number;
 }
 
-const FAILURE = "BQ==";
+/** The agent's SSH_AGENT_FAILURE reply (byte 5, base64) — the bridge's only negative answer. */
+export const FAILURE = SSH_AGENT_FAILURE_BASE64;
 const EXPIRED = "The local SSH key request expired. Start the connection again.";
 const KEY_ERROR = "Couldn't read that SSH key. Choose a supported OpenSSH private key and check its passphrase.";
 
@@ -20,7 +22,13 @@ function safeError(error: unknown): Error {
   return new Error(error instanceof SignerError ? error.message : KEY_ERROR);
 }
 
-/** Inspect only the bounded OpenSSH envelope to decide whether to ask for a passphrase. */
+/**
+ * Parse-only probe of the bounded OpenSSH envelope: it reports the encrypted
+ * flag and nothing else. The form draws the passphrase field unconditionally
+ * ("if encrypted"), so this is exercised by the signer tests as a parse-
+ * strictness contract, not consumed by the UI - the file bytes never need to
+ * reach the main thread to answer "ask or not ask".
+ */
 export function inspectBrowserSshKey(bytes: Uint8Array): { encrypted: boolean } {
   try {
     const envelope = readEnvelope(bytes);
@@ -75,7 +83,7 @@ export async function createBrowserSshSigner(
   const isClosed = () => state === "closed";
   try {
     if (!Number.isFinite(args.expiresAt) || remaining <= 0 || remaining > 90_000) throw new SignerError(EXPIRED);
-    if (!args.bytes.length || args.bytes.length > MAX_BYTES) {
+    if (!args.bytes.length || args.bytes.length > SSH_LOCAL_KEY_MAX_BYTES) {
       throw new SignerError("Choose an SSH private key file no larger than 64 KiB.");
     }
     if (args.user.length > 256) throw new SignerError("Choose a valid SSH username before selecting a key.");
@@ -88,7 +96,7 @@ export async function createBrowserSshSigner(
     ) {
       throw new SignerError("Choose a valid SSH username before selecting a key.");
     }
-    if (args.passphrase && args.passphrase.length > MAX_BYTES)
+    if (args.passphrase && args.passphrase.length > SSH_LOCAL_KEY_MAX_BYTES)
       throw new SignerError("That SSH key passphrase is too large.");
     const hostBytes = decode64(args.hostKey);
     host = await importPublic(hostBytes);

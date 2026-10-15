@@ -1,10 +1,14 @@
 import { isRecord } from "./guards.js";
 import { base64ToBytes } from "./ssh-base64-std.js";
+import { SSH_MAX_HOST_PIN_LINE_CHARS } from "./ssh-limits.js";
 
 /** Native signing ends after one authentication, even if a caller disappears. */
 export const SSH_LOCAL_KEY_TTL_MS = 90_000;
 export const SSH_LOCAL_KEY_MAX_BYTES = 65_536;
 export const SSH_LOCAL_KEY_MAX_BASE64 = 87_384;
+
+/** The agent's SSH_AGENT_FAILURE reply, as it crosses the bridge: byte 5, base64. */
+export const SSH_AGENT_FAILURE_BASE64 = "BQ==";
 
 /** The only data exchanged is public SSH agent traffic, never a private key. */
 export type SshKeyBridgeCommand =
@@ -31,11 +35,32 @@ export function isSshKeyBridgePayload(value: unknown): value is string {
 
 /** One plain host key, with the wire algorithm agreeing with the known_hosts column. */
 export function isSshLocalKeyHostPin(value: unknown): value is string {
-  if (typeof value !== "string" || value.length > 16_384 || /[\r\n\0]/.test(value)) return false;
-  const [host, algorithm, encoded] = value.trim().split(/\s+/);
+  // Same line hygiene as isSshKnownHostsPinLine (ssh-frames.ts): this string is
+  // written verbatim into the known_hosts the pane's ssh trusts with
+  // StrictHostKeyChecking, so a smuggled control character or option token
+  // would become part of that trust, not just noise. The host token is a
+  // POSITIVE allow-list: a plain host label, a bracketed IPv6 address, or a
+  // canonical hashed `|1|salt|hash` token (how the operator's own file may
+  // spell the pin). Globs, comma option-lists, `@`/`!` markers, and trailing
+  // junk are refused here, at the last check before the file is written.
+  if (
+    typeof value !== "string" ||
+    !value.length ||
+    value.length > SSH_MAX_HOST_PIN_LINE_CHARS ||
+    value !== value.trim() ||
+    /\p{Cc}/u.test(value) ||
+    value.startsWith("#")
+  )
+    return false;
+  const [host, algorithm, encoded, ...rest] = value.split(/\s+/);
   if (
     !host ||
-    host.startsWith("@") ||
+    !(
+      /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(host) ||
+      /^\[[A-Za-z0-9._:-]+\](?::\d+)?$/.test(host) ||
+      /^\|1\|[A-Za-z0-9+/]+={0,2}\|[A-Za-z0-9+/]+={0,2}$/.test(host)
+    ) ||
+    (rest.length > 0 && !rest[0]?.startsWith("#")) ||
     !algorithm ||
     !/^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(?:256|384|521))$/.test(algorithm) ||
     !isSshKeyBridgePayload(encoded)

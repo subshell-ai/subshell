@@ -115,12 +115,6 @@ try {
     page.getByRole("combobox", { name: "Connect from" }).locator(".."),
     page.getByLabel("Remember this destination").locator("../.."),
   );
-  await capture(
-    page,
-    "ssh-authentication.png",
-    page.locator("fieldset").filter({ has: page.getByRole("radio", { name: "Enter a password when connecting" }) }),
-  );
-
   await page.getByLabel("SSH destination", { exact: true }).fill("build");
   await page.getByLabel("Remember this destination", { exact: true }).uncheck();
   await page.getByRole("radio", { name: "Use another node’s keys", exact: true }).check();

@@ -80,7 +80,7 @@ export class SshRpcError extends Error {
 }
 
 /** Map the RPC layer's failure onto the ssh surface's failure kind. */
-function mapRpcError(nodeId: string, err: NodeRpcError): SshRpcError {
+export function mapRpcError(nodeId: string, err: NodeRpcError): SshRpcError {
   const kind: SshRpcFailure =
     err.code === "offline"
       ? "offline"

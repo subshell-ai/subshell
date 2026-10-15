@@ -11,15 +11,41 @@ import {
 import { pathAllowed, realpathRoots } from "./relay/path-policy.js";
 import { buildAgentSocketPath, buildSshKnownHostsPath } from "./ssh-render.js";
 
+/**
+ * The bridge's terminal-state refusals, as exact strings.
+ *
+ * They are the whole set of reasons `machineSshKeyBridge` can refuse a caller
+ * (a stale sequence, a second open, an over-cap census, a refused path, a body
+ * that failed the frozen grammar). The control plane maps them to 409 refusals
+ * by MEMBERSHIP in this set rather than substring-matching messages it does
+ * not own; anything else that throws here is a real fault and stays a 500.
+ */
+export const SSH_KEY_BRIDGE_REFUSALS: ReadonlySet<string> = new Set([
+  "Invalid SSH signing request.",
+  "SSH signing reply is out of sequence.",
+  "SSH signing bridge already exists.",
+  "Too many SSH signing requests are active.",
+  "SSH signing directory refused.",
+]);
+
 interface Bridge {
+  /** Map key (`dataDir\0id`), kept so `end` can evict itself from any callback. */
   key: string;
+  /** The one listening unix server; closed when the bridge ends. */
   server: Server;
+  /** The single accepted agent socket; a second connect is destroyed. */
   socket?: Socket;
+  /** Partial frame bytes until a full length-prefixed request arrives. */
   buffer: Buffer;
+  /** The one outstanding request awaiting the signer's reply, or null. */
   request: SshKeyBridgeResult["request"];
+  /** Next request's sequence number; the bridge ends instead of minting a ninth. */
   seq: number;
+  /** Terminal flag: set once by `end`, never cleared. */
   done: boolean;
+  /** TTL sweep unref'd so an idle bridge can never hold the process. */
   timer: ReturnType<typeof setTimeout>;
+  /** Agent socket path, unlinked on teardown. */
   socketPath: string;
 }
 const bridges = new Map<string, Bridge>();

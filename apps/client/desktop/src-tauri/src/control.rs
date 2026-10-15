@@ -1673,11 +1673,12 @@ pub fn node_plane_remove(
 /// which is what keeps `desktop_open_in_browser` aimed at the plane the row
 /// named rather than at whatever the page last was.
 ///
-/// The window this opens is granted exactly ONE command — see
+/// The window this opens is granted five narrow commands — see
 /// `windows::open_plane` — so this is nearly the whole of the plane's reach
-/// into the app: a webview, an origin pin, and `desktop_open_in_browser`,
-/// which takes a path and joins it onto that same pin. Nothing that drives the
-/// CLI is reachable from it.
+/// into the app: a webview, an origin pin, `desktop_open_in_browser`, which
+/// takes a path and joins it onto that same pin, and the four one-use
+/// `desktop_ssh_key_*` commands, which never see a key or a passphrase.
+/// Nothing that drives the CLI is reachable from it.
 #[tauri::command(async)]
 pub fn node_open_plane(app: AppHandle, url: String) -> Result<String, String> {
     let resolved = validate_server_url(&url)?;

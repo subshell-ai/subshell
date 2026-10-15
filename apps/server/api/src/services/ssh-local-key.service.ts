@@ -1,5 +1,5 @@
 import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
-import { buildAgentSocketPath, machineSshKeyBridge } from "@internal/pane-runtime";
+import { buildAgentSocketPath, machineSshKeyBridge, SSH_KEY_BRIDGE_REFUSALS } from "@internal/pane-runtime";
 import {
   isSshLocalKeyHostPin,
   parseSshKeyBridgeResult,
@@ -9,21 +9,42 @@ import {
 } from "@internal/subshell-protocol";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { sshCanonicalDestination } from "@/db/types/ssh-saved-hosts.db-types.js";
-import { sendCommand } from "@/services/nodes/node-rpc.js";
-import { sshHostKey } from "@/services/nodes/ssh-rpc.js";
-import { captureHostPin, hostKeyFingerprints, hostPinFor } from "@/services/ssh-host-pins.service.js";
-import { relaySnapshotRefusal, sshResolveDestination } from "@/services/ssh-launch.service.js";
+import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
+import { mapRpcError, SshRpcError, sshHostKey } from "@/services/nodes/ssh-rpc.js";
+import {
+  captureHostPin,
+  hostKeyFingerprints,
+  hostPinFor,
+  hostPinRefusal,
+  SshHostPinError,
+} from "@/services/ssh-host-pins.service.js";
+import { relaySnapshotRefusal, rpcRefusal, sshResolveDestination } from "@/services/ssh-launch.service.js";
 import { gateSshNode } from "@/services/ssh-policy.service.js";
 
+/** How long a preparation may wait for its native approval and launch (the pre-open half). */
+const PREPARE_TTL_MS = 5 * 60_000;
+/** Ceiling on retained preparations instance-wide, and per viewer (each holds a host pin and a timer). */
+const MAX_PENDING_SESSIONS = 256;
+const MAX_SESSIONS_PER_VIEWER = 3;
+
 interface LocalKeySession {
+  /** The person who prepared it; every exchange re-matches this browser session's owner. */
   viewerId: string;
+  /** The exact login session that prepared it — another session of the same person cannot consume it. */
   sessionId: string;
+  /** The connecting node the bridge will live on; open/exchange re-match it. */
   nodeId: string;
+  /** The resolved destination snapshot; open re-matches it, so the pane's ssh asks what was approved. */
   snapshot: SshConnectionSnapshotWire;
+  /** The one known_hosts line written to the node; captured here, never re-read later. */
   hostPin: string;
+  /** Absolute deadline (ms): the pre-open half is PREPARE_TTL_MS, the open half SSH_LOCAL_KEY_TTL_MS. */
   expires: number;
+  /** Set once by openLocalSshKey and never cleared: its presence IS the one-use marker. */
   paneId?: string;
+  /** Concurrency lock across prepare/open/exchange/close; an in-flight operation refuses to interleave. */
   busy: boolean;
+  /** Unref'd deadline timer that closes this session; replaced when open shortens the lifetime. */
   timer: ReturnType<typeof setTimeout>;
 }
 const sessions = new Map<string, LocalKeySession>();
@@ -41,11 +62,44 @@ let deps = defaults;
 function fail(message = "This temporary SSH key request has ended. Choose your key again."): never {
   throwApiError({ code: BackendErrorCodes.SSH_RELAY_OPEN_FAILED, message, doNotLog: true });
 }
+
+/**
+ * Turn any failure that reaches this surface into the ssh family's coded
+ * refusal, reusing the launcher's one-sentence-per-cause wording
+ * (`rpcRefusal`) rather than inventing a fifth 500-shaped copy of it.
+ */
+function refuse(error: unknown): never {
+  if (error instanceof NodeRpcError) return refuseRpc(mapRpcError(error.nodeId, error));
+  if (error instanceof SshRpcError) return refuseRpc(error);
+  if (error instanceof SshHostPinError) {
+    const refusal = hostPinRefusal(error);
+    throwApiError({ code: refusal.code, message: refusal.message, doNotLog: true });
+  }
+  // The in-process bridge's own terminal refusals (stale sequence, second
+  // open, over-cap census, refused path): the request is over, and a browser
+  // retry cannot salvage it. Anything NOT in the published set stays a 500 —
+  // a real fault here is not something to log as a client refusal.
+  if (error instanceof Error && SSH_KEY_BRIDGE_REFUSALS.has(error.message)) fail();
+  throw error;
+}
+
+function refuseRpc(error: SshRpcError): never {
+  const answer = rpcRefusal(error);
+  if (!answer.ok && "code" in answer.refusal)
+    throwApiError({ code: answer.refusal.code, message: answer.refusal.message, doNotLog: true });
+  throw error;
+}
+
 async function rpc(nodeId: string, command: SshKeyBridgeCommand) {
-  const answer =
-    nodeId === "local"
-      ? await machineSshKeyBridge(SUBSHELL_SERVER_DATA_DIR, command)
-      : await sendCommand(nodeId, command);
+  let answer: unknown;
+  try {
+    answer =
+      nodeId === "local"
+        ? await machineSshKeyBridge(SUBSHELL_SERVER_DATA_DIR, command)
+        : await sendCommand(nodeId, command);
+  } catch (error) {
+    throw refuse(error);
+  }
   const parsed = parseSshKeyBridgeResult(answer);
   if (!parsed) fail("The connecting node returned an invalid signing response. Update it and try again.");
   return parsed;
@@ -62,7 +116,10 @@ async function gate(entry: LocalKeySession) {
 
 /** Resolve and capture public destination identity before the native approval and file picker. */
 export async function prepareLocalSshKey(viewerId: string, sessionId: string, nodeId: string, destination: string) {
-  if (sessions.size >= 256 || [...sessions.values()].filter((entry) => entry.viewerId === viewerId).length >= 3)
+  if (
+    sessions.size >= MAX_PENDING_SESSIONS ||
+    [...sessions.values()].filter((entry) => entry.viewerId === viewerId).length >= MAX_SESSIONS_PER_VIEWER
+  )
     fail("Too many key selections are waiting. Close one or wait for it to expire.");
   const answer = await deps.resolve(viewerId, nodeId, destination);
   if (!answer.ok || !answer.value.accepted)
@@ -74,7 +131,11 @@ export async function prepareLocalSshKey(viewerId: string, sessionId: string, no
   const saved = await deps.pin({ ownerUserId: viewerId, destination: canonical });
   const lines = saved
     ? [saved.hostKey]
-    : (await deps.hostKey(nodeId, { host: snapshot.host, port: snapshot.port, user: snapshot.user, scan: true })).lines;
+    : (
+        await deps
+          .hostKey(nodeId, { host: snapshot.host, port: snapshot.port, user: snapshot.user, scan: true })
+          .catch((error: unknown) => refuse(error))
+      ).lines;
   const hostPin =
     lines.find((line) => isSshLocalKeyHostPin(line) && line.split(/\s+/)[1] === "ssh-ed25519") ??
     lines.find((line) => isSshLocalKeyHostPin(line) && hostKeyFingerprints(line).length === 1);
@@ -83,9 +144,13 @@ export async function prepareLocalSshKey(viewerId: string, sessionId: string, no
   const hostKey = hostPin.split(/\s+/)[2];
   if (!hostKey) fail();
   // Recheck the bounded census after network awaits, before retaining anything.
-  if (sessions.size >= 256 || [...sessions.values()].filter((entry) => entry.viewerId === viewerId).length >= 3) fail();
+  if (
+    sessions.size >= MAX_PENDING_SESSIONS ||
+    [...sessions.values()].filter((entry) => entry.viewerId === viewerId).length >= MAX_SESSIONS_PER_VIEWER
+  )
+    fail();
   const id = crypto.randomUUID();
-  const timer = setTimeout(() => void closeLocalSshKey(id), 5 * 60_000);
+  const timer = setTimeout(() => void closeLocalSshKey(id), PREPARE_TTL_MS);
   timer.unref();
   sessions.set(id, {
     viewerId,
@@ -93,7 +158,7 @@ export async function prepareLocalSshKey(viewerId: string, sessionId: string, no
     nodeId,
     snapshot,
     hostPin,
-    expires: deps.now() + 5 * 60_000,
+    expires: deps.now() + PREPARE_TTL_MS,
     busy: false,
     timer,
   });
@@ -141,7 +206,7 @@ export async function openLocalSshKey(args: {
     return { socketPath: buildAgentSocketPath(args.dataDir, args.paneId) };
   } catch (error) {
     await closeLocalSshKey(args.id);
-    throw error;
+    throw refuse(error);
   } finally {
     entry.busy = false;
   }
@@ -170,7 +235,7 @@ export async function exchangeLocalSshKey(
     return result;
   } catch (error) {
     await closeLocalSshKey(id);
-    throw error;
+    throw refuse(error);
   } finally {
     entry.busy = false;
   }

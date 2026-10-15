@@ -38,7 +38,7 @@ self.onmessage = async ({ data }: MessageEvent) => {
         !Number.isFinite(expiresAt) ||
         expiresAt <= Date.now()
       )
-        throw new Error("Choose a private key smaller than 64 KiB and a passphrase under 4 KiB.");
+        throw new Error("Choose a private key no larger than 64 KiB and a passphrase no longer than 4 KiB.");
       timer = setTimeout(stop, expiresAt - Date.now());
       bytes = new Uint8Array(await data.file.arrayBuffer());
       signer = await createBrowserSshSigner({ bytes, passphrase, user: data.user, hostKey: data.hostKey, expiresAt });

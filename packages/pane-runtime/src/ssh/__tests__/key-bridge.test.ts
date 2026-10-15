@@ -83,6 +83,38 @@ it("closes on pipelining, oversized framing, and disallowed key-mutation methods
     expect((await exchange()).done).toBe(true);
   }
 });
+it("serves one agent connection at a time: a second connect is destroyed, the first holds", async () => {
+  const { socket, path, exchange } = await fixture();
+  const second = connect(path);
+  sockets.push(second);
+  const gone = new Promise<"closed" | "errored">((resolve) => {
+    second.once("close", () => resolve("closed"));
+    second.once("error", () => resolve("errored"));
+  });
+  await new Promise<void>((resolve, reject) => {
+    second.once("connect", resolve);
+    second.once("error", reject);
+    second.once("close", resolve);
+  });
+  expect(await gone).toBe("closed");
+  socket.write(frame([11]));
+  await tick();
+  expect((await exchange()).request?.payload).toBe(Buffer.from([11]).toString("base64"));
+});
+it("ends the bridge at the ninth agent request, not after eight", async () => {
+  const { socket, exchange } = await fixture();
+  for (let i = 0; i < 8; i++) {
+    socket.write(frame([11]));
+    await tick();
+    const pending = (await exchange()).request!;
+    expect(pending.seq).toBe(i);
+    await exchange({ seq: pending.seq, payload: "Bg==" });
+    await tick();
+  }
+  socket.write(frame([11]));
+  await tick();
+  expect((await exchange()).done).toBe(true);
+});
 it("rejects path traversal and invalid host pins before writing", async () => {
   const { root } = await fixture();
   await expect(

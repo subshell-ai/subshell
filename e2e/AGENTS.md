@@ -150,6 +150,9 @@ lifecycle and cross-node cryptographic relay coverage.
 
 Spec 24 covers the browser’s first-connection confirmation and cancellation;
 spec 23-ssh-relay checks real discovery and acceptance before relay authentication.
+Spec 25 runs the browser signer against a real sshd on the host (not
+Testcontainers): it needs `ssh`, `sshd` and `ssh-keygen` present, and it skips
+loudly naming the missing binaries where they are not.
 Run all SSH specs together with `01-setup-wizard.spec.ts` (which seeds the account for spec 24).
 CI mounts its Docker socket into the e2e job so Testcontainers can start the
 same destination fixture.

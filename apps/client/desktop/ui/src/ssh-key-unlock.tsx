@@ -26,7 +26,7 @@ function UnlockKey() {
   }
   return (
     <main className="flex flex-col gap-4 p-6">
-      <h1 className="font-strong text-title">Unlock this SSH key</h1>
+      <h1 className="font-strong text-heading">Unlock this SSH key</h1>
       <p className="text-body text-muted-foreground">
         Your passphrase stays in this desktop app. The key can authorize one SSH login and expires after 90 seconds.
       </p>
@@ -50,7 +50,7 @@ function UnlockKey() {
           />
         </fieldset>
         {error && (
-          <p id="unlock-error" role="alert" className="text-body text-warning">
+          <p id="unlock-error" role="alert" className="text-body text-destructive">
             {error}
           </p>
         )}

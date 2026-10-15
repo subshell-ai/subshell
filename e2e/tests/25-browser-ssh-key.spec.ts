@@ -10,8 +10,12 @@ test.use({ storageState: ADMIN_STATE });
 let root: string;
 let fixture: SshFixture;
 const passphrase = "disposable-browser-signing-fixture";
+const missing = missingSshBins();
+// A host without the OpenSSH binaries cannot run this suite. Skipping LOUDLY,
+// naming the missing binaries at file level, is the sibling SSH specs'
+// convention; a skip inside beforeAll reads as a pass to the reporter.
+test.skip(missing.length > 0, `SSH binaries absent on this host (${missing.join(", ")}) - spec 25 needs a real sshd`);
 test.beforeAll(async () => {
-  test.skip(missingSshBins().length > 0, "Requires OpenSSH fixture binaries.");
   root = mkdtempSync(path.join(tmpdir(), "subshell-browser-ssh-"));
   fixture = await startSshFixture(root);
   execFileSync("ssh-keygen", ["-p", "-P", "", "-N", passphrase, "-f", fixture.trustedKeyPath]);
@@ -30,6 +34,9 @@ test("an encrypted browser key signs a real SSH login without uploading the key 
     if (body) outgoing.push(body);
   });
   await page.goto("/connect");
+  // The absence proof is only real once the form has rendered: count(0) on a
+  // still-loading page passes even if the warning were unconditional.
+  await expect(page.getByRole("radio", { name: "Use a key from my machine", exact: true })).toBeVisible();
   await expect(page.getByText(/Compromised page code could steal your key/)).toHaveCount(0);
   await page.getByRole("combobox", { name: "Connect from" }).click();
   await page.getByRole("option", { name: "Server", exact: true }).click();

@@ -1,5 +1,5 @@
 import { apiFetch, apiPost, errMessage, isAlreadyGone } from "@internal/node-admin";
-import { parseSshKeyBridgeResult, SSH_LOCAL_KEY_TTL_MS } from "@internal/subshell-protocol";
+import { parseSshKeyBridgeResult, SSH_AGENT_FAILURE_BASE64, SSH_LOCAL_KEY_TTL_MS } from "@internal/subshell-protocol";
 import { desktopInvoke, desktopInvokeStrict } from "@/lib/desktop";
 import type { SshLaunchRequest, SshLaunchResponse } from "@/lib/ssh";
 import { type BrowserKeyMaterial, type LocalKeySigner, openBrowserKey } from "@/lib/ssh-browser-key";
@@ -106,7 +106,10 @@ export async function launchWithLocalKey(
       if (state.request) {
         check();
         const answer = await signer.request(state.request.payload);
-        signed = answer.done && answer.response !== "BQ==";
+        // Accumulate, never re-derive: once one signature has been issued,
+        // every later answer - including a failure reply - keeps the attempt
+        // "signed", and the catch block's keep-the-pane rule must hold.
+        signed ||= answer.done && answer.response !== SSH_AGENT_FAILURE_BASE64;
         reply = { seq: state.request.seq, payload: answer.response };
       } else {
         await new Promise((resolve) => setTimeout(resolve, 100));

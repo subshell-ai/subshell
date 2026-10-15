@@ -1,4 +1,5 @@
 import { confirmAction } from "@internal/node-admin";
+import { browserHostFingerprint } from "@/lib/ssh-browser-signer-core";
 import type { LocalKeyPreparation } from "@/lib/ssh-local-key";
 
 /** Approval precedes reading the selected private file or sending any authentication signature. */
@@ -6,9 +7,15 @@ export async function verifyBrowserKeyDestination(
   target: LocalKeyPreparation,
   selection: { keyFileName: string; nodeName: string },
 ): Promise<boolean> {
-  const bytes = Uint8Array.from(atob(target.hostKey), (char) => char.charCodeAt(0));
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-  const fingerprint = `SHA256:${btoa(String.fromCharCode(...digest)).replace(/=+$/, "")}`;
+  // The signer core's validated fingerprint is the ONLY fingerprint here: a
+  // raw digest of whatever bytes arrived would let a malformed blob render a
+  // number the person then trusts, before the worker refuses the same blob.
+  let fingerprint: string;
+  try {
+    fingerprint = await browserHostFingerprint(target.hostKey);
+  } catch {
+    throw new Error("The host key the connecting node supplied isn't a supported SSH key. Ask it to scan again.");
+  }
   const command = `ssh ${target.port === 22 ? "" : `-p ${target.port} `}${target.user}@${target.host}`;
   return confirmAction({
     title: "Use this key to connect?",

@@ -1,4 +1,6 @@
-//! Which page may hold the dashboard window's seven commands.
+//! Which page may hold the dashboard window's eleven commands (seven of them
+//! the original set; the four `desktop_ssh_key_*` signer commands joined on
+//! 2026-10-14 and live under this same guard).
 //!
 //! **The boundary used to be the capability's SCOPE** — `capabilities/main.json`
 //! named `http://localhost:*` and `http://127.0.0.1:*`, Tauri refused every
@@ -26,7 +28,7 @@
 //!   a request.** It is recomputed for every document the window commits to,
 //!   so a redirect chain that ends somewhere else cannot leave it true — and a
 //!   navigation that is merely ASKED FOR moves nothing, which is what stops an
-//!   untrusted page arming all seven commands by aiming at a loopback port
+//!   untrusted page arming all eleven commands by aiming at a loopback port
 //!   that will not answer.
 //! - **Navigation still refuses a non-http(s) scheme.** The window must not be
 //!   steerable into `file:`, a custom handler, or anything else the OS would
@@ -34,10 +36,12 @@
 //!   the OS a URL is outside what any guard here could undo.
 //! - **The guard runs at the invoke handler**, in front of every app command,
 //!   keyed on the calling webview's label. That is what makes it uniform over
-//!   all seven without touching a single signature: three of the seven take no
-//!   argument or no handle at all (`desktop_permissions` takes nothing), so a
-//!   per-command check would have had to widen the very signatures
-//!   `ipc-acl.test.ts` pins.
+//!   all eleven without touching a single signature: three of the original
+//!   seven take no argument or no handle at all (`desktop_permissions` takes
+//!   nothing), so a per-command check would have had to widen the very
+//!   signatures `ipc-acl.test.ts` pins. The four `desktop_ssh_key_*` commands
+//!   added 2026-10-14 ride the same guard, with a stricter demand of their own:
+//!   HTTPS off loopback, plus the person's native approval.
 //!
 //! What it does NOT cover, said plainly: a page on the instance's own address
 //! now holds everything a loopback page held, and that address may be reachable
@@ -303,17 +307,19 @@ pub fn window_state() -> &'static MainTrust {
 
 /// Wrap the generated command handler in the trust guard.
 ///
-/// **Uniform on every app command, not only the risky ones.** Six of `main`'s
-/// seven reads are harmless individually — but a rule with exceptions is a rule
-/// the next person has to re-derive from the exception list, and the ACL is
-/// what decides WHICH commands this window has at all. Here we only decide
-/// whether the page asking is one we point the window at.
+/// **Uniform on every app command, not only the risky ones.** Six of the
+/// original seven `main` reads are harmless individually, and the four SSH
+/// signer commands are harmless without the native approval behind them — but
+/// a rule with exceptions is a rule the next person has to re-derive from the
+/// exception list, and the ACL is what decides WHICH commands this window has
+/// at all. Here we only decide whether the page asking is one we point the
+/// window at.
 ///
 /// It sits at the invoke handler rather than inside each command because that
 /// is the one place the CALLING webview is known without changing a signature:
 /// Tauri identifies the caller through an injected `Webview` argument, and
-/// three of the seven are pinned to taking no argument at all precisely so they
-/// cannot be aimed. Plugin commands do not pass through here (Tauri routes
+/// three of the original seven are pinned to taking no argument at all
+/// precisely so they cannot be aimed. Plugin commands do not pass through here (Tauri routes
 /// `plugin:…` to `extend_api` first), so `core:window:allow-start-dragging`
 /// keeps working on an untrusted page — a window nobody can move is a worse
 /// outcome than one showing a page that can do nothing else.

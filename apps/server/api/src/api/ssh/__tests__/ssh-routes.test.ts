@@ -927,6 +927,30 @@ describe("one-use native SSH key routing", () => {
       (await sshFetch("/api/ssh/local-key", { method: "POST", body: { node: NODE_ON, destination: "work" } })).status,
     ).toBe(401);
     expect((await sshFetch(`/api/ssh/local-key/${unknownId}/exchange`, { method: "POST", body: {} })).status).toBe(401);
+    // Every machine credential is refused on this surface too (same door as
+    // the siblings above): a pane's token must never route anyone's key.
+    const probeId = `localkey-bearer-${Date.now()}`;
+    await new SubshellsRepository(db).create({
+      id: probeId,
+      userId: ownerId,
+      harnessId: "terminal",
+      name: "localkey-bearer-probe",
+      workingDir: tmpdir(),
+      tmuxSocket: null,
+      nodeId: LOCAL_NODE_ID,
+    });
+    createdSubshellIds.push(probeId);
+    const key = await issueSubshellToken(probeId, ownerId);
+    const bearerProbe = await sshFetch("/api/ssh/local-key", {
+      method: "POST",
+      body: { node: NODE_ON, destination: "work" },
+      bearer: key,
+    });
+    expect(bearerProbe.status).toBe(403);
+    expect(
+      (await sshFetch(`/api/ssh/local-key/${unknownId}/exchange`, { method: "POST", body: {}, bearer: key })).status,
+    ).toBe(403);
+    expect((await sshFetch(`/api/ssh/local-key/${unknownId}`, { method: "DELETE", bearer: key })).status).toBe(403);
     const scripted = attachScriptedNode(NODE_ON, {
       ssh_resolve_config: () => ({
         accepted: true,

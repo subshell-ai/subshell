@@ -12,13 +12,16 @@
  *
  * - `wizard` is the assistant — a bundled `tauri://` page this repo ships — and
  *   it holds every command that drives the CLI, the destructive ones included.
- * - `main` shows the SERVER's own SPA. It holds exactly SEVEN commands where
- *   Subshell Client's remote window holds one, and the reason USED to be that
- *   its origin was enumerable: loopback, named in `main.json`. That stopped
+ * - `main` shows the SERVER's own SPA. It holds ELEVEN commands (the original
+ *   seven, plus the four `desktop_ssh_key_*` signer commands of 2026-10-14,
+ *   each argued in `docs/security.md` §8b) where Subshell Client's remote
+ *   window holds five, and the reason the count USED to be defensible at seven
+ *   was that its origin was enumerable: loopback, named in `main.json`. That stopped
  *   being true on 2026-09-18 (spec § 15) — the window may now navigate anywhere
  *   http(s), because a plane behind an OAuth proxy cannot be signed into
  *   otherwise, and the scope is a wildcard. The seven survived by moving the
- *   boundary rather than removing it: `src-tauri/src/trust.rs` refuses every
+ *   boundary rather than removing it, and the four additions ride the same
+ *   guard: `src-tauri/src/trust.rs` refuses every
  *   command from this window unless the page is on loopback or the instance's
  *   configured `APP_BASE_URL`, and the scope test below pins that guard
  *   alongside the wildcard. The count
@@ -250,8 +253,11 @@ describe("the assistant's IPC contract", () => {
     // here on purpose (operator's call, 2026-09-12): the assistant window that
     // carried it read as a bug, and a page that already holds the admin
     // restart route can do worse than move the server between two supervisors.
-    // The accounting is in docs/security.md. Adding an EIGHTH is the change
-    // this line exists to make loud; so is quietly widening any of these.
+    // The accounting is in docs/security.md. The number moved from seven to
+    // eleven on 2026-10-14, with the four signer commands argued there before
+    // they shipped: that is this line working as designed, not drifting past
+    // it. A TWELFTH is the next change this pin exists to make loud; so is
+    // quietly widening any of these.
     //
     // `desktop_open_assistant` is the deep link the SPA sends — the Settings
     // danger card (`{ screen: "reset" }`), the Service page's Update card and

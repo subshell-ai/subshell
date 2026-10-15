@@ -1,4 +1,5 @@
-import { SSH_LOCAL_KEY_MAX_BASE64 } from "@internal/subshell-protocol";
+import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
+import { isSshKeyBridgePayload, SSH_LOCAL_KEY_MAX_BASE64 } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { SshDestinationField } from "@/api/ssh/ssh-views.js";
@@ -10,7 +11,9 @@ const PrepareSchema = t.Object({
 });
 const IdSchema = t.Object({ id: t.String({ format: "uuid", description: "Temporary signing request id" }) });
 const ReplySchema = t.Object({
-  seq: t.Integer({ minimum: 0, maximum: 8, description: "Outstanding agent request sequence" }),
+  // The bridge ends itself before a ninth request exists, so 0..7 is every
+  // sequence a reply can legitimately carry.
+  seq: t.Integer({ minimum: 0, maximum: 7, description: "Outstanding agent request sequence" }),
   payload: t.String({
     minLength: 4,
     maxLength: SSH_LOCAL_KEY_MAX_BASE64,
@@ -44,6 +47,14 @@ export const sshLocalKeyRoutes = new Elysia()
     async ({ user, actor, session, params, body, set }) => {
       requireCookieActor(actor, "Local SSH keys require a browser session.");
       if (!session) throw new Error("Browser session is unavailable.");
+      // Character bounds do not prove the decoded size; check it here, before
+      // the frame rides the signed RPC and the node's grammar kills the bridge.
+      if (body.reply && !isSshKeyBridgePayload(body.reply.payload))
+        throwApiError({
+          code: BackendErrorCodes.INPUT_VALIDATION_ERROR,
+          message: "The signing reply isn't a valid bounded SSH agent message.",
+          doNotLog: true,
+        });
       set.headers["cache-control"] = "no-store";
       return exchangeLocalSshKey(params.id, user.id, session.id, body.reply);
     },

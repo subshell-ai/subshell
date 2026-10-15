@@ -74,7 +74,7 @@ export function useBrowserKeySelection() {
       if (passphrase.current) passphrase.current.value = "";
       if (input.current) input.current.value = "";
       if (!chosen.size || chosen.size > SSH_LOCAL_KEY_MAX_BYTES) {
-        setError("Choose a private key smaller than 64 KiB.");
+        setError("Choose a private key no larger than 64 KiB.");
         return;
       }
       file.current = chosen;
@@ -90,7 +90,7 @@ export function useBrowserKeySelection() {
       // byte copy; success or leaving the flow clears the input separately.
       if (password.length > 4096) {
         password.fill(0);
-        throw new Error("Use a key passphrase shorter than 4 KiB.");
+        throw new Error("Use a key passphrase no longer than 4 KiB once encoded.");
       }
       return { file: chosen, passphrase: password };
     },
@@ -183,7 +183,6 @@ export function BrowserKeyFields({ selection, busy }: { selection: BrowserKeySel
             id="ssh-browser-passphrase"
             type="password"
             autoComplete="off"
-            maxLength={4096}
             disabled={busy}
           />
         </Field>

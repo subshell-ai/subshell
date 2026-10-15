@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, expect, it } from "bun:test";
-import { BackendErrorCodes } from "@internal/backend-errors";
-import type { SshConnectionSnapshotWire, SshKeyBridgeCommand } from "@internal/subshell-protocol";
+import { ApiError, BackendErrorCodes } from "@internal/backend-errors";
+import type {
+  NodeSshResolveOutcomeWire,
+  SshConnectionSnapshotWire,
+  SshKeyBridgeCommand,
+} from "@internal/subshell-protocol";
 import type { NodeGate } from "@/api/nodes/node-gate.js";
+import { NodeRpcError } from "@/services/nodes/node-rpc.js";
+import type { SshAnswer } from "../ssh-launch.service.js";
 import {
   closeLocalSshKey,
   exchangeLocalSshKey,
@@ -35,36 +41,40 @@ let now: number;
 let allowed: boolean;
 let sent: SshKeyBridgeCommand[];
 let captures: number;
+const fakeDeps = {
+  now: () => now,
+  resolve: async (): Promise<SshAnswer<NodeSshResolveOutcomeWire>> => ({
+    ok: true,
+    value: { accepted: true, snapshot } as NodeSshResolveOutcomeWire,
+  }),
+  gate: async (): Promise<SshAnswer<NodeGate>> =>
+    allowed
+      ? { ok: true, value: {} as NodeGate }
+      : { ok: false, refusal: { status: 403, code: BackendErrorCodes.SSH_GATE_OFF, message: "denied" } },
+  pin: async () => null,
+  hostKey: async () => ({ lines: [pin] }),
+  capture: async (args: { ownerUserId: string; destination: string }) => {
+    captures++;
+    return {
+      id: "pin",
+      ownerUserId: args.ownerUserId,
+      destination: args.destination,
+      hostKey: pin,
+      createdAt: "",
+      updatedAt: "",
+    };
+  },
+  rpc: async (_node: string, command: SshKeyBridgeCommand) => {
+    sent.push(command);
+    return { done: command.op === "close", request: null };
+  },
+};
 beforeEach(() => {
   now = 1000;
   allowed = true;
   sent = [];
   captures = 0;
-  setLocalSshKeyDepsForTests({
-    now: () => now,
-    resolve: async () => ({ ok: true, value: { accepted: true, snapshot } }),
-    gate: async () =>
-      allowed
-        ? { ok: true, value: {} as NodeGate }
-        : { ok: false, refusal: { status: 403, code: BackendErrorCodes.SSH_GATE_OFF, message: "denied" } },
-    pin: async () => null,
-    hostKey: async () => ({ lines: [pin] }),
-    capture: async (args) => {
-      captures++;
-      return {
-        id: "pin",
-        ownerUserId: args.ownerUserId,
-        destination: args.destination,
-        hostKey: pin,
-        createdAt: "",
-        updatedAt: "",
-      };
-    },
-    rpc: async (_node, command) => {
-      sent.push(command);
-      return { done: command.op === "close", request: null };
-    },
-  });
+  setLocalSshKeyDepsForTests(fakeDeps);
 });
 afterEach(() => setLocalSshKeyDepsForTests(null));
 async function prepare() {
@@ -129,4 +139,56 @@ it("refuses concurrent opens before a second bridge can exist", async () => {
   await expect(open(id)).rejects.toThrow();
   await first;
   expect(sent.filter((cmd) => cmd.op === "open")).toHaveLength(1);
+});
+it("maps a dropped node to the ssh family's offline refusal instead of a bare 500", async () => {
+  let offlineOnOpen = false;
+  setLocalSshKeyDepsForTests({
+    ...fakeDeps,
+    rpc: async (_node: string, command: SshKeyBridgeCommand) => {
+      sent.push(command);
+      if (command.op === "open" && offlineOnOpen) throw new NodeRpcError("offline", 'node "n1" is offline', "n1");
+      return { done: command.op === "close", request: null };
+    },
+  });
+  const prepared = await prepare();
+  offlineOnOpen = true;
+  let thrown: unknown;
+  try {
+    await open(prepared.id);
+  } catch (error) {
+    thrown = error;
+  }
+  expect(thrown).toBeInstanceOf(ApiError);
+  expect((thrown as ApiError).code).toBe(BackendErrorCodes.NODE_OFFLINE);
+  // The refusal is also a teardown: the preparation is gone, so a retry of the
+  // SAME id hears the ended-request code, not a path back to the offline node.
+  let retry: unknown;
+  try {
+    await open(prepared.id);
+  } catch (error) {
+    retry = error;
+  }
+  expect((retry as ApiError).code).toBe(BackendErrorCodes.SSH_RELAY_OPEN_FAILED);
+});
+it("maps a stale-sequence bridge refusal to the ended-request code, not a 500", async () => {
+  let stale = false;
+  setLocalSshKeyDepsForTests({
+    ...fakeDeps,
+    rpc: async (_node: string, command: SshKeyBridgeCommand) => {
+      sent.push(command);
+      if (command.op === "exchange" && stale) throw new Error("SSH signing reply is out of sequence.");
+      return { done: command.op === "close", request: null };
+    },
+  });
+  const prepared = await prepare();
+  await open(prepared.id);
+  stale = true;
+  let thrown: unknown;
+  try {
+    await exchangeLocalSshKey(prepared.id, "u1", "s1");
+  } catch (error) {
+    thrown = error;
+  }
+  expect(thrown).toBeInstanceOf(ApiError);
+  expect((thrown as ApiError).code).toBe(BackendErrorCodes.SSH_RELAY_OPEN_FAILED);
 });

@@ -447,6 +447,9 @@ export function isSshPaneId(value: unknown): value is string {
   return isStr(value) && SSH_PANE_ID_RE.test(value);
 }
 
+/** The id grammar the local-key bridge accepts: a pane id that is also a lowercase uuid. */
+const SSH_LOCAL_KEY_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 /**
  * The selected fingerprint set: strings, every one in the `SHA256:`
  * display form (an empty or free-text entry matches no key yet would ride a
@@ -504,11 +507,10 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
   if (!isRecord(value) || !isStr(value.type)) return null;
   switch (value.type) {
     case "ssh_key_bridge": {
-      if (
-        typeof value.id !== "string" ||
-        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value.id)
-      )
-        return null;
+      // The id IS the pane id (the launcher passes subshellId), but the bridge
+      // narrows further than SSH_PANE_ID_RE to the lowercase-uuid spelling it
+      // is always minted with: a stranger id never reaches this command.
+      if (typeof value.id !== "string" || !SSH_LOCAL_KEY_ID_RE.test(value.id)) return null;
       const id = value.id;
       if (value.op === "open")
         return isSshLocalKeyHostPin(value.hostPin)

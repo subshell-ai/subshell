@@ -55,7 +55,7 @@ passphrases never reach the control plane page or the server.
 The shared `desktop-core::ssh_signer` verifies OpenSSH's session binding and
 signs exactly one host-bound authentication for the approved host key and user.
 It refuses arbitrary signing, other users or host keys, forwarding, rebinding,
-and RSA SHA1. Native buffers are zeroizing; physical RAM erasure and operating
+and RSA SHA1. Native buffers are zeroized; physical RAM erasure and operating
 system copies cannot be guaranteed. Keys expire after 90 seconds from reading,
 and native timers, navigation, window close, and explicit release clean up
 without depending on the remote page. See the
@@ -117,8 +117,10 @@ Three things about it are load-bearing:
   generates it, so `ui/src/__tests__/ipc-acl.test.ts` reads
   `permissions/desktop.toml` and `capabilities/node.json` and asserts the
   granted command set is exactly the invoked one. That three-way mismatch is a
-  runtime permission rejection, not a compile error. The same file asserts what
-  the `main` window holds: one permission, one scope, one Rust signature.
+  runtime permission rejection, not a compile error. The same file pins the
+  `main` window's five commands (open-in-browser plus the four 2026-10-14 SSH
+  signer commands) against the same three sources, each with its scope and Rust
+  signature.
 - **`withGlobalTauri` is `true`, and it is the OTHER window that needs it.**
   This page imports `invoke` from `@tauri-apps/api/core` and has no use for a
   global; it was `false` from the day that import landed. What changed on
@@ -127,8 +129,10 @@ Three things about it are load-bearing:
   and imports nothing by design: it must not pull `@tauri-apps/api` into a
   bundle served to browsers, and the repo forbids the dynamic import that would
   avoid that. The global GRANTS nothing; `capabilities/main.json` does. Turning
-  it back off would not close a hole, it would make that one command silently
-  unreachable: the bridge never throws, which is exactly the failure
+  it back off would not close a hole, it would make the plane window's five
+  commands silently unreachable (the bridge in `src/lib/desktop.ts` invokes the
+  browser command and all four SSH signer commands through the global): the
+  bridge never throws, which is exactly the failure
   `apps/server/desktop` measured on 2026-09-10 when its config was copied from
   this one. `ui/src/__tests__/tauri-config.test.ts` pins the PAIR: while
   `windows.rs` ships a marker, the global must exist.

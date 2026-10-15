@@ -120,8 +120,10 @@ describe("the build wiring", () => {
     // the config text, like the CSP half.
     expect(viteConfig).toContain('wizard: path.resolve(dirname, "ui/wizard.html")');
     expect(existsSync(join(import.meta.dir, "../../wizard.html"))).toBe(true);
-    // And there is exactly one: a second page is a second window, which is
-    // the shape this app spent a release removing.
+    // And there are exactly two bundled pages: the assistant and the SSH-key
+    // unlock form (2026-10-14). Each is a window with its own capability; a
+    // third page is a third window, and that is the case this count exists to
+    // make loud.
     expect(viteConfig.match(/path\.resolve\(dirname, "ui\/[^"]+\.html"\)/g)).toHaveLength(2);
     // The page the console left behind is gone, not merely unreferenced — an
     // orphan `index.html` beside a config that names `wizard.html` is how the

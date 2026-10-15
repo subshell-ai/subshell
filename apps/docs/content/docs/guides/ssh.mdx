@@ -38,7 +38,6 @@ Under **Authentication**, choose keys on a node, a key on your own machine, or a
 | **Enter a password when connecting** | Enter the destination account's password in the terminal when SSH prompts. Subshell doesn't save it. The destination must allow password authentication. |
 
 
-
 When using another node's keys, those keys must be loaded in an SSH agent that the node's Subshell process can access. Keys available in an interactive terminal might not be available to a background service. If the list is empty or unavailable, ask that node's owner to check its SSH agent and the service's `SSH_AUTH_SOCK` environment, then select **Reload keys**. See [Files and paths](/reference/paths) for the node's configuration locations.
 
 The private keys stay with the node supplying them. Subshell relays encrypted signing requests between the two nodes for the keys you selected. Both nodes must remain available for authentication. If SSH is disabled on a key source you own, the form explains that starting will enable it; you'll then select keys before connecting.

@@ -52,9 +52,13 @@ const SETTINGS_PATHS: SettingsPaths = SettingsPaths {
 
 /// Windows whose geometry the window-state plugin must not save or restore.
 ///
-/// One name, and it is the assistant's. Kept as a constant so the plugin's
-/// configuration and the test that pins it read the same string.
-const DENYLIST: &[&str] = &["wizard"];
+/// The assistant, and the SSH-key unlock window opened by `ssh_key.rs`
+/// (2026-10-14). Both are fixed, centred, non-resizable frames, and this is
+/// the geometry trap both AGENTS notes record: the plugin restores AFTER the
+/// builder's `center()`, so a tracked one would open wherever the last pick
+/// left it. Kept as a constant so the plugin's configuration and the test
+/// that pins it read the same string.
+const DENYLIST: &[&str] = &["wizard", ssh_key::UNLOCK];
 
 /// The menu bar's own dispatch, where there is a menu bar.
 ///
@@ -469,17 +473,17 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    /// The ASSISTANT's geometry is never restored.
+    /// The ASSISTANT's and the SSH-key unlock form's geometry is never restored.
     ///
-    /// It is a fixed, non-resizable, centred frame, so there is nothing a
-    /// person could have chosen — and `open_main` inherits its position and
-    /// size, so a restored one would reach the dashboard too. Pinned against
-    /// the window label rather than trusted to the comment beside it, because
-    /// the symptom is a window that opens at the wrong size and nothing else:
-    /// no error, no failing build.
+    /// Both are fixed, non-resizable, centred frames, so there is nothing a
+    /// person could have chosen — and `open_main` inherits the assistant's
+    /// position and size, so a restored one would reach the dashboard too.
+    /// Pinned against the window labels rather than trusted to the comment
+    /// beside it, because the symptom is a window that opens at the wrong size
+    /// and nothing else: no error, no failing build.
     #[test]
-    fn the_assistant_is_not_tracked_by_the_window_state_plugin() {
-        assert_eq!(DENYLIST, ["wizard"]);
+    fn fixed_frames_are_not_tracked_by_the_window_state_plugin() {
+        assert_eq!(DENYLIST, ["wizard", "ssh-key-unlock"]);
     }
 
     /// The window-state plugin must not restore MAXIMIZED or FULLSCREEN.

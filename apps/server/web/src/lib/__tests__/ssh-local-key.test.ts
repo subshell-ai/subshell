@@ -255,3 +255,45 @@ for (const outcome of ["unsigned", "signed", "cleanup-failed"] as const) {
     expect(discarded).toBe(outcome === "unsigned");
   });
 }
+
+it("keeps the pane after a signature even when a later answer fails and the next post breaks", async () => {
+  // The desktop bridge answers a CLOSED signer's request with a normal
+  // {done:true, response:"BQ=="} reply: the loop must not let that later
+  // negative answer un-record the signature already delivered, or the catch
+  // block would delete a pane that may have authenticated.
+  let invoke = 0;
+  nativeWindow.__TAURI__ = {
+    core: {
+      invoke: async (command) => {
+        if (command === "desktop_ssh_key_available") return true;
+        if (command === "desktop_ssh_key_pick") return selected;
+        if (command === "desktop_ssh_key_request") return { response: ++invoke === 1 ? "Dg==" : "BQ==", done: true };
+        return null;
+      },
+    },
+  };
+  const deletions: string[] = [];
+  let exchanges = 0;
+  globalThis.fetch = (async (url, init) => {
+    const path = String(url);
+    if (path === "/api/ssh/local-key") return json(prepared);
+    if (path.endsWith("/exchange")) {
+      if (++exchanges === 1) return json({ done: false, request: { seq: 0, payload: "DQ==" } });
+      if (exchanges === 2) return json({ done: false, request: { seq: 1, payload: "DQ==" } });
+      throw new Error("Connection interrupted");
+    }
+    if (path === "/api/subshells/pane" && init?.method === "DELETE") deletions.push(path);
+    return json({ ok: true });
+  }) as typeof fetch;
+  await expect(
+    launchWithLocalKey(
+      { node: "n", destination: "alice@host" },
+      async () => ({ subshell: { id: "pane" } }),
+      () => {},
+      new AbortController().signal,
+      undefined,
+      () => {},
+    ),
+  ).rejects.toThrow("Connection interrupted");
+  expect(deletions).toEqual([]);
+});

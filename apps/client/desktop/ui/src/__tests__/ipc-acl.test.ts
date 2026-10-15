@@ -139,7 +139,7 @@ describe("the IPC contract", () => {
 });
 
 /**
- * The window that is granted ONE command.
+ * The window that is granted five narrow commands.
  *
  * It was granted nothing until 2026-09-14, and the absence WAS the boundary: a
  * control plane can live on any host, so unlike `apps/server/desktop`'s
@@ -147,7 +147,10 @@ describe("the IPC contract", () => {
  * at all. That has not changed. What changed is that "Open in browser" is
  * chrome any shell owes its user — a webview has no address bar and no second
  * tab — so the boundary moved one level in: the SCOPE is a wildcard, and the
- * narrowness lives in the command's ARGUMENT.
+ * narrowness lives in the command's ARGUMENT. The 2026-10-14 SSH signer added
+ * the four `desktop_ssh_key_*` commands on the same principle: they name no
+ * file themselves, bind to the committed `PlanePin` over HTTPS off loopback,
+ * and hand the page only public wire bytes.
  *
  * Which makes three things worth pinning rather than one: that the scope is
  * exactly what was argued for, that the permission list is exactly one entry,

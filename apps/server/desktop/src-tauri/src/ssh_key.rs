@@ -9,7 +9,7 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder}
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 
 const DEV_PORT: u16 = 5178;
-const UNLOCK: &str = "ssh-key-unlock";
+pub(crate) const UNLOCK: &str = "ssh-key-unlock";
 const REFUSAL: &str = "This page can't use local SSH keys. Return to your control plane and try again.";
 
 struct Unlock {
@@ -202,7 +202,7 @@ pub async fn desktop_ssh_key_pick(
         struct Picking(AppHandle);
         impl Drop for Picking { fn drop(&mut self) { self.0.state::<State>().picking.store(false, Ordering::SeqCst); } }
         let _picking = Picking(app.clone());
-        let approved = app.dialog().message(format!("Allow one SSH authentication as {user} on {host}, port {port}?\n\nHost fingerprint: {fingerprint}\nVerify this fingerprint through a trusted channel before continuing.\n\nThe selected key stays in this desktop app's memory for up to 90 seconds and is released after one signature. Subshell can use the resulting SSH connection as {user} if authentication succeeds.")).title("Use a local SSH key?").buttons(MessageDialogButtons::OkCancelCustom("Choose key".into(), "Cancel".into())).blocking_show();
+        let approved = app.dialog().message(format!("Allow one SSH authentication as {user} on {host}, port {port}?\n\nHost fingerprint: {fingerprint}\nVerify this fingerprint through a trusted channel before continuing.\n\nThe selected key stays in this desktop app's memory for up to 90 seconds and is released after one signature. Subshell can use the resulting SSH connection as {user} if authentication succeeds.")).title("Use a local SSH key?").buttons(MessageDialogButtons::OkCancelCustom("Choose key".into(), "Cancel".into())).parent(&window).blocking_show();
         if !approved { return Ok(None); }
         if owner(&window)? != initial { return Err(REFUSAL.into()); }
         let mut picker = app.dialog().file().set_title("Choose an SSH private key").set_parent(&window);
@@ -287,7 +287,10 @@ pub fn desktop_ssh_key_close(window: WebviewWindow, id: Option<String>) -> Resul
 pub fn desktop_ssh_key_unlock(window: WebviewWindow, passphrase: Option<String>) -> Result<(), String> {
     let cancel = passphrase.is_none();
     let passphrase = Secret::new(passphrase.unwrap_or_default());
-    if window.label() != UNLOCK || !window.url().is_ok_and(|url| bundled_unlock_url(&url)) || passphrase.len() > 4096 {
+    if window.label() != UNLOCK
+        || !window.url().is_ok_and(|url| bundled_unlock_url(&url))
+        || passphrase.encode_utf16().count() > 4096
+    {
         return Err("This window can't unlock an SSH key.".into());
     }
     let app = window.app_handle();

@@ -290,6 +290,7 @@ export {
   isSshLocalKeyHostPin,
   parseSshKeyBridgeReply,
   parseSshKeyBridgeResult,
+  SSH_AGENT_FAILURE_BASE64,
   SSH_LOCAL_KEY_MAX_BASE64,
   SSH_LOCAL_KEY_MAX_BYTES,
   SSH_LOCAL_KEY_TTL_MS,

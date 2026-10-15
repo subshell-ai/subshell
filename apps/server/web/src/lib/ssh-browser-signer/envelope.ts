@@ -1,5 +1,6 @@
+import { SSH_LOCAL_KEY_MAX_BYTES } from "@internal/subshell-protocol";
 import { pbkdf } from "bcrypt-pbkdf";
-import { concat, decode64, equal, MAX_BYTES, Reader, SignerError } from "./wire";
+import { concat, decode64, equal, Reader, SignerError } from "./wire";
 
 const MAGIC = new TextEncoder().encode("openssh-key-v1\0");
 const BAD_KEY = "That file isn't a supported OpenSSH private key.";
@@ -24,7 +25,7 @@ export interface Envelope {
 
 /** Parse the OpenSSH envelope without decrypting its private block. */
 export function readEnvelope(bytes: Uint8Array): Envelope {
-  if (!bytes.length || bytes.length > MAX_BYTES) {
+  if (!bytes.length || bytes.length > SSH_LOCAL_KEY_MAX_BYTES) {
     throw new SignerError("Choose an SSH private key file no larger than 64 KiB.");
   }
   const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -81,7 +82,7 @@ export function readEnvelope(bytes: Uint8Array): Envelope {
 /** Decrypt into an owned allocation; AES itself stays in Web Crypto. */
 export async function unlockEnvelope(envelope: Envelope, passphrase?: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
   if (!envelope.encrypted) return concat(envelope.privateBlock);
-  if (!passphrase?.length || passphrase.length > MAX_BYTES) {
+  if (!passphrase?.length || passphrase.length > SSH_LOCAL_KEY_MAX_BYTES) {
     throw new SignerError("Enter this SSH key's passphrase.");
   }
   const material = new Uint8Array(envelope.keyLength + 16);
