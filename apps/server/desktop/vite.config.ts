@@ -71,6 +71,7 @@ export default defineConfig({
       // 404 with no build error anywhere. Pinned by tauri-config.test.ts.
       input: {
         wizard: path.resolve(dirname, "ui/wizard.html"),
+        sshKeyUnlock: path.resolve(dirname, "ui/ssh-key-unlock.html"),
       },
     },
   },

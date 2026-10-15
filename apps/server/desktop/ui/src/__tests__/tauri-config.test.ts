@@ -111,7 +111,7 @@ describe("the build wiring", () => {
     expect(config.build.frontendDist).toBe("../ui/dist");
   });
 
-  it("builds the ONE bundled page, CSP-clean", () => {
+  it("builds the assistant and isolated local key unlock form, CSP-clean", () => {
     // The input is named rather than left to Vite's default, which is
     // `index.html` — a file this app no longer has. A missing rollup input
     // does not fail the build: it ships a bundle in which
@@ -122,7 +122,7 @@ describe("the build wiring", () => {
     expect(existsSync(join(import.meta.dir, "../../wizard.html"))).toBe(true);
     // And there is exactly one: a second page is a second window, which is
     // the shape this app spent a release removing.
-    expect(viteConfig.match(/path\.resolve\(dirname, "ui\/[^"]+\.html"\)/g)).toHaveLength(1);
+    expect(viteConfig.match(/path\.resolve\(dirname, "ui\/[^"]+\.html"\)/g)).toHaveLength(2);
     // The page the console left behind is gone, not merely unreferenced — an
     // orphan `index.html` beside a config that names `wizard.html` is how the
     // wrong page gets bundled back in.

@@ -16,6 +16,7 @@ mod app_update;
 mod control;
 mod node_bin;
 mod reset;
+mod ssh_key;
 // macOS only: a GTK menu bar is per-window chrome rather than a system bar, so
 // Linux has none — and a module compiled there would be entirely dead code.
 // Gated at the MODULE, never at the call site, so `cargo clippy` on Linux sees
@@ -159,6 +160,7 @@ pub fn run() {
         // before handing the plugin exactly one URL.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(SettingsState::new(SETTINGS_PATHS))
+        .manage(ssh_key::State::default())
         .manage(windows::PlanePin::new())
         .manage(windows::PendingScreen::new())
         .manage(reset::Stash::default())
@@ -180,12 +182,30 @@ pub fn run() {
             control::node_open_plane,
             control::node_open_plane_url,
             control::desktop_open_in_browser,
+            ssh_key::desktop_ssh_key_available,
+            ssh_key::desktop_ssh_key_pick,
+            ssh_key::desktop_ssh_key_request,
+            ssh_key::desktop_ssh_key_close,
+            ssh_key::desktop_ssh_key_unlock,
             control::node_check_app_update,
             control::node_install_app_update,
             reset::node_arm_reset,
             reset::node_reset,
         ])
         .on_window_event(|window, event| {
+            if matches!(
+                event,
+                tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
+            ) {
+                ssh_key::closed(
+                    window.app_handle(),
+                    window.label(),
+                    matches!(event, tauri::WindowEvent::Destroyed),
+                );
+            }
+            if window.label() == "ssh-key-unlock" {
+                return;
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 // Close-to-tray is opt-in, and the check RE-PROBES the desktop
                 // here rather than trusting the stored preference: where no
@@ -207,6 +227,7 @@ pub fn run() {
         })
         .setup(|app| {
             let handle = app.handle().clone();
+            ssh_key::start_expiry(handle.clone());
             #[cfg(target_os = "macos")]
             app.set_menu(menu::build(&handle)?)?;
             // Registered on EVERY platform, and it is the ONE place text

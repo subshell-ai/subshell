@@ -380,7 +380,7 @@ describe("parseNodeCommandBody", () => {
     // / `ssh_relay_close` signed commands. A tier-17 agent understands no relay
     // frame, and the exact-match gate refuses it BEFORE any relay command
     // (spec §11: never half-relaying).
-    expect(NODE_PROTOCOL_VERSION).toBe(20);
+    expect(NODE_PROTOCOL_VERSION).toBe(21);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
@@ -1110,31 +1110,34 @@ describe("ssh command arms and the launch ssh block", () => {
       "ssh_exec",
       "ssh_exec_status",
       "ssh_host_key",
+      "ssh_key_bridge",
       "ssh_machine_pin_repair",
       "ssh_register_identity",
       "ssh_relay_close",
       "ssh_relay_open",
       "ssh_resolve_config",
     ]);
-    expect(SSH_COMMAND_TYPES).toHaveLength(10);
+    expect(SSH_COMMAND_TYPES).toHaveLength(11);
     // Every census type is a type the dispatcher actually narrows.
     for (const t of SSH_COMMAND_TYPES) {
       const body =
-        t === "ssh_resolve_config"
-          ? { type: t, alias: "box-a" }
-          : t === "ssh_relay_open"
-            ? relayOpenCmd
-            : t === "ssh_relay_close"
-              ? { type: t, ref: "r-1", reason: "lifetime-expiry" }
-              : t === "ssh_host_key"
-                ? { type: t, host: "git.example.test", port: 22, user: null }
-                : t === "ssh_exec"
-                  ? execCmdFixture()
-                  : t === "ssh_exec_status"
-                    ? { type: t, execId: EXEC_ID }
-                    : t === "ssh_machine_pin_repair"
-                      ? repairCmd
-                      : { type: t };
+        t === "ssh_key_bridge"
+          ? { type: t, op: "close", id: "00000000-0000-4000-8000-000000000001" }
+          : t === "ssh_resolve_config"
+            ? { type: t, alias: "box-a" }
+            : t === "ssh_relay_open"
+              ? relayOpenCmd
+              : t === "ssh_relay_close"
+                ? { type: t, ref: "r-1", reason: "lifetime-expiry" }
+                : t === "ssh_host_key"
+                  ? { type: t, host: "git.example.test", port: 22, user: null }
+                  : t === "ssh_exec"
+                    ? execCmdFixture()
+                    : t === "ssh_exec_status"
+                      ? { type: t, execId: EXEC_ID }
+                      : t === "ssh_machine_pin_repair"
+                        ? repairCmd
+                        : { type: t };
       expect(parseNodeCommandBody(body)).not.toBeNull();
     }
   });

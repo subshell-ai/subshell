@@ -4158,7 +4158,10 @@ mod tests {
     /// to catch is a command added to it by habit — a test that only forbade
     /// today's names would not see tomorrow's.
     ///
-    /// Seven of the eight cannot touch the CLI. The odd one,
+    /// Four local SSH signing commands also require native destination
+    /// approval, a pinned committed origin, host-bound authentication, and
+    /// a one-signature lifetime. The unlock receiver stays bundled-only.
+    /// Seven of the original eight cannot touch the CLI. The odd one,
     /// `desktop_set_supervision`, can — it is the ONE deliberate exception
     /// (operator's call, 2026-09-12): the dashboard confirms in its own dialog
     /// rather than raising the assistant, on the argument that a page already
@@ -4191,7 +4194,7 @@ mod tests {
     /// (`desktop_open_assistant`, held already), and nothing else (spec
     /// 2026-09-17 § 5.3).
     #[test]
-    fn the_remote_window_is_granted_seven_harmless_commands_and_one_deliberate_exception() {
+    fn the_remote_window_grants_only_shell_controls_and_constrained_local_signing() {
         assert_eq!(
             grants("main"),
             vec![
@@ -4203,6 +4206,10 @@ mod tests {
                 "allow-desktop-set-supervision",
                 "allow-desktop-permissions",
                 "allow-desktop-app-update",
+                "allow-desktop-ssh-key-available",
+                "allow-desktop-ssh-key-pick",
+                "allow-desktop-ssh-key-request",
+                "allow-desktop-ssh-key-close",
             ]
         );
     }

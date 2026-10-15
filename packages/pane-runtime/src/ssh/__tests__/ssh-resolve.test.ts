@@ -505,3 +505,12 @@ describe("parseProxyHop", () => {
     expect(parseProxyHop("host:0", null)).toBeNull();
   });
 });
+
+it("preserves an explicit username matching the connecting account", async () => {
+  const { out } = await resolveWith("deploy@resolved.example:2222", CLEAN_G, {
+    configBody: "",
+    account: "deploy",
+  });
+  expect(out.accepted).toBe(true);
+  if (out.accepted) expect(out.snapshot.user).toBe("deploy");
+});

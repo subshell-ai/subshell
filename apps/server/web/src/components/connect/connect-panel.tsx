@@ -3,6 +3,7 @@ import { Button, errMessage, Label } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronDown } from "lucide-react";
 import { type JSX, useCallback, useEffect, useRef, useState } from "react";
+import { useBrowserKeySelection } from "@/components/connect/browser-key-fields";
 import { DestinationField } from "@/components/connect/destination-field";
 import { buildDestinationOptions } from "@/components/connect/destination-options";
 import { NoSshTargets } from "@/components/connect/no-ssh-targets";
@@ -18,6 +19,7 @@ import {
   sshSessionDraft,
 } from "@/components/connect/ssh-session-draft";
 import { SshWizard } from "@/components/connect/ssh-wizard";
+import { verifyBrowserKeyDestination } from "@/components/connect/verify-browser-key-destination";
 import { launchWithDestinationVerification } from "@/components/connect/verify-destination";
 import { SshQueryStatus } from "@/components/ssh/query-status";
 import { type ComboboxOption, SearchableSelect } from "@/components/ui/combobox";
@@ -33,10 +35,12 @@ import {
   useSshReadiness,
   useSshSavedHosts,
 } from "@/hooks/use-ssh";
+import { isDesktop } from "@/lib/desktop";
 import { fieldErrorToned, makeForm, useSubmitDisabled } from "@/lib/form";
 import { nodeOptionLabel } from "@/lib/node-label";
 import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 import { sshCanEnableOnStart } from "@/lib/ssh";
+import { launchWithLocalKey } from "@/lib/ssh-local-key";
 
 /** Shared SSH launch form for new subshells, workspace additions and splits.
  * A picked suggestion retains its canonical destination; editing it submits
@@ -79,6 +83,16 @@ export function ConnectPanel({
     machines?.some((machine) => machine.node.id === id && machine.canConnect) ?? false;
   const { data: ledger, isPending: ledgerPending } = useSshSavedHosts();
   const launch = useLaunchSsh();
+  const browserKey = useBrowserKeySelection();
+  const localKeyAbort = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const abort = () => localKeyAbort.current?.abort();
+    window.addEventListener("pagehide", abort);
+    return () => {
+      window.removeEventListener("pagehide", abort);
+      abort();
+    };
+  }, []);
   const enableSsh = useSetSshEnabled();
   const [submitting, setSubmitting] = useState(false);
   useEffect(() => {
@@ -91,6 +105,18 @@ export function ConnectPanel({
   const [localDraft, setLocalDraft] = useState(() => sshSessionDraft(initial));
   const draft = controlledDraft ?? localDraft;
   const setDraft = onDraftChange ?? setLocalDraft;
+  const signingScope = JSON.stringify([draft.authentication, draft.nodeId, sshDestination(draft)]);
+  const previousSigningScope = useRef(signingScope);
+  useEffect(() => {
+    if (previousSigningScope.current === signingScope) return;
+    previousSigningScope.current = signingScope;
+    localKeyAbort.current?.abort();
+  }, [signingScope]);
+  useEffect(() => {
+    // Before Start, this is only a file selection. Destination edits must not
+    // discard it; approval binds the imported key to the final destination.
+    if (draft.authentication !== "local-key") browserKey.clear();
+  }, [draft.authentication, browserKey.clear]);
   const nodeId = draft.nodeId;
   const keyHome = draft.keyHome;
   const dest = draft.destination;
@@ -225,7 +251,11 @@ export function ConnectPanel({
     // Belt over gate: the button's own disabled condition already holds both
     // fields, so this can only fire on a render race, never as a silent no-op.
     if (!canSubmit || submitGuard.current) return;
+    if (draft.authentication === "local-key" && !isDesktop() && browserKey.problem()) return;
     submitGuard.current = true;
+    const attempt = new AbortController();
+    localKeyAbort.current = attempt;
+    const cancelled = () => draft.authentication === "local-key" && attempt.signal.aborted;
     setSubmitting(true);
     setRefusal(null);
     let launchedId: string | null = null;
@@ -234,6 +264,7 @@ export function ConnectPanel({
       const nodesToEnable = [...(enableKeysOnStart ? [keyHome] : []), ...(enableOnStart ? [nodeId] : [])];
       if (nodesToEnable.length) {
         const fresh = await nodesQuery.refetch();
+        if (cancelled()) return;
         for (const id of [nodeId, ...(keyHome ? [keyHome] : [])]) {
           const current = fresh.data?.machines.find((m) => m.node.id === id);
           if (
@@ -246,8 +277,10 @@ export function ConnectPanel({
         for (const id of nodesToEnable) {
           const current = fresh.data?.machines.find((m) => m.node.id === id);
           if (!current?.node.sshEnabled) await enableSsh.mutateAsync({ id, on: true });
+          if (cancelled()) return;
         }
         const refreshed = await nodesQuery.refetch();
+        if (cancelled()) return;
         if (
           refreshed.isError ||
           [nodeId, ...(keyHome ? [keyHome] : [])].some(
@@ -259,17 +292,54 @@ export function ConnectPanel({
         // key subset after it becomes readable; never substitute the entire roster.
         if (enableKeysOnStart) return;
       }
+      if (cancelled()) return;
       preparing = false;
-      const created = await launchWithDestinationVerification(
-        {
-          ...(draft.authentication === "password" ? { authentication: "password" as const } : {}),
-          node: nodeId,
-          destination,
-          ...(keyHome ? { keyHome, fingerprints } : {}),
-        },
-        launch.mutateAsync,
-      );
+      const launchRequest = {
+        ...(draft.authentication === "password" ? { authentication: "password" as const } : {}),
+        node: nodeId,
+        destination,
+        ...(keyHome ? { keyHome, fingerprints } : {}),
+      };
+      const created =
+        draft.authentication === "local-key"
+          ? await launchWithLocalKey(
+              launchRequest,
+              launch.mutateAsync,
+              (id) => {
+                launchedId = id;
+                setCreatedId(id);
+              },
+              attempt.signal,
+              isDesktop()
+                ? undefined
+                : {
+                    take: browserKey.take,
+                    confirm: (target) => {
+                      const node = nodes?.find((candidate) => candidate.id === nodeId);
+                      if (!node)
+                        throw new Error("The connecting node's details are unavailable. Select the node again.");
+                      return verifyBrowserKeyDestination(target, {
+                        keyFileName: browserKey.name,
+                        nodeName: node.name,
+                      });
+                    },
+                  },
+              () => {
+                launchedId = null;
+                setCreatedId(null);
+              },
+            )
+          : await launchWithDestinationVerification(
+              {
+                ...(draft.authentication === "password" ? { authentication: "password" as const } : {}),
+                node: nodeId,
+                destination,
+                ...(keyHome ? { keyHome, fingerprints } : {}),
+              },
+              launch.mutateAsync,
+            );
       if (!created) return;
+      if (draft.authentication === "local-key") browserKey.clear();
       launchedId = created.subshell.id;
       setCreatedId(launchedId);
       if (remember) {
@@ -284,17 +354,27 @@ export function ConnectPanel({
       if (onCreated) await onCreated(created.subshell.id);
       else void navigate({ to: "/subshells/$id", params: { id: created.subshell.id } });
     } catch (err) {
+      if (cancelled()) return;
       setRefusal(
         launchedId
           ? {
               field: "destination",
-              text: "SSH subshell was created but could not be attached. Add it from the existing subshell list instead.",
+              text:
+                draft.authentication === "local-key"
+                  ? errMessage(
+                      err,
+                      "The SSH subshell was created, but temporary key authentication did not finish. Check its terminal before starting another connection.",
+                    )
+                  : "SSH subshell was created but could not be attached. Add it from the existing subshell list instead.",
             }
           : preparing
             ? { field: "machine", text: errMessage(err, "Couldn’t enable SSH and start the subshell.") }
-            : sshLaunchRefusal(err, selectedNode),
+            : sshLaunchRefusal(err, selectedNode, draft.authentication === "local-key"),
       );
     } finally {
+      if (localKeyAbort.current === attempt) {
+        localKeyAbort.current = null;
+      }
       setSubmitting(false);
       submitGuard.current = false;
     }
@@ -329,20 +409,21 @@ export function ConnectPanel({
       <div className="flex flex-col gap-4">
         <SshWizard
           draft={draft}
+          browserKey={browserKey}
           onDraftChange={setDraft}
           machines={machines ?? []}
           readiness={nodesQuery}
           onStart={submit}
-          onCancel={onLeave ?? onDone ?? (() => setWizard(false))}
+          onCancel={() => {
+            localKeyAbort.current?.abort();
+            browserKey.clear();
+            (onLeave ?? onDone ?? (() => setWizard(false)))();
+          }}
           onLeave={onLeave}
           busy={submitting}
           launchBlocked={createdId !== null}
+          refusal={refusal?.text}
         />
-        {refusal && (
-          <p role="alert" className="text-destructive text-detail">
-            {refusal.text}
-          </p>
-        )}
       </div>
     );
   if (nodesQuery.isPending || nodesQuery.isError)

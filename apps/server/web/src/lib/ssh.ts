@@ -142,6 +142,8 @@ export interface SshSaveHostRequest {
 
 /** `POST /api/ssh/launch` body: name is the pane's display name, optional. */
 export interface SshLaunchRequest {
+  /** One-use native signing preparation, never key material. */
+  localKeyId?: string;
   authentication?: "password";
   /** Optional machine whose SSH agent supplies keys; absent uses the connecting machine. */
   keyHome?: string;

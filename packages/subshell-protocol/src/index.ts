@@ -286,6 +286,17 @@ export {
   type SshResolveConfigCommand,
 } from "./ssh-frames.js";
 export {
+  isSshKeyBridgePayload,
+  isSshLocalKeyHostPin,
+  parseSshKeyBridgeReply,
+  parseSshKeyBridgeResult,
+  SSH_LOCAL_KEY_MAX_BASE64,
+  SSH_LOCAL_KEY_MAX_BYTES,
+  SSH_LOCAL_KEY_TTL_MS,
+  type SshKeyBridgeCommand,
+  type SshKeyBridgeResult,
+} from "./ssh-key-bridge.js";
+export {
   SSH_CONFIG_FILE_MAX_BYTES,
   SSH_EXEC_COMMAND_MAX_CHARS,
   SSH_EXEC_MAX_PRESET_FLAGS,

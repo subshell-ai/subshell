@@ -113,8 +113,11 @@ export function semverLt(a: string, b: string): boolean {
  * `apps/node/agent/package.json` is raised to the same floor in this commit.
  *
  * Raised to 1.6.0 with protocol 20 for destination identity discovery.
+ *
+ * Raised to 2.1.0 with protocol 21 for the temporary desktop SSH signer bridge.
+ * The node package moves to the same floor so older nodes cannot accept this flow.
  */
-export const MIN_NODE_VERSION = "1.6.0";
+export const MIN_NODE_VERSION = "2.1.0";
 
 /**
  * Whether an agent reporting `version` may connect.

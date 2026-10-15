@@ -448,9 +448,10 @@ pub fn open_main(app: &AppHandle, origin: &str, base_origin: Option<&str>) -> Re
         // itself is `open_main`'s `navigate()`, which CLEARS before it
         // navigates. Keep it that way: an app-initiated load that did not clear
         // first would be the one way to record a URL the window is not on.
-        .on_page_load(|_webview, payload| {
+        .on_page_load(|webview, payload| {
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
                 crate::trust::window_state().committed(payload.url());
+                crate::ssh_key::committed(webview.app_handle(), payload.url());
             }
         })
         .on_new_window({

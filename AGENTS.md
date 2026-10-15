@@ -178,9 +178,11 @@ Client, as a second window: whoever makes their laptop a node is usually also
 watching subshells on it, and shipping that as two installs would ask a user to
 understand a split that serves only us. **That window existing is the whole
 "node functionality" toggle**; there is no mode flag. The window loading the
-control plane's page is granted exactly ONE Tauri command ("open this page in
-the system browser", which takes a path and can name no host), and everything
-privileged lives on the bundled node page; see `apps/client/desktop/AGENTS.md`.
+control plane's page is granted narrow Tauri commands for opening a path in the system browser and
+one-use native SSH signing. The signer requires native destination approval,
+keeps keys and passphrase entry outside the remote page, checks the committed
+pinned origin, and ends access after one signature or 90 seconds. General node
+management stays on the bundled node page; see `apps/client/desktop/AGENTS.md`.
 
 `apps/server/web` is the SERVER's SPA and nothing else's, which is what the
 nesting says out loud. `apps/client/mobile` is a client because it is a person's
@@ -378,6 +380,14 @@ this is the human-facing statement of it.)
 ## Common Commands
 
 ### Development
+
+**When the user asks to spin up development for testing, always provide the
+hot-reload frontend URL**, normally `http://localhost:5174`, together with
+the test login. Start Vite against an isolated backend using
+`DEV_API_ORIGIN` (see `apps/server/web/AGENTS.md`) and verify login through
+that URL. Don't hand over the backend's built-SPA URL as the testing entry
+point: UI edits should appear without manual rebuilds or page refreshes.
+Preserve an existing test account and database when possible.
 
 ```bash
 bun run start              # Start dev mode with watch (turbo watch dev)

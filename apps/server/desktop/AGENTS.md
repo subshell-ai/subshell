@@ -422,11 +422,11 @@ src-tauri/src/
 The assistant is TypeScript on Vite with Tailwind (since 2026-09-10; the
 plain-JS original had no build step, which apps/server/desktop/docs/ipc-boundary.md
 explains).
-**One HTML input, one build, one bundle**: the second input went with the
-console, and `vite.config.ts` names the remaining one explicitly rather than
+**The assistant and SSH unlock form share one build and bundle**: the second input went with the
+console, and `vite.config.ts` names both bundled pages explicitly rather than
 leaning on Vite's `index.html` default, because a default that found nothing
 would ship a bundle in which `WebviewUrl::App` resolves to a 404 with no build
-error anywhere. `tauri-config.test.ts` pins that there is exactly one, and that
+error anywhere. `tauri-config.test.ts` pins the two intended entries, and that
 no orphan `index.html` sits beside it.
 
 ## What the page is made of
@@ -443,22 +443,28 @@ read apps/server/desktop/docs/page-structure.md first.**
 
 ## The IPC boundary
 
-`src-tauri/permissions/desktop.toml`'s EXISTENCE is the boundary: without it
-Tauri leaves every app command ungated for every local window. The split is
-window KIND: `wizard` holds the twenty-four its page invokes; `main` holds
-exactly SEVEN plus window dragging, answered only from a TRUSTED origin:
-loopback (either spelling, http, any port) or the configured `APP_BASE_URL`.
-`remote.urls` is a wildcard; `trust.rs` at the invoke handler is the boundary,
-and its flag is armed only by a COMMITTED main-frame load, never a navigation
-request, never a subframe. Page-facing arguments are closed enums, paths, or
-booleans: never a URL, never a shell word (`desktop_open_in_browser` takes a
-PATH and joins it onto the pinned origin), and `ipc-acl.test.ts` pins the
-three-way contract (calling page, `desktop.toml`, capability file) with
-exact sets, so a new command is loud or absent, never half-granted.
+`src-tauri/permissions/desktop.toml`'s existence is the boundary: without it
+Tauri leaves every app command ungated for every local window. Capabilities
+separate the bundled assistant, the server dashboard, and the bundled SSH key
+unlock form. Dashboard commands are answered only from a committed trusted
+origin: loopback HTTP or the configured `APP_BASE_URL`. `remote.urls` is a
+wildcard for OAuth sign-in redirects, so `trust.rs` remains the runtime guard;
+provisional navigation and subframes must never arm it.
+
+The dashboard also holds four constrained local SSH key commands. Native
+approval names the SSH destination and fingerprint before the native file
+picker opens. The signer verifies the host's session proof and authorizes one
+host-bound login for that host key and username, for at most 90 seconds. Keys
+and passphrases stay native; encrypted keys use `ssh-key-unlock`, a separate
+bundled form with only one-use passphrase submission authority. Local signing
+requires HTTPS except on loopback and records the committed page origin.
+Navigation, close, explicit release, and a native timer cancel the signer.
+
+`ipc-acl.test.ts` pins every window's exact command set, and
+`desktop-core::ssh_signer` tests the protocol and cancellation constraints.
 `withGlobalTauri` and the UA marker ship as a pair or the dashboard bridge
-dies SILENTLY; `bun run dev:desktop-server` points `main` at the SPA's Vite on
-:5174, because otherwise an `apps/server/web` edit reaches that window not
-slowly but not at all.
+fails silently. `bun run dev:desktop-server` points `main` at SPA Vite on
+:5174 so the dashboard exercises current source.
 
 **Working on the IPC boundary or adding a command: read
 apps/server/desktop/docs/ipc-boundary.md first.**

@@ -35,6 +35,7 @@ import { audit } from "@/services/audit.js";
 import { getLive } from "@/services/nodes/node-registry.js";
 import { SshRpcError, sshAgentIdentities, sshDiscover, sshResolve } from "@/services/nodes/ssh-rpc.js";
 import { subshellSshConfigPath } from "@/services/nodes/subshell-paths.js";
+import { closeLocalSshKey, openLocalSshKey } from "@/services/ssh-local-key.service.js";
 import { gateSshNode } from "@/services/ssh-policy.service.js";
 import { prepareRelayLeg } from "@/services/ssh-relay-launch.service.js";
 
@@ -388,6 +389,9 @@ export async function sshLaunch(args: {
   keyHomeNodeId?: string;
   fingerprints?: readonly string[];
   authentication?: "password";
+  /** One-use preparation owned by this exact cookie session. */
+  localKeyId?: string;
+  sessionId?: string;
   /** The REQUEST-scoped subshells service (the create path is its own). */
   subshells: Pick<SubshellsService, "createSubshell">;
 }): Promise<SshAnswer<{ subshellId: string }>> {
@@ -399,6 +403,11 @@ export async function sshLaunch(args: {
       BackendErrorCodes.ALIAS_UNSAFE,
       "Password authentication cannot use a key-source node or selected keys.",
     );
+  if (
+    args.localKeyId &&
+    (!args.sessionId || args.authentication || args.keyHomeNodeId !== undefined || args.fingerprints !== undefined)
+  )
+    return codedRefusal(400, BackendErrorCodes.SSH_KEYS_INVALID, "Choose only one SSH authentication method.");
   const row = gate.value.row;
   if (!isWireSafeSshDestination(args.destination)) {
     return codedRefusal(400, BackendErrorCodes.ALIAS_UNSAFE, UNSAFE_DESTINATION_COPY);
@@ -460,6 +469,17 @@ export async function sshLaunch(args: {
     if (!leg.ok) return leg;
     relay = leg.value;
   }
+  const localKey = args.localKeyId
+    ? await openLocalSshKey({
+        id: args.localKeyId,
+        viewerId: args.viewerId,
+        sessionId: args.sessionId ?? "",
+        nodeId: row.id,
+        snapshot,
+        paneId: subshellId,
+        dataDir,
+      })
+    : null;
   const composed = composeSshLaunch({
     authentication: args.authentication,
     snapshot,
@@ -468,13 +488,17 @@ export async function sshLaunch(args: {
     // Relay mode (Task 12): the config pins B's trust source to the file the
     // signed relay-open just wrote beside it; a direct launch renders the M1
     // accept-new bytes untouched.
-    ...(relay ? { hostPinPath: buildSshKnownHostsPath(dataDir, subshellId) } : {}),
+    ...(relay || localKey ? { hostPinPath: buildSshKnownHostsPath(dataDir, subshellId) } : {}),
   });
   // Relay mode RE-POINTS the scoped exception (spec §5.2): the socket the
   // pane's ssh authenticates through is B's proxy the broker just verified,
   // never the snapshot's agent socket even if the config names one. Still
   // one key, still the ssh invocation only, still never the whole-pane env.
   if (relay) composed.extraPaneEnv = sshRelayPaneEnv(relay.socketPath);
+  if (localKey) {
+    composed.extraPaneEnv = sshRelayPaneEnv(localKey.socketPath);
+    composed.fileContent = `Host *\n    PubkeyAuthentication host-bound\n    PreferredAuthentications publickey\n    PasswordAuthentication no\n    KbdInteractiveAuthentication no\n    NumberOfPasswordPrompts 0\n${composed.fileContent}`;
+  }
   // The create can still refuse (node switched off, harness gone, a
   // lockdown, a maintenance window) — those ride the global error handler
   // with their own codes. They land here, AFTER the resolve: the honest
@@ -499,6 +523,7 @@ export async function sshLaunch(args: {
         configPath: composed.configPath,
         fileContent: composed.fileContent,
         snapshot,
+        ...(localKey ? { localKey: true as const } : {}),
         // Preserve the actual selected keys, including the complete roster
         // resolved for callers that omitted selection. Later acts cannot widen it.
         ...(relay ? { keyHomeNodeId: args.keyHomeNodeId as string, relayFingerprints: relay.fingerprints } : {}),
@@ -512,6 +537,7 @@ export async function sshLaunch(args: {
     // and the sweep is the same best-effort helper every death site uses.
     // The refusal the caller sees is the create's own, untouched.
     if (relay) closeRelayForPaneExit(subshellId);
+    if (args.localKeyId) await closeLocalSshKey(args.localKeyId);
     throw err;
   }
   // Recency FIRST (a bookkeeping refresh the human already sees as part of the

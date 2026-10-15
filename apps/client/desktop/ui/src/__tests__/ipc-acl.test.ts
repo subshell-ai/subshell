@@ -118,7 +118,10 @@ describe("the IPC contract", () => {
     // same runtime rejection read from the other end — and after a deletion it
     // is also how a dead command survives in Rust unnoticed. BOTH files, since
     // `main.json` arrived: one of the manifest's entries is granted only there.
-    const granted = new Set([...capabilityPermissions(), ...mainPermissions()]);
+    const unlock = JSON.parse(readFileSync(join(TAURI_DIR, "capabilities/ssh-key-unlock.json"), "utf8")) as {
+      permissions: string[];
+    };
+    const granted = new Set([...capabilityPermissions(), ...mainPermissions(), ...unlock.permissions]);
     for (const id of manifestPermissions().keys()) expect(granted.has(id), `${id} is granted nowhere`).toBe(true);
   });
 
@@ -173,14 +176,14 @@ describe("the window that is granted one command", () => {
     return found;
   };
 
-  it("is the app's two capability files, and no more", () => {
+  it("keeps separate capabilities for the assistant, plane, and local key unlock form", () => {
     // A THIRD file is a third window, and a window added without a deliberate
     // grant list is exactly what `permissions/desktop.toml` exists to prevent.
     expect(
       capabilities()
         .map((c) => c.file)
         .sort(),
-    ).toEqual(["main.json", "node.json"]);
+    ).toEqual(["main.json", "node.json", "ssh-key-unlock.json"]);
   });
 
   it("keeps `main`'s scope to what was argued for", () => {
@@ -197,9 +200,15 @@ describe("the window that is granted one command", () => {
     expect(capability.windows).toEqual(["main"]);
   });
 
-  it("grants `main` exactly one permission, and nothing that drives the CLI", () => {
+  it("grants `main` browser navigation and constrained local key signing", () => {
     const permissions = main().permissions ?? [];
-    expect(permissions).toEqual(["allow-desktop-open-in-browser"]);
+    expect(permissions).toEqual([
+      "allow-desktop-open-in-browser",
+      "allow-desktop-ssh-key-available",
+      "allow-desktop-ssh-key-pick",
+      "allow-desktop-ssh-key-request",
+      "allow-desktop-ssh-key-close",
+    ]);
     // Stated as invariants too, not just as an equality: these are the
     // properties the equality is protecting, and they should be readable as
     // the reason it is there.
@@ -215,7 +224,7 @@ describe("the window that is granted one command", () => {
   it("keeps every CLI-driving command granted to `node` alone", () => {
     const nodeGrants = new Set(capabilityPermissions());
     for (const id of manifestPermissions().keys()) {
-      if (id === "allow-desktop-open-in-browser") continue;
+      if (id === "allow-desktop-open-in-browser" || id.startsWith("allow-desktop-ssh-key-")) continue;
       expect(nodeGrants.has(id), `${id} must be the bundled page's`).toBe(true);
       expect(main().permissions ?? [], id).not.toContain(id);
     }
@@ -361,5 +370,30 @@ describe("the invocations that must stay unreachable", () => {
     expect(verbs.sort()).toEqual(["autostart", "install", "restart", "start", "stop", "uninstall"]);
     expect(verbs).not.toContain("run");
     expect(verbs).not.toContain("mcp");
+  });
+});
+
+describe("local SSH key unlock isolation", () => {
+  it("grants the bundled unlock form exactly one command and no remote URLs", () => {
+    const capability = JSON.parse(readFileSync(join(TAURI_DIR, "capabilities/ssh-key-unlock.json"), "utf8")) as {
+      windows: string[];
+      permissions: string[];
+      remote?: unknown;
+    };
+    expect(capability.windows).toEqual(["ssh-key-unlock"]);
+    expect(capability.permissions).toEqual(["allow-desktop-ssh-key-unlock"]);
+    expect(capability.remote).toBeUndefined();
+    expect(JSON.parse(readFileSync(join(TAURI_DIR, "capabilities/main.json"), "utf8")).permissions).not.toContain(
+      "allow-desktop-ssh-key-unlock",
+    );
+  });
+
+  it("loads a separate bundled entry that submits only to the local unlock receiver", () => {
+    const html = readFileSync(join(UI_SRC, "../ssh-key-unlock.html"), "utf8");
+    expect(html).toContain('src="/src/ssh-key-unlock.tsx"');
+    expect(html).not.toMatch(/<script(?![^>]*\bsrc=)/);
+    const entry = readFileSync(join(UI_SRC, "ssh-key-unlock.tsx"), "utf8");
+    expect(entry).toContain('invoke("desktop_ssh_key_unlock", { passphrase })');
+    expect(entry).not.toMatch(/fetch\(|localStorage|sessionStorage|emit\(/);
   });
 });

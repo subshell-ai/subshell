@@ -176,8 +176,11 @@ import { SSH_CONFIG_FILE_MAX_BYTES, SSH_PATH_MAX_CHARS, SSH_RELAY_FRAME_MAX_BYTE
  * **19 -> 20:** ssh_host_key can discover a destination’s presented identity
  * without writing trust. The server requires this distinction before offering
  * a first-connection confirmation.
+ *
+ * **20 -> 21:** ssh_key_bridge carries bounded public SSH-agent messages to
+ * a one-use desktop signer. Older nodes cannot provide this authentication path.
  */
-export const NODE_PROTOCOL_VERSION = 20;
+export const NODE_PROTOCOL_VERSION = 21;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an
@@ -1995,6 +1998,7 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
     case "ssh_register_identity":
     case "ssh_agent_identities":
     case "ssh_host_key":
+    case "ssh_key_bridge":
     case "ssh_relay_open":
     case "ssh_relay_close":
     case "ssh_exec":

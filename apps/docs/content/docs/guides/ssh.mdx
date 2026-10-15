@@ -28,22 +28,32 @@ If outgoing SSH is disabled on a node you own, the gold notice explains that sta
 
 ## Choose how to sign in
 
-The **Authentication** choices refer to the selected nodes, not the device where you're viewing the dashboard.
+Under **Authentication**, choose keys on a node, a key on your own machine, or a password.
 
 | Choice | What happens |
 | --- | --- |
 | **Use the connecting node’s keys** | SSH uses the connecting node's SSH configuration and available keys. The node's name appears below the option. |
 | **Use another node’s keys** | Choose a second node under **Use keys from**, then select the keys this connection may use. You need launch access to both nodes. |
+| **Use a key from my machine** | Choose a private key on your machine. Your browser or desktop app signs one login without uploading the key. |
 | **Enter a password when connecting** | Enter the destination account's password in the terminal when SSH prompts. Subshell doesn't save it. The destination must allow password authentication. |
 
-<figure className="docs-screenshot">
-  <ImageZoom src="/screenshots/ssh-authentication.png" alt="Authentication choices for keys on Build node, keys from another node, or a password entered when connecting." width="558" height="193" loading="lazy" decoding="async" unoptimized />
-  <figcaption>The first option uses the named connecting node's keys. Passwords are entered later in the terminal. Select the image to enlarge it.</figcaption>
-</figure>
+
 
 When using another node's keys, those keys must be loaded in an SSH agent that the node's Subshell process can access. Keys available in an interactive terminal might not be available to a background service. If the list is empty or unavailable, ask that node's owner to check its SSH agent and the service's `SSH_AUTH_SOCK` environment, then select **Reload keys**. See [Files and paths](/reference/paths) for the node's configuration locations.
 
 The private keys stay with the node supplying them. Subshell relays encrypted signing requests between the two nodes for the keys you selected. Both nodes must remain available for authentication. If SSH is disabled on a key source you own, the form explains that starting will enable it; you'll then select keys before connecting.
+
+### Use a key from your machine
+
+Select **Use a key from my machine** to see the key controls and security information. Choose an OpenSSH-format Ed25519, ECDSA, or RSA private key.
+
+In a browser, read the warning and select **I trust this website and its operator**, then **Choose key…**. Browse to your `.ssh` directory; browsers cannot open that directory automatically. If your key is encrypted, enter its passphrase. Select **Start SSH subshell**, then verify the destination, username, port, and host-key fingerprint before continuing. Compare the fingerprint with one obtained from the destination's administrator through a trusted channel.
+
+The browser signs locally without uploading or saving your key or passphrase. Only use this option on a website whose operator you trust: compromised page code could steal your key. Subshell releases the loaded key after one authentication attempt, cancellation, or expiry, within 90 seconds of loading it. Complete erasure from browser memory cannot be guaranteed. Your original file stays untouched.
+
+In an updated Subshell desktop app, select **Start SSH subshell** to open the native destination confirmation and file picker, which starts in your home directory's `.ssh` folder. Encrypted keys ask for their passphrase in a separate native app window. The private key and passphrase stay outside the dashboard page, server, and connecting node. The native signer also releases its key after one authentication attempt or within 90 seconds; this isn't a guarantee of physical memory erasure by the operating system.
+
+Keep the browser page or desktop app open until authentication finishes. The connecting node and destination must support OpenSSH host-bound authentication. Jump hosts and host-key aliases aren't supported for this option. A remote server must use HTTPS; local loopback HTTP is allowed.
 
 ## Start and verify the connection
 
@@ -78,6 +88,8 @@ Remembering a destination saves a suggestion, not a password. Forgetting it does
 ## Make the destination a node
 
 As the SSH subshell's owner, open its **⋯** menu and choose **Set up Subshell here…** when available. Review the confirmation before running the installer: it installs Subshell on the destination and enrolls it as a node you own. Your SSH subshell keeps running.
+
+A subshell opened with a one-time key cannot reuse that key for this installer. Run the node setup command in its existing terminal, or reconnect using a node’s keys first.
 
 This requires node enrollment to be allowed and an SSH login that works without interactive prompts. Password-only login can't supply a stored password to the installer. You can close and reopen the dialog to check progress. Results remain available for one hour while the server keeps running. Progress isn't retained across a server restart; check **Nodes** and the destination before retrying an interrupted installation. If it reports enrollment without a confirmed connection, open the new node's page and check its service before trying another installation.
 

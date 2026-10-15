@@ -73,7 +73,13 @@ export function buildDestinationOptions(args: {
     const label = row.alias ?? row.destination;
     push(
       `${SAVED_PREFIX}${row.id}`,
-      { value: `${SAVED_PREFIX}${row.id}`, label, group: SAVED_GROUP, searchText: row.destination },
+      {
+        value: `${SAVED_PREFIX}${row.id}`,
+        label,
+        group: SAVED_GROUP,
+        reason: label !== row.destination ? row.destination : undefined,
+        searchText: row.destination,
+      },
       { destination: row.destination },
     );
   }
@@ -82,7 +88,13 @@ export function buildDestinationOptions(args: {
     const label = row.alias ?? row.destination;
     push(
       `${RECENT_PREFIX}${row.id}`,
-      { value: `${RECENT_PREFIX}${row.id}`, label, group: RECENT_GROUP, searchText: row.destination },
+      {
+        value: `${RECENT_PREFIX}${row.id}`,
+        label,
+        group: RECENT_GROUP,
+        reason: label !== row.destination ? row.destination : undefined,
+        searchText: row.destination,
+      },
       { destination: row.destination },
     );
   }

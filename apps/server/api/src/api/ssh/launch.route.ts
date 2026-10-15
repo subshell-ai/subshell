@@ -28,7 +28,7 @@ export const sshLaunchRoute = new Elysia()
   .use(apiModels)
   .post(
     "/launch",
-    async ({ body, user, actor, ctx, status }) => {
+    async ({ body, user, actor, session, ctx, status }) => {
       requireCookieActor(actor, "SSH launch is restricted to browser sessions");
       const answer = await sshLaunch({
         viewerId: user.id,
@@ -40,6 +40,8 @@ export const sshLaunchRoute = new Elysia()
         keyHomeNodeId: body.keyHome,
         fingerprints: body.fingerprints,
         authentication: body.authentication,
+        localKeyId: body.localKeyId,
+        sessionId: session?.id,
         subshells: ctx.services.subshells,
       });
       if (!answer.ok) {
@@ -56,6 +58,9 @@ export const sshLaunchRoute = new Elysia()
     {
       body: t.Object({
         authentication: t.Optional(t.Literal("password")),
+        localKeyId: t.Optional(
+          t.String({ format: "uuid", description: "One-use native key preparation, bound to this browser session" }),
+        ),
         node: t.String({ minLength: 1, description: "Connecting machine ('local' = the control-plane host)" }),
         destination: SshDestinationField,
         name: t.Optional(t.String({ minLength: 1, maxLength: 120, description: "Pane display name" })),

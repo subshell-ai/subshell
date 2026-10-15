@@ -10,12 +10,14 @@ import { devProxyOrigin } from "./src/lib/dev-proxy-origin";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, __dirname, "");
+  const backendOrigin = env.DEV_API_ORIGIN || "http://127.0.0.1:3080";
   // Hostnames the dev server may be reached under, comma-separated — set
   // DEV_ALLOWED_HOSTS in .env.local when a reverse proxy sits in front of
   // it (otherwise Vite's dev-server host check answers "Blocked request").
   // No VITE_ prefix on purpose: it configures the server and must never
   // ship inside the client bundle. Unset keeps the localhost-only default.
-  const allowedHosts = (loadEnv(mode, __dirname, "").DEV_ALLOWED_HOSTS ?? "")
+  const allowedHosts = (env.DEV_ALLOWED_HOSTS ?? "")
     .split(",")
     .map((host) => host.trim())
     .filter(Boolean);
@@ -55,7 +57,7 @@ export default defineConfig(({ mode }) => {
       // one origin (cookies + WS auth just work).
       proxy: {
         "/api": {
-          target: "http://127.0.0.1:3080",
+          target: backendOrigin,
           changeOrigin: true,
           configure(proxy) {
             proxy.on("proxyReq", (proxyReq, req) => {
@@ -65,7 +67,7 @@ export default defineConfig(({ mode }) => {
           },
         },
         "/ws": {
-          target: "ws://127.0.0.1:3080",
+          target: backendOrigin,
           ws: true,
           configure(proxy) {
             proxy.on("proxyReqWs", (proxyReq, req) => {

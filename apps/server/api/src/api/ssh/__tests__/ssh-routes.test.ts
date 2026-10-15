@@ -919,3 +919,66 @@ describe("SSH readiness and grantless relay authorization", () => {
     }
   });
 });
+
+describe("one-use native SSH key routing", () => {
+  it("requires cookies, binds preparations to the login session, and launches with strict one-time metadata", async () => {
+    const unknownId = crypto.randomUUID();
+    expect(
+      (await sshFetch("/api/ssh/local-key", { method: "POST", body: { node: NODE_ON, destination: "work" } })).status,
+    ).toBe(401);
+    expect((await sshFetch(`/api/ssh/local-key/${unknownId}/exchange`, { method: "POST", body: {} })).status).toBe(401);
+    const scripted = attachScriptedNode(NODE_ON, {
+      ssh_resolve_config: () => ({
+        accepted: true,
+        snapshot: snapshot({ user: "alice", host: "native-key.example.test" }),
+      }),
+      ssh_host_key: () => ({
+        lines: [
+          "native-key.example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ],
+      }),
+      ssh_key_bridge: (cmd) => ({ done: cmd.type === "ssh_key_bridge" && cmd.op === "close", request: null }),
+      launch: ok,
+      stat_dir: statDirEcho,
+    });
+    let id: string | undefined;
+    try {
+      const prepared = await sshFetch("/api/ssh/local-key", {
+        method: "POST",
+        body: { node: NODE_ON, destination: "work" },
+        cookie: ownerCookie,
+      });
+      expect(prepared.status).toBe(200);
+      expect(prepared.headers.get("cache-control")).toBe("no-store");
+      id = ((await prepared.json()) as { id: string }).id;
+      const anotherSession = await signIn(ownerEmail, pw);
+      const foreign = await launch({ node: NODE_ON, destination: "work", localKeyId: id }, anotherSession);
+      expect(foreign.status).not.toBe(201);
+      expect(scripted.cmdsOf("ssh_key_bridge").length).toBe(0);
+      const created = await launch({ node: NODE_ON, destination: "work", localKeyId: id }, ownerCookie);
+      expect(created.status).toBe(201);
+      const paneId = ((await created.json()) as { subshell: { id: string } }).subshell.id;
+      createdSubshellIds.push(paneId);
+      const row = await new SubshellsRepository(db).findById(paneId);
+      expect(JSON.parse(row?.ssh ?? "{}").localKey).toBe(true);
+      const command = scripted.cmdsOf("launch")[0];
+      expect(command?.ssh?.fileContent).toContain("PubkeyAuthentication host-bound");
+      expect(command?.ssh?.fileContent).toContain("PasswordAuthentication no");
+      expect(command?.ssh?.fileContent).toContain("IdentityFile none");
+      const reused = await launch({ node: NODE_ON, destination: "work", localKeyId: id }, ownerCookie);
+      expect(reused.status).not.toBe(201);
+      const malformed = await sshFetch(`/api/ssh/local-key/${id}/exchange`, {
+        method: "POST",
+        body: { reply: { seq: 0, payload: "x".repeat(90000) } },
+        cookie: ownerCookie,
+      });
+      expect(malformed.status).not.toBe(200);
+      const setup = await sshFetch("/api/ssh/setup-here", { method: "POST", body: { paneId }, cookie: ownerCookie });
+      expect(setup.status).not.toBe(200);
+      expect(scripted.cmdsOf("ssh_exec").length).toBe(0);
+    } finally {
+      if (id) await sshFetch(`/api/ssh/local-key/${id}`, { method: "DELETE", cookie: ownerCookie });
+      scripted.detach();
+    }
+  });
+});

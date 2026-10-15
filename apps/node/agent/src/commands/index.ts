@@ -32,6 +32,7 @@ import { execSshDiscoverAliases, execSshResolveConfig } from "./ssh-aliases.js";
 import { execSshExec, execSshExecStatus } from "./ssh-exec.js";
 import { execSshHostKey } from "./ssh-host-key.js";
 import { execSshAgentIdentities, execSshRegisterIdentity } from "./ssh-identity.js";
+import { execSshKeyBridge } from "./ssh-key-bridge.js";
 import { execSshMachinePinRepair } from "./ssh-machine-pin-repair.js";
 import { execSshRelayClose, execSshRelayOpen } from "./ssh-relay-exec.js";
 import { execLogRead, execTailStart, execTailStop } from "./tail.js";
@@ -169,6 +170,8 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execSshAgentIdentities(ctx);
       case "ssh_host_key":
         return await execSshHostKey(ctx, cmd);
+      case "ssh_key_bridge":
+        return await execSshKeyBridge(ctx, cmd);
       case "ssh_relay_open":
         return await execSshRelayOpen(ctx, cmd);
       case "ssh_relay_close":

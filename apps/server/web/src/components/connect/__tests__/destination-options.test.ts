@@ -103,3 +103,19 @@ it("displays and searches configured destinations while still launching the alia
   expect(candidates.get("config:demo")?.destination).toBe("demo");
   expect(options[1]?.reason).toBe("Destination determined when connecting");
 });
+
+it("shows the concrete destination beneath saved and recent aliases", () => {
+  const destination = "developer@127.0.0.1:22222";
+  const { options, candidates } = buildDestinationOptions({
+    saved: [row({ id: "saved", alias: "saved-demo", destination })],
+    recent: [row({ id: "recent", alias: "subshell-demo", destination }), row({ id: "plain", destination })],
+    aliases: [],
+    machineName: "Server",
+    typed: "",
+  });
+  expect(options[0]?.reason).toBe(destination);
+  expect(options[1]?.reason).toBe(destination);
+  expect(options[2]?.label).toBe(destination);
+  expect(options[2]?.reason).toBeUndefined();
+  expect(candidates.get("recent:recent")).toEqual({ destination });
+});

@@ -1,5 +1,7 @@
 import { Button } from "@internal/node-admin";
-import { useEffect, useState } from "react";
+import { CircleAlert } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { BrowserKeyFields, type BrowserKeySelection } from "@/components/connect/browser-key-fields";
 import { SshDestinationStep } from "@/components/connect/ssh-destination-step";
 import { SshKeyStep } from "@/components/connect/ssh-key-step";
 import { SshMachineSetup, SshMachineStep } from "@/components/connect/ssh-machine-step";
@@ -13,12 +15,14 @@ import { SshQueryStatus } from "@/components/ssh/query-status";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useSshNodeRoster } from "@/hooks/use-ssh";
+import { isDesktop } from "@/lib/desktop";
 import { makeForm, useSubmitDisabled } from "@/lib/form";
 import { type SshMachineReadiness, sshCanEnableOnStart } from "@/lib/ssh";
 
 export interface SshWizardProps {
   /** Shared with the connection form and retained by the outer dialog. */
   draft: SshSessionDraft;
+  browserKey: BrowserKeySelection;
   /** Writes canonical choices, including an explicitly empty key selection. */
   onDraftChange: (draft: SshSessionDraft) => void;
   /** Readiness is supplied by the mounted content host. */
@@ -35,10 +39,12 @@ export interface SshWizardProps {
   busy: boolean;
   /** A pane already exists; attachment failure must not create a second one. */
   launchBlocked?: boolean;
+  refusal?: string;
 }
 
 export function SshWizard({
   draft,
+  browserKey,
   onDraftChange,
   machines,
   readiness,
@@ -47,7 +53,12 @@ export function SshWizard({
   onLeave,
   busy,
   launchBlocked,
+  refusal,
 }: SshWizardProps) {
+  const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (refusal) errorRef.current?.focus();
+  }, [refusal]);
   const [useRemote, setUseRemote] = useState(!!draft.keyHome);
   const machine = machines.find((item) => item.node.id === draft.nodeId);
   const keyMachine = machines.find((item) => item.node.id === draft.keyHome);
@@ -61,6 +72,10 @@ export function SshWizard({
   const roster = useSshNodeRoster(remote && !keyProblem && keyMachine?.canConnect ? draft.keyHome : null);
   const patch = (value: Partial<SshSessionDraft>) => onDraftChange({ ...draft, ...value });
   const problems = (): Record<string, string> => {
+    if (draft.authentication === "local-key" && !isDesktop()) {
+      const problem = browserKey.problem();
+      if (problem) return { draft: problem };
+    }
     if (!draft.nodeId) return { draft: "Choose a node." };
     if (!sshDestination(draft)) return { draft: "Enter an SSH destination." };
     if (remote) {
@@ -83,7 +98,7 @@ export function SshWizard({
         roster.isError ||
         sshKeySelectionProblem(fingerprints, roster.data?.identities) !== null));
   const form = makeForm({
-    defaultValues: { draft, remote },
+    defaultValues: { draft, remote, keyName: browserKey.name, trusted: browserKey.trusted },
     validator: problems,
     onSubmit: async () => {
       if (blocked || Object.keys(problems()).length) return;
@@ -93,8 +108,10 @@ export function SshWizard({
   useEffect(() => {
     form.setFieldValue("draft", draft);
     form.setFieldValue("remote", remote);
+    form.setFieldValue("keyName", browserKey.name);
+    form.setFieldValue("trusted", browserKey.trusted);
     void form.validate("change");
-  }, [draft, remote, form]);
+  }, [draft, remote, form, browserKey.name, browserKey.trusted]);
   const disabled = useSubmitDisabled(form, blocked);
   return (
     <section className="flex flex-col gap-4" aria-label="SSH setup">
@@ -124,11 +141,11 @@ export function SshWizard({
           </legend>
           <RadioGroup
             aria-labelledby="ssh-authentication-heading"
-            value={draft.authentication === "password" ? "password" : useRemote ? "remote" : "connecting"}
+            value={draft.authentication ?? (useRemote ? "remote" : "connecting")}
             onValueChange={(value) => {
               setUseRemote(value === "remote");
               patch({
-                authentication: value === "password" ? "password" : undefined,
+                authentication: value === "password" || value === "local-key" ? value : undefined,
                 ...(value !== "remote" ? { keyHome: "" } : {}),
               });
             }}
@@ -138,20 +155,22 @@ export function SshWizard({
                 id="ssh-keys-connecting"
                 value="connecting"
                 aria-labelledby="ssh-keys-connecting-label"
-                aria-describedby="ssh-keys-node-name"
+                aria-describedby={!draft.authentication && !remote ? "ssh-keys-node-name" : undefined}
               />
               <FieldLabel htmlFor="ssh-keys-connecting" className="flex min-w-0 cursor-pointer flex-col gap-1">
                 <span id="ssh-keys-connecting-label">Use the connecting node’s keys</span>
-                <span
-                  id="ssh-keys-node-name"
-                  className={
-                    machine
-                      ? "break-all font-regular text-detail text-muted-foreground"
-                      : "font-regular text-detail text-warning"
-                  }
-                >
-                  {machine?.node.name ?? "Choose a node to connect from first"}
-                </span>
+                {!draft.authentication && !remote && (
+                  <span
+                    id="ssh-keys-node-name"
+                    className={
+                      machine
+                        ? "break-all font-regular text-detail text-muted-foreground"
+                        : "font-regular text-detail text-warning"
+                    }
+                  >
+                    {machine?.node.name ?? "Choose a node to connect from first"}
+                  </span>
+                )}
               </FieldLabel>
             </Field>
             <Field className="flex-row items-start gap-3">
@@ -186,16 +205,46 @@ export function SshWizard({
             </Field>
             <Field className="flex-row items-start gap-3">
               <RadioGroupItem
+                id="ssh-auth-local-key"
+                value="local-key"
+                aria-labelledby="ssh-auth-local-key-label"
+                aria-describedby={
+                  draft.authentication === "local-key"
+                    ? isDesktop()
+                      ? "ssh-auth-local-key-description"
+                      : "ssh-browser-key-risk"
+                    : undefined
+                }
+              />
+              <div className="flex min-w-0 flex-1 flex-col gap-3">
+                <FieldLabel htmlFor="ssh-auth-local-key" className="cursor-pointer">
+                  <span id="ssh-auth-local-key-label">Use a key from my machine</span>
+                </FieldLabel>
+                {draft.authentication === "local-key" &&
+                  (isDesktop() ? (
+                    <p id="ssh-auth-local-key-description" className="font-regular text-detail text-muted-foreground">
+                      Choose a key when you start. It stays on your machine and is released after one authentication
+                      attempt or 90 seconds.
+                    </p>
+                  ) : (
+                    <BrowserKeyFields selection={browserKey} busy={busy} />
+                  ))}
+              </div>
+            </Field>
+            <Field className="flex-row items-start gap-3">
+              <RadioGroupItem
                 id="ssh-auth-password"
                 value="password"
                 aria-labelledby="ssh-auth-password-label"
-                aria-describedby="ssh-auth-password-description"
+                aria-describedby={draft.authentication === "password" ? "ssh-auth-password-description" : undefined}
               />
               <FieldLabel htmlFor="ssh-auth-password" className="flex min-w-0 cursor-pointer flex-col gap-1">
                 <span id="ssh-auth-password-label">Enter a password when connecting</span>
-                <span id="ssh-auth-password-description" className="font-regular text-detail text-muted-foreground">
-                  Enter your password in the terminal when SSH asks for it. Subshell won’t save it.
-                </span>
+                {draft.authentication === "password" && (
+                  <span id="ssh-auth-password-description" className="font-regular text-detail text-muted-foreground">
+                    Enter your password in the terminal when SSH asks for it. Subshell won’t save it.
+                  </span>
+                )}
               </FieldLabel>
             </Field>
           </RadioGroup>
@@ -244,11 +293,48 @@ export function SshWizard({
           </FieldGroup>
         )}
       </FieldGroup>
+      {refusal && (
+        <div ref={errorRef} tabIndex={-1} role="alert" className="flex items-start gap-2">
+          <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-destructive" />
+          <div className="flex min-w-0 flex-col gap-1">
+            <p className="font-strong text-destructive text-detail">
+              {launchBlocked ? "Connection needs attention" : "Connection failed"}
+            </p>
+            <p className="break-words text-detail text-muted-foreground">{refusal}</p>
+          </div>
+        </div>
+      )}
       <div className="flex flex-wrap justify-end gap-2">
-        <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy && draft.authentication !== "local-key"}
+          disabledReason="Wait for SSH startup to finish, or close the native key picker to cancel selection."
+          onClick={onCancel}
+        >
           Cancel
         </Button>
-        <Button type="button" disabled={disabled} onClick={() => void form.handleSubmit()}>
+        <Button
+          type="button"
+          disabled={disabled}
+          disabledReason={
+            busy
+              ? "SSH startup is in progress."
+              : launchBlocked
+                ? "This SSH subshell already exists. Open it from the subshell list."
+                : (Object.values(problems())[0] ??
+                  (readiness.isPending
+                    ? "Checking which nodes can connect."
+                    : readiness.isError
+                      ? "Reload the connecting nodes before starting."
+                      : !machine?.canConnect && !enableOnStart
+                        ? "The connecting node isn't ready. Check the requirements above."
+                        : remote
+                          ? "Choose available SSH keys from a ready node."
+                          : "Complete the connection details above."))
+          }
+          onClick={() => void form.handleSubmit()}
+        >
           {busy ? "Starting SSH subshell…" : "Start SSH subshell"}
         </Button>
       </div>

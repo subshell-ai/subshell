@@ -15,6 +15,7 @@ mod backup_restore;
 #[cfg(target_os = "macos")]
 mod bridge;
 mod control;
+mod ssh_key;
 // macOS only: a GTK menu bar is per-window chrome rather than a system bar, so
 // Linux carries no ACTION menu (its one item, the predefined About on the
 // dashboard, is `about.rs`) — and a module compiled there would be entirely
@@ -161,6 +162,7 @@ pub fn run() {
         // before handing the plugin exactly one URL.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(SettingsState::new(SETTINGS_PATHS))
+        .manage(ssh_key::State::default())
         .manage(windows::ShellReady::new())
         // The reset's stashed plan and screen request live HERE, not on any
         // page: the consent is spent by the command that mutates the disk,
@@ -205,6 +207,11 @@ pub fn run() {
             control::desktop_notify,
             control::desktop_shell_ready,
             control::desktop_open_in_browser,
+            ssh_key::desktop_ssh_key_available,
+            ssh_key::desktop_ssh_key_pick,
+            ssh_key::desktop_ssh_key_request,
+            ssh_key::desktop_ssh_key_close,
+            ssh_key::desktop_ssh_key_unlock,
             control::desktop_permissions,
             control::desktop_request_notifications,
             control::desktop_request_photos,
@@ -214,6 +221,19 @@ pub fn run() {
             control::desktop_app_update,
         ]))
         .on_window_event(|window, event| {
+            if matches!(
+                event,
+                tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
+            ) {
+                ssh_key::closed(
+                    window.app_handle(),
+                    window.label(),
+                    matches!(event, tauri::WindowEvent::Destroyed),
+                );
+            }
+            if window.label() == "ssh-key-unlock" {
+                return;
+            }
             // The assistant's page can no longer hear an event once its window
             // is destroyed, and the flag that says it can must not outlive it —
             // a stale true here is how the dashboard's next raise emitted into
@@ -260,6 +280,7 @@ pub fn run() {
         })
         .setup(|app| {
             let handle = app.handle().clone();
+            ssh_key::start_expiry(handle.clone());
             // macOS only: a GTK menu bar is per-window chrome rather than a
             // system bar, and everything here is also on the tray. Linux's
             // one menu is the dashboard window's single About item, attached

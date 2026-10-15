@@ -11,7 +11,9 @@ import {
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ConnectPanel } from "@/components/connect/connect-panel";
 import type { SshInitialChoices } from "@/components/connect/ssh-session-draft";
+import { resetDesktopShellForTests } from "@/lib/desktop";
 import type { SshMachineReadiness } from "@/lib/ssh";
+import { browserSigningUnavailable } from "@/lib/ssh-browser-key";
 
 const original = globalThis.fetch;
 afterEach(() => {
@@ -180,7 +182,8 @@ async function task() {
 }
 
 function disabled(name = "Start SSH subshell") {
-  return (screen.getByRole("button", { name }) as HTMLButtonElement).disabled;
+  const button = screen.getByRole("button", { name }) as HTMLButtonElement;
+  return button.disabled || button.getAttribute("aria-disabled") === "true";
 }
 it("opens directly on the connection form", async () => {
   const { calls } = await setup({ initial: { node: "desk", destination: "target" } });
@@ -327,11 +330,11 @@ it("keeps the chosen remote node selected while choosing keys", async () => {
   expect(disabled()).toBe(true);
 });
 
-it("selects SSH options by clicking their descriptions", async () => {
+it("selects SSH options by clicking their labels", async () => {
   await setup({ initial: { node: "desk", destination: "target" } });
   fireEvent.click(screen.getByRole("radio", { name: "Use another node’s keys" }));
   await settle();
-  fireEvent.click(document.getElementById("ssh-keys-node-name")!);
+  fireEvent.click(screen.getByText("Use the connecting node’s keys"));
   await settle();
   expect(screen.getByRole("radio", { name: "Use the connecting node’s keys" }).getAttribute("aria-checked")).toBe(
     "true",
@@ -438,9 +441,7 @@ it("switches from another node's keys to an interactive password without sending
   const { calls } = await setup({
     initial: { node: "desk", keyHome: "keys", destination: "target", fingerprints: ["SHA256:AAAA"] },
   });
-  fireEvent.click(
-    screen.getByText("Enter your password in the terminal when SSH asks for it. Subshell won’t save it."),
-  );
+  fireEvent.click(screen.getByRole("radio", { name: "Enter a password when connecting" }));
   await settle();
   expect(screen.queryByRole("combobox", { name: "Use keys from" })).toBeNull();
   expect(document.querySelector('input[type="password"]')).toBeNull();
@@ -460,5 +461,136 @@ for (const ownerLabel of ["Alex Smith", "alex@example.com"]) {
     });
     expect(screen.getByText(`Ask this node’s owner (${ownerLabel}) to enable it.`, { exact: false })).toBeTruthy();
     expect(disabled()).toBe(true);
+  });
+}
+
+it("shows authentication details only for the selected option and gates browser keys on trust", async () => {
+  const { calls } = await setup({ initial: { node: "desk", destination: "alice@host" } });
+  expect(screen.queryByText(/Compromised page code could steal/)).toBeNull();
+  expect(screen.queryByText(/Enter your password in the terminal/)).toBeNull();
+  expect(screen.queryByRole("button", { name: "Choose key…" })).toBeNull();
+  fireEvent.click(screen.getByRole("radio", { name: "Use a key from my machine" }));
+  expect(screen.getByText(/Compromised page code could steal/)).toBeTruthy();
+  expect(document.getElementById("ssh-keys-node-name")).toBeNull();
+  expect(screen.getByRole("button", { name: "Choose key…" }).getAttribute("aria-disabled")).toBe("true");
+  await waitFor(() => expect(disabled()).toBe(true));
+  await click("Start SSH subshell");
+  expect(calls.some((call) => call.path === "/api/ssh/local-key" || call.path === "/api/ssh/launch")).toBe(false);
+  fireEvent.click(screen.getByRole("radio", { name: "Enter a password when connecting" }));
+  expect(screen.queryByText(/Compromised page code could steal/)).toBeNull();
+  expect(screen.getByText(/Enter your password in the terminal/)).toBeTruthy();
+});
+
+for (const reset of ["switch", "pagehide"] as const) {
+  it(`allows browser key selection after acknowledgement and clears it on ${reset}`, async () => {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, "isSecureContext");
+    Object.defineProperty(globalThis, "isSecureContext", { value: true, configurable: true });
+    try {
+      expect(browserSigningUnavailable()).toBeNull();
+      await setup({ initial: { node: "desk", destination: "alice@host" } });
+      fireEvent.click(screen.getByRole("radio", { name: "Use a key from my machine" }));
+      await settle();
+      fireEvent.click(screen.getByRole("checkbox", { name: "I trust this website and its operator" }));
+      await waitFor(() =>
+        expect(
+          screen.getByRole("checkbox", { name: "I trust this website and its operator" }).getAttribute("aria-checked"),
+        ).toBe("true"),
+      );
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Choose key…" }).getAttribute("aria-disabled")).not.toBe("true"),
+      );
+      fireEvent.change(screen.getByLabelText("SSH private key"), {
+        target: { files: [new File(["fixture-key"], "id_ed25519")] },
+      });
+      await waitFor(() => expect(disabled()).toBe(false));
+      const password = screen.getByLabelText("Key passphrase (if encrypted)") as HTMLInputElement;
+      fireEvent.change(password, { target: { value: "fixture-only" } });
+      expect(screen.getByText("id_ed25519")).toBeTruthy();
+      fireEvent.change(screen.getByLabelText("SSH destination"), { target: { value: "alice@another-host" } });
+      await settle();
+      expect(screen.getByText("id_ed25519")).toBeTruthy();
+      expect(password.value).toBe("fixture-only");
+      expect(disabled()).toBe(false);
+      expect(
+        screen.getByRole("checkbox", { name: "I trust this website and its operator" }).getAttribute("aria-checked"),
+      ).toBe("true");
+      if (reset === "pagehide") {
+        fireEvent(window, new Event("pagehide"));
+        await settle();
+        expect(password.value).toBe("");
+      } else {
+        fireEvent.click(screen.getByRole("radio", { name: "Enter a password when connecting" }));
+        await settle();
+        fireEvent.click(screen.getByRole("radio", { name: "Use a key from my machine" }));
+        await settle();
+      }
+      expect(screen.queryByText("id_ed25519")).toBeNull();
+      expect(screen.queryByLabelText("Key passphrase (if encrypted)")).toBeNull();
+      expect(
+        screen.getByRole("checkbox", { name: "I trust this website and its operator" }).getAttribute("aria-checked"),
+      ).toBe("false");
+    } finally {
+      if (previous) Object.defineProperty(globalThis, "isSecureContext", previous);
+      else Reflect.deleteProperty(globalThis, "isSecureContext");
+    }
+  });
+}
+
+for (const action of ["cancel", "unmount"] as const) {
+  it(`does not open the native picker after ${action} during SSH preparation`, async () => {
+    const oldUA = Object.getOwnPropertyDescriptor(navigator, "userAgent");
+    const native = window as unknown as { __TAURI__?: { core: { invoke: (command: string) => Promise<unknown> } } };
+    const oldNative = native.__TAURI__;
+    const invoked: string[] = [];
+    const readiness = Promise.withResolvers<void>();
+    const entered = Promise.withResolvers<void>();
+    try {
+      Object.defineProperty(navigator, "userAgent", {
+        value: "SubshellClient/2.1.0 (linux; p=1)",
+        configurable: true,
+      });
+      resetDesktopShellForTests();
+      native.__TAURI__ = {
+        core: {
+          invoke: async (command) => {
+            invoked.push(command);
+            return true;
+          },
+        },
+      };
+      const { calls } = await setup({
+        initial: { node: "desk", destination: "alice@host" },
+        machines: [machine("desk", false)],
+      });
+      fireEvent.click(screen.getByRole("radio", { name: "Use a key from my machine" }));
+      await waitFor(() => expect(disabled()).toBe(false));
+      const fetchReady = globalThis.fetch;
+      globalThis.fetch = (async (input, init) => {
+        if (String(input).includes("/api/ssh/readiness")) {
+          entered.resolve();
+          await readiness.promise;
+        }
+        return fetchReady(input, init);
+      }) as typeof fetch;
+      fireEvent.click(screen.getByRole("button", { name: "Start SSH subshell" }));
+      await entered.promise;
+      if (action === "cancel") await click("Cancel");
+      else cleanup();
+      readiness.resolve();
+      await settle();
+      expect(invoked).toEqual([]);
+      expect(
+        calls.some(
+          (call) =>
+            call.path.endsWith("/ssh-enabled") || call.path === "/api/ssh/local-key" || call.path === "/api/ssh/launch",
+        ),
+      ).toBe(false);
+    } finally {
+      readiness.resolve();
+      native.__TAURI__ = oldNative;
+      if (oldUA) Object.defineProperty(navigator, "userAgent", oldUA);
+      else Reflect.deleteProperty(navigator, "userAgent");
+      resetDesktopShellForTests();
+    }
   });
 }

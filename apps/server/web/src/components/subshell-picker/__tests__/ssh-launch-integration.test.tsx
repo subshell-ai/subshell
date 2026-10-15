@@ -119,7 +119,7 @@ async function launchSsh() {
   fireEvent.change(field, { target: { value: "deploy@example.com:2222" } });
   await settle();
   const start = screen.getByRole("button", { name: "Start SSH subshell" });
-  await waitFor(() => expect((start as HTMLButtonElement).disabled).toBe(false));
+  await waitFor(() => expect(start.getAttribute("aria-disabled")).not.toBe("true"));
   fireEvent.click(start);
 }
 
@@ -146,7 +146,7 @@ it("adds the SSH result to the current split and blocks duplicate launches while
   await launchSsh();
   await waitFor(() => expect(adds).toEqual([["ssh-new", "right"]]));
   const start = screen.getByRole("button", { name: "Starting SSH subshell…" });
-  expect((start as HTMLButtonElement).disabled).toBe(true);
+  expect(start.getAttribute("aria-disabled")).toBe("true");
   fireEvent.click(start);
   expect(calls.filter((c) => c.path === "/api/ssh/launch")).toHaveLength(1);
   expect(screen.getByRole("button", { name: "Existing subshell" }).closest("fieldset[disabled]")).not.toBeNull();

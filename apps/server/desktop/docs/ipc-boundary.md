@@ -21,9 +21,59 @@ With it, the split is enforced, and the split is window KIND:
 | Window | Gets |
 | --- | --- |
 | `wizard` | the thirty its page invokes: probe, port in use, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web, request notifications, request Photos, open a System Settings pane, read the launch window, set the launch window, check for an app update, install one; plus `dialog:allow-open`, `dialog:allow-save`, `opener:allow-reveal-item-in-dir`, and its core grant: `core:default` ALONE. `core:window:allow-close` was granted for spec 2026-09-17's **Later** button and went with it when that screen's two dismissals became one **Close** (2026-09-18), a leave rather than a window close, so no page call to a core window verb remains. `ipc-acl.test.ts` pins the narrowed list, pins that nothing under `ui/src` imports `@tauri-apps/api/window` (the route the grant would come back through), and pins that `main` holds neither close nor the update verbs |
-| `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_permissions`, `desktop_app_update`, window dragging, and `desktop_set_supervision` (below) on a TRUSTED origin only (loopback, or the instance's configured `APP_BASE_URL`; see below) |
+| `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_permissions`, `desktop_app_update`, window dragging, and `desktop_set_supervision` (below) on a TRUSTED origin only (loopback, or the instance's configured `APP_BASE_URL`; see below), plus the four constrained local SSH signing commands |
+| `ssh-key-unlock` | only `desktop_ssh_key_unlock`, from the bundled passphrase form; no remote URLs or other grants |
 
-Six of `main`'s seven commands are chosen for what they cannot do: raise a
+## Local SSH keys
+
+The dashboard has four additional commands: `desktop_ssh_key_available`,
+`desktop_ssh_key_pick`, `desktop_ssh_key_request`, and `desktop_ssh_key_close`.
+The client app grants the same commands with a stricter origin check: its
+committed document must match the chosen `PlanePin`. Both apps require HTTPS
+except loopback HTTP. `ssh_key.rs` records committed main-frame origins rather
+than provisional webview URLs; a new commit releases the old signer.
+
+`pick` takes a destination and public host key, never a file path. Native
+approval shows the full host, port, username, and fingerprint and asks for
+independent fingerprint verification before a native picker opens in `~/.ssh`.
+Files must be regular, at most 64 KiB, and not symlinks. Encrypted keys open a
+separate bundled `ssh-key-unlock.html`; that window's local capability grants
+only `desktop_ssh_key_unlock`. It cannot navigate elsewhere, open popups, read
+files, or send events. Closing it cancels the waiting operation. No private key
+or passphrase reaches the remote page, control plane, or node.
+
+`close` accepts an optional signer id. With an id it releases that handle;
+without one it cancels the calling document's pending pick/unlock flow,
+rotates its generation, releases keys, and closes the unlock form. An OS file
+chooser already open may remain visible, but selecting from a canceled flow
+cannot read or authorize a key.
+
+The public bridge returns a random opaque signer id, the selected public key,
+and an expiration. `desktop-core::ssh_signer` accepts only identity listing,
+a verified `session-bind@openssh.com` for the approved host key, and one
+`publickey-hostbound-v00@openssh.com` authentication matching that session,
+username, service, algorithm, key, and host key. Forwarding, rebinding,
+arbitrary challenges, unbound publickey authentication, and RSA SHA1 fail.
+RSA SHA256 and SHA512 flags are honored. The private key is released before
+the successful signature response returns.
+
+The 90-second deadline starts when the file is read, includes unlocking, and
+is enforced natively without page cooperation. Explicit release, main-window
+close, and committed navigation release state too. Pending pick and unlock
+operations carry a page generation so a later page cannot inherit them.
+Source buffers and native passphrases use zeroizing storage and ssh-key owns
+the parsed secret; operating system, allocator, or JavaScript engine copies
+cannot be guaranteed erased from physical RAM. A bounded cryptographic operation already in progress cannot be forcibly erased midway; any response that finishes at or after expiry is refused and its key is released. Bcrypt work is bounded to
+1,024 rounds, so unusual keys with more rounds are refused rather than
+blocking the signing process indefinitely.
+
+The real-wire core test is explicit because it needs installed OpenSSH:
+`cargo test --manifest-path crates/desktop-core/Cargo.toml --test ssh_signer_openssh -- --ignored`.
+It uses its own loopback sshd, temporary host key and public client identity,
+known-hosts file, and agent socket. It never reads a person's SSH config or
+private keys.
+
+Six of `main`'s original seven shell commands are chosen for what they cannot do: raise a
 window at a named screen, drop this app's own title bar, display one
 notification with a fixed shape, open a page of THIS server in the system
 browser, and (no argument at all, two facts each) read this app's macOS
@@ -38,8 +88,8 @@ a command `main` already held.
 `desktop_set_supervision` (the one deliberate exception, added by operator
 decision on 2026-09-12) lets the dashboard's supervision card confirm in its
 own dialog rather than raising the assistant; `docs/security.md` carries the
-accounting, and `ipc-acl.test.ts` pins `main` at exactly these seven so an
-eighth is loud.
+accounting, and `ipc-acl.test.ts` pins these seven shell commands
+alongside the four constrained local-signing commands.
 
 `desktop_open_in_browser` (2026-09-14) is of the harmless kind and its
 harmlessness is in the ARGUMENT: it takes a PATH (no scheme, no
@@ -103,7 +153,8 @@ is the boundary**. Four facts to hold:
   navigation request.** `allow_navigation` refuses any non-http(s) scheme (the
   window must not be steerable into `file:` or a custom handler) and **arms
   nothing**: it runs at request time and fires for subframes, so an untrusted
-  page could otherwise arm all seven commands by aiming at a loopback port that
+  page could otherwise arm all eleven dashboard commands by aiming at a loopback
+  port that
   refuses the connection, or by embedding an iframe. Arming is
   `on_page_load(PageLoadEvent::Started)`, which wry raises from
   `didCommitNavigation:` (macOS) and `LoadEvent::Committed` (GTK), main-frame
@@ -113,8 +164,9 @@ is the boundary**. Four facts to hold:
   re-points an existing one; a destroyed window clears it.
 - **The guard sits at the INVOKE HANDLER** (`trust::guarding` wraps
   `generate_handler!` in `lib.rs`), keyed on the calling webview's label, and is
-  uniform over all seven. Not per-command, because Tauri identifies a caller
-  through an injected `Webview` argument and three of the seven are pinned to
+  uniform over all eleven dashboard commands. Not per-command, because Tauri
+  identifies a caller through an injected `Webview` argument and three of the
+  original shell commands are pinned to
   taking no argument precisely so they cannot be aimed: `desktop_permissions`
   takes nothing at all. Plugin commands never reach the app handler, so window
   dragging still works on an untrusted page; the assistant is not subject to it
@@ -212,7 +264,7 @@ disk so a new screen joins the pin by itself) are EXACTLY the set
 `wizard.json` grants,
 that `ipc.ts` hides nothing extra, that no capability names an undefined
 permission, that no defined permission goes ungranted, and that `main` still
-holds exactly its seven commands plus window dragging (by name, by count, by
+holds exactly its eleven commands plus window dragging (by name, by count, by
 SCOPE, and for every one that takes arguments, by Rust signature), the two
 reads, `desktop_permissions` and `desktop_app_update`, pinned to an EMPTY list.
 

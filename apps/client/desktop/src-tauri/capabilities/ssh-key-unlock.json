@@ -1,0 +1,10 @@
+{
+  "identifier": "ssh-key-unlock",
+  "description": "Bundled local SSH key passphrase form. No remote URLs, filesystem access, events, or other commands.",
+  "windows": [
+    "ssh-key-unlock"
+  ],
+  "permissions": [
+    "allow-desktop-ssh-key-unlock"
+  ]
+}

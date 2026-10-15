@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { SSH_VIEW_ONLY_COPY, SshPaneLabels } from "@/components/ssh-pane-labels";
 import type { SubshellView } from "@/types/subshell";
 
@@ -11,21 +11,21 @@ function row(overrides: Partial<SubshellView> = {}): SubshellView {
 }
 
 describe("SshPaneLabels", () => {
-  it("labels an owner's ssh pane with the SSH badge and says nothing more", () => {
+  it("labels an owner's ssh pane with the SSH icon and says nothing more", () => {
     render(<SshPaneLabels subshell={row({ ssh: true, access: "owner" })} />);
-    expect(screen.queryByText("SSH")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "SSH connection" })).not.toBeNull();
     expect(screen.queryByText(SSH_VIEW_ONLY_COPY)).toBeNull();
   });
 
-  it("labels an edit grantee's ssh pane with the badge only (the sentence is the viewer's)", () => {
+  it("labels an edit grantee's ssh pane with the icon only (the sentence is the viewer's)", () => {
     render(<SshPaneLabels subshell={row({ ssh: true, access: "edit" })} />);
-    expect(screen.queryByText("SSH")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "SSH connection" })).not.toBeNull();
     expect(screen.queryByText(SSH_VIEW_ONLY_COPY)).toBeNull();
   });
 
   it("tells a view-only ssh viewer why typing is off", () => {
     render(<SshPaneLabels subshell={row({ ssh: true, access: "view" })} />);
-    expect(screen.queryByText("SSH")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "SSH connection" })).not.toBeNull();
     expect(screen.queryByText("Only the owner can type in this SSH subshell.")).not.toBeNull();
     // One sentence pinned exactly (copy rule), and no em/en dash in it.
     expect(SSH_VIEW_ONLY_COPY).toBe("Only the owner can type in this SSH subshell.");
@@ -52,4 +52,10 @@ describe("SshPaneLabels", () => {
     const { container } = render(<SshPaneLabels subshell={cached} />);
     expect(container.textContent).toBe("");
   });
+});
+
+it("explains the SSH icon on keyboard focus", async () => {
+  render(<SshPaneLabels subshell={row({ ssh: true })} />);
+  await act(async () => screen.getByRole("button", { name: "SSH connection" }).focus());
+  await waitFor(() => expect(screen.getByText("This subshell connects to another machine over SSH.")).toBeTruthy());
 });

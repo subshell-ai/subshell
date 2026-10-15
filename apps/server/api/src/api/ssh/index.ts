@@ -6,6 +6,7 @@ import { sshSavedHostsRoutes } from "@/api/ssh/saved-hosts.route.js";
 import { sshSetupHereRoute } from "@/api/ssh/setup-here.route.js";
 import { sshTrustRoutes } from "@/api/ssh/trust.route.js";
 import { sshIdentitiesRoute } from "./identities.route.js";
+import { sshLocalKeyRoutes } from "./local-key.route.js";
 import { sshReadinessRoute } from "./readiness.route.js";
 
 /** Cookie-only SSH operations, readiness, destination ledger and trust. */
@@ -15,6 +16,7 @@ export const sshRoutes = new Elysia({ prefix: "/api/ssh" })
   .use(sshAliasesRoute)
   .use(sshResolveRoute)
   .use(sshLaunchRoute)
+  .use(sshLocalKeyRoutes)
   .use(sshSavedHostsRoutes)
   .use(sshTrustRoutes)
   // The destination upgrade (spec 2026-10-08 §7, Task 14): "Set up Subshell

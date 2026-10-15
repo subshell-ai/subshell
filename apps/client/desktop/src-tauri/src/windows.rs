@@ -348,6 +348,11 @@ fn open_plane_window(app: &AppHandle, origin: &str) -> Result<WebviewWindow, Str
         // was what held the pin alive. It is not: the pin is app-managed state
         // that `control.rs` reads through `app.state::<PlanePin>()`.
         .on_navigation(|u| subshell_desktop_core::browser::browsable_scheme(u.scheme()))
+        .on_page_load(|webview, payload| {
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
+                crate::ssh_key::committed(webview.app_handle(), payload.url());
+            }
+        })
         // WebKitGTK needs a registered handler to save authenticated attachments.
         // Let the webview choose a unique filename in Downloads; no new IPC grant.
         .on_download(|webview, event| {

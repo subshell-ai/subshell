@@ -179,6 +179,12 @@ export async function setupHere(args: {
   let relayFingerprints: string[] | null = null;
   try {
     const stored: unknown = JSON.parse(pane.ssh);
+    if (stored && typeof stored === "object" && "localKey" in stored && stored.localKey === true)
+      return coded(
+        409,
+        BackendErrorCodes.SSH_UPGRADE_FAILED,
+        "This subshell used a one-time key from your machine. Run the node setup command in its terminal, or reconnect using a node’s keys before starting setup here.",
+      );
     snapshot = parseSshConnectionSnapshot(stored);
     if (
       stored &&

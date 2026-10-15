@@ -171,7 +171,7 @@ describe("ssh_discover_aliases / ssh_resolve_config arms (gate ON)", () => {
   });
 });
 
-/** The bump M2's relay tier owns: the relay link frame + the open/close commands (spec 2026-10-08 §5.1). */
-it("NODE_PROTOCOL_VERSION is 20 (relay and destination identity discovery)", () => {
-  expect(NODE_PROTOCOL_VERSION).toBe(20);
+/** Desktop signing requires the temporary key bridge command on the connecting node. */
+it("NODE_PROTOCOL_VERSION is 21 (temporary desktop key bridge)", () => {
+  expect(NODE_PROTOCOL_VERSION).toBe(21);
 });
