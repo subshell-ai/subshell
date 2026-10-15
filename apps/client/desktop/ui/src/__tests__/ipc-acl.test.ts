@@ -155,9 +155,11 @@ describe("the IPC contract", () => {
  *
  * Which makes three things worth pinning rather than one: that the scope is
  * exactly what was argued for, that the permission list is exactly the five
- * entries argued for (and no more), and that the Rust signatures behind them
- * take no path-capable or key-bearing argument. Any of those widening quietly
- * is the failure this block exists to make loud.
+ * entries argued for (and no more), and that the browser command's signature
+ * still takes a path and no host. The signer commands' safety is not a
+ * signature shape; it lives in `ssh_key.rs` and its own tests. Any of this
+ * block's own invariants widening quietly is the failure it exists to make
+ * loud.
  */
 describe("the window that is granted five narrow commands", () => {
   /** Every capability file the app ships, parsed. */

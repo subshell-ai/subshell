@@ -100,9 +100,10 @@ impl PlanePin {
 /// Tauri, and with nothing granted every one of those calls would have been
 /// refused one at a time. It carries one now because the SPA's chrome split in
 /// two — `isServerDesktop()` for everything that drives Subshell Server, and
-/// `isDesktop()` for the two surfaces that are true of any shell — and the
-/// commands granted to this window are the ones those surfaces call: the
-/// browser command, and since 2026-10-14 the four one-use SSH signer commands.
+/// `isDesktop()` for the two surfaces that are true of any shell — and this
+/// window now holds commands for both walks: the browser command that chrome
+/// calls, and since 2026-10-14 the four one-use SSH signer commands behind
+/// the connection form.
 ///
 /// So the token is what matters: `SubshellClient`, which the SPA maps to
 /// `app: "client"` and which switches on nothing else.

@@ -119,8 +119,8 @@ Three things about it are load-bearing:
   granted command set is exactly the invoked one. That three-way mismatch is a
   runtime permission rejection, not a compile error. The same file pins the
   `main` window's five commands (open-in-browser plus the four 2026-10-14 SSH
-  signer commands) against the same three sources, each with its scope and Rust
-  signature.
+  signer commands) against those sources and its wildcard scope, and pins the
+  one signature a remote page could aim anywhere: the browser command's.
 - **`withGlobalTauri` is `true`, and it is the OTHER window that needs it.**
   This page imports `invoke` from `@tauri-apps/api/core` and has no use for a
   global; it was `false` from the day that import landed. What changed on

@@ -482,8 +482,9 @@ pill, tray or Dock. On the windows side: **`show` + `unminimize` +
 activation), so every raise goes through `windows::raise`; nothing tucks
 anymore: assistant and dashboard legitimately coexist; and the window-state
 plugin restores `main` only: the assistant's and the unlock form's fixed
-frames are DENYLISTED (a test pins the pair), because `open_main` inherits
-their size and position.
+frames are DENYLISTED (a test pins the pair): both have nothing a person
+chose to remember, and `open_main` inherits the assistant's size and
+position.
 
 **Working on `watch.rs` or `windows.rs`: read
 apps/server/desktop/docs/windows.md first.**

@@ -472,10 +472,11 @@ fn dev_spa_origin() -> Option<String> {
 ///
 /// Loopback http only. The dashboard window holds privileged globals, and a
 /// convenience for developers is not the place to widen where those may be
-/// served from — a Vite server on a LAN address would be trusted with the
-/// seven commands for the life of the session. `open_main` refuses an
-/// untrusted origin independently (loopback, or the instance's configured
-/// base URL — never this variable's own idea of one), so this agreeing with it
+/// served from — a Vite server on a LAN address would be trusted with
+/// everything the window holds for the life of the session. `open_main`
+/// refuses an untrusted origin independently (loopback, or the instance's
+/// configured base URL — never this variable's own idea of one), so this
+/// agreeing with it
 /// is belt and braces rather than the only gate.
 fn dev_spa_origin_from(raw: Option<&str>) -> Option<String> {
     // Parsed with the SAME parser the webview will use, and reduced to an

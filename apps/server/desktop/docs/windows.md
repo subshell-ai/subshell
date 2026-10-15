@@ -64,7 +64,8 @@ own offline banner is a real state), so `open_assistant` closes nothing, and
 job ends at the dashboard, by either door.
 
 **The window-state plugin restores size and position for `main`, and tracks
-the assistant NOT AT ALL** (`DENYLIST`). Measured on 2026-09-12: a state file
+the assistant and the unlock form NOT AT ALL** (`DENYLIST`, a test pins both
+labels). Measured on 2026-09-12: a state file
 left by an older session restored 757x706 over the assistant's fixed 1024x720
 frame, and it came up at that size on a machine whose server was merely
 stopped. Latent until the assistant started opening on every not-ready boot

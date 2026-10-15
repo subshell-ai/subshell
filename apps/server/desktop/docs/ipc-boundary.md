@@ -279,9 +279,11 @@ was allowed to move.
 
 **The count is a number worth a test**, because "a few harmless ones" is how a
 boundary erodes. Three more pins arrived with the console's deletion: that
-`capabilities/` contains exactly `main.json` and `wizard.json` (a third file
-is a third window, and a window added without a deliberate grant list is what
-the manifest exists to prevent), that no file under `ui/src` names any of the
+`capabilities/` contains exactly `main.json`, `wizard.json`, and (since
+2026-10-14) `ssh-key-unlock.json`, one deliberate window per grant list (a
+new file means a new window, and a window added without a deliberate grant
+list is what the manifest exists to prevent), that no file under `ui/src`
+names any of the
 five commands the console took with it (`desktop_open_console`,
 `desktop_init`, `desktop_settings`, `desktop_set_close_to_tray`,
 `desktop_open_control_plane`): a leftover name is an invoke that rejects at
