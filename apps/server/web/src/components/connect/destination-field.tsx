@@ -1,7 +1,8 @@
-import { Input } from "@internal/node-admin";
+import { cn, Input } from "@internal/node-admin";
 import type { JSX } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { ComboboxOption } from "@/components/ui/combobox";
+import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 
 /**
  * The destination field: a real input, because the answer may be a host no
@@ -24,6 +25,7 @@ import type { ComboboxOption } from "@/components/ui/combobox";
 export function DestinationField({
   id,
   describedBy,
+  problem,
   placeholder,
   typed,
   query,
@@ -35,6 +37,7 @@ export function DestinationField({
   id: string;
   /** Id of the element explaining this field (the disclosure sentence) */
   describedBy?: string;
+  problem?: string | null;
   placeholder: string;
   /** The input's text: typed free text, or the committed row's label */
   typed: string;
@@ -47,6 +50,9 @@ export function DestinationField({
   onPick: (option: ComboboxOption) => void;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [touched, setTouched] = useState(false);
+  const error = touched && !focused ? problem : null;
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Dismissal by anything outside the field, or Escape - the directory
@@ -93,9 +99,17 @@ export function DestinationField({
         id={id}
         value={typed}
         onChange={(e) => onTextChange(e.target.value)}
-        onFocus={() => setOpen(true)}
+        onFocus={() => {
+          setOpen(true);
+          setFocused(true);
+        }}
+        onBlur={() => {
+          setFocused(false);
+          setTouched(true);
+        }}
         placeholder={placeholder}
-        aria-describedby={describedBy}
+        aria-invalid={!!error}
+        aria-describedby={[describedBy, error ? `${id}-error` : null].filter(Boolean).join(" ") || undefined}
         onKeyDown={(e) => {
           if (e.key === "Enter" && visible.length > 0) {
             e.preventDefault(); // committing the top row is the act; it must not submit the page
@@ -103,6 +117,17 @@ export function DestinationField({
           }
         }}
       />
+      {error && (
+        // Gold for the empty field after the caret leaves (ruling 2026-09-30);
+        // red for what validation or the server refuses.
+        <p
+          id={`${id}-error`}
+          role="alert"
+          className={cn(!typed.trim() ? REQUIREMENT_CAPTION_CLASS : "text-destructive text-detail")}
+        >
+          {error}
+        </p>
+      )}
       {open && visible.length > 0 && (
         // The id lets callers (and tests) scope to the popup: a group header
         // like "Recent" names the same word the ledger heading below uses,

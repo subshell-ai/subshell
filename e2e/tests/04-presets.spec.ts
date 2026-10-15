@@ -40,9 +40,10 @@ test("create a preset from the page, verify it via the API, delete it", async ({
   await page.goto("/presets");
   // A fresh user has zero presets: the page opens on its empty state, not a
   // list of Defaults.
-  await expect(page.getByText("No presets yet")).toBeVisible();
+  await expect(page.getByText("No agent presets yet")).toBeVisible();
 
   await page.getByRole("button", { name: "New preset" }).click();
+  await page.getByRole("menuitem", { name: "New agent preset", exact: true }).click();
   // Unlocked create dialog (the nested launch-form variant locks the agent).
   await expect(page.getByRole("heading", { name: "Create preset" })).toBeVisible();
   // The harness trigger carries the stable id `#preset-harness` — locating by
@@ -124,7 +125,7 @@ test("create a preset from the page, verify it via the API, delete it", async ({
   await expect(page.getByText("Delete this preset?")).toBeVisible();
   await page.getByRole("button", { name: "Delete" }).click();
   await expect(page.getByText("E2E shell")).toHaveCount(0);
-  await expect(page.getByText("No presets yet")).toBeVisible();
+  await expect(page.getByText("No agent presets yet")).toBeVisible();
 });
 
 test(`the launch form's "Save as preset" makes a preset from the form`, async ({ page }) => {
@@ -186,6 +187,7 @@ test(`the launch form's "Save as preset" makes a preset from the form`, async ({
 test("clone a preset from the row's action menu", async ({ page }) => {
   await page.goto("/presets");
   await page.getByRole("button", { name: "New preset" }).click();
+  await page.getByRole("menuitem", { name: "New agent preset", exact: true }).click();
   await page.locator("#preset-harness").click();
   await page.getByRole("option", { name: "pi", exact: true }).click();
   await page.fill("#preset-name", "E2E clone source");

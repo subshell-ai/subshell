@@ -50,7 +50,7 @@ test("fresh migration chain contains trust and no SSH permission tables", async 
     await sql<{ name: string }>`SELECT name FROM sqlite_master WHERE type='table'`.execute(freshDb)
   ).rows.map((row) => row.name);
   expect(tables).toContain("ssh_host_pins");
-  expect(tables).toContain("ssh_saved_hosts");
+  expect(tables).toContain("ssh_recent_destinations");
   expect(tables).not.toContain("ssh_key_grants");
   expect(tables).not.toContain("ssh_grant_requests");
 });

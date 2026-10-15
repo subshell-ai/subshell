@@ -15,6 +15,7 @@ import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/api/__tests__/helpers/auth-tables.js";
 import { setNodeSharesRoute } from "@/api/nodes/set-node-shares.route.js";
+import { presetRoutes } from "@/api/presets.route.js";
 import { sshRoutes } from "@/api/ssh/index.js";
 import { db } from "@/db/index.js";
 import { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
@@ -44,24 +45,24 @@ import { attachScriptedNode, ok, SCRIPTED_DATA_DIR, statDirEcho } from "@/test-h
  *   `sendCommand`; a held agent is refused before the resolve round trip;
  *   discovery, resolve and launch all sit behind the same gate.
  * - **Refusal placement**: `POST /resolve` answers a refusal outcome IN THE
- *   DATA (200, tier-1 grammar); `POST /launch` and `PUT /saved-hosts` refuse a
+ *   DATA (200, tier-1 grammar); `POST /launch` and the SSH preset save refuse a
  *   refusal-shaped outcome with 422 carrying `{outcome}`.
  * - **Compose**: the launch frame carries the config at the NODE's derived
  *   path, the rendered bytes, and the option tail `-F … -- host`; the row
  *   carries the approved snapshot; `SSH_AUTH_SOCK` rides only when the
  *   snapshot names a socket.
- * - **Saved hosts**: lists never carry another owner's rows; a foreign delete
- *   is the same 404 as an absent one; preferences store the id and the read
- *   tolerates the node vanishing.
+ * - **Recent destinations**: lists never carry another owner's rows;
+ *   preferences store the default node id and the read tolerates the node
+ *   vanishing (preset foreign-delete 404s live under preset CRUD).
  * - **Audit**: `ssh.launch` lands on SUCCESS only, with `{nodeId, destination,
- *   subshellId}` and nothing else; saved-host CRUD audits nothing (prompts precedent).
+ *   subshellId}` and nothing else; preset CRUD audits nothing (prompts precedent).
  *
  * The agent answers come from the scripted node (the real `sendCommand` chain,
  * the real frame parser) — the `ssh`/`resolve` frames this surface emits are
  * what the shipped agent would switch on.
  */
 
-const app = new Elysia().use(errorHandlerPlugin).use(sshRoutes);
+const app = new Elysia().use(errorHandlerPlugin).use(sshRoutes).use(presetRoutes);
 
 const pw = "ssh-api-1";
 const ownerEmail = `ssha-owner-${crypto.randomUUID()}@subshell.local`;
@@ -206,7 +207,8 @@ beforeAll(async () => {
 afterAll(async () => {
   resetNodeRegistryForTests();
   for (const id of createdSubshellIds) await new SubshellsRepository(db).delete(id).catch(() => {});
-  await db.deleteFrom("sshSavedHosts").execute();
+  await db.deleteFrom("sshRecentDestinations").execute();
+  await db.deleteFrom("sshPresets").execute();
   for (const id of createdNodeIds.concat(NODE_ON, NODE_OFF)) await nodes.deleteById(id).catch(() => {});
   await db
     .updateTable("nodes")
@@ -516,7 +518,7 @@ describe("POST /api/ssh/launch", () => {
     }
   });
 
-  it("a successful launch records the recency row (saved_at stays null until the human saves)", async () => {
+  it("a successful launch records the recent destination", async () => {
     const scripted = attachScriptedNode(NODE_ON, {
       ssh_resolve_config: () => ({ accepted: true, snapshot: ACCEPTED }),
       launch: ok,
@@ -527,13 +529,12 @@ describe("POST /api/ssh/launch", () => {
       expect(res.status).toBe(201);
       await res.json();
       const rows = await db
-        .selectFrom("sshSavedHosts")
+        .selectFrom("sshRecentDestinations")
         .selectAll()
         .where("destination", "=", CANON)
         .where("ownerUserId", "=", ownerId)
         .execute();
       expect(rows).toHaveLength(1);
-      expect(rows[0].savedAt).toBeNull();
       expect(rows[0].alias).toBe("work");
       expect(rows[0].nodeId).toBe(NODE_ON);
     } finally {
@@ -542,96 +543,33 @@ describe("POST /api/ssh/launch", () => {
   });
 });
 
-describe("/api/ssh/saved-hosts", () => {
-  it("PUT resolves then upsert-marks-saved, and audits NOTHING (prompts precedent)", async () => {
-    const scripted = silentScript(NODE_ON);
-    const before = await db.selectFrom("auditEvents").select("id").execute();
-    try {
-      const res = await sshFetch("/api/ssh/saved-hosts", {
-        method: "PUT",
-        body: { node: NODE_ON, destination: "work" },
-        cookie: ownerCookie,
-      });
-      expect(res.status).toBe(200);
-      const row = (await res.json()) as { destination: string; savedAt: string | null; alias: string | null };
-      expect(row.destination).toBe(CANON);
-      expect(row.savedAt).not.toBeNull();
-      expect(row.alias).toBe("work");
-    } finally {
-      scripted.detach();
-    }
-    const after = await db.selectFrom("auditEvents").select("id").execute();
-    expect(after.length).toBe(before.length); // saved-host CRUD records nothing, ever
-  });
-
-  it("PUT refuses a refusal-shaped outcome with 422 {outcome} and writes no row", async () => {
-    const scripted = silentScript(NODE_ON);
-    try {
-      const res = await sshFetch("/api/ssh/saved-hosts", {
-        method: "PUT",
-        body: { node: NODE_ON, destination: "proxy-box" },
-        cookie: ownerCookie,
-      });
-      expect(res.status).toBe(422);
-      const body = (await res.json()) as { outcome: { code: string } };
-      expect(body.outcome.code).toBe("unsupported_setting");
-      const rows = await db.selectFrom("sshSavedHosts").selectAll().where("ownerUserId", "=", ownerId).execute();
-      expect(rows.find((r) => r.destination === "proxy-box")).toBeUndefined();
-    } finally {
-      scripted.detach();
-    }
-  });
-
-  it("GET lists the caller's own saved and recent rows only — never another owner's", async () => {
+describe("/api/ssh/recent-destinations", () => {
+  it("GET lists only the caller's recent destinations", async () => {
     // Owner A saves; owner B (a second human with their own node) must see
     // none of A's rows, and vice versa.
     await db
-      .insertInto("sshSavedHosts")
+      .insertInto("sshRecentDestinations")
       .values({
         id: crypto.randomUUID(),
         ownerUserId: ownerId,
         destination: "a-private.test:22",
         alias: "mine",
         nodeId: NODE_ON,
-        savedAt: "2026-10-07T10:00:00.000Z",
         lastConnectAt: "2026-10-07T10:00:00.000Z",
       } as never)
       .execute();
-    const resA = await sshFetch("/api/ssh/saved-hosts", { cookie: ownerCookie });
+    const resA = await sshFetch("/api/ssh/recent-destinations", { cookie: ownerCookie });
     expect(resA.status).toBe(200);
     const viewA = (await resA.json()) as {
-      saved: { destination: string }[];
-      recent: unknown[];
+      recent: { destination: string }[];
       defaultNodeId: string | null;
     };
-    expect(viewA.saved.map((r) => r.destination)).toContain("a-private.test:22");
+    expect(viewA.recent.map((r) => r.destination)).toContain("a-private.test:22");
 
-    const resB = await sshFetch("/api/ssh/saved-hosts", { cookie: editorCookie });
-    const viewB = (await resB.json()) as { saved: { destination: string }[]; recent: unknown[] };
-    expect(viewB.saved.map((r) => r.destination)).not.toContain("a-private.test:22");
+    const resB = await sshFetch("/api/ssh/recent-destinations", { cookie: editorCookie });
+    const viewB = (await resB.json()) as { recent: { destination: string }[] };
+    expect(viewB.recent.map((r) => r.destination)).not.toContain("a-private.test:22");
     expect(viewB.recent).toEqual([]);
-  });
-
-  it("DELETE removes the owner's row (204) and a foreign id answers the same 404 as an absent one", async () => {
-    const row = await db
-      .insertInto("sshSavedHosts")
-      .values({
-        id: crypto.randomUUID(),
-        ownerUserId: ownerId,
-        destination: "to-delete.test:22",
-        alias: null,
-        nodeId: NODE_ON,
-        savedAt: "2026-10-07T10:00:00.000Z",
-        lastConnectAt: "2026-10-07T10:00:00.000Z",
-      } as never)
-      .returningAll()
-      .executeTakeFirstOrThrow();
-    const foreign = await sshFetch(`/api/ssh/saved-hosts/${row.id}`, { method: "DELETE", cookie: editorCookie });
-    expect(foreign.status).toBe(404); // refused like an absent row — the id is no oracle
-    const own = await sshFetch(`/api/ssh/saved-hosts/${row.id}`, { method: "DELETE", cookie: ownerCookie });
-    expect(own.status).toBe(204);
-    const again = await sshFetch(`/api/ssh/saved-hosts/${row.id}`, { method: "DELETE", cookie: ownerCookie });
-    expect(again.status).toBe(404);
   });
 });
 
@@ -640,11 +578,11 @@ describe("/api/ssh/preferences (default connecting machine)", () => {
     return sshFetch("/api/ssh/preferences", { method: "PATCH", body: { defaultNodeId }, cookie });
   }
 
-  it("stores a visible node's id, reads it back on the saved-hosts view, and null clears it", async () => {
+  it("stores a visible node's id, reads it back on the recent-destinations view, and null clears it", async () => {
     const set = await patchPreferences(ownerCookie, NODE_ON);
     expect(set.status).toBe(200);
     expect(((await set.json()) as { defaultNodeId: string | null }).defaultNodeId).toBe(NODE_ON);
-    const view = (await (await sshFetch("/api/ssh/saved-hosts", { cookie: ownerCookie })).json()) as {
+    const view = (await (await sshFetch("/api/ssh/recent-destinations", { cookie: ownerCookie })).json()) as {
       defaultNodeId: string | null;
     };
     expect(view.defaultNodeId).toBe(NODE_ON);
@@ -669,7 +607,7 @@ describe("/api/ssh/preferences (default connecting machine)", () => {
     });
     await patchPreferences(ownerCookie, transient);
     await nodes.deleteById(transient);
-    const view = (await (await sshFetch("/api/ssh/saved-hosts", { cookie: ownerCookie })).json()) as {
+    const view = (await (await sshFetch("/api/ssh/recent-destinations", { cookie: ownerCookie })).json()) as {
       defaultNodeId: string | null;
     };
     expect(view.defaultNodeId).toBe(transient);
@@ -1004,5 +942,464 @@ describe("one-use native SSH key routing", () => {
       if (id) await sshFetch(`/api/ssh/local-key/${id}`, { method: "DELETE", cookie: ownerCookie });
       scripted.detach();
     }
+  });
+});
+
+describe("SSH preset CRUD", () => {
+  const body = (name: string) => ({
+    kind: "ssh",
+    name,
+    nodeId: NODE_ON,
+    destination: "work",
+    authentication: "connecting",
+    fingerprints: [],
+  });
+  const save = (value: Record<string, unknown>, cookie = ownerCookie) =>
+    sshFetch("/api/presets", { method: "POST", cookie, body: value });
+  it("rejects blank names and normalizes names before duplicate checks on create and update", async () => {
+    const scripted = silentScript(NODE_ON);
+    try {
+      for (const name of ["   ", "\t", "bad\nname"]) expect((await save(body(name))).status).toBe(400);
+      expect(scripted.cmdsOf("ssh_resolve_config")).toHaveLength(0);
+      const created = await save(body("  Trimmed SSH name  "));
+      expect(created.status).toBe(200);
+      const row = (await created.json()) as { id: string; name: string };
+      expect(row.name).toBe("Trimmed SSH name");
+      expect((await save(body(" trimmed ssh NAME "))).status).toBe(409);
+      const { kind: _kind, ...update } = body(" ");
+      const refused = await sshFetch(`/api/presets/${row.id}`, { method: "PUT", cookie: ownerCookie, body: update });
+      expect(refused.status).toBe(400);
+      await sshFetch(`/api/presets/${row.id}`, { method: "DELETE", cookie: ownerCookie });
+    } finally {
+      scripted.detach();
+    }
+  });
+  it("keeps stored alias and description when an update omits them, and clears only on explicit null", async () => {
+    const scripted = silentScript(NODE_ON);
+    const created = await save({ ...body("Omit keeps"), description: "kept note" });
+    try {
+      expect(created.status).toBe(200);
+      const row = (await created.json()) as { id: string };
+      const put = (extra: Record<string, unknown>) =>
+        sshFetch(`/api/presets/${row.id}`, {
+          method: "PUT",
+          cookie: ownerCookie,
+          body: {
+            name: "Omit keeps",
+            nodeId: NODE_ON,
+            destination: CANON,
+            authentication: "connecting",
+            fingerprints: [],
+            ...extra,
+          },
+        });
+      const kept = await put({});
+      expect(kept.status).toBe(200);
+      expect(await kept.json()).toMatchObject({ alias: "work", description: "kept note" });
+      // Omitting decided nothing, so no re-resolution rode the update.
+      expect(scripted.cmdsOf("ssh_resolve_config")).toHaveLength(1); // the create only
+      // A whitespace-only alias says "no alias" once trimmed, like the name's rule.
+      const blanked = await put({ alias: "   " });
+      expect(blanked.status).toBe(200);
+      expect(await blanked.json()).toMatchObject({ alias: null });
+      const renamed = await put({ alias: "  Tight alias  " });
+      expect(renamed.status).toBe(200);
+      expect(await renamed.json()).toMatchObject({ alias: "Tight alias" });
+      const cleared = await put({ alias: null, description: null });
+      expect(cleared.status).toBe(200);
+      expect(await cleared.json()).toMatchObject({ alias: null, description: null });
+      await sshFetch(`/api/presets/${row.id}`, { method: "DELETE", cookie: ownerCookie });
+    } finally {
+      scripted.detach();
+    }
+  });
+  it("refuses cross-kind updates instead of renaming the wrong row", async () => {
+    const scripted = silentScript(NODE_ON);
+    try {
+      const agent = (await sshFetch("/api/presets", {
+        method: "POST",
+        cookie: ownerCookie,
+        body: { harnessId: "terminal", name: "Cross agent" },
+      })) as Response;
+      expect(agent.status).toBe(200);
+      const agentRow = (await agent.json()) as { id: string };
+      // SSH intent missing a required SSH field must NOT fall through to the
+      // all-optional agent schema (which would rename the agent row, 200).
+      const partial = await sshFetch(`/api/presets/${agentRow.id}`, {
+        method: "PUT",
+        cookie: ownerCookie,
+        body: { name: "Hijacked", authentication: "connecting", destination: "work" },
+      });
+      expect(partial.status).toBe(400);
+      expect(((await partial.json()) as { message: string }).message).toMatch(/complete SSH preset fields/);
+      const still = (
+        (await (await sshFetch("/api/presets", { cookie: ownerCookie })).json()) as {
+          id: string;
+          name: string;
+        }[]
+      ).find((p) => p.id === agentRow.id)?.name;
+      expect(still).toBe("Cross agent");
+      // A COMPLETE SSH body against an agent row is the kind-change refusal.
+      expect(
+        (
+          await sshFetch(`/api/presets/${agentRow.id}`, {
+            method: "PUT",
+            cookie: ownerCookie,
+            body: { name: "Cross agent", nodeId: NODE_ON, destination: "work", authentication: "connecting" },
+          })
+        ).status,
+      ).toBe(400);
+      const sshCreated = await save(body("Cross ssh"));
+      expect(sshCreated.status).toBe(200);
+      const sshRow = (await sshCreated.json()) as { id: string };
+      // The reverse direction: an agent-shaped body cannot update an SSH row.
+      const reverse = await sshFetch(`/api/presets/${sshRow.id}`, {
+        method: "PUT",
+        cookie: ownerCookie,
+        body: { name: "Solo agent key" },
+      });
+      expect(reverse.status).toBe(400);
+      await sshFetch(`/api/presets/${sshRow.id}`, { method: "DELETE", cookie: ownerCookie });
+      await sshFetch(`/api/presets/${agentRow.id}`, { method: "DELETE", cookie: ownerCookie });
+    } finally {
+      scripted.detach();
+    }
+  });
+  it("switching the connecting node re-resolves the stored alias under the saved address guard", async () => {
+    const alt = `n-ssh-alt-${crypto.randomUUID()}`;
+    createdNodeIds.push(alt);
+    await mkNode(alt, true);
+    const on = silentScript(NODE_ON);
+    const readSsh = async () =>
+      (await (await sshFetch("/api/presets?kind=ssh", { cookie: ownerCookie })).json()) as {
+        id: string;
+        nodeId: string;
+        destination: string;
+      }[];
+    try {
+      const created = await save(body("Node switch"));
+      expect(created.status).toBe(200);
+      const row = (await created.json()) as { id: string };
+      const switchBody = (nodeId: string) => ({
+        name: "Node switch",
+        nodeId,
+        destination: CANON,
+        authentication: "connecting",
+        fingerprints: [],
+      });
+      // A node that cannot reproduce the saved address is refused, row untouched.
+      const refused = attachScriptedNode(alt, { ssh_resolve_config: () => REFUSED });
+      try {
+        const denied = await sshFetch(`/api/presets/${row.id}`, {
+          method: "PUT",
+          cookie: ownerCookie,
+          body: switchBody(alt),
+        });
+        expect(denied.status).toBe(422);
+        expect((await readSsh()).find((p) => p.id === row.id)?.nodeId).toBe(NODE_ON);
+      } finally {
+        refused.detach();
+      }
+      // The server-derived guard: the NEW node answers accepted, but the alias
+      // resolves to a different address than the stored destination. That is
+      // CONFIG_INVALID, not a silent rewrite of a still-correct row.
+      const altDrift = attachScriptedNode(alt, {
+        ssh_resolve_config: (cmd) =>
+          cmd.type === "ssh_resolve_config" && cmd.alias === "work"
+            ? { accepted: true, snapshot: snapshot({ host: "elsewhere.test" }) }
+            : REFUSED,
+      });
+      try {
+        const drifted = await sshFetch(`/api/presets/${row.id}`, {
+          method: "PUT",
+          cookie: ownerCookie,
+          body: switchBody(alt),
+        });
+        expect(drifted.status).toBe(400);
+        const stayed = (await readSsh()).find((p) => p.id === row.id);
+        expect(stayed?.nodeId).toBe(NODE_ON);
+        expect(stayed?.destination).toBe(CANON);
+      } finally {
+        altDrift.detach();
+      }
+      // The stored ALIAS must carry the re-resolve, not the canonical string
+      // (which the new machine would read as a literal host and rewrite
+      // nonsense), and the saved address must guard it.
+      const altTokens: unknown[] = [];
+      const altOk = attachScriptedNode(alt, {
+        ssh_resolve_config: (cmd) => {
+          if (cmd.type === "ssh_resolve_config") altTokens.push(cmd.alias);
+          return cmd.type === "ssh_resolve_config" && cmd.alias === "work"
+            ? { accepted: true, snapshot: ACCEPTED }
+            : REFUSED;
+        },
+      });
+      try {
+        const switched = await sshFetch(`/api/presets/${row.id}`, {
+          method: "PUT",
+          cookie: ownerCookie,
+          body: switchBody(alt),
+        });
+        expect(switched.status).toBe(200);
+        expect(await switched.json()).toMatchObject({ nodeId: alt, destination: CANON, resolutionAlias: "work" });
+        expect(altTokens).toEqual(["work"]);
+      } finally {
+        altOk.detach();
+      }
+      await sshFetch(`/api/presets/${row.id}`, { method: "DELETE", cookie: ownerCookie });
+      expect(await readSsh()).toEqual([]);
+    } finally {
+      on.detach();
+    }
+  });
+  it("audits NOTHING across create, update, and delete (prompts precedent)", async () => {
+    const scripted = silentScript(NODE_ON);
+    const auditCount = () => db.selectFrom("auditEvents").select("id").execute();
+    const before = await auditCount();
+    try {
+      const created = await save(body("Audit silent"));
+      expect(created.status).toBe(200);
+      const row = (await created.json()) as { id: string };
+      const { kind: _kind, ...update } = body("Audit silent");
+      const updated = await sshFetch(`/api/presets/${row.id}`, {
+        method: "PUT",
+        cookie: ownerCookie,
+        body: { ...update, destination: CANON, description: "edited note" },
+      });
+      expect(updated.status).toBe(200);
+      expect((await sshFetch(`/api/presets/${row.id}`, { method: "DELETE", cookie: ownerCookie })).status).toBe(200);
+    } finally {
+      scripted.detach();
+    }
+    // A preference row is not an event; preset CRUD never touches the trail.
+    expect((await auditCount()).length).toBe(before.length);
+  });
+  it("creates canonical owner-scoped presets without touching recents or launching", async () => {
+    const scripted = silentScript(NODE_ON);
+    try {
+      const res = await save(body("SSH canonical"));
+      expect(res.status).toBe(200);
+      const row = (await res.json()) as Record<string, unknown>;
+      expect(row).toMatchObject({
+        kind: "ssh",
+        destination: CANON,
+        alias: "work",
+        userId: ownerId,
+        fingerprints: [],
+        keyHome: null,
+      });
+      expect(scripted.cmdsOf("launch")).toHaveLength(0);
+      const foreign = await sshFetch(`/api/presets/${row.id}`, { method: "DELETE", cookie: editorCookie });
+      expect(foreign.status).toBe(404);
+      const mine = await sshFetch("/api/presets?kind=ssh", { cookie: ownerCookie });
+      expect(((await mine.json()) as { id: string }[]).some((p: { id: string }) => p.id === row.id)).toBe(true);
+      const other = await sshFetch("/api/presets?kind=ssh", { cookie: editorCookie });
+      expect(await other.json()).toEqual([]);
+      expect((await sshFetch("/api/presets", { cookie: ownerCookie })).status).toBe(200);
+      const duplicate = await save(body("ssh CANONICAL"));
+      expect(duplicate.status).toBe(409);
+      const changed: Record<string, unknown> = { ...row, name: "SSH renamed" };
+      const { kind, id, userId, createdAt, updatedAt, ...update } = changed;
+      const count = scripted.cmdsOf("ssh_resolve_config").length;
+      scripted.detach();
+      const edited = await sshFetch(`/api/presets/${id}`, { method: "PUT", cookie: ownerCookie, body: update });
+      expect(edited.status).toBe(200);
+      expect(((await edited.json()) as { destination: string }).destination).toBe(CANON);
+      expect(scripted.cmdsOf("ssh_resolve_config")).toHaveLength(count);
+      expect(
+        (
+          await sshFetch(`/api/presets/${id}`, {
+            method: "PUT",
+            cookie: ownerCookie,
+            body: { ...update, kind: "agent" },
+          })
+        ).status,
+      ).toBe(400);
+      expect((await sshFetch(`/api/presets/${id}`, { method: "DELETE", cookie: ownerCookie })).status).toBe(200);
+    } finally {
+      scripted.detach();
+    }
+  });
+  it("preserves alias settings and blocks redirected save, clone, preparation and launch", async () => {
+    let host = "example.test";
+    const scripted = attachScriptedNode(NODE_ON, {
+      ssh_resolve_config: (command) => ({
+        accepted: true,
+        snapshot: snapshot({
+          host,
+          user: "deploy",
+          ...(command.type === "ssh_resolve_config" && command.alias === "work"
+            ? {
+                identityFiles: ["/tmp/deploy-key"],
+                proxyJumps: [{ host: "jump.test", user: null, port: 22 }],
+              }
+            : {}),
+        }),
+      }),
+      launch: ok,
+      stat_dir: statDirEcho,
+    });
+    try {
+      const saved = await save(body("Alias settings"));
+      expect(saved.status).toBe(200);
+      const row = (await saved.json()) as Record<string, unknown>;
+      const canonical = "deploy@example.test:22";
+      expect(row).toMatchObject({ destination: canonical, resolutionAlias: "work" });
+      const listed = await sshFetch("/api/presets?kind=ssh", { cookie: ownerCookie });
+      expect(await listed.json()).toContainEqual(row);
+      const launched = await launch(
+        { node: NODE_ON, destination: row.resolutionAlias, expectedDestination: canonical },
+        ownerCookie,
+      );
+      expect(launched.status).toBe(201);
+      const launchedId = ((await launched.json()) as { subshell: { id: string } }).subshell.id;
+      createdSubshellIds.push(launchedId);
+      const config = scripted.cmdsOf("launch")[0]?.ssh?.fileContent;
+      expect(config).toContain("IdentityFile /tmp/deploy-key");
+      expect(scripted.cmdsOf("launch")[0]?.argv).toContain("ProxyJump=jump.test");
+      host = "replacement.test";
+      const clone = {
+        ...body("Alias clone"),
+        destination: canonical,
+        resolutionAlias: "work",
+        expectedDestination: canonical,
+      };
+      expect((await save(clone)).status).toBe(400);
+      expect((await save({ ...clone, name: "Canonical redirect", resolutionAlias: canonical })).status).toBe(400);
+      const redirected = await launch(
+        { node: NODE_ON, destination: "work", expectedDestination: canonical, authentication: "password" },
+        ownerCookie,
+      );
+      expect(redirected.status).toBe(400);
+      expect(await redirected.json()).toMatchObject({ code: "CONFIG_INVALID" });
+      const canonicalRedirect = await launch(
+        { node: NODE_ON, destination: canonical, expectedDestination: canonical },
+        ownerCookie,
+      );
+      expect(canonicalRedirect.status).toBe(400);
+      expect(await canonicalRedirect.json()).toMatchObject({ code: "CONFIG_INVALID" });
+      expect(
+        (
+          await sshFetch("/api/ssh/local-key", {
+            method: "POST",
+            cookie: ownerCookie,
+            body: { node: NODE_ON, destination: "work", expectedDestination: canonical },
+          })
+        ).status,
+      ).not.toBe(200);
+      expect(scripted.cmdsOf("ssh_host_key")).toHaveLength(0);
+      expect(scripted.cmdsOf("ssh_key_bridge")).toHaveLength(0);
+      expect(scripted.cmdsOf("launch")).toHaveLength(1);
+      const edited = await sshFetch(`/api/presets/${row.id}`, {
+        method: "PUT",
+        cookie: ownerCookie,
+        body: {
+          name: "Alias settings",
+          nodeId: NODE_ON,
+          authentication: "connecting",
+          destination: "replacement.test",
+          resolutionAlias: null,
+        },
+      });
+      expect(edited.status).toBe(200);
+      expect(await edited.json()).toMatchObject({
+        destination: "deploy@replacement.test:22",
+        resolutionAlias: "replacement.test",
+      });
+      expect(await db.selectFrom("sshPresets").selectAll().where("name", "=", "Alias clone").execute()).toEqual([]);
+      expect((await sshFetch(`/api/presets/${row.id}`, { method: "DELETE", cookie: ownerCookie })).status).toBe(200);
+    } finally {
+      scripted.detach();
+    }
+  });
+  it("requires explicit authentication and rejects secret and unrelated fields", async () => {
+    for (const field of ["localKeyId", "privateKey", "keyFile", "approval", "token", "env", "harnessId"]) {
+      expect((await save({ ...body(`bad ${field}`), [field]: "secret" })).status).toBe(400);
+    }
+    const { authentication, ...missing } = body("missing auth");
+    expect((await save(missing)).status).toBe(400);
+    expect((await save({ ...body("wrong key node"), authentication: "remote", keyHome: NODE_ON })).status).toBe(400);
+    expect((await save({ ...body("password key"), authentication: "password", keyHome: NODE_OFF })).status).toBe(400);
+    expect(
+      (await save({ ...body("bad fingerprints"), authentication: "remote", keyHome: NODE_OFF, fingerprints: ["bad"] }))
+        .status,
+    ).toBe(400);
+  });
+  it("refuses overlong resolved destinations before writing and keeps the list readable", async () => {
+    const scripted = attachScriptedNode(NODE_ON, {
+      ssh_resolve_config: () => ({ accepted: true, snapshot: snapshot({ host: "h".repeat(250), user: "operator" }) }),
+    });
+    try {
+      const name = "overlong resolved address";
+      const response = await save(body(name));
+      expect(response.status).toBe(400);
+      expect(JSON.stringify(await response.json())).toContain("resolved SSH destination is too long");
+      const rows = await db
+        .selectFrom("sshPresets")
+        .selectAll()
+        .where("userId", "=", ownerId)
+        .where("name", "=", name)
+        .execute();
+      expect(rows).toEqual([]);
+      expect((await sshFetch("/api/presets?kind=ssh", { cookie: ownerCookie })).status).toBe(200);
+    } finally {
+      scripted.detach();
+    }
+  });
+  it("requires a nonempty remote key selection", async () => {
+    for (const fingerprints of [undefined, null, []]) {
+      const response = await save({
+        ...body("empty remote keys"),
+        authentication: "remote",
+        keyHome: NODE_OFF,
+        fingerprints,
+      });
+      expect(response.status).toBe(400);
+      expect(JSON.stringify(await response.json())).toContain("Select at least one SSH key");
+    }
+    expect(
+      await db
+        .selectFrom("sshPresets")
+        .selectAll()
+        .where("userId", "=", ownerId)
+        .where("name", "=", "empty remote keys")
+        .execute(),
+    ).toEqual([]);
+  });
+  it("stores remote key choices without requiring that key node to be live or SSH enabled", async () => {
+    const scripted = silentScript(NODE_ON);
+    try {
+      const response = await save({
+        ...body("remote offline"),
+        authentication: "remote",
+        keyHome: NODE_OFF,
+        fingerprints: [`SHA256:${"A".repeat(43)}`],
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ keyHome: NODE_OFF, fingerprints: [`SHA256:${"A".repeat(43)}`] });
+      expect((await save({ ...body("invisible"), nodeId: "no-node" })).status).toBe(404);
+      expect((await save({ ...body("refused"), destination: "proxy-box" })).status).toBe(422);
+    } finally {
+      await db.deleteFrom("sshPresets").where("name", "=", "remote offline").execute();
+      scripted.detach();
+    }
+  });
+  it("refuses bearer reads and writes for SSH while preserving the default agent read", async () => {
+    const subshellId = crypto.randomUUID();
+    createdSubshellIds.push(subshellId);
+    await new SubshellsRepository(db).create({
+      id: subshellId,
+      userId: ownerId,
+      harnessId: "terminal",
+      name: "preset bearer",
+      workingDir: "/tmp",
+      presetId: null,
+      tmuxSocket: null,
+    });
+    const key = await issueSubshellToken(subshellId, ownerId);
+    for (const kind of ["ssh", "all"])
+      expect((await sshFetch(`/api/presets?kind=${kind}`, { bearer: key })).status).toBe(403);
+    expect((await sshFetch("/api/presets", { bearer: key })).status).toBe(200);
+    expect((await sshFetch("/api/presets", { method: "POST", body: body("bearer"), bearer: key })).status).toBe(403);
   });
 });

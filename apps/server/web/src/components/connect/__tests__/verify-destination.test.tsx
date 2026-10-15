@@ -10,7 +10,8 @@ afterEach(() => {
 });
 const request: SshLaunchRequest = {
   node: "connecting",
-  destination: "user@host:22",
+  destination: "original-alias",
+  expectedDestination: "user@host:22",
   keyHome: "keys",
   fingerprints: ["SHA256:key"],
 };
@@ -58,6 +59,12 @@ test("confirmation accepts only the server-issued check before retrying the same
     }),
   ).toEqual(result);
   expect(launches).toBe(2);
+  expect(calls[0]?.body).toEqual({
+    node: "connecting",
+    keyHome: "keys",
+    destination: "original-alias",
+    expectedDestination: "user@host:22",
+  });
   expect(calls[1]).toEqual({ path: "/api/ssh/verify-destination/accept", body: { token: "bound-check" } });
 });
 test("a changed identity never offers first-connection acceptance", async () => {

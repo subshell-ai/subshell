@@ -2,12 +2,13 @@ import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 import { isSshKeyBridgePayload, SSH_LOCAL_KEY_MAX_BASE64 } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
-import { SshDestinationField } from "@/api/ssh/ssh-views.js";
+import { SshDestinationField, SshExpectedDestinationField } from "@/api/ssh/ssh-views.js";
 import { closeLocalSshKey, exchangeLocalSshKey, prepareLocalSshKey } from "@/services/ssh-local-key.service.js";
 
 const PrepareSchema = t.Object({
   node: t.String({ minLength: 1, maxLength: 128, description: "Connecting node id" }),
   destination: SshDestinationField,
+  expectedDestination: SshExpectedDestinationField,
 });
 const IdSchema = t.Object({ id: t.String({ format: "uuid", description: "Temporary signing request id" }) });
 const ReplySchema = t.Object({
@@ -32,7 +33,7 @@ export const sshLocalKeyRoutes = new Elysia()
       requireCookieActor(actor, "Local SSH keys require a browser session.");
       if (!session) throw new Error("Browser session is unavailable.");
       set.headers["cache-control"] = "no-store";
-      return prepareLocalSshKey(user.id, session.id, body.node, body.destination);
+      return prepareLocalSshKey(user.id, session.id, body.node, body.destination, body.expectedDestination);
     },
     {
       body: PrepareSchema,

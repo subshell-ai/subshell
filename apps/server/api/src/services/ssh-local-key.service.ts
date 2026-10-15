@@ -8,9 +8,9 @@ import {
   type SshKeyBridgeCommand,
 } from "@internal/subshell-protocol";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
-import { sshCanonicalDestination } from "@/db/types/ssh-saved-hosts.db-types.js";
 import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 import { mapRpcError, SshRpcError, sshHostKey } from "@/services/nodes/ssh-rpc.js";
+import { sshCanonicalDestination, sshExpectedDestinationProblem } from "@/services/ssh-destination.js";
 import {
   captureHostPin,
   hostKeyFingerprints,
@@ -115,16 +115,29 @@ async function gate(entry: LocalKeySession) {
 }
 
 /** Resolve and capture public destination identity before the native approval and file picker. */
-export async function prepareLocalSshKey(viewerId: string, sessionId: string, nodeId: string, destination: string) {
+export async function prepareLocalSshKey(
+  viewerId: string,
+  sessionId: string,
+  nodeId: string,
+  destination: string,
+  expectedDestination?: string,
+) {
   if (
     sessions.size >= MAX_PENDING_SESSIONS ||
     [...sessions.values()].filter((entry) => entry.viewerId === viewerId).length >= MAX_SESSIONS_PER_VIEWER
   )
     fail("Too many key selections are waiting. Close one or wait for it to expire.");
-  const answer = await deps.resolve(viewerId, nodeId, destination);
-  if (!answer.ok || !answer.value.accepted)
+  const answer = await deps.resolve(viewerId, nodeId, destination, expectedDestination);
+  if (!answer.ok) {
+    if ("code" in answer.refusal && answer.refusal.code === BackendErrorCodes.CONFIG_INVALID)
+      throwApiError({ code: answer.refusal.code, message: answer.refusal.message, doNotLog: true });
+    fail("The destination could not be resolved. Check the connecting node and SSH destination.");
+  }
+  if (!answer.value.accepted)
     fail("The destination could not be resolved. Check the connecting node and SSH destination.");
   const snapshot = answer.value.snapshot;
+  const problem = sshExpectedDestinationProblem(snapshot, expectedDestination);
+  if (problem) throwApiError({ code: BackendErrorCodes.CONFIG_INVALID, message: problem, doNotLog: true });
   if (relaySnapshotRefusal(snapshot) || !snapshot.user)
     fail("A key from your machine needs a destination with an explicit username and no jump hosts or host-key alias.");
   const canonical = sshCanonicalDestination(snapshot);

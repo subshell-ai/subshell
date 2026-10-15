@@ -16,3 +16,7 @@ and that reads `GET /api/users`, which is still instance-wide. Two of them
 are read-only: `/settings` is where an admin CHANGES the instance, while
 Status and `/settings/logs` are where they see what it currently IS and what
 has happened to it.
+
+Personal SSH connection settings live under **Presets → SSH**. There is no
+Settings → SSH navigation entry; `/settings/ssh` redirects to
+`/presets?type=ssh` for existing links.

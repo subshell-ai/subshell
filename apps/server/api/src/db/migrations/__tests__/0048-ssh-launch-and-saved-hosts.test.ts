@@ -8,7 +8,7 @@ import * as nodesMigration from "@/db/migrations/0017-nodes.js";
 import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.js";
 import * as sshLaunchMigration from "@/db/migrations/0048-ssh-launch-and-saved-hosts.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
-import { sshCanonicalDestination } from "@/db/types/ssh-saved-hosts.db-types.js";
+import { sshCanonicalDestination } from "@/services/ssh-destination.js";
 
 interface MigrationDatabase {
   [table: string]: Record<string, unknown>;

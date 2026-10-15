@@ -12,6 +12,7 @@ export function SshMachineStep({
   value,
   onChange,
   label,
+  hideLabel = false,
   description,
   notice,
   children,
@@ -22,6 +23,7 @@ export function SshMachineStep({
   value: string;
   onChange: (id: string) => void;
   label: string;
+  hideLabel?: boolean;
   description?: string;
   notice?: string;
   children?: ReactNode;
@@ -31,7 +33,9 @@ export function SshMachineStep({
   return (
     <FieldGroup>
       <Field>
-        <FieldLabel htmlFor={id}>{label}</FieldLabel>
+        <FieldLabel htmlFor={id} className={hideLabel ? "sr-only" : undefined}>
+          {label}
+        </FieldLabel>
         <SearchableSelect
           id={id}
           value={value}

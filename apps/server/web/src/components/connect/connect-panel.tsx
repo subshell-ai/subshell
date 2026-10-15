@@ -1,5 +1,5 @@
 import type { Node } from "@internal/node-admin";
-import { Button, errMessage, Label } from "@internal/node-admin";
+import { ApiError, Button, errMessage, Label } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronDown } from "lucide-react";
 import { type JSX, useCallback, useEffect, useRef, useState } from "react";
@@ -8,6 +8,7 @@ import { DestinationField } from "@/components/connect/destination-field";
 import { buildDestinationOptions } from "@/components/connect/destination-options";
 import { NoSshTargets } from "@/components/connect/no-ssh-targets";
 import { SshKeyStep } from "@/components/connect/ssh-key-step";
+import { SaveSshPresetFields, SshPresetPicker } from "@/components/connect/ssh-preset-controls";
 import { type SshRefusalCopy, sshLaunchRefusal } from "@/components/connect/ssh-refusal";
 import {
   type SshInitialChoices,
@@ -27,20 +28,23 @@ import { Field, FieldGroup } from "@/components/ui/field";
 import { RequiredMark } from "@/components/ui/required-mark";
 import {
   useLaunchSsh,
-  useSaveSshHost,
   useSetDefaultNode,
   useSetSshEnabled,
   useSshAliases,
   useSshNodeRoster,
   useSshReadiness,
-  useSshSavedHosts,
+  useSshRecentDestinations,
 } from "@/hooks/use-ssh";
+import { useSaveSshPreset } from "@/hooks/use-ssh-presets";
 import { isDesktop } from "@/lib/desktop";
 import { fieldErrorToned, makeForm, useSubmitDisabled } from "@/lib/form";
 import { nodeOptionLabel } from "@/lib/node-label";
 import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 import { sshCanEnableOnStart } from "@/lib/ssh";
+import { sshDestinationProblem } from "@/lib/ssh-input-validation";
 import { launchWithLocalKey } from "@/lib/ssh-local-key";
+import { sshDraftFromPreset, sshPresetPayload } from "@/lib/ssh-preset";
+import type { SshPreset } from "@/types/preset";
 
 /** Shared SSH launch form for new subshells, workspace additions and splits.
  * A picked suggestion retains its canonical destination; editing it submits
@@ -81,7 +85,7 @@ export function ConnectPanel({
     machines?.find((machine) => machine.node.id === id)?.blockers[0]?.message ?? null;
   const machineCanConnect = (id: string) =>
     machines?.some((machine) => machine.node.id === id && machine.canConnect) ?? false;
-  const { data: ledger, isPending: ledgerPending } = useSshSavedHosts();
+  const { data: ledger, isPending: ledgerPending } = useSshRecentDestinations();
   const launch = useLaunchSsh();
   const browserKey = useBrowserKeySelection();
   const localKeyAbort = useRef<AbortController | null>(null);
@@ -99,12 +103,18 @@ export function ConnectPanel({
     onPendingChange?.(submitting);
     return () => onPendingChange?.(false);
   }, [submitting, onPendingChange]);
-  const save = useSaveSshHost();
+  const savePreset = useSaveSshPreset();
+  const savedAttempt = useRef<{ signature: string; preset: SshPreset } | null>(null);
   const setDefault = useSetDefaultNode();
 
   const [localDraft, setLocalDraft] = useState(() => sshSessionDraft(initial));
   const draft = controlledDraft ?? localDraft;
-  const setDraft = onDraftChange ?? setLocalDraft;
+  const writeDraft = onDraftChange ?? setLocalDraft;
+  // Manual choices release a pending URL preset so a late response cannot replace this draft.
+  const setDraft = useCallback(
+    (next: SshSessionDraft) => writeDraft({ ...next, initialPresetId: undefined }),
+    [writeDraft],
+  );
   const signingScope = JSON.stringify([draft.authentication, draft.nodeId, sshDestination(draft)]);
   const previousSigningScope = useRef(signingScope);
   useEffect(() => {
@@ -117,19 +127,38 @@ export function ConnectPanel({
     // discard it; approval binds the imported key to the final destination.
     if (draft.authentication !== "local-key") browserKey.clear();
   }, [draft.authentication, browserKey.clear]);
+  const applyPreset = useCallback(
+    (preset: SshPreset) => {
+      localKeyAbort.current?.abort();
+      browserKey.clear();
+      savedAttempt.current = null;
+      setWizard(true);
+      setRefusal(null);
+      setDraft(sshDraftFromPreset(preset));
+    },
+    [browserKey.clear, setDraft],
+  );
   const nodeId = draft.nodeId;
   const keyHome = draft.keyHome;
   const dest = draft.destination;
-  const remember = draft.remember;
   const setNodeId = useCallback((nodeId: string) => setDraft({ ...draft, nodeId }), [draft, setDraft]);
-  const setKeyHome = (keyHome: string) => setDraft({ ...draft, keyHome });
-  const setDest = (destination: SshSessionDraft["destination"]) => setDraft({ ...draft, destination });
-  const setRemember = (remember: boolean) => setDraft({ ...draft, remember });
+  const setKeyHome = (keyHome: string) =>
+    setDraft({ ...draft, keyHome, authentication: keyHome ? "remote" : "connecting" });
+  const setDest = (destination: SshSessionDraft["destination"]) =>
+    setDraft({ ...draft, destination, expectedDestination: undefined, resolutionAlias: undefined });
   const [wizard, setWizard] = useState(startInWizard);
   const [advanced, setAdvanced] = useState(!!initial?.keyHome || !!draft.keyHome);
   const submitGuard = useRef(false);
   const [createdId, setCreatedId] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<SshRefusalCopy | null>(null);
+  const presetPicker = (
+    <SshPresetPicker
+      initialId={draft.initialPresetId}
+      onApply={applyPreset}
+      disabled={submitting || createdId !== null}
+      initialEligible={!browserKey.name && !browserKey.trusted}
+    />
+  );
 
   const targets = nodes ?? [];
   const selectedNode: Node | null = (nodes ?? []).find((n) => n.id === nodeId) ?? null;
@@ -161,7 +190,6 @@ export function ConnectPanel({
   const aliases = aliasesQ.data?.aliases ?? [];
 
   const { options: destinationOptions, candidates } = buildDestinationOptions({
-    saved: ledger?.saved ?? [],
     recent: ledger?.recent ?? [],
     aliases,
     destinations: aliasesQ.data?.destinations,
@@ -175,11 +203,11 @@ export function ConnectPanel({
   // (decision 2). Keyed on the loaded node list, never on `targets` (a new
   // array every render).
   useEffect(() => {
-    if (nodeId !== "" || machines === null) return;
+    if (nodeId !== "" || machines === null || draft.presetApplied || draft.initialPresetId) return;
     const usable = machines.filter((machine) => machine.canConnect).map((machine) => machine.node);
     if (defaultNodeId !== null && usable.some((n) => n.id === defaultNodeId)) setNodeId(defaultNodeId);
     else if (usable.length === 1) setNodeId(usable[0].id);
-  }, [nodeId, machines, defaultNodeId, setNodeId]);
+  }, [nodeId, machines, defaultNodeId, setNodeId, draft.presetApplied, draft.initialPresetId]);
 
   const keyOptions: ComboboxOption[] = [
     { value: "connecting", label: "Keys on the connecting machine" },
@@ -253,12 +281,14 @@ export function ConnectPanel({
     if (!canSubmit || submitGuard.current) return;
     if (draft.authentication === "local-key" && !isDesktop() && browserKey.problem()) return;
     submitGuard.current = true;
+    if (draft.initialPresetId) setDraft(draft);
     const attempt = new AbortController();
     localKeyAbort.current = attempt;
     const cancelled = () => draft.authentication === "local-key" && attempt.signal.aborted;
     setSubmitting(true);
     setRefusal(null);
     let launchedId: string | null = null;
+    let savingPreset = false;
     let preparing = enableOnStart || enableKeysOnStart;
     try {
       const nodesToEnable = [...(enableKeysOnStart ? [keyHome] : []), ...(enableOnStart ? [nodeId] : [])];
@@ -294,10 +324,25 @@ export function ConnectPanel({
       }
       if (cancelled()) return;
       preparing = false;
+      let expectedDestination = draft.expectedDestination;
+      if (draft.saveAsPreset) {
+        savingPreset = true;
+        const payload = sshPresetPayload(draft, draft.presetName ?? "");
+        const signature = JSON.stringify(payload);
+        const preset =
+          savedAttempt.current?.signature === signature
+            ? savedAttempt.current.preset
+            : await savePreset.mutateAsync({ payload });
+        savedAttempt.current = { signature, preset };
+        expectedDestination = preset.destination;
+        savingPreset = false;
+      }
+      if (cancelled()) return;
       const launchRequest = {
         ...(draft.authentication === "password" ? { authentication: "password" as const } : {}),
         node: nodeId,
         destination,
+        ...(expectedDestination ? { expectedDestination } : {}),
         ...(keyHome ? { keyHome, fingerprints } : {}),
       };
       const created =
@@ -334,6 +379,7 @@ export function ConnectPanel({
                 ...(draft.authentication === "password" ? { authentication: "password" as const } : {}),
                 node: nodeId,
                 destination,
+                ...(expectedDestination ? { expectedDestination } : {}),
                 ...(keyHome ? { keyHome, fingerprints } : {}),
               },
               launch.mutateAsync,
@@ -342,34 +388,36 @@ export function ConnectPanel({
       if (draft.authentication === "local-key") browserKey.clear();
       launchedId = created.subshell.id;
       setCreatedId(launchedId);
-      if (remember) {
-        // The alias rides ONLY for a config-list pick (an alias token); saved
-        // and recent rows already carry their own.
-        save.mutate({
-          node: nodeId,
-          destination,
-          ...(dest.pick?.aliasToken !== undefined ? { alias: dest.pick.aliasToken } : {}),
-        });
-      }
       if (onCreated) await onCreated(created.subshell.id);
       else void navigate({ to: "/subshells/$id", params: { id: created.subshell.id } });
     } catch (err) {
       if (cancelled()) return;
       setRefusal(
-        launchedId
+        savingPreset && !(err instanceof ApiError && err.status === 422)
           ? {
               field: "destination",
-              text:
-                draft.authentication === "local-key"
-                  ? errMessage(
-                      err,
-                      "The SSH subshell was created, but temporary key authentication did not finish. Check its terminal before starting another connection.",
-                    )
-                  : "SSH subshell was created but could not be attached. Add it from the existing subshell list instead.",
+              title: "Couldn’t save preset",
+              text: errMessage(err, "Couldn’t save this preset. Your connection hasn’t started."),
             }
-          : preparing
-            ? { field: "machine", text: errMessage(err, "Couldn’t enable SSH and start the subshell.") }
-            : sshLaunchRefusal(err, selectedNode, draft.authentication === "local-key"),
+          : launchedId
+            ? {
+                field: "destination",
+                text:
+                  draft.authentication === "local-key"
+                    ? errMessage(
+                        err,
+                        "The SSH subshell was created, but temporary key authentication did not finish. Check its terminal before starting another connection.",
+                      )
+                    : "SSH subshell was created but could not be attached. Add it from the existing subshell list instead.",
+              }
+            : preparing
+              ? { field: "machine", text: errMessage(err, "Couldn’t enable SSH and start the subshell.") }
+              : (() => {
+                  const mapped = sshLaunchRefusal(err, selectedNode, draft.authentication === "local-key");
+                  // A 422 during the save step gets the launch mapper's cause,
+                  // but the act that failed was still the save.
+                  return savingPreset && mapped ? { ...mapped, title: "Couldn’t save preset" } : mapped;
+                })(),
       );
     } finally {
       if (localKeyAbort.current === attempt) {
@@ -407,6 +455,7 @@ export function ConnectPanel({
   if (wizard)
     return (
       <div className="flex flex-col gap-4">
+        {presetPicker}
         <SshWizard
           draft={draft}
           browserKey={browserKey}
@@ -423,6 +472,7 @@ export function ConnectPanel({
           busy={submitting}
           launchBlocked={createdId !== null}
           refusal={refusal?.text}
+          refusalTitle={refusal?.title}
         />
       </div>
     );
@@ -439,10 +489,15 @@ export function ConnectPanel({
 
   return (
     <div className="flex flex-col gap-4">
+      {presetPicker}
       <FieldGroup className="gap-4">
         <Field>
-          <Label htmlFor={DESTINATION_IDS.field}>SSH destination</Label>
+          <Label htmlFor={DESTINATION_IDS.field}>
+            SSH destination
+            <RequiredMark />
+          </Label>
           <DestinationField
+            problem={sshDestinationProblem(sshDestination(draft))}
             id={DESTINATION_IDS.field}
             describedBy={DESTINATION_IDS.disclosure}
             placeholder="user@hostname:22 or an SSH alias"
@@ -458,7 +513,7 @@ export function ConnectPanel({
             </p>
           )}
           <p id={DESTINATION_IDS.disclosure} className="text-detail text-muted-foreground">
-            Enter the machine you want to access, for example deploy@example.com:22. Saved destinations and SSH aliases
+            Enter the machine you want to access, for example deploy@example.com:22. Recent destinations and SSH aliases
             appear as suggestions.
           </p>
         </Field>
@@ -566,21 +621,7 @@ export function ConnectPanel({
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <input
-            type="checkbox"
-            id="connect-remember"
-            aria-describedby="connect-remember-description"
-            checked={remember}
-            onChange={(e) => setRemember(e.target.checked)}
-            className="h-4 w-4 rounded border border-input bg-background accent-primary"
-          />
-          <Label htmlFor="connect-remember">Remember this destination</Label>
-        </div>
-        <p id="connect-remember-description" className="text-detail text-muted-foreground">
-          Adds this destination to your saved suggestions when you start the subshell. It uses the address or SSH alias
-          as its label, so you don’t need to name it.
-        </p>
+        <SaveSshPresetFields draft={draft} onChange={setDraft} busy={submitting} />
 
         <Button type="button" variant="outline" disabled={submitting} onClick={() => setWizard(true)}>
           Back

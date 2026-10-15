@@ -436,8 +436,11 @@ and before launching. Node pages manage SSH through their settings card.
 When a relay connection has no trusted destination identity, its launch refusal
 opens a one-time confirmation in the connection flow. Cancellation saves nothing;
 acceptance submits the server-issued token and retries the captured launch once.
-Changed identities never use that prompt. SSH settings manages saved destinations,
-not host keys. Verification details can reveal the public fingerprint without
+Changed identities never use that prompt. Settings → Presets has Agent and SSH
+tabs; the SSH tab manages saved connection choices, not host keys. Applying a
+preset clears any local key selection. Saving a local-key preset retains only
+the authentication choice, never credentials or approval. Recent destinations
+stay in the launch suggestions; `/settings/ssh` redirects to `/presets?type=ssh`. Verification details can reveal the public fingerprint without
 requiring a user to paste or manage key material.
 Old `/connect` links open the same
 subshell dialog through `/new?kind=ssh`. Failed reads must stay distinct from

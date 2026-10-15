@@ -1,24 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { SavedHostsSection } from "@/components/connect/saved-hosts-section";
-import { DashboardPage } from "@/components/dashboard-page";
-import { PageHeader } from "@/components/page-header";
-import { sshConnectSearch } from "@/lib/ssh-connect-search";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
+/** Old bookmarks lead to the SSH preset library. */
 export const Route = createFileRoute("/settings_/ssh")({
-  validateSearch: sshConnectSearch,
-  component: SshSettingsRoute,
+  beforeLoad: () => {
+    throw redirect({ to: "/presets", search: { type: "ssh" }, replace: true });
+  },
 });
-
-/** Personal saved and recent destinations, scoped to the caller. */
-function SshSettingsRoute() {
-  return <SshSettingsPage />;
-}
-
-export function SshSettingsPage() {
-  return (
-    <DashboardPage>
-      <PageHeader title="SSH" subtitle="Manage your saved and recent destinations." />
-      <SavedHostsSection />
-    </DashboardPage>
-  );
-}

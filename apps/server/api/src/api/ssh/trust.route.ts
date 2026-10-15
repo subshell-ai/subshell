@@ -2,9 +2,9 @@ import { BackendErrorCodes } from "@internal/backend-errors";
 import { isSshKnownHostsPinLine } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
-import { SshDestinationField, throwCodedRefusal } from "@/api/ssh/ssh-views.js";
-import { parseSshCanonicalDestination } from "@/db/types/ssh-saved-hosts.db-types.js";
+import { SshDestinationField, SshExpectedDestinationField, throwCodedRefusal } from "@/api/ssh/ssh-views.js";
 import { apiModels } from "@/schema/index.js";
+import { parseSshCanonicalDestination } from "@/services/ssh-destination.js";
 import {
   acceptDestinationVerification,
   prepareDestinationVerification,
@@ -27,6 +27,7 @@ const VerifyDestinationRequestSchema = t.Object({
   node: t.String({ minLength: 1, maxLength: 128, description: "Connecting node id" }),
   keyHome: t.String({ minLength: 1, maxLength: 128, description: "Node supplying the selected keys" }),
   destination: SshDestinationField,
+  expectedDestination: SshExpectedDestinationField,
 });
 const VerifyDestinationResponseSchema = t.Object({
   token: t.String({ description: "Account-bound, single-use confirmation valid for five minutes" }),

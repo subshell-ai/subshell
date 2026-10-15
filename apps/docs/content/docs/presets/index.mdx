@@ -1,20 +1,17 @@
 ---
 title: "Presets"
-description: "Save coding-agent configuration and launch defaults, then reuse them from the dashboard or MCP."
+description: "Save agent launch settings or SSH connection choices and reuse them from the dashboard."
 ---
 
-Save an agent configuration so you can launch it consistently.
+Save agent launch settings or SSH connection choices for later use.
 
 ## Why use a preset?
 
-A preset records the agent, command flags, environment values, and restart policy you want to reuse. It can also provide a machine, working directory, and initial prompts. For example, a repository-review preset can launch Codex in your project with review instructions and explicit approval settings.
+An agent preset records the agent, command flags, environment values, and restart policy you want to reuse. It can also provide a machine, working directory, and initial prompts. For example, a repository-review preset can launch Codex in your project with review instructions and explicit approval settings.
 
-<figure className="docs-screenshot">
-  <ImageZoom src="/screenshots/preset-library.png" alt="Preset library showing Repository review under Codex and Project shell under Terminal." width="1864" height="860" loading="lazy" decoding="async" unoptimized />
-  <figcaption>Presets are grouped by agent. The Repository review preset is configured for agent-created launches. Select the image to enlarge it.</figcaption>
-</figure>
+Open **Presets** in the dashboard sidebar and choose **Agent** or **SSH**. Agent presets are grouped by agent. SSH presets list their destination, connecting node, and authentication choice. The **New preset** menu offers **New agent preset** and **New SSH preset** from either tab. See [Connect over SSH](/guides/ssh#ssh-presets-and-recent-destinations) to create and use an SSH preset.
 
-Presets belong to your account. Saving one doesn't install or authenticate the agent CLI; those steps happen on the machine where the session runs.
+Presets belong to your account. Saving an agent preset doesn't install or authenticate the agent CLI; those steps happen on the machine where the session runs.
 
 ## Choose a guide
 

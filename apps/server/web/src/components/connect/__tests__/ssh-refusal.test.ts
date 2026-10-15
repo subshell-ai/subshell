@@ -174,3 +174,11 @@ it("preserves a local key unlock failure instead of the generic launch fallback"
   const message = "Couldn't unlock that SSH key. Check its passphrase and try again.";
   expect(sshLaunchRefusal(new Error(message), null, true)).toEqual({ field: "keys", text: message });
 });
+
+it("shows a preset's changed-resolution refusal at the destination field", () => {
+  const message =
+    "This SSH configuration now resolves to a different destination than the preset saved. Edit the preset’s destination to approve the new address.";
+  expect(
+    sshLaunchRefusal(new ApiError(400, "short", { code: "CONFIG_INVALID", body: { message } }), machine({})),
+  ).toEqual({ field: "destination", text: message });
+});

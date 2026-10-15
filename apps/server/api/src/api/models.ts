@@ -11,6 +11,7 @@ export const UserInfoSchema = t.Object({
 });
 
 export const PresetSchema = t.Object({
+  kind: t.Literal("agent", { description: "Agent preset discriminator" }),
   id: t.String({ description: "Preset id" }),
   userId: t.String({ description: "Owning user id" }),
   harnessId: t.String({ description: "Harness plugin id" }),

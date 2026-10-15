@@ -8,7 +8,9 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { SshSettingsPage } from "@/routes/settings_.ssh";
+import { SshPresetLibrary } from "@/components/presets/ssh-preset-library";
+
+const SshSettingsPage = () => <SshPresetLibrary onCreate={() => {}} creating={false} onCreatedClose={() => {}} />;
 
 const original = globalThis.fetch;
 afterEach(() => {
@@ -16,7 +18,7 @@ afterEach(() => {
   globalThis.fetch = original;
 });
 
-test("loading and failed reads never claim an empty SSH settings ledger; retry recovers", async () => {
+test("loading and failed reads never claim an empty SSH preset library; retry recovers", async () => {
   let respond!: () => void;
   const gate = new Promise<void>((resolve) => {
     respond = resolve;
@@ -27,7 +29,7 @@ test("loading and failed reads never claim an empty SSH settings ledger; retry r
     const path = String(input);
     if (path === "/api/nodes") return new Response(JSON.stringify({ nodes: [] }));
     if (failing) return new Response(JSON.stringify({ message: "Unavailable" }), { status: 503 });
-    return new Response(JSON.stringify({ requests: [], grants: [], pins: [] }));
+    return new Response(JSON.stringify([]));
   }) as typeof fetch;
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const root = createRootRoute();
@@ -42,13 +44,13 @@ test("loading and failed reads never claim an empty SSH settings ledger; retry r
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
-  expect(await screen.findByText("Loading saved destinations…")).toBeTruthy();
-  expect(screen.queryByText("No saved destinations yet.")).toBeNull();
+  expect(await screen.findByText("Loading SSH presets…")).toBeTruthy();
+  expect(screen.queryByText("No SSH presets yet")).toBeNull();
   expect(screen.queryByText("No recent destinations yet.")).toBeNull();
   respond();
-  expect(await screen.findByText("Could not load saved destinations.")).toBeTruthy();
-  expect(screen.queryByText("No saved destinations yet.")).toBeNull();
+  expect(await screen.findByText("Could not load SSH presets.")).toBeTruthy();
+  expect(screen.queryByText("No SSH presets yet")).toBeNull();
   failing = false;
   for (const button of screen.getAllByRole("button", { name: "Retry" })) fireEvent.click(button);
-  expect(await screen.findByText("No saved destinations yet.")).toBeTruthy();
+  expect(await screen.findByText("No SSH presets yet")).toBeTruthy();
 });

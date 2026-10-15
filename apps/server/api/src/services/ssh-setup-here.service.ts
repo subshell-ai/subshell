@@ -9,10 +9,10 @@ import {
 import { APP_BASE_URL } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
-import { sshCanonicalDestination } from "@/db/types/ssh-saved-hosts.db-types.js";
 import { audit } from "@/services/audit.js";
 import { getLive } from "@/services/nodes/node-registry.js";
 import { SshRpcError, sshExec, sshExecStatus } from "@/services/nodes/ssh-rpc.js";
+import { sshCanonicalDestination } from "@/services/ssh-destination.js";
 import {
   composeSshLaunch,
   gateSshNode,

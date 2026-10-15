@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import type { SshSavedHost } from "@/lib/ssh";
-import { buildDestinationOptions, configGroupLabel, RECENT_GROUP, SAVED_GROUP } from "../destination-options";
+import type { SshRecentDestination } from "@/lib/ssh";
+import { buildDestinationOptions, configGroupLabel, RECENT_GROUP } from "../destination-options";
 
 /**
  * The destination field's list as pure data: the fed groups and their
@@ -9,52 +9,36 @@ import { buildDestinationOptions, configGroupLabel, RECENT_GROUP, SAVED_GROUP } 
  * WIRE (the destination token). The alias token rides only config rows -
  * §7's alias-is-display rule.
  */
-const row = (over: Partial<SshSavedHost>): SshSavedHost => ({
+const row = (over: Partial<SshRecentDestination>): SshRecentDestination => ({
   id: "r1",
   destination: "web01.example.com:22",
   alias: null,
   nodeId: "n1",
-  savedAt: null,
   lastConnectAt: "2026-10-07T00:00:00.000Z",
   ...over,
 });
 
 describe("buildDestinationOptions", () => {
-  it("groups saved, recent and config rows under their headers, in order", () => {
+  it("groups recent and config rows under their headers, in order", () => {
     const { options, candidates } = buildDestinationOptions({
-      saved: [row({ id: "s1", alias: "web" })],
-      recent: [row({ id: "c1", destination: "db.example.com:22", alias: null })],
+      recent: [row({ id: "s1", alias: "web" })],
       aliases: ["workbox"],
       machineName: "mac mini",
       typed: "",
     });
-    expect(options.map((o) => o.group)).toEqual([SAVED_GROUP, RECENT_GROUP, configGroupLabel("mac mini")]);
-    // A saved row LABELS with its alias and searches with its destination.
+    expect(options.map((o) => o.group)).toEqual([RECENT_GROUP, configGroupLabel("mac mini")]);
+    // A recent row LABELS with its alias and searches with its destination.
     expect(options[0].label).toBe("web");
     expect(options[0].searchText).toBe("web01.example.com:22");
-    expect(options[2].label).toBe("workbox");
+    expect(options[1].label).toBe("workbox");
     // The wire meanings: the alias label never leaks into the destination.
-    expect(candidates.get("saved:s1")).toEqual({ destination: "web01.example.com:22" });
+    expect(candidates.get("recent:s1")).toEqual({ destination: "web01.example.com:22" });
     // Only the config row carries the alias token (the save sends it).
     expect(candidates.get("config:workbox")).toEqual({ destination: "workbox", aliasToken: "workbox" });
   });
 
-  it("a recent row already saved reads once, under Saved", () => {
-    const shared = row({ id: "d1", savedAt: "2026-10-01T00:00:00.000Z" });
-    const { options } = buildDestinationOptions({
-      saved: [shared],
-      recent: [shared],
-      aliases: [],
-      machineName: null,
-      typed: "",
-    });
-    expect(options).toHaveLength(1);
-    expect(options[0].group).toBe(SAVED_GROUP);
-  });
-
   it("typed text with no equal row becomes its own candidate, leading the list", () => {
     const { options, candidates } = buildDestinationOptions({
-      saved: [row({})],
       recent: [],
       aliases: [],
       machineName: null,
@@ -66,7 +50,6 @@ describe("buildDestinationOptions", () => {
 
   it("typed text a real row already carries gets no mirror row", () => {
     const { options } = buildDestinationOptions({
-      saved: [row({ id: "s1", destination: "box.example", alias: null })],
       recent: [],
       aliases: ["box.example"],
       machineName: "mac mini",
@@ -79,7 +62,6 @@ describe("buildDestinationOptions", () => {
 
   it("no machine picked means no config group, and no aliases leak into it", () => {
     const { options } = buildDestinationOptions({
-      saved: [],
       recent: [],
       aliases: ["workbox"],
       machineName: null,
@@ -91,7 +73,6 @@ describe("buildDestinationOptions", () => {
 
 it("displays and searches configured destinations while still launching the alias", () => {
   const { options, candidates } = buildDestinationOptions({
-    saved: [],
     recent: [],
     aliases: ["demo", "dynamic"],
     destinations: [{ alias: "demo", destination: "developer@127.0.0.1:22222" }],
@@ -104,18 +85,16 @@ it("displays and searches configured destinations while still launching the alia
   expect(options[1]?.reason).toBe("Destination determined when connecting");
 });
 
-it("shows the concrete destination beneath saved and recent aliases", () => {
+it("shows the concrete destination beneath recent aliases", () => {
   const destination = "developer@127.0.0.1:22222";
   const { options, candidates } = buildDestinationOptions({
-    saved: [row({ id: "saved", alias: "saved-demo", destination })],
     recent: [row({ id: "recent", alias: "subshell-demo", destination }), row({ id: "plain", destination })],
     aliases: [],
     machineName: "Server",
     typed: "",
   });
   expect(options[0]?.reason).toBe(destination);
-  expect(options[1]?.reason).toBe(destination);
-  expect(options[2]?.label).toBe(destination);
-  expect(options[2]?.reason).toBeUndefined();
+  expect(options[1]?.label).toBe(destination);
+  expect(options[1]?.reason).toBeUndefined();
   expect(candidates.get("recent:recent")).toEqual({ destination });
 });

@@ -379,6 +379,7 @@ describe("preset writes carry the launch fields (spec 2026-09-29)", () => {
         "flagsJson",
         "harnessId",
         "id",
+        "kind",
         "name",
         "nodeId",
         "promptBlocks",

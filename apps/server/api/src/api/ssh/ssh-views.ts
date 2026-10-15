@@ -5,7 +5,7 @@ import type { SshRefusal } from "@/services/ssh-launch.service.js";
 /**
  * The wire views of the `/api/ssh` surface, shared by the routes that carry
  * them (the resolve outcome rides its own endpoint, the launch's 422, and the
- * save's 422; the saved-host row rides GET and PUT). One definition per
+ * preset save's 422; the recent-destination row rides GET). One definition per
  * shape — the schemas are the API contract, and two copies of a contract
  * drift.
  */
@@ -85,13 +85,12 @@ export const SshResolveOutcomeViewSchema = t.Union([
   SshResolveRefusalViewSchema,
 ]);
 
-/** One saved/recency row as its owner sees it. */
-export const SshSavedHostViewSchema = t.Object({
+/** One recent destination as its owner sees it. */
+export const SshRecentDestinationViewSchema = t.Object({
   id: t.String({ description: "Row id (uuid)" }),
   destination: t.String({ description: "Canonical host:port (or user@host:port), the resolved destination as key" }),
   alias: t.Nullable(t.String({ description: "Display token (the alias typed or discovered); never a key" })),
   nodeId: t.String({ description: "The connecting machine of the most recent launch to this destination" }),
-  savedAt: t.Nullable(t.String({ description: "ISO 8601 the human saved it; null = recency-only row" })),
   lastConnectAt: t.String({ description: "ISO 8601 of the most recent launch to this destination" }),
 });
 
@@ -147,3 +146,12 @@ export const SshAgentIdentityViewSchema = t.Object({
   }),
   comment: t.String({ description: "OpenSSH's label for the key, as the agent reports it (display only)" }),
 });
+
+/** Optional canonical constraint for destinations restored from an SSH preset. */
+export const SshExpectedDestinationField = t.Optional(
+  t.String({
+    minLength: 1,
+    maxLength: 253,
+    description: "Expected canonical user@host:port from a saved preset; refuse changed resolution before effects",
+  }),
+);

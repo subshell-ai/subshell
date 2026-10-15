@@ -50,7 +50,7 @@ async function wire(page: Page, ready = true) {
           })),
         },
       });
-    if (path.endsWith("/saved-hosts")) return route.fulfill({ json: { saved: [], recent: [], defaultNodeId: "desk" } });
+    if (path.endsWith("/recent-destinations")) return route.fulfill({ json: { recent: [], defaultNodeId: "desk" } });
     if (path.endsWith("/aliases"))
       return route.fulfill({ json: { aliases: [], includeCycle: false, truncated: false } });
     if (path.endsWith("/launch")) {
@@ -65,7 +65,35 @@ async function wire(page: Page, ready = true) {
     if (path.endsWith("/host-pins")) return route.fulfill({ json: { pins: [] } });
     return route.continue();
   });
-  return { launches, enables, nodes };
+  const presets: Record<string, unknown>[] = [];
+  const saves: unknown[] = [];
+  // A predicate, not a glob: in URL globs `?` is a single-character wildcard.
+  await page.route(
+    (url) => url.pathname === "/api/presets" && url.searchParams.get("kind") === "ssh",
+    (route) => route.fulfill({ json: presets }),
+  );
+  await page.route("**/api/presets", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    const payload = route.request().postDataJSON();
+    saves.push(payload);
+    const preset = { ...payload, id: `ssh-${saves.length}` };
+    presets.push(preset);
+    return route.fulfill({ json: preset });
+  });
+  await page.route("**/api/presets/*", async (route) => {
+    const id = new URL(route.request().url()).pathname.split("/").pop();
+    const index = presets.findIndex((preset) => preset.id === id);
+    if (route.request().method() === "DELETE") {
+      presets.splice(index, 1);
+      return route.fulfill({ json: { ok: true } });
+    }
+    if (route.request().method() === "PUT") {
+      presets[index] = { ...presets[index], ...route.request().postDataJSON() };
+      return route.fulfill({ json: presets[index] });
+    }
+    return route.continue();
+  });
+  return { launches, enables, nodes, presets, saves };
 }
 
 test("connection form reveals remote keys inline and launches only the selected keys", async ({ page }) => {
@@ -129,45 +157,72 @@ test("polls while waiting for the owner to enable SSH", async ({ page }) => {
   expect(enables).toHaveLength(0);
 });
 
-test("SSH settings keeps empty and populated cards usable at narrow and wide widths", async ({ page }) => {
+test("legacy SSH settings opens the SSH preset library", async ({ page }) => {
   await wire(page);
   await page.goto("/settings/ssh");
-  await expect(page.getByText("No saved destinations yet.")).toBeVisible();
-  await expect(page.getByText("No recent destinations yet.")).toBeVisible();
-  const longDestination = `developer@${"long-host-".repeat(12)}.example.com:2222`;
-  await page.route("**/api/ssh/saved-hosts", (route) =>
-    route.fulfill({
-      json: {
-        saved: [
-          {
-            id: "saved",
-            destination: longDestination,
-            alias: "Production",
-            nodeId: "desk",
-            savedAt: "2026-10-01T00:00:00Z",
-            lastConnectAt: "2026-10-01T00:00:00Z",
-          },
-        ],
-        recent: [],
-        defaultNodeId: "desk",
-      },
-    }),
-  );
-  await page.reload();
-  await expect(page.getByText(longDestination, { exact: true })).toBeVisible();
-  for (const width of [320, 1600]) {
-    await page.setViewportSize({ width, height: 1000 });
-    for (const name of ["Forget Production"]) {
-      const button = page.getByRole("button", { name, exact: true });
-      await expect(button).toBeVisible();
-      const bounds = await button.boundingBox();
-      if (!bounds) throw new Error(`${name} has no visible bounds`);
-      expect(bounds.x).toBeGreaterThanOrEqual(0);
-      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
-    }
-    expect(await page.locator("main").evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-    await page.screenshot({ path: `test-results/ssh-settings-${width}.png`, fullPage: true });
-  }
+  await expect(page).toHaveURL(/\/presets\?type=ssh$/);
+  await expect(page.getByText("No SSH presets yet", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "New preset", exact: true }).click();
+  await page.getByRole("menuitem", { name: "New SSH preset", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Create SSH preset", exact: true })).toBeVisible();
+});
+
+test("saving before a failed SSH launch retains one preset across retry", async ({ page }) => {
+  const { saves, launches, presets } = await wire(page);
+  await page.goto("/connect");
+  await page.getByLabel("SSH destination", { exact: true }).fill(destination);
+  await page.getByRole("checkbox", { name: "Save as preset", exact: true }).check();
+  await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toBeDisabled();
+  await page.getByLabel("Preset name", { exact: true }).fill("Build terminal");
+  await page.getByRole("button", { name: "Start SSH subshell", exact: true }).click();
+  await expect(page.getByText("Test connection stopped before launch.")).toBeVisible();
+  expect(saves).toHaveLength(1);
+  expect(presets).toHaveLength(1);
+  await page.getByRole("button", { name: "Start SSH subshell", exact: true }).click();
+  await expect.poll(() => launches.length).toBe(2);
+  expect(saves).toHaveLength(1);
+});
+
+test("SSH preset selection restores remote key choices without connecting", async ({ page }) => {
+  const { presets, launches } = await wire(page);
+  presets.push({
+    id: "remote",
+    kind: "ssh",
+    name: "Remote build",
+    description: null,
+    nodeId: "desk",
+    destination,
+    alias: null,
+    authentication: "remote",
+    keyHome: "local",
+    fingerprints: [fingerprint],
+  });
+  await page.goto("/new?kind=ssh&preset=remote");
+  await expect(page.getByLabel("SSH destination", { exact: true })).toHaveValue(destination);
+  await expect(page.getByRole("radio", { name: "Use another node’s keys", exact: true })).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "Work key", exact: true })).toBeChecked();
+  expect(launches).toHaveLength(0);
+});
+
+test("local-key SSH presets restore the authentication choice and require a fresh key", async ({ page }) => {
+  const { presets, launches } = await wire(page);
+  presets.push({
+    id: "local-key",
+    kind: "ssh",
+    name: "Personal build",
+    description: null,
+    nodeId: "desk",
+    destination,
+    alias: null,
+    authentication: "local-key",
+    keyHome: null,
+    fingerprints: [],
+  });
+  await page.goto("/new?kind=ssh&preset=local-key");
+  await expect(page.getByLabel("SSH destination", { exact: true })).toHaveValue(destination);
+  await expect(page.getByRole("radio", { name: "Use a key from my machine", exact: true })).toBeChecked();
+  await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toBeDisabled();
+  expect(launches).toHaveLength(0);
 });
 
 test("unfamiliar destinations ask in the connection flow and cancellation saves nothing", async ({ page }) => {
@@ -219,4 +274,56 @@ test("unfamiliar destinations ask in the connection flow and cancellation saves 
   await expect(confirmation).toHaveCount(0);
   expect(accepted).toEqual([{ token: "account-bound-check" }]);
   expect(launches).toBe(3); // two attempts, with one retry after confirmation
+});
+
+test("SSH presets can be created, edited, cloned, opened, and deleted", async ({ page }) => {
+  const { presets, launches } = await wire(page);
+  await page.goto("/presets?type=ssh");
+  await page.getByRole("button", { name: "New preset", exact: true }).click();
+  await page.getByRole("menuitem", { name: "New SSH preset", exact: true }).click();
+  let dialog = page.getByRole("dialog", { name: "Create SSH preset", exact: true });
+  await dialog.getByLabel("Name", { exact: true }).fill("   ");
+  await dialog.getByLabel("SSH destination", { exact: true }).fill("user@host:70000");
+  await expect(dialog.getByText("Enter a preset name.", { exact: true })).toBeVisible();
+  await dialog.getByLabel("Name", { exact: true }).fill("Build login");
+  await expect(dialog.getByText("Enter a port between 1 and 65535.", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Save preset", exact: true })).toBeDisabled();
+  expect(presets).toHaveLength(0);
+  await dialog.getByLabel("SSH destination", { exact: true }).fill(destination);
+  await dialog.getByRole("combobox", { name: "Connect from", exact: true }).click();
+  await page.getByRole("option", { name: /Connecting desktop/ }).click();
+  await dialog.getByRole("radio", { name: "Use a key from my machine", exact: true }).check();
+  await page.screenshot({ path: "test-results/ssh-preset-editor.png", fullPage: true });
+  await dialog.getByRole("button", { name: "Save preset", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.screenshot({ path: "test-results/ssh-preset-library.png", fullPage: true });
+  expect(presets[0].authentication).toBe("local-key");
+  expect(launches).toHaveLength(0);
+  await page.getByRole("button", { name: "Build login", exact: true }).click();
+  dialog = page.getByRole("dialog", { name: "Edit SSH preset", exact: true });
+  await dialog.getByLabel("Name", { exact: true }).fill("Personal build");
+  await dialog.getByRole("button", { name: "Save preset", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole("button", { name: "Actions for Personal build", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Clone preset", exact: true }).click();
+  dialog = page.getByRole("dialog", { name: "Clone SSH preset", exact: true });
+  await expect(dialog.getByLabel("Name", { exact: true })).toHaveValue("Personal build (copy)");
+  await dialog.getByRole("button", { name: "Save preset", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(presets).toHaveLength(2);
+  await page.getByRole("button", { name: "Actions for Personal build (copy)", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Connect", exact: true }).click();
+  await expect(page.getByLabel("SSH destination", { exact: true })).toHaveValue(destination);
+  await expect(page.getByRole("radio", { name: "Use a key from my machine", exact: true })).toBeChecked();
+  expect(launches).toHaveLength(0);
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.goto("/presets?type=ssh");
+  await page.getByRole("button", { name: "Actions for Personal build (copy)", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Delete preset", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "Delete this preset?", exact: true })
+    .getByRole("button", { name: "Delete", exact: true })
+    .click();
+  await expect(page.getByRole("button", { name: "Personal build (copy)", exact: true })).toHaveCount(0);
+  expect(presets).toHaveLength(1);
 });

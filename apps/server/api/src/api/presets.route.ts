@@ -4,14 +4,25 @@ import { Elysia, t } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
 import { getAllHarnessIds } from "@/api/harness-utils.js";
 import { HarnessSchemaResponseSchema, PresetSchema } from "@/api/models.js";
+import { SshResolveRefusalViewSchema } from "@/api/ssh/ssh-views.js";
+import {
+  CreateSshPresetSchema,
+  SSH_PRESET_KEYS,
+  SshPresetSchema,
+  sshPresetView,
+  UpdateSshPresetSchema,
+} from "@/api/ssh-presets.js";
 import { db } from "@/db/index.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
+import { SshPresetsRepository } from "@/db/repositories/ssh-presets.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch, nodeCanLaunchOn } from "@/lib/node-access.js";
+import { apiModels } from "@/schema/index.js";
 import { PORTABLE_MCP_LAUNCH } from "@/services/mcp-resolve.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
+import { saveSshPreset } from "@/services/ssh-presets.service.js";
 
 /** Max joined prompt text, same cap as the launch form's `prompt` field. */
 const MAX_PRESET_PROMPT_CHARS = 20_000;
@@ -148,6 +159,11 @@ function findInvalidEnvName(env: Record<string, string> | undefined): string | u
 }
 
 const CreatePresetBodySchema = t.Object({
+  kind: t.Optional(
+    t.Literal("agent", {
+      description: "Create an agent preset (the default); send kind ssh on the union body to create an SSH preset",
+    }),
+  ),
   harnessId: t.String({ minLength: 1, description: "Harness plugin id" }),
   name: t.String({ minLength: 1, maxLength: 120, description: "Preset name" }),
   description: t.Optional(t.String({ maxLength: 500, description: "Longer description" })),
@@ -227,12 +243,18 @@ const UPDATE_PRESET_KEYS = new Set([
  * and harvest its bearer token. Machine credentials must not manage presets.
  */
 export const presetRoutes = new Elysia({ prefix: "/api/presets" })
+  .use(apiModels)
   .use(authGuard)
   .post(
     "/",
-    async ({ body, user, actor }) => {
+    async ({ body, user, actor, status }) => {
       if (actor !== "cookie") {
         throw new PresetError("forbidden", "Sign in through the dashboard to manage presets", 403);
+      }
+      if ("kind" in body && body.kind === "ssh") {
+        const answer = await saveSshPreset(user.id, body);
+        if ("refusal" in answer) return status(422, { outcome: answer.refusal });
+        return answer;
       }
       const badEnv = findInvalidEnvName(body.env);
       if (badEnv !== undefined) {
@@ -271,20 +293,23 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
         workingDir: launch.workingDir ?? null,
       });
       try {
-        return await repo.create({
-          id: crypto.randomUUID(),
-          userId: user.id,
-          harnessId: body.harnessId,
-          name: body.name,
-          description: body.description ?? null,
-          envJson: body.env ? JSON.stringify(body.env) : null,
-          flagsJson: body.flags ? JSON.stringify(body.flags) : null,
-          settingsJson: body.settings ? JSON.stringify(body.settings) : null,
-          configIsolation: body.configIsolation ? 1 : 0,
-          restartOnExit: body.restartOnExit ? 1 : 0,
-          crossCommEnabled: body.crossCommEnabled ? 1 : 0,
-          ...launch,
-        });
+        return {
+          ...(await repo.create({
+            id: crypto.randomUUID(),
+            userId: user.id,
+            harnessId: body.harnessId,
+            name: body.name,
+            description: body.description ?? null,
+            envJson: body.env ? JSON.stringify(body.env) : null,
+            flagsJson: body.flags ? JSON.stringify(body.flags) : null,
+            settingsJson: body.settings ? JSON.stringify(body.settings) : null,
+            configIsolation: body.configIsolation ? 1 : 0,
+            restartOnExit: body.restartOnExit ? 1 : 0,
+            crossCommEnabled: body.crossCommEnabled ? 1 : 0,
+            ...launch,
+          })),
+          kind: "agent" as const,
+        };
       } catch (err) {
         if (isDuplicateName(err)) {
           throw new PresetError("duplicate", `You already have a ${body.harnessId} preset named "${body.name}"`, 409);
@@ -293,8 +318,23 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       }
     },
     {
-      body: CreatePresetBodySchema,
-      response: PresetSchema,
+      transform({ body }) {
+        if (typeof body === "object" && body !== null && "kind" in body && body.kind === "ssh") {
+          const stray = Object.keys(body).find((key) => key !== "kind" && !SSH_PRESET_KEYS.has(key));
+          if (stray) throw new PresetError("bad_request", `Unknown property in SSH preset: ${stray}`, 400);
+        }
+      },
+      body: t.Union([CreatePresetBodySchema, CreateSshPresetSchema]),
+      response: {
+        200: t.Union([PresetSchema, SshPresetSchema]),
+        400: "ApiErrorResponse",
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+        404: "ApiErrorResponse",
+        409: "ApiErrorResponse",
+        422: t.Object({ outcome: SshResolveRefusalViewSchema }),
+        502: "ApiErrorResponse",
+      },
       detail: {
         operationId: "createPreset",
         tags: ["presets"],
@@ -305,6 +345,15 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
   .get(
     "/",
     async ({ user, query, actor }) => {
+      if (query.kind === "ssh" || query.kind === "all") {
+        if (actor !== "cookie")
+          throw new PresetError("forbidden", "Sign in through the dashboard to read SSH presets", 403);
+      }
+      const sshRows =
+        query.kind === "ssh" || query.kind === "all"
+          ? (await new SshPresetsRepository(db).listByUser(user.id)).map(sshPresetView)
+          : [];
+      if (query.kind === "ssh") return sshRows;
       const repo = new PresetsRepository(db);
       const rows = await repo.listByUser(user.id, query.harnessId);
       // A disabled or not-installed harness makes its presets unavailable:
@@ -318,8 +367,8 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       // the launch picker's grey matrix, client-side; the `?node=any` escape
       // hatch died with the LOCAL filter it existed to escape.
       const inStore = new Set(await getAllHarnessIds());
-      const visible = rows.filter((p) => inStore.has(p.harnessId));
-      if (actor === "cookie") return visible;
+      const visible = rows.filter((p) => inStore.has(p.harnessId)).map((p) => ({ ...p, kind: "agent" as const }));
+      if (actor === "cookie") return [...visible, ...sshRows];
       // Reads stay open to bearer actors for `list_presets`, but that
       // tool only projects {id,name,harnessId} — the REST body's `envJson`
       // was every operator secret (preset.env is secret storage by
@@ -332,9 +381,21 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
     },
     {
       query: t.Object({
-        harnessId: t.Optional(t.String({ description: "Filter by harness id" })),
+        harnessId: t.Optional(
+          t.String({ description: "Filter by harness id (applies to agent rows; SSH rows have no harness)" }),
+        ),
+        kind: t.Optional(
+          t.Union([t.Literal("agent"), t.Literal("ssh"), t.Literal("all")], {
+            description:
+              "Which kinds to list; defaults to agent only. SSH and all require a browser session; machine actors are refused",
+          }),
+        ),
       }),
-      response: t.Array(PresetSchema, { description: "User's presets" }),
+      response: {
+        200: t.Array(t.Union([PresetSchema, SshPresetSchema]), { description: "User's presets" }),
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+      },
       detail: {
         operationId: "listPresets",
         tags: ["presets"],
@@ -394,10 +455,21 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
   )
   .put(
     "/:id",
-    async ({ params, body, user, actor }) => {
+    async ({ params, body, user, actor, status }) => {
       if (actor !== "cookie") {
         throw new PresetError("forbidden", "Sign in through the dashboard to manage presets", 403);
       }
+      const sshRepo = new SshPresetsRepository(db);
+      const sshExisting = await sshRepo.findById(params.id);
+      if (sshExisting) {
+        if (sshExisting.userId !== user.id) throw new PresetError("not_found", "Preset not found");
+        if (!("authentication" in body))
+          throw new PresetError("bad_request", "Send the complete SSH preset fields", 400);
+        const answer = await saveSshPreset(user.id, body, sshExisting);
+        if ("refusal" in answer) return status(422, { outcome: answer.refusal });
+        return answer;
+      }
+      if ("authentication" in body) throw new PresetError("bad_request", "A preset's kind can't be changed", 400);
       const badEnv = findInvalidEnvName(body.env);
       if (badEnv !== undefined) {
         throw new PresetError("bad_request", `invalid env var name: ${badEnv}`, 400);
@@ -441,7 +513,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
         throw err;
       }
       if (!updated) throw new PresetError("not_found", "Preset not found");
-      return updated;
+      return { ...updated, kind: "agent" as const };
     },
     {
       // Runs BEFORE validation, on the parsed (unstripped) body — the only
@@ -449,14 +521,33 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       // eat. Reject every key the update cannot apply, naming the first.
       transform({ body }) {
         if (typeof body === "object" && body !== null && !Array.isArray(body)) {
-          const stray = Object.keys(body).find((key) => !UPDATE_PRESET_KEYS.has(key));
+          const sshIntent = "authentication" in body;
+          if (sshIntent) {
+            // Validation STRIPS unknown keys (measured, see the union comment
+            // below), so a partial SSH body would silently match the all-optional
+            // agent schema and rename the wrong kind of row with a 200. Refuse
+            // SSH intent that cannot be an SSH update.
+            const missing = ["name", "nodeId", "destination"].find((key) => !(key in body));
+            if (missing !== undefined)
+              throw new PresetError("bad_request", `Send the complete SSH preset fields (${missing} is missing)`, 400);
+          }
+          const stray = Object.keys(body).find((key) => !(sshIntent ? SSH_PRESET_KEYS : UPDATE_PRESET_KEYS).has(key));
           if (stray !== undefined) {
             throw new PresetError("bad_request", `Unknown property in preset update body: ${stray}`, 400);
           }
         }
       },
-      body: UpdatePresetBodySchema,
-      response: PresetSchema,
+      body: t.Union([UpdatePresetBodySchema, UpdateSshPresetSchema]),
+      response: {
+        200: t.Union([PresetSchema, SshPresetSchema]),
+        400: "ApiErrorResponse",
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+        404: "ApiErrorResponse",
+        409: "ApiErrorResponse",
+        422: t.Object({ outcome: SshResolveRefusalViewSchema }),
+        502: "ApiErrorResponse",
+      },
       detail: {
         operationId: "updatePreset",
         tags: ["presets"],
@@ -470,6 +561,13 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
     async ({ params, user, actor }) => {
       if (actor !== "cookie") {
         throw new PresetError("forbidden", "Sign in through the dashboard to manage presets", 403);
+      }
+      const sshRepo = new SshPresetsRepository(db);
+      const sshExisting = await sshRepo.findById(params.id);
+      if (sshExisting) {
+        if (sshExisting.userId !== user.id) throw new PresetError("not_found", "Preset not found");
+        await sshRepo.delete(params.id);
+        return { ok: true };
       }
       const repo = new PresetsRepository(db);
       const existing = await repo.findById(params.id);

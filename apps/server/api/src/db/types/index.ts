@@ -18,7 +18,8 @@ import type { PromptTable } from "@/db/types/prompts.db-types.js";
 import type { RecentPathTable } from "@/db/types/recent-paths.db-types.js";
 import type { SettingTable } from "@/db/types/settings.db-types.js";
 import type { SshHostPinTable } from "@/db/types/ssh-host-pins.db-types.js";
-import type { SshSavedHostTable } from "@/db/types/ssh-saved-hosts.db-types.js";
+import type { SshPresetTable } from "@/db/types/ssh-presets.db-types.js";
+import type { SshRecentDestinationTable } from "@/db/types/ssh-recent-destinations.db-types.js";
 import type { SubshellShareTable } from "@/db/types/subshell-shares.db-types.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import type { UserMetaTable } from "@/db/types/user-meta.db-types.js";
@@ -35,6 +36,7 @@ export interface Database {
   auditEvents: AuditEventsTable;
   authProviders: AuthProviderTable;
   presets: PresetTable;
+  sshPresets: SshPresetTable;
   prompts: PromptTable;
   promptStacks: PromptStackTable;
   promptStackItems: PromptStackItemTable;
@@ -59,6 +61,6 @@ export interface Database {
   identities: IdentityTable;
   notificationsSubscriptions: NotificationSubscriptionTable;
   deviceTokens: DeviceTokenTable;
-  sshSavedHosts: SshSavedHostTable;
+  sshRecentDestinations: SshRecentDestinationTable;
   sshHostPins: SshHostPinTable;
 }

@@ -450,9 +450,8 @@ test("password login prompts in the terminal, retries a wrong password, and save
     await openConnectPage(page);
     await page.getByLabel("SSH destination", { exact: true }).fill(destination);
     await page.getByRole("radio", { name: "Enter a password when connecting", exact: true }).check();
-    await page
-      .getByRole("checkbox", { name: "Remember this destination", exact: true })
-      .setChecked(user === "developer");
+    await page.getByRole("checkbox", { name: "Save as preset", exact: true }).check();
+    await page.getByLabel("Preset name", { exact: true }).fill(`${user} terminal`);
     await page.getByRole("button", { name: "Start SSH subshell", exact: true }).click();
     await expect(page).toHaveURL(/\/subshells\/[a-zA-Z0-9_-]+$/, { timeout: READY_TIMEOUT });
     const id = new URL(page.url()).pathname.split("/").pop();
@@ -479,7 +478,7 @@ test("password login prompts in the terminal, retries a wrong password, and save
       await expect.poll(readLog, { timeout: READY_TIMEOUT }).toContain("PASSWORD-9-OK");
       expect(await readLog()).not.toContain(fx.password);
       expect(await readLog()).not.toContain("incorrect-fixture-password");
-      const saved = await api.get("/api/ssh/saved-hosts");
+      const saved = await api.get("/api/presets?kind=ssh");
       expect(JSON.stringify(await saved.json())).not.toContain(fx.password);
     } finally {
       await api.post(`/api/subshells/${id}/terminate`);
@@ -491,27 +490,25 @@ test("password login prompts in the terminal, retries a wrong password, and save
     const dbPath = path.join(instance.dir, file);
     if (existsSync(dbPath)) expect(readFileSync(dbPath).includes(Buffer.from(fx.password))).toBe(false);
   }
-  await page.goto(`${ORIGIN}/settings/ssh`);
-  const operatorDestination = `operator@${fx.host}:${fx.port}`;
-  await page.getByRole("button", { name: `Remember ${operatorDestination}`, exact: true }).click();
-  await expect(page.getByRole("button", { name: `Forget ${operatorDestination}`, exact: true })).toBeVisible();
-  const saved = await api.get("/api/ssh/saved-hosts");
-  const ledger = await saved.json();
-  expect(ledger.saved.map((row: { destination: string }) => row.destination).sort()).toEqual(
+  await page.goto(`${ORIGIN}/presets?type=ssh`);
+  const saved = await api.get("/api/presets?kind=ssh");
+  const presets = await saved.json();
+  expect(presets.map((row: { destination: string }) => row.destination).sort()).toEqual(
     ["developer", "operator"].map((user) => `${user}@${fx.host}:${fx.port}`).sort(),
   );
-  for (const user of ["developer", "operator"]) {
-    const destination = `${user}@${fx.host}:${fx.port}`;
-    await expect(page.getByText(destination, { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: `Forget ${destination}`, exact: true }).click();
-    await expect(page.getByText(destination, { exact: true })).toHaveCount(0);
+  for (const preset of presets) {
+    expect(preset.authentication).toBe("password");
+    await expect(page.getByRole("button", { name: preset.name, exact: true })).toBeVisible();
+    const removed = await api.delete(`/api/presets/${preset.id}`);
+    expect(removed.ok()).toBe(true);
   }
 });
 
-test("SSH settings has no manual host-key management", async ({ page }) => {
+test("legacy SSH settings redirects to presets without manual host-key management", async ({ page }) => {
   await login(page, ADMIN.email, ADMIN.password);
   await page.goto(`${ORIGIN}/settings/ssh`);
-  await expect(page.getByText("Saved destinations", { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/presets\?type=ssh$/);
+  await expect(page.getByText("No SSH presets yet", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add host key", exact: true })).toHaveCount(0);
   await expect(page.getByText("Saved host keys", { exact: true })).toHaveCount(0);
 });

@@ -4,7 +4,8 @@
  * (apps/server/api/src/api/models.ts): it carries the fields the frontend uses
  * and omits `userId`.
  */
-export interface PresetRow {
+export interface AgentPreset {
+  kind: "agent";
   id: string;
   harnessId: string;
   name: string;
@@ -28,3 +29,42 @@ export interface PresetRow {
   /** ISO 8601 update timestamp */
   updatedAt: string;
 }
+
+/** Legacy agent consumers use the agent-only list endpoint. */
+export type PresetRow = Omit<AgentPreset, "kind"> & { kind?: "agent" };
+
+export type SshAuthentication = "connecting" | "remote" | "local-key" | "password";
+
+/** Saved connection choices only. Credentials and approvals never belong here. */
+export interface SshPreset {
+  kind: "ssh";
+  /** Preset id */
+  id: string;
+  /** Display name, unique per owner */
+  name: string;
+  /** Optional longer description */
+  description: string | null;
+  /** Connecting node; null after that node's deletion */
+  nodeId: string | null;
+  /** Canonical resolved destination (`host:port` / `user@host:port`), never a raw typed token */
+  destination: string;
+  /** Display-only alias from the resolved snapshot; never used to re-resolve */
+  alias: string | null;
+  /** Original SSH token, reused only under the saved canonical destination guard. */
+  resolutionAlias?: string | null;
+  /** How the connection authenticates; the mode alone is saved, never a secret */
+  authentication: SshAuthentication;
+  /** Node providing the selected keys for `remote` authentication; null otherwise */
+  keyHome: string | null;
+  /** Selected public-key fingerprints (remote mode only); private keys stay on their machine */
+  fingerprints: string[];
+  /** ISO 8601 creation timestamp */
+  createdAt: string;
+  /** ISO 8601 update timestamp */
+  updatedAt: string;
+}
+
+export type SshPresetPayload = Pick<
+  SshPreset,
+  "name" | "description" | "destination" | "alias" | "resolutionAlias" | "authentication" | "keyHome" | "fingerprints"
+> & { kind: "ssh"; nodeId: string; expectedDestination?: string };

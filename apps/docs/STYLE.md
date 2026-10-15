@@ -320,7 +320,7 @@ Use diagrams for plugin loading, command flow, and dependencies when they clarif
 
 ## Presets and reusable prompts
 
-Keep Presets and Reusable Prompts as distinct task-oriented sections. A preset records agent configuration and optional launch defaults; a reusable prompt records task instructions. A library stack references current saved prompts, while selecting a prompt or stack into a launch form or preset copies its text. Explain that distinction when describing edits, reuse, and deletion.
+Keep Presets and Reusable Prompts as distinct task-oriented sections. Agent presets record agent configuration and optional launch defaults; SSH presets record connection choices. A reusable prompt records task instructions. A library stack references current saved prompts, while selecting a prompt or stack into a launch form or agent preset copies its text. Explain that distinction when describing edits, reuse, and deletion.
 
 Distinguish typing from submitting: the dashboard's **Insert prompt…** action types text without Enter; the reader reviews it and submits it in the pane. Sharing means every account on the instance, not a selected group. Withdrawing library access cannot recall already-copied text. Prompt instructions are not enforceable security permissions.
 
