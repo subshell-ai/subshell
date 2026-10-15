@@ -376,7 +376,7 @@ Skip self-explanatory screens, including account creation, and pages focused on
 commands or concepts. Capture the shipped UI in Chrome against an isolated dev
 server with a temporary database and sample account. Never use the live instance.
 
-Preserve a small margin of the actual app background around the relevant content. Do not crop flush against text, controls, or panel edges. The documentation image frame adds a small surface-colored inset; keep the complete framed image within the display limits.
+Preserve a small margin of the actual app background around the relevant content. Do not crop flush against text, controls, or panel edges. Capture at 2× pixel density with a consistent 12px margin in the application's page background color. Isolate the relevant surface from unrelated UI and modal backdrops without changing its controls or content. The site adds one border without another inset; keep the complete framed image within the display limits.
 
 Crop to the relevant dialog, controls, or panel; omit empty terminal space and
 unrelated navigation. Use native HTML figures with the `docs-screenshot` class,

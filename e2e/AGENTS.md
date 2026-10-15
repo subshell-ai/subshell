@@ -165,7 +165,7 @@ a disposable SSH agent, and a Testcontainers destination. Docker and the
 Playwright Chromium browser are required. The normal `E2E_PORT_*` overrides
 apply when another suite is running.
 
-The script writes three cropped PNGs to `apps/docs/public/screenshots/`, using
+The script writes two cropped PNGs to `apps/docs/public/screenshots/`, using
 real form state and a real first-connection refusal. It cancels confirmation
 and checks that no destination trust was saved, then cleans up its processes
 and temporary state. Review the images and update their intrinsic dimensions
@@ -181,3 +181,9 @@ Review every capture, update intrinsic dimensions in the referring MDX and
 `apps/website/components/feature-showcase.tsx`, and check the captions against
 the actual controls. The example address and QR code are public sample values;
 no setup key is generated. Remove obsolete assets and their references together.
+
+Both capture scripts use `screenshot.ts` for a 12px page-colored margin and 2×
+pixel density. The helper hides unrelated UI and modal backdrops only during
+capture; the photographed controls and their content remain unchanged. Keep
+PNG dimensions and the lossless marketing WebP copies at native resolution.
+The sites supply the same single border around each image, without extra padding.

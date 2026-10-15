@@ -5,36 +5,36 @@ import { SelfHostedSection } from "./self-hosted-section";
 const SHOTS = {
   workspace: {
     name: "workspace-layout",
-    width: 1056,
-    height: 310,
+    width: 2112,
+    height: 668,
     alt: "A project shell and test results side by side in a Subshell workspace",
     caption: "Two subshells, one workspace. On your phone, panes become tabs.",
   },
   prompts: {
     name: "prompt-stack-members",
-    width: 932,
-    height: 357,
+    width: 1864,
+    height: 714,
     alt: "A saved review checklist combining project context, review instructions, and report format in order",
     caption: "Build a prompt stack from instructions you already use.",
   },
   presets: {
     name: "preset-library",
-    width: 932,
-    height: 430,
+    width: 1864,
+    height: 860,
     alt: "Saved launch presets for a Codex repository review and a project terminal",
     caption: "Save launch settings for each agent as a preset.",
   },
   sharing: {
     name: "session-sharing",
-    width: 536,
-    height: 384,
+    width: 1072,
+    height: 768,
     alt: "Subshell sharing dialog with separate View and View + edit permissions",
     caption: "Choose who can watch and who can type into the subshell.",
   },
   nodes: {
     name: "node-enrollment",
-    width: 536,
-    height: 520,
+    width: 1072,
+    height: 1040,
     alt: "Add node instructions for connecting another machine with Subshell Client, a server address, and a setup key",
     caption: "Connect another machine using a setup key from your dashboard.",
   },
@@ -44,7 +44,7 @@ function Screenshot({ shot }: { shot: (typeof SHOTS)[keyof typeof SHOTS] }) {
   const src = `/shots/${shot.name}.webp`;
   return (
     <figure className="m-0 min-w-0">
-      <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--term)] shadow-[0_18px_60px_-24px_rgba(0,0,0,.55)]">
+      <div className="overflow-hidden rounded-lg border border-[var(--screenshot-border)] bg-[var(--screenshot-background)]">
         <Image
           src={src}
           alt={shot.alt}
@@ -146,7 +146,7 @@ export function FeatureShowcase() {
             <DocumentationLink path="/guides/sharing">How to share a subshell</DocumentationLink>
           </div>
         </div>
-        <div className="w-full max-w-[620px] justify-self-center">
+        <div className="w-full max-w-[536px] justify-self-center">
           <Screenshot shot={SHOTS.sharing} />
         </div>
       </section>

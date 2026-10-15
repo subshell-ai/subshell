@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium, expect, type Locator, type Page, request } from "@playwright/test";
 import { BASE_URL, PORTS } from "./ports";
+import { captureScreenshot } from "./screenshot";
 import { startStack, stopStack } from "./stack";
 
 // Real UI, real API records, and real terminal commands on a disposable stack.
@@ -16,21 +17,7 @@ const cleanup: (() => Promise<void> | void)[] = [() => rmSync(project, { recursi
 const dimensions: Record<string, { width: number; height: number }> = {};
 
 async function capture(page: Page, name: string, first: Locator, last = first) {
-  await first.scrollIntoViewIfNeeded();
-  const a = await first.boundingBox();
-  const b = await last.boundingBox();
-  if (!a || !b) throw new Error(`Missing screenshot bounds: ${name}`);
-  const x = Math.max(0, Math.floor(Math.min(a.x, b.x) - 12));
-  const y = Math.max(0, Math.floor(Math.min(a.y, b.y) - 12));
-  const width = Math.ceil(Math.max(a.x + a.width, b.x + b.width) - x + 12);
-  const height = Math.ceil(Math.max(a.y + a.height, b.y + b.height) - y + 12);
-  await page.screenshot({
-    path: path.join(output, `${name}.png`),
-    clip: { x, y, width, height },
-    animations: "disabled",
-  });
-  dimensions[name] = { width, height };
-  console.log(`${name}: ${width} x ${height}`);
+  dimensions[name] = await captureScreenshot(page, path.join(output, `${name}.png`), first, last);
 }
 
 try {
@@ -100,6 +87,7 @@ try {
     storageState: await api.storageState(),
     viewport: { width: 1180, height: 1200 },
     colorScheme: "dark",
+    deviceScaleFactor: 2,
   });
   const page = await context.newPage();
   page.setDefaultTimeout(15000);
@@ -167,6 +155,8 @@ try {
 
   await page.setViewportSize({ width: 1280, height: 540 });
   await page.goto(`/workspaces/${workspace.id}`);
+  // Leave room around the full-bleed workspace for the same capture margin.
+  await page.addStyleTag({ content: "main { margin: 12px; max-width: calc(100% - 24px); }" });
   const tab = page.getByRole("tab", { name: "Test results", exact: true });
   await expect(tab).toBeVisible();
   const source = await tab.boundingBox();
@@ -184,11 +174,13 @@ try {
   await expect.poll(async () => (await api.get(`/api/subshells/${panes[1].id}/log`)).text()).toContain("2 pass");
   await page.waitForTimeout(500);
   // Keep the workspace header and actual output, omitting empty terminal space.
-  const workspaceBounds = await page.locator("main").boundingBox();
-  if (!workspaceBounds) throw new Error("Workspace bounds unavailable");
-  const clip = { ...workspaceBounds, height: 310 };
-  await page.screenshot({ path: path.join(output, "workspace-layout.png"), clip, animations: "disabled" });
-  dimensions["workspace-layout"] = { width: clip.width, height: clip.height };
+  dimensions["workspace-layout"] = await captureScreenshot(
+    page,
+    path.join(output, "workspace-layout.png"),
+    page.locator("main"),
+    page.locator("main"),
+    310,
+  );
   for (const name of [
     "workspace-layout",
     "prompt-stack-members",
