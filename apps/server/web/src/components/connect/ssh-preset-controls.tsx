@@ -1,6 +1,6 @@
-import { Input } from "@internal/node-admin";
 import { useEffect, useRef } from "react";
 import type { SshSessionDraft } from "@/components/connect/ssh-session-draft";
+import { SshPresetNameField } from "@/components/presets/ssh-preset-name-field";
 import { SshQueryStatus } from "@/components/ssh/query-status";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SearchableSelect } from "@/components/ui/combobox";
@@ -91,13 +91,12 @@ export function SaveSshPresetFields({
       </Field>
       {draft.saveAsPreset && (
         <Field>
-          <FieldLabel htmlFor="ssh-preset-name">Preset name</FieldLabel>
-          <Input
+          <SshPresetNameField
             id="ssh-preset-name"
+            label="Preset name"
             value={draft.presetName ?? ""}
-            maxLength={120}
             disabled={busy}
-            onChange={(event) => onChange({ ...draft, presetName: event.target.value })}
+            onChange={(presetName) => onChange({ ...draft, presetName })}
           />
           <p className="text-detail text-muted-foreground">
             Saves these connection choices before starting. Keys from your machine and passwords aren’t saved.

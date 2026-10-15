@@ -278,7 +278,13 @@ test("SSH presets can be created, edited, cloned, opened, and deleted", async ({
   await page.getByRole("button", { name: "New preset", exact: true }).click();
   await page.getByRole("menuitem", { name: "New SSH preset", exact: true }).click();
   let dialog = page.getByRole("dialog", { name: "Create SSH preset", exact: true });
+  await dialog.getByLabel("Name", { exact: true }).fill("   ");
+  await dialog.getByLabel("SSH destination", { exact: true }).fill("user@host:70000");
+  await expect(dialog.getByText("Enter a preset name.", { exact: true })).toBeVisible();
   await dialog.getByLabel("Name", { exact: true }).fill("Build login");
+  await expect(dialog.getByText("Enter a port between 1 and 65535.", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Save preset", exact: true })).toBeDisabled();
+  expect(presets).toHaveLength(0);
   await dialog.getByLabel("SSH destination", { exact: true }).fill(destination);
   await dialog.getByRole("combobox", { name: "Connect from", exact: true }).click();
   await page.getByRole("option", { name: /Connecting desktop/ }).click();

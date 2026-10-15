@@ -142,3 +142,52 @@ it("releases the saved destination guard and alias on a deliberate destination e
   expect(writes[0]?.body.expectedDestination).toBeUndefined();
   expect(writes[0]?.body.resolutionAlias).toBeUndefined();
 });
+
+it("shows name and destination problems on blur and blocks saving until corrected", async () => {
+  const { writes } = await setup();
+  const name = screen.getByLabelText("Name");
+  fireEvent.focus(name);
+  fireEvent.change(name, { target: { value: "   " } });
+  expect(screen.queryByText("Enter a preset name.") === null).toBe(true);
+  fireEvent.blur(name);
+  expect(screen.getByText("Enter a preset name.")).toBeDefined();
+  expect(name.getAttribute("aria-invalid")).toBe("true");
+  await waitFor(() => expect(disabled()).toBe(true));
+  fireEvent.focus(name);
+  expect(screen.queryByText("Enter a preset name.") === null).toBe(true);
+  fireEvent.change(name, { target: { value: "Valid name" } });
+  fireEvent.blur(name);
+  const destination = screen.getByLabelText("SSH destination");
+  fireEvent.focus(destination);
+  fireEvent.change(destination, { target: { value: "user@host:70000" } });
+  expect(screen.queryByText("Enter a port between 1 and 65535.") === null).toBe(true);
+  fireEvent.blur(destination);
+  expect(screen.getByText("Enter a port between 1 and 65535.")).toBeDefined();
+  expect(destination.getAttribute("aria-invalid")).toBe("true");
+  await waitFor(() => expect(disabled()).toBe(true));
+  fireEvent.click(screen.getByRole("button", { name: "Save preset" }));
+  expect(writes).toHaveLength(0);
+  fireEvent.change(destination, { target: { value: "user@host:22" } });
+  await waitFor(() => expect(disabled()).toBe(false));
+});
+
+it("places a duplicate-name refusal beside the name and clears it when edited", async () => {
+  await setup();
+  fireEvent.blur(screen.getByLabelText("Name"));
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+    if (init?.method === "PUT")
+      return Response.json(
+        { code: "duplicate", message: "You already have an SSH preset with that name" },
+        { status: 409 },
+      );
+    return previousFetch(input as RequestInfo, init);
+  }) as typeof fetch;
+  await waitFor(() => expect(disabled()).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "Save preset" }));
+  const message = await screen.findByText("You already have an SSH preset with that name. Choose another name.");
+  const name = screen.getByLabelText("Name");
+  expect(name.getAttribute("aria-describedby")).toBe(message.id);
+  fireEvent.change(name, { target: { value: "Different name" } });
+  await waitFor(() => expect(screen.queryByText(message.textContent ?? "") === null).toBe(true));
+});

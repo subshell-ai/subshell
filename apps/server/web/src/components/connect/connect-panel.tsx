@@ -41,6 +41,7 @@ import { fieldErrorToned, makeForm, useSubmitDisabled } from "@/lib/form";
 import { nodeOptionLabel } from "@/lib/node-label";
 import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 import { sshCanEnableOnStart } from "@/lib/ssh";
+import { sshDestinationProblem } from "@/lib/ssh-input-validation";
 import { launchWithLocalKey } from "@/lib/ssh-local-key";
 import { sshDraftFromPreset, sshPresetPayload } from "@/lib/ssh-preset";
 import type { SshPreset } from "@/types/preset";
@@ -486,6 +487,7 @@ export function ConnectPanel({
         <Field>
           <Label htmlFor={DESTINATION_IDS.field}>SSH destination</Label>
           <DestinationField
+            problem={sshDestinationProblem(sshDestination(draft))}
             id={DESTINATION_IDS.field}
             describedBy={DESTINATION_IDS.disclosure}
             placeholder="user@hostname:22 or an SSH alias"

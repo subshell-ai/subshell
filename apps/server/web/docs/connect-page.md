@@ -22,6 +22,12 @@ controls expand beneath their selected radio option: the remote node picker
 keeps its accessible label but hides the redundant visible label. Local-key
 and password explanations say that credentials are supplied when creating a
 new SSH subshell; the preset saves only the authentication preference.
+Name and destination validation use the same problem functions for submit gating
+and inline feedback. Show input errors after blur, never while the caret is in
+that field. Destination checks cover explicit user/host/port syntax and length;
+alias existence and SSH configuration remain server-side checks. The API trims
+preset names, rejects blanks and control characters, and checks uniqueness after
+normalization.
 The form displays the server’s refusal and any blocked SSH settings so users
 know what to change.
 

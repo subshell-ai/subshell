@@ -19,6 +19,7 @@ import { useSshNodeRoster } from "@/hooks/use-ssh";
 import { isDesktop } from "@/lib/desktop";
 import { makeForm, useSubmitDisabled } from "@/lib/form";
 import { type SshMachineReadiness, sshCanEnableOnStart } from "@/lib/ssh";
+import { sshDestinationProblem, sshPresetNameProblem } from "@/lib/ssh-input-validation";
 
 export interface SshWizardProps {
   /** Shared with the connection form and retained by the outer dialog. */
@@ -79,15 +80,15 @@ export function SshWizard({
     const value = values?.draft ?? draft;
     const name = value.presetName ?? presetEditor?.name ?? "";
     const remote = value.authentication === "remote" || (!value.authentication && !!value.keyHome);
-    if (presetEditor && !name.trim()) return { draft: "Enter a preset name." };
-    if (!presetEditor && value.saveAsPreset && !value.presetName?.trim())
-      return { draft: "Enter a name for the new preset." };
+    const nameProblem = presetEditor || value.saveAsPreset ? sshPresetNameProblem(name) : null;
+    if (nameProblem) return { draft: nameProblem };
     if (!presetEditor && value.authentication === "local-key" && !isDesktop()) {
       const problem = browserKey.problem();
       if (problem) return { draft: problem };
     }
     if (!value.nodeId) return { draft: "Choose a node." };
-    if (!sshDestination(value)) return { draft: "Enter an SSH destination." };
+    const destinationProblem = sshDestinationProblem(sshDestination(value));
+    if (destinationProblem) return { draft: destinationProblem };
     if (remote) {
       const error = !value.keyHome ? "Choose a node to supply keys." : sshKeySourceProblem(value);
       if (error) return { draft: error };

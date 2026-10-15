@@ -1,9 +1,10 @@
 import { Button } from "@internal/node-admin";
 import { DestinationField } from "@/components/connect/destination-field";
 import { buildDestinationOptions } from "@/components/connect/destination-options";
-import type { SshSessionDraft } from "@/components/connect/ssh-session-draft";
+import { type SshSessionDraft, sshDestination } from "@/components/connect/ssh-session-draft";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { useSshAliases, useSshRecentDestinations } from "@/hooks/use-ssh";
+import { sshDestinationProblem } from "@/lib/ssh-input-validation";
 
 /** Reuses the click-dismiss destination picker and its canonical suggestion state. */
 export function SshDestinationStep({
@@ -32,6 +33,7 @@ export function SshDestinationStep({
       <Field>
         <FieldLabel htmlFor="ssh-wizard-destination">SSH destination</FieldLabel>
         <DestinationField
+          problem={sshDestinationProblem(sshDestination(draft))}
           id="ssh-wizard-destination"
           placeholder="user@hostname:22 or an SSH alias"
           typed={draft.destination.typed}

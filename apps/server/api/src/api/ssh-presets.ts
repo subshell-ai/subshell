@@ -108,6 +108,10 @@ export async function saveSshPreset(
   body: Static<typeof UpdateSshPresetSchema>,
   existing?: SshPresetTable,
 ) {
+  const name = body.name.trim();
+  if (!name) throw new SshPresetError("bad_request", "Enter a preset name.");
+  if (/\p{Cc}/u.test(body.name))
+    throw new SshPresetError("bad_request", "Remove control characters from the preset name.");
   if (body.authentication !== "remote" && (body.keyHome != null || (body.fingerprints?.length ?? 0) > 0)) {
     throw new SshPresetError("bad_request", "Only remote key authentication can store a key node or fingerprints");
   }
@@ -153,7 +157,7 @@ export async function saveSshPreset(
   const row = {
     id: existing?.id ?? crypto.randomUUID(),
     userId,
-    name: body.name,
+    name,
     description: body.description ?? null,
     nodeId: body.nodeId,
     destination,

@@ -1,5 +1,6 @@
 import type { DestinationCandidate } from "@/components/connect/destination-options";
 import { type SshAgentIdentity, sshSelectionError } from "@/lib/ssh";
+import { sshDestinationProblem, sshPresetNameProblem } from "@/lib/ssh-input-validation";
 
 export type SshInitialChoices = {
   preset?: string;
@@ -65,10 +66,12 @@ export function sshKeySourceProblem(draft: SshSessionDraft): string | null {
 }
 
 export function sshDraftProblems(draft: SshSessionDraft): Record<string, string> {
-  if (draft.saveAsPreset && !draft.presetName?.trim()) return { name: "Enter a name for the new preset." };
+  const nameProblem = draft.saveAsPreset ? sshPresetNameProblem(draft.presetName ?? "") : null;
+  if (nameProblem) return { name: nameProblem };
   if (draft.authentication === "remote" && !draft.keyHome) return { keys: "Choose a node to supply keys." };
   if (!draft.nodeId) return { node: "Choose a node to connect from first." };
-  if (!sshDestination(draft)) return { destination: "Enter an SSH destination." };
+  const destinationProblem = sshDestinationProblem(sshDestination(draft));
+  if (destinationProblem) return { destination: destinationProblem };
   const error =
     sshKeySourceProblem(draft) ||
     (draft.keyHome ? sshKeySelectionProblem(draft.selections[draft.keyHome] ?? []) : null);

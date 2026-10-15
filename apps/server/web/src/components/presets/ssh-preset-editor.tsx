@@ -1,8 +1,9 @@
-import { errMessage, Input } from "@internal/node-admin";
+import { ApiError, errMessage } from "@internal/node-admin";
 import { useState } from "react";
 import { useBrowserKeySelection } from "@/components/connect/browser-key-fields";
 import { sshSessionDraft } from "@/components/connect/ssh-session-draft";
 import { SshWizard } from "@/components/connect/ssh-wizard";
+import { SshPresetNameField } from "@/components/presets/ssh-preset-name-field";
 import {
   Dialog,
   DialogContent,
@@ -11,7 +12,6 @@ import {
   DialogTitle,
   formDialogOpenChange,
 } from "@/components/ui/dialog";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { useSshReadiness } from "@/hooks/use-ssh";
 import { useSaveSshPreset } from "@/hooks/use-ssh-presets";
 import { sshDraftFromPreset, sshPresetPayload } from "@/lib/ssh-preset";
@@ -35,6 +35,7 @@ export function SshPresetEditor({
   const readiness = useSshReadiness();
   const browserKey = useBrowserKeySelection();
   const save = useSaveSshPreset();
+  const duplicateName = save.error instanceof ApiError && save.error.code === "duplicate";
   const editing = !!preset && cloneName === undefined;
   return (
     <Dialog
@@ -53,17 +54,19 @@ export function SshPresetEditor({
             identity.
           </DialogDescription>
         </DialogHeader>
-        <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="ssh-editor-name">Name</FieldLabel>
-            <Input
-              id="ssh-editor-name"
-              value={name}
-              maxLength={120}
-              onChange={(event) => setDraft({ ...draft, presetName: event.target.value })}
-            />
-          </Field>
-        </FieldGroup>
+        <SshPresetNameField
+          id="ssh-editor-name"
+          label="Name"
+          value={name}
+          disabled={save.isPending}
+          serverError={
+            duplicateName ? "You already have an SSH preset with that name. Choose another name." : undefined
+          }
+          onChange={(presetName) => {
+            save.reset();
+            setDraft({ ...draft, presetName });
+          }}
+        />
         <SshWizard
           draft={draft}
           onDraftChange={(next) => setDraft({ ...next, presetName: next.presetName ?? "" })}
@@ -79,7 +82,7 @@ export function SshPresetEditor({
               editing && draft.nodeId === preset.nodeId && draft.destination.typed === preset.destination,
           }}
           refusal={
-            save.error
+            save.error && !duplicateName
               ? errMessage(save.error, "Couldn’t save this preset. Check the connection details and try again.")
               : undefined
           }

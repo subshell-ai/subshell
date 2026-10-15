@@ -955,6 +955,24 @@ describe("SSH preset CRUD", () => {
   });
   const save = (value: Record<string, unknown>, cookie = ownerCookie) =>
     sshFetch("/api/presets", { method: "POST", cookie, body: value });
+  it("rejects blank names and normalizes names before duplicate checks on create and update", async () => {
+    const scripted = silentScript(NODE_ON);
+    try {
+      for (const name of ["   ", "\t", "bad\nname"]) expect((await save(body(name))).status).toBe(400);
+      expect(scripted.cmdsOf("ssh_resolve_config")).toHaveLength(0);
+      const created = await save(body("  Trimmed SSH name  "));
+      expect(created.status).toBe(200);
+      const row = (await created.json()) as { id: string; name: string };
+      expect(row.name).toBe("Trimmed SSH name");
+      expect((await save(body(" trimmed ssh NAME "))).status).toBe(409);
+      const { kind: _kind, ...update } = body(" ");
+      const refused = await sshFetch(`/api/presets/${row.id}`, { method: "PUT", cookie: ownerCookie, body: update });
+      expect(refused.status).toBe(400);
+      await sshFetch(`/api/presets/${row.id}`, { method: "DELETE", cookie: ownerCookie });
+    } finally {
+      scripted.detach();
+    }
+  });
   it("creates canonical owner-scoped presets without touching recents or launching", async () => {
     const scripted = silentScript(NODE_ON);
     try {
