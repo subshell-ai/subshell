@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { isLaunchVisible } from "@/lib/plugin-visibility";
 import { useSubshell } from "@/providers/subshell-provider";
 
 /**
@@ -11,12 +12,13 @@ export function usePlugins() {
   return useQuery({
     enabled: Boolean(client),
     queryKey: ["plugins"],
-    // Networks are filtered out HERE rather than at the chips, because there
-    // is no screen on a phone where one belongs: joining a network is an act
-    // on the server's own machine, and this catalog is read for one purpose —
-    // which agent to launch. A network row reaching the Agent chips would be
-    // an unlaunchable choice.
-    queryFn: async () => (await client?.plugins())?.filter((plugin) => plugin.type !== "network"),
+    // Networks and `pickable: false` plugins are filtered out HERE rather
+    // than at the chips, because there is no screen on a phone where either
+    // belongs: joining a network is an act on the server's own machine, and
+    // a plugin that refuses the pickers (SSH: a bare launch dies without a
+    // destination) would be a chip that starts a dying pane. The web mirrors
+    // this in `buildAgentOptions`; change one, change both.
+    queryFn: async () => (await client?.plugins())?.filter(isLaunchVisible),
     staleTime: 60_000,
   });
 }

@@ -89,7 +89,7 @@ const PluginRowSchema = t.Object({
   description: t.String({ description: "One-line description" }),
   icon: t.Optional(t.String({ description: "Icon label" })),
   pickable: t.Optional(
-    t.Boolean({
+    t.Literal(false, {
       description:
         "Present only as false: the plugin's own declaration that launch pickers must not list it even though it drives a pane. Absent means pickable; launching by id still works for the flow that supplies its inputs",
     }),
@@ -226,6 +226,9 @@ function toRow(id: string, s: CatalogSources): Static<typeof PluginRowSchema> | 
     ...(icon ? { icon } : {}),
     // Whichever source knows the id says whether it refuses the picker; the
     // installed report wins over the catalog copy the way name and type do.
+    // A stale on-disk built-in (older version, no flag) would read pickable:
+    // the boot seeding refresh is version-gated, so this declaration only
+    // reaches existing stores via a real version bump of the plugin package.
     ...(report?.pickable === false || (!report && harness?.pickable === false) ? { pickable: false } : {}),
     ...(harness ? { binary: harness.binaryName } : {}),
     ...(report?.version ? { version: report.version } : {}),

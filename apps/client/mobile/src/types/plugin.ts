@@ -28,6 +28,13 @@ export interface PluginView {
   type?: PluginType;
   /** One-line description */
   description: string;
+  /**
+   * Present only as false: the plugin declares itself out of the launch
+   * pickers (it drives a pane that needs more than a pick, like SSH needing
+   * a destination). Absent means pickable, so a row from an older server is
+   * simply offered as before. Mirrors `PluginRowSchema`.
+   */
+  pickable?: false;
   /** Icon label (an emoji) — rendered inline on the chip when present */
   icon?: string;
   /** Driven program's command name (absent when unresolvable) */
