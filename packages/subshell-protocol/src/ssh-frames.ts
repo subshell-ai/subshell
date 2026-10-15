@@ -413,11 +413,9 @@ function isIdStr(value: unknown): value is string {
  * emits, so the strict width refuses nothing real. Shape, not truth - whether
  * the digest matches a key is the responder's §5.4 enforcement. The alphabet
  * rule is also what stops control characters reaching a future audit row
- * through a field that promises to be a fingerprint.
- */
-/**
- * The fingerprint grammar as a source string, so an API schema can carry the
- * SAME rule as this predicate instead of restating it and drifting.
+ * through a field that promises to be a fingerprint. Exported as a source
+ * STRING so an API schema carries the SAME rule as the predicate below
+ * instead of restating it and drifting.
  */
 export const SSH_FINGERPRINT_PATTERN = "^SHA256:[A-Za-z0-9_-]{43}$";
 

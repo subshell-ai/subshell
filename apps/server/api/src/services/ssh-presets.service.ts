@@ -53,9 +53,16 @@ export async function saveSshPreset(
   // PUT omits a field it is not deciding about, so an absent alias keeps the
   // stored one (null clears it), the same rule the agent PUT body follows.
   let alias = body.alias !== undefined ? body.alias : (existing?.alias ?? null);
-  const unchangedDestination = existing?.nodeId === body.nodeId && existing.destination === body.destination;
+  // TWO different "unchanged" facts. The stored token must keep resolving to
+  // the stored ADDRESS whenever the destination text is untouched, even on a
+  // machine switch, which then re-resolves on the new node under the same
+  // expectedDestination guard. Skipping the resolve entirely additionally
+  // needs the node to be the same one.
+  const destinationTextUnchanged = !!existing && existing.destination === body.destination;
+  const _unchangedDestination = destinationTextUnchanged && existing.nodeId === body.nodeId;
   const resolutionAlias =
-    body.resolutionAlias ?? (unchangedDestination ? existing.resolutionAlias : null) ?? body.destination;
+    body.resolutionAlias ??
+    (destinationTextUnchanged ? (existing.resolutionAlias ?? body.destination) : body.destination);
   if (
     !existing ||
     existing.nodeId !== body.nodeId ||
@@ -66,7 +73,7 @@ export async function saveSshPreset(
       userId,
       body.nodeId,
       resolutionAlias,
-      body.expectedDestination ?? (unchangedDestination ? existing.destination : undefined),
+      body.expectedDestination ?? (destinationTextUnchanged ? existing.destination : undefined),
     );
     if (!resolved.ok) return throwCodedRefusal(resolved.refusal);
     if (!resolved.value.accepted) return { refusal: resolved.value };

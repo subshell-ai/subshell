@@ -12,8 +12,8 @@ import { UsersRepository } from "@/db/repositories/users.repository.js";
  * - the key is (owner, canonical destination): `touch` REFRESHES recency on
  *   an existing row rather than adding a second one, and two owners may hold
  *   the same destination as two rows;
- * - recency (`last_connect_at`) rides EVERY launch whether or not the row was
- *   ever saved; `saved_at` is only what the human gave (null = recency-only);
+ * - recency (`last_connect_at`) rides EVERY launch; the row is the most recent
+ *   successful connection, and its node follows that launch;
  * - the list reads never carry another owner's rows (the ownership axis,
  *   docs/security.md §3).
  */

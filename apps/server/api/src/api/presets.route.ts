@@ -517,9 +517,17 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       // eat. Reject every key the update cannot apply, naming the first.
       transform({ body }) {
         if (typeof body === "object" && body !== null && !Array.isArray(body)) {
-          const stray = Object.keys(body).find(
-            (key) => !("authentication" in body ? SSH_PRESET_KEYS : UPDATE_PRESET_KEYS).has(key),
-          );
+          const sshIntent = "authentication" in body;
+          if (sshIntent) {
+            // Validation STRIPS unknown keys (measured, see the union comment
+            // below), so a partial SSH body would silently match the all-optional
+            // agent schema and rename the wrong kind of row with a 200. Refuse
+            // SSH intent that cannot be an SSH update.
+            const missing = ["name", "nodeId", "destination"].find((key) => !(key in body));
+            if (missing !== undefined)
+              throw new PresetError("bad_request", `Send the complete SSH preset fields (${missing} is missing)`, 400);
+          }
+          const stray = Object.keys(body).find((key) => !(sshIntent ? SSH_PRESET_KEYS : UPDATE_PRESET_KEYS).has(key));
           if (stray !== undefined) {
             throw new PresetError("bad_request", `Unknown property in preset update body: ${stray}`, 400);
           }

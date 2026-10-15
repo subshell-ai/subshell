@@ -51,11 +51,11 @@ import { attachScriptedNode, ok, SCRIPTED_DATA_DIR, statDirEcho } from "@/test-h
  *   path, the rendered bytes, and the option tail `-F … -- host`; the row
  *   carries the approved snapshot; `SSH_AUTH_SOCK` rides only when the
  *   snapshot names a socket.
- * - **Saved hosts**: lists never carry another owner's rows; a foreign delete
- *   is the same 404 as an absent one; preferences store the id and the read
- *   tolerates the node vanishing.
+ * - **Recent destinations**: lists never carry another owner's rows;
+ *   preferences store the default node id and the read tolerates the node
+ *   vanishing (preset foreign-delete 404s live under preset CRUD).
  * - **Audit**: `ssh.launch` lands on SUCCESS only, with `{nodeId, destination,
- *   subshellId}` and nothing else; saved-host CRUD audits nothing (prompts precedent).
+ *   subshellId}` and nothing else; preset CRUD audits nothing (prompts precedent).
  *
  * The agent answers come from the scripted node (the real `sendCommand` chain,
  * the real frame parser) — the `ssh`/`resolve` frames this surface emits are
@@ -1004,6 +1004,123 @@ describe("SSH preset CRUD", () => {
       await sshFetch(`/api/presets/${row.id}`, { method: "DELETE", cookie: ownerCookie });
     } finally {
       scripted.detach();
+    }
+  });
+  it("refuses cross-kind updates instead of renaming the wrong row", async () => {
+    const scripted = silentScript(NODE_ON);
+    try {
+      const agent = (await sshFetch("/api/presets", {
+        method: "POST",
+        cookie: ownerCookie,
+        body: { harnessId: "terminal", name: "Cross agent" },
+      })) as Response;
+      expect(agent.status).toBe(200);
+      const agentRow = (await agent.json()) as { id: string };
+      // SSH intent missing a required SSH field must NOT fall through to the
+      // all-optional agent schema (which would rename the agent row, 200).
+      const partial = await sshFetch(`/api/presets/${agentRow.id}`, {
+        method: "PUT",
+        cookie: ownerCookie,
+        body: { name: "Hijacked", authentication: "connecting", destination: "work" },
+      });
+      expect(partial.status).toBe(400);
+      expect(((await partial.json()) as { message: string }).message).toMatch(/complete SSH preset fields/);
+      const still = (
+        (await (await sshFetch("/api/presets", { cookie: ownerCookie })).json()) as {
+          id: string;
+          name: string;
+        }[]
+      ).find((p) => p.id === agentRow.id)?.name;
+      expect(still).toBe("Cross agent");
+      // A COMPLETE SSH body against an agent row is the kind-change refusal.
+      expect(
+        (
+          await sshFetch(`/api/presets/${agentRow.id}`, {
+            method: "PUT",
+            cookie: ownerCookie,
+            body: { name: "Cross agent", nodeId: NODE_ON, destination: "work", authentication: "connecting" },
+          })
+        ).status,
+      ).toBe(400);
+      const sshCreated = await save(body("Cross ssh"));
+      expect(sshCreated.status).toBe(200);
+      const sshRow = (await sshCreated.json()) as { id: string };
+      // The reverse direction: an agent-shaped body cannot update an SSH row.
+      const reverse = await sshFetch(`/api/presets/${sshRow.id}`, {
+        method: "PUT",
+        cookie: ownerCookie,
+        body: { name: "Solo agent key" },
+      });
+      expect(reverse.status).toBe(400);
+      await sshFetch(`/api/presets/${sshRow.id}`, { method: "DELETE", cookie: ownerCookie });
+      await sshFetch(`/api/presets/${agentRow.id}`, { method: "DELETE", cookie: ownerCookie });
+    } finally {
+      scripted.detach();
+    }
+  });
+  it("switching the connecting node re-resolves the stored alias under the saved address guard", async () => {
+    const alt = `n-ssh-alt-${crypto.randomUUID()}`;
+    createdNodeIds.push(alt);
+    await mkNode(alt, true);
+    const on = silentScript(NODE_ON);
+    const readSsh = async () =>
+      (await (await sshFetch("/api/presets?kind=ssh", { cookie: ownerCookie })).json()) as {
+        id: string;
+        nodeId: string;
+        destination: string;
+      }[];
+    try {
+      const created = await save(body("Node switch"));
+      expect(created.status).toBe(200);
+      const row = (await created.json()) as { id: string };
+      const switchBody = (nodeId: string) => ({
+        name: "Node switch",
+        nodeId,
+        destination: CANON,
+        authentication: "connecting",
+        fingerprints: [],
+      });
+      // A node that cannot reproduce the saved address is refused, row untouched.
+      const refused = attachScriptedNode(alt, { ssh_resolve_config: () => REFUSED });
+      try {
+        const denied = await sshFetch(`/api/presets/${row.id}`, {
+          method: "PUT",
+          cookie: ownerCookie,
+          body: switchBody(alt),
+        });
+        expect(denied.status).toBe(422);
+        expect((await readSsh()).find((p) => p.id === row.id)?.nodeId).toBe(NODE_ON);
+      } finally {
+        refused.detach();
+      }
+      // The stored ALIAS must carry the re-resolve, not the canonical string
+      // (which the new machine would read as a literal host and rewrite
+      // nonsense), and the saved address must guard it.
+      const altTokens: unknown[] = [];
+      const altOk = attachScriptedNode(alt, {
+        ssh_resolve_config: (cmd) => {
+          if (cmd.type === "ssh_resolve_config") altTokens.push(cmd.alias);
+          return cmd.type === "ssh_resolve_config" && cmd.alias === "work"
+            ? { accepted: true, snapshot: ACCEPTED }
+            : REFUSED;
+        },
+      });
+      try {
+        const switched = await sshFetch(`/api/presets/${row.id}`, {
+          method: "PUT",
+          cookie: ownerCookie,
+          body: switchBody(alt),
+        });
+        expect(switched.status).toBe(200);
+        expect(await switched.json()).toMatchObject({ nodeId: alt, destination: CANON, resolutionAlias: "work" });
+        expect(altTokens).toEqual(["work"]);
+      } finally {
+        altOk.detach();
+      }
+      await sshFetch(`/api/presets/${row.id}`, { method: "DELETE", cookie: ownerCookie });
+      expect(await readSsh()).toEqual([]);
+    } finally {
+      on.detach();
     }
   });
   it("creates canonical owner-scoped presets without touching recents or launching", async () => {
