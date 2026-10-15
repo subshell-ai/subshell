@@ -78,20 +78,36 @@ the channels distinct is what lets the old refusal stay honest.
 
 ## 5. Rendering
 
-`renderSshConfigContents` grows an options object, `{ relay?, forwards? }`. With
-approved rows it emits a second config block, `Host <exact destination host>`,
-**after** the `Host *` policy block, carrying `LocalForward` / `RemoteForward` /
-`DynamicForward` lines composed only from re-parsed rows.
+`renderSshConfigContents` grows a third argument, the approved row list (the
+relay option stays where it is). Rendering is the plane's job end to end - the
+launch frame still carries only `{ configPath, fileContent }` - so no wire
+grammar changes and no agent update is required: the rows shape the bytes the
+node already writes verbatim. When rows are present the policy block **drops
+its `ClearAllForwardings yes` line** and a second block appears: `Host <exact
+destination host>`, carrying `LocalForward` / `RemoteForward` / `DynamicForward`
+lines composed only from re-parsed rows. Omitted bind hosts render explicitly as
+`127.0.0.1:port` for local/dynamic; a remote row with no bind host rides D's own
+policy spelling. Without rows, the file is byte-identical to what renders today,
+clear included.
 
-Two facts about OpenSSH make the placement the whole design. First,
-`ClearAllForwardings` clears forwardings "specified in configuration files **or on
-the command line**" at the point it is applied, so approved rows cannot ride argv
-where the policy block would wipe them; they must be added after the clear, inside
-the same file, which is also why the rows stay out of `sshOptionTokens` (those are
-the destination-scoped facts the policy must not fight). Second, ProxyJump children
-re-read the `-F` file matching their own host, so they hit `Host *` (policy,
-cleared) and never match the exact final-host pattern: a forward cannot leak onto a
-hop's connection.
+That omission is measured, not assumed (OpenSSH 10.2p1, real sshd, observable
+listener): `ClearAllForwardings` applies at the END of the whole config load, not
+where it is written, so forwardings survive it neither from a later block nor from
+the command line. Placement "after the clear" was the first design and the probe
+buried it. What makes omitting the clear honest is where forwardings can otherwise
+come from on this connection: `-F` replaces the user file outright, so the only
+channels are our rendered lines and the root-owned system file - the same
+"inside the OS trust boundary, root's to decide" class the renderer's header
+already names. The connecting account's own config never reaches a Subshell
+launch, which is what the clear was really guarding.
+
+The exact-Host block still matters for the other reason: ProxyJump children re-read
+the `-F` file matching their own host, so they inherit the `Host *` policy (without
+the now-absent clear, which they never needed for confinement: `ForwardAgent`/
+`ForwardX11 no` and friends are first-obtained keywords) and never match the final
+host's pattern. A forward cannot leak onto a hop's connection. One grammar corner:
+a launch whose ProxyJump names the destination host itself is refused with forwards
+(the pattern would match both processes); the route refuses it by name.
 
 Byte stability is kept (same approval renders the same file), so the run's recorded
 config byte-check and spec-22's sweep keep working. `ExitOnForwardFailure` stays at
@@ -118,11 +134,14 @@ form says so.
 - **Auth modes are untouched.** A forward is an option on the one already-approved
   connection. Password mode and the one-shot local-key path gain nothing new: rows
   never multiply connections, and the local-key signer still signs exactly once.
-- **Older agents are refused, never downgraded.** A launch carrying rows toward an
-  agent predating the grammar is refused by name with an "update this machine"
-  remedy. Silently stripping a forward is precisely the silent-widening failure the
-  resolver's refusal was written against; a dropped forward is a lie about what the
-  user approved.
+- **No agent update is required, and none is silently assumed.** The rows shape
+  the rendered config, and the launch frame already carries the rendered bytes;
+  every agent that writes a Subshell ssh config writes a forwarding one. What
+  must never happen is a plane rendering a launch WITHOUT a row the user
+  approved: compose re-validates the row list at the same boundary it
+  re-validates the snapshot, and a grammar refusal throws rather than dropping
+  a row (silently stripping a forward is the silent-widening failure the
+  resolver's refusal was written against, seen from the other side).
 
 ## 7. Surfaces
 
@@ -155,10 +174,11 @@ flip writes its own row in the nodes family.
 - Render: byte snapshots (policy-first ordering, the forward block, relay and
   forwards coexisting, the exact-Host pattern not matching the hop's host).
 - Plane: launch route gate matrix (loopback vs wide bind x node setting off/on),
-  min-protocol refusal, duplicate refusal, audit summary shape; preset save
-  validation and round-trip.
-- Node: launch re-validation of rows (a hostile list cannot render), config
-  byte-check still passes.
+  duplicate refusal, jump-names-destination refusal, audit summary shape;
+  preset save validation and round-trip.
+- Node: unchanged launch path (the frame still carries configPath + content
+  bytes; the path byte-check and the config dir sweep must still pass for a
+  launch that forwards).
 - Web: draft round-trip, bind-host gating on the node flag, preset editor rows.
 - E2E: extend spec 22's real-sshd pattern: launch with a `-L` row and curl the bound
   loopback port for the fixture's bytes; a `-D` leg through `curl --socks5-hostname`;

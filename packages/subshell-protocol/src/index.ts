@@ -249,6 +249,8 @@ export {
   type ViewerCapacity,
 } from "./shared-geometry.js";
 export {
+  isSshHostName,
+  isSshPort,
   parseSshConnectionSnapshot,
   SSH_FORBIDDEN_SNAPSHOT_FIELDS,
   type SshConnectionSnapshotWire,
@@ -260,6 +262,15 @@ export {
   SSH_ERROR_DESCRIPTIONS,
   type SshErrorCode,
 } from "./ssh-errors.js";
+export {
+  isLoopbackForwardBind,
+  isSshForwardKind,
+  parseSshForwardRows,
+  SSH_FORWARD_KINDS,
+  SSH_MAX_FORWARD_ROWS,
+  type SshForwardKind,
+  type SshForwardWire,
+} from "./ssh-forwards.js";
 export {
   isSshFingerprint,
   isSshFingerprints,
