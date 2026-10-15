@@ -8,8 +8,8 @@
 //! load-bearing.**
 //! Every other item here is a predefined system action, but this app's node
 //! window can otherwise be reached only from the tray — the plane window is
-//! remote content whose one grant opens a browser, so it cannot offer a route
-//! back to this app — and a macOS
+//! remote content whose grants are a browser path and one-use SSH signing,
+//! neither of which is a route back to this app — and a macOS
 //! status item is silently invisible on a notched display whose Control Center
 //! has wedged (see `tray.rs`). A menu bar is always drawn, so this is the route
 //! that cannot disappear. Linux has no menu bar at all, which is why

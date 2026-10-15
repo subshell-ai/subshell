@@ -248,8 +248,8 @@ fn tray_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     app.manage(KeepItem(keep.clone()));
     // On Linux this is the ONLY route to the text size: there is no menu bar
     // to hang ⌘+ on (a GTK one is per-window chrome), and the window showing
-    // the plane's page holds one command that opens a browser and nothing
-    // that could change the text size, so it cannot offer one either. On
+    // the plane's page holds five narrow commands, none of which could change
+    // the text size, so it cannot offer one either. On
     // macOS it is a second route to what the View menu already carries, which
     // costs a submenu.
     let text_size = text_size_submenu(app)?;

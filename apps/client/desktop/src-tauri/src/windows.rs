@@ -100,8 +100,9 @@ impl PlanePin {
 /// Tauri, and with nothing granted every one of those calls would have been
 /// refused one at a time. It carries one now because the SPA's chrome split in
 /// two — `isServerDesktop()` for everything that drives Subshell Server, and
-/// `isDesktop()` for the two surfaces that are true of any shell — and this
-/// window is granted exactly the one command those two need.
+/// `isDesktop()` for the two surfaces that are true of any shell — and the
+/// commands granted to this window are the ones those surfaces call: the
+/// browser command, and since 2026-10-14 the four one-use SSH signer commands.
 ///
 /// So the token is what matters: `SubshellClient`, which the SPA maps to
 /// `app: "client"` and which switches on nothing else.
@@ -339,7 +340,7 @@ fn open_plane_window(app: &AppHandle, origin: &str) -> Result<WebviewWindow, Str
         // could not be signed into from this app at all.
         //
         // Allowing http(s) costs this window nothing, because the pin is what
-        // the one granted command reads, not the current page:
+        // the granted browser command reads, not the current page:
         // `desktop_open_in_browser` joins its path onto `PlanePin`'s origin
         // (`control.rs`), so a page at the identity provider — or anywhere else
         // a redirect chain leads — can still only open a path of the plane this
@@ -621,8 +622,8 @@ mod tests {
 
     // The plane window's label must NOT be the one `node.json` names. If these
     // two ever became one string, the control plane's own page would inherit
-    // the whole CLI surface — which is a different thing from the one command
-    // `main.json` grants it, and the failure this pin exists for.
+    // the whole CLI surface — which is a different thing from the five narrow
+    // commands `main.json` grants it, and the failure this pin exists for.
     #[test]
     fn the_plane_window_is_not_the_granted_one() {
         assert_ne!(PLANE_LABEL, NODE_LABEL);

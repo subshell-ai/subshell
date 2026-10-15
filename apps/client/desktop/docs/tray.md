@@ -8,8 +8,8 @@ summary and routes here. The text below is verbatim.
 (Split from AGENTS.md's "Two windows"; it is tray mechanics.)
 
 **It must always have a route home, and the tray is not one.** The plane window
-is remote content whose one grant opens a browser, so it cannot offer a way
-back into this app, and a tray
+is remote content whose grants are a browser path and one-use SSH signing,
+neither a way back into this app, and a tray
 icon is silently invisible wherever no StatusNotifier host is registered. So:
 macOS gets **Window → Open Client App** in the menu bar (always drawn, which also
 covers the notched-display hazard in `tray.rs`); everywhere else,

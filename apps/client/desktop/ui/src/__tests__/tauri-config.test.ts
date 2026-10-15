@@ -83,9 +83,10 @@ describe("the window's ambient surface", () => {
    * design — it must not pull `@tauri-apps/api` into a bundle that is served
    * to browsers, and the repo forbids the dynamic import that would avoid it.
    *
-   * The global GRANTS nothing: `capabilities/main.json` does, and it names one
-   * command. Turning this back off would not close a hole — it would make that
-   * one command silently unreachable, because the bridge never throws, exactly
+   * The global GRANTS nothing: `capabilities/main.json` does, and it names
+   * five narrow commands. Turning this back off would not close a hole — it
+   * would make those five silently unreachable, because the bridge never
+   * throws, exactly
    * the failure `apps/server/desktop` measured on 2026-09-10 when its own
    * config was copied from this file.
    *

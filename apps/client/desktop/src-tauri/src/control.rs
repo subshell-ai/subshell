@@ -1801,8 +1801,10 @@ pub const MENU_BROWSER_ID: &str = "menu:browser";
 
 /// Open one page of the control plane this window is on, in the system browser.
 ///
-/// **The only command granted to the plane's window**, and the only one that
-/// ever will be without the argument in `docs/security.md` being rewritten. It
+/// **Granted to the plane's window**, as one of five narrow commands — and no
+/// sixth joins them without the argument in `docs/security.md` being written
+/// first (the four `desktop_ssh_key_*` commands of 2026-10-14 arrived that
+/// way). It
 /// is safe for a window whose origin this app cannot enumerate because it names
 /// no origin: the page supplies a PATH,
 /// `subshell_desktop_core::browser::browser_url` refuses anything that could be
@@ -2046,7 +2048,8 @@ pub fn node_pending_screen(app: AppHandle) -> Option<String> {
 /// Read-only and node-window-only. Read-only because it fetches one JSON list
 /// and asks the updater plugin to verify one manifest; node-window-only for
 /// the same reason every other `node_*` command is — the plane's window is a
-/// control plane's own page, and it holds one command that opens a browser.
+/// control plane's own page, and what it holds is a browser path and four
+/// one-use signing commands, never an updater.
 #[tauri::command(async)]
 pub async fn node_check_app_update(app: AppHandle) -> Result<crate::app_update::AppUpdateCheck, String> {
     crate::app_update::check_app_update(&app).await

@@ -9,9 +9,10 @@
  *
  * `node.json` and not `main.json`, and that is the point of the second block
  * here: `main` is the window showing a CONTROL PLANE's own page, and it holds
- * exactly one command — one that takes a path and can name no host. Nothing
- * else about the CLI surface is reachable from a remote origin, which is what
- * that block asserts entry by entry.
+ * five narrow commands — one that takes a path and can name no host, plus the
+ * four one-use SSH signer commands of 2026-10-14. Nothing else about the CLI
+ * surface is reachable from a remote origin, which is what that block asserts
+ * entry by entry.
  */
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -61,7 +62,7 @@ function capabilityPermissions(): string[] {
   return capability.permissions;
 }
 
-/** What the PLANE's window is granted — one entry, pinned in its own block. */
+/** What the PLANE's window is granted — five entries, pinned in their own block. */
 function mainPermissions(): string[] {
   const capability = JSON.parse(readFileSync(join(TAURI_DIR, "capabilities/main.json"), "utf8")) as {
     permissions?: string[];
@@ -153,11 +154,12 @@ describe("the IPC contract", () => {
  * and hand the page only public wire bytes.
  *
  * Which makes three things worth pinning rather than one: that the scope is
- * exactly what was argued for, that the permission list is exactly one entry,
- * and that the Rust signature behind it takes a path and no host. Any of those
- * widening quietly is the failure this block exists to make loud.
+ * exactly what was argued for, that the permission list is exactly the five
+ * entries argued for (and no more), and that the Rust signatures behind them
+ * take no path-capable or key-bearing argument. Any of those widening quietly
+ * is the failure this block exists to make loud.
  */
-describe("the window that is granted one command", () => {
+describe("the window that is granted five narrow commands", () => {
   /** Every capability file the app ships, parsed. */
   function capabilities(): {
     file: string;
@@ -260,8 +262,8 @@ describe("the window that is granted one command", () => {
     // harmless — one GET, nothing changed — and it still does not go on
     // `main`, because its sibling REPLACES THE APPLICATION and the wildcard
     // scope this window carries is exactly why nothing is added to it without
-    // an argument being made. The equality above already says `main` holds one
-    // permission; this says WHICH two must never move.
+    // an argument being made. The equality above already says exactly which
+    // permissions `main` holds; this says WHICH two must never move.
     const nodeGrants = new Set(capabilityPermissions());
     expect(nodeGrants.has("allow-node-check-app-update")).toBe(true);
     expect(nodeGrants.has("allow-node-install-app-update")).toBe(true);

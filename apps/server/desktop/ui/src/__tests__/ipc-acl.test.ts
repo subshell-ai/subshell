@@ -26,8 +26,9 @@
  *   configured `APP_BASE_URL`, and the scope test below pins that guard
  *   alongside the wildcard. The count
  *   is worth a test because "a few harmless ones" is how a boundary erodes —
- *   which is precisely what `desktop_set_supervision` proves can happen: six
- *   of them cannot reach the CLI at all, and that one can. It is an
+ *   which is precisely what `desktop_set_supervision` proves can happen: ten
+ *   of them cannot reach the CLI at all — the four signer commands reach
+ *   native key material, never a CLI — and that one can. It is an
  *   argued exception (operator's call 2026-09-12, accounted in
  *   `docs/security.md`), not a precedent. Every addition needs the same
  *   argument made again, in writing, before this number moves.
@@ -248,8 +249,11 @@ describe("the assistant's IPC contract", () => {
     // Raise a window, drop this app's own title bar, display one fixed-shape
     // notification, open a page of this same server in the system browser,
     // read this app's own macOS permission states, read the app's own
-    // known-update state — and switch who runs the server. That
-    // last one is the ONE command here that touches the service, and it is
+    // known-update state — and switch who runs the server. Beside those
+    // seven shell acts sit the four 2026-10-14 signer commands, each of
+    // which hands one host-bound signature from a native key to one SSH
+    // authentication and nothing else. `desktop_set_supervision` remains
+    // the ONE command here that touches the service, and it is
     // here on purpose (operator's call, 2026-09-12): the assistant window that
     // carried it read as a bug, and a page that already holds the admin
     // restart route can do worse than move the server between two supervisors.

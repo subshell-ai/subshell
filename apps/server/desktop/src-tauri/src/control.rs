@@ -2107,8 +2107,9 @@ pub(crate) fn service_now(settings: &SettingsState, verb: ServiceCommand, force:
 /// Move this machine between "a background service runs the server" and "this
 /// app runs it", and set whether that service starts at login.
 ///
-/// **Reachable from the served page, and it is the only command in this file
-/// that is.** Both directions leave the server unreachable for a moment — an
+/// **Reachable from the served page, and of everything that page can reach,
+/// the only command in this file that drives the service.** Both directions
+/// leave the server unreachable for a moment — an
 /// uninstall stops it, a mode switch restarts it — which is exactly why it
 /// cannot be an HTTP route: the actor has to outlive the server. It used to
 /// be assistant-only for that reason, and the SPA merely named the screen;
@@ -2138,8 +2139,8 @@ pub fn desktop_set_supervision(
     force: bool,
 ) -> Result<SupervisionResult, String> {
     // Refused rather than queued while anything else is running — see
-    // `ActionGuard::try_new`. This is the one command in this file a page we
-    // did not write can invoke.
+    // `ActionGuard::try_new`. This is the most destructive command in this
+    // file a page we did not write can invoke.
     let Some(_guard) = ActionGuard::try_new() else {
         return Err("Another action is already running on this machine.".into());
     };
@@ -3031,8 +3032,8 @@ fn browser_origin(app: &AppHandle) -> Option<String> {
 
 /// Open a page of THIS server in the system browser.
 ///
-/// The one command granted to the served SPA that takes a string, and the
-/// string is a PATH: `subshell_desktop_core::browser::browser_url` refuses
+/// The command granted to the served SPA whose one string is a PATH:
+/// `subshell_desktop_core::browser::browser_url` refuses
 /// anything that could name a host, and the origin comes from
 /// [`browser_origin`]. So the widest thing an XSS in the SPA gains here is
 /// opening a page of the very server it is already running in, in the person's
@@ -4097,8 +4098,8 @@ mod tests {
     /// with it.
     static GUARD_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-    /// The one command a page we did not write can invoke refuses to
-    /// interleave with anything else.
+    /// The one command a page we did not write can invoke that runs a chain
+    /// of CLI processes refuses to interleave with anything else.
     ///
     /// `ACTION_IN_FLIGHT` looked like it prevented this and never did: it is a
     /// hint for the watch thread, `new()` stores true unconditionally, and

@@ -87,7 +87,7 @@ commands.allow = ["node_settings"]
 
 [[permission]]
 identifier = "allow-node-open-plane"
-description = "Open the window showing a control plane's own UI, at the address the bundled page names, validated http/https. Opens are one-off (operator ruling 2026-09-22, the plane list): it stores nothing. That window holds exactly ONE command of its own, allow-desktop-open-in-browser, which takes a path and can name no host; nothing that drives the CLI is reachable from it."
+description = "Open the window showing a control plane's own UI, at the address the bundled page names, validated http/https. Opens are one-off (operator ruling 2026-09-22, the plane list): it stores nothing. That window holds five narrow commands of its own: allow-desktop-open-in-browser, which takes a path and can name no host, plus the four one-use local SSH signing commands of 2026-10-14; nothing that drives the CLI is reachable from it."
 commands.allow = ["node_open_plane"]
 
 [[permission]]
@@ -132,7 +132,7 @@ commands.allow = ["node_install_app_update"]
 
 [[permission]]
 identifier = "allow-desktop-open-in-browser"
-description = "Open one page of the control plane this window is already on, in the system browser. `desktop_`, not `node_`, because it is the one permission in this file that is NOT a node verb: it is granted to `main` (the plane's own page) and to nothing else, which is the opposite of every rule above it. It takes a PATH and nothing else (no scheme, no protocol-relative '//host', no backslash, no whitespace or control characters; see crates/desktop-core's browser::browser_url) and joins it onto the origin windows.rs's PlanePin holds, so the page names the route and this side names the host. The tray and menu-bar routes to the same act need no permission at all: they run in Rust."
+description = "Open one page of the control plane this window is already on, in the system browser. `desktop_`, not `node_`, because it is not a node verb: like the four one-use local SSH signing commands of 2026-10-14, it is granted to `main` (the plane's own page) and to nothing else, which is the opposite of every rule above it. It takes a PATH and nothing else (no scheme, no protocol-relative '//host', no backslash, no whitespace or control characters; see crates/desktop-core's browser::browser_url) and joins it onto the origin windows.rs's PlanePin holds, so the page names the route and this side names the host. The tray and menu-bar routes to the same act need no permission at all: they run in Rust."
 commands.allow = ["desktop_open_in_browser"]
 
 [[permission]]

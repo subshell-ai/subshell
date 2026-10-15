@@ -329,6 +329,18 @@ mod tests {
         assert_ne!(SETTINGS_PATHS.linux_dir, "subshell-desktop-server");
     }
 
+    /// Both are fixed, centred, non-resizable frames, so there is nothing a
+    /// person could have chosen — while `main`'s size IS such a choice, which
+    /// is why this denies labels rather than dropping `StateFlags::SIZE`
+    /// wholesale. Pinned against the literals rather than trusted to the
+    /// comment beside the constant: the symptom of a missed entry is a window
+    /// that opens at the wrong size and nothing else — no error, no failing
+    /// build.
+    #[test]
+    fn fixed_frames_are_not_tracked_by_the_window_state_plugin() {
+        assert_eq!(DENYLIST, ["node", "ssh-key-unlock"]);
+    }
+
     /// The Linux directory is NOT the agent CLI's config home. That CLI keeps
     /// `config.json` and the node key in `~/.config/subshell`; a shared
     /// directory would mix two programs' state.
