@@ -165,7 +165,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     {
       title: "List presets",
       description:
-        "List saved presets and available harnesses. Pass a saved preset's id to create_subshell. A crossCommReady preset includes a node and working directory, so its id is enough to launch; its saved prompt is included too. A catalogOnly row has no saved preset. For an agent harness, ask a human to save a preset in the dashboard first. A plain terminal can launch with harness and no preset. Every row includes the harness plugin ID.",
+        "List saved agent presets and available harnesses; SSH presets are dashboard-only and never appear here. Pass a saved preset's id to create_subshell. A crossCommReady preset includes a node and working directory, so its id is enough to launch; its saved prompt is included too. A catalogOnly row has no saved preset. For an agent harness, ask a human to save a preset in the dashboard first. A plain terminal can launch with harness and no preset. Every row includes the harness plugin ID.",
       inputSchema: z.object({}),
     },
     guard(() => listPresets(deps)),
