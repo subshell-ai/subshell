@@ -200,9 +200,10 @@ export function SearchableSelect({
             data-slot="combobox-content"
             // The width is the ANCHOR's, both ways: min-w keeps a short list
             // from shrinking under the field, and max-w keeps a long muted
-            // reason (an unlaunchable node's blocker sentence, a destination's
-            // detail) from stretching the popup past the field and the dialog
-            // around it (report 2026-10-16). Rows truncate inside that width;
+            // reason (an unlaunchable node's blocker sentence, the key
+            // picker's "wait for the current connection attempt") from
+            // stretching the popup past the field and the dialog around it
+            // (report 2026-10-16). Rows truncate inside that width;
             // the full sentence lives below the picker once a row is chosen.
             className="max-h-96 min-w-[var(--anchor-width)] max-w-[var(--anchor-width)] overflow-hidden rounded-md border bg-popover text-popover-foreground opacity-100 shadow-md transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0"
           >

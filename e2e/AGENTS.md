@@ -54,7 +54,7 @@ runs discovery against this fake), and no spec ever dials a real IdP.
 
 Every fixed port in `ports.ts` takes an env override (`E2E_PORT_BACKEND`,
 `E2E_PORT_FAKE_REGISTRY`, `E2E_PORT_FAKE_IDP`, `E2E_PORT_ONBOARDING`,
-`E2E_PORT_SSH`, `E2E_PORT_CONNECT`, `E2E_PORT_RELAY`) with the committed
+`E2E_PORT_SSH`, `E2E_PORT_CONNECT`, `E2E_PORT_RELAY`, `E2E_PORT_FORWARDS`) with the committed
 defaults unchanged, the escape hatch for two suites running side by side on one
 machine, which the defaults collide on.
 
@@ -142,9 +142,12 @@ real password login; no host accounts or SSH files are changed. Host keys are
 generated under the test's temporary directory and trusted explicitly by the
 connecting process. The image also carries `curl`, `iproute2` and `darkhttpd`,
 and its sshd runs `GatewayPorts clientspecified`: spec 26 reads each port
-forward from the side that owns it, dials this machine's interface address
-from inside the destination to prove a wide `-L` bind escaped loopback, and
-shows a blank `-R` bind refusing the same dial that the wide one answers.
+forward from the side that owns it, and proves each wide bind as an address
+pair - a loopback-bound port does not answer a dial to its machine's
+interface address, the wide one does, destination-side `-R` read from inside
+the container. The dial never crosses from the container to the job's own
+network: on CI the job is itself a container, and docker does not route
+sibling containers across user-defined networks (measured 2026-10-16).
 
 The browser exercises key login, password prompts and retry, terminal I/O,
 view-only sharing, and saving named SSH presets for distinct usernames on one host. Password checks

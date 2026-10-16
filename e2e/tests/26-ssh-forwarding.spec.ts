@@ -42,12 +42,15 @@ import { shortTmuxBase } from "../stack";
  * Then the wide-bind gate as a door, not a copy: wide rows are refused
  * (403 `SSH_FORWARD_BIND_DENIED`) before the node's setting exists, and after
  * the owner flips it the launch is accepted, the rendered file spells both
- * wide binds, and each escape is read from the far side. The wide `-L` is
- * dialed FROM THE CONTAINER at this machine's interface address - another
- * machine reaching a port that loopback rules would have kept from it - and
- * the wide `-R` is dialed inside the container at ITS interface address,
- * which a loopback bind cannot answer. The audit row's bounded forwards
- * summary is checked beside the bytes it describes.
+ * wide binds, and each escape is proved where a loopback bind cannot follow:
+ * the wide `-L` answers a dial to this machine's INTERFACE address (a socket
+ * bound to 127.0.0.1 does not exist at that address, whoever dials it), and
+ * the wide `-R` answers the same kind of dial INSIDE the destination container
+ * at the container's interface address. That dial from the worker, not from
+ * the container, is measured CI doctrine: the e2e job itself runs in a
+ * container, and sibling testcontainers do not route to the job's network.
+ * The audit row's bounded forwards summary is checked beside the bytes it
+ * describes.
  *
  * Like spec 23, the container legs need a Docker daemon: with none, beforeAll
  * fails rather than quietly skipping. The binary gate is spec 22's: no ssh
@@ -142,12 +145,15 @@ async function socksFetch(proxyPort: number, url: string): Promise<string | null
 }
 
 /**
- * An address of THIS machine that the destination container can route to.
- * Inside a containerized CI job this is the job container's own interface
- * address (the wide listener lives in this network namespace); on a plain dev
- * machine it is a host interface address, and the container reaches it the
- * same way it reaches the sshd's published port. Either way it is emphatically
- * not loopback, which is the whole point of dialing a wide bind with it.
+ * This machine's first routable interface address - the address a wide `-L`
+ * bind is dialed AT. A socket bound to 127.0.0.1 simply does not exist there,
+ * so "answers at this address" is the bind-scope proof no matter who dials.
+ * The dialer is deliberately NOT the destination container: the CI e2e job
+ * runs in its own docker network, and sibling testcontainers cannot route to
+ * a container on a different user-defined network (measured on CI, 2026-10-16
+ * - the container-to-job dial gets connection refused). The worker dialing
+ * its own interface address tests exactly the same socket fact from the same
+ * namespace, in both topologies.
  */
 function connectingMachineAddress(): string {
   for (const entries of Object.values(networkInterfaces())) {
@@ -166,13 +172,15 @@ function forwardDiagnostics(inst: ForwardInstance, id: string, port: number): st
   } catch {
     parts.push("pane: (no log)");
   }
+  // A host without iproute2 answers with no stdout at all; the diagnostics
+  // must not throw over the real failure's message it exists to carry.
   const ss = spawnSync("ss", ["-ltn"], { encoding: "utf8" });
   parts.push(
     `listeners on ${String(port)}: ${
-      ss.stdout
+      (ss.stdout ?? "")
         .split("\n")
         .filter((l) => l.includes(`:${String(port)}`))
-        .join(" | ") || "none"
+        .join(" | ") || "none (or ss unavailable)"
     }`,
   );
   return parts.join("\n");
@@ -330,11 +338,15 @@ test.describe("ssh port forwards (spec 2026-10-15)", () => {
     // the same marker this spec's own server answers with. It runs because
     // the forwarded connection's target host is resolved THERE, not on the
     // connecting side - with B and D finally apart, that distinction is part
-    // of what the spec proves.
+    // of what the spec proves. The daemonizing `&` sits INSIDE a brace group:
+    // a trailing `&` would background the whole `&&` chain and make sh exit 0
+    // whatever mkdir or printf does, so the exit-code guard below would
+    // check nothing. With the group, only the server is backgrounded and the
+    // guard sees a failed setup; the poll behind it still proves it answers.
     const httpd = await fixture.exec([
       "sh",
       "-c",
-      `mkdir -p /var/www && printf '${MARKER.trim()}\\n' > /var/www/index.html && nohup darkhttpd /var/www --port ${String(DEST_MARKER_PORT)} >/dev/null 2>&1 &`,
+      `mkdir -p /var/www && printf '${MARKER.trim()}\\n' > /var/www/index.html && { nohup darkhttpd /var/www --port ${String(DEST_MARKER_PORT)} >/dev/null 2>&1 & }`,
     ]);
     if (httpd.exitCode !== 0) throw new Error(`container marker httpd failed to start: ${httpd.output}`);
     // Prove it answers BEFORE any leg depends on it: a silent background
@@ -489,6 +501,10 @@ test.describe("ssh port forwards (spec 2026-10-15)", () => {
     } catch (err) {
       throw new Error(`${String(err)}\n${forwardDiagnostics(inst, subshellId, localListen)}`);
     }
+    // ...and the loopback-bound port does NOT exist at the machine's interface
+    // address: the same dial the wide bind answers in test 2 is refused here.
+    // Bind scope, shown as a pair on one machine, no routing assumptions.
+    expect(await fetchText(`http://${connectingMachineAddress()}:${String(localListen)}/`)).toBeNull();
     // -D: through the SOCKS listener; the chosen target resolves where a
     // SOCKS-over-ssh proxy resolves it - on the destination - so it names
     // the container's httpd.
@@ -600,13 +616,14 @@ test.describe("ssh port forwards (spec 2026-10-15)", () => {
       () => `wide forward on ${String(wideListen)} never answered locally`,
       async () => (await fetchText(`http://127.0.0.1:${String(wideListen)}/`)) === MARKER,
     );
-    // THE proof: the destination container - another machine - dials this
-    // machine's interface address and the wide-bound listener answers with
-    // the marker. Pre-switch, this port bound 127.0.0.1 only and the same
-    // dial could only ever be refused.
+    // THE connecting-side escape: the wide-bound listener answers a dial to
+    // this machine's interface address, where a 127.0.0.1 bind does not exist
+    // at all. Pre-switch this port bound loopback only, and test 1 dials the
+    // loopback-bound -L port at this same address to show it refused.
     await pollUntil(
-      () => `the destination never reached the wide -L port on ${connectingMachineAddress()}:${String(wideListen)}`,
-      async () => (await destFetch(`http://${connectingMachineAddress()}:${String(wideListen)}/`)) === MARKER,
+      () =>
+        `the wide -L port never answered at the interface address ${connectingMachineAddress()}:${String(wideListen)}`,
+      async () => (await fetchText(`http://${connectingMachineAddress()}:${String(wideListen)}/`)) === MARKER,
     );
     // And the wide -R escape on the destination's own side: the same kind of
     // dial that refused the blank bind now answers, at the container's
