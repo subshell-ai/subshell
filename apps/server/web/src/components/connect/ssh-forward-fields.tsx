@@ -104,7 +104,7 @@ export function SshForwardFields({
         ends.
       </p>
       {!allowWideBind && (
-        <p className="text-detail text-muted-foreground">
+        <p className="text-detail text-warning">
           Until the owner turns on <span className="font-strong">"Allow wide port forwards"</span> in this node's SSH
           settings, every forward here listens on 127.0.0.1 and only local programs can reach the port.
         </p>
