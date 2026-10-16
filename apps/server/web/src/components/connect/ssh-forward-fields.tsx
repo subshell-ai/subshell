@@ -105,8 +105,8 @@ export function SshForwardFields({
       </p>
       {!allowWideBind && (
         <p className="text-detail text-muted-foreground">
-          Forwards on this machine listen on 127.0.0.1 only, so just programs running on it can reach the port. Its
-          owner can allow other bind addresses in the node's SSH settings.
+          Until the owner turns on <span className="font-strong">"Allow wide port forwards"</span> in this node's SSH
+          settings, every forward here listens on 127.0.0.1 and only local programs can reach the port.
         </p>
       )}
       {!composing ? (
