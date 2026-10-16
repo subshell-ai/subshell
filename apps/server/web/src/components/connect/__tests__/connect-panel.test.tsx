@@ -775,6 +775,10 @@ it("carries added port forwards in the launch body, and holds Add until the edit
     await settle();
     fireEvent.click(screen.getByRole("button", { name: "Advanced SSH options" }));
     await settle();
+    // Nobody declared a forward: the section is one button, not a form.
+    expect(screen.queryByLabelText(/Local port/) === null).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
+    await settle();
     // Loopback-only machine: no bind field offered, and the reason is on screen.
     expect(screen.queryByLabelText(/Bind address/)).toBeNull();
     expect(screen.getByText(/loopback/i)).toBeTruthy();
@@ -798,9 +802,14 @@ it("carries added port forwards in the launch body, and holds Add until the edit
     expect(addDisabled()).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
     await settle();
-    // The forward lands in the table and the editor resets for the next one.
+    // The forward lands in the table and the editor folds away.
     expect(screen.getByText("loopback:5432")).toBeTruthy();
+    expect(screen.queryByLabelText(/Local port/) === null).toBe(true);
+    // Reopening starts clean: the kind sticks, the values do not.
+    fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
+    await settle();
     expect((screen.getByLabelText(/Local port/) as HTMLInputElement).value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     await clickConnect();
     await waitFor(() => expect(calls.some((call) => call.url === "/api/ssh/launch")).toBe(true));
     expect(calls.find((call) => call.url === "/api/ssh/launch")?.body).toMatchObject({
@@ -822,6 +831,8 @@ it("removes an added forward from the table before the launch", async () => {
     fireEvent.change(destinationInput(), { target: { value: "build.example" } });
     await settle();
     fireEvent.click(screen.getByRole("button", { name: "Advanced SSH options" }));
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
     await settle();
     fireEvent.change(screen.getByLabelText(/Local port/), { target: { value: "8080" } });
     fireEvent.change(screen.getByLabelText(/Target host/), { target: { value: "app.internal" } });
@@ -847,6 +858,8 @@ it("refuses to add a second forward on a port the table already holds", async ()
   try {
     fireEvent.click(screen.getByRole("button", { name: "Advanced SSH options" }));
     await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
+    await settle();
     fireEvent.change(screen.getByLabelText(/Local port/), { target: { value: "5432" } });
     fireEvent.change(screen.getByLabelText(/Target host/), { target: { value: "db.internal" } });
     fireEvent.change(screen.getByLabelText(/Target port/), { target: { value: "5432" } });
@@ -854,7 +867,9 @@ it("refuses to add a second forward on a port the table already holds", async ()
     fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
     await settle();
     // The next row on the same port is refused at the Add button, not at launch.
-    // Adding cleared the editor, so the whole row is typed again.
+    // Adding folded the editor, so it opens again clean and the whole row is retyped.
+    fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
+    await settle();
     fireEvent.change(screen.getByLabelText(/Local port/), { target: { value: "5432" } });
     fireEvent.change(screen.getByLabelText(/Target host/), { target: { value: "cache.internal" } });
     fireEvent.change(screen.getByLabelText(/Target port/), { target: { value: "5432" } });
@@ -876,6 +891,8 @@ it("offers the bind address on a machine whose owner allows wide binds", async (
   const { restore } = await renderPanel({ nodes: [HOST_WIDE] });
   try {
     fireEvent.click(screen.getByRole("button", { name: "Advanced SSH options" }));
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
     await settle();
     expect(screen.getByLabelText(/Bind address/)).toBeTruthy();
     expect(screen.queryByText(/owner can allow other bind addresses/i)).toBeNull();

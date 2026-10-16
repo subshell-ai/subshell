@@ -122,6 +122,9 @@ it("saves the local-key radio choice without requiring a file or approval", asyn
 it("saves a declared port forward alongside the connection choices", async () => {
   const { writes, closed } = await setup();
   await waitFor(() => expect(disabled()).toBe(false));
+  // The form only appears once the person asks to add a forward.
+  expect(screen.queryByLabelText(/Local port/) === null).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
   fireEvent.change(screen.getByLabelText(/Local port/), { target: { value: "5432" } });
   fireEvent.change(screen.getByLabelText(/Target host/), { target: { value: "db.internal" } });
   fireEvent.change(screen.getByLabelText(/Target port/), { target: { value: "5432" } });
@@ -140,6 +143,7 @@ it("saves a declared port forward alongside the connection choices", async () =>
 it("a half-typed forward never reaches the preset: Add stays off and Save is not held", async () => {
   const { writes, closed } = await setup();
   await waitFor(() => expect(disabled()).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
   fireEvent.change(screen.getByLabelText(/Local port/), { target: { value: "5432" } });
   fireEvent.change(screen.getByLabelText(/Target port/), { target: { value: "5432" } });
   // The incomplete editor row gates its own Add button, not the Save button.
