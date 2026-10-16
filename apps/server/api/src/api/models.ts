@@ -4,12 +4,12 @@ import { t } from "elysia";
  * One declared port forward as the pane header shows it (spec 2026-10-15):
  * the row exactly as launch approved it, with the nulls the wire carries.
  * The renderer for words lives in the web app, not here. A separate
- * declaration from `ssh-views.ts`'s input envelope on purpose, same reason
- * that file documents for its own third copy: this one rides `SubshellSchema`,
- * which answers from routes that also union agent bodies and responses, and
- * the expressive input kind-census there has already pushed those unions
- * around the inference-depth edge once (measured the day `forwards` arrived).
- * The protocol parser owns the grammar for all of them.
+ * declaration from `ssh-views.ts`'s input envelope on purpose: every schema
+ * here joins one exported `App` type, and the expressive input kind-census
+ * has already pushed the agent-or-ssh unions in that type past TypeScript's
+ * inference-depth edge once (measured the day `forwards` arrived; it is why
+ * `SshForwardRowInputSchema` is flat). The view copy stays constraint-light
+ * for the same reason. The protocol parser owns the grammar for all of them.
  */
 export const SshForwardViewSchema = t.Object({
   kind: t.Union([t.Literal("local"), t.Literal("remote"), t.Literal("dynamic")], {
@@ -101,8 +101,9 @@ export const SubshellSchema = t.Object({
     t.Object(
       {
         destination: t.String({ description: "Canonical user@host:port the pane connected to" }),
-        forwards: t.Array(SshForwardViewSchema, {
-          description: "The port forwards declared at launch, in the order added; empty when none (spec 2026-10-15)",
+        forwards: t.Nullable(t.Array(SshForwardViewSchema, { description: "A declared forward row" }), {
+          description:
+            "The port forwards declared at launch, in the order added; empty when none; null when the pane's stored rows can't be read, which the header must not render as 'none' (spec 2026-10-15)",
         }),
       },
       {

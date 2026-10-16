@@ -93,6 +93,17 @@ it("names the machine even when the pane carries no summary", async () => {
   expect(screen.getByText("This subshell connects to another machine over SSH.")).toBeTruthy();
 });
 
+it("says nothing about forwards when the stored rows could not be read", async () => {
+  // A null list is a failed read, not an empty one: the destination stands
+  // and no "No port forwards" claim is made beside it.
+  render(
+    <SshPaneLabels subshell={row({ ssh: true, sshSummary: { destination: "deploy@host:2222", forwards: null } })} />,
+  );
+  await act(async () => screen.getByRole("button", { name: "SSH connection" }).focus());
+  await waitFor(() => expect(screen.getByText("deploy@host:2222")).toBeTruthy());
+  expect(screen.queryByText("No port forwards") === null).toBe(true);
+});
+
 it("says so when the connection carries no forwards", async () => {
   render(
     <SshPaneLabels subshell={row({ ssh: true, sshSummary: { destination: "deploy@host:2222", forwards: [] } })} />,

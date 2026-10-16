@@ -62,9 +62,10 @@ describe("sshPaneSummary", () => {
 
   it("keeps the destination when a stored row list fails its grammar", () => {
     // A header is not where a stored-row bug gets surfaced: the destination
-    // still earned its place, the broken list is withheld.
+    // still earned its place, and the broken list is WITHHELD as null - never
+    // folded into [], because [] is the claim that no ports were opened.
     const summary = sshPaneSummary(JSON.stringify({ ...column, declaredForwards: [{ kind: "sideways" }] }));
     expect(summary?.destination).toBe("theo@build.example:22");
-    expect(summary?.forwards).toEqual([]);
+    expect(summary?.forwards).toBeNull();
   });
 });

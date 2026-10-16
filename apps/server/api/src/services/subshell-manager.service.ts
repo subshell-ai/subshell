@@ -2329,7 +2329,7 @@ export function toSubshellView(
  * and a column that cannot be read yields nothing. A list must never throw
  * over one row's bytes. Exported for direct test (`ssh-pane-summary.test.ts`).
  */
-export function sshPaneSummary(raw: string | null): { destination: string; forwards: SshForwardWire[] } | null {
+export function sshPaneSummary(raw: string | null): { destination: string; forwards: SshForwardWire[] | null } | null {
   if (raw === null) return null;
   let parsed: unknown;
   try {
@@ -2344,8 +2344,11 @@ export function sshPaneSummary(raw: string | null): { destination: string; forwa
   // The same composer the audit row and the recent-destinations key use, so
   // the header's "canonical" is one spelling, not a second one that drifts.
   const destination = sshCanonicalDestination({ host: column.host, port: column.port, user: column.user });
-  // A row list that fails its grammar shows no list: the destination still
-  // earned its place, and a header is not the place to surface a stored-row bug.
-  const forwards = parseSshForwardRows(column.declaredForwards ?? []);
-  return { destination, forwards: forwards ?? [] };
+  // A row list that fails its grammar is WITHHELD (null), not folded into the
+  // empty list: an empty list is the claim "this pane opened no ports", and a
+  // stored row a tightened rule would now refuse may well have opened them.
+  // Failed reads stay distinct from empty ones; the destination still earned
+  // its place, and a header is not where a stored-row bug gets surfaced.
+  const forwards = column.declaredForwards === undefined ? [] : parseSshForwardRows(column.declaredForwards);
+  return { destination, forwards };
 }

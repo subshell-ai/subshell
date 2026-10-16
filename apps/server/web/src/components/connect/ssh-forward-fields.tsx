@@ -114,8 +114,8 @@ export function SshForwardFields({
       {!allowWideBind && (
         <p className="text-detail text-warning">
           Until the owner turns on <span className="font-strong">“Allow wide port forwards”</span> in this node's SSH
-          settings, a forward can only bind 127.0.0.1 on this machine, so just local programs can reach the port. A
-          remote forward binds on the destination instead, under the destination's own policy.
+          settings, a forward can only bind 127.0.0.1 on the machine you connect from, so just programs there can reach
+          the port. A remote forward binds on the destination instead, under the destination's own policy.
         </p>
       )}
       {!composing ? (

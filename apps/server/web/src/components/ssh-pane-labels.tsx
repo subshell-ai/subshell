@@ -58,15 +58,21 @@ export function SshPaneLabels({
               ) : (
                 <>
                   <p className="font-mono">{summary.destination}</p>
-                  {summary.forwards.length === 0 ? (
-                    <p className="text-muted-foreground">No port forwards</p>
-                  ) : (
-                    summary.forwards.map((row) => (
-                      <p key={`${row.kind}|${row.bindHost ?? ""}|${row.listenPort}`} className="font-mono">
-                        {sshForwardWireLine(row)}
-                      </p>
-                    ))
-                  )}
+                  {/* An empty list is the claim "this connection opened no
+                      ports" - made only when the pane can make it. A null
+                      list (the stored rows can't be read) stays silent: the
+                      destination line stands, and a failed read is never
+                      rendered as absence. */}
+                  {summary.forwards !== null &&
+                    (summary.forwards.length === 0 ? (
+                      <p className="text-muted-foreground">No port forwards</p>
+                    ) : (
+                      summary.forwards.map((row) => (
+                        <p key={`${row.kind}|${row.bindHost ?? ""}|${row.listenPort}`} className="font-mono">
+                          {sshForwardWireLine(row)}
+                        </p>
+                      ))
+                    ))}
                 </>
               )}
             </div>

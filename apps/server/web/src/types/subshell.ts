@@ -98,8 +98,12 @@ export interface SubshellView {
   sshSummary?: {
     /** Canonical `user@host:port` the pane connected to */
     destination: string;
-    /** The declared forwards in the order added; empty when the launch carried none */
-    forwards: SshForwardRow[];
+    /**
+     * The declared forwards in the order added; empty when the launch carried
+     * none. Null means the stored rows could not be read: absence of data,
+     * not absence of forwards, and the header says nothing rather than "none".
+     */
+    forwards: SshForwardRow[] | null;
   };
   /**
    * How many sharing grants this subshell carries; 0 = private to its owner.

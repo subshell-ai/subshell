@@ -146,9 +146,9 @@ export function sshForwardRowsToWire(rows: readonly SshForwardDraftRow[]): SshFo
 
 /**
  * The example each kind uses for a still-empty slot. It is the single source
- * of truth for BOTH the field placeholders and the route diagram, so a half
- * -typed row never shows one example in its input and a different one in its
- * diagram. `dynamic` has no target, so its host/port go unused.
+ * of truth for BOTH the field placeholders and the route diagram, so a
+ * half-typed row never shows one example in its input and a different one in
+ * its diagram. `dynamic` has no target, so its host/port are empty.
  */
 export const FORWARD_EXAMPLE: Record<SshForwardDraftRow["kind"], { listen: string; host: string; port: string }> = {
   local: { listen: "5432", host: "db.internal", port: "5432" },
