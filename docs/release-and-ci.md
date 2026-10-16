@@ -555,8 +555,13 @@ which is why they share their own smoke, parameterized by app id.
   All seven were bootstrapped on npm by hand at `0.0.1` (six on 2026-09-10
   and `@subshell-ai/plugin-terminal` on 2026-09-11) because a trusted
   publisher cannot be configured for a package that does not exist yet; every
-  version after that comes from CI. **That bootstrap is done and needs no
-  repeating.** The proof is on the registry rather than in anyone's memory:
+  version after that comes from CI. **The rule outlived that confidence:**
+  `@subshell-ai/plugin-ssh` arrived after those seven and was never
+  bootstrapped, so every publish run since its first version PR fails on it
+  with `ENEEDAUTH` (measured 2026-10-16, the cycle that shipped #388). A
+  bootstrap is per-package, not one-time for the repo; a new package needs it
+  the day it joins. The proof, for the seven that did get one, is on the
+  registry rather than in anyone's memory:
   each package's later versions carry SLSA provenance attestations
   (`npm view <pkg> dist.attestations`) and its `0.0.1` does not, and an
   attestation comes only from a CI publish under OIDC, never from a hand
