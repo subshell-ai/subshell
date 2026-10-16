@@ -19,7 +19,14 @@ export const SSH_VIEW_ONLY_COPY = "Only the owner can type in this SSH subshell.
  * `=== true` on the flag is deliberate: a payload cached before the field
  * existed has no `ssh` key and must read as an ordinary pane.
  */
-export function SshPaneLabels({ subshell }: { subshell?: SubshellView }) {
+export function SshPaneLabels({
+  subshell,
+  nodeLabel,
+}: {
+  subshell?: SubshellView;
+  /** The pane's machine as the page labels it; null means "a node you can't see", which the tooltip omits. */
+  nodeLabel?: string | null;
+}) {
   if (subshell?.ssh !== true) return null;
   const summary = subshell.sshSummary;
   return (
@@ -33,22 +40,30 @@ export function SshPaneLabels({ subshell }: { subshell?: SubshellView }) {
               approved. A pane whose column predates the summary (or cannot be
               read) falls back to the plain sentence, which is still true. */}
           <TooltipContent>
-            {summary === undefined ? (
-              "This subshell connects to another machine over SSH."
-            ) : (
-              <div className="flex flex-col gap-1">
-                <p className="font-mono">{summary.destination}</p>
-                {summary.forwards.length === 0 ? (
-                  <p className="text-muted-foreground">No port forwards</p>
-                ) : (
-                  summary.forwards.map((row) => (
-                    <p key={`${row.kind}|${row.bindHost ?? ""}|${row.listenPort}`} className="font-mono">
-                      {sshForwardWireLine(row)}
-                    </p>
-                  ))
-                )}
-              </div>
-            )}
+            <div className="flex flex-col gap-1">
+              {/* The machine it connects FROM, in its display name (labels
+                  never derive from the id). The destination line below names
+                  the machine it connects TO. */}
+              {nodeLabel !== undefined && nodeLabel !== null && nodeLabel !== "" && (
+                <p className="text-muted-foreground">{nodeLabel}</p>
+              )}
+              {summary === undefined ? (
+                <p>This subshell connects to another machine over SSH.</p>
+              ) : (
+                <>
+                  <p className="font-mono">{summary.destination}</p>
+                  {summary.forwards.length === 0 ? (
+                    <p className="text-muted-foreground">No port forwards</p>
+                  ) : (
+                    summary.forwards.map((row) => (
+                      <p key={`${row.kind}|${row.bindHost ?? ""}|${row.listenPort}`} className="font-mono">
+                        {sshForwardWireLine(row)}
+                      </p>
+                    ))
+                  )}
+                </>
+              )}
+            </div>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>

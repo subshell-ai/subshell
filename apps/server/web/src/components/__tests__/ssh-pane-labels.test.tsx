@@ -63,6 +63,7 @@ it("explains the SSH icon on keyboard focus", async () => {
 it("lists the destination and the declared forwards in the tooltip", async () => {
   render(
     <SshPaneLabels
+      nodeLabel="mac mini"
       subshell={row({
         ssh: true,
         sshSummary: {
@@ -77,10 +78,19 @@ it("lists the destination and the declared forwards in the tooltip", async () =>
   );
   await act(async () => screen.getByRole("button", { name: "SSH connection" }).focus());
   await waitFor(() => expect(screen.getByText("theo@build.example:22")).toBeTruthy());
+  // The machine it connects FROM rides the top line, in its display name.
+  expect(screen.getByText("mac mini")).toBeTruthy();
   expect(screen.getByText("Local · loopback:5432 → db.internal:5432")).toBeTruthy();
   expect(screen.getByText("Dynamic · loopback:1080 → any host the tool picks")).toBeTruthy();
   // The concrete facts replace the vague sentence, they do not stack on it.
   expect(screen.queryByText(/connects to another machine/) === null).toBe(true);
+});
+
+it("names the machine even when the pane carries no summary", async () => {
+  render(<SshPaneLabels subshell={row({ ssh: true })} nodeLabel="Server" />);
+  await act(async () => screen.getByRole("button", { name: "SSH connection" }).focus());
+  await waitFor(() => expect(screen.getByText("Server")).toBeTruthy());
+  expect(screen.getByText("This subshell connects to another machine over SSH.")).toBeTruthy();
 });
 
 it("says so when the connection carries no forwards", async () => {
