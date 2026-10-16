@@ -57,109 +57,115 @@ export function SshForwardFields({
       </p>
       {rows.map((row, index) => {
         const problem = sshForwardRowProblem(row);
-        const needsTarget = row.kind !== "dynamic";
         const idPrefix = `ssh-fwd-${String(index)}`;
         const helpId = `${idPrefix}-kind-help`;
         return (
-          <div key={idPrefix} className="flex min-w-0 flex-col gap-2">
-            <div className="flex min-w-0 flex-wrap items-end gap-2">
-              <Field className="min-w-0 gap-1">
-                <span id={`${idPrefix}-kind-label`} className="font-strong text-label">
-                  Kind
-                </span>
-                <RadioGroup
-                  aria-labelledby={`${idPrefix}-kind-label`}
-                  value={row.kind}
-                  className="flex flex-row flex-wrap items-center gap-x-4 gap-y-1"
-                  onValueChange={(value) => patchRow(index, { kind: (value ?? "local") as SshForwardDraftRow["kind"] })}
-                >
-                  {KIND_LABELS.map((option) => (
-                    <Field key={option.value} className="mb-0 flex-row items-center gap-1.5">
-                      <RadioGroupItem
-                        id={`${idPrefix}-kind-${option.value}`}
-                        value={option.value}
-                        aria-describedby={row.kind === option.value ? helpId : undefined}
-                      />
-                      <FieldLabel htmlFor={`${idPrefix}-kind-${option.value}`} className="cursor-pointer">
-                        {option.label}
-                      </FieldLabel>
-                    </Field>
-                  ))}
-                </RadioGroup>
-              </Field>
-              <Field className="w-28 min-w-0">
-                <Label htmlFor={`${idPrefix}-port`}>
-                  {row.kind === "remote" ? "Remote port" : "Local port"}
-                  <RequiredMark />
-                </Label>
-                <Input
-                  id={`${idPrefix}-port`}
-                  inputMode="numeric"
-                  placeholder="5432"
-                  value={row.listenPort}
-                  onChange={(event) => patchRow(index, { listenPort: event.target.value })}
-                />
-              </Field>
-              {needsTarget && (
-                <>
-                  <Field className="min-w-40 flex-1">
-                    <Label htmlFor={`${idPrefix}-target-host`}>
-                      Target host
-                      <RequiredMark />
-                    </Label>
-                    <Input
-                      id={`${idPrefix}-target-host`}
-                      placeholder="db.internal"
-                      value={row.targetHost}
-                      onChange={(event) => patchRow(index, { targetHost: event.target.value })}
-                    />
-                  </Field>
-                  <Field className="w-28 min-w-0">
-                    <Label htmlFor={`${idPrefix}-target-port`}>
-                      Target port
-                      <RequiredMark />
-                    </Label>
-                    <Input
-                      id={`${idPrefix}-target-port`}
-                      inputMode="numeric"
-                      placeholder="5432"
-                      value={row.targetPort}
-                      onChange={(event) => patchRow(index, { targetPort: event.target.value })}
-                    />
-                  </Field>
-                </>
-              )}
-              {(allowWideBind || row.bindHost !== "") && (
-                <Field className="min-w-36 flex-1">
-                  <Label htmlFor={`${idPrefix}-bind`}>Bind address</Label>
-                  <Input
-                    id={`${idPrefix}-bind`}
-                    placeholder="loopback"
-                    value={row.bindHost}
-                    onChange={(event) => patchRow(index, { bindHost: event.target.value })}
+          <RadioGroup
+            key={idPrefix}
+            aria-label="Forward kind"
+            value={row.kind}
+            onValueChange={(value) => patchRow(index, { kind: (value ?? "local") as SshForwardDraftRow["kind"] })}
+          >
+            {/* The Authentication field's shape: the chosen option carries its
+                caption and its controls in the column beside the radio, and the
+                other options stay one line each. */}
+            {KIND_LABELS.map((option) => {
+              const selected = row.kind === option.value;
+              return (
+                <Field key={option.value} className="mb-0 flex-row items-start gap-3">
+                  <RadioGroupItem
+                    id={`${idPrefix}-kind-${option.value}`}
+                    value={option.value}
+                    aria-describedby={selected ? helpId : undefined}
                   />
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    <FieldLabel htmlFor={`${idPrefix}-kind-${option.value}`} className="cursor-pointer">
+                      <span>{option.label}</span>
+                    </FieldLabel>
+                    {selected && (
+                      <>
+                        <span id={helpId} className="font-regular text-detail text-muted-foreground">
+                          {KIND_HELP[option.value]}
+                        </span>
+                        <div className="mt-2 flex min-w-0 flex-wrap items-end gap-2">
+                          <Field className="w-28 min-w-0">
+                            <Label htmlFor={`${idPrefix}-port`}>
+                              {option.value === "remote" ? "Remote port" : "Local port"}
+                              <RequiredMark />
+                            </Label>
+                            <Input
+                              id={`${idPrefix}-port`}
+                              inputMode="numeric"
+                              placeholder="5432"
+                              value={row.listenPort}
+                              onChange={(event) => patchRow(index, { listenPort: event.target.value })}
+                            />
+                          </Field>
+                          {option.value !== "dynamic" && (
+                            <>
+                              <Field className="min-w-40 flex-1">
+                                <Label htmlFor={`${idPrefix}-target-host`}>
+                                  Target host
+                                  <RequiredMark />
+                                </Label>
+                                <Input
+                                  id={`${idPrefix}-target-host`}
+                                  placeholder="db.internal"
+                                  value={row.targetHost}
+                                  onChange={(event) => patchRow(index, { targetHost: event.target.value })}
+                                />
+                              </Field>
+                              <Field className="w-28 min-w-0">
+                                <Label htmlFor={`${idPrefix}-target-port`}>
+                                  Target port
+                                  <RequiredMark />
+                                </Label>
+                                <Input
+                                  id={`${idPrefix}-target-port`}
+                                  inputMode="numeric"
+                                  placeholder="5432"
+                                  value={row.targetPort}
+                                  onChange={(event) => patchRow(index, { targetPort: event.target.value })}
+                                />
+                              </Field>
+                            </>
+                          )}
+                          {(allowWideBind || row.bindHost !== "") && (
+                            <Field className="min-w-36 flex-1">
+                              <Label htmlFor={`${idPrefix}-bind`}>Bind address</Label>
+                              <Input
+                                id={`${idPrefix}-bind`}
+                                placeholder="loopback"
+                                value={row.bindHost}
+                                onChange={(event) => patchRow(index, { bindHost: event.target.value })}
+                              />
+                            </Field>
+                          )}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            aria-label="Remove this forward"
+                            disabled={busy}
+                            onClick={() => onChange(rows.filter((_, i) => i !== index))}
+                          >
+                            <X aria-hidden="true" />
+                          </Button>
+                        </div>
+                        {problem && (
+                          <p
+                            role="alert"
+                            className={cn(problem.gap ? REQUIREMENT_CAPTION_CLASS : "text-destructive text-detail")}
+                          >
+                            {problem.text}
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </div>
                 </Field>
-              )}
-              <Button
-                type="button"
-                variant="ghost"
-                aria-label="Remove this forward"
-                disabled={busy}
-                onClick={() => onChange(rows.filter((_, i) => i !== index))}
-              >
-                <X aria-hidden="true" />
-              </Button>
-            </div>
-            {/* One sentence per chosen kind, kept below the row it explains; the checked radio points here. */}
-            <p id={helpId} className="text-detail text-muted-foreground">
-              {KIND_HELP[row.kind]}
-            </p>
-            {problem && (
-              <p role="alert" className={cn(problem.gap ? REQUIREMENT_CAPTION_CLASS : "text-destructive text-detail")}>
-                {problem.text}
-              </p>
-            )}
-          </div>
+              );
+            })}
+          </RadioGroup>
         );
       })}
       {!allowWideBind && (
