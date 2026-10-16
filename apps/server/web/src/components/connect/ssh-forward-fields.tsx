@@ -1,33 +1,43 @@
-import { Button, cn, Input, Label } from "@internal/node-admin";
+import { Button, Card, CardContent, cn, Input, Label } from "@internal/node-admin";
 import { SSH_MAX_FORWARD_ROWS } from "@internal/subshell-protocol";
 import { Plus, X } from "lucide-react";
+import { useState } from "react";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { RequiredMark } from "@/components/ui/required-mark";
 import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
-import { EMPTY_SSH_FORWARD_ROW, type SshForwardDraftRow, sshForwardRowProblem } from "@/lib/ssh-forwards";
+import {
+  EMPTY_SSH_FORWARD_ROW,
+  FORWARD_EXAMPLE,
+  type SshForwardDraftRow,
+  sshForwardRowConflict,
+  sshForwardRowDiagram,
+  sshForwardRowProblem,
+} from "@/lib/ssh-forwards";
 
 /**
- * The port-forwards group (spec 2026-10-15 §7): every row a person declared
- * for this connection, with its kind, ports, and (only on a machine whose
- * owner allowed wide binds) its bind address. Rows are form state until
- * Start; the launch carries them and the rendered config makes them real,
- * and they die with the pane.
+ * The port-forwards group (spec 2026-10-15 §7): the person composes ONE
+ * forward in the editor, presses Add port forward (enabled only when that
+ * row is valid and doesn't re-bind a listed port), and the declared forwards
+ * land in the table below, where each can be removed again. The editor is
+ * form state that never leaves the component until it is added; the table
+ * holds what `onChange` commits and what the launch carries. Forwards die
+ * with the pane, and the intro says so.
  */
 
-const KIND_LABELS = [
-  { value: "local", label: "Local (-L)" },
-  { value: "remote", label: "Remote (-R)" },
-  { value: "dynamic", label: "Dynamic SOCKS (-D)" },
+const KINDS = [
+  { value: "local", label: "Local (-L)", short: "Local" },
+  { value: "remote", label: "Remote (-R)", short: "Remote" },
+  { value: "dynamic", label: "Dynamic SOCKS (-D)", short: "Dynamic" },
 ] as const;
 
 /**
- * What the chosen kind does and where its port lives, kept beside the row it
- * explains (spec §7). The ends are named ("the machine you connect from",
+ * What the chosen kind does and where its port lives, kept beside the option
+ * it explains (spec §7). The ends are named ("the machine you connect from",
  * "the destination") because on a remote-node launch a bare "this machine"
- * would read as the browser. The diagram line traces one request's route with
- * the example values from the placeholders, so the prose names the ends and
- * the arrows show the direction.
+ * would read as the browser. The diagram (sshForwardRowDiagram) traces one
+ * request with the editor's own typed values, so the prose names the ends
+ * and the arrows show the direction.
  */
 const KIND_HELP: Record<SshForwardDraftRow["kind"], string> = {
   local:
@@ -38,11 +48,18 @@ const KIND_HELP: Record<SshForwardDraftRow["kind"], string> = {
     "Opens a SOCKS proxy port on the machine you connect from. Tools pointed at it choose their own targets, each reached through the destination.",
 };
 
-const KIND_DIAGRAM: Record<SshForwardDraftRow["kind"], string> = {
-  local: "program → 5432 on the connecting machine → destination → db.internal:5432",
-  remote: "program on the destination → 9090 there → connecting machine → app.local:3000",
-  dynamic: "SOCKS client → 1080 on the connecting machine → destination → any host it asks for",
-};
+/** The table's Listen cell: what ssh will really bind, spelled plainly. */
+function listenText(row: SshForwardDraftRow): string {
+  const port = row.listenPort.trim();
+  const bind = row.bindHost.trim();
+  if (bind !== "") return `${bind}:${port}`;
+  return row.kind === "remote" ? `${port} (by policy)` : `loopback:${port}`;
+}
+
+/** The table's Target cell; a SOCKS forward has no fixed target to name. */
+function targetText(row: SshForwardDraftRow): string {
+  return row.kind === "dynamic" ? "any host the tool picks" : `${row.targetHost.trim()}:${row.targetPort.trim()}`;
+}
 
 export function SshForwardFields({
   rows,
@@ -56,8 +73,28 @@ export function SshForwardFields({
   busy: boolean;
   onChange: (rows: SshForwardDraftRow[]) => void;
 }) {
-  const patchRow = (index: number, value: Partial<SshForwardDraftRow>) =>
-    onChange(rows.map((row, i) => (i === index ? { ...row, ...value } : row)));
+  const [editor, setEditor] = useState<SshForwardDraftRow>({ ...EMPTY_SSH_FORWARD_ROW });
+  const patchEditor = (value: Partial<SshForwardDraftRow>) => setEditor((current) => ({ ...current, ...value }));
+  const problem = sshForwardRowProblem(editor);
+  const touched = Object.entries(editor).some(([key, value]) => key !== "kind" && value !== "");
+  const conflict = problem === null && touched && sshForwardRowConflict(editor, rows);
+  const atCap = rows.length >= SSH_MAX_FORWARD_ROWS;
+  const addReason = atCap
+    ? `A connection carries at most ${String(SSH_MAX_FORWARD_ROWS)} port forwards.`
+    : problem !== null
+      ? problem.text
+      : conflict
+        ? "Another listed forward already binds that port there."
+        : undefined;
+  const addForward = () => {
+    if (problem !== null || conflict || atCap) return;
+    onChange([...rows, { ...editor }]);
+    // Keep the chosen kind (the next forward is usually the same shape);
+    // clear the values, so the editor is never a stale copy of what was added.
+    setEditor({ ...EMPTY_SSH_FORWARD_ROW, kind: editor.kind });
+  };
+  const helpId = "ssh-fwd-kind-help";
+  const example = FORWARD_EXAMPLE[editor.kind];
   return (
     <fieldset className="flex min-w-0 flex-col gap-3" disabled={busy}>
       <legend className="mb-2 font-strong text-label">Port forwards</legend>
@@ -65,143 +102,173 @@ export function SshForwardFields({
         Each forward opens a listening port for as long as this connection lives, and the port closes when the subshell
         ends.
       </p>
-      {rows.map((row, index) => {
-        const problem = sshForwardRowProblem(row);
-        const idPrefix = `ssh-fwd-${String(index)}`;
-        const helpId = `${idPrefix}-kind-help`;
-        return (
-          <RadioGroup
-            key={idPrefix}
-            aria-label="Forward kind"
-            value={row.kind}
-            onValueChange={(value) => patchRow(index, { kind: (value ?? "local") as SshForwardDraftRow["kind"] })}
-          >
-            {/* The Authentication field's shape: the chosen option carries its
-                caption and its controls in the column beside the radio, and the
-                other options stay one line each. */}
-            {KIND_LABELS.map((option) => {
-              const selected = row.kind === option.value;
-              return (
-                <Field key={option.value} className="mb-0 flex-row items-start gap-3">
-                  <RadioGroupItem
-                    id={`${idPrefix}-kind-${option.value}`}
-                    value={option.value}
-                    aria-describedby={selected ? helpId : undefined}
-                  />
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <FieldLabel htmlFor={`${idPrefix}-kind-${option.value}`} className="cursor-pointer">
-                      <span>{option.label}</span>
-                    </FieldLabel>
-                    {selected && (
-                      <>
-                        <span id={helpId} className="font-regular text-detail text-muted-foreground">
-                          {KIND_HELP[option.value]}
-                        </span>
-                        <span className="font-mono text-detail text-muted-foreground">
-                          {KIND_DIAGRAM[option.value]}
-                        </span>
-                        <div className="mt-2 flex min-w-0 flex-wrap items-end gap-2">
-                          <Field className="w-28 min-w-0">
-                            <Label htmlFor={`${idPrefix}-port`}>
-                              {option.value === "remote" ? "Remote port" : "Local port"}
+      <RadioGroup
+        aria-label="Forward kind"
+        value={editor.kind}
+        onValueChange={(value) => patchEditor({ kind: (value ?? "local") as SshForwardDraftRow["kind"] })}
+      >
+        {/* The Authentication field's shape: the chosen option carries its
+            caption, route diagram and fields in the column beside the radio,
+            and the other options stay one line each. */}
+        {KINDS.map((option) => {
+          const selected = editor.kind === option.value;
+          return (
+            <Field key={option.value} className="mb-0 flex-row items-start gap-3">
+              <RadioGroupItem
+                id={`ssh-fwd-kind-${option.value}`}
+                value={option.value}
+                aria-describedby={selected ? helpId : undefined}
+              />
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <FieldLabel htmlFor={`ssh-fwd-kind-${option.value}`} className="cursor-pointer">
+                  <span>{option.label}</span>
+                </FieldLabel>
+                {selected && (
+                  <>
+                    <span id={helpId} className="font-regular text-detail text-muted-foreground">
+                      {KIND_HELP[option.value]}
+                    </span>
+                    <span className="font-mono text-detail text-muted-foreground">{sshForwardRowDiagram(editor)}</span>
+                    <div className="mt-2 flex min-w-0 flex-wrap items-end gap-2">
+                      <Field className="w-28 min-w-0">
+                        <Label htmlFor="ssh-fwd-port">
+                          {option.value === "remote" ? "Remote port" : "Local port"}
+                          <RequiredMark />
+                        </Label>
+                        <Input
+                          id="ssh-fwd-port"
+                          inputMode="numeric"
+                          placeholder={example.listen}
+                          value={editor.listenPort}
+                          onChange={(event) => patchEditor({ listenPort: event.target.value })}
+                        />
+                      </Field>
+                      {option.value !== "dynamic" && (
+                        <>
+                          <Field className="min-w-40 flex-1">
+                            <Label htmlFor="ssh-fwd-target-host">
+                              Target host
                               <RequiredMark />
                             </Label>
                             <Input
-                              id={`${idPrefix}-port`}
-                              inputMode="numeric"
-                              placeholder="5432"
-                              value={row.listenPort}
-                              onChange={(event) => patchRow(index, { listenPort: event.target.value })}
+                              id="ssh-fwd-target-host"
+                              placeholder={example.host}
+                              value={editor.targetHost}
+                              onChange={(event) => patchEditor({ targetHost: event.target.value })}
                             />
                           </Field>
-                          {option.value !== "dynamic" && (
-                            <>
-                              <Field className="min-w-40 flex-1">
-                                <Label htmlFor={`${idPrefix}-target-host`}>
-                                  Target host
-                                  <RequiredMark />
-                                </Label>
-                                <Input
-                                  id={`${idPrefix}-target-host`}
-                                  placeholder="db.internal"
-                                  value={row.targetHost}
-                                  onChange={(event) => patchRow(index, { targetHost: event.target.value })}
-                                />
-                              </Field>
-                              <Field className="w-28 min-w-0">
-                                <Label htmlFor={`${idPrefix}-target-port`}>
-                                  Target port
-                                  <RequiredMark />
-                                </Label>
-                                <Input
-                                  id={`${idPrefix}-target-port`}
-                                  inputMode="numeric"
-                                  placeholder="5432"
-                                  value={row.targetPort}
-                                  onChange={(event) => patchRow(index, { targetPort: event.target.value })}
-                                />
-                              </Field>
-                            </>
-                          )}
-                          {(allowWideBind || row.bindHost !== "") && (
-                            <Field className="min-w-36 flex-1">
-                              <Label htmlFor={`${idPrefix}-bind`}>Bind address</Label>
-                              <Input
-                                id={`${idPrefix}-bind`}
-                                placeholder="loopback"
-                                value={row.bindHost}
-                                onChange={(event) => patchRow(index, { bindHost: event.target.value })}
-                              />
-                            </Field>
-                          )}
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            aria-label="Remove this forward"
-                            disabled={busy}
-                            onClick={() => onChange(rows.filter((_, i) => i !== index))}
-                          >
-                            <X aria-hidden="true" />
-                          </Button>
-                        </div>
-                        {problem && (
-                          <p
-                            role="alert"
-                            className={cn(problem.gap ? REQUIREMENT_CAPTION_CLASS : "text-destructive text-detail")}
-                          >
-                            {problem.text}
-                          </p>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </Field>
-              );
-            })}
-          </RadioGroup>
-        );
-      })}
-      {!allowWideBind && (
-        <p className="text-detail text-muted-foreground">
-          Forwards bind this machine's own loopback address. Its owner can allow other bind addresses in the node's SSH
-          settings.
+                          <Field className="w-28 min-w-0">
+                            <Label htmlFor="ssh-fwd-target-port">
+                              Target port
+                              <RequiredMark />
+                            </Label>
+                            <Input
+                              id="ssh-fwd-target-port"
+                              inputMode="numeric"
+                              placeholder={example.port}
+                              value={editor.targetPort}
+                              onChange={(event) => patchEditor({ targetPort: event.target.value })}
+                            />
+                          </Field>
+                        </>
+                      )}
+                      {(allowWideBind || editor.bindHost !== "") && (
+                        <Field className="min-w-36 flex-1">
+                          <Label htmlFor="ssh-fwd-bind">Bind address</Label>
+                          <Input
+                            id="ssh-fwd-bind"
+                            placeholder="loopback"
+                            value={editor.bindHost}
+                            onChange={(event) => patchEditor({ bindHost: event.target.value })}
+                          />
+                        </Field>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </Field>
+          );
+        })}
+      </RadioGroup>
+      {/* Sentences show once a field is touched, not while it sits pristine. */}
+      {touched && problem && (
+        <p role="alert" className={cn(problem.gap ? REQUIREMENT_CAPTION_CLASS : "text-destructive text-detail")}>
+          {problem.text}
+        </p>
+      )}
+      {touched && conflict && problem === null && (
+        <p role="alert" className="text-destructive text-detail">
+          Another listed forward already binds that port there. Change the port or the bind, or remove that one.
         </p>
       )}
       <Button
         type="button"
         variant="outline"
         className="self-start"
-        disabled={busy || rows.length >= SSH_MAX_FORWARD_ROWS}
-        disabledReason={
-          rows.length >= SSH_MAX_FORWARD_ROWS
-            ? `A connection carries at most ${String(SSH_MAX_FORWARD_ROWS)} port forwards.`
-            : undefined
-        }
-        onClick={() => onChange([...rows, { ...EMPTY_SSH_FORWARD_ROW }])}
+        onClick={addForward}
+        disabled={busy || addReason !== undefined}
+        disabledReason={addReason}
       >
         <Plus data-icon="inline-start" aria-hidden="true" />
         Add port forward
       </Button>
+      {!allowWideBind && (
+        <p className="text-detail text-muted-foreground">
+          Forwards bind this machine's own loopback address. Its owner can allow other bind addresses in the node's SSH
+          settings.
+        </p>
+      )}
+      {rows.length > 0 && (
+        <Card>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="pr-4 pb-2 font-strong">Kind</th>
+                    <th className="pr-4 pb-2 font-strong">Listen</th>
+                    <th className="pb-2 font-strong">Target</th>
+                    <th className="pb-2 text-right font-strong" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, index) => (
+                    // A row's listen identity is unique in this list: the Add
+                    // button and the server both refuse a port the list already
+                    // binds, so kind + bind spelling + port cannot repeat.
+                    <tr
+                      key={`${row.kind}|${row.bindHost.trim()}|${row.listenPort.trim()}`}
+                      className="border-b last:border-b-0"
+                    >
+                      <td className="py-2 pr-4">
+                        {KINDS.find((option) => option.value === row.kind)?.short ?? row.kind}
+                      </td>
+                      <td className="py-2 pr-4 font-mono">{listenText(row)}</td>
+                      <td className={cn("py-2", row.kind === "dynamic" ? "text-muted-foreground" : "font-mono")}>
+                        {targetText(row)}
+                      </td>
+                      <td className="py-2 text-right">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          aria-label="Remove this forward"
+                          disabled={busy}
+                          onClick={() => onChange(rows.filter((_, i) => i !== index))}
+                        >
+                          <X aria-hidden="true" />
+                          Remove
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </fieldset>
   );
 }

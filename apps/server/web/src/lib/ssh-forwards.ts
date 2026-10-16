@@ -81,10 +81,36 @@ export function sshForwardRowProblems(row: SshForwardDraftRow): string | null {
 }
 
 /**
+ * The protocol's duplicate key for one row: per SIDE (a local/dynamic row
+ * binds the connecting machine, a remote row the destination, so one port on
+ * each side is two listeners), with the canonical bind (a blank on a local or
+ * dynamic row renders as `127.0.0.1`, so it IS that explicit bind twice; a
+ * remote blank rides the destination's policy spelling) and the port as a
+ * number, so "05432" beside "5432" is one listener. Meaningful only on a row
+ * that passes {@link sshForwardRowProblems}.
+ */
+function forwardListenKey(row: SshForwardDraftRow): string {
+  const side = row.kind === "remote" ? "D" : "B";
+  const bind = row.bindHost.trim() === "" && row.kind !== "remote" ? "127.0.0.1" : row.bindHost.trim();
+  return `${side}|${bind.toLowerCase()}|${String(Number(row.listenPort.trim()))}`;
+}
+
+/**
+ * True when a candidate row would bind a port a listed forward already binds.
+ * The editor's Add button checks this so the list can never hold a pair the
+ * server would refuse at launch, and a fresh forward cannot quietly overwrite
+ * a listed one.
+ */
+export function sshForwardRowConflict(row: SshForwardDraftRow, rows: readonly SshForwardDraftRow[]): boolean {
+  if (rows.length === 0) return false;
+  const key = forwardListenKey(row);
+  return rows.some((existing) => forwardListenKey(existing) === key);
+}
+
+/**
  * The whole-list answer: per-row problems first, then the LIST rules
  * (duplicate binds, the cap). Returns null when the list is ready to launch;
- * empty rows (the untyped remainder of "Add forward") do not count against
- * anything.
+ * empty rows do not count against anything.
  */
 export function sshForwardListProblems(rows: readonly SshForwardDraftRow[]): string | null {
   const filled = rows.filter((row) => !sshForwardRowEmpty(row));
@@ -97,16 +123,7 @@ export function sshForwardListProblems(rows: readonly SshForwardDraftRow[]): str
   }
   const listens = new Set<string>();
   for (const row of filled) {
-    // Same key as the protocol's dupe rule: per SIDE (a local/dynamic row
-    // binds the connecting machine, a remote row the destination, so one
-    // port on each side is two listeners), with the same canonical bind (a
-    // blank on a local or dynamic row renders as `127.0.0.1`, so it IS that
-    // explicit bind twice; a remote blank rides the destination's policy
-    // spelling) and the port as a number, so "05432" beside "5432" is one
-    // listener and not a form-only near-miss the server then refuses.
-    const side = row.kind === "remote" ? "D" : "B";
-    const bind = row.bindHost.trim() === "" && row.kind !== "remote" ? "127.0.0.1" : row.bindHost.trim();
-    const key = `${side}|${bind.toLowerCase()}|${String(Number(row.listenPort.trim()))}`;
+    const key = forwardListenKey(row);
     if (listens.has(key))
       return "Two forwards can't bind the same port on the same machine. Remove one or change a port.";
     listens.add(key);
@@ -125,6 +142,37 @@ export function sshForwardRowsToWire(rows: readonly SshForwardDraftRow[]): SshFo
       targetHost: row.kind === "dynamic" || row.targetHost.trim() === "" ? null : row.targetHost.trim(),
       targetPort: row.kind === "dynamic" || row.targetPort.trim() === "" ? null : Number(row.targetPort.trim()),
     }));
+}
+
+/**
+ * The example each kind uses for a still-empty slot. It is the single source
+ * of truth for BOTH the field placeholders and the route diagram, so a half
+ * -typed row never shows one example in its input and a different one in its
+ * diagram. `dynamic` has no target, so its host/port go unused.
+ */
+export const FORWARD_EXAMPLE: Record<SshForwardDraftRow["kind"], { listen: string; host: string; port: string }> = {
+  local: { listen: "5432", host: "db.internal", port: "5432" },
+  remote: { listen: "9090", host: "app.local", port: "3000" },
+  dynamic: { listen: "1080", host: "db.internal", port: "5432" },
+};
+
+/**
+ * The one-line route diagram for THIS row: the ports and host the person
+ * actually typed, with {@link FORWARD_EXAMPLE} standing in for a still-empty
+ * slot. A diagram of generic numbers stops helping the moment real ones are
+ * filled in; this one tracks the form as it is typed.
+ */
+export function sshForwardRowDiagram(row: SshForwardDraftRow): string {
+  const example = FORWARD_EXAMPLE[row.kind];
+  const listen = row.listenPort.trim() === "" ? example.listen : row.listenPort.trim();
+  if (row.kind === "dynamic") {
+    return `SOCKS client → ${listen} on the connecting machine → destination → any host it asks for`;
+  }
+  const host = row.targetHost.trim() === "" ? example.host : row.targetHost.trim();
+  const targetPort = row.targetPort.trim() === "" ? example.port : row.targetPort.trim();
+  return row.kind === "local"
+    ? `program → ${listen} on the connecting machine → destination → ${host}:${targetPort}`
+    : `program on the destination → ${listen} there → connecting machine → ${host}:${targetPort}`;
 }
 
 /** A stored preset's rows back into form spelling. */

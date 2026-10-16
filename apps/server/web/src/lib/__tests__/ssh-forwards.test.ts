@@ -3,6 +3,7 @@ import {
   EMPTY_SSH_FORWARD_ROW,
   type SshForwardDraftRow,
   sshForwardListProblems,
+  sshForwardRowDiagram,
   sshForwardRowProblem,
   sshForwardRowProblems,
   sshForwardRowsFromWire,
@@ -150,5 +151,41 @@ describe("sshForwardRowsFromWire", () => {
     ];
     expect(sshForwardRowsToWire(sshForwardRowsFromWire(wire))).toEqual(wire);
     expect(sshForwardRowsFromWire(undefined)).toEqual([]);
+  });
+});
+
+describe("sshForwardRowDiagram", () => {
+  it("traces the route with the ports and host the row actually holds", () => {
+    expect(sshForwardRowDiagram(row({ listenPort: "8080", targetHost: "cache.internal", targetPort: "11211" }))).toBe(
+      "program → 8080 on the connecting machine → destination → cache.internal:11211",
+    );
+    expect(
+      sshForwardRowDiagram(row({ kind: "remote", listenPort: "6000", targetHost: "dev.lan", targetPort: "5173" })),
+    ).toBe("program on the destination → 6000 there → connecting machine → dev.lan:5173");
+  });
+
+  it("trims typed whitespace out of the diagram", () => {
+    expect(sshForwardRowDiagram(row({ listenPort: " 8080 ", targetHost: " db.internal ", targetPort: " 6379 " }))).toBe(
+      "program → 8080 on the connecting machine → destination → db.internal:6379",
+    );
+  });
+
+  it("fills a still-empty slot from the kind's example, matching the field placeholder", () => {
+    // The row helper starts from the local example; blank it to see the fallback.
+    expect(sshForwardRowDiagram(EMPTY_SSH_FORWARD_ROW)).toBe(
+      "program → 5432 on the connecting machine → destination → db.internal:5432",
+    );
+    expect(sshForwardRowDiagram({ ...EMPTY_SSH_FORWARD_ROW, kind: "remote" })).toBe(
+      "program on the destination → 9090 there → connecting machine → app.local:3000",
+    );
+    expect(sshForwardRowDiagram({ ...EMPTY_SSH_FORWARD_ROW, kind: "dynamic" })).toBe(
+      "SOCKS client → 1080 on the connecting machine → destination → any host it asks for",
+    );
+  });
+
+  it("drops the target from a dynamic row's diagram even if a stale target lingers", () => {
+    expect(sshForwardRowDiagram(row({ kind: "dynamic", listenPort: "1080" }))).toBe(
+      "SOCKS client → 1080 on the connecting machine → destination → any host it asks for",
+    );
   });
 });

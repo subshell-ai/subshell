@@ -122,11 +122,14 @@ it("saves the local-key radio choice without requiring a file or approval", asyn
 it("saves a declared port forward alongside the connection choices", async () => {
   const { writes, closed } = await setup();
   await waitFor(() => expect(disabled()).toBe(false));
-  fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
   fireEvent.change(screen.getByLabelText(/Local port/), { target: { value: "5432" } });
   fireEvent.change(screen.getByLabelText(/Target host/), { target: { value: "db.internal" } });
   fireEvent.change(screen.getByLabelText(/Target port/), { target: { value: "5432" } });
-  await waitFor(() => expect(disabled()).toBe(false));
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "Add port forward" }) as HTMLButtonElement).disabled).toBe(false),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
+  await waitFor(() => expect(screen.getByText("loopback:5432")).toBeTruthy());
   fireEvent.click(screen.getByRole("button", { name: "Save preset" }));
   await waitFor(() => expect(closed()).toBe(true));
   expect(writes[0]?.body.forwards).toEqual([
@@ -134,14 +137,21 @@ it("saves a declared port forward alongside the connection choices", async () =>
   ]);
 });
 
-it("an incomplete forward row holds Save", async () => {
-  const { writes } = await setup();
+it("a half-typed forward never reaches the preset: Add stays off and Save is not held", async () => {
+  const { writes, closed } = await setup();
   await waitFor(() => expect(disabled()).toBe(false));
-  fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
   fireEvent.change(screen.getByLabelText(/Local port/), { target: { value: "5432" } });
   fireEvent.change(screen.getByLabelText(/Target port/), { target: { value: "5432" } });
-  await waitFor(() => expect(disabled()).toBe(true));
-  expect(writes).toHaveLength(0);
+  // The incomplete editor row gates its own Add button, not the Save button.
+  // Disabled state rides aria-disabled (the node-admin Button explains itself
+  // while focusable), so check both spellings.
+  await waitFor(() => {
+    const b = screen.getByRole("button", { name: "Add port forward" }) as HTMLButtonElement;
+    expect(b.disabled || b.getAttribute("aria-disabled") === "true").toBe(true);
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save preset" }));
+  await waitFor(() => expect(closed()).toBe(true));
+  expect(writes[0]?.body.forwards).toEqual([]);
 });
 it("allows unrelated edits while the saved connecting node is offline", async () => {
   const { writes } = await setup(false);
