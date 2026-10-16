@@ -49,16 +49,35 @@ function isHostText(value: string): boolean {
   return host.length > 0 && host.length <= 253 && !host.startsWith("-") && !/[\s\p{Cc}]/u.test(host);
 }
 
-/** The first problem with one row, in the voice of the field it belongs to. */
-export function sshForwardRowProblems(row: SshForwardDraftRow): string | null {
-  if (!isPortText(row.listenPort)) return "Enter a listen port from 1 to 65535.";
+/** A row problem and its tone: `gap` means "nothing typed yet" (gold), else the typed value is wrong (red). */
+export type SshForwardRowProblem = { text: string; gap: boolean };
+
+/**
+ * The first problem with one row, in the voice of the field it belongs to,
+ * with the gold/red split the form substrate uses (ruling 2026-09-30): an
+ * empty required field is a requirement not yet filled, a typed value that
+ * fails the same rule is a hard error.
+ */
+export function sshForwardRowProblem(row: SshForwardDraftRow): SshForwardRowProblem | null {
+  if (!isPortText(row.listenPort))
+    return { text: "Enter a listen port from 1 to 65535.", gap: row.listenPort.trim() === "" };
   if (row.bindHost.trim() !== "" && !isHostText(row.bindHost))
-    return "Enter the bind host as a plain name or address, or leave it blank for loopback.";
+    return {
+      text: "Enter the bind host as a plain name or address, or leave it blank for loopback.",
+      gap: false,
+    };
   if (row.kind !== "dynamic") {
-    if (!isHostText(row.targetHost)) return "Enter the host to reach through the connection.";
-    if (!isPortText(row.targetPort)) return "Enter a target port from 1 to 65535.";
+    if (!isHostText(row.targetHost))
+      return { text: "Enter the host to reach through the connection.", gap: row.targetHost.trim() === "" };
+    if (!isPortText(row.targetPort))
+      return { text: "Enter a target port from 1 to 65535.", gap: row.targetPort.trim() === "" };
   }
   return null;
+}
+
+/** The first problem with one row, as plain text (the gating voice; the component reads {@link sshForwardRowProblem} for the tone). */
+export function sshForwardRowProblems(row: SshForwardDraftRow): string | null {
+  return sshForwardRowProblem(row)?.text ?? null;
 }
 
 /**

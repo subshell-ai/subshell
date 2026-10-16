@@ -1,10 +1,11 @@
-import { Button, Input, Label } from "@internal/node-admin";
+import { Button, cn, Input, Label } from "@internal/node-admin";
 import { SSH_MAX_FORWARD_ROWS } from "@internal/subshell-protocol";
 import { Plus, X } from "lucide-react";
 import { Field, FieldLabel } from "@/components/ui/field";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { RequiredMark } from "@/components/ui/required-mark";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { EMPTY_SSH_FORWARD_ROW, type SshForwardDraftRow, sshForwardRowProblems } from "@/lib/ssh-forwards";
+import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
+import { EMPTY_SSH_FORWARD_ROW, type SshForwardDraftRow, sshForwardRowProblem } from "@/lib/ssh-forwards";
 
 /**
  * The port-forwards group (spec 2026-10-15 §7): every row a person declared
@@ -19,10 +20,6 @@ const KIND_LABELS = [
   { value: "remote", label: "Remote (-R)" },
   { value: "dynamic", label: "Dynamic SOCKS (-D)" },
 ] as const;
-
-function kindLabel(kind: SshForwardDraftRow["kind"]): string {
-  return KIND_LABELS.find((option) => option.value === kind)?.label ?? kind;
-}
 
 /**
  * What the chosen kind does and where its port lives, kept beside the row it
@@ -55,36 +52,40 @@ export function SshForwardFields({
     <fieldset className="flex min-w-0 flex-col gap-3" disabled={busy}>
       <legend className="mb-2 font-strong text-label">Port forwards</legend>
       <p className="text-detail text-muted-foreground">
-        Each forward opens a listening port for as long as this connection lives. A local or dynamic forward binds it on
-        the connecting machine, so programs there reach a host the destination can see; a remote one asks the
-        destination to bind a port that reaches a host the connecting machine can see.
+        Each forward opens a listening port for as long as this connection lives, and the port closes when the subshell
+        ends.
       </p>
       {rows.map((row, index) => {
-        const problem = sshForwardRowProblems(row);
+        const problem = sshForwardRowProblem(row);
         const needsTarget = row.kind !== "dynamic";
         const idPrefix = `ssh-fwd-${String(index)}`;
+        const helpId = `${idPrefix}-kind-help`;
         return (
           <div key={idPrefix} className="flex min-w-0 flex-col gap-2">
             <div className="flex min-w-0 flex-wrap items-end gap-2">
-              <Field className="w-40 min-w-0">
-                <FieldLabel htmlFor={`${idPrefix}-kind`}>Kind</FieldLabel>
-                <Select
-                  id={`${idPrefix}-kind`}
-                  items={KIND_LABELS.map((option) => ({ value: option.value, label: kindLabel(option.value) }))}
+              <Field className="min-w-0 gap-1">
+                <span id={`${idPrefix}-kind-label`} className="font-strong text-label">
+                  Kind
+                </span>
+                <RadioGroup
+                  aria-labelledby={`${idPrefix}-kind-label`}
                   value={row.kind}
+                  className="flex flex-row flex-wrap items-center gap-x-4 gap-y-1"
                   onValueChange={(value) => patchRow(index, { kind: (value ?? "local") as SshForwardDraftRow["kind"] })}
                 >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {KIND_LABELS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
+                  {KIND_LABELS.map((option) => (
+                    <Field key={option.value} className="mb-0 flex-row items-center gap-1.5">
+                      <RadioGroupItem
+                        id={`${idPrefix}-kind-${option.value}`}
+                        value={option.value}
+                        aria-describedby={row.kind === option.value ? helpId : undefined}
+                      />
+                      <FieldLabel htmlFor={`${idPrefix}-kind-${option.value}`} className="cursor-pointer">
                         {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                      </FieldLabel>
+                    </Field>
+                  ))}
+                </RadioGroup>
               </Field>
               <Field className="w-28 min-w-0">
                 <Label htmlFor={`${idPrefix}-port`}>
@@ -149,10 +150,13 @@ export function SshForwardFields({
                 <X aria-hidden="true" />
               </Button>
             </div>
-            <p className="text-detail text-muted-foreground">{KIND_HELP[row.kind]}</p>
+            {/* One sentence per chosen kind, kept below the row it explains; the checked radio points here. */}
+            <p id={helpId} className="text-detail text-muted-foreground">
+              {KIND_HELP[row.kind]}
+            </p>
             {problem && (
-              <p role="alert" className="text-destructive text-detail">
-                {problem}
+              <p role="alert" className={cn(problem.gap ? REQUIREMENT_CAPTION_CLASS : "text-destructive text-detail")}>
+                {problem.text}
               </p>
             )}
           </div>

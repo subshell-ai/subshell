@@ -3,6 +3,7 @@ import {
   EMPTY_SSH_FORWARD_ROW,
   type SshForwardDraftRow,
   sshForwardListProblems,
+  sshForwardRowProblem,
   sshForwardRowProblems,
   sshForwardRowsFromWire,
   sshForwardRowsToWire,
@@ -39,6 +40,40 @@ describe("sshForwardRowProblems", () => {
     expect(sshForwardRowProblems(row({ bindHost: "" }))).toBeNull();
     expect(sshForwardRowProblems(row({ bindHost: "10.0.0.5" }))).toBeNull();
     expect(sshForwardRowProblems(row({ bindHost: "[::1]" }))).toBeNull();
+  });
+});
+
+describe("sshForwardRowProblem tone", () => {
+  it("calls an empty required field a gap and a typed wrong value a hard error", () => {
+    expect(sshForwardRowProblem(row({ listenPort: "" }))).toEqual({
+      text: "Enter a listen port from 1 to 65535.",
+      gap: true,
+    });
+    expect(sshForwardRowProblem(row({ listenPort: "abc" }))).toEqual({
+      text: "Enter a listen port from 1 to 65535.",
+      gap: false,
+    });
+    expect(sshForwardRowProblem(row({ listenPort: "1.5" }))).toEqual({
+      text: "Enter a listen port from 1 to 65535.",
+      gap: false,
+    });
+    // An empty target host is the same fact as an empty listen port: nothing typed yet.
+    expect(sshForwardRowProblem(row({ targetHost: "" }))).toEqual({
+      text: "Enter the host to reach through the connection.",
+      gap: true,
+    });
+    // A malformed bind host is always a typed value that is wrong.
+    expect(sshForwardRowProblem(row({ bindHost: "-oProxyCommand=x" }))).toEqual({
+      text: "Enter the bind host as a plain name or address, or leave it blank for loopback.",
+      gap: false,
+    });
+    expect(sshForwardRowProblem(row())).toBeNull();
+  });
+
+  it("keeps the text-only voice in step with the toned one", () => {
+    const r = row({ listenPort: "" });
+    expect(sshForwardRowProblems(r)).toBe(sshForwardRowProblem(r)?.text ?? null);
+    expect(sshForwardRowProblems(row())).toBeNull();
   });
 });
 
