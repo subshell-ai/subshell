@@ -24,6 +24,15 @@ function kindLabel(kind: SshForwardDraftRow["kind"]): string {
   return KIND_LABELS.find((option) => option.value === kind)?.label ?? kind;
 }
 
+/** What the chosen kind does and where its port lives, kept beside the row it explains (spec §7). */
+const KIND_HELP: Record<SshForwardDraftRow["kind"], string> = {
+  local: "The port opens on this machine, and programs here reach the target through the destination.",
+  remote:
+    "The destination opens the port and reaches the target through this machine; its own SSH server decides how it binds.",
+  dynamic:
+    "A SOCKS proxy port opens on this machine; tools that use it pick their own targets and reach them through the destination.",
+};
+
 export function SshForwardFields({
   rows,
   allowWideBind,
@@ -136,6 +145,7 @@ export function SshForwardFields({
                 <X aria-hidden="true" />
               </Button>
             </div>
+            <p className="text-detail text-muted-foreground">{KIND_HELP[row.kind]}</p>
             {problem && (
               <p role="alert" className="text-destructive text-detail">
                 {problem}
@@ -146,7 +156,7 @@ export function SshForwardFields({
       })}
       {!allowWideBind && (
         <p className="text-detail text-muted-foreground">
-          Forwards bind this machine's own loopback address. Its owner can allow other bind addresses on the node's SSH
+          Forwards bind this machine's own loopback address. Its owner can allow other bind addresses in the node's SSH
           settings.
         </p>
       )}

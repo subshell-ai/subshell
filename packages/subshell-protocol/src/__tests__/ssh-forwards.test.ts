@@ -106,6 +106,26 @@ describe("parseSshForwardRows", () => {
     expect(parseSshForwardRows(rows)).toEqual(rows);
   });
 
+  it("refuses a null bind beside an explicit 127.0.0.1 on the same port: the two render one listener twice", () => {
+    expect(
+      parseSshForwardRows([makeRow(), makeRow({ bindHost: "127.0.0.1", targetHost: "other.example" })]),
+    ).toBeNull();
+    expect(
+      parseSshForwardRows([
+        makeRow({ kind: "dynamic", listenPort: 1080, targetHost: null, targetPort: null }),
+        makeRow({ kind: "dynamic", listenPort: 1080, bindHost: "127.0.0.1", targetHost: null, targetPort: null }),
+      ]),
+    ).toBeNull();
+  });
+
+  it("keeps a remote null bind distinct from a named one (D's GatewayPorts spelling is its own listen spec)", () => {
+    const rows = [
+      makeRow({ kind: "remote", listenPort: 9090, targetHost: "a.internal", targetPort: 1 }),
+      makeRow({ kind: "remote", listenPort: 9090, bindHost: "127.0.0.1", targetHost: "b.internal", targetPort: 2 }),
+    ];
+    expect(parseSshForwardRows(rows)).toEqual(rows);
+  });
+
   it("refuses a non-array list", () => {
     expect(parseSshForwardRows({ 0: makeRow() })).toBeNull();
     expect(parseSshForwardRows("local")).toBeNull();
@@ -134,7 +154,19 @@ describe("isLoopbackForwardBind", () => {
       expect(isLoopbackForwardBind(makeRow({ bindHost }))).toBe(true);
     });
   }
-  const wide = ["0.0.0.0", "::", "[::]", "10.0.0.5", "example.com", "[::ffff:127.0.0.1]", "mybox.internal"];
+  const wide = [
+    "0.0.0.0",
+    "::",
+    "[::]",
+    "10.0.0.5",
+    "example.com",
+    "[::ffff:127.0.0.1]",
+    "mybox.internal",
+    // Not a bindable quad: classifying it loopback would skip the wide gate
+    // on a name ssh simply refuses to bind.
+    "127.999.999.999",
+    "127",
+  ];
   for (const bindHost of wide) {
     it(`names ${bindHost} wide (fails closed: the test is the written name, not a DNS answer)`, () => {
       expect(isLoopbackForwardBind(makeRow({ bindHost }))).toBe(false);

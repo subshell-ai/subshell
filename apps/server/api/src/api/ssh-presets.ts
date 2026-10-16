@@ -59,7 +59,7 @@ const SshPresetFields = {
       t.Array(SshForwardRowInputSchema, {
         maxItems: SSH_MAX_FORWARD_ROWS,
         description:
-          "Port forwards this preset carries to every launch; validated by the protocol grammar at save, and a non-loopback bind is still refused at launch until the connecting machine allows it. Omitted on update keeps the stored list, null clears it",
+          "Port forwards this preset carries to every launch; validated by the protocol grammar at save, and a non-loopback bind is still refused at launch until the connecting machine allows it. Omitted on update keeps the stored list; null or an empty list clears it",
       }),
     ),
   ),

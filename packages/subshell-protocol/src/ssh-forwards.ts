@@ -130,8 +130,15 @@ export function parseSshForwardRows(value: unknown): SshForwardWire[] | null {
     const row = parseSshForwardRow(item);
     if (row === null) return null;
     // Casefold only for the dupe key: hostnames match case-insensitively, and
-    // a "LOCALHOST" beside "localhost" is one bind, not two.
-    const key = `${(row.bindHost ?? "").toLowerCase()}|${row.listenPort}`;
+    // a "LOCALHOST" beside "localhost" is one bind, not two. A null bind on a
+    // local/dynamic row is canonically ssh's loopback, which is what the
+    // renderer spells as `127.0.0.1`, so it DUPLICATES a written `127.0.0.1`
+    // rather than riding beside it; two different literal names on one port
+    // ("localhost" vs "127.0.0.1") stay a configuration ssh reports itself.
+    // A remote null renders bare (D's GatewayPorts policy picks the address),
+    // which is a different listen spec from any named bind, so it keys empty.
+    const bindKey = (row.kind === "remote" ? (row.bindHost ?? "") : (row.bindHost ?? "127.0.0.1")).toLowerCase();
+    const key = `${bindKey}|${row.listenPort}`;
     if (seen.has(key)) return null;
     seen.add(key);
     rows.push(row);
@@ -155,8 +162,9 @@ export function isLoopbackForwardBind(row: SshForwardWire): boolean {
   // The grammar admits IPv6 only bracketed (HOST_RE), so `[::1]` is the
   // spelling a row can actually carry.
   if (host === "localhost" || host === "[::1]") return true;
-  // IPv4 127.0.0.0/8: dotted-quad only (the grammar's host shape admits the
-  // other spellings, but nobody renders those here and refusing them as
-  // "wide" fails closed, which is the safe direction).
-  return /^127(\.\d{1,3}){3}$/.test(host);
+  // IPv4 127.0.0.0/8: dotted-quad with each octet 0-255 (the grammar's host
+  // shape admits other spellings, and a 127.999.999.999 is not a bindable
+  // address - classifying it "wide" fails closed, which is the safe side).
+  const OCTET = "(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)";
+  return new RegExp(`^127(\\.${OCTET}){3}$`).test(host);
 }

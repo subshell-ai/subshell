@@ -67,6 +67,16 @@ export const PORTS = {
    * artifact dir the "Set up Subshell here" install fetches from.
    */
   relay: envPort("E2E_PORT_RELAY", 3203),
+  /*
+   * `forwards` belongs to spec 26 (the port-forwards legs of spec 2026-10-15
+   * §9): a FOURTH standalone ssh-tier backend for the same HOME-override
+   * reason as `ssh` and `connect`, and a fresh slot rather than a reuse -
+   * the ssh specs keep their instances alive across their own retries, so
+   * parallel ssh backends must never collide on one port. Its forwards are
+   * the spec's own scratch listeners, not fixed ports: the spec binds what
+   * `freePort()` names.
+   */
+  forwards: envPort("E2E_PORT_FORWARDS", 3204),
 } as const;
 
 export const BASE_URL = `http://127.0.0.1:${PORTS.backend}`;

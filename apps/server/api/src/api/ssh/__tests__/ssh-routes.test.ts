@@ -766,6 +766,10 @@ describe("SSH preset forwards (spec 2026-10-15 §7)", () => {
       const kept = await put({});
       expect(kept.status).toBe(200);
       expect(((await kept.json()) as { forwards: unknown[] }).forwards).toEqual([fwd]);
+      // The editor's real clear path: deleting every row sends []. An
+      // "empty keeps" refactor here would silently break that button.
+      const emptied = await put({ forwards: [] });
+      expect(((await emptied.json()) as { forwards: unknown[] }).forwards).toEqual([]);
       const cleared = await put({ forwards: null });
       expect(((await cleared.json()) as { forwards: unknown[] }).forwards).toEqual([]);
       const row = await db.selectFrom("sshPresets").select("forwards").where("id", "=", id).executeTakeFirst();

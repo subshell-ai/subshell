@@ -78,7 +78,11 @@ export function sshForwardListProblems(rows: readonly SshForwardDraftRow[]): str
   }
   const listens = new Set<string>();
   for (const row of filled) {
-    const key = `${row.bindHost.trim().toLowerCase()}|${row.listenPort.trim()}`;
+    // Same canonical as the protocol's dupe key: a blank bind on a local or
+    // dynamic row renders as `127.0.0.1`, so it IS that explicit bind twice;
+    // a remote blank rides the destination's own policy spelling.
+    const bind = row.bindHost.trim() === "" && row.kind !== "remote" ? "127.0.0.1" : row.bindHost.trim();
+    const key = `${bind.toLowerCase()}|${row.listenPort.trim()}`;
     if (listens.has(key)) return "Two forwards can't bind the same port. Remove one or change a port.";
     listens.add(key);
   }

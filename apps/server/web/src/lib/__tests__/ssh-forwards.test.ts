@@ -57,6 +57,20 @@ describe("sshForwardListProblems", () => {
     expect(sshForwardListProblems([row({ bindHost: "localhost" }), row({ bindHost: "127.0.0.1" })])).toBeNull();
   });
 
+  it("refuses a blank bind beside an explicit 127.0.0.1, and keeps the remote pair distinct", () => {
+    // A blank local bind renders as 127.0.0.1, so the rows are one listener twice.
+    expect(sshForwardListProblems([row(), row({ bindHost: "127.0.0.1", targetHost: "other.internal" })])).toMatch(
+      /same port/i,
+    );
+    // A blank remote bind rides the destination's own policy spelling.
+    expect(
+      sshForwardListProblems([
+        row({ kind: "remote", bindHost: "" }),
+        row({ kind: "remote", bindHost: "127.0.0.1", targetHost: "other.internal" }),
+      ]),
+    ).toBeNull();
+  });
+
   it("refuses over the cap", () => {
     const many = Array.from({ length: 17 }, (_, i) => row({ listenPort: String(i + 1) }));
     expect(sshForwardListProblems(many)).toMatch(/at most 16/i);
