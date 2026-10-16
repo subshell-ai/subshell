@@ -133,13 +133,18 @@ asserts recipient-filtered reads.
 
 ## SSH container coverage
 
-`23-connect-flow.spec.ts` requires a running Docker-compatible daemon.
-Testcontainers builds `fixtures/ssh-container/Dockerfile`, publishes sshd on a
-random port, and owns container cleanup. Missing Docker fails setup rather
-than silently skipping coverage. The container creates disposable developer
-and operator accounts for real password login; no host accounts or SSH files
-are changed. Host keys are generated under the test's temporary directory and
-trusted explicitly by the connecting process.
+`23-connect-flow.spec.ts` and `26-ssh-forwarding.spec.ts` require a running
+Docker-compatible daemon. Testcontainers builds
+`fixtures/ssh-container/Dockerfile`, publishes sshd on a random port, and owns
+container cleanup. Missing Docker fails setup rather than silently skipping
+coverage. The container creates disposable developer and operator accounts for
+real password login; no host accounts or SSH files are changed. Host keys are
+generated under the test's temporary directory and trusted explicitly by the
+connecting process. The image also carries `curl`, `iproute2` and `darkhttpd`,
+and its sshd runs `GatewayPorts clientspecified`: spec 26 reads each port
+forward from the side that owns it, dials this machine's interface address
+from inside the destination to prove a wide `-L` bind escaped loopback, and
+shows a blank `-R` bind refusing the same dial that the wide one answers.
 
 The browser exercises key login, password prompts and retry, terminal I/O,
 view-only sharing, and saving named SSH presets for distinct usernames on one host. Password checks

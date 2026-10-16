@@ -1,10 +1,11 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
-import { tmpdir } from "node:os";
+import { networkInterfaces, tmpdir } from "node:os";
 import path from "node:path";
 import { type APIRequestContext, expect, type PlaywrightWorkerArgs, test } from "@playwright/test";
-import { missingSshBins, SSH_FIXTURE_ALIAS, type SshFixture, startSshFixture } from "../fixtures/sshd";
+import { missingSshBins, SSH_FIXTURE_ALIAS } from "../fixtures/sshd";
+import { startContainerSshFixture } from "../fixtures/sshd-container";
 import { PORTS } from "../ports";
 import { shortTmuxBase } from "../stack";
 
@@ -17,28 +18,40 @@ import { shortTmuxBase } from "../stack";
  * the policy block, ssh really binds the approved listens and traffic really
  * flows, and that a row nobody approved binds nothing.
  *
- * The three kinds each get a leg on ONE launch:
+ * The destination is the TESTCONTAINERS sshd: B is this worker's own machine
+ * (or job container), D is a sibling container. Where a row's TARGET lives
+ * follows ssh's own semantics, and with two machines those ends finally
+ * differ: a `-L`/`-D` connection's far end opens at the DESTINATION, so the
+ * marker those two read comes from a tiny `darkhttpd` the spec starts inside
+ * the container; a `-R` connection's far end opens at the CLIENT, so that
+ * row's target is this spec's own in-process marker server. Each listener is
+ * read from the side that owns it:
  *  - `-L`: curl the loopback port on the connecting side and read the marker
- *    the target server answers with (if the clear survived, or the block
- *    never matched, the port stays unbound and curl fails),
+ *    the destination's httpd answers with (if the clear survived, or the
+ *    block never matched, the port stays unbound and curl fails),
  *  - `-D`: `curl --socks5-hostname` THROUGH the SOCKS listener fetches the
- *    same marker (a proxy that never bound refuses the connect),
- *  - `-R`: curl the listen port sshd opened on the destination side; the
- *    bytes come back through the tunnel to the target server, proving the
- *    remote forward was accepted and bound (the fixture sshd keeps the
- *    OpenSSH default `GatewayPorts no`, so its bind is loopback, which is
- *    exactly what a null `bindHost` means to ride - spec §6).
+ *    same marker from the same httpd (a proxy that never bound refuses the
+ *    connect),
+ *  - `-R`: sshd opened this listener ON THE CONTAINER, so the read runs
+ *    inside it (a `container.exec` curl) and the bytes come back through the
+ *    tunnel from this spec's marker server. The fixture sshd runs
+ *    `GatewayPorts clientspecified`, and a row that names no bind address
+ *    still lands on loopback (spec §6) - a dial to the container's own
+ *    interface address must draw a refusal on that port.
  *
- * Then the wide-bind gate as a door, not a copy: the same kind of row naming
- * `0.0.0.0` is refused (403 `SSH_FORWARD_BIND_DENIED`) before the node's
- * setting exists, and after the owner flips it the launch is accepted, the
- * rendered file spells the wide bind, and the port answers. The audit row's
- * bounded forwards summary is checked beside the bytes it describes.
+ * Then the wide-bind gate as a door, not a copy: wide rows are refused
+ * (403 `SSH_FORWARD_BIND_DENIED`) before the node's setting exists, and after
+ * the owner flips it the launch is accepted, the rendered file spells both
+ * wide binds, and each escape is read from the far side. The wide `-L` is
+ * dialed FROM THE CONTAINER at this machine's interface address - another
+ * machine reaching a port that loopback rules would have kept from it - and
+ * the wide `-R` is dialed inside the container at ITS interface address,
+ * which a loopback bind cannot answer. The audit row's bounded forwards
+ * summary is checked beside the bytes it describes.
  *
- * B/D are the same host here (the fixture sshd runs unprivileged beside the
- * backend), which the legs tolerate: they assert a LISTEN exists that only
- * the approved forward could have created, and that fact does not depend on
- * two machines. The binary gate is spec 22's: no ssh binaries, skip LOUDLY.
+ * Like spec 23, the container legs need a Docker daemon: with none, beforeAll
+ * fails rather than quietly skipping. The binary gate is spec 22's: no ssh
+ * binaries, skip LOUDLY.
  */
 
 const ROOT = path.join(import.meta.dirname, "..", "..");
@@ -51,7 +64,25 @@ const SPAWN_TIMEOUT = 60_000;
 /** The marker the target server answers with; every leg expects exactly this. */
 const MARKER = "FORWARD-MARKER-OK\n";
 
-const missing = missingSshBins();
+/**
+ * Ports sshd binds INSIDE the destination container for the `-R` legs. They
+ * are not probed for freedom like the B-side ports are: the container's
+ * network namespace is freshly started for this spec and holds nothing but
+ * sshd and these forwards, so a clash would mean the fixture itself broke.
+ */
+const DEST_BLANK_R_PORT = 18801;
+const DEST_WIDE_R_PORT = 18802;
+
+/**
+ * The container's own marker server, started below with `darkhttpd`. `-L`
+ * and `-D` rows open their far end ON THE DESTINATION, so this is the target
+ * they point at (loopback inside the container).
+ */
+const DEST_MARKER_PORT = 8080;
+
+// The client-side binaries only: the destination now runs in the container,
+// so this host's own sshd is no longer something this spec needs to find.
+const missing = missingSshBins().filter((bin) => bin !== "sshd");
 test.skip(
   missing.length > 0 || spawnSync("curl", ["--version"], { encoding: "utf8" }).status !== 0,
   `spec 26 needs real ssh binaries${missing.length > 0 ? ` (missing: ${missing.join(", ")})` : ""} and curl for the SOCKS leg`,
@@ -108,6 +139,43 @@ async function socksFetch(proxyPort: number, url: string): Promise<string | null
     child.on("error", () => resolve(null));
     child.on("close", (code) => resolve(code === 0 ? out : null));
   });
+}
+
+/**
+ * An address of THIS machine that the destination container can route to.
+ * Inside a containerized CI job this is the job container's own interface
+ * address (the wide listener lives in this network namespace); on a plain dev
+ * machine it is a host interface address, and the container reaches it the
+ * same way it reaches the sshd's published port. Either way it is emphatically
+ * not loopback, which is the whole point of dialing a wide bind with it.
+ */
+function connectingMachineAddress(): string {
+  for (const entries of Object.values(networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (!entry.internal && entry.address.split(".").length === 4) return entry.address;
+    }
+  }
+  throw new Error("no routable IPv4 interface to dial a wide-bound port at");
+}
+
+/** What ssh printed into the pane, plus what actually LISTENs, for a leg that timed out. */
+function forwardDiagnostics(inst: ForwardInstance, id: string, port: number): string {
+  const parts: string[] = [];
+  try {
+    parts.push(`pane tail: ${readFileSync(path.join(inst.dataDir, "subshells", `${id}.log`), "utf8").slice(-1500)}`);
+  } catch {
+    parts.push("pane: (no log)");
+  }
+  const ss = spawnSync("ss", ["-ltn"], { encoding: "utf8" });
+  parts.push(
+    `listeners on ${String(port)}: ${
+      ss.stdout
+        .split("\n")
+        .filter((l) => l.includes(`:${String(port)}`))
+        .join(" | ") || "none"
+    }`,
+  );
+  return parts.join("\n");
 }
 
 interface ForwardInstance {
@@ -216,16 +284,26 @@ test.describe("ssh port forwards (spec 2026-10-15)", () => {
 
   const leaks: string[] = [];
   const specTeardown: (() => Promise<void> | void)[] = [];
-  let fixture: SshFixture | undefined;
+  let fixture: Awaited<ReturnType<typeof startContainerSshFixture>> | undefined;
   let fixtureRoot: string | undefined;
   let agentPid: number | undefined;
   let adminRef: APIRequestContext | undefined;
   let targetPort = 0;
+  /** The container's own non-loopback address, read from inside it once at boot. */
+  let destAddress = "";
   const livePaneIds: string[] = [];
+
+  /** Curl run INSIDE the destination container: the reader for every port sshd bound there. */
+  async function destFetch(url: string): Promise<string | null> {
+    const fx = fixture;
+    if (!fx) throw new Error("beforeAll did not run");
+    const res = await fx.exec(["sh", "-c", `curl -s --max-time 10 "${url}"`]);
+    return res.exitCode === 0 ? res.output : null;
+  }
 
   test.beforeAll(async ({ playwright }) => {
     fixtureRoot = mkdtempSync(path.join(tmpdir(), "subshell-e2e-fwdtier-"));
-    fixture = await startSshFixture(fixtureRoot);
+    fixture = await startContainerSshFixture(fixtureRoot);
 
     const agentOut = spawnSync("ssh-agent", ["-s"], { encoding: "utf8" });
     if (agentOut.status !== 0) throw new Error(`ssh-agent failed: ${agentOut.stderr}`);
@@ -242,15 +320,41 @@ test.describe("ssh port forwards (spec 2026-10-15)", () => {
     });
     if (add.status !== 0) throw new Error(`ssh-add failed: ${add.stderr}`);
 
+    // The address the container itself answers on: a dial there cannot reach a
+    // loopback bind, which is what makes it the wide-bind proof's client end.
+    const addrProbe = await fixture.exec(["ip", "-4", "-o", "addr", "show", "dev", "eth0"]);
+    destAddress = addrProbe.output.match(/inet (\d+\.\d+\.\d+\.\d+)\//)?.[1] ?? "";
+    if (destAddress === "") throw new Error(`container eth0 address unparseable: ${addrProbe.output}`);
+
+    // The far end `-L`/`-D` open at: darkhttpd inside the container serving
+    // the same marker this spec's own server answers with. It runs because
+    // the forwarded connection's target host is resolved THERE, not on the
+    // connecting side - with B and D finally apart, that distinction is part
+    // of what the spec proves.
+    const httpd = await fixture.exec([
+      "sh",
+      "-c",
+      `mkdir -p /var/www && printf '${MARKER.trim()}\\n' > /var/www/index.html && nohup darkhttpd /var/www --port ${String(DEST_MARKER_PORT)} >/dev/null 2>&1 &`,
+    ]);
+    if (httpd.exitCode !== 0) throw new Error(`container marker httpd failed to start: ${httpd.output}`);
+    // Prove it answers BEFORE any leg depends on it: a silent background
+    // daemon failure would otherwise surface as a forward that "never
+    // answered" and send the next reader hunting for a bug in ssh.
+    await pollUntil(
+      "the container's own marker httpd never answered",
+      async () => (await destFetch(`http://127.0.0.1:${String(DEST_MARKER_PORT)}/`)) === MARKER,
+      15_000,
+    );
+
     await startForwardBackend(fixture.sshConfigHome, agentEnv.SSH_AUTH_SOCK);
     adminRef = await freshCtx(playwright);
     const signUp = await adminRef.post("/api/auth/sign-up/email", { data: ADMIN });
     expect(signUp.ok(), await signUp.text()).toBe(true);
     const enable = await adminRef.put("/api/nodes/local/ssh-enabled", { data: { on: true } });
     expect(enable.ok(), await enable.text()).toBe(true);
-    // The marker server every leg reads its bytes back from. It listens on
-    // its own port; a leg's listen port proves the FORWARD bound a listener,
-    // because only the tunnel connects that listener to this server.
+    // The marker server the `-R` rows point at: a `-R` connection's far end
+    // opens on the CLIENT side, so sshd's forwarded connection lands here.
+    // (The `-L`/`-D` rows point at the container's own httpd instead.)
     targetPort = await freePort();
     const target = createServer((_req, res) => {
       res.setHeader("content-type", "text/plain");
@@ -314,16 +418,27 @@ test.describe("ssh port forwards (spec 2026-10-15)", () => {
 
     const localListen = await freePort();
     const socksListen = await freePort();
-    const remoteListen = await freePort();
     const launch = await admin.post("/api/ssh/launch", {
       data: {
         node: "local",
         destination: SSH_FIXTURE_ALIAS,
         name: "e2e-fwd-three-kinds",
         forwards: [
-          { kind: "local", listenPort: localListen, bindHost: null, targetHost: "127.0.0.1", targetPort },
+          {
+            kind: "local",
+            listenPort: localListen,
+            bindHost: null,
+            targetHost: "127.0.0.1",
+            targetPort: DEST_MARKER_PORT,
+          },
           { kind: "dynamic", listenPort: socksListen, bindHost: null, targetHost: null, targetPort: null },
-          { kind: "remote", listenPort: remoteListen, bindHost: null, targetHost: "127.0.0.1", targetPort },
+          {
+            kind: "remote",
+            listenPort: DEST_BLANK_R_PORT,
+            bindHost: null,
+            targetHost: "127.0.0.1",
+            targetPort,
+          },
         ],
       },
     });
@@ -350,9 +465,9 @@ test.describe("ssh port forwards (spec 2026-10-15)", () => {
     const config = readFileSync(configPath, "utf8");
     expect(config).toContain("Tunnel no");
     expect(config).not.toContain("ClearAllForwardings");
-    expect(config).toContain(`LocalForward 127.0.0.1:${String(localListen)} 127.0.0.1:${String(targetPort)}`);
+    expect(config).toContain(`LocalForward 127.0.0.1:${String(localListen)} 127.0.0.1:${String(DEST_MARKER_PORT)}`);
     expect(config).toContain(`DynamicForward 127.0.0.1:${String(socksListen)}`);
-    expect(config).toContain(`RemoteForward ${String(remoteListen)} 127.0.0.1:${String(targetPort)}`);
+    expect(config).toContain(`RemoteForward ${String(DEST_BLANK_R_PORT)} 127.0.0.1:${String(targetPort)}`);
     expect(config.indexOf("Host *")).toBeLessThan(config.indexOf("# User-declared port forwards"));
     expect(config).toContain("# User-declared port forwards, approved at launch (spec 2026-10-15).");
 
@@ -366,21 +481,33 @@ test.describe("ssh port forwards (spec 2026-10-15)", () => {
     );
 
     // -L: the connecting side's listener answers with the target's bytes.
-    await pollUntil(
-      () => `-L forward on 127.0.0.1:${String(localListen)} never answered`,
-      async () => (await fetchText(`http://127.0.0.1:${String(localListen)}/`)) === MARKER,
-    );
-    // -D: through the SOCKS listener, remote-resolved like any SOCKS client.
+    try {
+      await pollUntil(
+        () => `-L forward on 127.0.0.1:${String(localListen)} never answered`,
+        async () => (await fetchText(`http://127.0.0.1:${String(localListen)}/`)) === MARKER,
+      );
+    } catch (err) {
+      throw new Error(`${String(err)}\n${forwardDiagnostics(inst, subshellId, localListen)}`);
+    }
+    // -D: through the SOCKS listener; the chosen target resolves where a
+    // SOCKS-over-ssh proxy resolves it - on the destination - so it names
+    // the container's httpd.
     await pollUntil(
       () => `-D SOCKS listener on 127.0.0.1:${String(socksListen)} never proxied`,
-      async () => (await socksFetch(socksListen, `http://127.0.0.1:${String(targetPort)}/`)) === MARKER,
+      async () => (await socksFetch(socksListen, `http://127.0.0.1:${String(DEST_MARKER_PORT)}/`)) === MARKER,
     );
-    // -R: sshd's own listener on the destination side; the bytes come back
-    // through the tunnel to the target server.
+    // -R: sshd's listener ON THE CONTAINER; the bytes come back through the
+    // tunnel to this spec's marker server. Read from inside D, because D owns
+    // the port and this spec is no longer on D's loopback.
     await pollUntil(
-      () => `-R forward on the destination never answered on ${String(remoteListen)}`,
-      async () => (await fetchText(`http://127.0.0.1:${String(remoteListen)}/`)) === MARKER,
+      () => `-R forward on the destination never answered on ${String(DEST_BLANK_R_PORT)}`,
+      async () => (await destFetch(`http://127.0.0.1:${String(DEST_BLANK_R_PORT)}/`)) === MARKER,
     );
+    // The blank bind rides the destination's default, and under
+    // `GatewayPorts clientspecified` that default is loopback: the SAME port
+    // refuses a dial to the container's interface address. One machine
+    // answers, the other address does not - the bind really is narrow.
+    expect(await destFetch(`http://${destAddress}:${String(DEST_BLANK_R_PORT)}/`)).toBeNull();
 
     // The audit row names what the pane opened, bounded and secret-free:
     // kind + canonical listen per row, target for the two kinds that have one.
@@ -392,9 +519,9 @@ test.describe("ssh port forwards (spec 2026-10-15)", () => {
     expect(launchRow?.metadata).toMatchObject({
       nodeId: "local",
       forwards: [
-        { kind: "local", listen: `127.0.0.1:${String(localListen)}`, target: `127.0.0.1:${String(targetPort)}` },
+        { kind: "local", listen: `127.0.0.1:${String(localListen)}`, target: `127.0.0.1:${String(DEST_MARKER_PORT)}` },
         { kind: "dynamic", listen: `127.0.0.1:${String(socksListen)}` },
-        { kind: "remote", listen: String(remoteListen), target: `127.0.0.1:${String(targetPort)}` },
+        { kind: "remote", listen: String(DEST_BLANK_R_PORT), target: `127.0.0.1:${String(targetPort)}` },
       ],
     });
   });
@@ -402,16 +529,25 @@ test.describe("ssh port forwards (spec 2026-10-15)", () => {
   test("a wide bind is refused before the switch and bound after it", async () => {
     test.setTimeout(240_000);
     const admin = adminRef;
-    if (!admin) throw new Error("beforeAll did not run");
+    if (!admin || !fixture) throw new Error("beforeAll did not run");
+    const fx = fixture;
     const inst = instance;
     if (!inst) throw new Error("no backend instance");
 
     const wideListen = await freePort();
-    const rows = [{ kind: "local", listenPort: wideListen, bindHost: "0.0.0.0", targetHost: "127.0.0.1", targetPort }];
+    const deniedRows = [
+      {
+        kind: "local",
+        listenPort: wideListen,
+        bindHost: "0.0.0.0",
+        targetHost: "127.0.0.1",
+        targetPort: DEST_MARKER_PORT,
+      },
+    ];
 
     // Before: the refusal is pre-launch and names itself; nothing was dialed.
     const denied = await admin.post("/api/ssh/launch", {
-      data: { node: "local", destination: SSH_FIXTURE_ALIAS, name: "e2e-fwd-wide-denied", forwards: rows },
+      data: { node: "local", destination: SSH_FIXTURE_ALIAS, name: "e2e-fwd-wide-denied", forwards: deniedRows },
     });
     expect(denied.status()).toBe(403);
     expect(((await denied.json()) as { code: string }).code).toBe("SSH_FORWARD_BIND_DENIED");
@@ -421,10 +557,24 @@ test.describe("ssh port forwards (spec 2026-10-15)", () => {
     expect(flipped.ok(), await flipped.text()).toBe(true);
     expect(((await flipped.json()) as { sshWideForwards: boolean }).sshWideForwards).toBe(true);
 
-    // After: the same row launches, the file spells the wide bind, and the
-    // listener answers.
+    // After: the same row launches, plus the remote twin, so the wide escape
+    // gets proved on BOTH machines the feature touches.
     const launch = await admin.post("/api/ssh/launch", {
-      data: { node: "local", destination: SSH_FIXTURE_ALIAS, name: "e2e-fwd-wide-accepted", forwards: rows },
+      data: {
+        node: "local",
+        destination: SSH_FIXTURE_ALIAS,
+        name: "e2e-fwd-wide-accepted",
+        forwards: [
+          ...deniedRows,
+          {
+            kind: "remote",
+            listenPort: DEST_WIDE_R_PORT,
+            bindHost: "0.0.0.0",
+            targetHost: "127.0.0.1",
+            targetPort,
+          },
+        ],
+      },
     });
     expect(launch.status(), await launch.text()).toBe(201);
     const subshellId = ((await launch.json()) as { subshell: { id: string } }).subshell.id;
@@ -432,12 +582,38 @@ test.describe("ssh port forwards (spec 2026-10-15)", () => {
 
     const configPath = path.join(inst.dataDir, "ssh", subshellId, "config");
     await pollUntil(`the wide-bind config never appeared at ${configPath}`, () => existsSync(configPath));
-    expect(readFileSync(configPath, "utf8")).toContain(
-      `LocalForward 0.0.0.0:${String(wideListen)} 127.0.0.1:${String(targetPort)}`,
-    );
+    const config = readFileSync(configPath, "utf8");
+    expect(config).toContain(`LocalForward 0.0.0.0:${String(wideListen)} 127.0.0.1:${String(DEST_MARKER_PORT)}`);
+    expect(config).toContain(`RemoteForward 0.0.0.0:${String(DEST_WIDE_R_PORT)} 127.0.0.1:${String(targetPort)}`);
+
+    // This is the second ssh session against the container; the forwards bind
+    // only once its shell is up.
     await pollUntil(
-      () => `wide forward on ${String(wideListen)} never answered`,
+      () => `the second sshd session never reached its shell for ${subshellId}`,
+      () => (readFileSync(fx.logPath, "utf8").match(/Starting session: shell/g) ?? []).length >= 2,
+      READY_TIMEOUT,
+    );
+
+    // The B side still answers its own loopback curl (unchanged from before
+    // the switch - the wide bind is an ADDITION, not a replacement).
+    await pollUntil(
+      () => `wide forward on ${String(wideListen)} never answered locally`,
       async () => (await fetchText(`http://127.0.0.1:${String(wideListen)}/`)) === MARKER,
+    );
+    // THE proof: the destination container - another machine - dials this
+    // machine's interface address and the wide-bound listener answers with
+    // the marker. Pre-switch, this port bound 127.0.0.1 only and the same
+    // dial could only ever be refused.
+    await pollUntil(
+      () => `the destination never reached the wide -L port on ${connectingMachineAddress()}:${String(wideListen)}`,
+      async () => (await destFetch(`http://${connectingMachineAddress()}:${String(wideListen)}/`)) === MARKER,
+    );
+    // And the wide -R escape on the destination's own side: the same kind of
+    // dial that refused the blank bind now answers, at the container's
+    // interface address.
+    await pollUntil(
+      () => `the wide -R port never answered at the container's interface address`,
+      async () => (await destFetch(`http://${destAddress}:${String(DEST_WIDE_R_PORT)}/`)) === MARKER,
     );
   });
 });
