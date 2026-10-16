@@ -217,6 +217,24 @@ export interface SshMachineReadiness {
   blockers: { code: string; message: string }[];
 }
 
+/**
+ * The explanation a machine row carries in the launch pickers. When the
+ * machine's OWN SSH switch is the SOLE refusal, the row says it in three gold
+ * words: the server's full sentence is a paragraph in a one-line row and
+ * truncates mid-word (report 2026-10-16). The sole-cause discipline mirrors
+ * `sshCanEnableOnStart`: with anything else also blocking, naming only the
+ * switch would mislead, so the row keeps the server's joined sentences, which
+ * name the remedies. The whole story reads below the field once a row is
+ * chosen.
+ */
+export function sshMachineRowReason(machine: SshMachineReadiness): { reason: string; warning: boolean } | undefined {
+  const only = machine.blockers.length === 1 ? machine.blockers[0] : undefined;
+  if (only !== undefined && only.code === "SSH_GATE_OFF" && !machine.node.sshEnabled)
+    return { reason: "SSH not enabled", warning: true };
+  if (machine.blockers.length === 0) return undefined;
+  return { reason: machine.blockers.map((b) => b.message).join(" "), warning: false };
+}
+
 /** Only a disabled SSH flag may be changed as part of starting a connection. */
 export function sshCanEnableOnStart(machine: SshMachineReadiness | undefined): boolean {
   return (

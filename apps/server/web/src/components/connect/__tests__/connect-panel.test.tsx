@@ -243,18 +243,20 @@ describe("machine disclosure (contract 1)", () => {
       await settle();
       const studio = await screen.findByRole("option", { name: /studio/ });
       expect(studio.getAttribute("data-disabled")).toBe("");
-      // The row carries the remedy, not just the cause (the changeset's
-      // promise; the server's gateCause sentences are the pattern).
-      expect(studio.textContent).toContain(
-        "SSH is off on this machine. Its owner can switch it on from this machine's settings.",
-      );
+      // The row is short and gold, not a paragraph: "SSH not enabled" reads in
+      // one line of a capped popup (ruling 2026-10-16). The full remedy
+      // sentence arrives beside the field and in the launch refusal.
+      expect(studio.textContent).toContain("SSH not enabled");
+      expect(studio.textContent).not.toContain("Its owner can switch it on");
+      // Gold: the switch-not-on tone, not a mistake in what the reader typed.
+      expect(studio.querySelector('[class*="text-warning"]')).not.toBeNull();
       expect(pathname()).toBe("/");
     } finally {
       restore();
     }
   });
 
-  it("names the admin remedy on a gated-off local row, kind-aware like the server's gate", async () => {
+  it("shortens a gated-off local row's reason the same way, one label for either switch", async () => {
     const localOff = node({ id: "loc", name: "this host", kind: "local", sshEnabled: false });
     const { restore } = await renderPanel({ nodes: [HOST_A, localOff] });
     try {
@@ -262,7 +264,9 @@ describe("machine disclosure (contract 1)", () => {
       await settle();
       const row = await screen.findByRole("option", { name: /this host/ });
       expect(row.getAttribute("data-disabled")).toBe("");
-      expect(row.textContent).toContain("SSH is off here. An admin can switch it on from this machine's settings.");
+      // Short in the row regardless of whose switch it is: the admin-vs-owner
+      // pair lives in the field guidance and the refusal, not the one-liner.
+      expect(row.textContent).toContain("SSH not enabled");
     } finally {
       restore();
     }

@@ -4,7 +4,7 @@ import { LoaderCircle } from "lucide-react";
 import type { ReactNode } from "react";
 import { SearchableSelect } from "@/components/ui/combobox";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
-import type { SshMachineReadiness } from "@/lib/ssh";
+import { type SshMachineReadiness, sshMachineRowReason } from "@/lib/ssh";
 
 /** Lists visible machines even when they need preparation; launch and configuration are distinct rights. */
 export function SshMachineStep({
@@ -42,15 +42,16 @@ export function SshMachineStep({
           placeholder="Choose a node"
           options={machines
             .filter((m) => m.node.id !== exclude || m.node.id === value)
-            .map((m) => ({
-              value: m.node.id,
-              label: m.node.name,
-              disabled: m.node.id === exclude,
-              reason:
-                m.node.id === exclude
-                  ? "Choose a different machine to supply your keys."
-                  : m.blockers.map((b) => b.message).join(" "),
-            }))}
+            .map((m) => {
+              const row = sshMachineRowReason(m);
+              return {
+                value: m.node.id,
+                label: m.node.name,
+                disabled: m.node.id === exclude,
+                reason: m.node.id === exclude ? "Choose a different machine to supply your keys." : row?.reason,
+                reasonWarning: m.node.id !== exclude && row?.warning === true,
+              };
+            })}
           onValueChange={(id) => id && onChange(id)}
         />
         {description && <p className="text-detail text-muted-foreground">{description}</p>}
