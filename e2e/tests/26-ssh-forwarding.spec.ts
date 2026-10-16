@@ -328,8 +328,8 @@ test.describe("ssh port forwards (spec 2026-10-15)", () => {
     });
     if (add.status !== 0) throw new Error(`ssh-add failed: ${add.stderr}`);
 
-    // The address the container itself answers on: a dial there cannot reach a
-    // loopback bind, which is what makes it the wide-bind proof's client end.
+    // The address the container itself answers on: destination-side dials
+    // aim there, and a loopback bind cannot be reached at it.
     const addrProbe = await fixture.exec(["ip", "-4", "-o", "addr", "show", "dev", "eth0"]);
     destAddress = addrProbe.output.match(/inet (\d+\.\d+\.\d+\.\d+)\//)?.[1] ?? "";
     if (destAddress === "") throw new Error(`container eth0 address unparseable: ${addrProbe.output}`);
