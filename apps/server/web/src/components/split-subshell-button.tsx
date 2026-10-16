@@ -77,10 +77,13 @@ export function SplitSubshellButton({ subshell }: { subshell: SubshellView }): J
           cannot afford the word). The tooltip carries it, and the dialog it
           opens is titled "Split" so the word survives where the choice is
           actually made. */}
+      {/* `ghost` like its header neighbours (operator ruling 2026-10-16): the
+          outline border made this one icon-only button read as a different
+          kind of control than the workspace link and menu beside it. */}
       <TippedIconButton
         tooltip="Split this subshell into a workspace"
         size="sm"
-        variant="outline"
+        variant="ghost"
         onClick={() => setOpen(true)}
       >
         <SquareSplitHorizontal className="h-3.5 w-3.5" />
