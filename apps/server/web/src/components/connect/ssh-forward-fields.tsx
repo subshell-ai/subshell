@@ -52,6 +52,12 @@ const KIND_HELP: Record<SshForwardDraftRow["kind"], string> = {
     "Opens a SOCKS proxy port on the machine you connect from. Tools pointed at it choose their own targets, each reached through the destination.",
 };
 
+/**
+ * The duplicate-listen refusal in one sentence, shared by the Add button's
+ * tooltip and the alert under the editor so the two voices can't drift.
+ */
+const CONFLICT_SENTENCE = "Another listed forward already binds that port there.";
+
 /** A line's Listen part: what ssh will really bind, spelled plainly. */
 function listenText(row: SshForwardDraftRow): string {
   return sshForwardListenText(row.kind, row.listenPort.trim(), row.bindHost.trim());
@@ -82,16 +88,19 @@ export function SshForwardFields({
   const conflict = problem === null && touched && sshForwardRowConflict(editor, rows);
   const atCap = rows.length >= SSH_MAX_FORWARD_ROWS;
   const capReason = `A connection carries at most ${String(SSH_MAX_FORWARD_ROWS)} port forwards.`;
-  const addReason =
-    problem !== null ? problem.text : conflict ? "Another listed forward already binds that port there." : undefined;
+  const addReason = problem !== null ? problem.text : conflict ? CONFLICT_SENTENCE : undefined;
+  const foldEditor = () => {
+    // Folding is always a clean slate: the values clear and only the chosen
+    // kind stays. Commit and Cancel share this, so whatever closes the editor
+    // - a row landing or a mind changing - means the next opening shows
+    // nothing stale, and "Cancel" means what it says.
+    setEditor({ ...EMPTY_SSH_FORWARD_ROW, kind: editor.kind });
+    setComposing(false);
+  };
   const addForward = () => {
     if (problem !== null || conflict || atCap) return;
     onChange([...rows, { ...editor }]);
-    // The row is committed; fold the editor away. Keep the chosen kind (the
-    // next forward is usually the same shape) and clear the values, so the
-    // editor is never a stale copy of what was added.
-    setEditor({ ...EMPTY_SSH_FORWARD_ROW, kind: editor.kind });
-    setComposing(false);
+    foldEditor();
   };
   const helpId = "ssh-fwd-kind-help";
   const example = FORWARD_EXAMPLE[editor.kind];
@@ -104,8 +113,9 @@ export function SshForwardFields({
       </p>
       {!allowWideBind && (
         <p className="text-detail text-warning">
-          Until the owner turns on <span className="font-strong">"Allow wide port forwards"</span> in this node's SSH
-          settings, every forward here listens on 127.0.0.1 and only local programs can reach the port.
+          Until the owner turns on <span className="font-strong">“Allow wide port forwards”</span> in this node's SSH
+          settings, a forward can only bind 127.0.0.1 on this machine, so just local programs can reach the port. A
+          remote forward binds on the destination instead, under the destination's own policy.
         </p>
       )}
       {!composing ? (
@@ -219,9 +229,11 @@ export function SshForwardFields({
               {problem.text}
             </p>
           )}
-          {touched && conflict && problem === null && (
+          {/* `conflict` is only computed when there's no other problem, so one
+              guard here cannot double-say the row's own sentence. */}
+          {touched && conflict && (
             <p role="alert" className="text-destructive text-detail">
-              Another listed forward already binds that port there. Change the port or the bind, or remove that one.
+              {CONFLICT_SENTENCE} Change the port or the bind, or remove that one.
             </p>
           )}
           <div className="flex items-center gap-2">
@@ -235,7 +247,7 @@ export function SshForwardFields({
               <Plus data-icon="inline-start" aria-hidden="true" />
               Add port forward
             </Button>
-            <Button type="button" variant="ghost" onClick={() => setComposing(false)}>
+            <Button type="button" variant="ghost" onClick={foldEditor}>
               Cancel
             </Button>
           </div>

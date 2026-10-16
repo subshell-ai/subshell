@@ -24,7 +24,13 @@ export function SshPaneLabels({
   nodeLabel,
 }: {
   subshell?: SubshellView;
-  /** The pane's machine as the page labels it; null means "a node you can't see", which the tooltip omits. */
+  /**
+   * The pane's machine through the page's shared `nodeLabelFor` ladder: the
+   * display name once the nodes read answers, a short id fragment while it has
+   * never answered, and "node you can't see" for a node off the viewer's
+   * list. The tooltip shows whatever the ladder resolved, top line; null or
+   * empty (a caller with nothing to say) simply omits the line.
+   */
   nodeLabel?: string | null;
 }) {
   if (subshell?.ssh !== true) return null;

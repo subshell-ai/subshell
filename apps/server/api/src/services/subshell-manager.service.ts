@@ -61,6 +61,7 @@ import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
 import { EMPTY_PRESET, parsePreset } from "@/services/preset-definition.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
+import { sshCanonicalDestination } from "@/services/ssh-destination.js";
 import { sweepLocalSshDir } from "@/services/ssh-launch.service.js";
 import { closeRelayForPaneExit, sweepRelayForPane } from "@/services/ssh-relay.service.js";
 import { issueSubshellToken, revokeSubshellToken } from "@/services/subshell-tokens.js";
@@ -2339,8 +2340,10 @@ export function sshPaneSummary(raw: string | null): { destination: string; forwa
   if (typeof parsed !== "object" || parsed === null) return null;
   const column = parsed as Record<string, unknown>;
   if (typeof column.host !== "string" || column.host === "" || typeof column.port !== "number") return null;
-  const user = typeof column.user === "string" && column.user !== "" ? `${column.user}@` : "";
-  const destination = `${user}${column.host}:${String(column.port)}`;
+  if (!(column.user === null || typeof column.user === "string")) return null;
+  // The same composer the audit row and the recent-destinations key use, so
+  // the header's "canonical" is one spelling, not a second one that drifts.
+  const destination = sshCanonicalDestination({ host: column.host, port: column.port, user: column.user });
   // A row list that fails its grammar shows no list: the destination still
   // earned its place, and a header is not the place to surface a stored-row bug.
   const forwards = parseSshForwardRows(column.declaredForwards ?? []);

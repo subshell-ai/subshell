@@ -823,6 +823,28 @@ it("carries added port forwards in the launch body, and holds Add until the edit
   }
 });
 
+it("Cancel means the half-typed row is gone, not hidden", async () => {
+  const { restore } = await renderPanel({ nodes: [HOST_A] });
+  try {
+    fireEvent.click(screen.getByRole("button", { name: "Advanced SSH options" }));
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
+    await settle();
+    fireEvent.change(screen.getByLabelText(/Local port/), { target: { value: "8080" } });
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await settle();
+    expect(screen.queryByLabelText(/Local port/) === null).toBe(true);
+    // Reopening shows nothing stale: what Cancel discarded stays discarded.
+    fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
+    await settle();
+    expect((screen.getByLabelText(/Local port/) as HTMLInputElement).value).toBe("");
+    expect(screen.queryByRole("alert") === null).toBe(true);
+  } finally {
+    restore();
+  }
+});
+
 it("removes an added forward from the table before the launch", async () => {
   const { calls, restore } = await renderPanel({
     nodes: [HOST_A],

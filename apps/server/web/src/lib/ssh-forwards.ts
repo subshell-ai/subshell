@@ -153,7 +153,10 @@ export function sshForwardRowsToWire(rows: readonly SshForwardDraftRow[]): SshFo
 export const FORWARD_EXAMPLE: Record<SshForwardDraftRow["kind"], { listen: string; host: string; port: string }> = {
   local: { listen: "5432", host: "db.internal", port: "5432" },
   remote: { listen: "9090", host: "app.local", port: "3000" },
-  dynamic: { listen: "1080", host: "db.internal", port: "5432" },
+  // No target fields are rendered for a SOCKS forward and its diagram names
+  // no target, so the host and port here are deliberately empty: nothing may
+  // start treating them as a real example.
+  dynamic: { listen: "1080", host: "", port: "" },
 };
 
 /**
