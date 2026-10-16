@@ -184,9 +184,10 @@ flip writes its own row in the nodes family.
   pattern: launch with a `-L` row and curl the bound loopback port for the fixture's
   bytes; a `-D` leg through `curl --socks5-hostname`; a `-R` loopback-bind leg; the
   wide-bind refusal before the toggle and acceptance after. Assert the recorded config
-  carries the forward block under the exact-`Host` section and that the rowless
-  `Host *` clear is GONE (§5: the clear is dropped when rows are approved, so asserting
-  its presence would assert the opposite of what ships).
+  carries the forward block under the exact-`Host` section and that the `Host *`
+  policy's `ClearAllForwardings` line - present in a rowless render - is GONE
+  (§5: rows approved means the clear dropped, so asserting its presence would
+  assert the opposite of what ships).
 
 ## 10. Non-goals and follow-ups
 
