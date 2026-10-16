@@ -584,6 +584,11 @@ export async function sshLaunch(args: {
         configPath: composed.configPath,
         fileContent: composed.fileContent,
         snapshot,
+        // The declared rows ride the pane's column beside the snapshot (spec
+        // 2026-10-15 §6): the launch bytes already carry them, and the pane
+        // header states them for the pane's whole life. They were parsed once
+        // above, so what is recorded is exactly what was approved.
+        ...(forwards.length > 0 ? { forwards } : {}),
         ...(localKey ? { localKey: true as const } : {}),
         // Preserve the actual selected keys, including the complete roster
         // resolved for callers that omitted selection. Later acts cannot widen it.

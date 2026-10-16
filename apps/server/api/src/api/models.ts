@@ -1,6 +1,27 @@
 import { t } from "elysia";
 
 /**
+ * One declared port forward as the pane header shows it (spec 2026-10-15):
+ * the row exactly as launch approved it, with the nulls the wire carries.
+ * The renderer for words lives in the web app, not here.
+ */
+export const SshForwardViewSchema = t.Object({
+  kind: t.Union([t.Literal("local"), t.Literal("remote"), t.Literal("dynamic")], {
+    description: "-L local, -R remote, or -D dynamic SOCKS",
+  }),
+  listenPort: t.Number({ description: "Port the forward listens on (1-65535)" }),
+  bindHost: t.Nullable(
+    t.String({
+      description: "Bind address; null = loopback on a local/dynamic row, the destination's policy on a remote one",
+    }),
+  ),
+  targetHost: t.Nullable(
+    t.String({ description: "Host reached through the connection; null on a dynamic row, which has no fixed target" }),
+  ),
+  targetPort: t.Nullable(t.Number({ description: "Target port; null on a dynamic row" })),
+});
+
+/**
  * Shared TypeBox schemas for API responses (documented in OpenAPI).
  */
 export const UserInfoSchema = t.Object({
@@ -70,6 +91,20 @@ export const SubshellSchema = t.Object({
   ssh: t.Boolean({
     description: "True when this pane is an SSH-terminal pane: only its owner can type into it.",
   }),
+  sshSummary: t.Optional(
+    t.Object(
+      {
+        destination: t.String({ description: "Canonical user@host:port the pane connected to" }),
+        forwards: t.Array(SshForwardViewSchema, {
+          description: "The port forwards declared at launch, in the order added; empty when none (spec 2026-10-15)",
+        }),
+      },
+      {
+        description:
+          "Bounded view of the SSH connection (canonical destination, declared forward rows) for the pane header. Same disclosure class as the ssh.launch audit summary; absent on a pane whose column can't be read",
+      },
+    ),
+  ),
   nodeOffline: t.Boolean({
     description:
       "True when the subshell's node is disconnected. The subshell may still be running there. Always false for subshells on the server host.",

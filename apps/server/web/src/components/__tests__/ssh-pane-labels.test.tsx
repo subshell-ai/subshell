@@ -59,3 +59,35 @@ it("explains the SSH icon on keyboard focus", async () => {
   await act(async () => screen.getByRole("button", { name: "SSH connection" }).focus());
   await waitFor(() => expect(screen.getByText("This subshell connects to another machine over SSH.")).toBeTruthy());
 });
+
+it("lists the destination and the declared forwards in the tooltip", async () => {
+  render(
+    <SshPaneLabels
+      subshell={row({
+        ssh: true,
+        sshSummary: {
+          destination: "theo@build.example:22",
+          forwards: [
+            { kind: "local", listenPort: 5432, bindHost: null, targetHost: "db.internal", targetPort: 5432 },
+            { kind: "dynamic", listenPort: 1080, bindHost: null, targetHost: null, targetPort: null },
+          ],
+        },
+      })}
+    />,
+  );
+  await act(async () => screen.getByRole("button", { name: "SSH connection" }).focus());
+  await waitFor(() => expect(screen.getByText("theo@build.example:22")).toBeTruthy());
+  expect(screen.getByText("Local · loopback:5432 → db.internal:5432")).toBeTruthy();
+  expect(screen.getByText("Dynamic · loopback:1080 → any host the tool picks")).toBeTruthy();
+  // The concrete facts replace the vague sentence, they do not stack on it.
+  expect(screen.queryByText(/connects to another machine/) === null).toBe(true);
+});
+
+it("says so when the connection carries no forwards", async () => {
+  render(
+    <SshPaneLabels subshell={row({ ssh: true, sshSummary: { destination: "deploy@host:2222", forwards: [] } })} />,
+  );
+  await act(async () => screen.getByRole("button", { name: "SSH connection" }).focus());
+  await waitFor(() => expect(screen.getByText("deploy@host:2222")).toBeTruthy());
+  expect(screen.getByText("No port forwards")).toBeTruthy();
+});

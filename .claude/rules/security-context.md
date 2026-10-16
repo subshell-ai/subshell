@@ -124,7 +124,7 @@ for the route inventory and trust limits. `/api/ssh/*` requires a browser sessio
 SSH terminal input additionally requires the pane owner and refuses all bearer
 actors. The node SSH switch is owner-only (admin for the built-in node), including
 implicit enablement on launch. It controls outgoing SSH and agent-key supply,
-not incoming access. Port forwards are declared per connection, never config-derived (that refusal stands): loopback binds by default, and a non-loopback bind needs the node's owner-only wide-forwards switch (`node.ssh_wide_forwards.update`); remote-forward binds answer to the destination's sshd policy. Relays require access to both nodes; the UI requires key selection, while the
+not incoming access. Port forwards are declared per connection, never config-derived (that refusal stands): loopback binds by default, and a non-loopback bind needs the node's owner-only wide-forwards switch (`node.ssh_wide_forwards.update`); remote-forward binds answer to the destination's sshd policy. The subshell view carries a bounded summary (canonical destination, declared rows) for the pane header: disclosure-only, same class as the audit's. Relays require access to both nodes; the UI requires key selection, while the
 cookie API can select the current roster when selection is omitted. Private keys
 stay at the source. Bounded configuration scanning does not prevent all local
 execution during `ssh -G`; trust the connecting account’s SSH configuration. First-use destination confirmation cannot replace

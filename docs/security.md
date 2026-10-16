@@ -1290,7 +1290,9 @@ rejects `LocalForward`, `RemoteForward`, and `DynamicForward` found by `ssh -G`
 before the snapshot freezes, and the snapshot keeps them as forbidden members.
 Forwards that exist come from rows the user declared at launch (or from the
 preset storing them): an explicit kind, port, and target, visible in the form
-and summarized in the launch audit. A local or dynamic forward binds the
+and summarized in the launch audit. The subshell view carries that same bounded
+summary (canonical destination, declared rows) to anyone who can see the pane,
+which is disclosure-only like the pane output that already shows the login. A local or dynamic forward binds the
 connecting node's loopback address by default, which that node's other OS users
 can reach: §0's accepted posture verbatim, the same class the node's loopback
 dashboard already carries. Binding anything wider requires the node's

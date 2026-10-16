@@ -10,9 +10,11 @@ import {
   EMPTY_SSH_FORWARD_ROW,
   FORWARD_EXAMPLE,
   type SshForwardDraftRow,
+  sshForwardListenText,
   sshForwardRowConflict,
   sshForwardRowDiagram,
   sshForwardRowProblem,
+  sshForwardTargetText,
 } from "@/lib/ssh-forwards";
 
 /**
@@ -52,15 +54,12 @@ const KIND_HELP: Record<SshForwardDraftRow["kind"], string> = {
 
 /** A line's Listen part: what ssh will really bind, spelled plainly. */
 function listenText(row: SshForwardDraftRow): string {
-  const port = row.listenPort.trim();
-  const bind = row.bindHost.trim();
-  if (bind !== "") return `${bind}:${port}`;
-  return row.kind === "remote" ? `${port} (by policy)` : `loopback:${port}`;
+  return sshForwardListenText(row.kind, row.listenPort.trim(), row.bindHost.trim());
 }
 
 /** A line's Target part; a SOCKS forward has no fixed target to name. */
 function targetText(row: SshForwardDraftRow): string {
-  return row.kind === "dynamic" ? "any host the tool picks" : `${row.targetHost.trim()}:${row.targetPort.trim()}`;
+  return sshForwardTargetText(row.kind, row.targetHost.trim(), row.targetPort.trim());
 }
 
 export function SshForwardFields({

@@ -8,6 +8,7 @@ import {
   sshForwardRowProblems,
   sshForwardRowsFromWire,
   sshForwardRowsToWire,
+  sshForwardWireLine,
 } from "@/lib/ssh-forwards";
 
 /** The form-side mirror of the launch-time refusals (spec 2026-10-15). */
@@ -151,6 +152,36 @@ describe("sshForwardRowsFromWire", () => {
     ];
     expect(sshForwardRowsToWire(sshForwardRowsFromWire(wire))).toEqual(wire);
     expect(sshForwardRowsFromWire(undefined)).toEqual([]);
+  });
+});
+
+describe("sshForwardWireLine", () => {
+  it("spells a stored row like the editor's line does", () => {
+    expect(
+      sshForwardWireLine({
+        kind: "local",
+        listenPort: 5432,
+        bindHost: null,
+        targetHost: "db.internal",
+        targetPort: 5432,
+      }),
+    ).toBe("Local · loopback:5432 → db.internal:5432");
+    expect(
+      sshForwardWireLine({
+        kind: "remote",
+        listenPort: 9090,
+        bindHost: "0.0.0.0",
+        targetHost: "app.local",
+        targetPort: 3000,
+      }),
+    ).toBe("Remote · 0.0.0.0:9090 → app.local:3000");
+    // A remote blank bind rides the destination's policy; dynamic has no target.
+    expect(
+      sshForwardWireLine({ kind: "remote", listenPort: 9090, bindHost: null, targetHost: "a", targetPort: 1 }),
+    ).toBe("Remote · 9090 (by policy) → a:1");
+    expect(
+      sshForwardWireLine({ kind: "dynamic", listenPort: 1080, bindHost: null, targetHost: null, targetPort: null }),
+    ).toBe("Dynamic · loopback:1080 → any host the tool picks");
   });
 });
 

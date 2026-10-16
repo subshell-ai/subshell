@@ -175,6 +175,38 @@ export function sshForwardRowDiagram(row: SshForwardDraftRow): string {
     : `program on the destination → ${listen} there → connecting machine → ${host}:${targetPort}`;
 }
 
+/**
+ * The Listen half of a row in words: a named bind spelled as `bind:port`, a
+ * blank on a local or dynamic row is ssh's own loopback, and a blank on a
+ * remote row rides the destination's policy. Inputs are the trimmed strings
+ * the form holds, or wire values stringified by {@link sshForwardWireLine}.
+ */
+export function sshForwardListenText(kind: SshForwardDraftRow["kind"], listenPort: string, bindHost: string): string {
+  if (bindHost !== "") return `${bindHost}:${listenPort}`;
+  return kind === "remote" ? `${listenPort} (by policy)` : `loopback:${listenPort}`;
+}
+
+/** The Target half; a SOCKS forward has no fixed target to name. */
+export function sshForwardTargetText(kind: SshForwardDraftRow["kind"], targetHost: string, targetPort: string): string {
+  return kind === "dynamic" ? "any host the tool picks" : `${targetHost}:${targetPort}`;
+}
+
+/**
+ * One stored (wire) row as the pane header lists it: `Local · loopback:5432 →
+ * db.internal:5432`. The same spellings the editor's table uses, so a person
+ * who declared a row recognizes it in the header.
+ */
+export function sshForwardWireLine(row: SshForwardRow): string {
+  const kind = row.kind === "local" ? "Local" : row.kind === "remote" ? "Remote" : "Dynamic";
+  const listen = sshForwardListenText(row.kind, String(row.listenPort), row.bindHost ?? "");
+  const target = sshForwardTargetText(
+    row.kind,
+    row.targetHost ?? "",
+    row.targetPort === null ? "" : String(row.targetPort),
+  );
+  return `${kind} · ${listen} ${"→"} ${target}`;
+}
+
 /** A stored preset's rows back into form spelling. */
 export function sshForwardRowsFromWire(rows: readonly SshForwardRow[] | undefined): SshForwardDraftRow[] {
   return (rows ?? []).map((row) => ({

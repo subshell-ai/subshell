@@ -17,7 +17,9 @@ import {
   type NodeProbeEntry,
   normalizeLabel,
   parseNodeProbeEntries,
+  parseSshForwardRows,
   type SshConnectionSnapshotWire,
+  type SshForwardWire,
 } from "@internal/subshell-protocol";
 import { harnessUsable } from "@/api/harness-utils.js";
 import type { PresetsRepository } from "@/db/repositories/presets.repository.js";
@@ -146,6 +148,12 @@ export interface SshLaunchPlumbing {
   fileContent: string;
   /** The snapshot the resolver approved (grammar-validated at each boundary already). */
   snapshot: SshConnectionSnapshotWire;
+  /**
+   * User-declared port forwards (spec 2026-10-15), already parsed. Stored on
+   * the pane so its header can list what the connection carries; absent when
+   * the launch declared none, so the column of a plain pane is unchanged.
+   */
+  forwards?: readonly SshForwardWire[];
   /**
    * RELAY MODE (spec 2026-10-08 §7): the key home whose agent signed the
    * connection, stored on the row (migration 0052) so "Set up Subshell here"
@@ -506,6 +514,11 @@ export class SubshellManagerService {
       ssh: ssh
         ? JSON.stringify({
             ...ssh.snapshot,
+            // Its own key, never `forwards`: the spread snapshot carries
+            // `forwards: null` as the config-derived refusal marker, and
+            // every grammar that re-reads this column expects that null.
+            // Declared rows are a different fact and say so in their name.
+            ...(ssh.forwards !== undefined && ssh.forwards.length > 0 ? { declaredForwards: ssh.forwards } : {}),
             ...(ssh.localKey ? { localKey: true } : {}),
             ...(ssh.relayFingerprints !== undefined ? { relayFingerprints: ssh.relayFingerprints } : {}),
           })
@@ -2235,7 +2248,7 @@ export function toSubshellView(
     waitingSince: string | null;
     lastPushUrgency: number | null;
     crossAgent: number;
-    /** The ssh snapshot column (migration 0048); read for presence only, never parsed here. */
+    /** The ssh snapshot column (migration 0048); parsed for the bounded summary only (see {@link sshPaneSummary}). */
     ssh: string | null;
   },
   status: string,
@@ -2256,6 +2269,7 @@ export function toSubshellView(
    */
   nodeOffline = false,
 ) {
+  const sshSummary = row.ssh !== null ? sshPaneSummary(row.ssh) : null;
   return {
     id: row.id,
     presetId: row.presetId,
@@ -2296,10 +2310,39 @@ export function toSubshellView(
     unseenPush: row.lastPushUrgency !== null,
     access,
     // The pane's KIND fact: the ssh snapshot column's PRESENCE (migration
-    // 0048). The snapshot itself stays never-serialized (its db-types doc).
+    // 0048). The snapshot itself stays never-serialized (its db-types doc);
+    // what rides along below is the bounded summary, not the snapshot.
     ssh: row.ssh !== null,
+    ...(sshSummary !== null ? { sshSummary } : {}),
     // Agent node unreachable right now (see the param doc) — the UI's
     // "node offline" chip; false for every local subshell.
     nodeOffline,
   };
+}
+
+/**
+ * The bounded view of an ssh pane's column: the canonical destination and the
+ * forward rows declared at launch (spec 2026-10-15 §6), which is the same
+ * disclosure the `ssh.launch` audit row already carries. Best-effort by
+ * construction: a column written before a field existed yields what it has,
+ * and a column that cannot be read yields nothing. A list must never throw
+ * over one row's bytes. Exported for direct test (`ssh-pane-summary.test.ts`).
+ */
+export function sshPaneSummary(raw: string | null): { destination: string; forwards: SshForwardWire[] } | null {
+  if (raw === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const column = parsed as Record<string, unknown>;
+  if (typeof column.host !== "string" || column.host === "" || typeof column.port !== "number") return null;
+  const user = typeof column.user === "string" && column.user !== "" ? `${column.user}@` : "";
+  const destination = `${user}${column.host}:${String(column.port)}`;
+  // A row list that fails its grammar shows no list: the destination still
+  // earned its place, and a header is not the place to surface a stored-row bug.
+  const forwards = parseSshForwardRows(column.declaredForwards ?? []);
+  return { destination, forwards: forwards ?? [] };
 }
