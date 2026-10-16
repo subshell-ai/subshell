@@ -1,4 +1,4 @@
-import { parseSshForwardRows } from "@internal/subshell-protocol";
+import { parseSshForwardRows, SSH_FORWARD_LIST_REFUSAL } from "@internal/subshell-protocol";
 import type { Static } from "elysia";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
 import { throwCodedRefusal } from "@/api/ssh/ssh-views.js";
@@ -58,11 +58,7 @@ export async function saveSshPreset(
   let forwardsJson: string | null = null;
   if (body.forwards !== undefined && body.forwards !== null) {
     const parsed = parseSshForwardRows(body.forwards);
-    if (parsed === null)
-      throw new SshPresetError(
-        "bad_request",
-        "That port-forward list isn't valid. Each forward needs a kind (local, remote, or dynamic), a listen port from 1 to 65535, and a target host and port except for dynamic. Two forwards can't bind the same port.",
-      );
+    if (parsed === null) throw new SshPresetError("bad_request", SSH_FORWARD_LIST_REFUSAL);
     if (parsed.length > 0) forwardsJson = JSON.stringify(parsed);
   }
   let destination = body.destination;

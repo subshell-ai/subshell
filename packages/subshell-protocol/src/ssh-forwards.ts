@@ -72,6 +72,14 @@ export type SshForwardWire = {
  */
 export const SSH_MAX_FORWARD_ROWS = 16;
 
+/**
+ * The sentence every station says when {@link parseSshForwardRows} refuses a
+ * list. Shared so the launch's 400 and the preset save's 400 cannot drift;
+ * the web form mirrors the same rules in its own per-field copy.
+ */
+export const SSH_FORWARD_LIST_REFUSAL =
+  "That port-forward list isn't valid. Each forward needs a kind (local, remote, or dynamic), a listen port from 1 to 65535, and a target host and port except for dynamic. Two forwards can't bind the same port on the same machine.";
+
 /** The keys one row may spell; anything else means the caller hand-built a shape this grammar does not have. */
 const FORWARD_ROW_KEYS: readonly (keyof SshForwardWire)[] = [
   "kind",
@@ -113,10 +121,12 @@ function parseSshForwardRow(value: unknown): SshForwardWire | null {
 
 /**
  * Validate a whole forward list: each row through {@link parseSshForwardRow},
- * then the LIST rules. A duplicate listen end (same host case-insensitively,
- * same port) refuses the list: two rows competing for one bind is a bug the
- * user should hear about, not a race ssh silently half-wins. The cap is a
- * refusal too, never a trim.
+ * then the LIST rules. A duplicate listen end refuses the list: two rows
+ * competing for one bind on one machine is a bug the user should hear about,
+ * not a race ssh silently half-wins. The listen end is keyed per SIDE: local
+ * and dynamic rows bind on the connecting machine, remote rows on the
+ * destination, so the same port spelled once on each side is two listeners,
+ * not a dupe. The cap is a refusal too, never a trim.
  *
  * @param value - candidate rows (parsed JSON; unknown provenance), or null/undefined for "no forwards"
  * @returns the narrowed rows (possibly empty), or null when malformed or over cap
@@ -129,16 +139,19 @@ export function parseSshForwardRows(value: unknown): SshForwardWire[] | null {
   for (const item of value) {
     const row = parseSshForwardRow(item);
     if (row === null) return null;
-    // Casefold only for the dupe key: hostnames match case-insensitively, and
-    // a "LOCALHOST" beside "localhost" is one bind, not two. A null bind on a
-    // local/dynamic row is canonically ssh's loopback, which is what the
-    // renderer spells as `127.0.0.1`, so it DUPLICATES a written `127.0.0.1`
-    // rather than riding beside it; two different literal names on one port
-    // ("localhost" vs "127.0.0.1") stay a configuration ssh reports itself.
-    // A remote null renders bare (D's GatewayPorts policy picks the address),
-    // which is a different listen spec from any named bind, so it keys empty.
+    // The listen end is per SIDE: a local/dynamic row binds B, a remote row
+    // binds D, so one port on each side is two listeners. Casefold only the
+    // name: hostnames match case-insensitively, and "LOCALHOST" beside
+    // "localhost" is one bind, not two. A null bind on a local/dynamic row is
+    // canonically ssh's loopback, which is what the renderer spells as
+    // `127.0.0.1`, so it DUPLICATES a written `127.0.0.1` rather than riding
+    // beside it; two different literal names on one port ("localhost" vs
+    // "127.0.0.1") stay a configuration ssh reports itself. A remote null
+    // renders bare (D's GatewayPorts policy picks the address), which is a
+    // different listen spec from any named bind, so it keys empty.
+    const side = row.kind === "remote" ? "D" : "B";
     const bindKey = (row.kind === "remote" ? (row.bindHost ?? "") : (row.bindHost ?? "127.0.0.1")).toLowerCase();
-    const key = `${bindKey}|${row.listenPort}`;
+    const key = `${side}|${bindKey}|${row.listenPort}`;
     if (seen.has(key)) return null;
     seen.add(key);
     rows.push(row);

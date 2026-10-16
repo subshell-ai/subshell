@@ -118,6 +118,14 @@ describe("parseSshForwardRows", () => {
     ).toBeNull();
   });
 
+  it("accepts one port spelled on both sides: a B bind and a D bind are two listeners", () => {
+    const rows = [
+      makeRow({ listenPort: 8080 }),
+      makeRow({ kind: "remote", listenPort: 8080, bindHost: "127.0.0.1", targetHost: "dev.local", targetPort: 3000 }),
+    ];
+    expect(parseSshForwardRows(rows)).toEqual(rows);
+  });
+
   it("keeps a remote null bind distinct from a named one (D's GatewayPorts spelling is its own listen spec)", () => {
     const rows = [
       makeRow({ kind: "remote", listenPort: 9090, targetHost: "a.internal", targetPort: 1 }),

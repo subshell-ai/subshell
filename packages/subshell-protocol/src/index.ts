@@ -267,6 +267,7 @@ export {
   isSshForwardKind,
   parseSshForwardRows,
   SSH_FORWARD_KINDS,
+  SSH_FORWARD_LIST_REFUSAL,
   SSH_MAX_FORWARD_ROWS,
   type SshForwardKind,
   type SshForwardWire,

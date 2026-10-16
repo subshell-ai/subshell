@@ -69,6 +69,18 @@ describe("sshForwardListProblems", () => {
         row({ kind: "remote", bindHost: "127.0.0.1", targetHost: "other.internal" }),
       ]),
     ).toBeNull();
+    // The same port on the two sides is two listeners, not a dupe.
+    expect(
+      sshForwardListProblems([
+        row({ listenPort: "8080", targetPort: "8080" }),
+        row({ kind: "remote", listenPort: "8080", targetPort: "3000" }),
+      ]),
+    ).toBeNull();
+    // The port keys numerically, so "05432" beside "5432" is one listener
+    // here rather than a form-only near-miss the server then 400s.
+    expect(
+      sshForwardListProblems([row({ listenPort: "05432" }), row({ listenPort: "5432", targetHost: "other.internal" })]),
+    ).toMatch(/same port/i);
   });
 
   it("refuses over the cap", () => {

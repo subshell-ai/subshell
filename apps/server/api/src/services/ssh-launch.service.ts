@@ -21,6 +21,7 @@ import {
   parseNodeSshAliasList,
   parseSshConnectionSnapshot,
   parseSshForwardRows,
+  SSH_FORWARD_LIST_REFUSAL,
   SSH_NAME_MAX_CHARS,
   type SshConnectionSnapshotWire,
   type SshForwardWire,
@@ -446,12 +447,7 @@ export async function sshLaunch(args: {
   let forwards: SshForwardWire[] = [];
   if (args.forwards !== undefined) {
     const parsed = parseSshForwardRows(args.forwards);
-    if (parsed === null)
-      return codedRefusal(
-        400,
-        BackendErrorCodes.CONFIG_INVALID,
-        "That port-forward list isn't valid. Each forward needs a kind (local, remote, or dynamic), a listen port from 1 to 65535, and a target host and port except for dynamic. Two forwards can't bind the same port.",
-      );
+    if (parsed === null) return codedRefusal(400, BackendErrorCodes.CONFIG_INVALID, SSH_FORWARD_LIST_REFUSAL);
     forwards = parsed;
   }
   if (forwards.length > 0 && forwards.some((f) => !isLoopbackForwardBind(f)) && row.sshWideForwards !== 1) {

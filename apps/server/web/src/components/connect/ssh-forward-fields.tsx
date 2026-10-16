@@ -24,13 +24,17 @@ function kindLabel(kind: SshForwardDraftRow["kind"]): string {
   return KIND_LABELS.find((option) => option.value === kind)?.label ?? kind;
 }
 
-/** What the chosen kind does and where its port lives, kept beside the row it explains (spec §7). */
+/**
+ * What the chosen kind does and where its port lives, kept beside the row it
+ * explains (spec §7). "The connecting machine" and "the destination" name the
+ * two ends: on a remote-node launch "this machine" would read as the browser.
+ */
 const KIND_HELP: Record<SshForwardDraftRow["kind"], string> = {
-  local: "The port opens on this machine, and programs here reach the target through the destination.",
+  local: "The port opens on the connecting machine, and programs there reach the target through the destination.",
   remote:
-    "The destination opens the port and reaches the target through this machine; its own SSH server decides how it binds.",
+    "The destination opens the port and reaches the target through the connecting machine; its own SSH server decides how it binds.",
   dynamic:
-    "A SOCKS proxy port opens on this machine; tools that use it pick their own targets and reach them through the destination.",
+    "A SOCKS proxy port opens on the connecting machine; tools that use it pick their own targets and reach them through the destination.",
 };
 
 export function SshForwardFields({

@@ -180,10 +180,13 @@ flip writes its own row in the nodes family.
   bytes; the path byte-check and the config dir sweep must still pass for a
   launch that forwards).
 - Web: draft round-trip, bind-host gating on the node flag, preset editor rows.
-- E2E: extend spec 22's real-sshd pattern: launch with a `-L` row and curl the bound
-  loopback port for the fixture's bytes; a `-D` leg through `curl --socks5-hostname`;
-  a `-R` loopback-bind leg; the wide-bind refusal before the toggle and acceptance
-  after. Assert the recorded config carries the forward block and the `Host *` clear.
+- E2E (shipped: `e2e/tests/26-ssh-forwarding.spec.ts`): extend spec 22's real-sshd
+  pattern: launch with a `-L` row and curl the bound loopback port for the fixture's
+  bytes; a `-D` leg through `curl --socks5-hostname`; a `-R` loopback-bind leg; the
+  wide-bind refusal before the toggle and acceptance after. Assert the recorded config
+  carries the forward block under the exact-`Host` section and that the rowless
+  `Host *` clear is GONE (§5: the clear is dropped when rows are approved, so asserting
+  its presence would assert the opposite of what ships).
 
 ## 10. Non-goals and follow-ups
 

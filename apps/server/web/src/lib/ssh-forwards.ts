@@ -78,12 +78,18 @@ export function sshForwardListProblems(rows: readonly SshForwardDraftRow[]): str
   }
   const listens = new Set<string>();
   for (const row of filled) {
-    // Same canonical as the protocol's dupe key: a blank bind on a local or
-    // dynamic row renders as `127.0.0.1`, so it IS that explicit bind twice;
-    // a remote blank rides the destination's own policy spelling.
+    // Same key as the protocol's dupe rule: per SIDE (a local/dynamic row
+    // binds the connecting machine, a remote row the destination, so one
+    // port on each side is two listeners), with the same canonical bind (a
+    // blank on a local or dynamic row renders as `127.0.0.1`, so it IS that
+    // explicit bind twice; a remote blank rides the destination's policy
+    // spelling) and the port as a number, so "05432" beside "5432" is one
+    // listener and not a form-only near-miss the server then refuses.
+    const side = row.kind === "remote" ? "D" : "B";
     const bind = row.bindHost.trim() === "" && row.kind !== "remote" ? "127.0.0.1" : row.bindHost.trim();
-    const key = `${bind.toLowerCase()}|${row.listenPort.trim()}`;
-    if (listens.has(key)) return "Two forwards can't bind the same port. Remove one or change a port.";
+    const key = `${side}|${bind.toLowerCase()}|${String(Number(row.listenPort.trim()))}`;
+    if (listens.has(key))
+      return "Two forwards can't bind the same port on the same machine. Remove one or change a port.";
     listens.add(key);
   }
   return null;
