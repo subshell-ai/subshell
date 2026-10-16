@@ -1,5 +1,17 @@
 # @internal/server
 
+## 2.3.0
+
+### Minor Changes
+
+- [#388](https://github.com/subshell-ai/subshell/pull/388) [`e465fc1`](https://github.com/subshell-ai/subshell/commit/e465fc1f591f8fff7f78811f209c1a9d111997e7) Thanks [@theogravity](https://github.com/theogravity)! - SSH connections can carry port forwards you declare: local (`-L`), remote (`-R`), and dynamic SOCKS (`-D`) rows in the connection form and in SSH presets. Forwards bind the connecting node's loopback address unless its owner turns on **Allow wide port forwards** on the node's SSH card, and a remote forward's bind answers to the destination's own SSH server policy. A forward opens with the subshell and closes when it ends; the pane header's SSH tooltip lists the destination and the declared rows for the pane's whole life. Forwards that came from the connecting account's SSH configuration files are still refused by name; only rows declared at launch open a port.
+
+### Patch Changes
+
+- [#388](https://github.com/subshell-ai/subshell/pull/388) [`e465fc1`](https://github.com/subshell-ai/subshell/commit/e465fc1f591f8fff7f78811f209c1a9d111997e7) Thanks [@theogravity](https://github.com/theogravity)! - Launch pickers hold their field's width now: a long reason could stretch a dropdown past the dialog around it. A machine whose SSH is off reads "SSH not enabled" in gold on its row instead of a full sentence cut short, the split button drops the border that made it look different from its header neighbours, and unlaunchable machines keep their greyed rows with the gold or muted reason beside them.
+
+- [#388](https://github.com/subshell-ai/subshell/pull/388) [`e465fc1`](https://github.com/subshell-ai/subshell/commit/e465fc1f591f8fff7f78811f209c1a9d111997e7) Thanks [@theogravity](https://github.com/theogravity)! - Use aligned permission dropdowns and a styled, searchable recipient picker in subshell and node sharing dialogs. Clear added recipients from the picker and require a valid selection before adding a grant.
+
 ## 2.2.0
 
 ### Minor Changes

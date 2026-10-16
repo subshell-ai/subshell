@@ -1,5 +1,11 @@
 # @internal/website
 
+## 0.2.15
+
+### Patch Changes
+
+- [#388](https://github.com/subshell-ai/subshell/pull/388) [`e465fc1`](https://github.com/subshell-ai/subshell/commit/e465fc1f591f8fff7f78811f209c1a9d111997e7) Thanks [@theogravity](https://github.com/theogravity)! - Show SSH port forwarding on the homepage with a new connection-panel screenshot, and refresh the sharing screenshot with permission dropdowns and recipient search.
+
 ## 0.2.14
 
 ### Patch Changes
