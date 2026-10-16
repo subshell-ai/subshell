@@ -23,15 +23,25 @@ const KIND_LABELS = [
 
 /**
  * What the chosen kind does and where its port lives, kept beside the row it
- * explains (spec §7). "The connecting machine" and "the destination" name the
- * two ends: on a remote-node launch "this machine" would read as the browser.
+ * explains (spec §7). The ends are named ("the machine you connect from",
+ * "the destination") because on a remote-node launch a bare "this machine"
+ * would read as the browser. The diagram line traces one request's route with
+ * the example values from the placeholders, so the prose names the ends and
+ * the arrows show the direction.
  */
 const KIND_HELP: Record<SshForwardDraftRow["kind"], string> = {
-  local: "The port opens on the connecting machine, and programs there reach the target through the destination.",
+  local:
+    "Opens a port on the machine you connect from. Anything you send to that port reaches the target through the destination.",
   remote:
-    "The destination opens the port and reaches the target through the connecting machine; its own SSH server decides how it binds.",
+    "Opens a port on the destination. Anything sent to that port reaches the target on the machine you connect from. The destination's own SSH settings decide whether the port may bind.",
   dynamic:
-    "A SOCKS proxy port opens on the connecting machine; tools that use it pick their own targets and reach them through the destination.",
+    "Opens a SOCKS proxy port on the machine you connect from. Tools pointed at it choose their own targets, each reached through the destination.",
+};
+
+const KIND_DIAGRAM: Record<SshForwardDraftRow["kind"], string> = {
+  local: "program → 5432 on the connecting machine → destination → db.internal:5432",
+  remote: "program on the destination → 9090 there → connecting machine → app.local:3000",
+  dynamic: "SOCKS client → 1080 on the connecting machine → destination → any host it asks for",
 };
 
 export function SshForwardFields({
@@ -86,6 +96,9 @@ export function SshForwardFields({
                       <>
                         <span id={helpId} className="font-regular text-detail text-muted-foreground">
                           {KIND_HELP[option.value]}
+                        </span>
+                        <span className="font-mono text-detail text-muted-foreground">
+                          {KIND_DIAGRAM[option.value]}
                         </span>
                         <div className="mt-2 flex min-w-0 flex-wrap items-end gap-2">
                           <Field className="w-28 min-w-0">
