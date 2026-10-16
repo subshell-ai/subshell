@@ -1,0 +1,222 @@
+import { describe, expect, it } from "bun:test";
+import {
+  EMPTY_SSH_FORWARD_ROW,
+  type SshForwardDraftRow,
+  sshForwardListProblems,
+  sshForwardRowDiagram,
+  sshForwardRowProblem,
+  sshForwardRowProblems,
+  sshForwardRowsFromWire,
+  sshForwardRowsToWire,
+  sshForwardWireLine,
+} from "@/lib/ssh-forwards";
+
+/** The form-side mirror of the launch-time refusals (spec 2026-10-15). */
+function row(over: Partial<SshForwardDraftRow> = {}): SshForwardDraftRow {
+  return { kind: "local", listenPort: "5432", bindHost: "", targetHost: "db.internal", targetPort: "5432", ...over };
+}
+
+describe("sshForwardRowProblems", () => {
+  it("accepts a complete local row and a dynamic row with no target", () => {
+    expect(sshForwardRowProblems(row())).toBeNull();
+    expect(sshForwardRowProblems(row({ kind: "dynamic", targetHost: "", targetPort: "" }))).toBeNull();
+  });
+
+  it("refuses ports outside the range and non-numbers", () => {
+    for (const listenPort of ["", "0", "65536", "abc", "1.5", "-1"]) {
+      expect(sshForwardRowProblems(row({ listenPort }))).toMatch(/listen port/i);
+    }
+    expect(sshForwardRowProblems(row({ targetPort: "0" }))).toMatch(/target port/i);
+  });
+
+  it("refuses a local or remote row with no target host", () => {
+    expect(sshForwardRowProblems(row({ targetHost: "" }))).toMatch(/host to reach/i);
+    expect(sshForwardRowProblems(row({ kind: "remote", targetHost: "" }))).toMatch(/host to reach/i);
+    // dynamic carries no target at all, so blank is correct there.
+    expect(sshForwardRowProblems(row({ kind: "dynamic", targetHost: "", targetPort: "" }))).toBeNull();
+  });
+
+  it("refuses option-like or space-bearing bind hosts, and accepts blanks", () => {
+    expect(sshForwardRowProblems(row({ bindHost: "-oProxyCommand=x" }))).toMatch(/bind host/i);
+    expect(sshForwardRowProblems(row({ bindHost: "two words" }))).toMatch(/bind host/i);
+    expect(sshForwardRowProblems(row({ bindHost: "" }))).toBeNull();
+    expect(sshForwardRowProblems(row({ bindHost: "10.0.0.5" }))).toBeNull();
+    expect(sshForwardRowProblems(row({ bindHost: "[::1]" }))).toBeNull();
+  });
+});
+
+describe("sshForwardRowProblem tone", () => {
+  it("calls an empty required field a gap and a typed wrong value a hard error", () => {
+    expect(sshForwardRowProblem(row({ listenPort: "" }))).toEqual({
+      text: "Enter a listen port from 1 to 65535.",
+      gap: true,
+    });
+    expect(sshForwardRowProblem(row({ listenPort: "abc" }))).toEqual({
+      text: "Enter a listen port from 1 to 65535.",
+      gap: false,
+    });
+    expect(sshForwardRowProblem(row({ listenPort: "1.5" }))).toEqual({
+      text: "Enter a listen port from 1 to 65535.",
+      gap: false,
+    });
+    // An empty target host is the same fact as an empty listen port: nothing typed yet.
+    expect(sshForwardRowProblem(row({ targetHost: "" }))).toEqual({
+      text: "Enter the host to reach through the connection.",
+      gap: true,
+    });
+    // A malformed bind host is always a typed value that is wrong.
+    expect(sshForwardRowProblem(row({ bindHost: "-oProxyCommand=x" }))).toEqual({
+      text: "Enter the bind host as a plain name or address, or leave it blank for loopback.",
+      gap: false,
+    });
+    expect(sshForwardRowProblem(row())).toBeNull();
+  });
+
+  it("keeps the text-only voice in step with the toned one", () => {
+    const r = row({ listenPort: "" });
+    expect(sshForwardRowProblems(r)).toBe(sshForwardRowProblem(r)?.text ?? null);
+    expect(sshForwardRowProblems(row())).toBeNull();
+  });
+});
+
+describe("sshForwardListProblems", () => {
+  it("an all-empty list (including untouched blank rows) is ready", () => {
+    expect(sshForwardListProblems([])).toBeNull();
+    expect(sshForwardListProblems([EMPTY_SSH_FORWARD_ROW, { ...EMPTY_SSH_FORWARD_ROW }])).toBeNull();
+  });
+
+  it("refuses two rows binding the same port, case-insensitively on the name", () => {
+    expect(sshForwardListProblems([row(), row({ targetHost: "other.internal" })])).toMatch(/same port/i);
+    expect(sshForwardListProblems([row({ bindHost: "LOCALHOST" }), row({ bindHost: "localhost" })])).toMatch(
+      /same port/i,
+    );
+    // Different literal names on one port is a bind race ssh reports itself.
+    expect(sshForwardListProblems([row({ bindHost: "localhost" }), row({ bindHost: "127.0.0.1" })])).toBeNull();
+  });
+
+  it("refuses a blank bind beside an explicit 127.0.0.1, and keeps the remote pair distinct", () => {
+    // A blank local bind renders as 127.0.0.1, so the rows are one listener twice.
+    expect(sshForwardListProblems([row(), row({ bindHost: "127.0.0.1", targetHost: "other.internal" })])).toMatch(
+      /same port/i,
+    );
+    // A blank remote bind rides the destination's own policy spelling.
+    expect(
+      sshForwardListProblems([
+        row({ kind: "remote", bindHost: "" }),
+        row({ kind: "remote", bindHost: "127.0.0.1", targetHost: "other.internal" }),
+      ]),
+    ).toBeNull();
+    // The same port on the two sides is two listeners, not a dupe.
+    expect(
+      sshForwardListProblems([
+        row({ listenPort: "8080", targetPort: "8080" }),
+        row({ kind: "remote", listenPort: "8080", targetPort: "3000" }),
+      ]),
+    ).toBeNull();
+    // The port keys numerically, so "05432" beside "5432" is one listener
+    // here rather than a form-only near-miss the server then 400s.
+    expect(
+      sshForwardListProblems([row({ listenPort: "05432" }), row({ listenPort: "5432", targetHost: "other.internal" })]),
+    ).toMatch(/same port/i);
+  });
+
+  it("refuses over the cap", () => {
+    const many = Array.from({ length: 17 }, (_, i) => row({ listenPort: String(i + 1) }));
+    expect(sshForwardListProblems(many)).toMatch(/at most 16/i);
+  });
+
+  it("reports the first row's problem before list rules", () => {
+    expect(sshForwardListProblems([row({ listenPort: "" }), row()])).toMatch(/listen port/i);
+  });
+});
+
+describe("sshForwardRowsToWire", () => {
+  it("drops empty rows, parses numbers, and nulls the blanks", () => {
+    expect(
+      sshForwardRowsToWire([
+        row({ listenPort: " 5432 ", targetHost: " db.internal " }),
+        EMPTY_SSH_FORWARD_ROW,
+        row({ kind: "dynamic", listenPort: "1080", targetHost: "", targetPort: "" }),
+      ]),
+    ).toEqual([
+      { kind: "local", listenPort: 5432, bindHost: null, targetHost: "db.internal", targetPort: 5432 },
+      { kind: "dynamic", listenPort: 1080, bindHost: null, targetHost: null, targetPort: null },
+    ]);
+  });
+});
+
+describe("sshForwardRowsFromWire", () => {
+  it("round-trips wire rows into form strings and back", () => {
+    const wire = [
+      { kind: "remote" as const, listenPort: 9090, bindHost: "0.0.0.0", targetHost: "dev.local", targetPort: 3000 },
+    ];
+    expect(sshForwardRowsToWire(sshForwardRowsFromWire(wire))).toEqual(wire);
+    expect(sshForwardRowsFromWire(undefined)).toEqual([]);
+  });
+});
+
+describe("sshForwardWireLine", () => {
+  it("spells a stored row like the editor's line does", () => {
+    expect(
+      sshForwardWireLine({
+        kind: "local",
+        listenPort: 5432,
+        bindHost: null,
+        targetHost: "db.internal",
+        targetPort: 5432,
+      }),
+    ).toBe("Local · loopback:5432 → db.internal:5432");
+    expect(
+      sshForwardWireLine({
+        kind: "remote",
+        listenPort: 9090,
+        bindHost: "0.0.0.0",
+        targetHost: "app.local",
+        targetPort: 3000,
+      }),
+    ).toBe("Remote · 0.0.0.0:9090 → app.local:3000");
+    // A remote blank bind rides the destination's policy; dynamic has no target.
+    expect(
+      sshForwardWireLine({ kind: "remote", listenPort: 9090, bindHost: null, targetHost: "a", targetPort: 1 }),
+    ).toBe("Remote · 9090 (by policy) → a:1");
+    expect(
+      sshForwardWireLine({ kind: "dynamic", listenPort: 1080, bindHost: null, targetHost: null, targetPort: null }),
+    ).toBe("Dynamic · loopback:1080 → any host the tool picks");
+  });
+});
+
+describe("sshForwardRowDiagram", () => {
+  it("traces the route with the ports and host the row actually holds", () => {
+    expect(sshForwardRowDiagram(row({ listenPort: "8080", targetHost: "cache.internal", targetPort: "11211" }))).toBe(
+      "program → 8080 on the connecting machine → destination → cache.internal:11211",
+    );
+    expect(
+      sshForwardRowDiagram(row({ kind: "remote", listenPort: "6000", targetHost: "dev.lan", targetPort: "5173" })),
+    ).toBe("program on the destination → 6000 there → connecting machine → dev.lan:5173");
+  });
+
+  it("trims typed whitespace out of the diagram", () => {
+    expect(sshForwardRowDiagram(row({ listenPort: " 8080 ", targetHost: " db.internal ", targetPort: " 6379 " }))).toBe(
+      "program → 8080 on the connecting machine → destination → db.internal:6379",
+    );
+  });
+
+  it("fills a still-empty slot from the kind's example, matching the field placeholder", () => {
+    // The row helper starts from the local example; blank it to see the fallback.
+    expect(sshForwardRowDiagram(EMPTY_SSH_FORWARD_ROW)).toBe(
+      "program → 5432 on the connecting machine → destination → db.internal:5432",
+    );
+    expect(sshForwardRowDiagram({ ...EMPTY_SSH_FORWARD_ROW, kind: "remote" })).toBe(
+      "program on the destination → 9090 there → connecting machine → app.local:3000",
+    );
+    expect(sshForwardRowDiagram({ ...EMPTY_SSH_FORWARD_ROW, kind: "dynamic" })).toBe(
+      "SOCKS client → 1080 on the connecting machine → destination → any host it asks for",
+    );
+  });
+
+  it("drops the target from a dynamic row's diagram even if a stale target lingers", () => {
+    expect(sshForwardRowDiagram(row({ kind: "dynamic", listenPort: "1080" }))).toBe(
+      "SOCKS client → 1080 on the connecting machine → destination → any host it asks for",
+    );
+  });
+});

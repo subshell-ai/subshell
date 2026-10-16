@@ -27,6 +27,8 @@ Only the node’s owner can change this setting. An administrator manages it for
 
 You can also enable it when starting an SSH subshell: the connection form explains the change before you submit. See [Connect over SSH](/guides/ssh).
 
+With SSH allowed, the card gains **Allow wide port forwards**. While it's off, local and dynamic port forwards bind the node's own loopback address, so only programs on that node can use them. Remote forwards listen on the SSH destination under its SSH server's policy. See [Port forwards](/guides/ssh#port-forwards) for examples and bind-address rules. Turning it on lets a launch bind a port other machines can reach, which routes their traffic through that connection. It's off by default and sits behind the same owner-only gate as **Allow SSH**; turning it off affects new launches, while forwards already running keep going until their subshell closes.
+
 ## Service and logs
 
 Where you have management access, review the service and log sections. A node may be online from a terminal process even when no service is installed.

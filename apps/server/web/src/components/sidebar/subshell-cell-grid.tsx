@@ -471,9 +471,14 @@ export function SubshellCellGrid({
   return (
     <div className="flex flex-wrap gap-1.5 px-2 py-1">
       {runs.map((run) => (
+        // The plate wraps too, and `flex` (not `inline-flex`) is what lets it:
+        // one machine with more panes than the rail fits on a line would
+        // otherwise form a plate wider than the container and run its last
+        // cells off the edge, since a single unwrappable item is the one thing
+        // the outer `flex-wrap` cannot rescue.
         <div
           key={run.cells[0]?.key}
-          className={cn("inline-flex items-center gap-1.5 rounded-lg p-1", NODE_TINT_CLASS[run.bucket])}
+          className={cn("flex flex-wrap items-center gap-1.5 rounded-lg p-1", NODE_TINT_CLASS[run.bucket])}
         >
           {run.cells.map((c) => (
             <Fragment key={c.key}>{renderCell(c.sub)}</Fragment>

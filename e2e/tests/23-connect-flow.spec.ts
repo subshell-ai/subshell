@@ -31,7 +31,13 @@ test.skip(
 
 /** The exact strings the page ships (components/connect/* + components/ssh-pane-labels.tsx). */
 const SSH_VIEW_ONLY_COPY = "Only the owner can type in this SSH subshell.";
-const MACHINE_OFF_REASON = "Outgoing SSH is disabled on this node.";
+/**
+ * A gated-off machine's dropdown row (ruling 2026-10-16): short and gold.
+ * The server's full sentence ("Outgoing SSH is disabled on this node.") no
+ * longer fits a one-line row; the decision-point explanation is the notice
+ * this test asserts beside the field below.
+ */
+const MACHINE_OFF_ROW = "SSH not enabled";
 /** The seeded control-plane host's display name (seed-local.ts): the picker reads names, not ids. */
 const LOCAL_NODE_NAME = "Server";
 /** `configGroupLabel(selectedNode.name)` for that row. */
@@ -301,7 +307,7 @@ test("gate off: the form explains enablement on Start", async ({ page }) => {
   await page.getByLabel("SSH destination", { exact: true }).fill(SSH_FIXTURE_ALIAS);
   await page.getByRole("combobox", { name: "Connect from", exact: true }).click();
   const serverRow = page.getByRole("option", { name: /Server/ });
-  await expect(serverRow).toContainText(MACHINE_OFF_REASON);
+  await expect(serverRow).toContainText(MACHINE_OFF_ROW);
   await serverRow.click();
   await expect(page.getByRole("button", { name: "Enable SSH", exact: true })).toHaveCount(0);
   await expect(page.getByText("Starting this subshell will enable outgoing SSH on this node.")).toBeVisible();

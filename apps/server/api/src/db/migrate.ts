@@ -53,6 +53,8 @@ import * as sshGrantsMigration from "@/db/migrations/0050-ssh-grants.js";
 import * as sshRequestDestinationMigration from "@/db/migrations/0051-ssh-request-destination.js";
 import * as subshellKeyHomeMigration from "@/db/migrations/0052-subshell-key-home.js";
 import * as sshPresetsMigration from "@/db/migrations/0054-ssh-presets.js";
+import * as sshWideForwardsMigration from "@/db/migrations/0055-node-ssh-wide-forwards.js";
+import * as sshPresetForwardsMigration from "@/db/migrations/0056-ssh-preset-forwards.js";
 import * as dropSshGrantsMigration from "./migrations/0053-drop-ssh-grants.js";
 
 /**
@@ -163,6 +165,8 @@ export async function runMigrations(): Promise<void> {
           "0052-subshell-key-home": subshellKeyHomeMigration,
           "0053-drop-ssh-grants": dropSshGrantsMigration,
           "0054-ssh-presets": sshPresetsMigration,
+          "0055-node-ssh-wide-forwards": sshWideForwardsMigration,
+          "0056-ssh-preset-forwards": sshPresetForwardsMigration,
         };
       },
     },

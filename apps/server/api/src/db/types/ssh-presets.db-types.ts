@@ -33,6 +33,14 @@ export interface SshPresetTable {
   keyHome: string | null;
   /** JSON-encoded array of selected `SHA256:` public-key fingerprints (remote only); null otherwise */
   fingerprints: string | null;
+  /**
+   * JSON-encoded array of user-declared port-forward rows (spec 2026-10-15
+   * §7), validated by the protocol grammar at save; null means no forwards.
+   * Connection choices, not credentials - the same class as destination and
+   * authentication, and a wide-bind row stored here is still refused at
+   * launch until the connecting machine allows it.
+   */
+  forwards: string | null;
   /** ISO 8601 creation timestamp (DB default) */
   createdAt: string;
   /** ISO 8601 last-update timestamp */

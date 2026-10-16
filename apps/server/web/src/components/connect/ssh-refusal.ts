@@ -85,6 +85,16 @@ export function sshLaunchRefusal(
         // ALIAS_UNSAFE: the token was refused before the machine was asked.
         return { text: "Enter a valid SSH destination, such as deploy@example.com:22.", field: "destination" };
       case 403: {
+        if (err.code === "SSH_FORWARD_BIND_DENIED") {
+          // A wide bind needs the machine's owner to allow it (spec 2026-10-15
+          // §6): the server's own sentence names both remedies, so pass it
+          // through like the CONFIG_INVALID arm does.
+          const message =
+            err.body && typeof err.body === "object" && "message" in err.body && typeof err.body.message === "string"
+              ? err.body.message
+              : err.message;
+          return { text: message, field: "machine" };
+        }
         if (err.code === "SSH_GATE_OFF" && machine !== null && !machine.sshEnabled) {
           // The gate's off-door. Naming WHO flips it follows the row's kind:
           // `local` is an admin's setting, every other machine its owner's

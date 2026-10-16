@@ -4,6 +4,8 @@
  * (apps/server/api/src/api/models.ts): it carries the fields the frontend uses
  * and omits `userId`.
  */
+import type { SshForwardRow } from "@/lib/ssh";
+
 export interface AgentPreset {
   kind: "agent";
   id: string;
@@ -58,6 +60,8 @@ export interface SshPreset {
   keyHome: string | null;
   /** Selected public-key fingerprints (remote mode only); private keys stay on their machine */
   fingerprints: string[];
+  /** Declared port forwards this preset carries to every launch; empty when it stores none (spec 2026-10-15) */
+  forwards: SshForwardRow[];
   /** ISO 8601 creation timestamp */
   createdAt: string;
   /** ISO 8601 update timestamp */
@@ -66,5 +70,13 @@ export interface SshPreset {
 
 export type SshPresetPayload = Pick<
   SshPreset,
-  "name" | "description" | "destination" | "alias" | "resolutionAlias" | "authentication" | "keyHome" | "fingerprints"
+  | "name"
+  | "description"
+  | "destination"
+  | "alias"
+  | "resolutionAlias"
+  | "authentication"
+  | "keyHome"
+  | "fingerprints"
+  | "forwards"
 > & { kind: "ssh"; nodeId: string; expectedDestination?: string };

@@ -182,3 +182,22 @@ export function useSetSshEnabled() {
     },
   });
 }
+
+/** Flip one machine's wide-bind allowance for SSH port forwards (spec 2026-10-15 §6); owner-only, like the SSH switch. */
+export function useSetSshWideForwards() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, on }: { id: string; on: boolean }) =>
+      apiFetch(`/api/nodes/${encodeURIComponent(id)}/ssh-wide-forwards`, {
+        method: "PUT",
+        body: JSON.stringify({ on }),
+      }),
+    onSuccess: async (_data, { id }) => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["ssh-readiness"] }),
+        client.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, id] }),
+        client.invalidateQueries({ queryKey: NODES_QUERY_KEY }),
+      ]);
+    },
+  });
+}

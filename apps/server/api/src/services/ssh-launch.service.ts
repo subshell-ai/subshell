@@ -14,13 +14,17 @@ import {
   sshOptionTokens,
 } from "@internal/pane-runtime";
 import {
+  isLoopbackForwardBind,
   type NodeSshAgentIdentity,
   type NodeSshAliasListResult,
   type NodeSshResolveOutcomeWire,
   parseNodeSshAliasList,
   parseSshConnectionSnapshot,
+  parseSshForwardRows,
+  SSH_FORWARD_LIST_REFUSAL,
   SSH_NAME_MAX_CHARS,
   type SshConnectionSnapshotWire,
+  type SshForwardWire,
 } from "@internal/subshell-protocol";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
@@ -142,6 +146,15 @@ export function composeSshLaunch(args: {
    */
   hostPinPath?: string;
   authentication?: "password";
+  /**
+   * User-declared port-forward rows (docs/superpowers/specs/2026-10-15-ssh-port-forwards-design.md).
+   * The launch route has already gate-checked them (wide binds against the
+   * machine's setting); the renderer re-validates the SHAPE here as the last
+   * station before the bytes, same impossible-state posture as the snapshot
+   * line below - a refusal that dropped rows silently would tell the user a
+   * forward exists when nothing binds it.
+   */
+  forwards?: SshForwardWire[];
 }): {
   configPath: string;
   fileContent: string;
@@ -154,6 +167,7 @@ export function composeSshLaunch(args: {
   let fileContent = renderSshConfigContents(
     approved,
     args.hostPinPath === undefined ? undefined : { hostPinPath: args.hostPinPath },
+    args.forwards,
   );
   if (args.authentication === "password") {
     if (args.hostPinPath) throw new Error("Password authentication cannot use a key relay.");
@@ -399,6 +413,13 @@ export async function sshLaunch(args: {
   authentication?: "password";
   /** One-use preparation owned by this exact cookie session. */
   localKeyId?: string;
+  /**
+   * User-declared port forwards (spec 2026-10-15). `unknown` ON PURPOSE: the
+   * route's t-schema is an envelope, and `parseSshForwardRows` here is the
+   * authority - the same parser the renderer re-runs at the last station, so
+   * what composes can never be wider than what the grammar can express.
+   */
+  forwards?: unknown;
   sessionId?: string;
   /** The REQUEST-scoped subshells service (the create path is its own). */
   subshells: Pick<SubshellsService, "createSubshell">;
@@ -419,6 +440,22 @@ export async function sshLaunch(args: {
   const row = gate.value.row;
   if (!isWireSafeSshDestination(args.destination)) {
     return codedRefusal(400, BackendErrorCodes.ALIAS_UNSAFE, UNSAFE_DESTINATION_COPY);
+  }
+  // Port forwards (spec 2026-10-15): parse first (the grammar owns shape),
+  // then the machine's wide-bind gate (the owner's setting owns policy). Both
+  // BEFORE any resolve, so a refused list never dials a machine.
+  let forwards: SshForwardWire[] = [];
+  if (args.forwards !== undefined) {
+    const parsed = parseSshForwardRows(args.forwards);
+    if (parsed === null) return codedRefusal(400, BackendErrorCodes.CONFIG_INVALID, SSH_FORWARD_LIST_REFUSAL);
+    forwards = parsed;
+  }
+  if (forwards.length > 0 && forwards.some((f) => !isLoopbackForwardBind(f)) && row.sshWideForwards !== 1) {
+    return codedRefusal(
+      403,
+      BackendErrorCodes.SSH_FORWARD_BIND_DENIED,
+      "This machine only allows port forwards that bind its own loopback address. Change the bind address, or its owner can allow wide forwards in the machine's SSH settings.",
+    );
   }
   if (args.fingerprints !== undefined && args.keyHomeNodeId === undefined) {
     return codedRefusal(
@@ -443,6 +480,16 @@ export async function sshLaunch(args: {
   const snapshot = resolved.value.snapshot; // parseNodeSshResolveOutcome already narrowed + rebuilt it
   const destinationProblem = sshExpectedDestinationProblem(snapshot, args.expectedDestination);
   if (destinationProblem) return codedRefusal(400, BackendErrorCodes.CONFIG_INVALID, destinationProblem);
+  if (forwards.length > 0 && snapshot.proxyJumps.some((h) => h.host.toLowerCase() === snapshot.host.toLowerCase())) {
+    // The forward block renders under the exact destination host; a hop named
+    // the same would match the child too and hand it a forward (the renderer
+    // throws on this as the guard beneath; the human hears it here first).
+    return codedRefusal(
+      400,
+      BackendErrorCodes.CONFIG_INVALID,
+      "Port forwards can't ride a connection whose jump hop is the destination itself. Remove the jump or the forwards.",
+    );
+  }
   if (args.keyHomeNodeId !== undefined) {
     const refusal = relaySnapshotRefusal(snapshot);
     if (refusal) return refusal;
@@ -499,6 +546,10 @@ export async function sshLaunch(args: {
     // signed relay-open just wrote beside it; a direct launch renders the M1
     // accept-new bytes untouched.
     ...(relay || localKey ? { hostPinPath: buildSshKnownHostsPath(dataDir, subshellId) } : {}),
+    // Approved rows (spec 2026-10-15): the compose re-validates and renders
+    // them into the exact-destination block; rowless launches keep today's
+    // bytes, ClearAllForwardings included.
+    ...(forwards.length > 0 ? { forwards } : {}),
   });
   // Relay mode RE-POINTS the scoped exception (spec §5.2): the socket the
   // pane's ssh authenticates through is B's proxy the broker just verified,
@@ -533,6 +584,11 @@ export async function sshLaunch(args: {
         configPath: composed.configPath,
         fileContent: composed.fileContent,
         snapshot,
+        // The declared rows ride the pane's column beside the snapshot (spec
+        // 2026-10-15 §6): the launch bytes already carry them, and the pane
+        // header states them for the pane's whole life. They were parsed once
+        // above, so what is recorded is exactly what was approved.
+        ...(forwards.length > 0 ? { forwards } : {}),
         ...(localKey ? { localKey: true as const } : {}),
         // Preserve the actual selected keys, including the complete roster
         // resolved for callers that omitted selection. Later acts cannot widen it.
@@ -570,11 +626,32 @@ export async function sshLaunch(args: {
     targetType: "node",
     targetId: row.id,
     // Only session ids and destination metadata enter the success audit.
-    metadataJson: JSON.stringify(
-      relay
-        ? { nodeId: row.id, destination, subshellId: created.id, relayRef: relay.ref }
-        : { nodeId: row.id, destination, subshellId: created.id },
-    ),
+    // The forward summary (spec 2026-10-15 §8) is the same class of fact:
+    // canonical names and ports the user approved, no config text and no key
+    // material, bounded by the row cap.
+    metadataJson: JSON.stringify({
+      nodeId: row.id,
+      destination,
+      subshellId: created.id,
+      ...(relay ? { relayRef: relay.ref } : {}),
+      ...(forwards.length > 0
+        ? {
+            forwards: forwards.map((f) => ({
+              kind: f.kind,
+              // What the user wrote; "127.0.0.1:port" when they wrote loopback
+              // implicitly, and a bare port for a remote row, whose bind is
+              // the destination's policy to spell.
+              listen:
+                f.bindHost === null
+                  ? f.kind === "remote"
+                    ? String(f.listenPort)
+                    : `127.0.0.1:${f.listenPort}`
+                  : `${f.bindHost}:${f.listenPort}`,
+              ...(f.kind === "dynamic" ? {} : { target: `${String(f.targetHost)}:${String(f.targetPort)}` }),
+            })),
+          }
+        : {}),
+    }),
   });
   return ok({ subshellId: created.id });
 }

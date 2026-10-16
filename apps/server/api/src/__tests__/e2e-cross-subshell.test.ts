@@ -38,13 +38,18 @@ const dbPath = join(dir, "subshell.db");
 const backendLog = join(dir, "backend.log");
 
 /** Env every child process needs: dev NODE_ENV (a test NODE_ENV would force
- * the in-memory DB and ignore DATABASE_PATH — see constants.ts) + the file DB. */
+ * the in-memory DB and ignore DATABASE_PATH — see constants.ts) + the file DB
+ * + a temp config home. The config home matters as much as the DB: boot takes
+ * `instance-state.lock` in it, and left on the real HOME the child dies
+ * ("Instance state is already in use") against any server the developer has
+ * running — this file would only pass on an idle machine. */
 function childEnv(extra: Record<string, string> = {}): Record<string, string> {
   return {
     PATH: process.env.PATH ?? "/usr/bin:/bin",
     HOME: process.env.HOME ?? tmpdir(),
     NODE_ENV: "development",
     DATABASE_PATH: dbPath,
+    SUBSHELL_SERVER_CONFIG_DIR: join(dir, "config"),
     ...extra,
   };
 }

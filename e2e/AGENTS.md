@@ -54,7 +54,7 @@ runs discovery against this fake), and no spec ever dials a real IdP.
 
 Every fixed port in `ports.ts` takes an env override (`E2E_PORT_BACKEND`,
 `E2E_PORT_FAKE_REGISTRY`, `E2E_PORT_FAKE_IDP`, `E2E_PORT_ONBOARDING`,
-`E2E_PORT_SSH`, `E2E_PORT_CONNECT`, `E2E_PORT_RELAY`) with the committed
+`E2E_PORT_SSH`, `E2E_PORT_CONNECT`, `E2E_PORT_RELAY`, `E2E_PORT_FORWARDS`) with the committed
 defaults unchanged, the escape hatch for two suites running side by side on one
 machine, which the defaults collide on.
 
@@ -133,13 +133,21 @@ asserts recipient-filtered reads.
 
 ## SSH container coverage
 
-`23-connect-flow.spec.ts` requires a running Docker-compatible daemon.
-Testcontainers builds `fixtures/ssh-container/Dockerfile`, publishes sshd on a
-random port, and owns container cleanup. Missing Docker fails setup rather
-than silently skipping coverage. The container creates disposable developer
-and operator accounts for real password login; no host accounts or SSH files
-are changed. Host keys are generated under the test's temporary directory and
-trusted explicitly by the connecting process.
+`23-connect-flow.spec.ts` and `26-ssh-forwarding.spec.ts` require a running
+Docker-compatible daemon. Testcontainers builds
+`fixtures/ssh-container/Dockerfile`, publishes sshd on a random port, and owns
+container cleanup. Missing Docker fails setup rather than silently skipping
+coverage. The container creates disposable developer and operator accounts for
+real password login; no host accounts or SSH files are changed. Host keys are
+generated under the test's temporary directory and trusted explicitly by the
+connecting process. The image also carries `curl`, `iproute2` and `darkhttpd`,
+and its sshd runs `GatewayPorts clientspecified`: spec 26 reads each port
+forward from the side that owns it, and proves each wide bind as an address
+pair - a loopback-bound port does not answer a dial to its machine's
+interface address, the wide one does, destination-side `-R` read from inside
+the container. The dial never crosses from the container to the job's own
+network: on CI the job is itself a container, and docker does not route
+sibling containers across user-defined networks (measured 2026-10-16).
 
 The browser exercises key login, password prompts and retry, terminal I/O,
 view-only sharing, and saving named SSH presets for distinct usernames on one host. Password checks
@@ -176,7 +184,7 @@ layout changes. Never point it at the live server.
 For the other documentation screenshots, run `bun e2e/capture-docs.ts` after
 building the SPA. It uses the same isolated stack with sample presets, prompts,
 a workspace, and real terminal sessions running a small temporary project.
-No coding-agent responses are simulated. The script also refreshes the five
+No coding-agent responses are simulated. The script also refreshes the six
 marketing-site WebP copies using `ffmpeg`, which must be installed.
 
 Review every capture, update intrinsic dimensions in the referring MDX and

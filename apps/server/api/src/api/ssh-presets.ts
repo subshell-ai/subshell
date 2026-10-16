@@ -1,6 +1,11 @@
-import { SSH_FINGERPRINT_PATTERN, SSH_MAX_SELECTED_FINGERPRINTS } from "@internal/subshell-protocol";
+import type { SshForwardWire } from "@internal/subshell-protocol";
+import {
+  SSH_FINGERPRINT_PATTERN,
+  SSH_MAX_FORWARD_ROWS,
+  SSH_MAX_SELECTED_FINGERPRINTS,
+} from "@internal/subshell-protocol";
 import { t } from "elysia";
-import { SshExpectedDestinationField } from "@/api/ssh/ssh-views.js";
+import { SshExpectedDestinationField, SshForwardRowInputSchema } from "@/api/ssh/ssh-views.js";
 import type { SshPresetTable } from "@/db/types/ssh-presets.db-types.js";
 
 const SshPresetFields = {
@@ -49,6 +54,15 @@ const SshPresetFields = {
       }),
     ),
   ),
+  forwards: t.Optional(
+    t.Nullable(
+      t.Array(SshForwardRowInputSchema, {
+        maxItems: SSH_MAX_FORWARD_ROWS,
+        description:
+          "Port forwards this preset carries to every launch; validated by the protocol grammar at save, and a non-loopback bind is still refused at launch until the connecting machine allows it. Omitted on update keeps the stored list; null or an empty list clears it",
+      }),
+    ),
+  ),
 };
 export const CreateSshPresetSchema = t.Object(
   {
@@ -77,6 +91,9 @@ export const SshPresetSchema = t.Object({
   fingerprints: t.Array(t.String({ description: "Selected public key fingerprint" }), {
     description: "Remote key selection, empty for other authentication modes",
   }),
+  forwards: t.Array(SshForwardRowInputSchema, {
+    description: "Declared port forwards, empty when the preset stores none",
+  }),
   createdAt: t.String({ description: "Creation timestamp" }),
   updatedAt: t.String({ description: "Last update timestamp" }),
 });
@@ -86,5 +103,6 @@ export function sshPresetView(row: SshPresetTable) {
     ...row,
     kind: "ssh" as const,
     fingerprints: row.fingerprints === null ? [] : (JSON.parse(row.fingerprints) as string[]),
+    forwards: row.forwards === null ? [] : (JSON.parse(row.forwards) as SshForwardWire[]),
   };
 }

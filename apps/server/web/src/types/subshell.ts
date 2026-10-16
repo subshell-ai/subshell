@@ -1,6 +1,7 @@
 /**
  * Shared subshell view model (mirrors the backend toSubshellView shape).
  */
+import type { SshForwardRow } from "@/lib/ssh";
 
 /** Coarse activity heuristic: "active" | "idle" | "terminated". */
 export type SubshellActivity = "active" | "idle" | "terminated";
@@ -87,6 +88,23 @@ export interface SubshellView {
   access: SubshellAccess;
   /** True when this pane is an SSH-terminal pane: only its owner can type into it. */
   ssh: boolean;
+  /**
+   * Bounded view of the pane's SSH connection for the header: the canonical
+   * destination and the port-forward rows declared at launch (spec
+   * 2026-10-15). Optional because a payload cached before the field exists
+   * must keep typechecking, and a pane with an unreadable ssh column carries
+   * no summary; the header then says only what it always said.
+   */
+  sshSummary?: {
+    /** Canonical `user@host:port` the pane connected to */
+    destination: string;
+    /**
+     * The declared forwards in the order added; empty when the launch carried
+     * none. Null means the stored rows could not be read: absence of data,
+     * not absence of forwards, and the header says nothing rather than "none".
+     */
+    forwards: SshForwardRow[] | null;
+  };
   /**
    * How many sharing grants this subshell carries; 0 = private to its owner.
    * Optional for the same reason `nodeId` is — a payload cached by a client

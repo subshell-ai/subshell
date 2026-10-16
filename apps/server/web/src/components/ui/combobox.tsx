@@ -11,6 +11,12 @@ export interface ComboboxOption {
   disabled?: boolean;
   /** Muted trailing copy on the row (a disabled row's refusal, or a detail line) */
   reason?: string;
+  /**
+   * Render `reason` in gold instead of muted: a switch-not-on restriction at
+   * this decision point (an SSH-gated machine's row says "SSH not enabled",
+   * short and gold) rather than something wrong the reader did.
+   */
+  reasonWarning?: boolean;
   /** Node shown before the label (aria-hidden — the accessible name stays the label) */
   icon?: ReactNode;
   /**
@@ -192,7 +198,14 @@ export function SearchableSelect({
         <ComboboxPrimitive.Positioner align="start" sideOffset={4} className="isolate z-50">
           <ComboboxPrimitive.Popup
             data-slot="combobox-content"
-            className="max-h-96 min-w-[var(--anchor-width)] overflow-hidden rounded-md border bg-popover text-popover-foreground opacity-100 shadow-md transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0"
+            // The width is the ANCHOR's, both ways: min-w keeps a short list
+            // from shrinking under the field, and max-w keeps a long muted
+            // reason (an unlaunchable node's blocker sentence, the key
+            // picker's "wait for the current connection attempt") from
+            // stretching the popup past the field and the dialog around it
+            // (report 2026-10-16). Rows truncate inside that width;
+            // the full sentence lives below the picker once a row is chosen.
+            className="max-h-96 min-w-[var(--anchor-width)] max-w-[var(--anchor-width)] overflow-hidden rounded-md border bg-popover text-popover-foreground opacity-100 shadow-md transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0"
           >
             <ComboboxPrimitive.List className="p-1">
               {(option: ComboboxOption, index: number) => {
@@ -225,7 +238,13 @@ export function SearchableSelect({
                       )}
                       <span className="truncate">{option.label}</span>
                       {option.reason ? (
-                        <span className="ml-auto max-w-[45%] truncate pl-3 text-detail text-muted-foreground">
+                        <span
+                          className={
+                            option.reasonWarning
+                              ? "ml-auto max-w-[45%] truncate pl-3 text-detail text-warning"
+                              : "ml-auto max-w-[45%] truncate pl-3 text-detail text-muted-foreground"
+                          }
+                        >
                           {option.reason}
                         </span>
                       ) : null}

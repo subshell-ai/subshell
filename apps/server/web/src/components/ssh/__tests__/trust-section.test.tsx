@@ -48,6 +48,7 @@ function node(over: Partial<NodeDetail> = {}): NodeDetail {
     maintenanceAt: null,
     maintenanceSource: null,
     sshEnabled: true,
+    sshWideForwards: false,
     held: null,
     sshTrust: {
       own: { signing: FP_OWN_SIGN, encryption: FP_OWN_ENC },

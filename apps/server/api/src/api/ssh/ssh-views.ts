@@ -10,6 +10,75 @@ import type { SshRefusal } from "@/services/ssh-launch.service.js";
  * drift.
  */
 
+/**
+ * One user-declared port-forward row's ENVELOPE (spec 2026-10-15), shared by
+ * the launch body and the preset save because they carry the same thing.
+ * Deliberately NOT the detailed grammar: `parseSshForwardRows` in the protocol
+ * package is the single authority (host forms, kind rules, duplicate listens),
+ * and the renderer re-runs that parser at the last station before bytes - a
+ * second grammar in a schema here would be two that drift.
+ */
+export const SshForwardRowSchema = t.Object({
+  kind: t.Union([t.Literal("local"), t.Literal("remote"), t.Literal("dynamic")], {
+    description:
+      "local: bind a port on the connecting machine that reaches a host the destination can see; remote: ask the destination to bind a port that reaches a host the connecting machine can see; dynamic: a SOCKS proxy on the connecting machine",
+  }),
+  listenPort: t.Number({
+    minimum: 1,
+    maximum: 65535,
+    description: "Port to bind (always explicit; no auto ports). Integer-ness belongs to the protocol parser",
+  }),
+  bindHost: t.Nullable(
+    t.String({
+      minLength: 1,
+      maxLength: 253,
+      description:
+        "Address to bind (hostname, IPv4, or bracketed IPv6). Null means loopback for local/dynamic, and the destination's own policy for remote",
+    }),
+  ),
+  targetHost: t.Nullable(
+    t.String({
+      minLength: 1,
+      maxLength: 253,
+      description: "Host to reach through the connection; required for local/remote, null for dynamic",
+    }),
+  ),
+  targetPort: t.Nullable(
+    t.Number({ minimum: 1, maximum: 65535, description: "Port on the target host; same kind rule" }),
+  ),
+});
+
+/**
+ * The same forward row as the preset routes carry it, deliberately FLATTER
+ * than {@link SshForwardRowSchema}: nested literal unions inside the
+ * agent-or-ssh body/response union push the `presets.route.ts` handlers past
+ * Elysia's inference depth (measured the day `forwards` arrived; the launch
+ * route, which never unions with agent bodies, keeps the expressive kind
+ * census). The protocol parser enforces the kind set either way, so the
+ * pattern here is documentation, not the enforcement.
+ */
+export const SshForwardRowInputSchema = t.Object({
+  kind: t.String({ pattern: "^(local|remote|dynamic)$", description: "local (-L), remote (-R), or dynamic (-D)" }),
+  listenPort: t.Number({ minimum: 1, maximum: 65535, description: "Port to bind (always explicit; no auto ports)" }),
+  bindHost: t.Nullable(
+    t.String({
+      minLength: 1,
+      maxLength: 253,
+      description: "Address to bind; null means loopback for local/dynamic, the destination's policy for remote",
+    }),
+  ),
+  targetHost: t.Nullable(
+    t.String({
+      minLength: 1,
+      maxLength: 253,
+      description: "Host to reach through the connection; required for local/remote, null for dynamic",
+    }),
+  ),
+  targetPort: t.Nullable(
+    t.Number({ minimum: 1, maximum: 65535, description: "Port on the target host; same kind rule" }),
+  ),
+});
+
 /** One ProxyJump hop as the frozen snapshot spells it. */
 export const SshHopViewSchema = t.Object({
   host: t.String({ description: "Hop hostname (bracketed IPv6 literal kept as given)" }),

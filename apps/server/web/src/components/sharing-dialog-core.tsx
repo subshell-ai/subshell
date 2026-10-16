@@ -1,5 +1,6 @@
 import { Button, errMessage } from "@internal/node-admin";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
+import { SearchableSelect } from "@/components/ui/combobox";
 import {
   Dialog,
   DialogContent,
@@ -8,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Segmented } from "@/components/ui/segmented";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { RosterUser, ShareDraft } from "@/hooks/use-subshell-shares";
 import type { SubshellAccess } from "@/types/subshell";
 
@@ -20,7 +21,34 @@ const LEVEL_OPTIONS: { value: ShareLevel; label: string }[] = [
   { value: "edit", label: "View + edit" },
 ];
 
-/** The Everyone grant's sentinel in the native picker (resolved to null on add). */
+function ShareLevelSelect({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: ShareLevel;
+  onChange: (value: ShareLevel) => void;
+}) {
+  return (
+    <Select items={LEVEL_OPTIONS} value={value} onValueChange={(level) => level && onChange(level)}>
+      <SelectTrigger aria-label={label} className="w-full">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          {LEVEL_OPTIONS.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  );
+}
+
+/** The Everyone grant's sentinel in the picker (resolved to null on add). */
 const EVERYONE = "everyone";
 
 /**
@@ -86,8 +114,15 @@ export function SharingDialogCore({
   const [pickLevel, setPickLevel] = useState<ShareLevel>("view");
   const [error, setError] = useState<string | null>(null);
 
+  const pickerId = useId();
   const grants = draft ?? serverGrants;
   const alreadyShared = new Set(grants.map((g) => g.granteeUserId ?? EVERYONE));
+
+  const recipientOptions = [
+    { value: EVERYONE, label: "Everyone" },
+    ...roster.map((user) => ({ value: user.id, label: user.email, searchText: user.name })),
+  ].filter((option) => !alreadyShared.has(option.value));
+  const selectedRecipient = recipientOptions.some((option) => option.value === pickId) ? pickId : "";
 
   function handleClose(next: boolean) {
     if (!next) {
@@ -106,9 +141,11 @@ export function SharingDialogCore({
   }
 
   function addGrant() {
-    const granteeUserId = pickId === EVERYONE ? null : pickId;
+    if (!selectedRecipient) return;
+    const granteeUserId = selectedRecipient === EVERYONE ? null : selectedRecipient;
     // Replace any existing grant to the same target rather than duplicating.
     setDraft([...grants.filter((g) => g.granteeUserId !== granteeUserId), { granteeUserId, permission: pickLevel }]);
+    setPickId("");
   }
 
   async function save() {
@@ -137,27 +174,29 @@ export function SharingDialogCore({
           </p>
         )}
 
-        <div className="space-y-3">
+        <div className="flex flex-col gap-3">
           {isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
           {!isLoading && grants.length === 0 && (
             <p className="text-muted-foreground text-sm">Not shared with anyone yet.</p>
           )}
           {grants.map((g, i) => (
-            <div key={g.granteeUserId ?? EVERYONE} className="flex items-center justify-between gap-3">
-              <span className="min-w-0 flex-1 truncate text-sm">
+            <div
+              key={g.granteeUserId ?? EVERYONE}
+              className="grid grid-cols-[minmax(0,1fr)_5rem] items-center gap-3 sm:grid-cols-[minmax(0,1fr)_9rem_5rem]"
+            >
+              <span className="col-span-2 min-w-0 truncate text-sm sm:col-span-1">
                 {g.granteeUserId === null
                   ? "Everyone"
                   : (roster.find((u) => u.id === g.granteeUserId)?.email ?? g.granteeUserId)}
               </span>
               {canManage ? (
                 <>
-                  <Segmented
-                    ariaLabel={`Access for ${g.granteeUserId === null ? "Everyone" : "this user"}`}
-                    options={LEVEL_OPTIONS}
+                  <ShareLevelSelect
+                    label={`Access for ${g.granteeUserId === null ? "Everyone" : "this user"}`}
                     value={g.permission}
                     onChange={(level) => changeLevel(i, level)}
                   />
-                  <Button variant="ghost" size="sm" onClick={() => removeAt(i)} aria-label="Remove">
+                  <Button variant="ghost" size="sm" className="h-9" onClick={() => removeAt(i)} aria-label="Remove">
                     Remove
                   </Button>
                 </>
@@ -170,29 +209,29 @@ export function SharingDialogCore({
           ))}
 
           {canManage && (
-            <div className="flex flex-wrap items-center gap-3 border-t pt-3">
-              <select
-                value={pickId}
-                onChange={(e) => setPickId(e.target.value)}
-                aria-label="Share with"
-                className="h-8 rounded-md border bg-transparent px-2 text-sm"
+            <div className="grid grid-cols-[minmax(0,1fr)_5rem] items-center gap-3 border-t pt-3 sm:grid-cols-[minmax(0,1fr)_9rem_5rem]">
+              <div className="col-span-2 min-w-0 sm:col-span-1">
+                <label htmlFor={pickerId} className="sr-only">
+                  Share with
+                </label>
+                <SearchableSelect
+                  id={pickerId}
+                  value={selectedRecipient}
+                  onValueChange={setPickId}
+                  placeholder="Search people…"
+                  options={recipientOptions}
+                  emptyText="No matching people to add."
+                />
+              </div>
+              <ShareLevelSelect label="Access level to grant" value={pickLevel} onChange={setPickLevel} />
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9"
+                onClick={addGrant}
+                disabled={!selectedRecipient}
+                disabledReason="Choose who to share with first."
               >
-                {!alreadyShared.has(EVERYONE) && <option value={EVERYONE}>Everyone</option>}
-                {roster
-                  .filter((u) => !alreadyShared.has(u.id))
-                  .map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.email}
-                    </option>
-                  ))}
-              </select>
-              <Segmented
-                ariaLabel="Access level to grant"
-                options={LEVEL_OPTIONS}
-                value={pickLevel}
-                onChange={setPickLevel}
-              />
-              <Button variant="outline" size="sm" onClick={addGrant}>
                 Add
               </Button>
             </div>

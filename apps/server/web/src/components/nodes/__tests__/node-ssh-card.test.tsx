@@ -28,6 +28,7 @@ function node(over: Partial<NodeDetail> = {}): NodeDetail {
     maintenanceAt: null,
     maintenanceSource: null,
     sshEnabled: false,
+    sshWideForwards: false,
     held: null,
     ...over,
   };
@@ -54,7 +55,7 @@ for (const enabled of [false, true]) {
       return new Response("{}");
     }) as unknown as typeof fetch;
     mount(node({ sshEnabled: enabled }));
-    expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe(String(enabled));
+    expect(screen.getByRole("switch", { name: "Allow SSH" }).getAttribute("aria-checked")).toBe(String(enabled));
     fireEvent.click(screen.getByRole("switch", { name: "Allow SSH" }));
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0].url).toContain("/api/nodes/node1/ssh-enabled");
@@ -62,6 +63,29 @@ for (const enabled of [false, true]) {
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({ on: !enabled });
   });
 }
+it("offers the wide-forwards switch beside the SSH switch, and writes its own endpoint", async () => {
+  const calls: { url: string; init?: RequestInit }[] = [];
+  globalThis.fetch = (async (url, init) => {
+    calls.push({ url: String(url), init });
+    return new Response("{}");
+  }) as unknown as typeof fetch;
+  mount(node({ sshEnabled: true }));
+  const wide = screen.getByRole("switch", { name: "Allow wide port forwards" });
+  expect(wide.getAttribute("aria-checked")).toBe("false");
+  fireEvent.click(wide);
+  await waitFor(() => expect(calls.some((c) => c.url.includes("/api/nodes/node1/ssh-wide-forwards"))).toBe(true));
+  const call = calls.find((c) => c.url.includes("/ssh-wide-forwards"));
+  expect(JSON.parse(String(call?.init?.body))).toEqual({ on: true });
+});
+
+it("hides the wide-forwards switch while SSH itself is off, and says who owns it to others", () => {
+  mount(node({ sshEnabled: false }));
+  expect(screen.queryByRole("switch", { name: "Allow wide port forwards" })).toBeNull();
+  mount(node({ sshEnabled: true, access: "edit", canManage: false }));
+  const wide = screen.getByRole("switch", { name: "Allow wide port forwards" });
+  expect(wide.hasAttribute("data-disabled")).toBe(true);
+});
+
 it("shows configuration to edit viewers without offering changes", () => {
   mount(node({ access: "edit", canManage: false }));
   expect(screen.getByRole("switch").hasAttribute("data-disabled")).toBe(true);

@@ -289,6 +289,14 @@ export enum BackendErrorCodes {
    * nowhere in it, and the interactive pane is untouched.
    */
   SSH_UPGRADE_FAILED = "SSH_UPGRADE_FAILED",
+  /**
+   * A launch asked for a port forward that binds a non-loopback address on a
+   * machine whose owner has not allowed wide binds (spec 2026-10-15 §6): the
+   * forward would turn the machine into a router for whatever network reaches
+   * that port. Refused before anything composes; the remedy the message names
+   * is the machine's SSH setting, or a loopback bind.
+   */
+  SSH_FORWARD_BIND_DENIED = "SSH_FORWARD_BIND_DENIED",
 }
 
 /**
@@ -590,5 +598,9 @@ export const BackendErrorCodeDefs = {
   [BackendErrorCodes.SSH_UPGRADE_FAILED]: {
     message: "Subshell setup didn't finish",
     statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_FORWARD_BIND_DENIED]: {
+    message: "This machine only allows port forwards that bind its own loopback address",
+    statusCode: 403,
   },
 };

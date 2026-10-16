@@ -40,6 +40,7 @@ function enrolledNode(overrides: Partial<NodeDetail> = {}): NodeDetail {
     maintenanceAt: null,
     maintenanceSource: null,
     sshEnabled: false,
+    sshWideForwards: false,
     held: null,
     ...overrides,
   };

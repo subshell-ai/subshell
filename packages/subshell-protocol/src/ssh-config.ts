@@ -163,8 +163,12 @@ function isWireName(value: unknown): value is string {
   );
 }
 
-/** A destination hostname (or bracketed IPv6), by grammar not by hygiene: see {@link HOST_RE}. */
-function isHostName(value: unknown): value is string {
+/**
+ * A destination hostname (or bracketed IPv6), by grammar not by hygiene: see {@link HOST_RE}.
+ * Exported because the forward-row grammar validates host-valued fields under
+ * exactly the same rule; one definition, not two that can drift.
+ */
+export function isSshHostName(value: unknown): value is string {
   return isStr(value) && value.length <= SSH_NAME_MAX_CHARS && HOST_RE.test(value);
 }
 
@@ -178,8 +182,11 @@ function isAbsPosixPath(value: unknown): value is string {
   return isStr(value) && value.startsWith("/") && value.length <= SSH_PATH_MAX_CHARS && !/\p{Cc}/u.test(value);
 }
 
-/** A resolved port: a positive integer inside the legal range. */
-function isPort(value: unknown): value is number {
+/**
+ * A resolved port: a positive integer inside the legal range. Exported for the
+ * forward-row grammar, which bounds listen and target ports by the same rule.
+ */
+export function isSshPort(value: unknown): value is number {
   return isInt(value) && (value as number) >= 1 && (value as number) <= 65535;
 }
 
@@ -189,7 +196,7 @@ function isPathListWithin(value: unknown, cap: number): value is string[] {
 }
 
 function isHop(value: unknown): value is SshHopWire {
-  if (!isRecord(value) || !isHostName(value.host) || !isPort(value.port)) return false;
+  if (!isRecord(value) || !isSshHostName(value.host) || !isSshPort(value.port)) return false;
   if (!("user" in value)) return false;
   return value.user === null || isUserName(value.user);
 }
@@ -213,7 +220,7 @@ export function parseSshConnectionSnapshot(value: unknown): SshConnectionSnapsho
   for (const field of SSH_FORBIDDEN_SNAPSHOT_FIELDS) {
     if (value[field] != null) return null;
   }
-  if (!isWireName(value.alias) || !isHostName(value.host) || !isPort(value.port)) return null;
+  if (!isWireName(value.alias) || !isSshHostName(value.host) || !isSshPort(value.port)) return null;
   if (!("user" in value) || !(value.user === null || isUserName(value.user))) return null;
   if (!isPathListWithin(value.identityFiles, SSH_MAX_IDENTITY_REFS)) return null;
   if (!isPathListWithin(value.certificateFiles, SSH_MAX_CERT_REFS)) return null;

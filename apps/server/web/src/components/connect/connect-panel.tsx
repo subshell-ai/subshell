@@ -7,6 +7,7 @@ import { useBrowserKeySelection } from "@/components/connect/browser-key-fields"
 import { DestinationField } from "@/components/connect/destination-field";
 import { buildDestinationOptions } from "@/components/connect/destination-options";
 import { NoSshTargets } from "@/components/connect/no-ssh-targets";
+import { SshForwardFields } from "@/components/connect/ssh-forward-fields";
 import { SshKeyStep } from "@/components/connect/ssh-key-step";
 import { SaveSshPresetFields, SshPresetPicker } from "@/components/connect/ssh-preset-controls";
 import { type SshRefusalCopy, sshLaunchRefusal } from "@/components/connect/ssh-refusal";
@@ -40,7 +41,8 @@ import { isDesktop } from "@/lib/desktop";
 import { fieldErrorToned, makeForm, useSubmitDisabled } from "@/lib/form";
 import { nodeOptionLabel } from "@/lib/node-label";
 import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
-import { sshCanEnableOnStart } from "@/lib/ssh";
+import { sshCanEnableOnStart, sshMachineRowReason } from "@/lib/ssh";
+import { sshForwardRowsToWire } from "@/lib/ssh-forwards";
 import { sshDestinationProblem } from "@/lib/ssh-input-validation";
 import { launchWithLocalKey } from "@/lib/ssh-local-key";
 import { sshDraftFromPreset, sshPresetPayload } from "@/lib/ssh-preset";
@@ -172,17 +174,24 @@ export function ConnectPanel({
   // several doors with no preference, or no door at all (spec §7, decision 2).
   const machineRequired = nodes !== null && !ledgerPending && nodeId === "";
 
-  // The machine disclosure keeps gated-off rows visible (decision 3): grey,
-  // with the reason carrying the remedy, not just the cause - the sentence
-  // pair mirrors the server's own gate (ssh-launch.service.ts's `gateCause`):
-  // the control-plane host's switch is an admin's, every other machine's is
-  // its owner's.
-  const machineOptions: ComboboxOption[] = targets.map((n) => ({
-    value: n.id,
-    label: nodeOptionLabel(n),
-    disabled: !machineCanConnect(n.id),
-    reason: machineBlocker(n.id) ?? undefined,
-  }));
+  // The machine disclosure keeps gated-off rows visible (decision 3), grey
+  // with their reason: the row stays short (`sshMachineRowReason` - a full
+  // remedy sentence is unreadable in a picker line), and the sentence pair
+  // that names WHO can fix it - the server's own gate words,
+  // ssh-launch.service.ts's `gateCause` - reads beside the field once the row
+  // is chosen or the launch refuses.
+  const machineRow = (id: string) => machines?.find((machine) => machine.node.id === id);
+  const machineOptions: ComboboxOption[] = targets.map((n) => {
+    const machine = machineRow(n.id);
+    const row = machine === undefined ? undefined : sshMachineRowReason(machine);
+    return {
+      value: n.id,
+      label: nodeOptionLabel(n),
+      disabled: !machineCanConnect(n.id),
+      reason: row?.reason,
+      reasonWarning: row?.warning,
+    };
+  });
 
   // Aliases are the MACHINE's config, asked only while a gate-ON machine is
   // picked (spec §7: discovery runs where it can answer).
@@ -213,15 +222,17 @@ export function ConnectPanel({
     { value: "connecting", label: "Keys on the connecting machine" },
     ...(nodes ?? [])
       .filter((n) => n.id !== nodeId || n.id === keyHome)
-      .map((n) => ({
-        value: n.id,
-        label: n.name,
-        disabled: n.id === nodeId || !machineCanConnect(n.id),
-        reason:
-          n.id === nodeId
-            ? "Use keys on this machine, or choose a different machine."
-            : (machineBlocker(n.id) ?? undefined),
-      })),
+      .map((n) => {
+        const machine = machineRow(n.id);
+        const row = machine === undefined ? undefined : sshMachineRowReason(machine);
+        return {
+          value: n.id,
+          label: n.name,
+          disabled: n.id === nodeId || !machineCanConnect(n.id),
+          reason: n.id === nodeId ? "Use keys on this machine, or choose a different machine." : row?.reason,
+          reasonWarning: n.id !== nodeId && row?.warning === true,
+        };
+      }),
   ];
   const keySourceProblem = sshKeySourceProblem(draft);
   const enableKeysOnStart =
@@ -232,6 +243,7 @@ export function ConnectPanel({
   const selectionError = sshKeySelectionProblem(fingerprints, roster.data?.identities);
   const rosterReady = !keyHome || (!roster.isPending && !roster.isError && selectionError === null);
   const destination = sshDestination(draft);
+  const forwardRows = sshForwardRowsToWire(draft.forwards);
   // A committed row's label is the field's text; while that echo stands the
   // list is UNFILTERED (the whole ledger again), because the echo is display,
   // not a search. Any keystroke releases the pick, and text becomes query.
@@ -344,6 +356,7 @@ export function ConnectPanel({
         destination,
         ...(expectedDestination ? { expectedDestination } : {}),
         ...(keyHome ? { keyHome, fingerprints } : {}),
+        ...(forwardRows.length > 0 ? { forwards: forwardRows } : {}),
       };
       const created =
         draft.authentication === "local-key"
@@ -381,6 +394,7 @@ export function ConnectPanel({
                 destination,
                 ...(expectedDestination ? { expectedDestination } : {}),
                 ...(keyHome ? { keyHome, fingerprints } : {}),
+                ...(forwardRows.length > 0 ? { forwards: forwardRows } : {}),
               },
               launch.mutateAsync,
             );
@@ -566,14 +580,17 @@ export function ConnectPanel({
         <div>
           <Button
             variant="ghost"
-            aria-expanded={advanced || !!keySourceProblem || refusal?.field === "keys"}
+            aria-expanded={advanced || !!keySourceProblem || refusal?.field === "keys" || draft.forwards.length > 0}
             aria-controls="ssh-advanced-options"
             onClick={() => setAdvanced((value) => !value)}
           >
             Advanced SSH options
             <ChevronDown data-icon="inline-end" aria-hidden="true" />
           </Button>
-          <div id="ssh-advanced-options" hidden={!advanced && !keySourceProblem && refusal?.field !== "keys"}>
+          <div
+            id="ssh-advanced-options"
+            hidden={!advanced && !keySourceProblem && refusal?.field !== "keys" && draft.forwards.length === 0}
+          >
             <Field className="mt-3">
               <Label htmlFor="connect-key-home">Use keys from</Label>
               <SearchableSelect
@@ -618,6 +635,14 @@ export function ConnectPanel({
                 />
               )}
             </Field>
+            <div className="mt-3">
+              <SshForwardFields
+                rows={draft.forwards}
+                allowWideBind={selectedNode?.sshWideForwards ?? false}
+                busy={submitting}
+                onChange={(forwards) => setDraft({ ...draft, forwards })}
+              />
+            </div>
           </div>
         </div>
 

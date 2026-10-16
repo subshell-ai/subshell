@@ -66,9 +66,25 @@ describe("ssh panes in subshell views: the non-owner access downgrade", () => {
     carolCookie = await signIn(carolEmail, pw);
 
     // The snapshot content is irrelevant to the rule (presence is the kind
-    // fact); this one is valid JSON so the fixture also reads plausibly.
+    // fact); this one is valid JSON so the fixture also reads plausibly, and
+    // it carries no destination facts, so it must read as NO summary either.
     await ownSubshell("s_ssh", JSON.stringify({ destination: "dev.example.com", node: "local" }));
     await ownSubshell("s_plain"); // ordinary pane: ssh NULL
+    // A pane launched with declared forwards: the header summary comes from
+    // exactly these stored bytes (spec 2026-10-15 §6).
+    await ownSubshell(
+      "s_fwd",
+      JSON.stringify({
+        alias: "build",
+        host: "build.example",
+        user: "theo",
+        port: 22,
+        forwards: null,
+        declaredForwards: [
+          { kind: "local", listenPort: 5432, bindHost: null, targetHost: "db.internal", targetPort: 5432 },
+        ],
+      }),
+    );
     const shares = new SubshellSharesRepository(db);
     await shares.replaceForSubshell(
       "s_ssh",
@@ -120,6 +136,21 @@ describe("ssh panes in subshell views: the non-owner access downgrade", () => {
     const got = await get("/s_plain", bobCookie);
     expect(got.access).toBe("edit");
     expect(got.ssh).toBe(false);
+  });
+
+  it("carries the bounded summary: destination and declared rows (owner read)", async () => {
+    const got = await get("/s_fwd", aliceCookie);
+    expect(got.ssh).toBe(true);
+    expect((got as Record<string, unknown>).sshSummary).toEqual({
+      destination: "theo@build.example:22",
+      forwards: [{ kind: "local", listenPort: 5432, bindHost: null, targetHost: "db.internal", targetPort: 5432 }],
+    });
+  });
+
+  it("an ssh pane whose column can't be read has ssh true and no summary", async () => {
+    const got = await get("/s_ssh", aliceCookie);
+    expect(got.ssh).toBe(true);
+    expect((got as Record<string, unknown>).sshSummary).toBeUndefined();
   });
 
   it("admins need a grant to see foreign SSH and ordinary panes", async () => {

@@ -3,6 +3,7 @@ import { CircleAlert } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { BrowserKeyFields, type BrowserKeySelection } from "@/components/connect/browser-key-fields";
 import { SshDestinationStep } from "@/components/connect/ssh-destination-step";
+import { SshForwardFields } from "@/components/connect/ssh-forward-fields";
 import { SshKeyStep } from "@/components/connect/ssh-key-step";
 import { SshMachineSetup, SshMachineStep } from "@/components/connect/ssh-machine-step";
 import { SaveSshPresetFields } from "@/components/connect/ssh-preset-controls";
@@ -19,6 +20,7 @@ import { useSshNodeRoster } from "@/hooks/use-ssh";
 import { isDesktop } from "@/lib/desktop";
 import { makeForm, useSubmitDisabled } from "@/lib/form";
 import { type SshMachineReadiness, sshCanEnableOnStart } from "@/lib/ssh";
+import { sshForwardListProblems } from "@/lib/ssh-forwards";
 import { sshDestinationProblem, sshPresetNameProblem } from "@/lib/ssh-input-validation";
 
 export interface SshWizardProps {
@@ -92,6 +94,8 @@ export function SshWizard({
     if (!value.nodeId) return { draft: "Choose a node." };
     const destinationProblem = sshDestinationProblem(sshDestination(value));
     if (destinationProblem) return { draft: destinationProblem };
+    const forwardProblem = sshForwardListProblems(value.forwards);
+    if (forwardProblem) return { draft: forwardProblem };
     if (remote) {
       const error = !value.keyHome ? "Choose a node to supply keys." : sshKeySourceProblem(value);
       if (error) return { draft: error };
@@ -331,6 +335,12 @@ export function SshWizard({
             </Field>
           </RadioGroup>
         </fieldset>
+        <SshForwardFields
+          rows={draft.forwards}
+          allowWideBind={machine?.node.sshWideForwards ?? false}
+          busy={busy}
+          onChange={(forwards) => patch({ forwards })}
+        />
       </FieldGroup>
       {!presetEditor && <SaveSshPresetFields draft={draft} onChange={onDraftChange} busy={busy} />}
       {refusal && (

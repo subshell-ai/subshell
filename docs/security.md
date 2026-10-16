@@ -1220,7 +1220,7 @@ connecting node's credentials. Restart still requires a new SSH connection.
 
 The connection form is **New subshell → SSH terminal**. **Settings → Presets → SSH**
 manages saved connection choices; it has no host-key editor. SSH presets retain
-the resolved destination, original SSH resolution token, and authentication choice.
+the resolved destination, original SSH resolution token, authentication choice, and declared port forwards.
 The token preserves alias-scoped routing and key settings; an optional
 `expectedDestination` constraint checks the resolved username, host, and port
 before save/clone, local-key preparation, trust discovery/acceptance, or launch
@@ -1238,6 +1238,7 @@ keys. It does not configure `sshd` or grant incoming SSH access.
 | `/api/ssh/readiness`, `/aliases`, `/resolve`, `/identities` | Browser session required. Node discovery and operations follow the caller's node access and the applicable readiness gates; alias/configuration data and public agent identities are not anonymous information. |
 | `POST /api/ssh/launch` | Browser session and launch access to the connecting node; relays also require launch access to the key source. Both participants must pass SSH and readiness checks. |
 | `PUT /api/nodes/:id/ssh-enabled` | Browser session and node owner, or administrator for the built-in node. An edit share alone cannot enable SSH. The setting can be changed while a node is offline and is reconciled on reconnect. |
+| `PUT /api/nodes/:id/ssh-wide-forwards` | Browser session and node owner, or administrator for the built-in node. Governs whether new SSH launches from this node may bind port forwards beyond loopback; an edit share cannot change it. |
 | `/api/ssh/recent-destinations` and `/preferences` | Browser session, scoped to the caller. Recent suggestions and the default connecting node are separate from destination trust. |
 | `/api/presets` with SSH kind | Browser session, scoped to the caller. Saving resolves the destination through the existing node gate and checks access to any key node; it does not enable SSH or approve trust. Launch rechecks access, readiness, fingerprints, and trust. Deleting a preset neither removes its host pin nor closes a subshell. |
 | `/api/ssh/verify-destination` and `/verify-destination/accept` | Browser session, current access checks, and the one-use confirmation binding described above. These are destination network probes and trust writes, not login attempts. |
@@ -1282,6 +1283,34 @@ account’s configuration as executable trusted input, not passive data. Remote-
 `ProxyJump` and `HostKeyAlias`, because their destination trust currently covers
 one canonical destination. These restrictions do not sandbox that OS account
 or make its OpenSSH binary and configuration untrusted-code-safe.
+
+**Port forwards are declared, never ambient.** Every forward that came from the
+connecting account's own SSH configuration stays refused by name: the resolver
+rejects `LocalForward`, `RemoteForward`, and `DynamicForward` found by `ssh -G`
+before the snapshot freezes, and the snapshot keeps them as forbidden members.
+Forwards that exist come from rows the user declared at launch (or from the
+preset storing them): an explicit kind, port, and target, visible in the form
+and summarized in the launch audit. The subshell view carries that same bounded
+summary (canonical destination, declared rows) to anyone who can see the pane,
+which is disclosure-only like the pane output that already shows the login. A local or dynamic forward binds the
+connecting node's loopback address by default, which that node's other OS users
+can reach: §0's accepted posture verbatim, the same class the node's loopback
+dashboard already carries. Binding anything wider requires the node's
+**Allow wide port forwards** switch (owner-only, admin on the built-in node,
+default off, audited `node.ssh_wide_forwards.update`), and a launch asking for
+a wide bind on a node without it is refused; enforcement sits plane-side
+because the node already gates the whole SSH subsystem, and a plane lying
+about the flag is the control-plane-compromise case §0 accepts. A remote
+forward binds on the destination under its sshd's own `GatewayPorts` and
+`PermitRemoteOpen` policy, like any SSH client's request; Subshell relays it
+and owns the asking. When approved rows exist the rendered config omits its
+`ClearAllForwardings yes` line (measured on OpenSSH: the keyword applies at the
+end of the whole config load, so rows cannot survive it from anywhere), and
+that omission is honest because the pane's `-F` file replaces the connecting
+account's configuration outright, leaving only our rendered lines and the
+root-owned system file as forward sources. `Tunnel`, `ForwardAgent`, and
+`ForwardX11` toward the destination stay refused: this opens TCP port
+forwarding and nothing else.
 
 **Setup progress is not a durable job.** Completed results remain for one hour
 in the running server process. Closing the dialog does not cancel the installer;
@@ -2572,6 +2601,7 @@ Audit events are written, grouped by family:
 - **Nodes**: `node.enroll`, `node.delete`, `node.rename`, `node.key_rotate`, `node.reregister_key`, `node.reregister`,
   `node.allowed_dirs.update`, `node.config.update`,
   `node.maintenance.update`, `node.ssh_enabled.update`,
+  `node.ssh_wide_forwards.update` (the boolean itself; which node, who flipped it),
   `node.ssh_identity.register` (spec 2026-10-08 §4.3: the signing-key
   bootstrap lands when the link's answer fills the EMPTY slot, `via: "link"`
   and nothing else in the metadata - never the key value; the idempotent
@@ -2607,7 +2637,8 @@ Audit events are written, grouped by family:
   verb shares its action with the rest of the service surface). The SSH
   launcher's act lands in this family too as `ssh.launch` (spec 2026-10-07
   §12): metadata `{ nodeId, destination, subshellId }` plus `relayRef` for a
-  relay launch, naming which machine
+  relay launch and a bounded `forwards` summary (per approved row: kind, canonical
+  listen end, and target for local/remote) when the launch carries rows, naming which machine
   dialed out to which canonical `host:port` and the pane that came of it, and
   never a config value, path list, or key material (§13). It is written AFTER
   the pane spawned, success only, the same posture as `subshell.create`, and

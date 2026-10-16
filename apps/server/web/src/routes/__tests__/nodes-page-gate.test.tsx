@@ -142,6 +142,7 @@ describe("/nodes add-node gating", () => {
           maintenanceAt: null,
           maintenanceSource: null,
           sshEnabled: false,
+          sshWideForwards: false,
           held: null,
         },
       ],

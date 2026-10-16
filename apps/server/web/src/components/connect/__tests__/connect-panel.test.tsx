@@ -50,6 +50,7 @@ function node(overrides: Partial<Node>): Node {
     maintenanceAt: null,
     maintenanceSource: null,
     sshEnabled: false,
+    sshWideForwards: false,
     held: null,
     ...overrides,
   };
@@ -242,18 +243,20 @@ describe("machine disclosure (contract 1)", () => {
       await settle();
       const studio = await screen.findByRole("option", { name: /studio/ });
       expect(studio.getAttribute("data-disabled")).toBe("");
-      // The row carries the remedy, not just the cause (the changeset's
-      // promise; the server's gateCause sentences are the pattern).
-      expect(studio.textContent).toContain(
-        "SSH is off on this machine. Its owner can switch it on from this machine's settings.",
-      );
+      // The row is short and gold, not a paragraph: "SSH not enabled" reads in
+      // one line of a capped popup (ruling 2026-10-16). The full remedy
+      // sentence arrives beside the field and in the launch refusal.
+      expect(studio.textContent).toContain("SSH not enabled");
+      expect(studio.textContent).not.toContain("Its owner can switch it on");
+      // Gold: the switch-not-on tone, not a mistake in what the reader typed.
+      expect(studio.querySelector('[class*="text-warning"]')).not.toBeNull();
       expect(pathname()).toBe("/");
     } finally {
       restore();
     }
   });
 
-  it("names the admin remedy on a gated-off local row, kind-aware like the server's gate", async () => {
+  it("shortens a gated-off local row's reason the same way, one label for either switch", async () => {
     const localOff = node({ id: "loc", name: "this host", kind: "local", sshEnabled: false });
     const { restore } = await renderPanel({ nodes: [HOST_A, localOff] });
     try {
@@ -261,7 +264,9 @@ describe("machine disclosure (contract 1)", () => {
       await settle();
       const row = await screen.findByRole("option", { name: /this host/ });
       expect(row.getAttribute("data-disabled")).toBe("");
-      expect(row.textContent).toContain("SSH is off here. An admin can switch it on from this machine's settings.");
+      // Short in the row regardless of whose switch it is: the admin-vs-owner
+      // pair lives in the field guidance and the refusal, not the one-liner.
+      expect(row.textContent).toContain("SSH not enabled");
     } finally {
       restore();
     }
@@ -759,6 +764,166 @@ it("a delayed URL preset cannot overwrite an edited draft during or after a pend
     releaseLaunch(json({ code: "SSH_RELAY_OPEN_FAILED", message: "Try again" }, 409));
     await screen.findByText("Try again");
     expect(destinationInput().value).toBe("my-edited-host");
+  } finally {
+    restore();
+  }
+});
+
+it("carries added port forwards in the launch body, and holds Add until the editor row is valid (spec 2026-10-15)", async () => {
+  const { calls, restore } = await renderPanel({
+    nodes: [HOST_A],
+    launch: () => json({ subshell: { id: "pane-fwd" } }, 201),
+  });
+  try {
+    fireEvent.change(destinationInput(), { target: { value: "build.example" } });
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Advanced SSH options" }));
+    await settle();
+    // Nobody declared a forward: the section is one button, not a form.
+    expect(screen.queryByLabelText(/Local port/) === null).toBe(true);
+    // The machine's bind rule is stated up front, not discovered at launch.
+    expect(screen.getByText(/127\.0\.0\.1/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
+    await settle();
+    // Loopback-only machine: no bind field offered.
+    expect(screen.queryByLabelText(/Bind address/)).toBeNull();
+    // Disabled state rides aria-disabled, not the attribute: the node-admin
+    // Button stays focusable while it explains why Add is held (Base UI).
+    const addDisabled = () => {
+      const b = screen.getByRole("button", { name: "Add port forward" }) as HTMLButtonElement;
+      return b.disabled || b.getAttribute("aria-disabled") === "true";
+    };
+    // A pristine editor adds nothing: Add is disabled and no complaint shows.
+    expect(addDisabled()).toBe(true);
+    expect(screen.queryByText(/listen port/i)).toBeNull();
+    fireEvent.change(screen.getByLabelText(/Local port/), { target: { value: "5432" } });
+    await settle();
+    // Half a row: the listen port alone is not a forward.
+    expect(addDisabled()).toBe(true);
+    expect(screen.getByText(/host to reach/i)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Target host/), { target: { value: "db.internal" } });
+    fireEvent.change(screen.getByLabelText(/Target port/), { target: { value: "5432" } });
+    await settle();
+    expect(addDisabled()).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
+    await settle();
+    // The forward lands in the table and the editor folds away.
+    expect(screen.getByText("loopback:5432")).toBeTruthy();
+    expect(screen.queryByLabelText(/Local port/) === null).toBe(true);
+    // Reopening starts clean: the kind sticks, the values do not.
+    fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
+    await settle();
+    expect((screen.getByLabelText(/Local port/) as HTMLInputElement).value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await clickConnect();
+    await waitFor(() => expect(calls.some((call) => call.url === "/api/ssh/launch")).toBe(true));
+    expect(calls.find((call) => call.url === "/api/ssh/launch")?.body).toMatchObject({
+      node: "a1",
+      destination: "build.example",
+      forwards: [{ kind: "local", listenPort: 5432, bindHost: null, targetHost: "db.internal", targetPort: 5432 }],
+    });
+  } finally {
+    restore();
+  }
+});
+
+it("Cancel means the half-typed row is gone, not hidden", async () => {
+  const { restore } = await renderPanel({ nodes: [HOST_A] });
+  try {
+    fireEvent.click(screen.getByRole("button", { name: "Advanced SSH options" }));
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
+    await settle();
+    fireEvent.change(screen.getByLabelText(/Local port/), { target: { value: "8080" } });
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await settle();
+    expect(screen.queryByLabelText(/Local port/) === null).toBe(true);
+    // Reopening shows nothing stale: what Cancel discarded stays discarded.
+    fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
+    await settle();
+    expect((screen.getByLabelText(/Local port/) as HTMLInputElement).value).toBe("");
+    expect(screen.queryByRole("alert") === null).toBe(true);
+  } finally {
+    restore();
+  }
+});
+
+it("removes an added forward from the table before the launch", async () => {
+  const { calls, restore } = await renderPanel({
+    nodes: [HOST_A],
+    launch: () => json({ subshell: { id: "pane-fwd2" } }, 201),
+  });
+  try {
+    fireEvent.change(destinationInput(), { target: { value: "build.example" } });
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Advanced SSH options" }));
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
+    await settle();
+    fireEvent.change(screen.getByLabelText(/Local port/), { target: { value: "8080" } });
+    fireEvent.change(screen.getByLabelText(/Target host/), { target: { value: "app.internal" } });
+    fireEvent.change(screen.getByLabelText(/Target port/), { target: { value: "3000" } });
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
+    await settle();
+    expect(screen.getByText("loopback:8080")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove this forward" }));
+    await settle();
+    expect(screen.queryByText("loopback:8080")).toBeNull();
+    await clickConnect();
+    await waitFor(() => expect(calls.some((call) => call.url === "/api/ssh/launch")).toBe(true));
+    const launchBody = calls.find((call) => call.url === "/api/ssh/launch")?.body as Record<string, unknown>;
+    expect(launchBody.forwards).toBeUndefined();
+  } finally {
+    restore();
+  }
+});
+
+it("refuses to add a second forward on a port the table already holds", async () => {
+  const { restore } = await renderPanel({ nodes: [HOST_A] });
+  try {
+    fireEvent.click(screen.getByRole("button", { name: "Advanced SSH options" }));
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
+    await settle();
+    fireEvent.change(screen.getByLabelText(/Local port/), { target: { value: "5432" } });
+    fireEvent.change(screen.getByLabelText(/Target host/), { target: { value: "db.internal" } });
+    fireEvent.change(screen.getByLabelText(/Target port/), { target: { value: "5432" } });
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
+    await settle();
+    // The next row on the same port is refused at the Add button, not at launch.
+    // Adding folded the editor, so it opens again clean and the whole row is retyped.
+    fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
+    await settle();
+    fireEvent.change(screen.getByLabelText(/Local port/), { target: { value: "5432" } });
+    fireEvent.change(screen.getByLabelText(/Target host/), { target: { value: "cache.internal" } });
+    fireEvent.change(screen.getByLabelText(/Target port/), { target: { value: "5432" } });
+    await settle();
+    const addButton = screen.getByRole("button", { name: "Add port forward" }) as HTMLButtonElement;
+    expect(addButton.disabled || addButton.getAttribute("aria-disabled") === "true").toBe(true);
+    expect(screen.getByText(/already binds that port/i)).toBeTruthy();
+    // A press on the held button changes nothing: the table keeps its one row.
+    fireEvent.click(addButton);
+    await settle();
+    expect(screen.getAllByRole("button", { name: "Remove this forward" })).toHaveLength(1);
+  } finally {
+    restore();
+  }
+});
+
+it("offers the bind address on a machine whose owner allows wide binds", async () => {
+  const HOST_WIDE = node({ id: "w1", name: "router box", sshEnabled: true, sshWideForwards: true });
+  const { restore } = await renderPanel({ nodes: [HOST_WIDE] });
+  try {
+    fireEvent.click(screen.getByRole("button", { name: "Advanced SSH options" }));
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
+    await settle();
+    expect(screen.getByLabelText(/Bind address/)).toBeTruthy();
+    // The owner already allowed wide binds: no loopback-only sentence.
+    expect(screen.queryByText(/127\.0\.0\.1/) === null).toBe(true);
   } finally {
     restore();
   }

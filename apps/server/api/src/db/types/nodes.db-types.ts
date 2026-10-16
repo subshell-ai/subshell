@@ -102,6 +102,14 @@ export interface NodeTable {
    */
   sshEnabledAt: string | null;
   /**
+   * 1 = this machine's owner allows SSH port forwards to bind NON-loopback
+   * addresses (docs/superpowers/specs/2026-10-15-ssh-port-forwards-design.md
+   * §6). Default 0: forwards bind loopback only. A wide bind turns the machine
+   * into a router for whatever network reaches that port, so the decision is
+   * per machine and belongs to the owner, never to a connection's author.
+   */
+  sshWideForwards: number;
+  /**
    * JSON mirror of the ssh-fingerprint block from this node's last runtime
    * report (spec 2026-10-08 §4.5), so the trust card survives an offline node
    * or a plane restart. NULL until a post-M2 agent reports. Serialized only

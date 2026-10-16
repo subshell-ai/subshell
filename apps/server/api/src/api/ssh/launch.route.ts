@@ -1,10 +1,11 @@
-import { normalizeLabel, SSH_ROSTER_MAX_IDENTITIES } from "@internal/subshell-protocol";
+import { normalizeLabel, SSH_MAX_FORWARD_ROWS, SSH_ROSTER_MAX_IDENTITIES } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { SubshellSchema } from "@/api/models.js";
 import {
   SshDestinationField,
   SshExpectedDestinationField,
+  SshForwardRowSchema,
   SshResolveRefusalViewSchema,
   throwCodedRefusal,
 } from "@/api/ssh/ssh-views.js";
@@ -47,6 +48,9 @@ export const sshLaunchRoute = new Elysia()
         fingerprints: body.fingerprints,
         authentication: body.authentication,
         localKeyId: body.localKeyId,
+        // The protocol parser owns the detail (shape, kind rules, dupes);
+        // this handler only carries the envelope through.
+        forwards: body.forwards,
         sessionId: session?.id,
         subshells: ctx.services.subshells,
       });
@@ -79,6 +83,13 @@ export const sshLaunchRoute = new Elysia()
             minLength: 1,
             description:
               "RELAY MODE: the key home machine whose agent signs for this connection; absent uses the connecting machine's own keys",
+          }),
+        ),
+        forwards: t.Optional(
+          t.Array(SshForwardRowSchema, {
+            maxItems: SSH_MAX_FORWARD_ROWS,
+            description:
+              "User-declared port forwards this connection carries (spec 2026-10-15). They live and die with the pane; a non-loopback bind host needs the machine's wide-forwards setting on",
           }),
         ),
       }),

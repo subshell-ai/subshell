@@ -32,6 +32,11 @@ export async function startContainerSshFixture(root: string) {
           "PasswordAuthentication yes",
           "KbdInteractiveAuthentication no",
           "PubkeyAuthentication yes",
+          // The destination's own bind policy (spec 2026-10-15 §6): a remote
+          // forward that names an address may bind it; a blank bind still
+          // lands on loopback. `no` would flatten both to loopback and hide
+          // the distinction spec 26 exists to prove.
+          "GatewayPorts clientspecified",
           "UsePAM no",
           "StrictModes yes",
           "LogLevel VERBOSE",
@@ -82,6 +87,8 @@ export async function startContainerSshFixture(root: string) {
       user,
       host,
       port,
+      /** Run a command INSIDE the destination (spec 26 reads its own forwarded ports from here). */
+      exec: (cmd: string[]) => container.exec(cmd),
       password,
       hostKeyLine,
       trustedKeyPath,

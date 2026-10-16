@@ -14,6 +14,7 @@ Identify the network listeners and connection paths used by Subshell.
 | Browser terminal stream | WebSocket through the control plane. |
 | HTTPS proxy or network publication | Port selected by that frontend, forwarding to the server. |
 | Node management dashboard | Loopback-only local listener; no login. Other local users can reach it. |
+| SSH port forward | A port and address chosen at launch, bound on the connecting node (local and dynamic kinds) or by the destination's SSH server (remote kind). Subshell fixes none of them. |
 
 The server serves its API and production web interface on one port. Browsers don't need a route to every execution node.
 
@@ -22,6 +23,8 @@ The server serves its API and production web interface on one port. Browsers don
 Allow the server port only on the networks intended to reach it. A wildcard bind listens on multiple interfaces; origin validation is a separate browser security check.
 
 Enrolled nodes connect outward. Avoid exposing their local management dashboard as a public endpoint.
+
+SSH port forwards follow the same shape: a forward that binds loopback adds no listener other machines can reach. A wide bind (allowed only when the node's owner turns on **Allow wide port forwards**) does, so firewall choices on that node's network apply to it. See [Connect over SSH](/guides/ssh#port-forwards).
 
 ## Development
 

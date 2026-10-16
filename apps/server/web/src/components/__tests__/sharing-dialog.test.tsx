@@ -71,7 +71,14 @@ describe("SharingDialog", () => {
       renderDialog();
       await screen.findByText("Everyone");
       // Choose bob from the roster, then Add.
-      fireEvent.change(screen.getByLabelText("Share with"), { target: { value: "u2" } });
+      const picker = screen.getByRole("combobox", { name: "Share with" });
+      fireEvent.mouseDown(picker);
+      fireEvent.click(picker);
+      await screen.findByRole("option", { name: "bob@subshell.local" });
+      fireEvent.change(picker, { target: { value: "nobody-matches" } });
+      await screen.findByText("No matching people to add.");
+      fireEvent.change(picker, { target: { value: "bob" } });
+      fireEvent.click(await screen.findByRole("option", { name: "bob@subshell.local" }));
       fireEvent.click(screen.getByRole("button", { name: "Add" }));
       expect(await screen.findByText("bob@subshell.local")).toBeDefined();
 

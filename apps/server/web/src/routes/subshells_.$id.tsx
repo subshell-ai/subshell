@@ -315,7 +315,7 @@ function SubshellPage() {
                     off (spec 2026-10-07 §5.4). The badge is the label; the
                     enforcement is the server's access downgrade the terminal
                     already honours. */}
-                <SshPaneLabels subshell={subshell} />
+                <SshPaneLabels subshell={subshell} nodeLabel={nodeLabel} />
                 {/* Permanent disclosure: whose machine this runs on, and who
                     else can read it. Never suppressible — see
                     components/trust-indicators.tsx. */}
