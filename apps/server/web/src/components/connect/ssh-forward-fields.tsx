@@ -236,12 +236,6 @@ export function SshForwardFields({
           </div>
         </div>
       )}
-      {!allowWideBind && (composing || rows.length > 0) && (
-        <p className="text-detail text-muted-foreground">
-          Forwards bind this machine's own loopback address. Its owner can allow other bind addresses in the node's SSH
-          settings.
-        </p>
-      )}
       {rows.length > 0 && (
         // The declared forwards as the dialog's other lists read (the sharing
         // dialog's grants are the worked example): one line each, the control

@@ -779,9 +779,8 @@ it("carries added port forwards in the launch body, and holds Add until the edit
     expect(screen.queryByLabelText(/Local port/) === null).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
     await settle();
-    // Loopback-only machine: no bind field offered, and the reason is on screen.
+    // Loopback-only machine: no bind field offered.
     expect(screen.queryByLabelText(/Bind address/)).toBeNull();
-    expect(screen.getByText(/loopback/i)).toBeTruthy();
     // Disabled state rides aria-disabled, not the attribute: the node-admin
     // Button stays focusable while it explains why Add is held (Base UI).
     const addDisabled = () => {
@@ -895,7 +894,6 @@ it("offers the bind address on a machine whose owner allows wide binds", async (
     fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
     await settle();
     expect(screen.getByLabelText(/Bind address/)).toBeTruthy();
-    expect(screen.queryByText(/owner can allow other bind addresses/i)).toBeNull();
   } finally {
     restore();
   }
