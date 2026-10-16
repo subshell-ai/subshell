@@ -1,5 +1,17 @@
 # @internal/docs
 
+## 0.9.0
+
+### Minor Changes
+
+- [#388](https://github.com/subshell-ai/subshell/pull/388) [`e465fc1`](https://github.com/subshell-ai/subshell/commit/e465fc1f591f8fff7f78811f209c1a9d111997e7) Thanks [@theogravity](https://github.com/theogravity)! - Document SSH port forwards: the kinds and the wide-forwards node switch in the SSH guide, the toggle on the node management page, and forwarded ports in the ports reference.
+
+### Patch Changes
+
+- [#388](https://github.com/subshell-ai/subshell/pull/388) [`e465fc1`](https://github.com/subshell-ai/subshell/commit/e465fc1f591f8fff7f78811f209c1a9d111997e7) Thanks [@theogravity](https://github.com/theogravity)! - Expand the SSH port-forwarding guide with connection steps, local and remote examples, access rules, troubleshooting, and a screenshot of the SSH panel.
+  
+  Refresh the sharing screenshot and instructions for permission dropdowns and the searchable recipient picker.
+
 ## 0.8.2
 
 ### Patch Changes
