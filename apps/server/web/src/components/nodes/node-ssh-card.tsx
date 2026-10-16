@@ -61,7 +61,7 @@ export function NodeSshCard({ node, children }: { node: NodeDetail; children?: R
             </div>
             <p className="text-detail text-muted-foreground">
               {node.sshWideForwards
-                ? "Port forwards can bind an address other machines can reach, so this machine routes their traffic into whatever the connection reaches. Turning this off refuses future wide binds; running forwards keep going until their pane closes."
+                ? "Forwards here are no longer confined to 127.0.0.1. One can bind a LAN address or 0.0.0.0, and any machine that reaches it gets through to the target via the SSH connection. Turning this off affects new subshells only."
                 : "Port forwards here listen on 127.0.0.1 only. Turn this on to let a forward bind another address, such as 0.0.0.0 for every interface."}
             </p>
             {!node.canManage && (
