@@ -103,6 +103,12 @@ export function SshForwardFields({
         Each forward opens a listening port for as long as this connection lives, and the port closes when the subshell
         ends.
       </p>
+      {!allowWideBind && (
+        <p className="text-detail text-muted-foreground">
+          Forwards on this machine listen on 127.0.0.1 only, so just programs running on it can reach the port. Its
+          owner can allow other bind addresses in the node's SSH settings.
+        </p>
+      )}
       {!composing ? (
         <Button
           type="button"

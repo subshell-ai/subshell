@@ -777,6 +777,8 @@ it("carries added port forwards in the launch body, and holds Add until the edit
     await settle();
     // Nobody declared a forward: the section is one button, not a form.
     expect(screen.queryByLabelText(/Local port/) === null).toBe(true);
+    // The machine's bind rule is stated up front, not discovered at launch.
+    expect(screen.getByText(/127\.0\.0\.1 only/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
     await settle();
     // Loopback-only machine: no bind field offered.
@@ -894,6 +896,8 @@ it("offers the bind address on a machine whose owner allows wide binds", async (
     fireEvent.click(screen.getByRole("button", { name: "Add port forward" }));
     await settle();
     expect(screen.getByLabelText(/Bind address/)).toBeTruthy();
+    // The owner already allowed wide binds: no loopback-only sentence.
+    expect(screen.queryByText(/127\.0\.0\.1 only/) === null).toBe(true);
   } finally {
     restore();
   }
