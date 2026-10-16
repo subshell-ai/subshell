@@ -97,6 +97,24 @@ try {
     await dialog.getByRole("button", { name: "Close", exact: true }).click();
   }
 
+  const enableSsh = await api.put("/api/nodes/local/ssh-enabled", { data: { on: true } });
+  expect(enableSsh.ok(), await enableSsh.text()).toBe(true);
+  await page.goto("/new?kind=ssh");
+  await expect(dialog.getByRole("button", { name: "SSH terminal", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await page.locator("#ssh-wizard-destination").fill("developer@build.example.com:22");
+  await dialog.getByRole("button", { name: "Add port forward", exact: true }).click();
+  await page.locator("#ssh-fwd-port").fill("8080");
+  await page.locator("#ssh-fwd-target-host").fill("127.0.0.1");
+  await page.locator("#ssh-fwd-target-port").fill("3000");
+  await dialog.getByRole("button", { name: "Add port forward", exact: true }).click();
+  await expect(dialog.getByRole("button", { name: "Remove this forward" })).toBeVisible();
+  // Capture connection choices without opening a connection to the sample address.
+  await capture(page, "ssh-connection", dialog);
+  await close();
+
   await page.goto("/presets");
   await expect(page.getByRole("button", { name: "Repository review", exact: true })).toBeVisible();
   await capture(page, "preset-library", page.locator("main h1"), card.last());
@@ -188,6 +206,7 @@ try {
     "preset-library",
     "session-sharing",
     "node-enrollment",
+    "ssh-connection",
   ]) {
     const encoded = spawnSync("ffmpeg", [
       "-v",

@@ -84,7 +84,7 @@ and descriptive captions that do not require knowing abbreviations such as PWA.
 
 ## Feature screenshots
 
-The five feature screenshots come from `e2e/capture-docs.ts`, shared with the
+The six feature screenshots come from `e2e/capture-docs.ts`, shared with the
 documentation site. Capture at 2× with `e2e/screenshot.ts`, retain lossless WebP
 encoding, and use the product-colored screenshot frame tokens. The PNGs already
 include a consistent 12px margin; don't add another inset or a modal backdrop.

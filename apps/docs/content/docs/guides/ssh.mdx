@@ -93,7 +93,7 @@ For these connections, Subshell stores the public host key and destination in th
 
 Connections using the connecting node's own keys or a password use that node's OpenSSH trust records instead. They automatically remember a previously unknown host key and reject a changed one. To verify a destination before that first connection, have the node's owner establish its trusted host key on the node first.
 
-Once connected, the terminal shows the destination's shell. Its top bar has an **SSH connection** icon with a tooltip identifying it as an SSH connection. If you selected password authentication, wait for its password prompt before typing. Only the owner signed in to the dashboard can type in an SSH subshell; MCP and other bearer credentials cannot send input. Session [sharing](/guides/sharing) lets other users view its output.
+Once connected, the terminal shows the destination's shell. Its top bar has an **SSH connection** icon whose tooltip shows the connecting node, destination, and any port forwards declared for that subshell. If you selected password authentication, wait for its password prompt before typing. Only the owner signed in to the dashboard can type in an SSH subshell; MCP and other bearer credentials cannot send input. Session [sharing](/guides/sharing) lets other users view its output.
 
 ## SSH presets and recent destinations
 
@@ -118,24 +118,57 @@ If you select **Save as preset** while launching and the connection fails, the s
 
 ## Port forwards
 
-Some services, like a database or an admin API, live behind the destination and have no other route. A connection can open a port that reaches them: in the connection form, choose **Advanced SSH options**, then **Add port forward**. Every forward belongs to that connection, and the port closes when the subshell ends.
+Forward ports through an SSH connection to reach a web app, database, or other TCP service. Each listening port lasts for the SSH connection and closes when the subshell ends.
 
-| Kind | Where the port opens | What it does |
+### Add a port forward
+
+1. In the dashboard, open **Subshells** → **New subshell** → **SSH terminal**. Choose **Connect from**, enter the **SSH destination**, and choose how to authenticate.
+2. Under **Port forwards**, select **Add port forward**.
+3. Choose a kind from the table below. Enter **Local port** or **Remote port** and, for local or remote forwarding, **Target host** and **Target port**.
+4. Select **Add port forward** again to add the completed row to the connection. Repeat for more ports, up to 16 forwards. Use **Remove** to discard a row; to change one, remove it and add its replacement.
+5. Review the listed forwards, then select **Start SSH subshell**. Follow the authentication and destination-verification steps above.
+
+| Kind | Where the port opens | Where the target is reached from |
 | --- | --- | --- |
-| **Local** (`-L`) | The connecting node | Programs on that node reach a host the destination can see. |
-| **Remote** (`-R`) | The destination | The destination reaches a host the connecting node can see. The destination's own SSH server configuration decides whether and how it binds the port. |
-| **Dynamic SOCKS** (`-D`) | The connecting node | Tools configured to use the SOCKS proxy pick their own destinations at runtime and reach them through the connection. |
+| **Local (-L)** | The connecting node | The SSH destination. Use it for a web app or database reachable from that destination. |
+| **Remote (-R)** | The SSH destination | The connecting node. Use it to make a service reachable from the destination. Its SSH server decides whether and how the listening port binds. |
+| **Dynamic SOCKS (-D)** | The connecting node | The SSH destination. Configure a tool to use this SOCKS proxy; the tool chooses the target for each request. |
 
-Fill in a **Local port** (or **Remote port** for a remote forward), and for local and remote kinds the **Target host** and **Target port** you want to reach. A local or dynamic forward can also name a **Bind address**; left blank, the port binds the node's loopback address, so only programs on that node use it.
+“Local” means the node selected under **Connect from**, which may be a different machine from your browser. Choosing a key from your laptop doesn't move the listening port to your laptop.
 
-A non-loopback bind lets other machines route through the port into whatever the connection reaches. That's a decision about the machine, not the connection, so it stays off until the node's owner turns on **Allow wide port forwards** on the node's SSH card. A launch that asks for a wide bind is refused until then; turning the setting off again refuses future wide binds while forwards that are already running keep going until their subshell closes.
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/ssh-connection.png" alt="SSH connection form showing the connecting node, destination, authentication options, and a local forward from port 8080 to port 3000." width="1200" height="1964" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Review the listed ports beneath the authentication options before connecting. Select the image to enlarge it.</figcaption>
+</figure>
 
-If the port you asked for is already taken on the node, the destination's shell still opens, and the terminal prints SSH's warning that the forward didn't bind.
+### Reach a web app on the destination
 
-A preset carries forwards beside its other connection choices, so connecting from the preset fills the same rows; you can still edit or remove them before you start. The forward rows themselves are not stored anywhere else, and every launch records them in the audit trail with the connection.
+Suppose a web app listens on `127.0.0.1:3000` on the SSH destination. Add a **Local (-L)** forward with **Local port** `8080`, **Target host** `127.0.0.1`, and **Target port** `3000`. After connecting, open `http://127.0.0.1:8080` in a browser running on the connecting node. Here, the target's `127.0.0.1` means the SSH destination.
 
-> [!note]
-> A forward extends the reach your SSH login already grants; it doesn't add a new credential or a new trust. Forwards end with the subshell: to reopen a port after a disconnect, start a new SSH subshell.
+For the reverse direction, choose **Remote (-R)** with **Remote port** `8080` and the same target values. Programs on the SSH destination can then use its port `8080` to reach port `3000` on the connecting node. The target's `127.0.0.1` now means the connecting node.
+
+For **Dynamic SOCKS (-D)**, enter only a **Local port**, such as `1080`, then configure a SOCKS-capable tool on the connecting node to use `127.0.0.1:1080`.
+
+### Bind addresses and access
+
+Local and dynamic forwards bind `127.0.0.1` on the connecting node by default. Programs on that node, including those run by other OS users, can reach the port. Opening the dashboard elsewhere doesn't make that port available there.
+
+> [!warning] Allowing access from other machines
+> A non-loopback bind can let other machines route traffic through your SSH connection to services it can reach. Only enable it when you intend to give those machines that access.
+
+The node's owner can open **Nodes**, select the connecting node, and turn on **Allow wide port forwards** in its **SSH** card while **Allow SSH** is enabled. An administrator manages this for the built-in node on the server host. See [Manage a node](/nodes/manage#outgoing-ssh).
+
+With wide forwards allowed, the form shows **Bind address**. Leaving it blank keeps the default; a value such as `0.0.0.0` requests all IPv4 interfaces. A non-loopback address requires this permission even for a remote forward, and the destination's SSH server still decides how a remote port binds. Turning the setting off blocks future wide-bind launches; existing forwards keep running until their connection ends.
+
+### Reuse and troubleshoot forwards
+
+SSH presets save the listed forwards with the other connection choices. You can add them in **Presets** → **New preset** → **New SSH preset**, or select **Save as preset** in the connection form. Applying a preset fills the rows for review before you connect. Editing the preset doesn't change an existing subshell.
+
+If a requested port is already taken, the destination's shell can still open while SSH prints a warning that the forward couldn't bind. Check the terminal and try the service through the listening port; a working shell alone doesn't prove the forward is available. Choose an unused port and start a new SSH subshell if needed.
+
+Forwards declared in the connecting node's SSH configuration through `LocalForward`, `RemoteForward`, or `DynamicForward` remain unsupported and cause connection resolution to be refused. Remove those settings from the configuration used by the connection and add the forwards explicitly in Subshell's form or preset instead. Agent forwarding, X11 forwarding, and tunnel devices remain unsupported.
+
+The **SSH connection** tooltip shows the declared forwards, not a live check of their availability. Users who can view the subshell can see this summary, and each launch records a forwarding summary in the audit trail. If a node is too old to support forwards, update the machine named in the error before trying again.
 
 ## Make the destination a node
 

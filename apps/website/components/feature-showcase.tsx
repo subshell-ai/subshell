@@ -27,9 +27,16 @@ const SHOTS = {
   sharing: {
     name: "session-sharing",
     width: 1072,
-    height: 768,
-    alt: "Subshell sharing dialog with separate View and View + edit permissions",
+    height: 760,
+    alt: "Subshell sharing dialog with permission dropdowns and a searchable recipient picker",
     caption: "Choose who can watch and who can type into the subshell.",
+  },
+  ssh: {
+    name: "ssh-connection",
+    width: 1200,
+    height: 1964,
+    alt: "SSH connection form with a connecting node, destination, authentication choices, and a local port forward",
+    caption: "Choose how to connect and forward ports through the same SSH connection.",
   },
   nodes: {
     name: "node-enrollment",
@@ -188,16 +195,17 @@ export function FeatureShowcase() {
           >
             Open a remote shell from your dashboard.
           </h2>
-        </div>
-        <div>
-          <p className="max-w-[60ch] text-[15px] leading-[1.8] text-[var(--dim)]">
+          <p className="mt-5 max-w-[44ch] text-[15px] leading-[1.8] text-[var(--dim)]">
             Connect over SSH and work in the terminal alongside your agents. Use keys from a connected node, choose a
             key from your own machine, or enter a password when connecting. Save frequently used connections as SSH
-            presets.
+            presets, including port forwards to reach a web app, database, or other service through the connection.
           </p>
           <div className="mt-5">
             <DocumentationLink path="/guides/ssh">Explore SSH connections</DocumentationLink>
           </div>
+        </div>
+        <div className="w-full max-w-[536px] justify-self-center">
+          <Screenshot shot={SHOTS.ssh} />
         </div>
       </section>
       <SecuritySection />
