@@ -1,6 +1,6 @@
-import { Button, Card, CardContent, cn, Input, Label } from "@internal/node-admin";
+import { Button, cn, Input, Label } from "@internal/node-admin";
 import { SSH_MAX_FORWARD_ROWS } from "@internal/subshell-protocol";
-import { Plus, X } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useState } from "react";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -19,10 +19,10 @@ import {
  * The port-forwards group (spec 2026-10-15 §7), shaped like the app's other
  * add-a-thing lists: the section starts as one "Add port forward" button and
  * nothing else. Pressing it reveals the editor for ONE forward; commit puts
- * that row in the table below (enabled only when the row is valid and doesn't
+ * that row in the list below (enabled only when the row is valid and doesn't
  * re-bind a listed port) and folds the editor away again, so a person who
  * declared nothing never sees a form. The editor is state that never leaves
- * the component until it is added; the table holds what `onChange` commits
+ * the component until it is added; the list holds what `onChange` commits
  * and what the launch carries. Forwards die with the pane, and the intro says
  * so.
  */
@@ -50,7 +50,7 @@ const KIND_HELP: Record<SshForwardDraftRow["kind"], string> = {
     "Opens a SOCKS proxy port on the machine you connect from. Tools pointed at it choose their own targets, each reached through the destination.",
 };
 
-/** The table's Listen cell: what ssh will really bind, spelled plainly. */
+/** A line's Listen part: what ssh will really bind, spelled plainly. */
 function listenText(row: SshForwardDraftRow): string {
   const port = row.listenPort.trim();
   const bind = row.bindHost.trim();
@@ -58,7 +58,7 @@ function listenText(row: SshForwardDraftRow): string {
   return row.kind === "remote" ? `${port} (by policy)` : `loopback:${port}`;
 }
 
-/** The table's Target cell; a SOCKS forward has no fixed target to name. */
+/** A line's Target part; a SOCKS forward has no fixed target to name. */
 function targetText(row: SshForwardDraftRow): string {
   return row.kind === "dynamic" ? "any host the tool picks" : `${row.targetHost.trim()}:${row.targetPort.trim()}`;
 }
@@ -243,54 +243,44 @@ export function SshForwardFields({
         </p>
       )}
       {rows.length > 0 && (
-        <Card>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="pr-4 pb-2 font-strong">Kind</th>
-                    <th className="pr-4 pb-2 font-strong">Listen</th>
-                    <th className="pb-2 font-strong">Target</th>
-                    <th className="pb-2 text-right font-strong" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row, index) => (
-                    // A row's listen identity is unique in this list: the Add
-                    // button and the server both refuse a port the list already
-                    // binds, so kind + bind spelling + port cannot repeat.
-                    <tr
-                      key={`${row.kind}|${row.bindHost.trim()}|${row.listenPort.trim()}`}
-                      className="border-b last:border-b-0"
-                    >
-                      <td className="py-2 pr-4">
-                        {KINDS.find((option) => option.value === row.kind)?.short ?? row.kind}
-                      </td>
-                      <td className="py-2 pr-4 font-mono">{listenText(row)}</td>
-                      <td className={cn("py-2", row.kind === "dynamic" ? "text-muted-foreground" : "font-mono")}>
-                        {targetText(row)}
-                      </td>
-                      <td className="py-2 text-right">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          aria-label="Remove this forward"
-                          disabled={busy}
-                          onClick={() => onChange(rows.filter((_, i) => i !== index))}
-                        >
-                          <X aria-hidden="true" />
-                          Remove
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        // The declared forwards as the dialog's other lists read (the sharing
+        // dialog's grants are the worked example): one line each, the control
+        // right, no card and no header row. What ssh will really listen on
+        // stays monospace; a SOCKS forward names no target, so its ends are
+        // prose.
+        <div className="flex flex-col gap-2">
+          {rows.map((row, index) => (
+            // A row's listen identity is unique in this list: the Add button
+            // and the server both refuse a port the list already binds, so
+            // kind + bind spelling + port cannot repeat.
+            <div
+              key={`${row.kind}|${row.bindHost.trim()}|${row.listenPort.trim()}`}
+              className="flex items-center justify-between gap-3"
+            >
+              <span className="min-w-0 flex-1 truncate text-sm">
+                <span className="text-muted-foreground">
+                  {KINDS.find((option) => option.value === row.kind)?.short ?? row.kind}
+                </span>
+                <span aria-hidden="true"> · </span>
+                <span className="font-mono">{listenText(row)}</span>
+                <span aria-hidden="true"> {"→"} </span>
+                <span className={row.kind === "dynamic" ? "text-muted-foreground" : "font-mono"}>
+                  {targetText(row)}
+                </span>
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-label="Remove this forward"
+                disabled={busy}
+                onClick={() => onChange(rows.filter((_, i) => i !== index))}
+              >
+                Remove
+              </Button>
             </div>
-          </CardContent>
-        </Card>
+          ))}
+        </div>
       )}
     </fieldset>
   );
