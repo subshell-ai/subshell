@@ -1,3 +1,5 @@
+import { Button } from "@internal/node-admin";
+import { ErrorBanner } from "@/components/error-banner";
 import { SharingDialogCore } from "@/components/sharing-dialog-core";
 import { useNodeShares, useSetNodeShares } from "@/hooks/use-node-shares";
 import { type ShareDraft, useSharableUsers } from "@/hooks/use-subshell-shares";
@@ -38,7 +40,25 @@ export function NodeSharingDialog({
       onOpenChange={onOpenChange}
       title="Share node"
       description="Let others see this node or run subshells on it. Sharing is private by default."
-      isLoading={shares.isLoading}
+      isLoading={shares.isPending || roster.isPending}
+      loadError={
+        shares.isError || roster.isError ? (
+          <ErrorBanner
+            message="Couldn't load sharing settings. Try again before making changes."
+            action={
+              <Button
+                variant="link"
+                onClick={() => {
+                  void shares.refetch();
+                  void roster.refetch();
+                }}
+              >
+                Retry
+              </Button>
+            }
+          />
+        ) : undefined
+      }
       serverGrants={serverGrants}
       roster={roster.data ?? []}
       saving={setShares.isPending}

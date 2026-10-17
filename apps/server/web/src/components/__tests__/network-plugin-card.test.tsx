@@ -1162,14 +1162,14 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
   });
 
-  it("labels each address above its value, in the QUIET data-label grammar", async () => {
-    // Facts use smaller muted labels and full-size values across cards and dialogs.
+  it("labels each address above its value with the shared fact styling", async () => {
+    // Facts use smaller bold, muted labels and regular full-size values across cards and dialogs.
     await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
     const items = ADDRESSES.map((address) => screen.getByText(address.label).closest("div") as HTMLElement);
     const first = items[0] as HTMLElement;
     expect(first.children[0]?.textContent).toBe("MagicDNS name");
     expect(first.children[0]?.className).toContain("text-muted-foreground");
-    expect(first.children[0]?.className).not.toContain("font-strong");
+    expect(first.children[0]?.className).toContain("font-strong");
     expect(first.children[0]?.className).not.toContain("text-label");
     expect(first.children[0]?.className).toContain("text-detail");
     expect(first.children[1]?.className).toContain("text-body");

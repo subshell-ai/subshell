@@ -1,15 +1,18 @@
 import { apiFetch, Button, Card, CardContent, CardHeader, confirmAction, errMessage } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
-import { Copy, Pencil, SlidersHorizontal, Trash2 } from "lucide-react";
+import { Copy, Download, Pencil, Share2, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorBanner } from "@/components/error-banner";
 import { LoadingCard } from "@/components/loading-card";
 import { PluginIcon } from "@/components/plugin-icon";
 import { CreatePresetDialog } from "@/components/presets/create-preset-dialog";
+import { PresetSharingDialog } from "@/components/presets/preset-sharing-dialog";
 import { PresetTableRow } from "@/components/presets/preset-table-row";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useInvalidatePresets, usePresets } from "@/hooks/use-presets";
+import { canEditPreset, ownsPreset } from "@/lib/preset-access";
+import { downloadPreset } from "@/lib/preset-file";
 import { presetFormFromRow, suggestCloneName } from "@/lib/preset-form";
 import type { PresetRow } from "@/types/preset";
 
@@ -46,6 +49,7 @@ export function AgentPresetLibrary({
   onCreatedClose: () => void;
 }) {
   const navigate = useNavigate();
+  const [sharing, setSharing] = useState<string | null>(null);
   const invalidate = useInvalidatePresets();
   const { data: presets, isLoading, isError, refetch } = usePresets();
   const { data: pluginData } = useInstancePlugins();
@@ -85,6 +89,7 @@ export function AgentPresetLibrary({
 
   return (
     <>
+      {sharing && <PresetSharingDialog id={sharing} kind="agent" onClose={() => setSharing(null)} />}
       {listError && <p className="text-destructive text-detail">{listError}</p>}
 
       {/* A dialog rather than a card that pushes the list down the page
@@ -170,6 +175,9 @@ export function AgentPresetLibrary({
                           <th scope="col" className="@lg:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">
                             Cross-agent use
                           </th>
+                          <th scope="col" className="@2xl:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">
+                            Owner
+                          </th>
                           <th scope="col" className="pb-2 text-right font-strong">
                             <span className="sr-only">Actions</span>
                           </th>
@@ -183,21 +191,41 @@ export function AgentPresetLibrary({
                             binary={plugin?.binary ?? harnessId}
                             items={[
                               {
-                                label: "Edit",
+                                label: canEditPreset(p) ? "Edit" : "View preset",
                                 icon: Pencil,
                                 onSelect: () => void navigate({ to: "/presets/$id", params: { id: p.id } }),
+                              },
+                              {
+                                label: "Export preset",
+                                icon: Download,
+                                onSelect: () => {
+                                  try {
+                                    downloadPreset(p);
+                                  } catch (error) {
+                                    setListError(errMessage(error, "Couldn't export this preset."));
+                                  }
+                                },
                               },
                               {
                                 label: "Clone preset",
                                 icon: Copy,
                                 onSelect: () => setCloneSource(p),
                               },
-                              {
-                                label: "Delete preset",
-                                icon: Trash2,
-                                destructive: true,
-                                onSelect: () => void deletePreset(p.id),
-                              },
+                              ...(ownsPreset(p)
+                                ? [
+                                    {
+                                      label: "Share preset",
+                                      icon: Share2,
+                                      onSelect: () => setSharing(p.id),
+                                    },
+                                    {
+                                      label: "Delete preset",
+                                      icon: Trash2,
+                                      destructive: true,
+                                      onSelect: () => void deletePreset(p.id),
+                                    },
+                                  ]
+                                : []),
                             ]}
                           />
                         ))}

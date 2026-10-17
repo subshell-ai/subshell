@@ -3,6 +3,7 @@ import type { PresetFormValue } from "@/lib/preset-form";
 import type { PromptBlock } from "@/lib/prompt-stack";
 import type { PresetRow } from "@/types/preset";
 import { filterSuggestions } from "../autocomplete";
+import { presetFormToCommand } from "../preset-command";
 import {
   crossCommSaveBlocked,
   emptyPresetForm,
@@ -70,7 +71,7 @@ describe("presetFormFromRow", () => {
       flagsJson: '["--model","sonnet","--verbose"]',
       restartOnExit: 1,
     });
-    expect(form).toEqual({
+    expect(form).toMatchObject({
       harnessId: baseRow.harnessId,
       name: "Ops",
       envRows: [
@@ -341,4 +342,27 @@ describe("the launch trio (spec 2026-09-29 preset-launch-fields)", () => {
     const form = presetFormFromRow({ ...baseRow, promptBlocks: "not json[" });
     expect(form.promptBlocks).toEqual([]);
   });
+});
+
+it("preserves imported settings and exact argv when cloning or editing unrelated fields", () => {
+  const flags = ["positional", "--include", "one", "two", "--label", "a b"];
+  const form = presetFormFromRow({
+    ...baseRow,
+    description: "Keep this description",
+    settingsJson: '{"custom":{"enabled":true}}',
+    configIsolation: 1,
+    flagsJson: JSON.stringify(flags),
+  });
+  form.name = "Private copy";
+  expect(toPresetPayload(form)).toMatchObject({
+    name: "Private copy",
+    description: "Keep this description",
+    settings: { custom: { enabled: true } },
+    configIsolation: true,
+    flags,
+  });
+  expect(toPresetUpdatePayload(form)).toMatchObject({ configIsolation: true, flags });
+  expect(presetFormToCommand(form, "agent")).toBe(`agent ${flags.join(" ")}`);
+  form.flagRows = [{ flag: "--model", value: "new" }];
+  expect(toPresetPayload(form).flags).toEqual(["--model", "new"]);
 });

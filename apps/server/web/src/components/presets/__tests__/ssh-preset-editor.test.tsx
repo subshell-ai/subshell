@@ -238,7 +238,11 @@ it("places a duplicate-name refusal beside the name and clears it when edited", 
   globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     if (init?.method === "PUT")
       return Response.json(
-        { code: "duplicate", message: "You already have an SSH preset with that name" },
+        {
+          code: "EXISTS_ERROR",
+          metadata: { reason: "duplicate_preset_name", field: "name" },
+          message: "You already have an SSH preset with that name",
+        },
         { status: 409 },
       );
     return previousFetch(input as RequestInfo, init);

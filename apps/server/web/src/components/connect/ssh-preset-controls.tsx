@@ -6,6 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { SearchableSelect } from "@/components/ui/combobox";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { useSshPresets } from "@/hooks/use-ssh-presets";
+import { presetChoiceLabel } from "@/lib/preset-access";
 import type { SshPreset } from "@/types/preset";
 
 /** Picking fills the form; it never starts SSH or retains a previously chosen local key. */
@@ -53,7 +54,7 @@ export function SshPresetPicker({
             placeholder="Choose a preset"
             options={query.data.map((p) => ({
               value: p.id,
-              label: p.name,
+              label: presetChoiceLabel(p),
               searchText: p.destination,
               disabled,
               reason: disabled ? "Wait for the current connection attempt to finish." : undefined,

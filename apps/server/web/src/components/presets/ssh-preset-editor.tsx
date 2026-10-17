@@ -1,9 +1,10 @@
-import { ApiError, errMessage } from "@internal/node-admin";
+import { ApiError, Button, errMessage } from "@internal/node-admin";
 import { useState } from "react";
 import { useBrowserKeySelection } from "@/components/connect/browser-key-fields";
 import { isSshResolveRefusal, refusalFromOutcome } from "@/components/connect/ssh-refusal";
 import { sshSessionDraft } from "@/components/connect/ssh-session-draft";
 import { SshWizard } from "@/components/connect/ssh-wizard";
+import { PresetDetails } from "@/components/presets/preset-details";
 import { SshPresetNameField } from "@/components/presets/ssh-preset-name-field";
 import {
   Dialog,
@@ -15,6 +16,8 @@ import {
 } from "@/components/ui/dialog";
 import { useSshReadiness } from "@/hooks/use-ssh";
 import { useSaveSshPreset } from "@/hooks/use-ssh-presets";
+import { canEditPreset } from "@/lib/preset-access";
+import { isDuplicatePresetName } from "@/lib/preset-errors";
 import { sshDraftFromPreset, sshPresetPayload } from "@/lib/ssh-preset";
 import type { SshPreset } from "@/types/preset";
 
@@ -34,7 +37,34 @@ function presetSaveRefusal(error: unknown): string {
 }
 
 /** A fresh mount is one editing session, including clones. No credential is requested here. */
-export function SshPresetEditor({
+export function SshPresetEditor(props: { preset?: SshPreset; cloneName?: string; onClose: () => void }) {
+  if (props.preset && props.cloneName === undefined && !canEditPreset(props.preset)) {
+    return (
+      <Dialog
+        open
+        onOpenChange={(open) => {
+          if (!open) props.onClose();
+        }}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>View SSH preset</DialogTitle>
+            <DialogDescription>
+              You have view access. You can use or clone this preset, but you can't change it.
+            </DialogDescription>
+          </DialogHeader>
+          <PresetDetails preset={props.preset} />
+          <Button variant="outline" onClick={props.onClose}>
+            Close
+          </Button>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+  return <EditableSshPreset {...props} />;
+}
+
+function EditableSshPreset({
   preset,
   cloneName,
   onClose,
@@ -51,7 +81,7 @@ export function SshPresetEditor({
   const readiness = useSshReadiness();
   const browserKey = useBrowserKeySelection();
   const save = useSaveSshPreset();
-  const duplicateName = save.error instanceof ApiError && save.error.code === "duplicate";
+  const duplicateName = isDuplicatePresetName(save.error);
   const editing = !!preset && cloneName === undefined;
   return (
     <Dialog

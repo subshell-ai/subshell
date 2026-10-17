@@ -1788,7 +1788,7 @@ describe("applyRemoteExit — shared death transition (idempotent against sweep 
       },
       sendNode: f.sendNode,
     });
-    const livePreset = await seedPreset(presetsRepo);
+    const livePreset = await seedPreset(presetsRepo, { userId: "u-recon" });
     const id = await seedNodeRow(nodeId, { alive: 0, presetId: livePreset }); // parked row → restart revives it
     const restartP = gated.restartSubshell("u-recon", id);
     for (let i = 0; !reachedIssue && i < 2000; i++) await new Promise((r) => setTimeout(r, 1));

@@ -56,6 +56,7 @@ import * as sshPresetsMigration from "@/db/migrations/0054-ssh-presets.js";
 import * as sshWideForwardsMigration from "@/db/migrations/0055-node-ssh-wide-forwards.js";
 import * as sshPresetForwardsMigration from "@/db/migrations/0056-ssh-preset-forwards.js";
 import * as dropSshGrantsMigration from "./migrations/0053-drop-ssh-grants.js";
+import * as presetSharingMigration from "./migrations/0057-preset-sharing.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -167,6 +168,7 @@ export async function runMigrations(): Promise<void> {
           "0054-ssh-presets": sshPresetsMigration,
           "0055-node-ssh-wide-forwards": sshWideForwardsMigration,
           "0056-ssh-preset-forwards": sshPresetForwardsMigration,
+          "0057-preset-sharing": presetSharingMigration,
         };
       },
     },

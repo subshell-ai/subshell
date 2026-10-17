@@ -1240,7 +1240,10 @@ describe("SSH preset CRUD", () => {
       expect(created.status).toBe(200);
       const row = (await created.json()) as { id: string; name: string };
       expect(row.name).toBe("Trimmed SSH name");
-      expect((await save(body(" trimmed ssh NAME "))).status).toBe(409);
+      const duplicate = await save(body(" trimmed ssh NAME "));
+      expect(duplicate.status).toBe(409);
+      const error = (await duplicate.json()) as { metadata?: unknown; metadataSafe?: unknown };
+      expect(error.metadataSafe ?? error.metadata).toEqual({ reason: "duplicate_preset_name", field: "name" });
       const { kind: _kind, ...update } = body(" ");
       const refused = await sshFetch(`/api/presets/${row.id}`, { method: "PUT", cookie: ownerCookie, body: update });
       expect(refused.status).toBe(400);
@@ -1474,7 +1477,7 @@ describe("SSH preset CRUD", () => {
       const duplicate = await save(body("ssh CANONICAL"));
       expect(duplicate.status).toBe(409);
       const changed: Record<string, unknown> = { ...row, name: "SSH renamed" };
-      const { kind, id, userId, createdAt, updatedAt, ...update } = changed;
+      const { kind, id, userId, createdAt, updatedAt, access, ownerName, ...update } = changed;
       const count = scripted.cmdsOf("ssh_resolve_config").length;
       scripted.detach();
       const edited = await sshFetch(`/api/presets/${id}`, { method: "PUT", cookie: ownerCookie, body: update });
@@ -1521,7 +1524,7 @@ describe("SSH preset CRUD", () => {
       const canonical = "deploy@example.test:22";
       expect(row).toMatchObject({ destination: canonical, resolutionAlias: "work" });
       const listed = await sshFetch("/api/presets?kind=ssh", { cookie: ownerCookie });
-      expect(await listed.json()).toContainEqual(row);
+      expect(await listed.json()).toEqual(expect.arrayContaining([expect.objectContaining(row)]));
       const launched = await launch(
         { node: NODE_ON, destination: row.resolutionAlias, expectedDestination: canonical },
         ownerCookie,

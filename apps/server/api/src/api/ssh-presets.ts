@@ -77,6 +77,12 @@ export const UpdateSshPresetSchema = t.Object(
   { additionalProperties: false },
 );
 export const SshPresetSchema = t.Object({
+  ownerName: t.Optional(t.String({ description: "Preset owner display name" })),
+  access: t.Optional(
+    t.Union([t.Literal("owner"), t.Literal("edit"), t.Literal("view")], {
+      description: "Viewer access; sharing and deletion remain owner-only",
+    }),
+  ),
   ...SshPresetFields,
   kind: t.Literal("ssh", { description: "SSH preset discriminator" }),
   id: t.String({ description: "Preset id" }),

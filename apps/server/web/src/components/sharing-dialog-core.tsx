@@ -26,14 +26,16 @@ function ShareLevelSelect({
   label,
   value,
   onChange,
+  disabled = false,
 }: {
   label: string;
+  disabled?: boolean;
   value: ShareLevel;
   onChange: (value: ShareLevel) => void;
 }) {
   return (
-    <Select items={LEVEL_OPTIONS} value={value} onValueChange={(level) => level && onChange(level)}>
-      <SelectTrigger aria-label={label} className="w-full">
+    <Select disabled={disabled} items={LEVEL_OPTIONS} value={value} onValueChange={(level) => level && onChange(level)}>
+      <SelectTrigger aria-label={label} className="w-full" disabledReason="Wait for sharing changes to save.">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
@@ -78,6 +80,7 @@ export function SharingDialogCore({
   onSave,
   canManage = true,
   warning,
+  loadError,
 }: {
   /** Whether the dialog is shown */
   open: boolean;
@@ -102,6 +105,8 @@ export function SharingDialogCore({
    * share hands over a machine.
    */
   warning?: ReactNode;
+  /** Failed initial reads must not be mistaken for an empty grant set. */
+  loadError?: ReactNode;
   /** PUTs the complete replacement set; rejects with the failure to surface */
   onSave: (grants: ShareDraft[]) => Promise<unknown>;
   /** False renders everything read-only (no add/remove/level/Save) */
@@ -115,6 +120,8 @@ export function SharingDialogCore({
   const [pickLevel, setPickLevel] = useState<ShareLevel>("view");
   const [error, setError] = useState<string | null>(null);
 
+  const [submitting, setSubmitting] = useState(false);
+  const busy = saving || submitting;
   const pickerId = useId();
   const grants = draft ?? serverGrants;
   // Grant order isn't meaningful: removing and re-adding the same access is unchanged.
@@ -122,7 +129,7 @@ export function SharingDialogCore({
   const hasChanges =
     grants.length !== serverGrants.length ||
     grants.some((grant) => savedPermissions.get(grant.granteeUserId) !== grant.permission);
-  const saveDisabled = saving || isLoading || !hasChanges;
+  const saveDisabled = busy || isLoading || !!loadError || !hasChanges;
   const alreadyShared = new Set(grants.map((g) => g.granteeUserId ?? EVERYONE));
 
   const recipientOptions = [
@@ -132,6 +139,7 @@ export function SharingDialogCore({
   const selectedRecipient = recipientOptions.some((option) => option.value === pickId) ? pickId : "";
 
   function handleClose(next: boolean) {
+    if (!next && busy) return;
     if (!next) {
       setDraft(null);
       setError(null);
@@ -140,15 +148,17 @@ export function SharingDialogCore({
   }
 
   function changeLevel(index: number, level: ShareLevel) {
+    if (isLoading || loadError || busy) return;
     setDraft(grants.map((g, i) => (i === index ? { ...g, permission: level } : g)));
   }
 
   function removeAt(index: number) {
+    if (isLoading || loadError || busy) return;
     setDraft(grants.filter((_, i) => i !== index));
   }
 
   function addGrant() {
-    if (!selectedRecipient) return;
+    if (!selectedRecipient || isLoading || loadError || busy) return;
     const granteeUserId = selectedRecipient === EVERYONE ? null : selectedRecipient;
     // Replace any existing grant to the same target rather than duplicating.
     setDraft([...grants.filter((g) => g.granteeUserId !== granteeUserId), { granteeUserId, permission: pickLevel }]);
@@ -158,11 +168,15 @@ export function SharingDialogCore({
   async function save() {
     if (!canManage || saveDisabled) return;
     setError(null);
+    setSubmitting(true);
     try {
       await onSave(grants);
-      handleClose(false);
+      setDraft(null);
+      onOpenChange(false);
     } catch (err) {
       setError(errMessage(err, "The sharing settings could not be saved."));
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -177,6 +191,7 @@ export function SharingDialogCore({
         {/* Before the grant rows, not after: the disclosure has to be read
             while deciding, not discovered under the Save button. */}
         {warning != null && <WarningNotice>{warning}</WarningNotice>}
+        {loadError}
 
         <div className="flex flex-col gap-3">
           {canManage && (
@@ -185,7 +200,7 @@ export function SharingDialogCore({
             </p>
           )}
           {isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
-          {!isLoading && grants.length === 0 && (
+          {!isLoading && !loadError && grants.length === 0 && (
             <p className="text-muted-foreground text-sm">
               {hasChanges ? "No one will have shared access after you save." : "Not shared with anyone yet."}
             </p>
@@ -200,10 +215,11 @@ export function SharingDialogCore({
                   ? "Everyone"
                   : (roster.find((u) => u.id === g.granteeUserId)?.email ?? g.granteeUserId)}
               </span>
-              {canManage ? (
+              {canManage && !isLoading && !loadError ? (
                 <>
                   <ShareLevelSelect
                     label={`Access for ${g.granteeUserId === null ? "Everyone" : "this user"}`}
+                    disabled={busy}
                     value={g.permission}
                     onChange={(level) => changeLevel(i, level)}
                   />
@@ -211,6 +227,8 @@ export function SharingDialogCore({
                     variant="ghost"
                     size="sm"
                     className="h-9"
+                    disabled={busy}
+                    disabledReason="Wait for sharing changes to save."
                     onClick={() => removeAt(i)}
                     aria-label={`Remove access for ${g.granteeUserId === null ? "Everyone" : (roster.find((u) => u.id === g.granteeUserId)?.email ?? "this user")}`}
                   >
@@ -225,9 +243,9 @@ export function SharingDialogCore({
             </div>
           ))}
 
-          {canManage && (
+          {canManage && !isLoading && !loadError && (
             <div className="grid grid-cols-[minmax(0,1fr)_5rem] items-center gap-3 border-t pt-3 sm:grid-cols-[minmax(0,1fr)_9rem_5rem]">
-              <div className="col-span-2 min-w-0 sm:col-span-1">
+              <fieldset disabled={busy} className="col-span-2 min-w-0 sm:col-span-1">
                 <label htmlFor={pickerId} className="sr-only">
                   Share with
                 </label>
@@ -239,15 +257,20 @@ export function SharingDialogCore({
                   options={recipientOptions}
                   emptyText="No matching people to add."
                 />
-              </div>
-              <ShareLevelSelect label="Access level to grant" value={pickLevel} onChange={setPickLevel} />
+              </fieldset>
+              <ShareLevelSelect
+                disabled={busy}
+                label="Access level to grant"
+                value={pickLevel}
+                onChange={setPickLevel}
+              />
               <Button
                 variant="outline"
                 size="sm"
                 className="h-9"
                 onClick={addGrant}
-                disabled={!selectedRecipient}
-                disabledReason="Choose who to share with first."
+                disabled={busy || !selectedRecipient}
+                disabledReason={busy ? "Wait for sharing changes to save." : "Choose who to share with first."}
               >
                 Add
               </Button>
@@ -258,7 +281,12 @@ export function SharingDialogCore({
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={() => handleClose(false)}>
+          <Button
+            variant="ghost"
+            disabled={busy}
+            disabledReason="Wait for sharing changes to save."
+            onClick={() => handleClose(false)}
+          >
             Cancel
           </Button>
           {canManage && (
@@ -266,14 +294,16 @@ export function SharingDialogCore({
               onClick={() => void save()}
               disabled={saveDisabled}
               disabledReason={
-                saving
+                busy
                   ? "Wait for sharing changes to save."
-                  : isLoading
-                    ? "Wait for the current sharing settings to load."
-                    : "No sharing changes to save."
+                  : loadError
+                    ? "Retry loading the sharing settings before saving."
+                    : isLoading
+                      ? "Wait for the current sharing settings to load."
+                      : "No sharing changes to save."
               }
             >
-              {saving ? "Saving…" : "Save"}
+              {busy ? "Saving…" : "Save"}
             </Button>
           )}
         </DialogFooter>

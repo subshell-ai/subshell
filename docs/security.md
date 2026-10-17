@@ -437,6 +437,39 @@ states, each bounded rather than fixed:
 
 Three independent axes, and confusing them is how authorization bugs happen here.
 
+**Preset sharing.** Agent and SSH presets are private by default. Browser
+viewers may receive named or Everyone grants at View or Edit level; the
+highest matching grant wins, with no administrator override. View grants
+disclose the entire preset, including agent environment variables and prompt
+snapshots, and permit use and cloning. Edit grants additionally authorize
+changes to future launches and restarts. Only the owner can replace grants
+or delete a preset. The sharing dialog states the disclosure and edit
+consequences before Save.
+
+Machine actors retain owner-only agent-preset reads and launches, with
+environment values redacted in reads; SSH preset reads and all preset writes
+and sharing endpoints remain cookie-only. Preset grants never grant node,
+key-source, filesystem, or destination-approval authority. SSH updates
+validate the editor's node access and retain the original owner. Agent
+launches check preset access in both service and manager; restart checks the
+pane owner's access again, before stopping a running pane in the service,
+and during revival in the manager. Swapping a shared subshell's preset
+requires access for both the acting viewer and pane owner. Revoking a grant
+does not stop a running process or retract a copy; it prevents subsequent
+launches and restarts using that preset. Grant tables have cascading foreign
+keys to their respective preset and grantee tables.
+
+Preset export is available to viewers because those grants already disclose
+the complete preset. The version 1 file projects only settings, not owner ids
+or grants. Import validates the format, version, unknown fields, size (1 MiB),
+environment names, prompt limits, and forwarding/key selection structure.
+It submits an explicit creation payload through the existing cookie-only
+create route, which enforces node access, plugin availability and SSH
+resolution. Imported SSH aliases are constrained to the exported canonical
+destination. Import never launches a process or accepts a destination
+approval, and newly imported presets are private.
+
+
 **Ownership.** A subshell is private to its owner. To everyone else it is 404,
 absent from list, detail, log, terminal and workspace-pane paths alike. The 404
 is deliberate: a 403 would confirm the id exists.

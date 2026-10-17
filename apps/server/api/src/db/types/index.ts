@@ -12,6 +12,7 @@ import type { NodeShareTable } from "@/db/types/node-shares.db-types.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
 import type { NotificationSubscriptionTable } from "@/db/types/notification-subscriptions.db-types.js";
 import type { PluginStateTable } from "@/db/types/plugin-state.db-types.js";
+import type { PresetShareTable } from "@/db/types/preset-shares.db-types.js";
 import type { PresetTable } from "@/db/types/presets.db-types.js";
 import type { PromptStackItemTable, PromptStackTable } from "@/db/types/prompt-stacks.db-types.js";
 import type { PromptTable } from "@/db/types/prompts.db-types.js";
@@ -32,6 +33,8 @@ import type { WorkspaceTable } from "@/db/types/workspaces.db-types.js";
  * them separately.)
  */
 export interface Database {
+  presetShares: PresetShareTable;
+  sshPresetShares: PresetShareTable;
   authAttempts: AuthAttemptsTable;
   auditEvents: AuditEventsTable;
   authProviders: AuthProviderTable;

@@ -27,6 +27,7 @@ import type { SubshellsRepository } from "@/db/repositories/subshells.repository
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { SubshellTable, SubshellUpdate } from "@/db/types/subshells.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
+import { presetAccess } from "@/lib/preset-access.js";
 import type { Access } from "@/lib/subshell-access.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
 import { publishLive } from "@/services/live-bus.js";
@@ -348,6 +349,7 @@ export class SubshellManagerService {
     userId,
     harnessId,
     presetId,
+    allowSharedPreset = false,
     workingDir,
     name,
     prompt,
@@ -367,6 +369,7 @@ export class SubshellManagerService {
     harnessId: string;
     /** Preset row to launch with; absent/null = the launch composes from EMPTY_PRESET. */
     presetId?: string | null;
+    allowSharedPreset?: boolean;
     workingDir: string;
     name?: string;
     /** Optional task text typed into the pane after the harness settles. */
@@ -435,7 +438,10 @@ export class SubshellManagerService {
       throw new Error("createSubshell: subshellId is outside the id grammar");
     }
     const presetRow = presetId ? await this.#presets.findById(presetId) : undefined;
-    if (presetId && (!presetRow || presetRow.userId !== userId)) {
+    if (
+      presetId &&
+      (!presetRow || (await presetAccess(this.#presets.db, "agent", presetRow, userId, allowSharedPreset)) === "none")
+    ) {
       throw new Error("Preset not found");
     }
     if (presetRow && presetRow.harnessId !== harnessId) {
@@ -903,6 +909,15 @@ export class SubshellManagerService {
       return existing; // same owner, already restarting — join it
     }
     const run = (async (): Promise<{ id: string; tmuxSocket: string } | null> => {
+      // Recheck here as well as in the service so a direct manager call or a
+      // revoked grant cannot stop a live pane before discovering the refusal.
+      const nextPresetId = swapPresetTo === undefined ? source.presetId : swapPresetTo;
+      if (nextPresetId) {
+        const preset = await this.#presets.findById(nextPresetId);
+        if (preset && (await presetAccess(this.#presets.db, "agent", preset, source.userId)) === "none") {
+          throw new Error("Preset access was removed. Choose another preset before restarting this subshell.");
+        }
+      }
       if (source.alive === 1 && source.tmuxSocket) {
         // killSubshell swallows "already gone"; the tree dies with its baked
         // key, which #reviveRow then rotates off the same row anyway.
@@ -1310,7 +1325,12 @@ export class SubshellManagerService {
     // (spec 2026-09-13 §4), and it revives as exactly what it was created
     // as: EMPTY_PRESET. Only a NON-NULL reference whose row vanished throws.
     const presetRow = row.presetId ? await this.#presets.findById(row.presetId) : undefined;
-    if (row.presetId && !presetRow) throw new Error("preset missing");
+    if (
+      row.presetId &&
+      (!presetRow || (await presetAccess(this.#presets.db, "agent", presetRow, row.userId)) === "none")
+    ) {
+      throw new Error("Preset access was removed. Choose another preset before restarting this subshell.");
+    }
     const harness = getHarness(row.harnessId);
     if (!harness) throw new Error("harness missing");
     // The row's node owns this revive end to end (spec §6.3). An agent that

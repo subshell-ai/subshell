@@ -312,3 +312,43 @@ describe("cross-agent use column (spec 2026-09-29 preset-launch-fields)", () => 
     }
   });
 });
+
+describe("preset sharing actions", () => {
+  for (const access of ["view", "edit"] as const) {
+    it(`offers ${access} actions without owner-only sharing or deletion`, async () => {
+      const { restore } = mockFetch({
+        presets: [
+          {
+            ...presetRow({ id: "shared", harnessId: "claude-code", name: "Team preset" }),
+            access,
+            ownerName: "Teammate",
+            userId: "owner",
+          },
+        ],
+      });
+      try {
+        renderPage();
+        await screen.findByText("Team preset");
+        expect(screen.getByText(`Shared by Teammate · ${access === "view" ? "View" : "Edit"}`)).toBeDefined();
+        fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Team preset" }), { key: "ArrowDown" });
+        await screen.findByRole("menuitem", { name: access === "view" ? "View preset" : "Edit" });
+        expect(screen.queryByRole("menuitem", { name: "Share preset" }) === null).toBe(true);
+        expect(screen.queryByRole("menuitem", { name: "Delete preset" }) === null).toBe(true);
+        expect(screen.getByRole("menuitem", { name: "Clone preset" })).toBeDefined();
+      } finally {
+        restore();
+      }
+    });
+  }
+  it("offers sharing to the owner", async () => {
+    const { restore } = mockFetch();
+    try {
+      renderPage();
+      await screen.findByText("Fast");
+      fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Fast" }), { key: "ArrowDown" });
+      expect(await screen.findByRole("menuitem", { name: "Share preset" })).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+});

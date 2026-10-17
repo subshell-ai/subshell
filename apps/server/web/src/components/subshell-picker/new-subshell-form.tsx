@@ -23,6 +23,7 @@ import { usePresets } from "@/hooks/use-presets";
 import { useRecentPaths } from "@/hooks/use-recent-paths";
 import { useSubshellsList } from "@/hooks/use-subshells";
 import { isOfflineAgent } from "@/lib/node-label";
+import { presetChoiceLabel } from "@/lib/preset-access";
 import { loadRecentPresetPicks, recordRecentPresetPick } from "@/lib/preset-recents";
 import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 import { buildAgentOptions, buildNodeOptions, launchableNodes } from "@/lib/subshell-compat";
@@ -163,7 +164,7 @@ export function NewSubshellForm({
     const names = new Map((plugins ?? []).map((p) => [p.id, p.name]));
     const all: ComboboxOption[] = presets.map((p) => ({
       value: p.id,
-      label: p.name,
+      label: presetChoiceLabel(p),
       reason: names.get(p.harnessId) ?? p.harnessId,
     }));
     const recentValues = new Set<string>();

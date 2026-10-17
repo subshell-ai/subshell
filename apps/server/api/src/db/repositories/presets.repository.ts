@@ -28,6 +28,27 @@ export class PresetsRepository extends BaseRepository {
       .executeTakeFirstOrThrow();
   }
 
+  /** Cookie readers can see owned presets and matching named/Everyone grants. */
+  async listAccessible(userId: string) {
+    return this.db
+      .selectFrom("presets")
+      .selectAll("presets")
+      .where((eb) =>
+        eb.or([
+          eb("userId", "=", userId),
+          eb.exists(
+            eb
+              .selectFrom("presetShares")
+              .select("id")
+              .whereRef("presetId", "=", "presets.id")
+              .where((share) => share.or([share("granteeUserId", "is", null), share("granteeUserId", "=", userId)])),
+          ),
+        ]),
+      )
+      .orderBy("name")
+      .execute();
+  }
+
   async findById(id: string): Promise<PresetTable | undefined> {
     return this.db.selectFrom("presets").selectAll().where("id", "=", id).executeTakeFirst();
   }

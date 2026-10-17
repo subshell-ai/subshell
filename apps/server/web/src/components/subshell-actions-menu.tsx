@@ -28,6 +28,7 @@ import { TitleDialog } from "@/components/ui/title-dialog";
 import { usePresets } from "@/hooks/use-presets";
 import { useSubshellMutations } from "@/hooks/use-subshell-mutations";
 import { desktopInvoke, isDesktop } from "@/lib/desktop";
+import { canEditPreset } from "@/lib/preset-access";
 import type { SubshellView } from "@/types/subshell";
 
 /**
@@ -273,7 +274,7 @@ export function SubshellActionsMenu({
           },
         ]
       : []),
-    ...(preset
+    ...(preset && canEditPreset(preset)
       ? [
           {
             icon: SlidersHorizontal,

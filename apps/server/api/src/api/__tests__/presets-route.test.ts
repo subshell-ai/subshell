@@ -371,6 +371,8 @@ describe("preset writes carry the launch fields (spec 2026-09-29)", () => {
     // The row shape is exactly the schema's, now INCLUDING the three columns.
     expect(Object.keys(body).sort()).toEqual(
       [
+        "access",
+        "ownerName",
         "configIsolation",
         "createdAt",
         "crossCommEnabled",
@@ -585,7 +587,9 @@ describe("preset writes carry the launch fields (spec 2026-09-29)", () => {
       }),
     );
     expect(res.status).toBe(409);
-    expect(((await res.json()) as { message: string }).message).toMatch(/already have a claude-code preset named/i);
+    const error = (await res.json()) as { message: string; metadata?: unknown; metadataSafe?: unknown };
+    expect(error.message).toMatch(/already have a claude-code preset named/i);
+    expect(error.metadataSafe ?? error.metadata).toEqual({ reason: "duplicate_preset_name", field: "name" });
     // The failed rename left both rows exactly as they were.
     expect((await repo.findById(second))?.name).toBe("rename-source");
     expect((await repo.findById(first))?.name).toBe("rename-target");

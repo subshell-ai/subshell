@@ -7,6 +7,7 @@ import { db } from "@/db/index.js";
 import { SshPresetsRepository } from "@/db/repositories/ssh-presets.repository.js";
 import type { SshPresetTable } from "@/db/types/ssh-presets.db-types.js";
 import { nodeCanLaunchOn } from "@/lib/node-access.js";
+import { duplicatePresetName } from "@/lib/preset-name-error.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
 import { sshCanonicalDestination } from "@/services/ssh-destination.js";
 import { sshResolveDestination } from "@/services/ssh-launch.service.js";
@@ -106,7 +107,7 @@ export async function saveSshPreset(
   const now = new Date().toISOString();
   const row = {
     id: existing?.id ?? crypto.randomUUID(),
-    userId,
+    userId: existing?.userId ?? userId,
     name,
     description: body.description !== undefined ? body.description : (existing?.description ?? null),
     nodeId: body.nodeId,
@@ -128,7 +129,7 @@ export async function saveSshPreset(
     return sshPresetView(existing ? await repo.update(existing.id, row) : await repo.create(row));
   } catch (err) {
     if (err instanceof Error && err.message.includes("UNIQUE"))
-      throw new SshPresetError("duplicate", "You already have an SSH preset with that name", 409);
+      duplicatePresetName("You already have an SSH preset with that name");
     throw err;
   }
 }
