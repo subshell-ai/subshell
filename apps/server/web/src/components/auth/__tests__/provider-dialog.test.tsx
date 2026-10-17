@@ -292,6 +292,30 @@ describe("ProviderDialog", () => {
     }
   });
 
+  it("edit mode starts unchanged, so Save is dead until something actually differs", async () => {
+    // The unchanged-draft rule on the surface whose save WRITES provider config:
+    // the field opens seeded to the stored row, so Save starts dead and says
+    // why; a real edit lights it; putting the edit back kills it again. The
+    // compare runs over the wire shape (trimmed name/issuer/clientId, the
+    // order-insensitive domain list), not over "was a key pressed".
+    const { restore } = mockFetch({ appBaseUrl: "https://plane.example" });
+    try {
+      renderDialog({ provider: view({ allowedDomains: ["example.test"] }) });
+      await settle();
+      const save = () => screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
+      expect(save().matches(":disabled, [aria-disabled=true]")).toBe(true);
+      expect(save().getAttribute("aria-description")).toBe("No provider changes to save.");
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Workspace Google" } });
+      expect(save().matches(":disabled, [aria-disabled=true]")).toBe(false);
+      // Retyping the domain it already had (the list sorts, order is noise).
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Google" } });
+      fireEvent.change(screen.getByLabelText(/Allowed e-mail domains/), { target: { value: "example.test" } });
+      expect(save().matches(":disabled, [aria-disabled=true]")).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
   it("clicking out or pressing Escape keeps the form; a half-typed issuer survives", async () => {
     // The loss this pins: an outside press discarded the whole dialog with a
     // half-entered issuer in it (the 2026-09-30 form-dialog ruling, now read

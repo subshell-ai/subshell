@@ -156,7 +156,10 @@ export function SupervisionDialog({
         )}
         {lethal && (
           <WarningNotice>
-            <p>{panesLine}</p>
+            {/* The line is list-item grammar elsewhere (no terminal punctuation);
+                this is the one place it is read as prose, so it gets its period
+                here rather than in every bullet. */}
+            <p>{panesLine}.</p>
             <p className="mt-2">
               {view.service.paneSafety === "kills"
                 ? "This machine's service definition predates the setting that spares live panes. Running `subshell-server service install` on that machine rewrites it."

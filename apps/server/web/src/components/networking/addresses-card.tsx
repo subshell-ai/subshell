@@ -408,7 +408,7 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
                 ? "Wait for the addresses to save."
                 : invalid
                   ? "Fix the invalid addresses before saving."
-                  : "Change an address before saving."
+                  : "No address changes to save."
             }
             onClick={save}
           >

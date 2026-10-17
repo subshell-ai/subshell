@@ -137,7 +137,7 @@ describe("SupervisionDialog", () => {
         onConfirm={noop}
       />,
     );
-    expect(screen.getAllByText("Every running subshell will be closed")).toHaveLength(1);
+    expect(screen.getAllByText("Every running subshell will be closed.")).toHaveLength(1);
     expect(screen.getByText("Quitting the app will stop the server")).toBeTruthy();
     expect(screen.getAllByRole("listitem")).toHaveLength(3);
   });
@@ -154,7 +154,7 @@ describe("SupervisionDialog", () => {
         onConfirm={noop}
       />,
     );
-    expect(screen.getAllByText("Whether running subshells survive could not be determined")).toHaveLength(1);
+    expect(screen.getAllByText("Whether running subshells survive could not be determined.")).toHaveLength(1);
     expect(screen.getAllByRole("listitem")).toHaveLength(3);
   });
 

@@ -190,18 +190,16 @@ export function SshWizard({
               />
               <FieldLabel htmlFor="ssh-keys-connecting" className="flex min-w-0 cursor-pointer flex-col gap-1">
                 <span id="ssh-keys-connecting-label">Use the connecting node’s keys</span>
-                {
-                  <span
-                    id="ssh-keys-node-name"
-                    className={
-                      machine
-                        ? "break-all font-regular text-detail text-muted-foreground"
-                        : "font-regular text-detail text-warning"
-                    }
-                  >
-                    {machine?.node.name ?? "Choose a node to connect from first"}
-                  </span>
-                }
+                <span
+                  id="ssh-keys-node-name"
+                  className={
+                    machine
+                      ? "break-all font-regular text-detail text-muted-foreground"
+                      : "font-regular text-detail text-warning"
+                  }
+                >
+                  {machine?.node.name ?? "Choose a node to connect from first"}
+                </span>
               </FieldLabel>
             </Field>
             <Field className="flex-row items-start gap-3">
@@ -325,13 +323,11 @@ export function SshWizard({
               />
               <FieldLabel htmlFor="ssh-auth-password" className="flex min-w-0 cursor-pointer flex-col gap-1">
                 <span id="ssh-auth-password-label">Enter a password when connecting</span>
-                {
-                  <span id="ssh-auth-password-description" className="font-regular text-detail text-muted-foreground">
-                    {presetEditor
-                      ? "When creating a new SSH subshell with this preset, enter your password in the terminal when SSH asks for it. The preset won’t save your password."
-                      : "Enter your password in the terminal when SSH asks for it. Subshell won’t save it."}
-                  </span>
-                }
+                <span id="ssh-auth-password-description" className="font-regular text-detail text-muted-foreground">
+                  {presetEditor
+                    ? "When creating a new SSH subshell with this preset, enter your password in the terminal when SSH asks for it. The preset won’t save your password."
+                    : "Enter your password in the terminal when SSH asks for it. Subshell won’t save it."}
+                </span>
               </FieldLabel>
             </Field>
           </RadioGroup>

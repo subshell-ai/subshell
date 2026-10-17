@@ -283,7 +283,7 @@ export function NetworkSettingsForm({
               ? "Wait for the network action to finish."
               : missingRequired
                 ? "Complete the required network settings first."
-                : "Change a setting before saving."
+                : "No network setting changes to save."
           }
           onClick={save}
         >
