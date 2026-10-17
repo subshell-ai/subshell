@@ -107,7 +107,7 @@ export function RestartDialog({
               ? "Restarting the Docker container closes every running subshell."
               : view.service.paneSafety === "kills"
                 ? `This server's service definition will close every running subshell. Rewrite it by running ${REINSTALL_COMMAND} on this machine, or restart anyway.`
-                : `We couldn't determine whether running subshells will survive. Restarting may close them. Rewrite the service definition by running ${REINSTALL_COMMAND} on this machine, or restart anyway.`}
+                : `We couldn’t determine whether running subshells will survive. Restarting may close them. Rewrite the service definition by running ${REINSTALL_COMMAND} on this machine, or restart anyway.`}
           </WarningNotice>
         )}
         {enables ? (

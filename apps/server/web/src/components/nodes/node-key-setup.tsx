@@ -341,7 +341,9 @@ export function NodeKeySetup({
               { label: "Server address", value: selected, copyText: selected },
               {
                 label: "Setup key",
-                value: keyText ?? "Generate setup key first",
+                // The pending-state placeholder is an instruction, not a value:
+                // a body-foreground row would read as a strangely worded key.
+                value: keyText ?? <span className="text-muted-foreground">Generate setup key first</span>,
                 mono: keyText !== null,
                 copyText: keyText ?? undefined,
               },

@@ -134,7 +134,9 @@ describe("SharingDialog", () => {
       renderDialog();
       await screen.findByText("Everyone");
       fireEvent.click(screen.getByRole("button", { name: /^Remove access for/ }));
-      expect(screen.queryByText("You have unsaved sharing changes.")).toBeNull();
+      // No unsaved-changes sentence (design rule: Save's disabled state carries
+      // that fact); the empty state names the PENDING result instead.
+      expect(screen.queryByText(/unsaved/i)).toBeNull();
       expect(screen.getByText("No one will have shared access after you save.")).toBeTruthy();
       expect(calls.some((call) => call.method === "PUT")).toBe(false);
       fireEvent.click(screen.getByRole("button", { name: "Save" }));

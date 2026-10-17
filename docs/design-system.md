@@ -369,9 +369,15 @@ admitted here.
   Keep the panel outside the clickable label, associate it with the option's
   title, and keep field labels visible. The boundary distinguishes the subform
   from option descriptions without moving it away from its choice. Every option
-  keeps its short clickable description. Settings shared by the whole group can
-  use a named section below it. Equivalent branches use the same
-  container treatment.
+  keeps its short clickable description. Settings shared by the whole group use
+  a named section below it, never a panel under whichever option is selected.
+  Equivalent branches use the same container treatment.
+  The panel element stays inside the group element for options that are not
+  last: "directly beneath its option" and "outside the group" cannot both hold
+  for a middle option, and proximity carries the association the panel exists
+  to show (ruling recorded 2026-10-17). The panel is a named landmark, so it
+  remains reachable by landmark navigation, and Base UI's group arrow keys move
+  only between the radios; Tab reaches the panel's fields.
 - **Dialog facts**: use the SPA's `FactList` for review and approval details:
   muted detail-size labels over foreground body-size values, using the shared
   `Fact` component also used by status and node cards. Technical values may

@@ -1,4 +1,4 @@
-import { Button, cn, Input, Switch } from "@internal/node-admin";
+import { Button, Input, Switch } from "@internal/node-admin";
 import { BACKUP_RESTORE_DEFAULTS, BACKUP_RESTORE_MODES, type RestoreMode } from "@internal/subshell-protocol";
 import { useStore } from "@tanstack/react-form";
 import { LoaderCircle } from "lucide-react";
@@ -19,6 +19,7 @@ import { type FieldProblems, fieldError, makeForm, useSubmitDisabled, useSubmitD
 import { setRestoreProgressActive } from "@/lib/restore-progress";
 import { Card, CardContent, CardHeader, CardTitle } from "./backup-card";
 import { BackupError, BackupFacts, BackupProgress, BackupWorkflow } from "./backup-workflow";
+import { problemTone } from "./field-problem-tone";
 
 type InspectionDraft = { file: File | null; path: string; password: string; encrypted: boolean };
 function inspectionProblems(draft: InspectionDraft): FieldProblems {
@@ -422,11 +423,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                 onChange={(event) => field.handleChange(event.target.value)}
               />
               {problem && (
-                <p
-                  id={`restore-${name}-error`}
-                  role="alert"
-                  className={cn("text-detail", !field.state.value.trim() ? "text-warning" : "text-destructive")}
-                >
+                <p id={`restore-${name}-error`} role="alert" className={problemTone(field.state.value)}>
                   {problem}
                 </p>
               )}
@@ -722,21 +719,34 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                               {item.description}
                             </span>
                           </FieldLabel>
-                          {!inspection?.legacyDatabaseOnly && draft.mode === item.value && (
-                            <ChoiceFields labelledBy={`restore-mode-title-${item.value}`}>
-                              {textField("databasePath", "Database path (optional)")}
-                              {textField("dataDir", "Data directory (optional)")}
-                              {textField("configDir", "Configuration directory (optional)")}
-                              {textField("baseUrl", "Control plane URL (optional)")}
-                              {textField("host", "Bind address (optional)")}
-                              {textField("port", "Port (optional)")}
-                              {textField("trustedOrigins", "Trusted origins (optional)")}
-                            </ChoiceFields>
-                          )}
                         </div>
                       </Field>
                     ))}
                   </RadioGroup>
+                  {/* The seven overrides apply to BOTH modes (the request sends
+                      them identically however the mode is set), so they are a
+                      named section below the group rather than a panel under
+                      whichever option happens to be selected — flipping the
+                      radio would otherwise teleport the whole block. */}
+                  {!inspection?.legacyDatabaseOnly && (
+                    <ChoiceFields labelledBy="restore-overrides-title">
+                      <div className="flex min-w-0 flex-col gap-1">
+                        <span id="restore-overrides-title" className="font-strong text-label">
+                          Restore overrides
+                        </span>
+                        <p className="m-0 font-regular text-detail text-muted-foreground">
+                          Leave a field empty to restore to the location or setting recorded in the backup.
+                        </p>
+                      </div>
+                      {textField("databasePath", "Database path (optional)")}
+                      {textField("dataDir", "Data directory (optional)")}
+                      {textField("configDir", "Configuration directory (optional)")}
+                      {textField("baseUrl", "Control plane URL (optional)")}
+                      {textField("host", "Bind address (optional)")}
+                      {textField("port", "Port (optional)")}
+                      {textField("trustedOrigins", "Trusted origins (optional)")}
+                    </ChoiceFields>
+                  )}
                   {inspection?.legacyDatabaseOnly && (
                     <p className="text-muted-foreground">
                       This backup contains only the database. It restores into this server using its current
@@ -1005,10 +1015,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                                   <p
                                     id="restore-password-error"
                                     role="alert"
-                                    className={cn(
-                                      "text-detail",
-                                      !passwordProblem && !field.state.value ? "text-warning" : "text-destructive",
-                                    )}
+                                    className={problemTone(field.state.value, passwordProblem)}
                                   >
                                     {problem}
                                   </p>

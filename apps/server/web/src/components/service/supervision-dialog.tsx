@@ -14,12 +14,33 @@ import { WarningNotice } from "@/components/ui/notice";
 import type { PaneSafety, ServerDeployment } from "@/types/server-deployment";
 
 /**
+ * The panes line, shared by {@link consequences} and the dialog.
+ *
+ * The dialog drops this line from the list when the switch is lethal, because
+ * the `WarningNotice` states it louder — the comparison is by the line's own
+ * text, never by its position in the list.
+ *
+ * **Read, not assumed.** This line said "Running subshells keep running"
+ * unconditionally, and on a definition predating `KillMode=process` the
+ * opposite was true: removing it takes every live subshell's tmux server
+ * with it. A dialog that promises the survival of other people's work and
+ * then destroys it is worse than one that says nothing.
+ */
+function panesConsequence(paneSafety: PaneSafety): string {
+  return paneSafety === "keeps"
+    ? "Running subshells keep running"
+    : paneSafety === "kills"
+      ? "Every running subshell will be closed"
+      : "Whether running subshells survive could not be determined";
+}
+
+/**
  * What switching to `target` will do, in the order it happens.
  *
  * Exported so the words are testable as data, the way `recovery-model.ts`
- * treats the assistant's. The two lists end on the same fact — running
- * subshells survive either way — because that is the question anyone
- * hesitating over this dialog is actually asking.
+ * treats the assistant's. The two lists end on the same fact — what becomes
+ * of running subshells — because that is the question anyone hesitating over
+ * this dialog is actually asking.
  */
 export function consequences(
   target: SupervisionMode,
@@ -28,17 +49,7 @@ export function consequences(
   paneSafety: PaneSafety = "keeps",
 ): string[] {
   const agent = platform === "darwin" ? "launchd agent" : "systemd user service";
-  // **Read, not assumed.** This line said "Running subshells keep running"
-  // unconditionally, and on a definition predating `KillMode=process` the
-  // opposite was true: removing it takes every live subshell's tmux server
-  // with it. A dialog that promises the survival of other people's work and
-  // then destroys it is worse than one that says nothing.
-  const panes =
-    paneSafety === "keeps"
-      ? "Running subshells keep running"
-      : paneSafety === "kills"
-        ? "Every running subshell will be closed"
-        : "Whether running subshells survive could not be determined";
+  const panes = panesConsequence(paneSafety);
   if (target === "app") {
     return [
       `Removes the ${agent}`,
@@ -107,6 +118,7 @@ export function SupervisionDialog({
   // Only the Service→App direction removes a definition, so only that
   // direction can be refused on pane safety.
   const lethal = toApp && view.service.paneSafety !== "keeps";
+  const panesLine = panesConsequence(view.service.paneSafety);
 
   return (
     <Dialog open={target !== null} onOpenChange={onOpenChange}>
@@ -122,15 +134,17 @@ export function SupervisionDialog({
         <ul className="space-y-1.5 text-sm">
           {target &&
             consequences(target, view.platform, autostart, view.service.paneSafety)
-              .filter((_, index) => !lethal || index !== 3)
+              // When the switch is lethal the panes line moves into the
+              // notice below, stated louder rather than dotted among the
+              // steps. Matched by its own text, never by position: the line
+              // is shared with `consequences` so the two cannot drift.
+              .filter((line) => !lethal || line !== panesLine)
               .map((line) => (
                 <li key={line} className="flex gap-2">
                   <span aria-hidden className="text-muted-foreground">
                     •
                   </span>
-                  <span className={lethal && line.startsWith("Every running") ? "text-warning" : undefined}>
-                    {line}
-                  </span>
+                  <span>{line}</span>
                 </li>
               ))}
         </ul>
@@ -142,11 +156,7 @@ export function SupervisionDialog({
         )}
         {lethal && (
           <WarningNotice>
-            <p>
-              {view.service.paneSafety === "kills"
-                ? "Every running subshell will be closed"
-                : "Whether running subshells survive could not be determined"}
-            </p>
+            <p>{panesLine}</p>
             <p className="mt-2">
               {view.service.paneSafety === "kills"
                 ? "This machine's service definition predates the setting that spares live panes. Running `subshell-server service install` on that machine rewrites it."

@@ -1174,9 +1174,13 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(first.children[0]?.className).toContain("text-detail");
     expect(first.children[1]?.className).toContain("text-body");
     expect(first.children[1]?.textContent).toContain("https://box.tail1234.ts.net");
-    // The secure-context sentence keeps its own line below the value, and it
-    // is still the address's own — one per address, comparative by repetition.
-    expect(first.children[1]?.textContent).toContain("Passkeys and secure cookies work at this address.");
+    // The secure-context sentence keeps its OWN element below the value (a
+    // merged line would pass a plain textContent check), and it is still the
+    // address's own — one per address, comparative by repetition.
+    const sentence = first.children[1]?.querySelector("p");
+    expect(sentence?.textContent).toBe("Passkeys and secure cookies work at this address.");
+    // The value and its copy button come first; the sentence follows them.
+    expect(first.children[1]?.firstElementChild).not.toBe(sentence);
     const second = items[1] as HTMLElement;
     expect(second.children[0]?.textContent).toBe("Tailscale IP");
   });
@@ -1187,8 +1191,8 @@ describe("NetworkPluginCard: the state matrix", () => {
     // here by scheme, by secure context or by label would make the page
     // contradict its own data for a reason no reader can see.
     await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
-    const list = screen.getByText(ADDRESSES[0]!.label).closest("dl")!;
-    const shown = Array.from(list.children, (item) => item.textContent ?? "");
+    const list = screen.getByText(ADDRESSES[0]?.label ?? "").closest("dl");
+    const shown = Array.from(list?.children ?? [], (item) => item.textContent ?? "");
     expect(shown[0]).toContain("https://box.tail1234.ts.net");
     expect(shown[1]).toContain("http://100.64.0.1:3080");
   });

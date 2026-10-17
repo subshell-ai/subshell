@@ -131,7 +131,7 @@ export function CommandPasteField({
                 // (`--allow a --allow b`), so the index is the only key.
                 // biome-ignore lint/suspicious/noArrayIndexKey: see above
                 <Fact key={i} label={row.flag} mono>
-                  {row.value || "No value"}
+                  {row.value || "(empty)"}
                 </Fact>
               ))}
             </dl>

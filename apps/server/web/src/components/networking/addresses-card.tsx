@@ -196,6 +196,24 @@ function displayValue(key: EditableKey, saved: string): string {
 }
 
 /**
+ * Whether a draft is a real change from what is stored.
+ *
+ * Both sides go through the full display-then-wire pipeline: the field was
+ * SEEDED from {@link displayValue}, which splits on commas AND whitespace, so
+ * the saved side has to pass through it too. A config.env storing one legacy
+ * space-separated line would otherwise never compare equal to the
+ * comma-separated text a person retypes from the field, and Save stayed lit
+ * (with the restart banner armed) for what is semantically no change.
+ *
+ * @param key - the setting being compared
+ * @param draft - exactly what the field holds now
+ * @param saved - the stored value, as the server reported it
+ */
+export function isTouchedDraft(key: EditableKey, draft: string, saved: string): boolean {
+  return wireValue(key, draft) !== wireValue(key, displayValue(key, saved));
+}
+
+/**
  * Where this server listens and which addresses a browser may use (spec
  * 2026-09-12 § 4.2).
  *
@@ -211,8 +229,8 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
   const [drafts, setDrafts] = useState<Partial<Record<EditableKey, string>>>({});
   const [confirming, setConfirming] = useState(false);
   const update = useUpdateServerConfig();
-  const touched = (Object.keys(drafts) as EditableKey[]).filter(
-    (key) => wireValue(key, drafts[key] ?? "") !== wireValue(key, view.settings[key].saved),
+  const touched = (Object.keys(drafts) as EditableKey[]).filter((key) =>
+    isTouchedDraft(key, drafts[key] ?? "", view.settings[key].saved),
   );
   const needsRestart = touched.some((key) => !LIVE_KEYS.has(key));
   const fieldFailure = invalidField(update.error);

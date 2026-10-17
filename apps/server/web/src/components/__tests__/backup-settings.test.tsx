@@ -399,6 +399,25 @@ describe("Settings backup workflows", () => {
     });
   });
 
+  it("keeps the restore overrides below the mode group, not inside the selected option", async () => {
+    // The seven override fields apply to BOTH modes identically. They once
+    // rendered inside whichever mode was selected, so flipping the radio
+    // teleported the block (and remounted every input in it). They are a
+    // named section below the group now, and switching modes must not move
+    // the person's typing.
+    mockApi();
+    mount(<RestoreBackupCard />);
+    await configureFile();
+    expect(screen.getByRole("region", { name: "Restore overrides" })).toBeTruthy();
+    const port = screen.getByLabelText("Port (optional)");
+    fireEvent.change(port, { target: { value: "4000" } });
+    fireEvent.click(screen.getByRole("radio", { name: "This machine is different from the original" }));
+    expect(screen.getByLabelText("Port (optional)")).toBe(port);
+    expect((port as HTMLInputElement).value).toBe("4000");
+    fireEvent.click(screen.getByRole("radio", { name: "Same-machine recovery" }));
+    expect((port as HTMLInputElement).value).toBe("4000");
+  });
+
   it("revalidates expired extraction before preparation and stops for review if the source changed", async () => {
     let inspected = 0;
     const requests = mockApi((request) => {
