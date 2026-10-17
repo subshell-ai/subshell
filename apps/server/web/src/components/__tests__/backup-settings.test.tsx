@@ -167,6 +167,14 @@ describe("Settings backup workflows", () => {
     expect(submit.matches(":disabled, [aria-disabled=true]")).toBe(true);
     const password = screen.getByLabelText("Archive password");
     const confirm = screen.getByLabelText("Confirm archive password");
+    // The gold half of the tone rule: blur the EMPTY box and the sentence is
+    // "nothing typed yet" (text-warning), not "what you typed is wrong".
+    fireEvent.focus(password);
+    fireEvent.blur(password);
+    expect(screen.getByRole("alert").textContent).toContain("at least 8");
+    expect(screen.getByRole("alert").className).toContain("text-warning");
+    expect(screen.getByRole("alert").className).not.toContain("text-destructive");
+    // The red half: a value that validation refuses.
     for (const input of [password, confirm]) fireEvent.change(input, { target: { value: "short" } });
     fireEvent.blur(password);
     expect(screen.getByRole("alert").textContent).toContain("at least 8");

@@ -24,11 +24,24 @@ function mockFetch() {
   return { posts, restore: () => (globalThis.fetch = realFetch) };
 }
 
-function renderDialog(props: { onSaved?: () => void; onClose?: () => void } = {}) {
+function renderDialog(
+  props: {
+    onSaved?: () => void;
+    onClose?: () => void;
+    editingId?: string;
+    initial?: { description: string; body: string; shared: boolean };
+  } = {},
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <PromptFormDialog open onOpenChange={() => props.onClose?.()} onSaved={props.onSaved} />
+      <PromptFormDialog
+        open
+        onOpenChange={() => props.onClose?.()}
+        onSaved={props.onSaved}
+        editingId={props.editingId}
+        initial={props.initial}
+      />
     </QueryClientProvider>,
   );
 }
@@ -87,5 +100,42 @@ describe("PromptFormDialog gating", () => {
     await waitFor(() => expect(m.posts.length).toBe(1));
     expect(m.posts[0]).toEqual({ description: "Kickoff", body: "start the task", shared: false });
     await waitFor(() => expect(saved).toBe(true));
+  });
+});
+
+describe("PromptFormDialog edit mode", () => {
+  let restore: (() => void) | undefined;
+  afterEach(() => {
+    restore?.();
+    restore = undefined;
+  });
+
+  it("starts dead, opens on a real edit, and re-deadens when the edit is reverted", () => {
+    // The unchanged-draft rule on the prompt editor. Create mode cannot see
+    // this path at all (its fields start empty), so edit mode is pinned here:
+    // a dialog that opens already valid used to offer Save for a draft that
+    // differed from the stored row by nothing.
+    const realFetch = globalThis.fetch;
+    const puts: Record<string, unknown>[] = [];
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/prompts/pr1" && (init?.method ?? "GET") === "PUT") {
+        puts.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return Promise.resolve(new Response(JSON.stringify({ ok: true })));
+      }
+      return realFetch(input as never, init as never);
+    }) as typeof fetch;
+    restore = () => {
+      globalThis.fetch = realFetch;
+    };
+    renderDialog({ editingId: "pr1", initial: { description: "Kickoff", body: "start the task", shared: false } });
+    const save = () => screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
+    expect(save().matches(":disabled, [aria-disabled=true]")).toBe(true);
+    expect(save().getAttribute("aria-description")).toBe("No changes to save.");
+    fireEvent.change(descriptionField(), { target: { value: "Kickoff v2" } });
+    expect(save().matches(":disabled, [aria-disabled=true]")).toBe(false);
+    fireEvent.change(descriptionField(), { target: { value: "Kickoff" } });
+    expect(save().matches(":disabled, [aria-disabled=true]")).toBe(true);
+    expect(puts).toHaveLength(0);
   });
 });

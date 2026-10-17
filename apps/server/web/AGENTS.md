@@ -440,8 +440,8 @@ Changed identities never use that prompt. Settings → Presets has Agent and SSH
 tabs; the SSH tab manages saved connection choices, not host keys. Applying a
 preset clears any local key selection. Saving a local-key preset retains only
 the authentication choice, never credentials or approval. Recent destinations
-stay in the launch suggestions; `/settings/ssh` redirects to `/presets?type=ssh`. Verification details can reveal the public fingerprint without
-requiring a user to paste or manage key material.
+stay in the launch suggestions; `/settings/ssh` redirects to `/presets?type=ssh`. The confirmation shows the destination's public fingerprint outright
+(copyable), with no key material for the user to paste or manage.
 Old `/connect` links open the same
 subshell dialog through `/new?kind=ssh`. Failed reads must stay distinct from
 empty lists, with retry actions. Read `docs/launch-form-picker.md` for the
