@@ -95,7 +95,7 @@ export function SystemKeyCreateDialog({
               Use it as the request's Authorization header:{" "}
               <span className="break-all font-mono text-foreground">Authorization: Bearer {created.key}</span>
             </p>
-            <p className="text-destructive text-detail">
+            <p className="text-detail text-warning">
               Store it somewhere safe. If you lose it, you'll need to create a new key.
             </p>
             <DialogFooter>

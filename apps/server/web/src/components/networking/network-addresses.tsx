@@ -1,4 +1,4 @@
-import { CopyableValue } from "@internal/node-admin";
+import { CopyableValue, Fact } from "@internal/node-admin";
 import type { NetworkAddress } from "@/types/network";
 
 /**
@@ -36,17 +36,8 @@ function secureContextLine(address: NetworkAddress): string {
  * trailing it — and an operator read the two as disjoint things, because a
  * tag that follows a bold value names nothing until you scan back from it.
  *
- * **The label is a DATA label, not a control label** (amended 2026-09-16, same
- * operator's second read). The first pass gave it the form-label grammar
- * (`font-strong text-label`), and the card then held both grammars six pixels
- * apart: bold "NetBird FQDN" over its URL, quiet "Client version" over its —
- * one read as a heading and one as data, so the card looked like two systems
- * rendering two kinds of thing. These rows are read-only facts, so they take
- * the `Fact`/`dt` grammar verbatim: `text-muted-foreground`, no weight token.
- * The `text-sm` sits on the list, exactly as it sits on the `<dl>` beside it,
- * rather than on the label — that is what keeps the two from drifting if
- * {@link Fact} ever changes. `font-strong` belongs to a control's label and to
- * a section heading, and the "Addresses" heading above keeps it.
+ * Read-only addresses use the shared Fact component so labels and values
+ * stay consistent with status cards and dialogs.
  *
  * The secure-context sentence keeps its line below the value — see
  * {@link secureContextLine} for why it appears on every address, the good one
@@ -55,16 +46,15 @@ function secureContextLine(address: NetworkAddress): string {
 export function NetworkAddresses({ addresses }: { addresses: NetworkAddress[] }) {
   if (addresses.length === 0) return null;
   return (
-    <ul className="space-y-2 text-sm">
+    <dl className="grid gap-3 text-body">
       {addresses.map((address) => (
-        <li key={address.url} className="space-y-1">
-          <p className="text-muted-foreground">{address.label}</p>
+        <Fact key={address.url} label={address.label}>
           <CopyableValue value={address.url} label={address.label} />
           <p className={address.secureContext ? "text-detail text-muted-foreground" : "text-detail text-warning"}>
             {secureContextLine(address)}
           </p>
-        </li>
+        </Fact>
       ))}
-    </ul>
+    </dl>
   );
 }

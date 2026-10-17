@@ -10,6 +10,7 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { useBackupDownload } from "@/hooks/use-backups";
 import { type FieldProblems, fieldError, makeForm, useSubmitDisabled, useSubmitDisabledReason } from "@/lib/form";
 import { BackupError, BackupFacts, BackupProgress, BackupWorkflow } from "./backup-workflow";
+import { problemTone } from "./field-problem-tone";
 
 type BackupDraft = { encrypted: boolean; password: string; confirmation: string };
 function backupProblems(draft: BackupDraft): FieldProblems {
@@ -237,7 +238,7 @@ export function CreateBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void 
                         disabled={busy}
                       />
                       {problem && (
-                        <p role="alert" className="text-detail text-warning">
+                        <p role="alert" className={problemTone(field.state.value)}>
                           {problem}
                         </p>
                       )}
@@ -273,7 +274,7 @@ export function CreateBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void 
                         disabled={busy}
                       />
                       {problem && (
-                        <p role="alert" className="text-detail text-warning">
+                        <p role="alert" className={problemTone(field.state.value)}>
                           {problem}
                         </p>
                       )}

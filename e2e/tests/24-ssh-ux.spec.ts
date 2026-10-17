@@ -261,8 +261,10 @@ test("unfamiliar destinations ask in the connection flow and cancellation saves 
   await page.getByRole("button", { name: "Start SSH subshell", exact: true }).click();
   const confirmation = page.getByRole("dialog", { name: "Connect to this destination?", exact: true });
   await expect(confirmation.getByText(destination, { exact: true })).toBeVisible();
-  await confirmation.getByText("Verification details", { exact: true }).click();
+  // The fingerprint and the unverified-identity warning are shown at the
+  // decision itself (spec 2026-10-17 UX pass); there is no disclosure to open.
   await expect(confirmation.getByText("SHA256:destination-identity", { exact: true })).toBeVisible();
+  await expect(confirmation.getByText(/independently verified/)).toBeVisible();
   await page.screenshot({ path: "test-results/ssh-destination-confirmation.png", fullPage: true });
   await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(confirmation).toHaveCount(0);

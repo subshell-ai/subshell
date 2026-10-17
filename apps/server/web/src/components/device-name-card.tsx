@@ -18,15 +18,20 @@ export function DeviceNameCard(): JSX.Element {
   // Lazy read: the choice is browser-local, so there is no in-flight state to
   // wait for (unlike the server-backed switches).
   const [value, setValue] = useState(() => deviceName());
+  const [savedName, setSavedName] = useState(() => deviceName());
   const [saved, setSaved] = useState(false);
   const derived = deviceNameFromUserAgent(navigator.userAgent ?? "");
   const cleaned = normalizeDeviceLabel(value);
   // The blank case is a real choice (restore the default), not an error.
   const willBe = cleaned || derived;
 
+  const unchanged = willBe === savedName;
+
   function save(): void {
+    if (unchanged) return;
     setDeviceName(value);
     setValue(deviceName());
+    setSavedName(deviceName());
     setSaved(true);
   }
 
@@ -56,7 +61,13 @@ export function DeviceNameCard(): JSX.Element {
             }}
             className="w-64"
           />
-          <Button variant="outline" size="sm" onClick={save}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={save}
+            disabled={unchanged}
+            disabledReason="No device name changes to save."
+          >
             Save
           </Button>
           {saved && <span className="text-detail text-muted-foreground">Saved. New attachments use it</span>}

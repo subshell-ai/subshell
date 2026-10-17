@@ -2,6 +2,7 @@ import { Button, cn, Input, Label } from "@internal/node-admin";
 import { SSH_MAX_FORWARD_ROWS } from "@internal/subshell-protocol";
 import { Plus } from "lucide-react";
 import { useState } from "react";
+import { ChoiceFields } from "@/components/ui/choice-fields";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { RequiredMark } from "@/components/ui/required-mark";
@@ -102,7 +103,6 @@ export function SshForwardFields({
     onChange([...rows, { ...editor }]);
     foldEditor();
   };
-  const helpId = "ssh-fwd-kind-help";
   const example = FORWARD_EXAMPLE[editor.kind];
   return (
     <fieldset className="flex min-w-0 flex-col gap-3" disabled={busy}>
@@ -137,91 +137,90 @@ export function SshForwardFields({
             value={editor.kind}
             onValueChange={(value) => patchEditor({ kind: (value ?? "local") as SshForwardDraftRow["kind"] })}
           >
-            {/* The Authentication field's shape: the chosen option carries its
-            caption, route diagram and fields in the column beside the radio,
-            and the other options stay one line each. */}
-            {KINDS.map((option) => {
-              const selected = editor.kind === option.value;
-              return (
-                <Field key={option.value} className="mb-0 flex-row items-start gap-3">
-                  <RadioGroupItem
-                    id={`ssh-fwd-kind-${option.value}`}
-                    value={option.value}
-                    aria-describedby={selected ? helpId : undefined}
-                  />
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <FieldLabel htmlFor={`ssh-fwd-kind-${option.value}`} className="cursor-pointer">
-                      <span>{option.label}</span>
-                    </FieldLabel>
-                    {selected && (
-                      <>
-                        <span id={helpId} className="font-regular text-detail text-muted-foreground">
-                          {KIND_HELP[option.value]}
-                        </span>
-                        <span className="font-mono text-detail text-muted-foreground">
-                          {sshForwardRowDiagram(editor)}
-                        </span>
-                        <div className="mt-2 flex min-w-0 flex-wrap items-end gap-2">
-                          <Field className="w-28 min-w-0">
-                            <Label htmlFor="ssh-fwd-port">
-                              {option.value === "remote" ? "Remote port" : "Local port"}
-                              <RequiredMark />
-                            </Label>
-                            <Input
-                              id="ssh-fwd-port"
-                              inputMode="numeric"
-                              placeholder={example.listen}
-                              value={editor.listenPort}
-                              onChange={(event) => patchEditor({ listenPort: event.target.value })}
-                            />
-                          </Field>
-                          {option.value !== "dynamic" && (
-                            <>
-                              <Field className="min-w-40 flex-1">
-                                <Label htmlFor="ssh-fwd-target-host">
-                                  Target host
-                                  <RequiredMark />
-                                </Label>
-                                <Input
-                                  id="ssh-fwd-target-host"
-                                  placeholder={example.host}
-                                  value={editor.targetHost}
-                                  onChange={(event) => patchEditor({ targetHost: event.target.value })}
-                                />
-                              </Field>
-                              <Field className="w-28 min-w-0">
-                                <Label htmlFor="ssh-fwd-target-port">
-                                  Target port
-                                  <RequiredMark />
-                                </Label>
-                                <Input
-                                  id="ssh-fwd-target-port"
-                                  inputMode="numeric"
-                                  placeholder={example.port}
-                                  value={editor.targetPort}
-                                  onChange={(event) => patchEditor({ targetPort: event.target.value })}
-                                />
-                              </Field>
-                            </>
-                          )}
-                          {(allowWideBind || editor.bindHost !== "") && (
-                            <Field className="min-w-36 flex-1">
-                              <Label htmlFor="ssh-fwd-bind">Bind address</Label>
+            {KINDS.map((option) => (
+              <Field key={option.value} className="flex-row items-start gap-3">
+                <RadioGroupItem
+                  id={`ssh-fwd-kind-${option.value}`}
+                  value={option.value}
+                  aria-labelledby={`ssh-fwd-title-${option.value}`}
+                  aria-describedby={`ssh-fwd-help-${option.value}`}
+                />
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <FieldLabel
+                    htmlFor={`ssh-fwd-kind-${option.value}`}
+                    className="flex min-w-0 cursor-pointer flex-col gap-1"
+                  >
+                    <span id={`ssh-fwd-title-${option.value}`}>{option.label}</span>
+                    <span
+                      id={`ssh-fwd-help-${option.value}`}
+                      className="font-regular text-detail text-muted-foreground"
+                    >
+                      {KIND_HELP[option.value]}
+                    </span>
+                  </FieldLabel>
+                  {editor.kind === option.value && (
+                    <ChoiceFields labelledBy={`ssh-fwd-title-${option.value}`}>
+                      <p className="break-words font-mono text-body">{sshForwardRowDiagram(editor)}</p>
+                      <div className="mt-2 flex min-w-0 flex-wrap items-end gap-2">
+                        <Field className="w-28 min-w-0">
+                          <Label htmlFor="ssh-fwd-port">
+                            {editor.kind === "remote" ? "Remote port" : "Local port"}
+                            <RequiredMark />
+                          </Label>
+                          <Input
+                            id="ssh-fwd-port"
+                            inputMode="numeric"
+                            placeholder={example.listen}
+                            value={editor.listenPort}
+                            onChange={(event) => patchEditor({ listenPort: event.target.value })}
+                          />
+                        </Field>
+                        {editor.kind !== "dynamic" && (
+                          <>
+                            <Field className="min-w-0 flex-1 basis-40">
+                              <Label htmlFor="ssh-fwd-target-host">
+                                Target host
+                                <RequiredMark />
+                              </Label>
                               <Input
-                                id="ssh-fwd-bind"
-                                placeholder="loopback"
-                                value={editor.bindHost}
-                                onChange={(event) => patchEditor({ bindHost: event.target.value })}
+                                id="ssh-fwd-target-host"
+                                placeholder={example.host}
+                                value={editor.targetHost}
+                                onChange={(event) => patchEditor({ targetHost: event.target.value })}
                               />
                             </Field>
-                          )}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </Field>
-              );
-            })}
+                            <Field className="w-28 min-w-0">
+                              <Label htmlFor="ssh-fwd-target-port">
+                                Target port
+                                <RequiredMark />
+                              </Label>
+                              <Input
+                                id="ssh-fwd-target-port"
+                                inputMode="numeric"
+                                placeholder={example.port}
+                                value={editor.targetPort}
+                                onChange={(event) => patchEditor({ targetPort: event.target.value })}
+                              />
+                            </Field>
+                          </>
+                        )}
+                        {(allowWideBind || editor.bindHost !== "") && (
+                          <Field className="min-w-0 flex-1 basis-36">
+                            <Label htmlFor="ssh-fwd-bind">Bind address</Label>
+                            <Input
+                              id="ssh-fwd-bind"
+                              placeholder="loopback"
+                              value={editor.bindHost}
+                              onChange={(event) => patchEditor({ bindHost: event.target.value })}
+                            />
+                          </Field>
+                        )}
+                      </div>
+                    </ChoiceFields>
+                  )}
+                </div>
+              </Field>
+            ))}
           </RadioGroup>
           {/* Sentences show once a field is touched, not while it sits pristine. */}
           {touched && problem && (
@@ -268,7 +267,7 @@ export function SshForwardFields({
               key={`${row.kind}|${row.bindHost.trim()}|${row.listenPort.trim()}`}
               className="flex items-center justify-between gap-3"
             >
-              <span className="min-w-0 flex-1 truncate text-sm">
+              <span className="min-w-0 flex-1 text-sm [overflow-wrap:anywhere]">
                 <span className="text-muted-foreground">
                   {KINDS.find((option) => option.value === row.kind)?.short ?? row.kind}
                 </span>

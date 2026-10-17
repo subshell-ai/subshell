@@ -132,11 +132,13 @@ describe("StackFormDialog", () => {
           shared: false,
         },
       });
+      expect(saveButton(true).matches(":disabled, [aria-disabled=true]")).toBe(true);
+      fireEvent.change(screen.getByLabelText(/Label/), { target: { value: "Changed label" } });
       fireEvent.click(saveButton(true));
       await waitFor(() => expect(m.calls.length).toBe(1));
       // The unlabeled inline row rides UNLABELED (the placeholder is display).
       expect(m.calls[0]?.body).toEqual({
-        label: "Mixed",
+        label: "Changed label",
         items: [{ promptId: "p1" }, { body: "mine" }],
         shared: false,
       });
@@ -149,6 +151,8 @@ describe("StackFormDialog", () => {
     const m = mockFetch({ failWith: "The stack's text joined is 30000 characters" });
     try {
       renderDialog({ editingId: "st1", initial: { label: "Big", blocks: [block({ body: "x" })], shared: false } });
+      expect(saveButton(true).matches(":disabled, [aria-disabled=true]")).toBe(true);
+      fireEvent.change(screen.getByLabelText(/Label/), { target: { value: "Changed label" } });
       fireEvent.click(saveButton(true));
       const alert = await screen.findByRole("alert");
       expect(alert.textContent).toContain("30000 characters");

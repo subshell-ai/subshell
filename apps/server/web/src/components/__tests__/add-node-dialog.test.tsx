@@ -656,9 +656,9 @@ describe("AddNodeDialog", () => {
         // dropdown's items are in the DOM too — Base UI force-mounts them once the
         // trigger has focus, which is where the dialog's initial focus lands (the
         // old count of 2 rode the two-step never focusing the trigger — timing, not
-        // truth). The paste target is the CODE row, and
+        // truth). The paste target is the fact value, and
         // there is exactly one. The key shows ONCE.
-        expect(screen.getAllByText("https://plane.example").filter((el) => el.tagName === "CODE")).toHaveLength(1);
+        expect(screen.getAllByText("https://plane.example").filter((el) => el.closest("dd") !== null)).toHaveLength(1);
         expect(screen.getAllByText(/nsk_secret/)).toHaveLength(1);
         expect(screen.getByRole("button", { name: "Copy setup key" })).toBeDefined();
         expect(screen.getByRole("button", { name: "Copy server address" })).toBeDefined();
@@ -716,11 +716,11 @@ describe("AddNodeDialog", () => {
         expect(label.compareDocumentPosition(trigger) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         expect(trigger.compareDocumentPosition(switchButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
-        // The pick is the same value the app path's paste row carries — one CODE row
+        // The pick is the same value the app path's paste row carries — one fact value
         // (the closed dropdown holds further copies in the DOM; see the count comment
         // in the test above).
         fireEvent.click(screen.getByRole("button", { name: "Desktop App" }));
-        expect(screen.getAllByText("https://plane.example").filter((el) => el.tagName === "CODE")).toHaveLength(1);
+        expect(screen.getAllByText("https://plane.example").filter((el) => el.closest("dd") !== null)).toHaveLength(1);
       } finally {
         restore();
       }

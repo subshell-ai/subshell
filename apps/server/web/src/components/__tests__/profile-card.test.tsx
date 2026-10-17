@@ -71,6 +71,28 @@ describe("ProfileCard", () => {
     expect(await screen.findByText("saved")).toBeDefined();
   });
 
+  it("disables Save at rest, opens it on a real edit, and re-deadens it on a revert", async () => {
+    // The unchanged-draft rule this PR added: Save is dead while the field
+    // shows the saved name, and a type-then-retype-the-same-name is no change
+    // either — the draft is compared to the stored value, not to "was a key
+    // pressed". The reason rides the disabled explanation, as on every card.
+    let pressed = 0;
+    renderCard(async () => {
+      pressed++;
+      return { error: null };
+    });
+    const input = (await screen.findByLabelText("Name")) as HTMLInputElement;
+    const save = () => screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
+    expect(save().matches(":disabled, [aria-disabled=true]")).toBe(true);
+    expect(save().getAttribute("aria-description")).toBe("No profile changes to save.");
+    fireEvent.change(input, { target: { value: "Thea" } });
+    expect(save().matches(":disabled, [aria-disabled=true]")).toBe(false);
+    fireEvent.change(input, { target: { value: "Old Name" } }); // back to stored
+    expect(save().matches(":disabled, [aria-disabled=true]")).toBe(true);
+    expect(save().getAttribute("aria-description")).toBe("No profile changes to save.");
+    expect(pressed).toBe(0);
+  });
+
   it("keeps the draft and reports the error when the save fails", async () => {
     renderCard(async () => ({ error: { message: "Server said no" } }));
     const input = (await screen.findByLabelText("Name")) as HTMLInputElement;

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { movesThisAppsWindow } from "@/components/networking/addresses-card";
+import { isTouchedDraft, movesThisAppsWindow } from "@/components/networking/addresses-card";
 import { resetDesktopShellForTests } from "@/lib/desktop";
 
 /**
@@ -51,6 +51,29 @@ afterEach(() => {
   if (own && ORIGINAL_UA) Reflect.deleteProperty(navigator as unknown as object, "userAgent");
   resetDesktopShellForTests();
   setUrl(HOME);
+});
+
+describe("isTouchedDraft", () => {
+  test("a plain key compares exactly", () => {
+    expect(isTouchedDraft("APP_BASE_URL", "http://box:3080", "http://box:3080")).toBe(false);
+    expect(isTouchedDraft("APP_BASE_URL", "http://box:3081", "http://box:3080")).toBe(true);
+  });
+
+  test("an origins retyped the way the field shows them is no change", () => {
+    // The field seeds from displayValue (comma-separated), so a person who
+    // edits the box and types back the same list has changed nothing, even
+    // though the raw strings differ by spaces and commas.
+    expect(isTouchedDraft("TRUSTED_ORIGINS", "http://a, http://b", "http://a,http://b")).toBe(false);
+    expect(isTouchedDraft("TRUSTED_ORIGINS", "http://a, http://b,", "http://a,http://b")).toBe(false);
+  });
+
+  test("a legacy space-separated stored line compares through its own display form", () => {
+    // config.env hand-edited into one space-separated line is the shape
+    // displayValue exists to read. Seeding, editing, and retyping must land
+    // back on "untouched", or Save (and the restart banner) light for a no-op.
+    expect(isTouchedDraft("TRUSTED_ORIGINS", "http://a, http://b", "http://a http://b")).toBe(false);
+    expect(isTouchedDraft("TRUSTED_ORIGINS", "http://a, http://c", "http://a http://b")).toBe(true);
+  });
 });
 
 describe("movesThisAppsWindow", () => {

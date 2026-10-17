@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ErrorNotice, WarningNotice } from "@/components/ui/notice";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { RosterUser, ShareDraft } from "@/hooks/use-subshell-shares";
 import type { SubshellAccess } from "@/types/subshell";
@@ -116,6 +117,12 @@ export function SharingDialogCore({
 
   const pickerId = useId();
   const grants = draft ?? serverGrants;
+  // Grant order isn't meaningful: removing and re-adding the same access is unchanged.
+  const savedPermissions = new Map(serverGrants.map((grant) => [grant.granteeUserId, grant.permission]));
+  const hasChanges =
+    grants.length !== serverGrants.length ||
+    grants.some((grant) => savedPermissions.get(grant.granteeUserId) !== grant.permission);
+  const saveDisabled = saving || isLoading || !hasChanges;
   const alreadyShared = new Set(grants.map((g) => g.granteeUserId ?? EVERYONE));
 
   const recipientOptions = [
@@ -149,6 +156,7 @@ export function SharingDialogCore({
   }
 
   async function save() {
+    if (!canManage || saveDisabled) return;
     setError(null);
     try {
       await onSave(grants);
@@ -168,23 +176,26 @@ export function SharingDialogCore({
 
         {/* Before the grant rows, not after: the disclosure has to be read
             while deciding, not discovered under the Save button. */}
-        {warning != null && (
-          <p className="rounded-md border border-amber-500/70 px-3 py-2 text-amber-600 text-detail dark:text-amber-400">
-            {warning}
-          </p>
-        )}
+        {warning != null && <WarningNotice>{warning}</WarningNotice>}
 
         <div className="flex flex-col gap-3">
+          {canManage && (
+            <p className="text-detail text-muted-foreground">
+              Save applies all additions, removals, and access changes. Cancel discards them.
+            </p>
+          )}
           {isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
           {!isLoading && grants.length === 0 && (
-            <p className="text-muted-foreground text-sm">Not shared with anyone yet.</p>
+            <p className="text-muted-foreground text-sm">
+              {hasChanges ? "No one will have shared access after you save." : "Not shared with anyone yet."}
+            </p>
           )}
           {grants.map((g, i) => (
             <div
               key={g.granteeUserId ?? EVERYONE}
               className="grid grid-cols-[minmax(0,1fr)_5rem] items-center gap-3 sm:grid-cols-[minmax(0,1fr)_9rem_5rem]"
             >
-              <span className="col-span-2 min-w-0 truncate text-sm sm:col-span-1">
+              <span className="col-span-2 min-w-0 text-sm [overflow-wrap:anywhere] sm:col-span-1">
                 {g.granteeUserId === null
                   ? "Everyone"
                   : (roster.find((u) => u.id === g.granteeUserId)?.email ?? g.granteeUserId)}
@@ -196,7 +207,13 @@ export function SharingDialogCore({
                     value={g.permission}
                     onChange={(level) => changeLevel(i, level)}
                   />
-                  <Button variant="ghost" size="sm" className="h-9" onClick={() => removeAt(i)} aria-label="Remove">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-9"
+                    onClick={() => removeAt(i)}
+                    aria-label={`Remove access for ${g.granteeUserId === null ? "Everyone" : (roster.find((u) => u.id === g.granteeUserId)?.email ?? "this user")}`}
+                  >
                     Remove
                   </Button>
                 </>
@@ -237,11 +254,7 @@ export function SharingDialogCore({
             </div>
           )}
 
-          {error && (
-            <p role="alert" className="text-destructive text-detail">
-              {error}
-            </p>
-          )}
+          {error && <ErrorNotice>{error}</ErrorNotice>}
         </div>
 
         <DialogFooter>
@@ -251,9 +264,13 @@ export function SharingDialogCore({
           {canManage && (
             <Button
               onClick={() => void save()}
-              disabled={saving || (isLoading && draft === null)}
+              disabled={saveDisabled}
               disabledReason={
-                saving ? "Wait for sharing changes to save." : "Wait for the current sharing settings to load."
+                saving
+                  ? "Wait for sharing changes to save."
+                  : isLoading
+                    ? "Wait for the current sharing settings to load."
+                    : "No sharing changes to save."
               }
             >
               {saving ? "Saving…" : "Save"}

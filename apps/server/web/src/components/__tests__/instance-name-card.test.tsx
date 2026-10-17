@@ -82,6 +82,22 @@ describe("InstanceNameCard", () => {
     await waitFor(() => expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("theo-desktop"));
   });
 
+  it("disables Save at rest and on a revert, opens it on a real change", async () => {
+    // The unchanged-draft rule, on the card that seeds from the server: the
+    // field opens showing the stored name, so Save starts dead; a genuine
+    // edit lights it; retyping the stored name kills it again.
+    stubFetch((s) => s);
+    renderCard("Prod plane");
+    await screen.findByLabelText("Name");
+    const save = () => screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
+    expect(save().matches(":disabled, [aria-disabled=true]")).toBe(true);
+    expect(save().getAttribute("aria-description")).toBe("No instance name changes to save.");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Homelab" } });
+    expect(save().matches(":disabled, [aria-disabled=true]")).toBe(false);
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Prod plane" } });
+    expect(save().matches(":disabled, [aria-disabled=true]")).toBe(true);
+  });
+
   it("reports a failed save instead of implying it worked", async () => {
     const original = globalThis.fetch;
     restore.push(() => {

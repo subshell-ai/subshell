@@ -2,6 +2,7 @@ import { Label } from "@internal/node-admin";
 import { NODE_TARGETS, SUBSHELL_REPO_SLUG } from "@internal/subshell-protocol";
 import { type ReactNode, useId, useState } from "react";
 import { CopyCommandRow } from "@/components/copy-command-row";
+import { FactList } from "@/components/fact-list";
 import { Segmented } from "@/components/ui/segmented";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePublicSettings } from "@/hooks/use-public-settings";
@@ -335,25 +336,19 @@ export function NodeKeySetup({
             </a>
             .
           </p>
-          {/* Then the two values, and nothing else. The app cannot be handed a
-              command — its Enroll step takes these two — so the rows ARE the rest
-              of the instruction.
-              Label over value, the line-item shape: two rows, and the button in each
-              says out loud which of the two it copies. */}
-          <div className="space-y-1">
-            <p className="font-strong text-label">Server address</p>
-            <CopyCommandRow text={selected} label="server address" />
-          </div>
-          <div className="space-y-1">
-            <p className="font-strong text-label">Setup key</p>
-            {/* The placeholder names the one press that fills this row — and the row
-                above it was copyable all along, because it needs no key. */}
-            {keyText === null ? (
-              <p className="text-detail text-muted-foreground">Generate setup key first</p>
-            ) : (
-              <CopyCommandRow text={keyText} label="setup key" />
-            )}
-          </div>
+          <FactList
+            rows={[
+              { label: "Server address", value: selected, copyText: selected },
+              {
+                label: "Setup key",
+                // The pending-state placeholder is an instruction, not a value:
+                // a body-foreground row would read as a strangely worded key.
+                value: keyText ?? <span className="text-muted-foreground">Generate setup key first</span>,
+                mono: keyText !== null,
+                copyText: keyText ?? undefined,
+              },
+            ]}
+          />
         </div>
       )}
     </>

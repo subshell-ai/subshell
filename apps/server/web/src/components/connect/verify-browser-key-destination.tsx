@@ -1,4 +1,6 @@
 import { confirmAction } from "@internal/node-admin";
+import { FactList } from "@/components/fact-list";
+import { WarningNotice } from "@/components/ui/notice";
 import { browserHostFingerprint } from "@/lib/ssh-browser-signer-core";
 import type { LocalKeyPreparation } from "@/lib/ssh-local-key";
 
@@ -21,28 +23,18 @@ export async function verifyBrowserKeyDestination(
     title: "Use this key to connect?",
     description: (
       <div className="flex flex-col gap-3">
-        <dl className="flex min-w-0 flex-col gap-3">
-          <div className="flex min-w-0 flex-col gap-1">
-            <dt className="font-strong text-body text-foreground">Connecting node</dt>
-            <dd className="break-words text-detail text-muted-foreground">{selection.nodeName}</dd>
-          </div>
-          <div className="flex min-w-0 flex-col gap-1">
-            <dt className="font-strong text-body text-foreground">Key file</dt>
-            <dd className="break-all font-mono text-detail text-muted-foreground">{selection.keyFileName}</dd>
-          </div>
-          <div className="flex min-w-0 flex-col gap-1">
-            <dt className="font-strong text-body text-foreground">SSH command</dt>
-            <dd className="break-all font-mono text-detail text-muted-foreground">{command}</dd>
-          </div>
-          <div className="flex min-w-0 flex-col gap-1">
-            <dt className="font-strong text-body text-foreground">Host fingerprint</dt>
-            <dd className="break-all font-mono text-detail text-muted-foreground">{fingerprint}</dd>
-          </div>
-        </dl>
-        <p>
+        <FactList
+          rows={[
+            { label: "Connecting node", value: selection.nodeName },
+            { label: "Key file", value: selection.keyFileName, mono: true },
+            { label: "SSH command", value: command, mono: true, copyText: command },
+            { label: "Host fingerprint", value: fingerprint, mono: true, copyText: fingerprint },
+          ]}
+        />
+        <WarningNotice>
           The node “{selection.nodeName}” supplied this fingerprint. Verify it through a trusted channel before
           continuing.
-        </p>
+        </WarningNotice>
       </div>
     ),
     confirmLabel: "Use key and connect",

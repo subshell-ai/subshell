@@ -1,4 +1,5 @@
 import { Button, errMessage, Input, Label, Switch } from "@internal/node-admin";
+import { useStore } from "@tanstack/react-form";
 import { Plus } from "lucide-react";
 import { useId, useState } from "react";
 import { PromptPickerBody } from "@/components/prompts/prompt-picker-body";
@@ -55,6 +56,12 @@ export function StackFormDialog({
   const update = useUpdatePromptStack();
   const busy = create.isPending || update.isPending;
 
+  const unchangedDraft = (values: { label: string; blocks: PromptBlock[]; shared: boolean }) =>
+    !!editingId &&
+    !!initial &&
+    values.label.trim() === initial.label.trim() &&
+    values.shared === initial.shared &&
+    JSON.stringify(stackMembersFromBlocks(values.blocks)) === JSON.stringify(stackMembersFromBlocks(initial.blocks));
   const form = makeForm({
     defaultValues: {
       label: initial?.label ?? "",
@@ -63,6 +70,7 @@ export function StackFormDialog({
     },
     validator: makePromptStackSchema(editingId ? 0 : 1),
     onSubmit: async (values) => {
+      if (unchangedDraft(values)) return;
       // The guard behind the gate (Enter-key paths, races).
       if (values.label.trim() === "" || (!editingId && values.blocks.length === 0)) return;
       setServerError(null);
@@ -82,8 +90,10 @@ export function StackFormDialog({
       }
     },
   });
-  const disabled = useSubmitDisabled(form, busy);
-  const disabledReason = useSubmitDisabledReason(form, busy);
+  const unchanged = useStore(form.store, (state) => unchangedDraft(state.values));
+  const disabled = useSubmitDisabled(form, busy) || unchanged;
+  const validationReason = useSubmitDisabledReason(form, busy);
+  const disabledReason = validationReason ?? (unchanged ? "No changes to save." : undefined);
 
   return (
     <Dialog open={open} onOpenChange={formDialogOpenChange(onOpenChange)}>

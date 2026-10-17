@@ -117,7 +117,7 @@ export function NodeRuntimeCard({ node, local = false }: { node: NodeDetail; loc
       </Fact>
       <Fact label="tmux">
         {runtime.tmuxPath ? (
-          <span className="break-all font-mono text-detail">{runtime.tmuxPath}</span>
+          <span className="break-all font-mono text-body">{runtime.tmuxPath}</span>
         ) : (
           // Said here rather than discovered at launch time: without tmux the
           // node accepts nothing, and nothing else on this page would say so.

@@ -1,4 +1,5 @@
 import { Button, errMessage, Input, Label, Switch } from "@internal/node-admin";
+import { useStore } from "@tanstack/react-form";
 import { useState } from "react";
 import {
   Dialog,
@@ -45,10 +46,17 @@ export function PromptFormDialog({
   const update = useUpdatePrompt();
   const busy = create.isPending || update.isPending;
 
+  const unchangedDraft = (values: PromptDraft) =>
+    !!editingId &&
+    !!initial &&
+    values.description.trim() === initial.description.trim() &&
+    values.body === initial.body &&
+    values.shared === initial.shared;
   const form = makeForm({
     defaultValues: initial ?? { description: "", body: "", shared: false },
     validator: promptDraftSchema,
     onSubmit: async (draft) => {
+      if (unchangedDraft(draft)) return;
       // The guard behind the gate (Enter-key paths, races).
       if (draft.description.trim() === "" || draft.body.trim() === "") return;
       setServerError(null);
@@ -65,8 +73,10 @@ export function PromptFormDialog({
       }
     },
   });
-  const disabled = useSubmitDisabled(form, busy);
-  const disabledReason = useSubmitDisabledReason(form, busy);
+  const unchanged = useStore(form.store, (state) => unchangedDraft(state.values));
+  const disabled = useSubmitDisabled(form, busy) || unchanged;
+  const validationReason = useSubmitDisabledReason(form, busy);
+  const disabledReason = validationReason ?? (unchanged ? "No changes to save." : undefined);
 
   return (
     <Dialog open={open} onOpenChange={formDialogOpenChange(onOpenChange)}>

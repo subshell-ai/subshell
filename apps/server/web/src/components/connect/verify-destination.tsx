@@ -1,4 +1,6 @@
 import { ApiError, apiPost, confirmAction } from "@internal/node-admin";
+import { FactList } from "@/components/fact-list";
+import { WarningNotice } from "@/components/ui/notice";
 import type { SshLaunchRequest, SshLaunchResponse } from "@/lib/ssh";
 
 /** A first connection can ask for trust; a changed identity must never take this path. */
@@ -24,20 +26,21 @@ export async function launchWithDestinationVerification(
     title: "Connect to this destination?",
     description: (
       <div className="flex flex-col gap-3">
-        <p className="break-all">{check.destination}</p>
+        <FactList
+          rows={[
+            { label: "Destination", value: check.destination, mono: true },
+            { label: "Host fingerprint", value: check.fingerprint, mono: true, copyText: check.fingerprint },
+          ]}
+        />
         <p>
           Subshell hasn’t verified this destination before. Continuing remembers its identity and blocks future
           connections if it changes.
         </p>
         <p>If you aren’t sure this is the right machine, cancel and check with its administrator.</p>
-        <details>
-          <summary className="cursor-pointer font-strong text-label">Verification details</summary>
-          <p className="mt-2 text-detail">
-            This identity came from the destination and hasn’t been independently verified. Its administrator can
-            confirm this fingerprint:
-          </p>
-          <p className="break-all font-mono text-detail">{check.fingerprint}</p>
-        </details>
+        <WarningNotice>
+          This identity came from the destination and hasn’t been independently verified. Its administrator can confirm
+          this fingerprint.
+        </WarningNotice>
       </div>
     ),
     confirmLabel: "Trust and connect",

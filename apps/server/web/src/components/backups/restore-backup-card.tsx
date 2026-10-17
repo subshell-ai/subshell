@@ -4,6 +4,7 @@ import { useStore } from "@tanstack/react-form";
 import { LoaderCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ChoiceFields } from "@/components/ui/choice-fields";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -18,6 +19,7 @@ import { type FieldProblems, fieldError, makeForm, useSubmitDisabled, useSubmitD
 import { setRestoreProgressActive } from "@/lib/restore-progress";
 import { Card, CardContent, CardHeader, CardTitle } from "./backup-card";
 import { BackupError, BackupFacts, BackupProgress, BackupWorkflow } from "./backup-workflow";
+import { problemTone } from "./field-problem-tone";
 
 type InspectionDraft = { file: File | null; path: string; password: string; encrypted: boolean };
 function inspectionProblems(draft: InspectionDraft): FieldProblems {
@@ -421,7 +423,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                 onChange={(event) => field.handleChange(event.target.value)}
               />
               {problem && (
-                <p id={`restore-${name}-error`} role="alert" className="text-detail text-warning">
+                <p id={`restore-${name}-error`} role="alert" className={problemTone(field.state.value)}>
                   {problem}
                 </p>
               )}
@@ -690,7 +692,6 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                   </FieldLabel>
                   <RadioGroup
                     aria-label="Restore mode"
-                    aria-describedby="restore-mode-description"
                     disabled={busy || inspection?.legacyDatabaseOnly}
                     value={draft.mode}
                     onValueChange={(value) =>
@@ -698,17 +699,54 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                     }
                   >
                     {BACKUP_RESTORE_MODES.map((item) => (
-                      <Field key={item.value} className="flex-row items-center gap-2">
-                        <RadioGroupItem id={`restore-mode-${item.value}`} value={item.value} />
-                        <FieldLabel htmlFor={`restore-mode-${item.value}`} className="font-strong text-label">
-                          {item.label}
-                        </FieldLabel>
+                      <Field key={item.value} className="flex-row items-start gap-2">
+                        <RadioGroupItem
+                          id={`restore-mode-${item.value}`}
+                          value={item.value}
+                          aria-labelledby={`restore-mode-title-${item.value}`}
+                          aria-describedby={`restore-mode-help-${item.value}`}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <FieldLabel
+                            htmlFor={`restore-mode-${item.value}`}
+                            className="flex cursor-pointer flex-col gap-1"
+                          >
+                            <span id={`restore-mode-title-${item.value}`}>{item.label}</span>
+                            <span
+                              id={`restore-mode-help-${item.value}`}
+                              className="font-regular text-detail text-muted-foreground"
+                            >
+                              {item.description}
+                            </span>
+                          </FieldLabel>
+                        </div>
                       </Field>
                     ))}
                   </RadioGroup>
-                  <p id="restore-mode-description" className="m-0 text-detail text-muted-foreground">
-                    {BACKUP_RESTORE_MODES.find((mode) => mode.value === draft.mode)?.description}
-                  </p>
+                  {/* The seven overrides apply to BOTH modes (the request sends
+                      them identically however the mode is set), so they are a
+                      named section below the group rather than a panel under
+                      whichever option happens to be selected — flipping the
+                      radio would otherwise teleport the whole block. */}
+                  {!inspection?.legacyDatabaseOnly && (
+                    <ChoiceFields labelledBy="restore-overrides-title">
+                      <div className="flex min-w-0 flex-col gap-1">
+                        <span id="restore-overrides-title" className="font-strong text-label">
+                          Restore overrides
+                        </span>
+                        <p className="m-0 font-regular text-detail text-muted-foreground">
+                          Leave a field empty to restore to the location or setting recorded in the backup.
+                        </p>
+                      </div>
+                      {textField("databasePath", "Database path (optional)")}
+                      {textField("dataDir", "Data directory (optional)")}
+                      {textField("configDir", "Configuration directory (optional)")}
+                      {textField("baseUrl", "Control plane URL (optional)")}
+                      {textField("host", "Bind address (optional)")}
+                      {textField("port", "Port (optional)")}
+                      {textField("trustedOrigins", "Trusted origins (optional)")}
+                    </ChoiceFields>
+                  )}
                   {inspection?.legacyDatabaseOnly && (
                     <p className="text-muted-foreground">
                       This backup contains only the database. It restores into this server using its current
@@ -716,17 +754,6 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                     </p>
                   )}
                 </Field>
-                {!inspection?.legacyDatabaseOnly && (
-                  <>
-                    {textField("databasePath", "Database path (optional)")}
-                    {textField("dataDir", "Data directory (optional)")}
-                    {textField("configDir", "Configuration directory (optional)")}
-                    {textField("baseUrl", "Control plane URL (optional)")}
-                    {textField("host", "Bind address (optional)")}
-                    {textField("port", "Port (optional)")}
-                    {textField("trustedOrigins", "Trusted origins (optional)")}
-                  </>
-                )}
                 <Field className="flex-row items-center gap-2">
                   <Switch
                     id="restore-recover"
@@ -825,31 +852,6 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
         </>
       }
     >
-      <Field>
-        <FieldLabel className="font-strong text-label">Restore from</FieldLabel>
-        <RadioGroup
-          aria-label="Restore from"
-          value={source}
-          disabled={busy}
-          onValueChange={(value) => {
-            setSource(value === "saved" ? "saved" : "file");
-            void resetSelection().catch((error) => setSelectionProblem(String(error)));
-          }}
-        >
-          <Field className="flex-row items-center gap-2">
-            <RadioGroupItem id="backup-source-file" value="file" />
-            <FieldLabel htmlFor="backup-source-file" className="font-strong text-label">
-              Open a backup file
-            </FieldLabel>
-          </Field>
-          <Field className="flex-row items-center gap-2">
-            <RadioGroupItem id="backup-source-saved" value="saved" />
-            <FieldLabel htmlFor="backup-source-saved" className="font-strong text-label">
-              Use a saved backup
-            </FieldLabel>
-          </Field>
-        </RadioGroup>
-      </Field>
       <form
         id="select-restore-form"
         onSubmit={(event) => {
@@ -858,168 +860,210 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
         }}
         className="flex flex-col gap-4"
       >
-        {source === "file" ? (
-          <Field>
-            <Input
-              ref={picker}
-              id="restore-archive"
-              type="file"
-              className="sr-only"
-              tabIndex={-1}
-              aria-label="Backup file"
-              disabled={busy}
-              onChange={(event) => {
-                const file = event.target.files?.[0] ?? null;
-                if (!file) return;
-                const values = { file, path: "", password: "", encrypted: false };
-                inspectForm.reset(values, { keepDefaultValues: true });
-                void validateSelection(values);
-              }}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy}
-              disabledReason={"Wait for the restore operation to finish."}
-              onClick={() => picker.current?.click()}
-            >
-              Choose backup file…
-            </Button>
-            {selected.file && <p className="break-words text-muted-foreground">{selected.file.name}</p>}
-          </Field>
-        ) : (
-          <Card>
-            <CardHeader>
-              <CardTitle>Available backups</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Field>
-                <FieldLabel className="sr-only" htmlFor="saved-backup">
-                  Available backups
-                </FieldLabel>
-                <Select
-                  id="saved-backup-select"
-                  disabled={busy || !restore.saved.data?.backups.length}
-                  value={selected.path || null}
-                  items={(restore.saved.data?.backups ?? []).map((file) => ({
-                    value: file.path,
-                    label: `${new Date(file.createdAt).toLocaleString()} · ${file.name}`,
-                  }))}
-                  onValueChange={(path) => {
-                    if (!path) return;
-                    const values = { file: null, path, password: "", encrypted: false };
-                    inspectForm.reset(values, { keepDefaultValues: true });
-                    void validateSelection(values);
-                  }}
-                >
-                  <SelectTrigger
-                    id="saved-backup"
-                    disabledReason={
-                      busy
-                        ? "Wait for the restore operation to finish."
-                        : "There are no saved backups to choose. Upload a backup file instead."
-                    }
-                  >
-                    <SelectValue placeholder="Select a backup" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {(restore.saved.data?.backups ?? []).map((file) => (
-                        <SelectItem key={file.path} value={file.path}>
-                          {new Date(file.createdAt).toLocaleString()} · {file.name}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                {restore.saved.isPending ? (
-                  <p className="text-muted-foreground">Loading saved backups…</p>
-                ) : !restore.saved.data?.backups.length && !restore.saved.error ? (
-                  <p className="text-muted-foreground">No saved backups are available. Open a backup file instead.</p>
-                ) : null}
-                {restore.saved.error && <BackupError message={restore.saved.error.message} />}
-                {selected.path && (
-                  <p className="break-words text-muted-foreground">
-                    {restore.saved.data?.backups.find((file) => file.path === selected.path)?.name}
-                  </p>
-                )}
-              </Field>
-            </CardContent>
-          </Card>
-        )}
-        {selected.encrypted && (
-          <inspectForm.Field name="password">
-            {(field) => {
-              const problem =
-                !busy && focusedField !== "password"
-                  ? (passwordProblem ?? (field.state.meta.isTouched ? fieldError(field.state.meta.errors) : null))
-                  : null;
-              return (
-                <Field data-invalid={!!problem}>
-                  <FieldLabel className="font-strong text-label" htmlFor="restore-password">
-                    Archive password
-                  </FieldLabel>
-                  <Input
-                    id="restore-password"
-                    type="password"
-                    required
-                    maxLength={4096}
-                    autoComplete="off"
-                    disabled={busy}
-                    value={field.state.value}
-                    aria-invalid={!!problem}
-                    aria-describedby={problem ? "restore-password-error" : undefined}
-                    onFocus={() => setFocusedField("password")}
-                    onBlur={() => {
-                      field.handleBlur();
-                      setFocusedField(null);
-                    }}
-                    onChange={(event) => {
-                      field.handleChange(event.target.value);
-                      setInspection(null);
-                      setPasswordProblem(null);
-                    }}
-                  />
-                  {problem && (
-                    <p id="restore-password-error" role="alert" className="text-detail text-warning">
-                      {problem}
-                    </p>
-                  )}
-                </Field>
-              );
+        <Field>
+          <FieldLabel className="font-strong text-label">Restore from</FieldLabel>
+          <RadioGroup
+            aria-label="Restore from"
+            value={source}
+            disabled={busy}
+            onValueChange={(value) => {
+              setSource(value === "saved" ? "saved" : "file");
+              void resetSelection().catch((error) => setSelectionProblem(String(error)));
             }}
-          </inspectForm.Field>
-        )}
-        {selectionProblem && (
-          <p role="alert" className="text-warning">
-            {selectionProblem}
-          </p>
-        )}
-        {restore.inspect.isPending && (
-          <p role="status" className="flex items-center gap-2 text-muted-foreground">
-            <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
-            Validating backup…
-          </p>
-        )}
-        {inspection ? (
-          <p role="status" className="m-0 text-body text-success">
-            Backup validated. Select Configure backup to continue.
-          </p>
-        ) : (
-          (selected.file || selected.path) && (
-            <Button type="submit" variant="outline" disabled={inspectDisabled} disabledReason={inspectDisabledReason}>
-              {restore.inspect.isPending && (
-                <LoaderCircle data-icon="inline-start" className="animate-spin" aria-hidden="true" />
-              )}
-              Validate backup
-            </Button>
-          )
-        )}
-        {source === "file" && (
-          <p className="text-muted-foreground">
-            Browser uploads support archives up to 128 MB. Use the CLI or desktop assistant for larger files.
-          </p>
-        )}
+          >
+            {(
+              [
+                { value: "file", label: "Open a backup file" },
+                { value: "saved", label: "Use a saved backup" },
+              ] as const
+            ).map((option) => (
+              <Field key={option.value} className="flex-row items-start gap-2">
+                <RadioGroupItem
+                  id={`backup-source-${option.value}`}
+                  value={option.value}
+                  aria-labelledby={`backup-source-title-${option.value}`}
+                />
+                <div className="min-w-0 flex-1">
+                  <FieldLabel
+                    id={`backup-source-title-${option.value}`}
+                    htmlFor={`backup-source-${option.value}`}
+                    className="cursor-pointer"
+                  >
+                    {option.label}
+                  </FieldLabel>
+                  {source === option.value && (
+                    <ChoiceFields labelledBy={`backup-source-title-${option.value}`}>
+                      {source === "file" ? (
+                        <Field>
+                          <Input
+                            ref={picker}
+                            id="restore-archive"
+                            type="file"
+                            className="sr-only"
+                            tabIndex={-1}
+                            aria-label="Backup file"
+                            disabled={busy}
+                            onChange={(event) => {
+                              const file = event.target.files?.[0] ?? null;
+                              if (!file) return;
+                              const values = { file, path: "", password: "", encrypted: false };
+                              inspectForm.reset(values, { keepDefaultValues: true });
+                              void validateSelection(values);
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={busy}
+                            disabledReason={"Wait for the restore operation to finish."}
+                            onClick={() => picker.current?.click()}
+                          >
+                            Choose backup file…
+                          </Button>
+                          {selected.file && <p className="break-words text-muted-foreground">{selected.file.name}</p>}
+                        </Field>
+                      ) : (
+                        <div>
+                          <Field>
+                            <FieldLabel htmlFor="saved-backup">Available backups</FieldLabel>
+                            <Select
+                              id="saved-backup-select"
+                              disabled={busy || !restore.saved.data?.backups.length}
+                              value={selected.path || null}
+                              items={(restore.saved.data?.backups ?? []).map((file) => ({
+                                value: file.path,
+                                label: `${new Date(file.createdAt).toLocaleString()} · ${file.name}`,
+                              }))}
+                              onValueChange={(path) => {
+                                if (!path) return;
+                                const values = { file: null, path, password: "", encrypted: false };
+                                inspectForm.reset(values, { keepDefaultValues: true });
+                                void validateSelection(values);
+                              }}
+                            >
+                              <SelectTrigger
+                                id="saved-backup"
+                                disabledReason={
+                                  busy
+                                    ? "Wait for the restore operation to finish."
+                                    : "There are no saved backups to choose. Upload a backup file instead."
+                                }
+                              >
+                                <SelectValue placeholder="Select a backup" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectGroup>
+                                  {(restore.saved.data?.backups ?? []).map((file) => (
+                                    <SelectItem key={file.path} value={file.path}>
+                                      {new Date(file.createdAt).toLocaleString()} · {file.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectGroup>
+                              </SelectContent>
+                            </Select>
+                            {restore.saved.isPending ? (
+                              <p className="text-muted-foreground">Loading saved backups…</p>
+                            ) : !restore.saved.data?.backups.length && !restore.saved.error ? (
+                              <p className="text-muted-foreground">
+                                No saved backups are available. Open a backup file instead.
+                              </p>
+                            ) : null}
+                            {restore.saved.error && <BackupError message={restore.saved.error.message} />}
+                            {selected.path && (
+                              <p className="break-words text-muted-foreground">
+                                {restore.saved.data?.backups.find((file) => file.path === selected.path)?.name}
+                              </p>
+                            )}
+                          </Field>
+                        </div>
+                      )}
+                      {selected.encrypted && (
+                        <inspectForm.Field name="password">
+                          {(field) => {
+                            const problem =
+                              !busy && focusedField !== "password"
+                                ? (passwordProblem ??
+                                  (field.state.meta.isTouched ? fieldError(field.state.meta.errors) : null))
+                                : null;
+                            return (
+                              <Field data-invalid={!!problem}>
+                                <FieldLabel className="font-strong text-label" htmlFor="restore-password">
+                                  Archive password
+                                </FieldLabel>
+                                <Input
+                                  id="restore-password"
+                                  type="password"
+                                  required
+                                  maxLength={4096}
+                                  autoComplete="off"
+                                  disabled={busy}
+                                  value={field.state.value}
+                                  aria-invalid={!!problem}
+                                  aria-describedby={problem ? "restore-password-error" : undefined}
+                                  onFocus={() => setFocusedField("password")}
+                                  onBlur={() => {
+                                    field.handleBlur();
+                                    setFocusedField(null);
+                                  }}
+                                  onChange={(event) => {
+                                    field.handleChange(event.target.value);
+                                    setInspection(null);
+                                    setPasswordProblem(null);
+                                  }}
+                                />
+                                {problem && (
+                                  <p
+                                    id="restore-password-error"
+                                    role="alert"
+                                    className={problemTone(field.state.value, passwordProblem)}
+                                  >
+                                    {problem}
+                                  </p>
+                                )}
+                              </Field>
+                            );
+                          }}
+                        </inspectForm.Field>
+                      )}
+                      {selectionProblem && <BackupError message={selectionProblem} />}
+                      {restore.inspect.isPending && (
+                        <p role="status" className="flex items-center gap-2 text-muted-foreground">
+                          <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+                          Validating backup…
+                        </p>
+                      )}
+                      {inspection ? (
+                        <p role="status" className="m-0 text-body text-success">
+                          Backup validated. Select Configure backup to continue.
+                        </p>
+                      ) : (
+                        (selected.file || selected.path) && (
+                          <Button
+                            type="submit"
+                            variant="outline"
+                            disabled={inspectDisabled}
+                            disabledReason={inspectDisabledReason}
+                          >
+                            {restore.inspect.isPending && (
+                              <LoaderCircle data-icon="inline-start" className="animate-spin" aria-hidden="true" />
+                            )}
+                            Validate backup
+                          </Button>
+                        )
+                      )}
+                      {source === "file" && (
+                        <p className="text-muted-foreground">
+                          Browser uploads support archives up to 128 MB. Use the CLI or desktop assistant for larger
+                          files.
+                        </p>
+                      )}
+                    </ChoiceFields>
+                  )}
+                </div>
+              </Field>
+            ))}
+          </RadioGroup>
+        </Field>
       </form>
     </BackupWorkflow>
   );

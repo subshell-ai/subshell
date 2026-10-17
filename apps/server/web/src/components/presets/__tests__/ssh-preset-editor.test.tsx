@@ -92,7 +92,7 @@ it("saves the local-key radio choice without requiring a file or approval", asyn
   expect(screen.getByRole("radio", { name: "Use a key from my machine" }).getAttribute("aria-checked")).toBe("true");
   const localKeyChoice = screen.getByRole("radio", { name: "Use a key from my machine" });
   expect(document.getElementById(localKeyChoice.getAttribute("aria-describedby") ?? "")?.textContent).toContain(
-    "Choose a key from your machine when creating a new SSH subshell",
+    "Choose a private key on the device you’re using now.",
   );
   expect(screen.queryByRole("button", { name: "Choose key…" })).toBeNull();
   expect(screen.queryByRole("checkbox", { name: "I trust this website and its operator" })).toBeNull();

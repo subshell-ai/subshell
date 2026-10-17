@@ -106,9 +106,22 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
   // sends this exact slug as `id`, so the preview and the truth are one
   // string (§5a's "live while filling").
   const displayId = editing ? provider.id : slug;
+  const unchanged =
+    provider !== null &&
+    name.trim() === provider.name &&
+    issuer.trim() === (provider.issuer ?? "") &&
+    clientId.trim() === (provider.clientId ?? "") &&
+    secret === "" &&
+    overrideOrigin === (provider.callbackBaseUrl ?? null) &&
+    domains
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .sort()
+      .join(",") === [...(provider.allowedDomains ?? [])].sort().join(",");
   async function save(): Promise<void> {
     setSaveError(null);
-    if (invalidOverride) return;
+    if (invalidOverride || unchanged || busy) return;
     const shared = {
       name: name.trim(),
       issuer: issuer.trim(),
@@ -161,6 +174,7 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
       : null;
 
   const saveDisabled =
+    unchanged ||
     busy ||
     name.trim() === "" ||
     issuer.trim() === "" ||
@@ -408,11 +422,13 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
           disabledReason={
             busy
               ? "Wait for the sign-in provider to save."
-              : invalidOverride
-                ? "Fix the provider endpoint addresses before saving."
-                : entries.length === 0
-                  ? "Add an entry point first."
-                  : "Complete the required provider fields first."
+              : unchanged
+                ? "No provider changes to save."
+                : invalidOverride
+                  ? "Fix the provider endpoint addresses before saving."
+                  : entries.length === 0
+                    ? "Add an entry point first."
+                    : "Complete the required provider fields first."
           }
         >
           {busy ? "Saving…" : editing ? "Save" : "Add provider"}

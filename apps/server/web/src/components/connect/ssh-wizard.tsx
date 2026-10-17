@@ -14,6 +14,7 @@ import {
   sshKeySourceProblem,
 } from "@/components/connect/ssh-session-draft";
 import { SshQueryStatus } from "@/components/ssh/query-status";
+import { ChoiceFields } from "@/components/ui/choice-fields";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useSshNodeRoster } from "@/hooks/use-ssh";
@@ -185,26 +186,20 @@ export function SshWizard({
                 id="ssh-keys-connecting"
                 value="connecting"
                 aria-labelledby="ssh-keys-connecting-label"
-                aria-describedby={
-                  (!draft.authentication || draft.authentication === "connecting") && !remote
-                    ? "ssh-keys-node-name"
-                    : undefined
-                }
+                aria-describedby="ssh-keys-node-name"
               />
               <FieldLabel htmlFor="ssh-keys-connecting" className="flex min-w-0 cursor-pointer flex-col gap-1">
                 <span id="ssh-keys-connecting-label">Use the connecting node’s keys</span>
-                {(!draft.authentication || draft.authentication === "connecting") && !remote && (
-                  <span
-                    id="ssh-keys-node-name"
-                    className={
-                      machine
-                        ? "break-all font-regular text-detail text-muted-foreground"
-                        : "font-regular text-detail text-warning"
-                    }
-                  >
-                    {machine?.node.name ?? "Choose a node to connect from first"}
-                  </span>
-                )}
+                <span
+                  id="ssh-keys-node-name"
+                  className={
+                    machine
+                      ? "break-all font-regular text-detail text-muted-foreground"
+                      : "font-regular text-detail text-warning"
+                  }
+                >
+                  {machine?.node.name ?? "Choose a node to connect from first"}
+                </span>
               </FieldLabel>
             </Field>
             <Field className="flex-row items-start gap-3">
@@ -212,73 +207,77 @@ export function SshWizard({
                 id="ssh-keys-remote"
                 value="remote"
                 aria-labelledby="ssh-keys-remote-label"
-                aria-describedby={remote && noOtherKeyNodes ? "ssh-keys-empty" : undefined}
+                aria-describedby="ssh-keys-remote-description"
               />
               <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <FieldLabel htmlFor="ssh-keys-remote" className="cursor-pointer">
+                <FieldLabel htmlFor="ssh-keys-remote" className="flex cursor-pointer flex-col gap-1">
                   <span id="ssh-keys-remote-label">Use another node’s keys</span>
-                </FieldLabel>
-                {remote && noOtherKeyNodes && (
-                  <span id="ssh-keys-empty" role="status" className="text-detail text-warning">
-                    <label htmlFor="ssh-keys-remote" className="cursor-pointer">
-                      No other nodes are available to supply keys. Use the connecting node’s keys or{" "}
-                    </label>
-                    <a
-                      href="/nodes"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline"
-                      aria-label="Add another node (opens in a new tab)"
-                    >
-                      add another node
-                    </a>
-                    .
+                  <span id="ssh-keys-remote-description" className="font-regular text-detail text-muted-foreground">
+                    Choose a different node to supply the keys for this connection.
                   </span>
-                )}
-                {remote && (!noOtherKeyNodes || keyProblem || keyMachine) && (
-                  <FieldGroup className="mt-2">
-                    {!noOtherKeyNodes && (
-                      <SshMachineStep
-                        machines={keyMachines}
-                        value={draft.keyHome}
-                        onChange={(keyHome) => {
-                          patch({ keyHome, authentication: "remote" });
-                        }}
-                        exclude={draft.nodeId}
-                        id="ssh-keys-machine"
-                        label="Use keys from"
-                        hideLabel
-                        notice={
-                          enableKeysOnStart
-                            ? "Starting this subshell will enable SSH on the node supplying keys. You’ll then choose which keys to use before connecting."
-                            : undefined
-                        }
-                      >
-                        {keyMachine && !keyProblem && !keyMachine.canConnect && !enableKeysOnStart && (
-                          <SshMachineSetup
-                            showName={false}
-                            machine={keyMachine}
-                            polling={!readiness.isError}
-                            onLeave={onLeave}
+                </FieldLabel>
+                {remote && (
+                  <ChoiceFields labelledBy="ssh-keys-remote-label">
+                    {noOtherKeyNodes && (
+                      <span id="ssh-keys-empty" role="status" className="text-detail text-warning">
+                        No other nodes are available to supply keys. Use the connecting node’s keys or{" "}
+                        <a
+                          href="/nodes"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline"
+                          aria-label="Add another node (opens in a new tab)"
+                        >
+                          add another node
+                        </a>
+                        .
+                      </span>
+                    )}
+                    {(!noOtherKeyNodes || keyProblem || keyMachine) && (
+                      <FieldGroup>
+                        {!noOtherKeyNodes && (
+                          <SshMachineStep
+                            machines={keyMachines}
+                            value={draft.keyHome}
+                            onChange={(keyHome) => {
+                              patch({ keyHome, authentication: "remote" });
+                            }}
+                            exclude={draft.nodeId}
+                            id="ssh-keys-machine"
+                            label="Use keys from"
+                            notice={
+                              enableKeysOnStart
+                                ? "Starting this subshell will enable SSH on the node supplying keys. You’ll then choose which keys to use before connecting."
+                                : undefined
+                            }
+                          >
+                            {keyMachine && !keyProblem && !keyMachine.canConnect && !enableKeysOnStart && (
+                              <SshMachineSetup
+                                showName={false}
+                                machine={keyMachine}
+                                polling={!readiness.isError}
+                                onLeave={onLeave}
+                              />
+                            )}
+                          </SshMachineStep>
+                        )}
+                        {keyProblem && (
+                          <p role="alert" className="text-destructive text-detail">
+                            {keyProblem}
+                          </p>
+                        )}
+                        {keyMachine?.canConnect && !keyProblem && (
+                          <SshKeyStep
+                            nodeId={draft.keyHome}
+                            fingerprints={fingerprints}
+                            onChange={(selection) =>
+                              patch({ selections: { ...draft.selections, [draft.keyHome]: selection } })
+                            }
                           />
                         )}
-                      </SshMachineStep>
+                      </FieldGroup>
                     )}
-                    {keyProblem && (
-                      <p role="alert" className="text-destructive text-detail">
-                        {keyProblem}
-                      </p>
-                    )}
-                    {keyMachine?.canConnect && !keyProblem && (
-                      <SshKeyStep
-                        nodeId={draft.keyHome}
-                        fingerprints={fingerprints}
-                        onChange={(selection) =>
-                          patch({ selections: { ...draft.selections, [draft.keyHome]: selection } })
-                        }
-                      />
-                    )}
-                  </FieldGroup>
+                  </ChoiceFields>
                 )}
               </div>
             </Field>
@@ -287,32 +286,32 @@ export function SshWizard({
                 id="ssh-auth-local-key"
                 value="local-key"
                 aria-labelledby="ssh-auth-local-key-label"
-                aria-describedby={
-                  draft.authentication === "local-key"
-                    ? isDesktop() || presetEditor
-                      ? "ssh-auth-local-key-description"
-                      : "ssh-browser-key-risk"
-                    : undefined
-                }
+                aria-describedby="ssh-auth-local-key-summary"
               />
               <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <FieldLabel htmlFor="ssh-auth-local-key" className="cursor-pointer">
+                <FieldLabel htmlFor="ssh-auth-local-key" className="flex cursor-pointer flex-col gap-1">
                   <span id="ssh-auth-local-key-label">Use a key from my machine</span>
+                  <span id="ssh-auth-local-key-summary" className="font-regular text-detail text-muted-foreground">
+                    Choose a private key on the device you’re using now.
+                  </span>
                 </FieldLabel>
-                {draft.authentication === "local-key" &&
-                  (presetEditor ? (
-                    <p id="ssh-auth-local-key-description" className="font-regular text-detail text-muted-foreground">
-                      Choose a key from your machine when creating a new SSH subshell. Your key isn’t saved in the
-                      preset.
-                    </p>
-                  ) : isDesktop() ? (
-                    <p id="ssh-auth-local-key-description" className="font-regular text-detail text-muted-foreground">
-                      Choose a key when you start. It stays on your machine and is released after one authentication
-                      attempt or 90 seconds.
-                    </p>
-                  ) : (
-                    <BrowserKeyFields selection={browserKey} busy={busy} />
-                  ))}
+                {draft.authentication === "local-key" && (
+                  <ChoiceFields labelledBy="ssh-auth-local-key-label">
+                    {presetEditor ? (
+                      <p id="ssh-auth-local-key-description" className="font-regular text-detail text-muted-foreground">
+                        Choose a key from your machine when creating a new SSH subshell. Your key isn’t saved in the
+                        preset.
+                      </p>
+                    ) : isDesktop() ? (
+                      <p id="ssh-auth-local-key-description" className="font-regular text-detail text-muted-foreground">
+                        Choose a key when you start. It stays on your machine and is released after one authentication
+                        attempt or 90 seconds.
+                      </p>
+                    ) : (
+                      <BrowserKeyFields selection={browserKey} busy={busy} />
+                    )}
+                  </ChoiceFields>
+                )}
               </div>
             </Field>
             <Field className="flex-row items-start gap-3">
@@ -320,17 +319,15 @@ export function SshWizard({
                 id="ssh-auth-password"
                 value="password"
                 aria-labelledby="ssh-auth-password-label"
-                aria-describedby={draft.authentication === "password" ? "ssh-auth-password-description" : undefined}
+                aria-describedby="ssh-auth-password-description"
               />
               <FieldLabel htmlFor="ssh-auth-password" className="flex min-w-0 cursor-pointer flex-col gap-1">
                 <span id="ssh-auth-password-label">Enter a password when connecting</span>
-                {draft.authentication === "password" && (
-                  <span id="ssh-auth-password-description" className="font-regular text-detail text-muted-foreground">
-                    {presetEditor
-                      ? "When creating a new SSH subshell with this preset, enter your password in the terminal when SSH asks for it. The preset won’t save your password."
-                      : "Enter your password in the terminal when SSH asks for it. Subshell won’t save it."}
-                  </span>
-                )}
+                <span id="ssh-auth-password-description" className="font-regular text-detail text-muted-foreground">
+                  {presetEditor
+                    ? "When creating a new SSH subshell with this preset, enter your password in the terminal when SSH asks for it. The preset won’t save your password."
+                    : "Enter your password in the terminal when SSH asks for it. Subshell won’t save it."}
+                </span>
               </FieldLabel>
             </Field>
           </RadioGroup>

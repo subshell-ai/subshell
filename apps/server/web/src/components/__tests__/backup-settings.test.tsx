@@ -159,7 +159,7 @@ describe("Settings backup workflows", () => {
     expect(activity.at(-1)).toBe(false);
   });
 
-  it("gates encryption on shared validation and keeps gold errors beside blurred fields", async () => {
+  it("gates encryption and distinguishes invalid values from missing input", async () => {
     const requests = mockApi();
     mount(<CreateBackupCard />);
     fireEvent.click(screen.getByRole("switch", { name: "Encrypt the archive with a password" }));
@@ -167,10 +167,18 @@ describe("Settings backup workflows", () => {
     expect(submit.matches(":disabled, [aria-disabled=true]")).toBe(true);
     const password = screen.getByLabelText("Archive password");
     const confirm = screen.getByLabelText("Confirm archive password");
-    for (const input of [password, confirm]) fireEvent.change(input, { target: { value: "short" } });
+    // The gold half of the tone rule: blur the EMPTY box and the sentence is
+    // "nothing typed yet" (text-warning), not "what you typed is wrong".
+    fireEvent.focus(password);
     fireEvent.blur(password);
     expect(screen.getByRole("alert").textContent).toContain("at least 8");
     expect(screen.getByRole("alert").className).toContain("text-warning");
+    expect(screen.getByRole("alert").className).not.toContain("text-destructive");
+    // The red half: a value that validation refuses.
+    for (const input of [password, confirm]) fireEvent.change(input, { target: { value: "short" } });
+    fireEvent.blur(password);
+    expect(screen.getByRole("alert").textContent).toContain("at least 8");
+    expect(screen.getByRole("alert").className).toContain("text-destructive");
     fireEvent.focus(password);
     fireEvent.change(password, { target: { value: "unique archive password" } });
     fireEvent.change(confirm, { target: { value: "different" } });
@@ -397,6 +405,25 @@ describe("Settings backup workflows", () => {
       confirmed: true,
       interruptSessions: false,
     });
+  });
+
+  it("keeps the restore overrides below the mode group, not inside the selected option", async () => {
+    // The seven override fields apply to BOTH modes identically. They once
+    // rendered inside whichever mode was selected, so flipping the radio
+    // teleported the block (and remounted every input in it). They are a
+    // named section below the group now, and switching modes must not move
+    // the person's typing.
+    mockApi();
+    mount(<RestoreBackupCard />);
+    await configureFile();
+    expect(screen.getByRole("region", { name: "Restore overrides" })).toBeTruthy();
+    const port = screen.getByLabelText("Port (optional)");
+    fireEvent.change(port, { target: { value: "4000" } });
+    fireEvent.click(screen.getByRole("radio", { name: "This machine is different from the original" }));
+    expect(screen.getByLabelText("Port (optional)")).toBe(port);
+    expect((port as HTMLInputElement).value).toBe("4000");
+    fireEvent.click(screen.getByRole("radio", { name: "Same-machine recovery" }));
+    expect((port as HTMLInputElement).value).toBe("4000");
   });
 
   it("revalidates expired extraction before preparation and stops for review if the source changed", async () => {

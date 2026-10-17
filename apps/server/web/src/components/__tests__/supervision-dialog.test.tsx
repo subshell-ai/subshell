@@ -7,6 +7,12 @@ afterEach(cleanup);
 
 const noop = () => {};
 
+/** The base view with only the service's pane-safety answer changed. */
+function withPaneSafety(paneSafety: "kills" | "unknown") {
+  const view = deploymentView();
+  return { ...view, service: { ...view.service, paneSafety } };
+}
+
 describe("consequences", () => {
   it("names the platform's own agent and ends on the fact people are actually asking about", () => {
     const mac = consequences("app", "darwin", true);
@@ -114,6 +120,58 @@ describe("SupervisionDialog", () => {
     // stderr line the dialog leads with.
     expect(screen.getByText("What ran before it stopped")).toBeTruthy();
     expect(screen.getByText(/Stopped the server this app was running/)).toBeTruthy();
+  });
+
+  it("states the lethal panes fact once: the notice carries it, the list drops it", () => {
+    // The filter is by the line's own text, not its position in the list, so
+    // a reorder of `consequences` cannot silently drop a different step while
+    // the notice repeats the panes one.
+    render(
+      <SupervisionDialog
+        target="app"
+        onOpenChange={noop}
+        view={withPaneSafety("kills")}
+        pending={false}
+        error={null}
+        details={null}
+        onConfirm={noop}
+      />,
+    );
+    expect(screen.getAllByText("Every running subshell will be closed.")).toHaveLength(1);
+    expect(screen.getByText("Quitting the app will stop the server")).toBeTruthy();
+    expect(screen.getAllByRole("listitem")).toHaveLength(3);
+  });
+
+  it("says survival is undetermined once when the definition cannot be read", () => {
+    render(
+      <SupervisionDialog
+        target="app"
+        onOpenChange={noop}
+        view={withPaneSafety("unknown")}
+        pending={false}
+        error={null}
+        details={null}
+        onConfirm={noop}
+      />,
+    );
+    expect(screen.getAllByText("Whether running subshells survive could not be determined.")).toHaveLength(1);
+    expect(screen.getAllByRole("listitem")).toHaveLength(3);
+  });
+
+  it("keeps every step in the list when the switch is not lethal", () => {
+    render(
+      <SupervisionDialog
+        target="app"
+        onOpenChange={noop}
+        view={deploymentView()}
+        pending={false}
+        error={null}
+        details={null}
+        onConfirm={noop}
+      />,
+    );
+    expect(screen.getAllByRole("listitem")).toHaveLength(4);
+    expect(screen.getByText("Running subshells keep running")).toBeTruthy();
   });
 
   it("shows the refusal where the person is", () => {

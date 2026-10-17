@@ -3,6 +3,7 @@ import {
   Button,
   confirmAction,
   errMessage,
+  Fact,
   NodeAllowedDirs,
   NodeMaintenanceCard,
   relativeElapsed,
@@ -146,10 +147,9 @@ function NodeDetailPage() {
           )}
 
           <div className="rounded-lg border p-4">
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
-              <div>
-                <dt className="text-muted-foreground">Status</dt>
-                <dd className="mt-1 flex flex-wrap items-center gap-2">
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-4 text-body sm:grid-cols-3">
+              <Fact label="Status">
+                <div className="flex flex-wrap items-center gap-2">
                   <span>{n.status}</span>
                   {/* Any mismatch, either direction: the protocol is matched
                       EXACTLY, so a node ahead of the server is refused just as
@@ -167,8 +167,8 @@ function NodeDetailPage() {
                         {n.protocolVersion < NODE_PROTOCOL_VERSION ? "node too old" : "node too new"}
                       </Badge>
                     )}
-                </dd>
-              </div>
+                </div>
+              </Fact>
               {/* Node facts, and `local` runs no node daemon — it is a launch
                   target the server drives in-process through `LocalLauncher`,
                   with no daemon, no socket and no enrollment. So `lastSeenAt`
@@ -178,26 +178,18 @@ function NodeDetailPage() {
                   node rather than as questions this row cannot be asked. Same
                   reason `local` is excluded from the version-floor list. */}
               {n.kind !== "local" && (
-                <div>
-                  <dt className="text-muted-foreground">Last seen</dt>
-                  <dd>{n.lastSeenAt ? relativeElapsed(n.lastSeenAt) : "never"}</dd>
-                </div>
+                <Fact label="Last seen">{n.lastSeenAt ? relativeElapsed(n.lastSeenAt) : "never"}</Fact>
               )}
-              <div>
-                <dt className="text-muted-foreground">OS / arch</dt>
-                <dd>
-                  {osLabel(n.os)}
-                  {n.arch ? ` · ${n.arch}` : ""}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Hostname</dt>
-                <dd className="truncate">{n.hostname ?? "—"}</dd>
-              </div>
+              <Fact label="OS / arch">
+                {osLabel(n.os)}
+                {n.arch ? ` · ${n.arch}` : ""}
+              </Fact>
+              <Fact label="Hostname">
+                <div className="[overflow-wrap:anywhere]">{n.hostname ?? "—"}</div>
+              </Fact>
               {n.kind !== "local" && (
-                <div>
-                  <dt className="text-muted-foreground">Node version</dt>
-                  <dd className="mt-1 flex flex-wrap items-center gap-2">
+                <Fact label="Node version">
+                  <div className="flex flex-wrap items-center gap-2">
                     {n.agentVersion ?? "—"}
                     {/* The OTHER refusal gate, and an independent one: the floor
                       is raised whenever the server needs newer node behaviour,
@@ -212,34 +204,29 @@ function NodeDetailPage() {
                         below minimum ({MIN_NODE_VERSION})
                       </Badge>
                     )}
-                  </dd>
-                </div>
+                  </div>
+                </Fact>
               )}
-              <div>
-                <dt className="text-muted-foreground">Your access</dt>
-                <dd>{n.access}</dd>
-              </div>
+              <Fact label="Your access">{n.access}</Fact>
               {/* The server sends `ownerLabel` to ADMINS only (node-view
                   schema): the operator whose list shows every machine learns
                   whose machine this is. Every other viewer's payload has no
                   field, so nothing renders for them. */}
               {n.ownerLabel !== undefined && (
-                <div>
-                  <dt className="text-muted-foreground">Owner</dt>
-                  <dd className="truncate">{n.ownerLabel}</dd>
-                </div>
+                <Fact label="Owner">
+                  <div className="[overflow-wrap:anywhere]">{n.ownerLabel}</div>
+                </Fact>
               )}
               {n.capabilities.length > 0 && (
-                <div className="col-span-full">
-                  <dt className="text-muted-foreground">Capabilities</dt>
-                  <dd className="mt-1 flex flex-wrap gap-1">
+                <Fact label="Capabilities" wide>
+                  <div className="flex flex-wrap gap-1">
                     {n.capabilities.map((c) => (
                       <span key={c} className="text-sm">
                         {c}
                       </span>
                     ))}
-                  </dd>
-                </div>
+                  </div>
+                </Fact>
               )}
             </dl>
           </div>

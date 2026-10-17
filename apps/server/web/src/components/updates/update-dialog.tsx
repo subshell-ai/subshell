@@ -1,4 +1,5 @@
 import { Button } from "@internal/node-admin";
+import { FactList } from "@/components/fact-list";
 import { REINSTALL_COMMAND } from "@/components/service/service-card";
 import {
   Dialog,
@@ -8,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { WarningNotice } from "@/components/ui/notice";
 import type { ServerUpdateView } from "@/types/updates";
 
 /**
@@ -52,13 +54,24 @@ export function UpdateDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Update this server?</DialogTitle>
-          <DialogDescription>
-            Update to {to}.{" "}
-            {kills
-              ? `This server's service definition will close every running subshell when it restarts. Rewrite it by running ${REINSTALL_COMMAND} on this machine, or update anyway.`
-              : "The server restarts when the new binary is in place; open subshells keep running."}
-          </DialogDescription>
+          <DialogDescription>The server restarts when the new binary is in place.</DialogDescription>
         </DialogHeader>
+        <FactList
+          rows={[
+            { label: "Current version", value: view.current },
+            { label: "New version", value: to },
+          ]}
+        />
+        {kills ? (
+          <WarningNotice>
+            {view.paneSafety === "kills"
+              ? "This server’s service definition will close every running subshell when it restarts."
+              : "We couldn’t determine whether running subshells will survive the restart. Updating may close them."}{" "}
+            Rewrite the service definition by running {REINSTALL_COMMAND} on this machine, or update anyway.
+          </WarningNotice>
+        ) : (
+          <p className="text-body">Open subshells keep running.</p>
+        )}
         <p className="text-detail text-muted-foreground">
           The database is backed up to <span className="break-all font-mono">{view.backups.dir}</span> first
           {view.backups.keep === 0 ? " (all kept)" : ` (${view.backups.keep} kept)`}. If the new version can't start,

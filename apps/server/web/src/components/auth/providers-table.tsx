@@ -3,6 +3,7 @@ import { Pencil, Settings2, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 import { ProviderSettingsDialog } from "@/components/auth/provider-settings-dialog";
+import { FactList } from "@/components/fact-list";
 import { useDeleteAuthProvider, usePatchAuthProvider } from "@/hooks/use-auth-providers";
 import {
   EMAIL_PROVIDER_ID,
@@ -127,16 +128,14 @@ function ProviderRow({
               can repeat, so the two strings that actually identify the row —
               the slug id and the issuer — get label-over-value rows, the
               values in the mono foreground voice they wear everywhere else. */}
-          <dl className="mt-2 space-y-2">
-            <div>
-              <dt className="text-muted-foreground">Slug id</dt>
-              <dd className="font-mono text-detail text-foreground">{provider.id}</dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">Issuer</dt>
-              <dd className="font-mono text-detail text-foreground">{provider.issuer ?? ""}</dd>
-            </div>
-          </dl>
+          <div className="mt-3">
+            <FactList
+              rows={[
+                { label: "Slug id", value: provider.id, mono: true },
+                { label: "Issuer", value: provider.issuer ?? "Not applicable", mono: true },
+              ]}
+            />
+          </div>
         </>
       ),
       confirmLabel: "Remove",

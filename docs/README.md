@@ -12,6 +12,7 @@ notes should link to them and explain only the additional engineering details.
 - [Security follow-ups](security-actionable.md): unresolved work, decision triggers, and regression history.
 - [Release and CI](release-and-ci.md): build, signing, publishing, updates, and deployment mechanics.
 - [Design system](design-system.md): product tokens, dashboard layouts, responsive tables, interaction patterns, and implementation constraints.
+- [Dashboard UX review](ux-review-2026-10-17.md): October 2026 findings, corrections, verification scope, and remaining coverage limits.
 - [Documentation authoring](../apps/docs/AGENTS.md) and [style guide](../apps/docs/STYLE.md): public site structure, language, visuals, and verification.
 - [Proxmox submission research](proxmox-community-submission.md): external acceptance criteria and future integration work.
 
