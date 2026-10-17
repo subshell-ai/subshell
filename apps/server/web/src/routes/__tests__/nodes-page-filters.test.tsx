@@ -99,7 +99,7 @@ function stubApi() {
           : // SetupKeysSection reads `data?.keys.length` — an empty object
             // here took the whole route down behind the error boundary in the
             // gate test's first draft.
-            { keys: [] };
+            { keys: [], shares: [], users: [] };
     return Promise.resolve(
       new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } }),
     );
@@ -199,4 +199,21 @@ describe("/nodes toolbar filters", () => {
       restore();
     }
   });
+});
+
+it("opens sharing directly from a node's Share action and keeps the list visible", async () => {
+  const restore = stubApi();
+  try {
+    renderNodes();
+    const menu = await screen.findByRole("button", { name: "Actions for AI PC" });
+    fireEvent.click(menu);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Share" }));
+    await screen.findByRole("dialog", { name: "Share node" });
+    expect(screen.getByRole("heading", { name: "Nodes", hidden: true })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog") === null).toBe(true));
+    expect(screen.getByRole("link", { name: "AI PC" })).toBeDefined();
+  } finally {
+    restore();
+  }
 });

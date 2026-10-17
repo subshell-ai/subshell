@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/empty-state";
 import { ErrorBanner } from "@/components/error-banner";
 import { LoadingCard } from "@/components/loading-card";
 import { AddNodeDialog } from "@/components/nodes/add-node-dialog";
+import { NodeSharingDialog } from "@/components/nodes/node-sharing-dialog";
 import { NodeTable } from "@/components/nodes/node-table";
 import { SetupKeysSection } from "@/components/nodes/setup-keys-section";
 import { PageHeader } from "@/components/page-header";
@@ -42,6 +43,7 @@ function NodesPage() {
   const active: NodesTab = tab ?? "list";
   const deleteNode = useDeleteNode();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [sharingId, setSharingId] = useState<string | null>(null);
   // Whether to OFFER adding a node — `lib/node-enrollment.ts` carries the
   // rule and why the unknown case reads as allowed. The route is the gate.
   const { data: publicSettings } = usePublicSettings();
@@ -64,6 +66,7 @@ function NodesPage() {
     { refetchInterval: dialogOpen ? 3000 : false },
   );
   const visible = results.data?.nodes ?? [];
+  const sharingNode = nodes.find((node) => node.id === sharingId);
 
   /** The node's config page (`/nodes/$id`, spec §10). */
   function goDetail(id: string) {
@@ -258,7 +261,7 @@ function NodesPage() {
             <NodeTable
               nodes={visible}
               onOpenConfig={goDetail}
-              onShare={goDetail}
+              onShare={setSharingId}
               onDelete={(node) => void remove(node)}
               onError={setActionError}
             />
@@ -266,6 +269,17 @@ function NodesPage() {
         </>
       )}
 
+      {sharingNode && (
+        <NodeSharingDialog
+          key={sharingNode.id}
+          nodeId={sharingNode.id}
+          open
+          canManage={sharingNode.canManage}
+          onOpenChange={(open) => {
+            if (!open) setSharingId(null);
+          }}
+        />
+      )}
       <AddNodeDialog open={dialogOpen} onOpenChange={setDialogOpen} nodeCount={nodes.length} />
     </DashboardPage>
   );
