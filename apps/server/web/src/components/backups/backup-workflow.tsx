@@ -3,13 +3,13 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-  cn,
   Card as WorkflowCard,
   CardContent as WorkflowContent,
 } from "@internal/node-admin";
 import { CheckCircle2, LoaderCircle } from "lucide-react";
-import { Fragment, type ReactNode } from "react";
-import { CopyButton } from "@/components/copy-button";
+import type { ReactNode } from "react";
+import { FactList } from "@/components/fact-list";
+import { ErrorNotice } from "@/components/ui/notice";
 import { Card, CardContent } from "./backup-card";
 
 export function BackupWorkflow({
@@ -69,34 +69,16 @@ export function BackupProgress({
 
 export function BackupFacts({ rows }: { rows: { label: string; value: string; copy?: boolean }[] }) {
   return (
-    <dl className="m-0 grid min-w-0 grid-cols-1 gap-x-4 gap-y-1 text-body sm:grid-cols-[132px_minmax(0,1fr)]">
-      {rows.map(({ label, value, copy }) => (
-        <Fragment key={label}>
-          <dt className="text-muted-foreground">{label}</dt>
-          <dd className="m-0 min-w-0 pb-2 sm:pb-0">
-            <div className="flex items-start gap-2">
-              <span
-                className={
-                  copy && label !== "Control plane URL"
-                    ? "min-w-0 flex-1 break-words font-mono text-detail [overflow-wrap:anywhere]"
-                    : "min-w-0 flex-1 break-words [overflow-wrap:anywhere]"
-                }
-              >
-                {value}
-              </span>
-              {copy && <CopyButton text={value} label={label.toLowerCase()} />}
-            </div>
-          </dd>
-        </Fragment>
-      ))}
-    </dl>
+    <FactList
+      rows={rows.map((row) => ({
+        ...row,
+        mono: row.copy && row.label !== "Control plane URL",
+        copyText: row.copy ? row.value : undefined,
+      }))}
+    />
   );
 }
 
 export function BackupError({ message, className }: { message: string; className?: string }) {
-  return (
-    <p role="alert" className={cn("m-0 text-detail text-warning", className)}>
-      {message}
-    </p>
-  );
+  return <ErrorNotice className={className}>{message}</ErrorNotice>;
 }

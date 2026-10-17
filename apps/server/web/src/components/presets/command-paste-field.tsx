@@ -1,4 +1,4 @@
-import { errMessage } from "@internal/node-admin";
+import { errMessage, Fact } from "@internal/node-admin";
 import { useMemo, useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { parseCommandPaste, presetFormToCommand } from "@/lib/preset-command";
@@ -116,25 +116,23 @@ export function CommandPasteField({
               : `${envCount} env var${envCount === 1 ? "" : "s"} · ${flagCount} flag${flagCount === 1 ? "" : "s"}`}
           </p>
           {command.env.length > 0 && (
-            <dl className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-3 gap-y-1">
+            <dl className="grid min-w-0 gap-3">
               {command.env.map((row) => (
-                <div key={row.key} className="col-span-2 grid grid-cols-subgrid">
-                  <dt className="truncate font-mono font-strong text-label">{row.key}</dt>
-                  <dd className="truncate font-mono text-detail text-muted-foreground">{row.value || "(empty)"}</dd>
-                </div>
+                <Fact key={row.key} label={row.key} mono>
+                  {row.value || "(empty)"}
+                </Fact>
               ))}
             </dl>
           )}
           {command.flags.length > 0 && (
-            <dl className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-3 gap-y-1">
+            <dl className="grid min-w-0 gap-3">
               {command.flags.map((row, i) => (
                 // Flags are positional and may legitimately repeat
                 // (`--allow a --allow b`), so the index is the only key.
                 // biome-ignore lint/suspicious/noArrayIndexKey: see above
-                <div key={i} className="col-span-2 grid grid-cols-subgrid">
-                  <dt className="truncate font-mono font-strong text-label">{row.flag}</dt>
-                  <dd className="truncate font-mono text-detail text-muted-foreground">{row.value}</dd>
-                </div>
+                <Fact key={i} label={row.flag} mono>
+                  {row.value || "No value"}
+                </Fact>
               ))}
             </dl>
           )}

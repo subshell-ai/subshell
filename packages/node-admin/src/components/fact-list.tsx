@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { cn } from "../lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 
 /**
@@ -17,9 +18,9 @@ export function Fact({
   wide?: boolean;
 }) {
   return (
-    <div className={wide ? "col-span-full" : undefined}>
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className={`mt-1 ${mono ? "break-all font-mono text-detail" : ""}`}>{children}</dd>
+    <div className={cn("min-w-0", wide && "col-span-full")}>
+      <dt className="text-detail text-muted-foreground">{label}</dt>
+      <dd className={cn("mt-1 text-body text-foreground [overflow-wrap:anywhere]", mono && "font-mono")}>{children}</dd>
     </div>
   );
 }
@@ -36,7 +37,7 @@ export function FactCard({ title, children }: { title: string; children: ReactNo
         <CardTitle>{title}</CardTitle>
       </CardHeader>
       <CardContent>
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">{children}</dl>
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-4 text-body sm:grid-cols-3">{children}</dl>
       </CardContent>
     </Card>
   );

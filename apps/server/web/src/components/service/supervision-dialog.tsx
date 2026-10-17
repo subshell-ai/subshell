@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { WarningNotice } from "@/components/ui/notice";
 import type { PaneSafety, ServerDeployment } from "@/types/server-deployment";
 
 /**
@@ -120,14 +121,18 @@ export function SupervisionDialog({
         </DialogHeader>
         <ul className="space-y-1.5 text-sm">
           {target &&
-            consequences(target, view.platform, autostart, view.service.paneSafety).map((line) => (
-              <li key={line} className="flex gap-2">
-                <span aria-hidden className="text-muted-foreground">
-                  •
-                </span>
-                <span className={lethal && line.startsWith("Every running") ? "text-warning" : undefined}>{line}</span>
-              </li>
-            ))}
+            consequences(target, view.platform, autostart, view.service.paneSafety)
+              .filter((_, index) => !lethal || index !== 3)
+              .map((line) => (
+                <li key={line} className="flex gap-2">
+                  <span aria-hidden className="text-muted-foreground">
+                    •
+                  </span>
+                  <span className={lethal && line.startsWith("Every running") ? "text-warning" : undefined}>
+                    {line}
+                  </span>
+                </li>
+              ))}
         </ul>
         {!toApp && (
           <div className="flex items-center gap-3 text-sm">
@@ -136,11 +141,18 @@ export function SupervisionDialog({
           </div>
         )}
         {lethal && (
-          <p className="text-sm text-warning">
-            {view.service.paneSafety === "kills"
-              ? "This machine's service definition predates the setting that spares live panes. Running `subshell-server service install` on that machine rewrites it."
-              : "This machine's service definition could not be read, so this is the safe assumption."}
-          </p>
+          <WarningNotice>
+            <p>
+              {view.service.paneSafety === "kills"
+                ? "Every running subshell will be closed"
+                : "Whether running subshells survive could not be determined"}
+            </p>
+            <p className="mt-2">
+              {view.service.paneSafety === "kills"
+                ? "This machine's service definition predates the setting that spares live panes. Running `subshell-server service install` on that machine rewrites it."
+                : "This machine's service definition could not be read. Switching may close running subshells."}
+            </p>
+          </WarningNotice>
         )}
         <p className="text-detail text-muted-foreground">
           This page will lose its connection for a few seconds while the server comes back.

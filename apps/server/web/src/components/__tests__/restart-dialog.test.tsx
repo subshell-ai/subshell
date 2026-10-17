@@ -46,6 +46,6 @@ describe("RestartDialog pane safety", () => {
     // Absence of evidence is not evidence of safety: a definition that could
     // not be read gets the same refusal as one known to be lethal.
     open({ installed: true, paneSafety: "unknown" });
-    expect(screen.getByText(/close every running subshell/)).toBeTruthy();
+    expect(screen.getByText(/Restarting may close them/)).toBeTruthy();
   });
 });

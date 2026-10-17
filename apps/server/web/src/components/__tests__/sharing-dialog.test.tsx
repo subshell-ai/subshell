@@ -59,7 +59,40 @@ describe("SharingDialog", () => {
       // The grant row renders (Everyone, one Remove control); the add-row
       // picker omits Everyone since it's already shared.
       expect(await screen.findByText("Everyone")).toBeDefined();
-      expect(screen.getByRole("button", { name: "Remove" })).toBeDefined();
+      expect(screen.getByRole("button", { name: /^Remove access for/ })).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("disables Save until access changes and disables it again when changes are undone", async () => {
+    const { calls, restore } = mockFetch([{ granteeUserId: null, permission: "view" }]);
+    try {
+      renderDialog();
+      await screen.findByText("Everyone");
+      const save = () => screen.getByRole("button", { name: "Save" });
+      const disabled = () => save().matches(":disabled, [aria-disabled=true]");
+      await waitFor(() => expect(disabled()).toBe(true));
+      fireEvent.click(save());
+      expect(calls.some((call) => call.method === "PUT")).toBe(false);
+      fireEvent.click(screen.getByRole("combobox", { name: "Access for Everyone" }));
+      const editOption = await screen.findByRole("option", { name: "View + edit" });
+      fireEvent.pointerDown(editOption);
+      fireEvent.pointerUp(editOption);
+      fireEvent.click(editOption);
+      await waitFor(() => expect(disabled()).toBe(false));
+      fireEvent.click(screen.getByRole("combobox", { name: "Access for Everyone" }));
+      const viewOption = await screen.findByRole("option", { name: "View" });
+      fireEvent.pointerDown(viewOption);
+      fireEvent.pointerUp(viewOption);
+      fireEvent.click(viewOption);
+      await waitFor(() => expect(disabled()).toBe(true));
+      fireEvent.click(screen.getByRole("button", { name: "Remove access for Everyone" }));
+      await waitFor(() => expect(disabled()).toBe(false));
+      // Re-adding the original grant also restores the saved state.
+      fireEvent.click(screen.getByRole("button", { name: "Add" }));
+      await waitFor(() => expect(disabled()).toBe(true));
+      expect(calls.some((call) => call.method === "PUT")).toBe(false);
     } finally {
       restore();
     }
@@ -100,7 +133,10 @@ describe("SharingDialog", () => {
     try {
       renderDialog();
       await screen.findByText("Everyone");
-      fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+      fireEvent.click(screen.getByRole("button", { name: /^Remove access for/ }));
+      expect(screen.queryByText("You have unsaved sharing changes.")).toBeNull();
+      expect(screen.getByText("No one will have shared access after you save.")).toBeTruthy();
+      expect(calls.some((call) => call.method === "PUT")).toBe(false);
       fireEvent.click(screen.getByRole("button", { name: "Save" }));
       await waitFor(() => {
         const put = calls.find((c) => c.method === "PUT" && c.url.endsWith("/shares"));

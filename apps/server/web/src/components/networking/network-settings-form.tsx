@@ -116,7 +116,13 @@ export function NetworkSettingsForm({
   const describedBy = reason ? { "aria-describedby": reasonId } : {};
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const update = useUpdateNetworkSettings();
-  const touched = Object.keys(drafts);
+  const touched = Object.keys(drafts).filter((key) => {
+    const field = fields.find((candidate) => candidate.key === key);
+    if (!field) return false;
+    return field.type === "secret"
+      ? drafts[key] !== ""
+      : drafts[key] !== (field.type === "boolean" ? String(savedBoolean(row, field)) : savedValue(row, field));
+  });
   // The box the caret is in right now; the required sentence waits for it to
   // leave, exactly as in `AddressesCard` (no complaint mid-thought).
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
@@ -155,9 +161,9 @@ export function NetworkSettingsForm({
     // this is the guarantee behind the explanation (a disabled button is not
     // a precondition guard). A required-and-empty save would only earn the
     // route's 400, so it never fires.
-    if (missingRequired) return;
+    if (missingRequired || touched.length === 0 || disabled || update.isPending) return;
     update.mutate(
-      { id: row.id, settings: drafts },
+      { id: row.id, settings: Object.fromEntries(touched.map((key) => [key, drafts[key]])) },
       // The answer is the list refetch, which re-seeds every field from what
       // the server stored — including anything it canonicalized on the way in.
       { onSuccess: () => setDrafts({}) },

@@ -252,9 +252,9 @@ admitted here.
 - **Line item**: `label` over `detail`, differing by weight AND colour, never
   by tone alone. *(15px regular over 13px muted read as one paragraph.)*
 - **Quiet label vs control label**: a read-only data row labels over its value
-  with the label in `muted-foreground` at `body` size, the `Fact`/`dt` grammar,
-  and it takes that size from the list or `<dl>` around it rather than from the
-  label itself. `font-strong` label weight belongs to a control's label and to a
+  with the label in `muted-foreground` at `detail` size and the value at `body`
+  size in `foreground`, using the shared `Fact` component. Monospace values keep
+  the same body size. Size and colour together distinguish labels from values. `font-strong` label weight belongs to a control's label and to a
   section heading, ONLY. *(A networking card set bold "NetBird FQDN" over its URL
   six pixels above a quiet "Client version" over its: two label grammars in one
   card, so one row read as a heading and the other as data, and neither was the
@@ -364,10 +364,31 @@ admitted here.
   label. Use `aria-labelledby` for the title and `aria-describedby` for the
   description so assistive technology announces their separate roles. This applies
   to native radios and shared radio components across web and desktop surfaces.
+- **Dependent forms**: keep a selected radio option's fields directly beneath
+  that option, inside a bordered, inset panel (`ChoiceFields` in the SPA).
+  Keep the panel outside the clickable label, associate it with the option's
+  title, and keep field labels visible. The boundary distinguishes the subform
+  from option descriptions without moving it away from its choice. Every option
+  keeps its short clickable description. Settings shared by the whole group can
+  use a named section below it. Equivalent branches use the same
+  container treatment.
+- **Dialog facts**: use the SPA's `FactList` for review and approval details:
+  muted detail-size labels over foreground body-size values, using the shared
+  `Fact` component also used by status and node cards. Technical values may
+  use monospace without becoming smaller. Wrap decision-critical values rather
+  than truncating paths, destinations, or fingerprints; offer copying when useful.
+- **Pending list edits**: when Add or Remove changes a draft, explain that Save
+  applies the changes. Disable Save until the draft differs from saved data,
+  including after edits are undone; don't add an unsaved-changes message.
+  Compare list contents rather than their order. Empty-state wording must describe
+  the pending result rather than claiming the saved state has changed.
+- **Confirmation warnings**: present disruptive consequences in `WarningNotice`,
+  separate from introductory text and target facts. Failed operations use
+  `ErrorNotice`; prerequisites and restrictions remain gold.
 - **Choice group**: radios inside `role="radiogroup"` with an `aria-label`; a
-  dependent setting sits BELOW the group after a rule, never indented under one
-  option; its dependency is a disabled control that says why and names what
-  would answer. *("needs the box above" named a widget.)*
+  setting specific to one option uses its inset `ChoiceFields` panel. Settings
+  shared by the group sit below it after a rule; unavailable settings explain
+  their dependency and what would make them available. *("needs the box above" named a widget.)*
 - **Copy affordance**: the copy ICON, at `icon-sm`, never the word "Copy" as a button
   label, and never a caption of its own: what is copied is named by `aria-label`
   (`Copy server address`), and the icon is a `Check` in `text-success` for the 1.5 s the

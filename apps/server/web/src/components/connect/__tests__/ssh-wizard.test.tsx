@@ -480,14 +480,18 @@ for (const ownerLabel of ["Alex Smith", "alex@example.com"]) {
   });
 }
 
-it("shows authentication details only for the selected option and gates browser keys on trust", async () => {
+it("keeps descriptions visible, groups fields with their selected choice, and gates browser keys on trust", async () => {
   const { calls } = await setup({ initial: { node: "desk", destination: "alice@host" } });
   expect(screen.queryByText(/Compromised page code could steal/)).toBeNull();
-  expect(screen.queryByText(/Enter your password in the terminal/)).toBeNull();
+  expect(screen.getByText(/Enter your password in the terminal/)).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Choose key…" })).toBeNull();
   fireEvent.click(screen.getByRole("radio", { name: "Use a key from my machine" }));
   expect(screen.getByText(/Compromised page code could steal/)).toBeTruthy();
-  expect(document.getElementById("ssh-keys-node-name")).toBeNull();
+  expect(document.getElementById("ssh-keys-node-name")).toBeTruthy();
+  const keyFields = screen.getByRole("region", { name: "Use a key from my machine" });
+  expect(keyFields.contains(screen.getByRole("button", { name: "Choose key…" }))).toBe(true);
+  expect(keyFields.closest('[role="radiogroup"]')).toBeTruthy();
+  expect(keyFields.closest("label")).toBeNull();
   expect(screen.getByRole("button", { name: "Choose key…" }).getAttribute("aria-disabled")).toBe("true");
   await waitFor(() => expect(disabled()).toBe(true));
   await click("Start SSH subshell");

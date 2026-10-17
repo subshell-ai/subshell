@@ -3,6 +3,7 @@ import type { NodeDetail, NodeSshTrustPeer } from "../types/node";
 import { Badge } from "../ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { CopyableValue } from "../ui/copyable-value";
+import { Fact } from "./fact-list";
 
 /**
  * The machine trust card (spec 2026-10-08 §4.6): this machine's own SSH relay
@@ -77,20 +78,18 @@ export function NodeSshTrustCard({
             copyLabel="This machine's encryption fingerprint"
           />
           {trust.peers.length === 0 ? (
-            <div className="col-span-full">
-              <dt className="text-muted-foreground">Saved machine identities</dt>
-              <dd className="mt-1 text-detail text-muted-foreground">No saved machine identities yet.</dd>
-            </div>
+            <Fact label="Saved machine identities" wide>
+              No saved machine identities yet.
+            </Fact>
           ) : (
             trust.peers.map((peer) => (
-              <div key={peer.nodeId} className="col-span-full">
-                <dt className="text-muted-foreground">Peer {peer.nodeId}</dt>
-                <dd className="mt-1 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Fact key={peer.nodeId} label={`Peer ${peer.nodeId}`} wide>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <FingerprintValue value={peer.signing} copyLabel={`Peer ${peer.nodeId} signing fingerprint`} />
                   <FingerprintValue value={peer.encryption} copyLabel={`Peer ${peer.nodeId} encryption fingerprint`} />
-                </dd>
+                </div>
                 {renderPeerAction && <div className="mt-2">{renderPeerAction(peer)}</div>}
-              </div>
+              </Fact>
             ))
           )}
         </dl>
@@ -100,22 +99,19 @@ export function NodeSshTrustCard({
   return embedded ? <section className="flex flex-col gap-3">{content}</section> : <Card>{content}</Card>;
 }
 
-/** One labelled fingerprint: `label` over a mono `detail`, the line-item shape. */
+/** Fingerprints use the same label/value hierarchy as other machine facts. */
 function FingerprintFact({ label, value, copyLabel }: { label: string; value: string; copyLabel: string }) {
   return (
-    <div>
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="mt-1 font-mono">
-        <FingerprintValue value={value} copyLabel={copyLabel} />
-      </dd>
-    </div>
+    <Fact label={label} mono>
+      <FingerprintValue value={value} copyLabel={copyLabel} />
+    </Fact>
   );
 }
 
 /** The value plus its copy affordance, the thing a person takes to the other machine. */
 function FingerprintValue({ value, copyLabel }: { value: string; copyLabel: string }) {
   return (
-    <span className="break-all text-detail">
+    <span className="break-all font-mono text-body">
       <CopyableValue value={value} label={copyLabel} />
     </span>
   );

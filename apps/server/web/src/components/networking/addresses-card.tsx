@@ -211,7 +211,9 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
   const [drafts, setDrafts] = useState<Partial<Record<EditableKey, string>>>({});
   const [confirming, setConfirming] = useState(false);
   const update = useUpdateServerConfig();
-  const touched = Object.keys(drafts) as EditableKey[];
+  const touched = (Object.keys(drafts) as EditableKey[]).filter(
+    (key) => wireValue(key, drafts[key] ?? "") !== wireValue(key, view.settings[key].saved),
+  );
   const needsRestart = touched.some((key) => !LIVE_KEYS.has(key));
   const fieldFailure = invalidField(update.error);
 
@@ -252,6 +254,7 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
   const [focusedKey, setFocusedKey] = useState<EditableKey | null>(null);
 
   function save(): void {
+    if (touched.length === 0 || update.isPending) return;
     // The gate already refuses an invalid touched value; this guard is the
     // guarantee behind the explanation, kept because a disabled button is
     // not a guarantee of this function's preconditions.

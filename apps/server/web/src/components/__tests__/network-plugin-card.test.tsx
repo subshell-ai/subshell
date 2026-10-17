@@ -1163,29 +1163,20 @@ describe("NetworkPluginCard: the state matrix", () => {
   });
 
   it("labels each address above its value, in the QUIET data-label grammar", async () => {
-    // Two defects, in order, both from the same operator's live card. First the
-    // tag-after-URL row (`http://…   MagicDNS name`) read as two disjoint
-    // things, because a small muted word after a big bold URL names nothing
-    // until you scan back — so the label moved ABOVE the value. Then the
-    // grammar it moved into was the wrong one: the form label's `font-strong
-    // text-label` put a bold "MagicDNS name" over its URL while the `Fact`
-    // rows above it set a quiet "Client version" over theirs, and a card
-    // holding both grammars reads as two systems. These are read-only facts, so
-    // the label carries `Fact`'s `dt` classes — quiet colour, no weight token,
-    // and the body size from the LIST, exactly as the `<dl>` supplies it.
+    // Facts use smaller muted labels and full-size values across cards and dialogs.
     await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
-    const items = screen.getAllByRole("listitem");
+    const items = ADDRESSES.map((address) => screen.getByText(address.label).closest("div") as HTMLElement);
     const first = items[0] as HTMLElement;
     expect(first.children[0]?.textContent).toBe("MagicDNS name");
     expect(first.children[0]?.className).toContain("text-muted-foreground");
     expect(first.children[0]?.className).not.toContain("font-strong");
     expect(first.children[0]?.className).not.toContain("text-label");
-    // The size comes from the list so it cannot drift from the `<dl>` beside it.
-    expect(first.parentElement?.className).toContain("text-sm");
+    expect(first.children[0]?.className).toContain("text-detail");
+    expect(first.children[1]?.className).toContain("text-body");
     expect(first.children[1]?.textContent).toContain("https://box.tail1234.ts.net");
     // The secure-context sentence keeps its own line below the value, and it
     // is still the address's own — one per address, comparative by repetition.
-    expect(first.children[2]?.textContent).toBe("Passkeys and secure cookies work at this address.");
+    expect(first.children[1]?.textContent).toContain("Passkeys and secure cookies work at this address.");
     const second = items[1] as HTMLElement;
     expect(second.children[0]?.textContent).toBe("Tailscale IP");
   });
@@ -1196,7 +1187,8 @@ describe("NetworkPluginCard: the state matrix", () => {
     // here by scheme, by secure context or by label would make the page
     // contradict its own data for a reason no reader can see.
     await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
-    const shown = screen.getAllByRole("listitem").map((item) => item.textContent ?? "");
+    const list = screen.getByText(ADDRESSES[0]!.label).closest("dl")!;
+    const shown = Array.from(list.children, (item) => item.textContent ?? "");
     expect(shown[0]).toContain("https://box.tail1234.ts.net");
     expect(shown[1]).toContain("http://100.64.0.1:3080");
   });

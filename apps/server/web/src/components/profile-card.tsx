@@ -1,6 +1,7 @@
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Label } from "@internal/node-admin";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { FactList } from "@/components/fact-list";
 import { useCurrentUser } from "@/lib/auth";
 import { authClient } from "@/lib/auth-client";
 import { CURRENT_USER_QUERY_KEY } from "@/lib/query-keys";
@@ -55,9 +56,11 @@ export function ProfileCard({ updateUser = (input) => authClient.updateUser(inpu
 
   const shown = nameDraft ?? user?.name ?? "";
 
+  const unchanged = nameIsUsable(shown) === user?.name;
+
   async function save() {
     const name = nameIsUsable(shown);
-    if (name === null) return;
+    if (name === null || unchanged || busy) return;
     setBusy(true);
     setError(null);
     setSaved(false);
@@ -111,19 +114,20 @@ export function ProfileCard({ updateUser = (input) => authClient.updateUser(inpu
               </div>
               <Button
                 onClick={() => void save()}
-                disabled={busy || nameIsUsable(shown) === null}
-                disabledReason={busy ? "Wait for your profile to save." : "Enter a display name first."}
+                disabled={busy || nameIsUsable(shown) === null || unchanged}
+                disabledReason={
+                  busy
+                    ? "Wait for your profile to save."
+                    : unchanged
+                      ? "No profile changes to save."
+                      : "Enter a display name first."
+                }
               >
                 {busy ? "Saving…" : "Save"}
               </Button>
               {saved && <span className="text-detail text-success">saved</span>}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="profile-email">E-mail</Label>
-              {/* Read-only by design: the email IS the credential; changing it
-                  is not offered here (muted to say so at a glance). */}
-              <Input id="profile-email" value={user.email} readOnly className="text-muted-foreground" />
-            </div>
+            <FactList rows={[{ label: "E-mail", value: user.email }]} />
             {error && <p className="text-destructive text-detail">{error}</p>}
           </>
         )}

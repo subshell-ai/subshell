@@ -43,7 +43,9 @@ export function InstanceNameCard(): JSX.Element {
   const current = value ?? "";
   const cleaned = normalizeLabel(current, INSTANCE_NAME_MAX);
 
+  const unchanged = cleaned === settings?.instanceName;
   async function save(): Promise<void> {
+    if (busy || value === null || unchanged) return;
     setBusy(true);
     setError(null);
     try {
@@ -96,8 +98,14 @@ export function InstanceNameCard(): JSX.Element {
             variant="outline"
             size="sm"
             onClick={() => void save()}
-            disabled={busy || value === null}
-            disabledReason={busy ? "Wait for the name to save." : "Wait for the current name to load."}
+            disabled={busy || value === null || unchanged}
+            disabledReason={
+              busy
+                ? "Wait for the name to save."
+                : unchanged
+                  ? "No instance name changes to save."
+                  : "Wait for the current name to load."
+            }
           >
             Save
           </Button>

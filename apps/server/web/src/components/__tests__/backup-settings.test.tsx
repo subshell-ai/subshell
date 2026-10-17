@@ -159,7 +159,7 @@ describe("Settings backup workflows", () => {
     expect(activity.at(-1)).toBe(false);
   });
 
-  it("gates encryption on shared validation and keeps gold errors beside blurred fields", async () => {
+  it("gates encryption and distinguishes invalid values from missing input", async () => {
     const requests = mockApi();
     mount(<CreateBackupCard />);
     fireEvent.click(screen.getByRole("switch", { name: "Encrypt the archive with a password" }));
@@ -170,7 +170,7 @@ describe("Settings backup workflows", () => {
     for (const input of [password, confirm]) fireEvent.change(input, { target: { value: "short" } });
     fireEvent.blur(password);
     expect(screen.getByRole("alert").textContent).toContain("at least 8");
-    expect(screen.getByRole("alert").className).toContain("text-warning");
+    expect(screen.getByRole("alert").className).toContain("text-destructive");
     fireEvent.focus(password);
     fireEvent.change(password, { target: { value: "unique archive password" } });
     fireEvent.change(confirm, { target: { value: "different" } });

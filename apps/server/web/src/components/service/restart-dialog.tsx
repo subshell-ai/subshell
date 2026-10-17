@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { WarningNotice } from "@/components/ui/notice";
 import type { ServerDeployment } from "@/types/server-deployment";
 
 /**
@@ -96,12 +97,19 @@ export function RestartDialog({
           <DialogTitle>Restart the server?</DialogTitle>
           <DialogDescription>
             {kills
-              ? view.service.manager === "docker"
-                ? "Restarting the Docker container closes every running subshell. Open terminals reconnect after the server returns."
-                : `This server's service definition will close every running subshell. Rewrite it by running ${REINSTALL_COMMAND} on this machine, or restart anyway.`
+              ? "Open terminals reconnect after the server returns."
               : "Running subshells keep running; open terminals reconnect in a few seconds."}
           </DialogDescription>
         </DialogHeader>
+        {kills && (
+          <WarningNotice>
+            {view.service.manager === "docker"
+              ? "Restarting the Docker container closes every running subshell."
+              : view.service.paneSafety === "kills"
+                ? `This server's service definition will close every running subshell. Rewrite it by running ${REINSTALL_COMMAND} on this machine, or restart anyway.`
+                : `We couldn't determine whether running subshells will survive. Restarting may close them. Rewrite the service definition by running ${REINSTALL_COMMAND} on this machine, or restart anyway.`}
+          </WarningNotice>
+        )}
         {enables ? (
           <p className="text-muted-foreground text-sm">{enables}</p>
         ) : (

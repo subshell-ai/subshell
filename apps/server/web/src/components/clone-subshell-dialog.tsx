@@ -1,6 +1,7 @@
 import { Button, Input } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { type JSX, useState } from "react";
+import { FactList } from "@/components/fact-list";
 import {
   Dialog,
   DialogContent,
@@ -115,16 +116,14 @@ export function CloneSubshellDialog({
             the date and time.
           </DialogDescription>
         </DialogHeader>
-        <dl className="text-sm">
-          <dt className="text-muted-foreground">Agent</dt>
-          <dd className="mb-2 truncate">{agentName}</dd>
-          <dt className="text-muted-foreground">Preset</dt>
-          <dd className="mb-2 truncate">{presetName}</dd>
-          <dt className="text-muted-foreground">Node</dt>
-          <dd className="mb-2 truncate">{nodeLabel}</dd>
-          <dt className="text-muted-foreground">Working directory</dt>
-          <dd className="mb-3 truncate font-mono text-detail">{source.workingDir}</dd>
-        </dl>
+        <FactList
+          rows={[
+            { label: "Agent", value: agentName },
+            { label: "Preset", value: presetName },
+            { label: "Node", value: nodeLabel },
+            { label: "Working directory", value: source.workingDir, mono: true, copyText: source.workingDir },
+          ]}
+        />
         <div className="space-y-2">
           <label className="font-strong text-sm" htmlFor="clone-name">
             Name (optional)

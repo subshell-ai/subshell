@@ -237,7 +237,10 @@ export function CreateBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void 
                         disabled={busy}
                       />
                       {problem && (
-                        <p role="alert" className="text-detail text-warning">
+                        <p
+                          role="alert"
+                          className={field.state.value ? "text-destructive text-detail" : "text-detail text-warning"}
+                        >
                           {problem}
                         </p>
                       )}
@@ -273,7 +276,10 @@ export function CreateBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void 
                         disabled={busy}
                       />
                       {problem && (
-                        <p role="alert" className="text-detail text-warning">
+                        <p
+                          role="alert"
+                          className={field.state.value ? "text-destructive text-detail" : "text-detail text-warning"}
+                        >
                           {problem}
                         </p>
                       )}
