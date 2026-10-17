@@ -138,4 +138,41 @@ describe("PromptFormDialog edit mode", () => {
     expect(save().matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(puts).toHaveLength(0);
   });
+
+  it("sends the edited draft as a PUT and reports done", async () => {
+    // The other half of the edit-mode loop: a REAL change lights Save, and the
+    // press rides the wire once with the full replacement draft (PUT is a
+    // complete replacement of the fields, so the body must carry all three).
+    const realFetch = globalThis.fetch;
+    const puts: { url: string; body: Record<string, unknown> }[] = [];
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/prompts/pr1" && (init?.method ?? "GET") === "PUT") {
+        puts.push({ url, body: JSON.parse(String(init?.body)) as Record<string, unknown> });
+        return Promise.resolve(new Response(JSON.stringify({ ok: true })));
+      }
+      return realFetch(input as never, init as never);
+    }) as typeof fetch;
+    let saved = false;
+    try {
+      renderDialog({
+        editingId: "pr1",
+        initial: { description: "Kickoff", body: "start the task", shared: false },
+        onSaved: () => {
+          saved = true;
+        },
+      });
+      fireEvent.change(bodyField(), { target: { value: "start the task now" } });
+      const save = () => screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
+      expect(save().matches(":disabled, [aria-disabled=true]")).toBe(false);
+      fireEvent.click(save());
+      await waitFor(() => {
+        expect(puts).toHaveLength(1);
+        expect(puts[0]?.body).toEqual({ description: "Kickoff", body: "start the task now", shared: false });
+        expect(saved).toBe(true);
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
 });
