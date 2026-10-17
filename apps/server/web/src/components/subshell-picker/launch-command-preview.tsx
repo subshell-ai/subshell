@@ -3,6 +3,7 @@ import { ChevronDown } from "lucide-react";
 import { useId, useState } from "react";
 import { EditPresetDialog } from "@/components/presets/edit-preset-dialog";
 import { presetLaunchCommand } from "@/lib/launch-command";
+import { canEditPreset } from "@/lib/preset-access";
 import type { PresetRow } from "@/types/preset";
 
 /** The preset's launch contribution, revealed only when the person asks. */
@@ -58,7 +59,7 @@ export function LaunchCommandPreview({
                 </pre>
               </>
             )}
-            {onApplyPreset && (
+            {onApplyPreset && canEditPreset(preset) && (
               <p className="text-detail text-muted-foreground">
                 To change this command,{" "}
                 <button

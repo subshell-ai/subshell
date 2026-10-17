@@ -1,9 +1,9 @@
 import { CopyableValue, Fact } from "@internal/node-admin";
 import type { ReactNode } from "react";
 
-/** One labelled fact: a quiet label over a readable value, optionally copied. */
+/** One labelled fact: a small, bold label over a readable value, optionally copied. */
 export interface FactRow {
-  /** The quiet label above the value; also names the copy button. */
+  /** The small, bold label above the value; also names the copy button. */
   label: string;
   /** The value. Ignored when `copyText` is set, since the copy row shows that text itself. */
   value: ReactNode;

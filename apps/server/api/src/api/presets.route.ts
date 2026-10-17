@@ -1,9 +1,14 @@
 import { getHarness, type SettingsField } from "@internal/pane-runtime";
 import { joinPresetPrompt, type PresetPromptBlock, presetLaunchRequirementsMet } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { authGuard } from "@/api/auth-guard.js";
+import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { getAllHarnessIds } from "@/api/harness-utils.js";
-import { HarnessSchemaResponseSchema, PresetSchema } from "@/api/models.js";
+import {
+  HarnessSchemaResponseSchema,
+  PresetSchema,
+  SetSubshellSharesBodySchema,
+  SubshellSharesResponseSchema,
+} from "@/api/models.js";
 import { SshResolveRefusalViewSchema } from "@/api/ssh/ssh-views.js";
 import {
   CreateSshPresetSchema,
@@ -19,8 +24,11 @@ import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SshPresetsRepository } from "@/db/repositories/ssh-presets.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch, nodeCanLaunchOn } from "@/lib/node-access.js";
+import { presetAccess, presetOwnerName, withPresetAccess } from "@/lib/preset-access.js";
+import { duplicatePresetName } from "@/lib/preset-name-error.js";
 import { apiModels } from "@/schema/index.js";
 import { PORTABLE_MCP_LAUNCH } from "@/services/mcp-resolve.js";
+import { presetShares } from "@/services/preset-sharing.service.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
 import { saveSshPreset } from "@/services/ssh-presets.service.js";
 
@@ -245,6 +253,54 @@ const UPDATE_PRESET_KEYS = new Set([
 export const presetRoutes = new Elysia({ prefix: "/api/presets" })
   .use(apiModels)
   .use(authGuard)
+  .get(
+    "/:id/shares",
+    async ({ params, user, actor }) => {
+      requireCookieActor(actor, "Sign in through the dashboard to manage preset sharing.");
+      return presetShares(db, user.id, params.id);
+    },
+    {
+      detail: {
+        operationId: "getPresetShares",
+        tags: ["presets"],
+        description: "List sharing grants for an owned agent or SSH preset (browser sessions only)",
+      },
+      response: {
+        200: SubshellSharesResponseSchema,
+        400: "ApiErrorResponse",
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+        404: "ApiErrorResponse",
+      },
+    },
+  )
+  .put(
+    "/:id/shares",
+    async ({ params, user, actor, body }) => {
+      requireCookieActor(actor, "Sign in through the dashboard to manage preset sharing.");
+      return presetShares(
+        db,
+        user.id,
+        params.id,
+        body.shares.map((entry) => ({ ...entry, granteeUserId: entry.granteeUserId ?? null })),
+      );
+    },
+    {
+      body: SetSubshellSharesBodySchema,
+      detail: {
+        operationId: "setPresetShares",
+        tags: ["presets"],
+        description: "Replace sharing grants for an owned agent or SSH preset (browser sessions only)",
+      },
+      response: {
+        200: SubshellSharesResponseSchema,
+        400: "ApiErrorResponse",
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+        404: "ApiErrorResponse",
+      },
+    },
+  )
   .post(
     "/",
     async ({ body, user, actor, status }) => {
@@ -254,7 +310,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       if ("kind" in body && body.kind === "ssh") {
         const answer = await saveSshPreset(user.id, body);
         if ("refusal" in answer) return status(422, { outcome: answer.refusal });
-        return answer;
+        return { ...answer, access: "owner" as const, ownerName: await presetOwnerName(db, user.id) };
       }
       const badEnv = findInvalidEnvName(body.env);
       if (badEnv !== undefined) {
@@ -309,10 +365,12 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
             ...launch,
           })),
           kind: "agent" as const,
+          access: "owner" as const,
+          ownerName: await presetOwnerName(db, user.id),
         };
       } catch (err) {
         if (isDuplicateName(err)) {
-          throw new PresetError("duplicate", `You already have a ${body.harnessId} preset named "${body.name}"`, 409);
+          duplicatePresetName(`You already have a ${body.harnessId} preset named "${body.name}"`);
         }
         throw err;
       }
@@ -351,11 +409,23 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       }
       const sshRows =
         query.kind === "ssh" || query.kind === "all"
-          ? (await new SshPresetsRepository(db).listByUser(user.id)).map(sshPresetView)
+          ? await withPresetAccess(
+              db,
+              "ssh",
+              (await new SshPresetsRepository(db).listAccessible(user.id)).map(sshPresetView),
+              user.id,
+            )
           : [];
       if (query.kind === "ssh") return sshRows;
       const repo = new PresetsRepository(db);
-      const rows = await repo.listByUser(user.id, query.harnessId);
+      const accessible = actor === "cookie" ? await repo.listAccessible(user.id) : await repo.listByUser(user.id);
+      const rows = await withPresetAccess(
+        db,
+        "agent",
+        accessible.filter((row) => !query.harnessId || row.harnessId === query.harnessId),
+        user.id,
+        actor === "cookie",
+      );
       // A disabled or not-installed harness makes its presets unavailable:
       // they are not listed anywhere (cards, new-subshell pickers), and
       // re-enabling/installing the harness brings them back — nothing here
@@ -400,7 +470,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
         operationId: "listPresets",
         tags: ["presets"],
         description:
-          "Lists the authenticated user's presets (bearer/machine actors get envJson redacted to null; cookie sessions see full rows). Filtered to harnesses the INSTANCE store offers: installed, enabled, not broken",
+          "Lists owned presets and presets shared with browser viewers (bearer/machine actors get envJson redacted to null; cookie sessions see full rows). Filtered to harnesses the INSTANCE store offers: installed, enabled, not broken",
       },
     },
   )
@@ -462,12 +532,14 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       const sshRepo = new SshPresetsRepository(db);
       const sshExisting = await sshRepo.findById(params.id);
       if (sshExisting) {
-        if (sshExisting.userId !== user.id) throw new PresetError("not_found", "Preset not found");
+        const access = await presetAccess(db, "ssh", sshExisting, user.id);
+        if (access === "none") throw new PresetError("not_found", "Preset not found");
+        if (access === "view") throw new PresetError("forbidden", "You need edit access to change this preset.", 403);
         if (!("authentication" in body))
           throw new PresetError("bad_request", "Send the complete SSH preset fields", 400);
         const answer = await saveSshPreset(user.id, body, sshExisting);
         if ("refusal" in answer) return status(422, { outcome: answer.refusal });
-        return answer;
+        return { ...answer, access, ownerName: await presetOwnerName(db, sshExisting.userId) };
       }
       if ("authentication" in body) throw new PresetError("bad_request", "A preset's kind can't be changed", 400);
       const badEnv = findInvalidEnvName(body.env);
@@ -476,9 +548,10 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       }
       const repo = new PresetsRepository(db);
       const existing = await repo.findById(params.id);
-      if (!existing || existing.userId !== user.id) {
-        throw new PresetError("not_found", "Preset not found");
-      }
+      if (!existing) throw new PresetError("not_found", "Preset not found");
+      const access = await presetAccess(db, "agent", existing, user.id);
+      if (access === "none") throw new PresetError("not_found", "Preset not found");
+      if (access === "view") throw new PresetError("forbidden", "You need edit access to change this preset.", 403);
       const name = body.name ?? existing.name;
       const launch = await validatePresetLaunchFields(user.id, body);
       const crossCommEnabled =
@@ -508,12 +581,12 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
         });
       } catch (err) {
         if (isDuplicateName(err)) {
-          throw new PresetError("duplicate", `You already have a ${existing.harnessId} preset named "${name}"`, 409);
+          duplicatePresetName(`You already have a ${existing.harnessId} preset named "${name}"`);
         }
         throw err;
       }
       if (!updated) throw new PresetError("not_found", "Preset not found");
-      return { ...updated, kind: "agent" as const };
+      return { ...updated, kind: "agent" as const, access, ownerName: await presetOwnerName(db, existing.userId) };
     },
     {
       // Runs BEFORE validation, on the parsed (unstripped) body — the only
@@ -552,7 +625,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
         operationId: "updatePreset",
         tags: ["presets"],
         description:
-          "Updates a preset owned by the authenticated user (cookie session only); the harness is fixed at create and any field a PUT cannot apply is refused",
+          "Updates an owned or edit-shared preset (cookie session only); the harness is fixed at create and any field a PUT cannot apply is refused",
       },
     },
   )

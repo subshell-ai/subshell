@@ -7,6 +7,7 @@
  * module reads the row/form types, `preset-form.ts` never imports this one.
  */
 import type { EnvRow, FlagRow, PresetFormValue } from "@/lib/preset-form";
+import { preservedFlagTokens } from "@/lib/preset-form";
 
 /**
  * Parses bulk-pasted env vars into rows. Accepts a JSON object or a mix of
@@ -278,18 +279,7 @@ export function presetFormToCommand(form: PresetFormValue, command: string): str
     const key = row.key.trim();
     if (key) lines.push(`${key}=${shellQuote(row.value)}`);
   }
-  const argv: string[] = [];
-  for (const row of form.flagRows) {
-    const flag = row.flag.trim();
-    if (!flag) continue;
-    argv.push(flag);
-    const value = row.value.trim();
-    // A CLI-arg value prints VERBATIM (operator ruling 2026-09-25): quotes
-    // in a flag's argument are data the person typed into the value, never
-    // quoting this renderer invents. Names and env assignments above are
-    // the only places quoting is the renderer's business.
-    if (value) argv.push(value);
-  }
+  const argv = [...preservedFlagTokens(form)];
   // A preset that sets nothing has no command line — printing the bare agent
   // name would fill a fresh form's paste box with `claude` and hide the
   // worked example the placeholder is there to show.

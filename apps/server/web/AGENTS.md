@@ -458,3 +458,23 @@ in any future recovery UI.
 Enrollment without a confirmed connection is terminal status `enrolled`, with
 the node id retained. Link to that node and its service recovery; do not offer
 another install or describe it as connected.
+
+## Preset sharing
+
+Agent and SSH presets use the same owner-controlled View/Edit grants as
+subshells. The API returns viewer-relative access and owner names; library
+actions, read-only details, and launch pickers consume that metadata. Share
+and Delete stay owner-only. The shared sharing dialog stages grants until
+Save and must not treat a failed grant read as an empty list. See
+[the user guide](../../docs/content/docs/presets/use.mdx#share-a-preset) and
+[the security model](../../../docs/security.md) for disclosure and launch
+boundaries.
+
+
+Preset file version 1 is validated by `src/lib/preset-file.ts`. Export projects
+settings explicitly, excluding ownership and grants. Import parses before any
+write, then calls the ordinary create API, so plugin, node, and SSH checks
+remain authoritative. SSH imports carry the exported destination as the
+expected destination while resolving their saved alias; never silently follow
+an alias to another host. The file limit is 1 MiB. Keep validation, exports,
+and the public guide aligned when adding a field or version.

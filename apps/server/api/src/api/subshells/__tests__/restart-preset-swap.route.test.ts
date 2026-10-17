@@ -2,7 +2,6 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { NodeCommandBody } from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
-
 /**
  * The preset swap inside the restart route (spec 2026-09-23 §2).
  *
@@ -23,6 +22,7 @@ import { Elysia } from "elysia";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
+import { PresetSharesRepository } from "@/db/repositories/preset-shares.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -250,9 +250,14 @@ describe("preset swap inside POST /api/subshells/:id/restart (spec 2026-09-23)",
     try {
       const id = await createOnLive("swap-by-grantee");
       await shares.replaceForSubshell(id, [{ granteeUserId: granteeId, permission: "edit" }], ownerId);
-      // presetForeign is the GRANTEE's own claude-code preset — valid for them
-      // (validation is caller-owned), which is exactly the case whose actor
-      // used to be recorded as the owner.
+      // The caller can choose their own preset after sharing it with the
+      // pane owner, who must retain access for later restarts.
+      await new PresetSharesRepository(db).replace(
+        "agent",
+        presetForeign,
+        [{ granteeUserId: ownerId, permission: "view" }],
+        granteeId,
+      );
       const res = await restart(id, { cookie: granteeCookie, body: { presetId: presetForeign } });
       expect(res.status).toBe(200);
       expect(await rowPreset(id)).toBe(presetForeign);
@@ -269,6 +274,7 @@ describe("preset swap inside POST /api/subshells/:id/restart (spec 2026-09-23)",
       expect(restartRows.length).toBe(1);
       expect(restartRows[0]?.actorUserId).toBe(granteeId);
     } finally {
+      await new PresetSharesRepository(db).replace("agent", presetForeign, [], granteeId);
       sim.detach();
     }
   });

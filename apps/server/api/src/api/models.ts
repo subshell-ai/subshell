@@ -38,6 +38,12 @@ export const UserInfoSchema = t.Object({
 });
 
 export const PresetSchema = t.Object({
+  ownerName: t.Optional(t.String({ description: "Preset owner display name" })),
+  access: t.Optional(
+    t.Union([t.Literal("owner"), t.Literal("edit"), t.Literal("view")], {
+      description: "Viewer access; sharing and deletion remain owner-only",
+    }),
+  ),
   kind: t.Literal("agent", { description: "Agent preset discriminator" }),
   id: t.String({ description: "Preset id" }),
   userId: t.String({ description: "Owning user id" }),

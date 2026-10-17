@@ -18,6 +18,7 @@ import type { PresetTable } from "@/db/types/presets.db-types.js";
 import type { SubshellSharePermission } from "@/db/types/subshell-shares.db-types.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch, nodeCanLaunchOn } from "@/lib/node-access.js";
+import { presetAccess } from "@/lib/preset-access.js";
 import { paneInputAllowed } from "@/lib/ssh-pane-access.js";
 import { type Access, accessAtLeast, loadSubshellAccess, resolveSubshellAccess } from "@/lib/subshell-access.js";
 import { BaseService, type CommonServiceParams } from "@/services/base.service.js";
@@ -513,7 +514,7 @@ export class SubshellsService extends BaseService {
     let presetRow: PresetTable | undefined;
     if (presetId) {
       presetRow = await this.repos.presets.findById(presetId);
-      if (!presetRow || presetRow.userId !== userId) {
+      if (!presetRow || (await presetAccess(this.db, "agent", presetRow, userId, !machineActor)) === "none") {
         throw new SubshellCreateError("not_found", "Preset not found", 404);
       }
       if (presetRow.harnessId !== harnessId) {
@@ -644,6 +645,7 @@ export class SubshellsService extends BaseService {
         userId,
         harnessId,
         presetId: presetId ?? null,
+        allowSharedPreset: !machineActor,
         workingDir: launchWorkingDir,
         name,
         prompt: resolvedPrompt,
@@ -1387,21 +1389,36 @@ export class SubshellsService extends BaseService {
     // The swap is validated HERE — after the gate and the maintenance 409,
     // before the manager touches anything — so a restart refused on this
     // side of the manager never changes the preset (spec 2026-09-23 §2). The
-    // preset must be the CALLER's (the
-    // same per-user rule create enforces): a pane-token actor resolves through
-    // the guard as its row's owner, so its swap lands on the owner's presets;
-    // the system service user owns nothing and holds no grants, so the edit
-    // gate above refuses it before this validation. And one of this row's
-    // harness: a harness switch on a live row would silently resume another
-    // agent's transcript in a different CLI.
+    // viewer and pane owner both need access to the chosen preset; otherwise
+    // a successful swap would leave the owner unable to restart it later.
+    // Machine actors retain owner-only access. The harness must still match
+    // the pane so a restart cannot resume a transcript in another CLI.
     if (swapPresetTo !== undefined && swapPresetTo !== null) {
       const preset = await this.repos.presets.findById(swapPresetTo);
-      if (!preset || preset.userId !== viewerId || preset.harnessId !== row.harnessId) {
+      if (
+        !preset ||
+        (await presetAccess(this.db, "agent", preset, viewerId, actor === "cookie")) === "none" ||
+        (await presetAccess(this.db, "agent", preset, row.userId)) === "none" ||
+        preset.harnessId !== row.harnessId
+      ) {
         throwApiError({
           code: BackendErrorCodes.INVALID_PRESET,
-          message: "The preset must exist, belong to you, and match the subshell's harness",
+          message: "The preset must be accessible to you and the subshell owner and match the subshell's harness",
           doNotLog: true,
         });
+      }
+    }
+    // Revocation affects future starts, not the terminal that is already running.
+    // Check before the manager stops a live pane or changes its preset.
+    const restartPresetId = swapPresetTo === undefined ? row.presetId : swapPresetTo;
+    if (restartPresetId) {
+      const preset = await this.repos.presets.findById(restartPresetId);
+      if (!preset || (await presetAccess(this.db, "agent", preset, row.userId, actor === "cookie")) === "none") {
+        throw new SubshellCreateError(
+          "not_found",
+          "Preset access was removed. Choose another preset before restarting this subshell.",
+          404,
+        );
       }
     }
     // The offline pre-gate for a swap-carrying restart (final review 2026-09-24).

@@ -1,10 +1,11 @@
 import { Button } from "@internal/node-admin";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Plus, SlidersHorizontal, Terminal } from "lucide-react";
+import { Plus, SlidersHorizontal, Terminal, Upload } from "lucide-react";
 import { useState } from "react";
 import { DashboardPage } from "@/components/dashboard-page";
 import { PageHeader } from "@/components/page-header";
 import { AgentPresetLibrary } from "@/components/presets/agent-preset-library";
+import { ImportPresetDialog } from "@/components/presets/import-preset-dialog";
 import { SshPresetLibrary } from "@/components/presets/ssh-preset-library";
 import {
   DropdownMenu,
@@ -27,6 +28,7 @@ function PresetsPage() {
   const active = type ?? "agent";
 
   const [showCreate, setShowCreate] = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   function createPreset(kind: "agent" | "ssh") {
     setShowCreate(true);
@@ -35,6 +37,15 @@ function PresetsPage() {
 
   return (
     <DashboardPage>
+      {showImport && (
+        <ImportPresetDialog
+          onClose={() => setShowImport(false)}
+          onImported={(kind) => {
+            setShowImport(false);
+            void navigate({ to: "/presets", search: kind === "ssh" ? { type: "ssh" } : {} });
+          }}
+        />
+      )}
       <PageHeader
         title="Presets"
         subtitle="Saved launch settings for agents and SSH connections"
@@ -49,6 +60,14 @@ function PresetsPage() {
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => createPreset("ssh")}>
                 <Terminal /> New SSH preset
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => {
+                  setShowCreate(false);
+                  setShowImport(true);
+                }}
+              >
+                <Upload /> Import preset
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

@@ -4,6 +4,7 @@ import { useId, useState } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 import { CopyButton } from "@/components/copy-button";
 import { presetLaunchCommand } from "@/lib/launch-command";
+import { ownsPreset } from "@/lib/preset-access";
 import type { PresetRow } from "@/types/preset";
 
 /**
@@ -44,6 +45,11 @@ export function PresetTableRow({ preset, binary, items }: { preset: PresetRow; b
             {shown ? <ChevronDown className="size-4 shrink-0" /> : <ChevronRight className="size-4 shrink-0" />}
             <span className="truncate">{preset.name}</span>
           </button>
+          {!ownsPreset(preset) && (
+            <p className="@2xl:hidden text-detail text-muted-foreground">
+              Shared by {preset.ownerName ?? preset.userId} · {preset.access === "view" ? "View" : "Edit"}
+            </p>
+          )}
         </td>
         <td className="@sm:table-cell hidden h-8 whitespace-nowrap py-0 pr-4 text-muted-foreground">
           {preset.restartOnExit === 1 ? "Yes" : "No"}
@@ -51,6 +57,12 @@ export function PresetTableRow({ preset, binary, items }: { preset: PresetRow; b
         {/* Readiness uses the same opt-in, node, and directory checks as list_presets. */}
         <td className="@lg:table-cell hidden h-8 whitespace-nowrap py-0 pr-4 text-muted-foreground">
           {isPresetCrossCommReady(preset) ? "Yes" : "No"}
+        </td>
+        <td
+          className="@2xl:table-cell hidden h-8 max-w-0 truncate py-0 pr-4 text-muted-foreground"
+          title={preset.ownerName ?? (ownsPreset(preset) ? "You" : preset.userId)}
+        >
+          {preset.ownerName ?? (ownsPreset(preset) ? "You" : preset.userId)}
         </td>
         <td className="h-8 w-px py-0 text-right">
           <div className="flex justify-end gap-1">
@@ -64,7 +76,7 @@ export function PresetTableRow({ preset, binary, items }: { preset: PresetRow; b
           while the row claims it is hidden. */}
       {shown && (
         <tr className="border-b last:border-0">
-          <td colSpan={4} className="max-w-0 bg-muted/40 px-4 py-2">
+          <td colSpan={5} className="max-w-0 bg-muted/40 px-4 py-2">
             <pre id={commandId} className="whitespace-pre-wrap break-words font-mono text-sm leading-relaxed">
               {command}
             </pre>

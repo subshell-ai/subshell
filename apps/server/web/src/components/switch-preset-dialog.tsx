@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePresets } from "@/hooks/use-presets";
+import { presetChoiceLabel } from "@/lib/preset-access";
 import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
 
@@ -101,7 +102,10 @@ export function SwitchPresetDialog({
           onValueChange={(v) => v !== null && setChosen(v)}
           // Base UI's Value prints the RAW value without this map; labels
           // must match the item texts below exactly.
-          items={[{ value: NONE, label: "None" }, ...options.map((p) => ({ value: p.id, label: p.name }))]}
+          items={[
+            { value: NONE, label: "None" },
+            ...options.map((p) => ({ value: p.id, label: presetChoiceLabel(p) })),
+          ]}
         >
           <SelectTrigger
             aria-label="Preset"
@@ -114,7 +118,7 @@ export function SwitchPresetDialog({
             <SelectItem value={NONE}>None</SelectItem>
             {options.map((p) => (
               <SelectItem key={p.id} value={p.id}>
-                {p.name}
+                {presetChoiceLabel(p)}
               </SelectItem>
             ))}
           </SelectContent>

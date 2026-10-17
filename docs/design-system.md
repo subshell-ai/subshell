@@ -251,14 +251,12 @@ admitted here.
   counts and actionable warnings, not ordinary label/value pairs.
 - **Line item**: `label` over `detail`, differing by weight AND colour, never
   by tone alone. *(15px regular over 13px muted read as one paragraph.)*
-- **Quiet label vs control label**: a read-only data row labels over its value
-  with the label in `muted-foreground` at `detail` size and the value at `body`
-  size in `foreground`, using the shared `Fact` component. Monospace values keep
-  the same body size. Size and colour together distinguish labels from values. `font-strong`
-  label weight belongs to a control's label and to a section heading, ONLY. *(A networking card set bold "NetBird FQDN" over its URL
-  six pixels above a quiet "Client version" over its: two label grammars in one
-  card, so one row read as a heading and the other as data, and neither was the
-  control the bold claimed it was.)*
+- **Fact labels vs control labels**: a read-only fact uses a `font-strong`
+  label in `muted-foreground` at `detail` size, above a regular-weight value at
+  `body` size in `foreground`. Use the shared `Fact` component. Weight, size,
+  and colour together distinguish labels from values; muted colour alone isn't
+  enough. Monospace values keep the same body size. Control labels remain bold
+  at their normal control-label size.
 - **Copy voice**: follow [the repository's writing voice](../AGENTS.md#writing-voice).
   Speak to the reader as a peer. Use active verbs, natural contractions, and
   varied sentence structure. State what's happening and, when there's a useful
@@ -379,7 +377,7 @@ admitted here.
   remains reachable by landmark navigation, and Base UI's group arrow keys move
   only between the radios; Tab reaches the panel's fields.
 - **Dialog facts**: use the SPA's `FactList` for review and approval details:
-  muted detail-size labels over foreground body-size values, using the shared
+  bold, muted detail-size labels over regular-weight foreground body-size values, using the shared
   `Fact` component also used by status and node cards. Technical values may
   use monospace without becoming smaller. Wrap decision-critical values rather
   than truncating paths, destinations, or fingerprints; offer copying when useful.

@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "bun:test";
+import { setupAuthTables } from "@/api/__tests__/helpers/auth-tables.js";
 import { db } from "@/db/index.js";
-import { runMigrations } from "@/db/migrate.js";
 import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -37,7 +37,7 @@ describe("PresetsRepository.listByHarness / deleteByHarness", () => {
   const bob = `byh-bob-${crypto.randomUUID().slice(0, 8)}`;
 
   beforeAll(async () => {
-    await runMigrations();
+    await setupAuthTables();
   });
 
   it("lists every user's presets for one harness, and nothing for another", async () => {
@@ -94,7 +94,7 @@ describe("SubshellsRepository.countRunningByHarness", () => {
   const owner = `byh-sub-${crypto.randomUUID().slice(0, 8)}`;
 
   beforeAll(async () => {
-    await runMigrations();
+    await setupAuthTables();
   });
 
   async function mkSubshell(harnessId: string, running: boolean): Promise<string> {
@@ -132,7 +132,7 @@ describe("PluginStateRepository (absent row means enabled)", () => {
   const id = `state-${crypto.randomUUID().slice(0, 8)}`;
 
   beforeAll(async () => {
-    await runMigrations();
+    await setupAuthTables();
   });
 
   it("reads an absent row as enabled without writing anything", async () => {

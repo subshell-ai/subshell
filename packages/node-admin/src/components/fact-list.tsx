@@ -19,7 +19,7 @@ export function Fact({
 }) {
   return (
     <div className={cn("min-w-0", wide && "col-span-full")}>
-      <dt className="text-detail text-muted-foreground">{label}</dt>
+      <dt className="font-strong text-detail text-muted-foreground">{label}</dt>
       <dd className={cn("mt-1 text-body text-foreground [overflow-wrap:anywhere]", mono && "font-mono")}>{children}</dd>
     </div>
   );

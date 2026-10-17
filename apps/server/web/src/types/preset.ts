@@ -2,11 +2,18 @@
  * A harness preset as returned by the presets API.
  * This is the client-facing subset of `PresetSchema` in the backend
  * (apps/server/api/src/api/models.ts): it carries the fields the frontend uses
- * and omits `userId`.
+ * including viewer-relative sharing metadata.
  */
 import type { SshForwardRow } from "@/lib/ssh";
 
-export interface AgentPreset {
+export interface PresetSharing {
+  /** Omitted by older servers, which only return owned presets. */
+  access?: "owner" | "edit" | "view";
+  userId?: string;
+  ownerName?: string;
+}
+
+export interface AgentPreset extends PresetSharing {
   kind: "agent";
   id: string;
   harnessId: string;
@@ -38,7 +45,7 @@ export type PresetRow = Omit<AgentPreset, "kind"> & { kind?: "agent" };
 export type SshAuthentication = "connecting" | "remote" | "local-key" | "password";
 
 /** Saved connection choices only. Credentials and approvals never belong here. */
-export interface SshPreset {
+export interface SshPreset extends PresetSharing {
   kind: "ssh";
   /** Preset id */
   id: string;

@@ -27,6 +27,14 @@ export interface FlagRow {
  * happens only on submit.
  */
 export interface PresetFormValue {
+  /** Preserve stored fields this editor doesn't expose, and exact argv until flags change. */
+  source?: {
+    description: string | null;
+    settings: Record<string, unknown>;
+    configIsolation: boolean;
+    flags: string[];
+    flagRows: FlagRow[];
+  };
   /** Harness this preset configures; fixed once the preset exists */
   harnessId: string;
   name: string;
@@ -101,6 +109,13 @@ export function presetFormFromRow(row: PresetRow): PresetFormValue {
   const envRows = Object.entries(env).map(([key, value]) => ({ key, value: String(value ?? "") }));
   const promptBlocks = wireToPresetBlocks(row.promptBlocks);
   return {
+    source: {
+      description: row.description,
+      settings: row.settingsJson ? JSON.parse(row.settingsJson) : {},
+      configIsolation: row.configIsolation === 1,
+      flags: tokens,
+      flagRows: flagTokensToRows(tokens),
+    },
     harnessId: row.harnessId,
     name: row.name,
     envRows: envRows.length > 0 ? envRows : [{ key: "", value: "" }],
@@ -190,9 +205,10 @@ export interface PresetPayload {
   env: Record<string, string>;
   /** Flat argv tokens built from the flag rows */
   flags: string[];
-  /** Reserved for future per-preset settings; no consumer reads it yet */
-  settings: Record<string, never>;
-  /** Always false: no harness consumes config isolation yet — see preset-fields.tsx. */
+  /** Preserve settings even when the current editor has no controls for them. */
+  settings: Record<string, unknown>;
+  description?: string;
+  /** Preserve an existing configuration isolation choice. */
   configIsolation: boolean;
   /** Whether the supervisor restarts the subshell when the harness exits */
   restartOnExit: boolean;
@@ -209,8 +225,7 @@ export interface PresetPayload {
 /**
  * Builds the exact `POST /api/presets` body from live form state —
  * extracted verbatim from the create dialog so no second creator can fork
- * the payload (the repeated "no config isolation yet" constant and the
- * `"Untitled"` fallback included).
+ * the payload. Stored settings without editor controls are preserved.
  * @param form - The live preset form state
  * @returns The request body, ready to `JSON.stringify`
  */
@@ -219,10 +234,10 @@ export function toPresetPayload(form: PresetFormValue): PresetPayload {
     harnessId: form.harnessId,
     name: form.name.trim() || "Untitled",
     env: formToEnv(form.envRows),
-    flags: formToFlagTokens(form.flagRows),
-    settings: {},
-    // No harness consumes config isolation yet — see preset-fields.tsx.
-    configIsolation: false,
+    flags: preservedFlagTokens(form),
+    settings: form.source?.settings ?? {},
+    ...(form.source?.description != null ? { description: form.source.description } : {}),
+    configIsolation: form.source?.configIsolation ?? false,
     restartOnExit: form.restartOnExit,
     crossCommEnabled: form.crossCommEnabled,
     nodeId: form.nodeId,
@@ -239,7 +254,7 @@ export interface PresetUpdatePayload {
   env: Record<string, string>;
   /** Flat argv tokens built from the flag rows */
   flags: string[];
-  /** Always false: no harness consumes config isolation yet — see preset-fields.tsx. */
+  /** Preserve an existing configuration isolation choice. */
   configIsolation: boolean;
   /** Whether the supervisor restarts the subshell when the harness exits */
   restartOnExit: boolean;
@@ -256,8 +271,8 @@ export interface PresetUpdatePayload {
 /**
  * Builds the exact `PUT /api/presets/:id` body from live form state —
  * {@link toPresetPayload} MINUS `harnessId` (a preset's harness is fixed at
- * creation and the API never reassigns it) and `settings` (the update contract
- * has no such field; nothing reads it yet anyway). A separate builder rather
+ * creation and the API never reassigns it) and `settings` (the editor has no
+ * controls for them, so an update leaves them untouched). A separate builder rather
  * than an option flag on the POST one: the two bodies differ in shape, and a
  * union-typed return would force every caller to delete keys it must not
  * send.
@@ -268,9 +283,8 @@ export function toPresetUpdatePayload(form: PresetFormValue): PresetUpdatePayloa
   return {
     name: form.name.trim() || "Untitled",
     env: formToEnv(form.envRows),
-    flags: formToFlagTokens(form.flagRows),
-    // No harness consumes config isolation yet — see preset-fields.tsx.
-    configIsolation: false,
+    flags: preservedFlagTokens(form),
+    configIsolation: form.source?.configIsolation ?? false,
     restartOnExit: form.restartOnExit,
     crossCommEnabled: form.crossCommEnabled,
     // The trio rides EVERY update (explicit nulls): the editor is the whole
@@ -322,4 +336,11 @@ export function suggestCloneName(rows: PresetRow[], source: PresetRow): string {
   // Unreachable while the index holds: taken.size names cannot fill
   // taken.size + 1 candidates.
   return candidateFor(taken.size + 2);
+}
+
+/** The row editor cannot represent all argv shapes; unrelated edits must not rewrite them. */
+export function preservedFlagTokens(form: PresetFormValue): string[] {
+  return form.source && JSON.stringify(form.flagRows) === JSON.stringify(form.source.flagRows)
+    ? form.source.flags
+    : formToFlagTokens(form.flagRows);
 }

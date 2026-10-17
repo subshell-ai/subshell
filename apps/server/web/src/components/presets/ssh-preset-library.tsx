@@ -1,14 +1,17 @@
 import { apiFetch, Card, CardContent, CardHeader, CardTitle, confirmAction, errMessage } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
-import { Copy, Pencil, Play, Terminal, Trash2 } from "lucide-react";
+import { Copy, Download, Pencil, Play, Share2, Terminal, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { ActionsMenu } from "@/components/actions-menu";
 import { EmptyState } from "@/components/empty-state";
+import { PresetSharingDialog } from "@/components/presets/preset-sharing-dialog";
 import { SshPresetEditor } from "@/components/presets/ssh-preset-editor";
 import { SshQueryStatus } from "@/components/ssh/query-status";
 import { useNodes } from "@/hooks/use-nodes";
 import { useInvalidatePresets } from "@/hooks/use-presets";
 import { useSshPresets } from "@/hooks/use-ssh-presets";
+import { canEditPreset, ownsPreset } from "@/lib/preset-access";
+import { downloadPreset } from "@/lib/preset-file";
 import { SSH_PRESET_NAME_MAX } from "@/lib/ssh-input-validation";
 import { SSH_AUTHENTICATION_LABELS } from "@/lib/ssh-preset";
 import type { SshPreset } from "@/types/preset";
@@ -27,6 +30,7 @@ export function SshPresetLibrary({
   const nodes = useNodes();
   const invalidate = useInvalidatePresets();
   const navigate = useNavigate();
+  const [sharing, setSharing] = useState<string | null>(null);
   const [editor, setEditor] = useState<{ preset: SshPreset; cloneName?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   function clone(preset: SshPreset) {
@@ -58,6 +62,7 @@ export function SshPresetLibrary({
   }
   return (
     <>
+      {sharing && <PresetSharingDialog id={sharing} kind="ssh" onClose={() => setSharing(null)} />}
       {creating && <SshPresetEditor onClose={onCreatedClose} />}
       {editor && <SshPresetEditor {...editor} onClose={() => setEditor(null)} />}
       {error && (
@@ -97,6 +102,9 @@ export function SshPresetLibrary({
                     <th scope="col" className="@lg:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">
                       Authentication
                     </th>
+                    <th scope="col" className="@2xl:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">
+                      Owner
+                    </th>
                     <th scope="col" className="pb-2 text-right font-strong">
                       <span className="sr-only">Actions</span>
                     </th>
@@ -117,6 +125,11 @@ export function SshPresetLibrary({
                         >
                           {preset.name}
                         </button>
+                        {!ownsPreset(preset) && (
+                          <p className="@2xl:hidden text-detail text-muted-foreground">
+                            Shared by {preset.ownerName ?? preset.userId} · {preset.access === "view" ? "View" : "Edit"}
+                          </p>
+                        )}
                       </td>
                       <td className="@sm:table-cell hidden h-8 max-w-0 truncate whitespace-nowrap py-0 pr-4 font-mono text-muted-foreground">
                         {preset.destination}
@@ -129,6 +142,12 @@ export function SshPresetLibrary({
                       <td className="@lg:table-cell hidden h-8 whitespace-nowrap py-0 pr-4 text-muted-foreground">
                         {SSH_AUTHENTICATION_LABELS[preset.authentication]}
                       </td>
+                      <td
+                        className="@2xl:table-cell hidden h-8 max-w-0 truncate py-0 pr-4 text-muted-foreground"
+                        title={preset.ownerName ?? (ownsPreset(preset) ? "You" : preset.userId)}
+                      >
+                        {preset.ownerName ?? (ownsPreset(preset) ? "You" : preset.userId)}
+                      </td>
                       <td className="h-8 w-px py-0 text-right">
                         <ActionsMenu
                           label={preset.name}
@@ -138,14 +157,38 @@ export function SshPresetLibrary({
                               icon: Play,
                               onSelect: () => void navigate({ to: "/new", search: { kind: "ssh", preset: preset.id } }),
                             },
-                            { label: "Edit", icon: Pencil, onSelect: () => setEditor({ preset }) },
-                            { label: "Clone preset", icon: Copy, onSelect: () => clone(preset) },
                             {
-                              label: "Delete preset",
-                              icon: Trash2,
-                              destructive: true,
-                              onSelect: () => void remove(preset),
+                              label: canEditPreset(preset) ? "Edit" : "View preset",
+                              icon: Pencil,
+                              onSelect: () => setEditor({ preset }),
                             },
+                            {
+                              label: "Export preset",
+                              icon: Download,
+                              onSelect: () => {
+                                try {
+                                  downloadPreset(preset);
+                                } catch (error) {
+                                  setError(errMessage(error, "Couldn't export this preset."));
+                                }
+                              },
+                            },
+                            { label: "Clone preset", icon: Copy, onSelect: () => clone(preset) },
+                            ...(ownsPreset(preset)
+                              ? [
+                                  {
+                                    label: "Share preset",
+                                    icon: Share2,
+                                    onSelect: () => setSharing(preset.id),
+                                  },
+                                  {
+                                    label: "Delete preset",
+                                    icon: Trash2,
+                                    destructive: true,
+                                    onSelect: () => void remove(preset),
+                                  },
+                                ]
+                              : []),
                           ]}
                         />
                       </td>

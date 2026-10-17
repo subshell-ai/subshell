@@ -12,9 +12,11 @@ import { useMutation } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useState } from "react";
 import { DashboardPage } from "@/components/dashboard-page";
+import { PresetDetails } from "@/components/presets/preset-details";
 import { PresetFields } from "@/components/presets/preset-fields";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useInvalidatePresets, usePresets } from "@/hooks/use-presets";
+import { canEditPreset } from "@/lib/preset-access";
 import {
   crossCommSaveBlocked,
   type PresetFormValue,
@@ -81,6 +83,23 @@ function EditPresetPage() {
   // /presets/:a to /presets/:b remounts this form (TanStack reuses the route
   // component across param changes, so without the key the old snapshot would
   // shadow the new preset on the first render).
+  if (!canEditPreset(preset))
+    return (
+      <DashboardPage>
+        <Card>
+          <CardHeader>
+            <CardTitle>View preset</CardTitle>
+            <CardDescription>
+              You have view access. You can use or clone this preset, but you can't change it.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <PresetDetails preset={preset} />
+            <Button variant="outline" render={<Link to="/presets">Back to presets</Link>} />
+          </CardContent>
+        </Card>
+      </DashboardPage>
+    );
   return <PresetEditor key={preset.id} preset={preset} />;
 }
 
