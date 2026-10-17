@@ -1,5 +1,11 @@
 # @internal/node
 
+## 2.1.3
+
+### Patch Changes
+
+- [#391](https://github.com/subshell-ai/subshell/pull/391) [`e215250`](https://github.com/subshell-ai/subshell/commit/e215250fb191b34b371ff5696e7c4e6076c238bc) Thanks [@theogravity](https://github.com/theogravity)! - Make dashboard information easier to scan with consistent labels, readable values, and wrapping for long paths and addresses. Keep conditional fields beneath their selected radio option, disable Save for unchanged drafts, and clarify warnings and validation. Apply the shared fact styling to the node dashboard as well. On the docs site, the SSH destination-confirmation guide and its screenshot now match the always-visible fingerprint.
+
 ## 2.1.2
 
 ### Patch Changes

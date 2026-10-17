@@ -1,5 +1,12 @@
 # @internal/desktop-client
 
+## 1.3.2
+
+### Patch Changes
+
+- Updated dependencies [[`e215250`](https://github.com/subshell-ai/subshell/commit/e215250fb191b34b371ff5696e7c4e6076c238bc)]:
+  - @internal/node@2.1.3
+
 ## 1.3.1
 
 ### Patch Changes
