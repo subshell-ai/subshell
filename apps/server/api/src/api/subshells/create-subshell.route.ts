@@ -1,6 +1,6 @@
 import { normalizeLabel } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { authGuard, requirePerm } from "@/api/auth-guard.js";
+import { authGuard, HttpError, requirePerm } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 
@@ -25,6 +25,14 @@ const CreateSubshellBodySchema = t.Object({
   ),
   nodeId: t.Optional(
     t.String({ minLength: 1, description: "Node to launch on; omitted or 'local' = control-plane host" }),
+  ),
+  workspaceId: t.Optional(
+    t.String({
+      minLength: 1,
+      maxLength: 128,
+      description:
+        "Workspace to file the new subshell in: a tab row is written for it beside the launch. 404 when it is not the caller's (or absent). Omitted = the pane starts ungrouped",
+    }),
   ),
 });
 
@@ -58,6 +66,18 @@ export const createSubshellRoute = new Elysia()
       // manager re-normalizes as the choke point, which is idempotent. An
       // optional name that normalizes to nothing stays an unnamed create —
       // it never was a 400 and is not one now.
+      // The workspace a create is filed into must be the CALLER'S, checked
+      // before anything spawns: an ownership miss reads as 404 like every
+      // other workspace surface, so this endpoint never confirms someone
+      // else's workspace id. Workspaces themselves stay cookie-only territory;
+      // this is the one seam where the subshells door (open to bearer) touches
+      // one, and it is deliberate: a pane-token create resolving as its owner
+      // could file its OWN sibling into the owner's arrangement, which is the
+      // same altitude as the sibling acts the security model already accepts.
+      if (body.workspaceId !== undefined) {
+        const workspace = await ctx.repos.workspaces.findByIdForUser(body.workspaceId, user.id);
+        if (!workspace) throw new HttpError(404, "Workspace not found");
+      }
       return await ctx.services.subshells.createSubshell({
         userId: user.id,
         harnessId: body.harnessId,
@@ -66,6 +86,7 @@ export const createSubshellRoute = new Elysia()
         name: body.name === undefined ? undefined : normalizeLabel(body.name, 120),
         prompt: body.prompt,
         nodeId: body.nodeId,
+        workspaceId: body.workspaceId,
         machineActor: actor !== "cookie",
         // A launch that arrives on a PANE'S OWN token is an agent opening a
         // sibling to talk to it (`create_subshell`); a system key is admin

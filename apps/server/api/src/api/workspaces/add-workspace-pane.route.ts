@@ -22,7 +22,13 @@ export const addWorkspacePaneRoute = new Elysia()
     {
       body: AddPaneBodySchema,
       response: {
-        200: t.Object({ id: t.String({ description: "Id of the new pane" }) }),
+        200: t.Object({
+          id: t.String({ description: "Id of the pane, new or already there" }),
+          alreadyPresent: t.Boolean({
+            description:
+              "True when the workspace already held this subshell: the add is idempotent, so a duplicate answers 200 with the existing pane id rather than creating a second tab",
+          }),
+        }),
         400: "ApiErrorResponse",
         401: "ApiErrorResponse",
         404: "ApiErrorResponse",
@@ -30,7 +36,8 @@ export const addWorkspacePaneRoute = new Elysia()
       detail: {
         operationId: "addWorkspacePane",
         tags: ["workspaces"],
-        description: "Adds a pane holding one of the caller's subshells",
+        description:
+          "Adds a pane holding one of the caller's subshells (idempotent: an existing tab answers with its id)",
       },
     },
   );

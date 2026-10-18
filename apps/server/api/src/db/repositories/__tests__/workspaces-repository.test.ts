@@ -18,6 +18,7 @@ import * as crossAgentMigration from "@/db/migrations/0039-subshell-cross-agent.
 import * as presetLaunchFieldsMigration from "@/db/migrations/0042-preset-launch-fields.js";
 import * as presetCrossCommOptInMigration from "@/db/migrations/0043-preset-cross-comm-opt-in.js";
 import * as subshellKeyHomeMigration from "@/db/migrations/0052-subshell-key-home.js";
+import * as workspaceFirstMigration from "@/db/migrations/0058-workspace-first.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -79,6 +80,7 @@ beforeAll(async () => {
   await presetLaunchFieldsMigration.up(db); // presets launch trio (0042) - the repository create enumerates it
   await presetCrossCommOptInMigration.up(db); // presets.cross_comm_enabled (0043) - same reason
   await subshellKeyHomeMigration.up(db); // 0052 subshells.key_home_node_id - SubshellsRepository.create mirrors it on every insert (Task 14)
+  await workspaceFirstMigration.up(db); // 0058 drops workspaces.draft, adds the pane-dedupe unique index
 });
 
 beforeEach(async () => {
@@ -114,32 +116,39 @@ describe("workspaces repository", () => {
     expect(await workspaces.findByIdForUser(created.id, "u1")).toBeUndefined();
   });
 
-  it("listByUser hides drafts unless they are asked for", async () => {
-    await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "Saved" });
-    await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "Unsaved", draft: 1 });
+  it("accepts duplicate names (the unique index is gone; ids are the key)", async () => {
+    await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "Oct 17, 5:21 PM" });
+    await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "Oct 17, 5:21 PM" });
 
-    expect((await workspaces.listByUser("u1")).map((w) => w.name)).toEqual(["Saved"]);
-    expect((await workspaces.listByUser("u1", { includeDrafts: true })).map((w) => w.name)).toEqual([
-      "Saved",
-      "Unsaved",
-    ]);
+    expect(await workspaces.listByUser("u1")).toHaveLength(2);
   });
 
-  it("listBySubshellForUser returns each holding workspace once, newest first, drafts included", async () => {
+  it("retireEmptyForUser deletes the owner's pane-less workspaces and counts them", async () => {
+    const filled = await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "Filled" });
+    await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "Empty" });
+    const foreignEmpty = await workspaces.create({ id: crypto.randomUUID(), userId: "u2", name: "Theirs" });
+    const subshellId = await makeSubshell("u1");
+    await panes.create({ id: crypto.randomUUID(), workspaceId: filled.id, subshellId });
+
+    expect(await workspaces.retireEmptyForUser("u1")).toBe(1);
+    expect(await workspaces.findByIdForUser(filled.id, "u1")).toBeTruthy();
+    expect(await workspaces.findByIdForUser(foreignEmpty.id, "u2")).toBeTruthy();
+    const left = await workspaces.listByUser("u1");
+    expect(left.map((w) => w.id)).toEqual([filled.id]);
+  });
+
+  it("listBySubshellForUser returns holding workspaces newest first", async () => {
     const subshellId = await makeSubshell("u1");
     const older = await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "Older" });
-    const draft = await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "Draft", draft: 1 });
+    const newer = await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "Newer" });
     const foreign = await workspaces.create({ id: crypto.randomUUID(), userId: "u2", name: "Foreign" });
     const empty = await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "Empty" });
 
-    // TWO panes on one workspace for the same subshell: the query must still
-    // report that workspace once, which is why it is an EXISTS and not a join.
     await panes.create({ id: crypto.randomUUID(), workspaceId: older.id, subshellId });
-    await panes.create({ id: crypto.randomUUID(), workspaceId: older.id, subshellId });
-    await panes.create({ id: crypto.randomUUID(), workspaceId: draft.id, subshellId });
+    await panes.create({ id: crypto.randomUUID(), workspaceId: newer.id, subshellId });
     await panes.create({ id: crypto.randomUUID(), workspaceId: foreign.id, subshellId });
 
-    // Stamped explicitly: four inserts can land inside one millisecond, and a
+    // Stamped explicitly: inserts can land inside one millisecond, and a
     // tie would make the assertion below flaky rather than wrong.
     await db
       .updateTable("workspaces")
@@ -149,11 +158,11 @@ describe("workspaces repository", () => {
     await db
       .updateTable("workspaces")
       .set({ updatedAt: "2026-02-01T00:00:00.000Z" })
-      .where("id", "=", draft.id)
+      .where("id", "=", newer.id)
       .execute();
 
     const mine = await workspaces.listBySubshellForUser("u1", subshellId);
-    expect(mine.map((w) => w.id)).toEqual([draft.id, older.id]);
+    expect(mine.map((w) => w.id)).toEqual([newer.id, older.id]);
     expect(mine.map((w) => w.id)).not.toContain(empty.id);
     // Another user's workspace holding the same subshell is invisible here.
     expect(await workspaces.listBySubshellForUser("u2", subshellId)).toHaveLength(1);
@@ -173,6 +182,22 @@ describe("workspace panes repository", () => {
     const list = await panes.listByWorkspace(ws.id);
     expect(list).toHaveLength(1);
     expect(list[0].id).toBe(created.id);
+  });
+
+  it("refuses a second pane for the same subshell in one workspace (0058 unique index)", async () => {
+    const ws = await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "W-dedupe" });
+    const subshellId = await makeSubshell("u1");
+    await panes.create({ id: crypto.randomUUID(), workspaceId: ws.id, subshellId });
+
+    expect(await panes.findByWorkspaceAndSubshell(ws.id, subshellId)).toBeTruthy();
+    // Regression #13 made impossible at the schema level: the double insert
+    // throws instead of quietly making a second tab.
+    await expect(panes.create({ id: crypto.randomUUID(), workspaceId: ws.id, subshellId })).rejects.toThrow("UNIQUE");
+    expect(await panes.listByWorkspace(ws.id)).toHaveLength(1);
+
+    // The same subshell in ANOTHER workspace is the many-homes rule, still fine.
+    const other = await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "W-also" });
+    expect(await panes.create({ id: crypto.randomUUID(), workspaceId: other.id, subshellId })).toBeTruthy();
   });
 
   it("deletes a pane", async () => {

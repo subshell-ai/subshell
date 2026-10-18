@@ -24,6 +24,8 @@ import {
 import { harnessUsable } from "@/api/harness-utils.js";
 import type { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import type { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
+import { WorkspacePanesRepository } from "@/db/repositories/workspace-panes.repository.js";
+import { WorkspacesRepository } from "@/db/repositories/workspaces.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { SubshellTable, SubshellUpdate } from "@/db/types/subshells.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
@@ -178,6 +180,14 @@ export class SubshellManagerService {
   readonly #subshells: SubshellsRepository;
   readonly #presets: PresetsRepository;
   /**
+   * Workspace membership seams (spec 2026-10-17): filing a create as a tab,
+   * and retiring the owner's workspaces a delete cascade empties. Not
+   * constructor-injected anywhere today: both derive their handle from the
+   * subshells repository's DB, so every test manager gets them for free.
+   */
+  readonly #workspacePanes: WorkspacePanesRepository;
+  readonly #workspaces: WorkspacesRepository;
+  /**
    * Constructor-injected launcher (or the deprecated `tmux` shim wrapped in
    * one). A TEST OVERRIDE: when set it answers for EVERY node id, so the
    * phase-0 subshell-manager suites keep working untouched.
@@ -227,6 +237,8 @@ export class SubshellManagerService {
   }) {
     this.#subshells = subshells;
     this.#presets = presets;
+    this.#workspacePanes = new WorkspacePanesRepository(subshells.db);
+    this.#workspaces = new WorkspacesRepository(subshells.db);
     this.#testLauncher = launcher ?? (tmux !== undefined ? new LocalLauncher({ tmux }) : undefined);
     this.#audit = audit;
     this.#tokens = tokens;
@@ -363,6 +375,7 @@ export class SubshellManagerService {
     presetFlags,
     extraPaneEnv,
     subshellId,
+    workspaceId,
   }: {
     userId: string;
     /** Harness plugin to launch — required, with or without a preset. */
@@ -433,6 +446,17 @@ export class SubshellManagerService {
      * `crypto.randomUUID()` they always got.
      */
     subshellId?: string;
+    /**
+     * The caller's workspace to file this pane in (spec 2026-10-17: creating
+     * a subshell lands a tab where you are looking). The route owns the 404
+     * for a foreign or absent workspace; this writes the membership row beside
+     * the subshell row, BEFORE the token and the spawn, so the pane insert is
+     * the last thing that can fail cleanly (its failure deletes the row just
+     * made, and nothing launched needs killing). A pane that then FAILS to
+     * launch keeps its tab: the workspace shows a terminated pane, which is
+     * the truth rather than a fiction.
+     */
+    workspaceId?: string;
   }): Promise<{ id: string; tmuxSocket: string; apiKey: string; promptDelivered: boolean }> {
     if (subshellId !== undefined && !/^[a-zA-Z0-9_-]{1,64}$/.test(subshellId)) {
       throw new Error("createSubshell: subshellId is outside the id grammar");
@@ -534,6 +558,28 @@ export class SubshellManagerService {
       // immutable thereafter, and no direct pane carries it.
       keyHomeNodeId: ssh?.keyHomeNodeId ?? null,
     });
+
+    if (workspaceId !== undefined) {
+      try {
+        await this.#workspacePanes.create({
+          id: crypto.randomUUID(),
+          workspaceId,
+          subshellId: id,
+        });
+      } catch {
+        // The only realistic cause is the checked-then-gone race (the route
+        // confirmed the workspace; something deleted it in the meantime, most
+        // plausibly its own empty-retire). Roll the row back — nothing has
+        // spawned yet, so deleting it is complete cleanup — and answer the 404
+        // the pre-check would have given.
+        await this.#subshells.delete(id).catch(() => {});
+        throwApiError({
+          code: BackendErrorCodes.NOT_FOUND_ERROR,
+          message: "The workspace to file this subshell in no longer exists",
+          doNotLog: true,
+        });
+      }
+    }
 
     // The token is minted AFTER the row exists (issueSubshellToken writes the
     // api-key id back onto it) but BEFORE tmux starts, so the plaintext key is
@@ -1140,6 +1186,15 @@ export class SubshellManagerService {
     // row outright does the same via the guard's missing-row check.
     await this.#revokeTokenOrUnlink(id);
     await this.#subshells.delete(id);
+    // The pane's row is gone, so its tab rows cascaded with it. Any of the
+    // OWNER's workspaces that this emptied retires too (spec 2026-10-17: a
+    // workspace exists exactly as long as it holds a tab). Workspaces of
+    // OTHER owners that held this shared pane are deliberately left alone —
+    // deleting my pane must not silently delete your arrangement; yours keeps
+    // the (now pruned-on-read) empty slot until you remove it yourself.
+    await this.#workspaces.retireEmptyForUser(userId).catch((err) => {
+      logger.warn(`empty-workspace retire after deleting ${id} failed: ${String(err)}`);
+    });
     // Best-effort artifact cleanup ON THE ROW'S NODE (the log is only an
     // attach-replay artifact; the MCP config holds no secrets but nothing
     // should be left behind). The layout lives behind the launcher seam

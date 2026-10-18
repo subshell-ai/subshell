@@ -41,6 +41,11 @@ async function makeSubshell(userId: string): Promise<string> {
 /**
  * Workspace CRUD is owner-scoped rather than admin-gated: another user's
  * workspace must read as 404, not 403, so ids cannot be probed.
+ *
+ * The draft machinery is gone (spec 2026-10-17): a workspace exists exactly
+ * as long as it holds a tab, names are free to repeat, and adding a subshell
+ * the workspace already holds answers with the existing pane rather than a
+ * second one.
  */
 describe("workspaces route", () => {
   let ownerId: string;
@@ -82,25 +87,51 @@ describe("workspaces route", () => {
     await deleteUserByEmailOrId(otherEmail);
   });
 
-  it("validates search and auxiliary inputs even without a draft search", async () => {
+  /** POSTs a workspace and returns its id. */
+  async function createWorkspace(token: string, name: string): Promise<string> {
+    const res = await workspaceRoutes.fetch(
+      authedRequest("/api/workspaces", token, { method: "POST", body: JSON.stringify({ name }) }),
+    );
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  /** Adds a pane and returns its id. */
+  async function addPane(token: string, workspaceId: string, subshellId: string): Promise<string> {
+    const res = await workspaceRoutes.fetch(
+      authedRequest(`/api/workspaces/${workspaceId}/panes`, token, {
+        method: "POST",
+        body: JSON.stringify({ subshellId }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  /** Whether a workspace still answers its detail route (200 present / 404 gone). */
+  async function stillThere(token: string, id: string): Promise<boolean> {
+    const res = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${id}`, token));
+    return res.status === 200;
+  }
+
+  it("validates search and auxiliary inputs", async () => {
     const app = new Elysia().use(errorHandlerPlugin).use(workspaceRoutes);
     const token = await signIn(ownerEmail, password);
     for (const [params, expected] of [
       [{ q: "x".repeat(120) }, 200],
       [{ q: "x".repeat(121) }, 400],
       [{ subshellId: "x".repeat(129) }, 400],
-      [{ locale: "bad_locale" }, 400],
-      [{ timeZone: "bad/timezone" }, 400],
-      [{ locale: "x".repeat(129) }, 400],
-      [{ timeZone: "x".repeat(129) }, 400],
-      [{ drafts: "all" }, 400],
+      // The draft era's params (locale/timeZone/drafts) left the schema; a
+      // stale client sending them gets the unfiltered list, not an error.
+      [{ drafts: "only" }, 200],
+      [{ locale: "en-US", timeZone: "America/Los_Angeles" }, 200],
     ] as const) {
       const response = await app.fetch(authedRequest(`/api/workspaces?${new URLSearchParams(params)}`, token));
       expect(response.status).toBe(expected);
     }
   });
 
-  it("searches saved workspaces within the owner's list", async () => {
+  it("searches workspaces within the owner's list", async () => {
     const token = await signIn(ownerEmail, password);
     const other = await signIn(otherEmail, password);
     const id = await createWorkspace(token, "Needle & saved");
@@ -113,34 +144,30 @@ describe("workspaces route", () => {
     expect(((await response.json()) as { id: string }[]).map((w) => w.id)).toEqual([id]);
   });
 
-  /** POSTs a workspace and returns its id. */
-  async function createWorkspace(token: string, name: string): Promise<string> {
-    const res = await workspaceRoutes.fetch(
-      authedRequest("/api/workspaces", token, { method: "POST", body: JSON.stringify({ name }) }),
-    );
-    expect(res.status).toBe(200);
-    return ((await res.json()) as { id: string }).id;
-  }
-
   it("anonymous -> 401", async () => {
     const res = await workspaceRoutes.fetch(new Request("http://localhost:3080/api/workspaces"));
     expect(res.status).toBe(401);
   });
 
-  it("creates a workspace and lists it back", async () => {
+  it("creates a workspace and lists it back, with its panes inline", async () => {
     const token = await signIn(ownerEmail, password);
     const name = `ws-${crypto.randomUUID().slice(0, 8)}`;
     const id = await createWorkspace(token, name);
+    const subshellId = await makeSubshell(ownerId);
+    await addPane(token, id, subshellId);
 
     const list = await workspaceRoutes.fetch(authedRequest("/api/workspaces", token));
-    const body = (await list.json()) as { id: string; name: string }[];
-    expect(body.some((w) => w.id === id && w.name === name)).toBe(true);
+    const body = (await list.json()) as { id: string; name: string; panes: { subshellId: string }[] }[];
+    const row = body.find((w) => w.id === id);
+    expect(row?.name).toBe(name);
+    // The rail tree renders from this one request: panes ride the list rows.
+    expect(row?.panes.map((p) => p.subshellId)).toEqual([subshellId]);
   });
 
   it("a workspace name goes through the shared label rule — and an unusable one is a 400", async () => {
-    // Workspace names render in every pane header the user shares a workspace
-    // with, and the draft-name collision index compares them. Both asked for
-    // the label rule; the create path only had a minLength.
+    // Workspace names render in every pane header the user works under. The
+    // label rule is the same one every other human string obeys; the create
+    // path only had a minLength.
     const token = await signIn(ownerEmail, password);
     const res = await workspaceRoutes.fetch(
       authedRequest("/api/workspaces", token, {
@@ -151,25 +178,33 @@ describe("workspaces route", () => {
     expect(res.status).toBe(200);
     expect(((await res.json()) as { name: string }).name).toBe("x [2K bad");
     const blank = await workspaceRoutes.fetch(
-      authedRequest("/api/workspaces", token, { method: "POST", body: JSON.stringify({ name: "\u200B\u200B" }) }),
+      authedRequest("/api/workspaces", token, { method: "POST", body: JSON.stringify({ name: "​​" }) }),
     );
     expect(blank.status).toBe(400);
   });
-  it("duplicate name for the same user -> 409, but another user may reuse it", async () => {
+
+  it("duplicate names are fine now, for the same user or anyone else", async () => {
+    // Names stopped being keys with the unique index gone (0058): auto-created
+    // workspaces reuse their default title, and every lookup is by id.
     const ownerToken = await signIn(ownerEmail, password);
     const otherToken = await signIn(otherEmail, password);
     const name = `dup-${crypto.randomUUID().slice(0, 8)}`;
     await createWorkspace(ownerToken, name);
 
-    const dup = await workspaceRoutes.fetch(
-      authedRequest("/api/workspaces", ownerToken, { method: "POST", body: JSON.stringify({ name }) }),
-    );
-    expect(dup.status).toBe(409);
-
-    const otherRes = await workspaceRoutes.fetch(
-      authedRequest("/api/workspaces", otherToken, { method: "POST", body: JSON.stringify({ name }) }),
-    );
-    expect(otherRes.status).toBe(200);
+    expect(
+      (
+        await workspaceRoutes.fetch(
+          authedRequest("/api/workspaces", ownerToken, { method: "POST", body: JSON.stringify({ name }) }),
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await workspaceRoutes.fetch(
+          authedRequest("/api/workspaces", otherToken, { method: "POST", body: JSON.stringify({ name }) }),
+        )
+      ).status,
+    ).toBe(200);
   });
 
   it("another user's workspace reads as 404, not 403", async () => {
@@ -245,27 +280,44 @@ describe("workspaces route", () => {
     expect(bad.status).toBe(404);
   });
 
+  it("adding the same subshell twice is the same tab, not a second one", async () => {
+    // The add is idempotent (regression #13 retired at the schema level): the
+    // second call answers 200 with the EXISTING pane id and alreadyPresent.
+    const token = await signIn(ownerEmail, password);
+    const id = await createWorkspace(token, `dedupe-${crypto.randomUUID().slice(0, 8)}`);
+    const subshellId = await makeSubshell(ownerId);
+
+    const first = await workspaceRoutes.fetch(
+      authedRequest(`/api/workspaces/${id}/panes`, token, { method: "POST", body: JSON.stringify({ subshellId }) }),
+    );
+    const firstBody = (await first.json()) as { id: string; alreadyPresent: boolean };
+    expect(firstBody.alreadyPresent).toBe(false);
+
+    const second = await workspaceRoutes.fetch(
+      authedRequest(`/api/workspaces/${id}/panes`, token, { method: "POST", body: JSON.stringify({ subshellId }) }),
+    );
+    expect(second.status).toBe(200);
+    const secondBody = (await second.json()) as { id: string; alreadyPresent: boolean };
+    expect(secondBody.alreadyPresent).toBe(true);
+    expect(secondBody.id).toBe(firstBody.id);
+
+    const detail = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${id}`, token));
+    expect(((await detail.json()) as { panes: unknown[] }).panes).toHaveLength(1);
+  });
+
   it("removes a pane, and removing it again 404s", async () => {
     const ownerToken = await signIn(ownerEmail, password);
     const id = await createWorkspace(ownerToken, `remove-pane-${crypto.randomUUID().slice(0, 8)}`);
-    const subshellId = await makeSubshell(ownerId);
-
-    const added = await workspaceRoutes.fetch(
-      authedRequest(`/api/workspaces/${id}/panes`, ownerToken, {
-        method: "POST",
-        body: JSON.stringify({ subshellId }),
-      }),
-    );
-    expect(added.status).toBe(200);
-    const paneId = ((await added.json()) as { id: string }).id;
-
-    const beforeDelete = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${id}`, ownerToken));
-    expect(((await beforeDelete.json()) as { panes: { id: string }[] }).panes.map((p) => p.id)).toContain(paneId);
+    const keep = await makeSubshell(ownerId);
+    const drop = await makeSubshell(ownerId);
+    await addPane(ownerToken, id, keep);
+    const paneId = await addPane(ownerToken, id, drop);
 
     const del = await workspaceRoutes.fetch(
       authedRequest(`/api/workspaces/${id}/panes/${paneId}`, ownerToken, { method: "DELETE" }),
     );
     expect(del.status).toBe(200);
+    expect(await del.json()).toEqual({ ok: true, workspaceDeleted: false });
 
     const afterDelete = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${id}`, ownerToken));
     expect(((await afterDelete.json()) as { panes: { id: string }[] }).panes.map((p) => p.id)).not.toContain(paneId);
@@ -274,6 +326,25 @@ describe("workspaces route", () => {
       authedRequest(`/api/workspaces/${id}/panes/${paneId}`, ownerToken, { method: "DELETE" }),
     );
     expect(redelete.status).toBe(404);
+  });
+
+  it("removing the LAST pane retires the workspace with it", async () => {
+    // "A workspace exists exactly as long as it holds a tab" — the rule that
+    // replaces the old draft-only thin-draft discard, applied to every
+    // workspace alike.
+    const token = await signIn(ownerEmail, password);
+    const id = await createWorkspace(token, `last-tab-${crypto.randomUUID().slice(0, 8)}`);
+    const paneId = await addPane(token, id, await makeSubshell(ownerId));
+
+    const del = await workspaceRoutes.fetch(
+      authedRequest(`/api/workspaces/${id}/panes/${paneId}`, token, { method: "DELETE" }),
+    );
+    expect(del.status).toBe(200);
+    expect(await del.json()).toEqual({ ok: true, workspaceDeleted: true });
+
+    expect(await stillThere(token, id)).toBe(false);
+    const list = await workspaceRoutes.fetch(authedRequest("/api/workspaces", token));
+    expect(((await list.json()) as { id: string }[]).map((w) => w.id)).not.toContain(id);
   });
 
   it("pane rows carry the subshell's exit code (null while running, the code once dead)", async () => {
@@ -434,314 +505,110 @@ describe("workspaces route", () => {
     expect(updated.subshellCount).toBe(2);
   });
 
-  /**
-   * Splitting a subshell creates an UNSAVED workspace (spec 2026-09-14): a
-   * normal workspace row carrying `draft`, hidden from the list until someone
-   * names it, and discarded again when it stops being a tiling of two things.
-   */
-  describe("drafts", () => {
-    /** POSTs a workspace with a body of the caller's choosing and returns the response. */
-    const post = (token: string, body: Record<string, unknown>) =>
-      workspaceRoutes.fetch(authedRequest("/api/workspaces", token, { method: "POST", body: JSON.stringify(body) }));
+  it("create with subshellId makes the first pane in the same call", async () => {
+    const token = await signIn(ownerEmail, password);
+    const subshellId = await makeSubshell(ownerId);
+    const res = await workspaceRoutes.fetch(
+      authedRequest("/api/workspaces", token, {
+        method: "POST",
+        body: JSON.stringify({ name: `first-pane-${crypto.randomUUID().slice(0, 8)}`, subshellId }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const created = (await res.json()) as { id: string; subshellCount: number };
+    expect(created.subshellCount).toBe(1);
 
-    /** Ids on `GET /api/workspaces`, optionally filtered by subshell. */
-    async function listIds(token: string, subshellId?: string): Promise<string[]> {
-      const path = subshellId ? `/api/workspaces?subshellId=${subshellId}` : "/api/workspaces";
-      const res = await workspaceRoutes.fetch(authedRequest(path, token));
-      expect(res.status).toBe(200);
-      return ((await res.json()) as { id: string }[]).map((w) => w.id);
-    }
+    const detail = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${created.id}`, token));
+    const body = (await detail.json()) as { panes: { subshellId: string }[] };
+    expect(body.panes.map((p) => p.subshellId)).toEqual([subshellId]);
+  });
 
-    /** Adds a pane and returns its id. */
-    async function addPane(token: string, workspaceId: string, subshellId: string): Promise<string> {
-      const res = await workspaceRoutes.fetch(
-        authedRequest(`/api/workspaces/${workspaceId}/panes`, token, {
-          method: "POST",
-          body: JSON.stringify({ subshellId }),
-        }),
-      );
-      expect(res.status).toBe(200);
-      return ((await res.json()) as { id: string }).id;
-    }
+  it("create with a subshell the caller cannot see 404s and leaves NO workspace row", async () => {
+    const ownerToken = await signIn(ownerEmail, password);
+    const name = `orphan-${crypto.randomUUID().slice(0, 8)}`;
+    const foreign = await makeSubshell(otherId);
 
-    it("searches draft labels in the browser's locale and time zone", async () => {
-      const token = await signIn(ownerEmail, password);
-      const first = await post(token, { name: "First draft", draft: true });
-      const second = await post(token, { name: "Duplicate name suffix", draft: true });
-      const firstId = ((await first.json()) as { id: string }).id;
-      const secondId = ((await second.json()) as { id: string }).id;
-      await db
-        .updateTable("workspaces")
-        .set({ createdAt: "2026-08-28T16:45:30.000Z" })
-        .where("id", "=", firstId)
-        .execute();
-      await db
-        .updateTable("workspaces")
-        .set({ createdAt: "2026-08-28T16:45:00.000Z" })
-        .where("id", "=", secondId)
-        .execute();
-      const search = async (q: string, timeZone = "America/Los_Angeles") =>
-        workspaceRoutes.fetch(
-          authedRequest(
-            `/api/workspaces?${new URLSearchParams({ q, drafts: "only", locale: "en-US", timeZone })}`,
-            token,
-          ),
-        );
-      const byDate = await search("9:45");
-      expect(((await byDate.json()) as { id: string }[]).map((w) => w.id)).toEqual([firstId, secondId]);
-      const bySuffix = await search("duplicate name");
-      expect(((await bySuffix.json()) as { id: string }[]).map((w) => w.id)).toEqual([secondId]);
-      expect((await search("test", "bad/timezone")).status).toBe(400);
-    });
+    const res = await workspaceRoutes.fetch(
+      authedRequest("/api/workspaces", ownerToken, {
+        method: "POST",
+        body: JSON.stringify({ name, subshellId: foreign }),
+      }),
+    );
+    expect(res.status).toBe(404);
 
-    it("a draft is absent from the workspace list, and says so on create", async () => {
-      const token = await signIn(ownerEmail, password);
-      const draftRes = await post(token, { name: `d-${crypto.randomUUID().slice(0, 8)}`, draft: true });
-      expect(draftRes.status).toBe(200);
-      const draft = (await draftRes.json()) as { id: string; draft: boolean };
-      expect(draft.draft).toBe(true);
+    // The check runs before the insert, so nothing was created to clean up —
+    // and the name is free, which is how the next attempt can reuse it.
+    const rows = await db.selectFrom("workspaces").select("id").where("name", "=", name).execute();
+    expect(rows).toEqual([]);
+  });
 
-      const savedId = await createWorkspace(token, `s-${crypto.randomUUID().slice(0, 8)}`);
-      const ids = await listIds(token);
-      expect(ids).toContain(savedId);
-      expect(ids).not.toContain(draft.id);
+  it("?subshellId= returns only the caller's workspaces holding that subshell", async () => {
+    const ownerToken = await signIn(ownerEmail, password);
+    const otherToken = await signIn(otherEmail, password);
+    const subshellId = await makeSubshell(ownerId);
 
-      // It is still reachable by URL — the page that made it lives there.
-      const detail = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${draft.id}`, token));
-      expect(detail.status).toBe(200);
-      expect(((await detail.json()) as { workspace: { draft: boolean } }).workspace.draft).toBe(true);
-    });
+    const first = await createWorkspace(ownerToken, `f-${crypto.randomUUID().slice(0, 8)}`);
+    const second = await createWorkspace(ownerToken, `f-${crypto.randomUUID().slice(0, 8)}`);
+    const unrelated = await createWorkspace(ownerToken, `f-${crypto.randomUUID().slice(0, 8)}`);
+    await addPane(ownerToken, first, subshellId);
+    await addPane(ownerToken, second, subshellId);
 
-    it("two drafts may share a name; two saved workspaces may not", async () => {
-      const token = await signIn(ownerEmail, password);
-      const name = `twin-${crypto.randomUUID().slice(0, 8)}`;
-      expect((await post(token, { name, draft: true })).status).toBe(200);
-      // The auto-name is the subshell's, so a second split from the same
-      // subshell must not 409 on a name the user never typed.
-      expect((await post(token, { name, draft: true })).status).toBe(200);
-      expect((await post(token, { name })).status).toBe(200);
-      expect((await post(token, { name })).status).toBe(409);
-    });
+    const filteredRes = await workspaceRoutes.fetch(
+      authedRequest(`/api/workspaces?subshellId=${subshellId}`, ownerToken),
+    );
+    const filtered = ((await filteredRes.json()) as { id: string }[]).map((w) => w.id);
+    expect(filtered.sort()).toEqual([first, second].sort());
+    expect(filtered).not.toContain(unrelated);
 
-    it("?subshellId= returns the caller's drafts and saved workspaces for that subshell, and nobody else's", async () => {
-      const ownerToken = await signIn(ownerEmail, password);
-      const otherToken = await signIn(otherEmail, password);
-      const subshellId = await makeSubshell(ownerId);
+    // 404-never-403 holds by simply being empty: the other user owns no
+    // workspace holding it, and learns nothing about whose subshell it is.
+    const otherRes = await workspaceRoutes.fetch(authedRequest(`/api/workspaces?subshellId=${subshellId}`, otherToken));
+    expect(((await otherRes.json()) as unknown[]).length).toBe(0);
+  });
 
-      const draftRes = await post(ownerToken, { name: `f-${crypto.randomUUID().slice(0, 8)}`, draft: true });
-      const draftId = ((await draftRes.json()) as { id: string }).id;
-      const savedId = await createWorkspace(ownerToken, `f-${crypto.randomUUID().slice(0, 8)}`);
-      const unrelatedId = await createWorkspace(ownerToken, `f-${crypto.randomUUID().slice(0, 8)}`);
-      await addPane(ownerToken, draftId, subshellId);
-      await addPane(ownerToken, savedId, subshellId);
+  it("a rename is normalized like the create — created clean cannot be renamed dirty", async () => {
+    const token = await signIn(ownerEmail, password);
+    const saved = await createWorkspace(token, `clean-${crypto.randomUUID().slice(0, 8)}`);
+    const res = await workspaceRoutes.fetch(
+      authedRequest(`/api/workspaces/${saved}`, token, {
+        method: "PUT",
+        body: JSON.stringify({ name: "  x\u001B[2K\u000Dbad  " }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { name: string }).name).toBe("x [2K bad");
+    const blank = await workspaceRoutes.fetch(
+      authedRequest(`/api/workspaces/${saved}`, token, {
+        method: "PUT",
+        body: JSON.stringify({ name: "​" }),
+      }),
+    );
+    expect(blank.status).toBe(400);
+    const after = (await (await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${saved}`, token))).json()) as {
+      workspace: { name: string };
+    };
+    expect(after.workspace.name).toBe("x [2K bad");
+  });
 
-      const filtered = await listIds(ownerToken, subshellId);
-      expect(filtered.sort()).toEqual([draftId, savedId].sort());
-      expect(filtered).not.toContain(unrelatedId);
+  it("PUT { draft: true } is inert now — the field is stripped, the row unchanged", async () => {
+    // The draft column is gone; Elysia drops undeclared body fields, so a
+    // stale client gets the no-op the old schema would have refused with 422.
+    const token = await signIn(ownerEmail, password);
+    const saved = await createWorkspace(token, `saved-${crypto.randomUUID().slice(0, 8)}`);
+    const res = await workspaceRoutes.fetch(
+      authedRequest(`/api/workspaces/${saved}`, token, { method: "PUT", body: JSON.stringify({ draft: true }) }),
+    );
+    expect(res.status).toBe(200);
+    const after = (await (await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${saved}`, token))).json()) as {
+      workspace: Record<string, unknown>;
+    };
+    expect(after.workspace).not.toHaveProperty("draft");
+  });
 
-      // 404-never-403 holds by simply being empty: the other user owns no
-      // workspace holding it, and learns nothing about whose subshell it is.
-      expect(await listIds(otherToken, subshellId)).toEqual([]);
-    });
-
-    it("create with subshellId makes the first pane in the same call", async () => {
-      const token = await signIn(ownerEmail, password);
-      const subshellId = await makeSubshell(ownerId);
-      const res = await post(token, { name: `split-${crypto.randomUUID().slice(0, 8)}`, draft: true, subshellId });
-      expect(res.status).toBe(200);
-      const created = (await res.json()) as { id: string; subshellCount: number };
-      expect(created.subshellCount).toBe(1);
-
-      const detail = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${created.id}`, token));
-      const body = (await detail.json()) as { panes: { subshellId: string }[] };
-      expect(body.panes.map((p) => p.subshellId)).toEqual([subshellId]);
-    });
-
-    it("create with a subshell the caller cannot see 404s and leaves NO workspace row", async () => {
-      const ownerToken = await signIn(ownerEmail, password);
-      const name = `orphan-${crypto.randomUUID().slice(0, 8)}`;
-      const foreign = await makeSubshell(otherId);
-
-      const res = await post(ownerToken, { name, draft: true, subshellId: foreign });
-      expect(res.status).toBe(404);
-
-      // The check runs before the insert, so nothing was created to clean up —
-      // and the name is free, which is how the next attempt can reuse it.
-      const rows = await db.selectFrom("workspaces").select("id").where("name", "=", name).execute();
-      expect(rows).toEqual([]);
-    });
-
-    it("PUT { name, draft: false } promotes a draft, and 409s on a name already saved", async () => {
-      const token = await signIn(ownerEmail, password);
-      const taken = `taken-${crypto.randomUUID().slice(0, 8)}`;
-      await createWorkspace(token, taken);
-
-      const draftId = ((await (await post(token, { name: "unsaved", draft: true })).json()) as { id: string }).id;
-
-      // Promotion is where the auto-name meets the unique index for the first
-      // time, so it answers with the rename endpoint's own 409.
-      const clash = await workspaceRoutes.fetch(
-        authedRequest(`/api/workspaces/${draftId}`, token, {
-          method: "PUT",
-          body: JSON.stringify({ name: taken, draft: false }),
-        }),
-      );
-      expect(clash.status).toBe(409);
-
-      const free = `free-${crypto.randomUUID().slice(0, 8)}`;
-      const ok = await workspaceRoutes.fetch(
-        authedRequest(`/api/workspaces/${draftId}`, token, {
-          method: "PUT",
-          body: JSON.stringify({ name: free, draft: false }),
-        }),
-      );
-      expect(ok.status).toBe(200);
-      const promoted = (await ok.json()) as { draft: boolean; name: string };
-      expect(promoted).toMatchObject({ draft: false, name: free });
-      expect(await listIds(token)).toContain(draftId);
-    });
-
-    it("a rename is normalized like the create — created clean cannot be renamed dirty", async () => {
-      const token = await signIn(ownerEmail, password);
-      const saved = await createWorkspace(token, `clean-${crypto.randomUUID().slice(0, 8)}`);
-      const res = await workspaceRoutes.fetch(
-        authedRequest(`/api/workspaces/${saved}`, token, {
-          method: "PUT",
-          body: JSON.stringify({ name: "  x\u001B[2K\u000Dbad  " }),
-        }),
-      );
-      expect(res.status).toBe(200);
-      expect(((await res.json()) as { name: string }).name).toBe("x [2K bad");
-      const blank = await workspaceRoutes.fetch(
-        authedRequest(`/api/workspaces/${saved}`, token, {
-          method: "PUT",
-          body: JSON.stringify({ name: "\u200B" }),
-        }),
-      );
-      expect(blank.status).toBe(400);
-      const after = (await (await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${saved}`, token))).json()) as {
-        workspace: { name: string };
-      };
-      expect(after.workspace.name).toBe("x [2K bad");
-    });
-
-    // Promotion is the ONLY transition. The schema says `t.Literal(false)`;
-    // this is what fails if it is ever loosened to a boolean.
-    it("PUT { draft: true } is refused — a saved workspace never becomes a draft", async () => {
-      const token = await signIn(ownerEmail, password);
-      const saved = await createWorkspace(token, `saved-${crypto.randomUUID().slice(0, 8)}`);
-      const res = await workspaceRoutes.fetch(
-        authedRequest(`/api/workspaces/${saved}`, token, { method: "PUT", body: JSON.stringify({ draft: true }) }),
-      );
-      expect(res.status).toBe(422);
-      const after = (await (await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${saved}`, token))).json()) as {
-        workspace: { draft: boolean };
-      };
-      expect(after.workspace.draft).toBe(false);
-    });
-
-    it("removing a pane from a two-pane draft deletes the draft", async () => {
-      const token = await signIn(ownerEmail, password);
-      const first = await makeSubshell(ownerId);
-      const second = await makeSubshell(ownerId);
-      const id = ((await (await post(token, { name: "two", draft: true, subshellId: first })).json()) as { id: string })
-        .id;
-      const paneId = await addPane(token, id, second);
-
-      const del = await workspaceRoutes.fetch(
-        authedRequest(`/api/workspaces/${id}/panes/${paneId}`, token, { method: "DELETE" }),
-      );
-      expect(del.status).toBe(200);
-      expect(await del.json()).toEqual({ ok: true, workspaceDeleted: true });
-
-      const gone = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${id}`, token));
-      expect(gone.status).toBe(404);
-    });
-
-    it("removing a pane from a two-pane SAVED workspace keeps it", async () => {
-      const token = await signIn(ownerEmail, password);
-      const id = await createWorkspace(token, `keep-${crypto.randomUUID().slice(0, 8)}`);
-      const paneId = await addPane(token, id, await makeSubshell(ownerId));
-      await addPane(token, id, await makeSubshell(ownerId));
-
-      const del = await workspaceRoutes.fetch(
-        authedRequest(`/api/workspaces/${id}/panes/${paneId}`, token, { method: "DELETE" }),
-      );
-      expect(del.status).toBe(200);
-      expect(await del.json()).toEqual({ ok: true, workspaceDeleted: false });
-
-      const still = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${id}`, token));
-      expect(still.status).toBe(200);
-      expect(((await still.json()) as { panes: unknown[] }).panes).toHaveLength(1);
-    });
-
-    /** Whether a workspace still answers its detail route (200 present / 404 gone). */
-    async function stillThere(token: string, id: string): Promise<boolean> {
-      const res = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${id}`, token));
-      return res.status === 200;
-    }
-
-    it("DELETE /drafts discards every draft EXCEPT the one named, sparing saved", async () => {
-      const token = await signIn(ownerEmail, password);
-      const draftA = ((await (await post(token, { name: "a", draft: true })).json()) as { id: string }).id;
-      const draftB = ((await (await post(token, { name: "b", draft: true })).json()) as { id: string }).id;
-      const savedId = await createWorkspace(token, `keep-${crypto.randomUUID().slice(0, 8)}`);
-
-      const res = await workspaceRoutes.fetch(
-        authedRequest(`/api/workspaces/drafts?except=${draftB}`, token, { method: "DELETE" }),
-      );
-      expect(res.status).toBe(200);
-      expect(((await res.json()) as { discarded: number }).discarded).toBe(1);
-      expect(await stillThere(token, draftA)).toBe(false);
-      expect(await stillThere(token, draftB)).toBe(true);
-      // The bulk verb never reaches a saved workspace.
-      expect(await stillThere(token, savedId)).toBe(true);
-    });
-
-    it("DELETE /drafts with no except discards all of the caller's drafts, and nobody else's", async () => {
-      const ownerToken = await signIn(ownerEmail, password);
-      const otherToken = await signIn(otherEmail, password);
-      const mine = ((await (await post(ownerToken, { name: "mine", draft: true })).json()) as { id: string }).id;
-      const mine2 = ((await (await post(ownerToken, { name: "mine2", draft: true })).json()) as { id: string }).id;
-      const theirs = ((await (await post(otherToken, { name: "theirs", draft: true })).json()) as { id: string }).id;
-
-      const res = await workspaceRoutes.fetch(
-        authedRequest("/api/workspaces/drafts", ownerToken, { method: "DELETE" }),
-      );
-      expect(((await res.json()) as { discarded: number }).discarded).toBe(2);
-      expect(await stillThere(ownerToken, mine)).toBe(false);
-      expect(await stillThere(ownerToken, mine2)).toBe(false);
-      // Owner-scoped: another user's draft is untouched.
-      expect(await stillThere(otherToken, theirs)).toBe(true);
-    });
-
-    it("?drafts=only returns every draft and no saved (the rail's Drafts section)", async () => {
-      const token = await signIn(ownerEmail, password);
-      const d1 = ((await (await post(token, { name: "d1", draft: true })).json()) as { id: string }).id;
-      const d2 = ((await (await post(token, { name: "d2", draft: true })).json()) as { id: string }).id;
-      const savedId = await createWorkspace(token, `s-only-${crypto.randomUUID().slice(0, 8)}`);
-
-      const res = await workspaceRoutes.fetch(authedRequest("/api/workspaces?drafts=only", token));
-      expect(res.status).toBe(200);
-      const rows = (await res.json()) as { id: string; draft: boolean }[];
-      expect(rows.map((r) => r.id).sort()).toEqual([d1, d2].sort());
-      expect(rows.every((r) => r.draft)).toBe(true);
-      expect(rows.map((r) => r.id)).not.toContain(savedId);
-    });
-
-    it("DELETE /drafts is cookie-only — a subshell bearer is refused", async () => {
-      const subshellId = await makeSubshell(ownerId);
-      const key = await issueSubshellToken(subshellId, ownerId);
-      const apiKeyId = (await new SubshellsRepository(db).findById(subshellId))?.apiKeyId;
-      const res = await workspaceRoutes.fetch(
-        new Request("http://localhost:3080/api/workspaces/drafts", {
-          method: "DELETE",
-          headers: { authorization: `Bearer ${key}` },
-        }),
-      );
-      expect(res.status).toBe(403);
-      if (apiKeyId) authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [apiKeyId]);
-    });
+  it("DELETE /api/workspaces/drafts is gone — it reads as an unknown id 404", async () => {
+    const token = await signIn(ownerEmail, password);
+    const res = await workspaceRoutes.fetch(authedRequest("/api/workspaces/drafts", token, { method: "DELETE" }));
+    expect(res.status).toBe(404);
   });
 
   // F4 (security audit 2026-08): /api/workspaces is a browser-only surface —
