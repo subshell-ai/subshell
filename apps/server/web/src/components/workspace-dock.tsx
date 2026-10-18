@@ -11,12 +11,12 @@ import { apiFetch, Button, errMessage } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { type JSX, type DragEvent as ReactDragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
+import { PaneFocusHeader } from "@/components/pane-focus-header";
 import { SubshellPicker } from "@/components/subshell-picker";
 import { type WorkspaceDockContextValue, WorkspaceDockProvider } from "@/components/workspace-dock/context";
 import { DockedPane, type DockedPaneParams } from "@/components/workspace-dock/docked-pane";
 import { GroupHeaderActions } from "@/components/workspace-dock/group-header-actions";
 import { SubshellTab } from "@/components/workspace-dock/subshell-tab";
-import { WorkspaceHeader } from "@/components/workspace-header";
 import { useDebouncedSave } from "@/hooks/use-debounced-save";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { confirmCloseSubshell } from "@/lib/subshell-confirmations";
@@ -493,8 +493,8 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
           per-tile, and this control adds panes that belong to no particular
           one. It used to float over the bottom-right tile, where it covered
           that subshell's output. */}
-      <WorkspaceHeader
-        workspace={detail.workspace}
+      <PaneFocusHeader
+        fallbackName={detail.workspace.name}
         panes={detail.panes}
         actions={<SubshellPicker workspaceId={detail.workspace.id} existing={detail.panes} onAdd={handleAdd} />}
       />

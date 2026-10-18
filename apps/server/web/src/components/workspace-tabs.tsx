@@ -3,11 +3,11 @@ import { useNavigate } from "@tanstack/react-router";
 import { X } from "lucide-react";
 import { type JSX, useEffect, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
+import { PaneFocusHeader } from "@/components/pane-focus-header";
 import { SubshellDot } from "@/components/subshell-dot";
 import { SubshellPane } from "@/components/subshell-pane";
 import { SubshellPicker } from "@/components/subshell-picker";
 import { TabWaitingMarker } from "@/components/workspace-dock/subshell-tab";
-import { WorkspaceHeader } from "@/components/workspace-header";
 import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { isPaneWaiting } from "@/lib/subshell-order";
@@ -248,8 +248,8 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
 
   return (
     <>
-      <WorkspaceHeader
-        workspace={detail.workspace}
+      <PaneFocusHeader
+        fallbackName={detail.workspace.name}
         panes={detail.panes}
         actions={<SubshellPicker workspaceId={detail.workspace.id} existing={detail.panes} onAdd={handleAdd} />}
       />

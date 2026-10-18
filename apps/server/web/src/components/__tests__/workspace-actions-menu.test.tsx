@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
+import { setFetchRouter } from "@/test-setup";
 import type { WorkspaceRow } from "@/types/workspace";
 
 const workspace: WorkspaceRow = {
@@ -51,15 +52,16 @@ async function renderRow() {
 describe("WorkspaceActionsMenu — context mode (spec 2026-09-03)", () => {
   afterEach(cleanup);
 
-  it("right-click offers the curated set — new tab, QR, delete; not the redundant 'Open'", async () => {
+  it("right-click offers the curated set — new tab, QR, rename, delete; not the redundant 'Open'", async () => {
     await renderRow();
     expect(screen.getByText("ws row")).toBeDefined();
     fireEvent.contextMenu(screen.getByText("ws row"));
-    await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(3));
+    await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(4));
     expect(screen.getByRole("menuitem", { name: "Open in new tab" })).toBeDefined();
     // "Open this one somewhere else", the somewhere else being a phone —
     // sidebar-flagged for the same reason "Open in new tab" is (2026-09-19).
     expect(screen.getByRole("menuitem", { name: "QR code…" })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: "Rename…" })).toBeDefined();
     expect(screen.getByRole("menuitem", { name: "Delete workspace" })).toBeDefined();
     // The row itself is the Open link — offering "Open" again would be noise.
     expect(screen.queryByRole("menuitem", { name: "Open" })).toBeNull();
@@ -87,8 +89,48 @@ describe("WorkspaceActionsMenu — context mode (spec 2026-09-03)", () => {
       </QueryClientProvider>,
     );
     fireEvent.keyDown(screen.getByRole("button", { name: "Actions for demo ws" }), { key: "ArrowDown" });
-    await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(4));
+    await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(5));
     expect(screen.getByRole("menuitem", { name: "Open" })).toBeDefined();
     expect(screen.getByRole("menuitem", { name: "QR code…" })).toBeDefined();
+  });
+});
+
+describe("renaming from the menu (spec 2026-10-17)", () => {
+  afterEach(() => {
+    cleanup();
+    setFetchRouter(null);
+  });
+
+  it("opens prefilled, PUTs the new name, and closes", async () => {
+    const puts: string[] = [];
+    setFetchRouter(async (input: RequestInfo | URL) => {
+      const url = String(typeof input === "string" || input instanceof URL ? input : input.url);
+      if (url.includes("/api/workspaces/w-1")) {
+        puts.push(url);
+        return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
+    });
+    await renderRow();
+    fireEvent.contextMenu(screen.getByText("ws row"));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename…" }));
+    const field = await screen.findByRole("textbox", { name: "Workspace name" });
+    // Prefilled with the current name: editing a name means changing a few
+    // characters, not retyping the row.
+    expect((field as HTMLInputElement).value).toBe("demo ws");
+    fireEvent.change(field, { target: { value: "Deck 2026-10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(puts).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Workspace name" })).toBeNull());
+  });
+
+  it("disables Save on an empty name", async () => {
+    setFetchRouter(async () => new Response("[]", { status: 200, headers: { "content-type": "application/json" } }));
+    await renderRow();
+    fireEvent.contextMenu(screen.getByText("ws row"));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename…" }));
+    const field = await screen.findByRole("textbox", { name: "Workspace name" });
+    fireEvent.change(field, { target: { value: "   " } });
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

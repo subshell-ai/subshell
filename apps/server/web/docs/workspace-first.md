@@ -75,11 +75,20 @@ instead (`currentWorkspaceId()` rides the create body). The one-shot is CONSUMED
 on read and reset with the dialog, so an abandoned launch does not make the
 next one a workspace-maker.
 
-## Pane focus in the header
+## The pane-focus bar and renaming
 
-The workspace header offers the focused pane's shared `SubshellActionsMenu` in
-both dock and phone-tab presentations. Focus must name a pane in the current
-workspace; a stale focus from another workspace cannot expose its actions.
-Changing the focused subshell remounts the menu, closing dialogs for the old
-pane. Insert prompt keeps the existing permissions and confirmation flow, and
-touch copy mode uses the same persisted per-subshell setting as the key bar.
+The bar above the dock is the FOCUSED PANE's subshell header
+(`components/pane-focus-header.tsx`), not a workspace title bar: dot, editable
+name, working directory, the pane's disclosures and its shared
+`SubshellActionsMenu` (spec 2026-10-17; the workspace header component is
+deleted). Focus arrives through `lib/workspace-focus` and must name a pane of
+the CURRENT workspace; a stale focus from another workspace hoists nothing.
+Changing the focused pane remounts the edit control and the menu (`key`), so
+dialogs never outlive the pane they named. Insert prompt keeps the existing
+permissions and confirmation flow, and touch copy mode uses the same persisted
+per-subshell setting as the key bar.
+
+The workspace's own NAME has no control on the page any more. It is edited
+from the context menu that wraps both the rail tree row and the `/workspaces`
+card (`Rename…` in `components/workspace-actions-menu.tsx`, which owns the
+PUT), and shown in plain on the bar only while the workspace holds no pane.

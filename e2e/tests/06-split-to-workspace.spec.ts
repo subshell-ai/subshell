@@ -76,6 +76,7 @@ test("split a subshell into a real, named workspace", async ({ page }) => {
   test.setTimeout(180_000);
   const attempt = test.info().retry;
   const subshellName = `e2e-split-${attempt}`;
+  const workspaceName = `e2e-split-ws-${attempt}`;
 
   await launchSubshell(page, subshellName);
   const rootSubshellId = idFromUrl(page);
@@ -115,10 +116,17 @@ test("split a subshell into a real, named workspace", async ({ page }) => {
   await expect(page.locator(".dv-default-tab")).toHaveCount(2, { timeout: SPAWN_TIMEOUT });
   await expect(page).not.toHaveURL(/[?&]add=/, { timeout: SPAWN_TIMEOUT });
 
-  // There is no unsaved state to graduate from: the header already wears the
-  // name the split chose (the split's subshell, spec 2026-10-17), and the row
-  // is in every list the moment the POST answered.
-  await expect(page.getByRole("button", { name: "Rename workspace" })).toHaveText(subshellName);
+  // There is no unsaved state to graduate from: the row is in every list the
+  // moment the POST answered, named after the split's subshell (spec
+  // 2026-10-17). The bar above the dock wears the FOCUSED PANE's subshell
+  // header now, not the workspace's (the workspace name edits from the rail's
+  // context menu), so the name is checked server-side and the bar is checked
+  // to be a pane header.
+  const created = (await (await page.request.get(`/api/workspaces/${workspaceId}`)).json()) as {
+    workspace: { name: string };
+  };
+  expect(created.workspace.name).toBe(subshellName);
+  await expect(page.getByRole("button", { name: "Rename subshell" })).toBeVisible();
   const holding = await workspacesHolding(page, rootSubshellId);
   expect(holding.map((w) => w.id)).toEqual([workspaceId]);
   // The LIST now carries each workspace's panes (the sidebar tree renders
@@ -141,7 +149,19 @@ test("split a subshell into a real, named workspace", async ({ page }) => {
   // Regression #13: a reload with the params already gone must not re-add.
   await page.reload();
   await expect(page.locator(".dv-default-tab")).toHaveCount(2, { timeout: SPAWN_TIMEOUT });
-  await expect(page.getByRole("button", { name: "Rename workspace" })).toHaveText(subshellName);
+  // Back on the still-named workspace with a pane header on top; renaming
+  // itself is a rail-menu act now.
+  await expect(page.getByRole("button", { name: "Rename subshell" })).toBeVisible();
+  await page.locator(`aside a[href="/workspaces/${workspaceId}"]`).first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Rename…" }).click();
+  const renameDialog = page.getByRole("dialog");
+  await expect(renameDialog.getByRole("heading", { name: "Rename workspace" })).toBeVisible();
+  await renameDialog.getByRole("textbox", { name: "Workspace name" }).fill(`${workspaceName}-renamed`);
+  await renameDialog.getByRole("button", { name: "Save" }).click();
+  const renamed = (await (await page.request.get(`/api/workspaces/${workspaceId}`)).json()) as {
+    workspace: { name: string };
+  };
+  expect(renamed.workspace.name).toBe(`${workspaceName}-renamed`);
 
   // Cleaning up by DELETE rather than by closing tabs: the self-retire the
   // next test pins deliberately would fire here too, and deleting the subshells
@@ -181,7 +201,13 @@ test("removing a pane leaves the workspace; removing its last tab retires it", a
   await expect(page).toHaveURL(/\/workspaces\/.+/, { timeout: SPAWN_TIMEOUT });
   const workspaceId = idFromUrl(page);
   await expect(page.locator(".dv-default-tab")).toHaveCount(2, { timeout: SPAWN_TIMEOUT });
-  await expect(page.getByRole("button", { name: "Rename workspace" })).toHaveText(rootName);
+  // The bar is the focused pane's subshell header (no workspace title bar any
+  // more, spec 2026-10-17); the workspace keeps its name in the server's row.
+  await expect(page.getByRole("button", { name: "Rename subshell" })).toBeVisible();
+  const named = (await (await page.request.get(`/api/workspaces/${workspaceId}`)).json()) as {
+    workspace: { name: string };
+  };
+  expect(named.workspace.name).toBe(rootName);
 
   // Under the old draft model a two-pane split was an unsaved arrangement and
   // closing either tab threw the whole thing away. Since spec 2026-10-17 a

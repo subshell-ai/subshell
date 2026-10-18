@@ -35,7 +35,7 @@ export const Route = createFileRoute("/workspaces_/$id")({
  * keeps the dock rather than paying phone chrome for a mouse it is holding —
  * one rule with the stacked header, `useIsPhoneLayout`.
  *
- * Each presentation renders `<WorkspaceHeader>` itself, with its own
+ * Each presentation renders `<PaneFocusHeader>` itself, with its own
  * `<SubshellPicker>` in the header's actions slot — only the presentation
  * knows how to add a pane (the dock splits, the tab strip appends), so the
  * bar is shared but the control that lives in it is not.

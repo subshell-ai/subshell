@@ -8,11 +8,11 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { WorkspaceHeader } from "@/components/workspace-header";
+import { PaneFocusHeader } from "@/components/pane-focus-header";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import { resetWorkspaceFocusForTests, setWorkspaceFocusedId } from "@/lib/workspace-focus";
 import type { SubshellView } from "@/types/subshell";
-import type { WorkspacePaneRow, WorkspaceRow } from "@/types/workspace";
+import type { WorkspacePaneRow } from "@/types/workspace";
 
 const originalFetch = globalThis.fetch;
 afterEach(() => {
@@ -56,20 +56,12 @@ async function header(rows: SubshellView[]) {
     new Response(JSON.stringify(String(input).includes("/api/prompts") ? { own: [], shared: [] } : []), {
       headers: { "content-type": "application/json" },
     })) as unknown as typeof fetch;
-  const workspace: WorkspaceRow = {
-    id: "w1",
-    name: "My workspace",
-    layout: null,
-    subshellCount: rows.length,
-    createdAt: "2026-10-01",
-    updatedAt: "2026-10-01",
-  };
   const panes = rows.map((r) => ({ id: `pane-${r.id}`, subshellId: r.id })) as WorkspacePaneRow[];
   const root = createRootRoute();
   const index = createRoute({
     getParentRoute: () => root,
     path: "/",
-    component: () => <WorkspaceHeader workspace={workspace} panes={panes} />,
+    component: () => <PaneFocusHeader fallbackName="My workspace" panes={panes} />,
   });
   const router = createRouter({
     routeTree: root.addChildren([index]),
@@ -111,4 +103,21 @@ it("does not expose actions for a stale focus outside this workspace", async () 
   // global focus, not just the ring.
   expect(await screen.findByText("My workspace")).toBeTruthy();
   expect(screen.queryByRole("button", { name: /Actions for/ })).toBeNull();
+});
+
+it("wears the focused pane's subshell header — dot, editable name, working dir", async () => {
+  setWorkspaceFocusedId("first");
+  await header([row("first"), row("second")]);
+  // The bar shows the PANE's identity, not the workspace's: the name edits
+  // as a subshell (spec 2026-10-17; the workspace name lives in the rail menu).
+  const title = await screen.findByRole("button", { name: "Rename subshell" });
+  expect(title.textContent).toBe("first");
+  expect(screen.queryByRole("button", { name: "Rename workspace" })).toBeNull();
+});
+
+it("shows the workspace's plain name only while no pane has focus", async () => {
+  await header([]);
+  expect(await screen.findByText("My workspace")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Rename subshell" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Rename workspace" })).toBeNull();
 });

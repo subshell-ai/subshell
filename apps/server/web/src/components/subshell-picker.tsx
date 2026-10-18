@@ -40,7 +40,7 @@ export function SubshellPicker({ existing, onAdd }: SubshellPickerProps): JSX.El
   const [open, setOpen] = useState(false);
   // The stacked (phone) header shares its top row with Save/Discard and the nav
   // chrome, so this drops to a bare "+" icon (the aria-label still names it).
-  // Matches how `workspace-header` compacts its own draft actions.
+  // Icon-only, like every other control in the pane bar (see `pane-focus-header`).
   const stacked = useIsStackedHeader();
 
   return (
