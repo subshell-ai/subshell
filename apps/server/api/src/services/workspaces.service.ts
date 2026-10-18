@@ -126,6 +126,23 @@ export class WorkspacesService extends BaseService {
   }
 
   /**
+   * The ids of every subshell the caller can see, as a set. Both workspace
+   * reads run their panes through this (review 2026-10-17): a pane filed
+   * while a share was open keeps pointing at someone else's session after
+   * the grant closes, and a read that joined its name, directory and live
+   * state unconditionally kept re-disclosing exactly what the revocation
+   * withdrew. `listVisibleTo` is the same resolver the subshells list
+   * answers with, so a revoked pane simply leaves the tree and the dock the
+   * way the revoked subshell leaves the list. The pane ROW stays: the grant
+   * may come back, and a vanished tab is a case the client already handles
+   * (it is what a subshell delete does to every workspace holding the pane).
+   */
+  async #visibleSubshellIds(userId: string): Promise<Set<string>> {
+    const visible = await this.repos.subshells.listVisibleTo(userId);
+    return new Set(visible.map((s) => s.id));
+  }
+
+  /**
    * Creates a workspace for the caller, optionally with its first pane already
    * in it — the shape "open a workspace holding this pane" needs, so the
    * browser lands on a dock that already holds the subshell it came from.
@@ -181,6 +198,14 @@ export class WorkspacesService extends BaseService {
       // The compensating delete stands in for the transaction this codebase
       // has no helper for. Its own failure must not mask the real error.
       await this.repos.workspaces.delete(created.id).catch(() => {});
+      // The same retirement race `addWorkspacePane` answers: the row was
+      // momentarily empty between the two writes, and a sweep (or a tab
+      // closed in another window) took it out before the pane landed. The FK
+      // refusal means "the workspace you asked about is gone" — the plain
+      // 404, never a raw driver error as a 500 (review 2026-10-17).
+      if (err instanceof Error && err.message.includes("FOREIGN KEY")) {
+        throw new WorkspacesError("not_found", "Workspace not found", 404);
+      }
       throw err;
     }
     return toWorkspaceResponse(created, 1);
@@ -191,7 +216,10 @@ export class WorkspacesService extends BaseService {
    * membership order — the rail tree renders the whole workspace branch from
    * this one request (spec 2026-10-17). `subshellId` narrows to the workspaces
    * holding that subshell, ordered by recency: that is the pane-header link's
-   * "which of my arrangements is this pane in".
+   * "which of my arrangements is this pane in". Panes whose subshell the
+   * caller can no longer see are omitted from `panes` — the same
+   * `listVisibleTo` rule the pane-add guard applies, now on reads; the row
+   * and its workspace survive.
    *
    * @param userId - Owner whose workspaces to list
    * @param opts.subshellId - Restrict to workspaces holding a pane for this subshell
@@ -200,12 +228,17 @@ export class WorkspacesService extends BaseService {
     const workspaces = opts?.subshellId
       ? await this.repos.workspaces.listBySubshellForUser(userId, opts.subshellId)
       : await this.repos.workspaces.listByUser(userId);
-    // Two queries regardless of list size: the rows, then every pane of the
-    // user joined with its subshell — grouping the flat pane list in memory
-    // beats an N+1 per workspace.
+    // Three queries regardless of list size: the rows, every pane of the
+    // user joined with its subshell, and the caller's visible subshell ids —
+    // grouping the flat pane list in memory beats an N+1 per workspace.
     const paneRows = await this.repos.workspacePanes.listForUserWithSubshells(userId);
+    const visible = await this.#visibleSubshellIds(userId);
     const byWorkspace = new Map<string, WorkspacePaneView[]>();
     for (const row of paneRows) {
+      // A pane whose subshell the caller can no longer see (the share closed)
+      // carries nothing here; `subshellCount` counts what is shown, not the
+      // rows still held server-side.
+      if (!visible.has(row.subshellId)) continue;
       const list = byWorkspace.get(row.workspaceId) ?? [];
       list.push({
         id: row.id,
@@ -237,8 +270,14 @@ export class WorkspacesService extends BaseService {
 
     const paneRows = await this.repos.workspacePanes.listByWorkspace(workspace.id);
     const subshellsRepo = this.repos.subshells;
+    // Same visibility screen as the list: a pane whose subshell the caller lost
+    // access to drops out of `panes`, and because the layout below prunes
+    // against the surviving ids, its tile leaves the dock too rather than
+    // rendering a dead tab.
+    const visible = await this.#visibleSubshellIds(userId);
     const panes: WorkspacePaneView[] = [];
     for (const pane of paneRows) {
+      if (!visible.has(pane.subshellId)) continue;
       const subshell = await subshellsRepo.findById(pane.subshellId);
       // The FK cascade means the subshell always exists; the guard keeps the
       // types honest rather than covering a real case.

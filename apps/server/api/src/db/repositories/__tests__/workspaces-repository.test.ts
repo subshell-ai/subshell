@@ -123,18 +123,43 @@ describe("workspaces repository", () => {
     expect(await workspaces.listByUser("u1")).toHaveLength(2);
   });
 
-  it("retireEmptyForUser deletes the owner's pane-less workspaces and counts them", async () => {
+  it("retireEmptyAmong deletes only the candidates that are now pane-less", async () => {
     const filled = await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "Filled" });
-    await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "Empty" });
+    const emptied = await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "Emptied" });
+    const untouched = await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "Placeholder" });
     const foreignEmpty = await workspaces.create({ id: crypto.randomUUID(), userId: "u2", name: "Theirs" });
     const subshellId = await makeSubshell("u1");
     await panes.create({ id: crypto.randomUUID(), workspaceId: filled.id, subshellId });
+    await panes.create({ id: crypto.randomUUID(), workspaceId: emptied.id, subshellId });
 
-    expect(await workspaces.retireEmptyForUser("u1")).toBe(1);
+    // The pre-delete read names what the cascade will touch: both holders,
+    // never the placeholder the delete has nothing to do with.
+    const candidates = await workspaces.idsHoldingForUser("u1", subshellId);
+    expect(candidates.sort()).toEqual([filled.id, emptied.id].sort());
+
+    // Stand in for the cascade itself: the subshell's rows go (here by hand —
+    // the real one is the FK `ON DELETE CASCADE` firing under
+    // `#subshells.delete`), and the filled workspace keeps its row.
+    const emptiedPane = (await panes.listByWorkspace(emptied.id))[0];
+    expect(emptiedPane).toBeTruthy();
+    await panes.delete(emptiedPane!.id);
+    expect(await workspaces.retireEmptyAmong("u1", candidates)).toBe(1);
     expect(await workspaces.findByIdForUser(filled.id, "u1")).toBeTruthy();
+    expect(await workspaces.findByIdForUser(emptied.id, "u1")).toBeUndefined();
+    // The regression (review 2026-10-17): the old owner-wide sweep deleted
+    // this zero-pane workspace too — the dialog's "name it now, fill it
+    // inside" answer died the next time any unrelated tab closed.
+    expect(await workspaces.findByIdForUser(untouched.id, "u1")).toBeTruthy();
     expect(await workspaces.findByIdForUser(foreignEmpty.id, "u2")).toBeTruthy();
-    const left = await workspaces.listByUser("u1");
-    expect(left.map((w) => w.id)).toEqual([filled.id]);
+    const left = (await workspaces.listByUser("u1")).map((w) => w.id);
+    expect(left).toEqual(expect.arrayContaining([filled.id, untouched.id]));
+    expect(left).not.toContain(emptied.id);
+  });
+
+  it("retireEmptyAmong with no candidates deletes nothing", async () => {
+    const empty = await workspaces.create({ id: crypto.randomUUID(), userId: "u1", name: "Placeholder" });
+    expect(await workspaces.retireEmptyAmong("u1", [])).toBe(0);
+    expect(await workspaces.findByIdForUser(empty.id, "u1")).toBeTruthy();
   });
 
   it("listBySubshellForUser returns holding workspaces newest first", async () => {

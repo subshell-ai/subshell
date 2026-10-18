@@ -1185,14 +1185,23 @@ export class SubshellManagerService {
     // survivable — unlinking apiKeyId neutralises the key, and deleting the
     // row outright does the same via the guard's missing-row check.
     await this.#revokeTokenOrUnlink(id);
+    // Read the cascade's candidate set while the evidence still exists: the
+    // delete's own cascade erases the pane rows, and only THIS read can tell
+    // "this delete emptied that workspace" from "it was empty already" (the
+    // distinction the scoped retire depends on).
+    const emptiedCandidates = await this.#workspaces.idsHoldingForUser(userId, id).catch((err) => {
+      logger.warn(`workspace-holders read before deleting ${id} failed: ${String(err)}`);
+      return [] as string[];
+    });
     await this.#subshells.delete(id);
-    // The pane's row is gone, so its tab rows cascaded with it. Any of the
-    // OWNER's workspaces that this emptied retires too (spec 2026-10-17: a
-    // workspace exists exactly as long as it holds a tab). Workspaces of
-    // OTHER owners that held this shared pane are deliberately left alone —
-    // deleting my pane must not silently delete your arrangement; yours keeps
-    // the (now pruned-on-read) empty slot until you remove it yourself.
-    await this.#workspaces.retireEmptyForUser(userId).catch((err) => {
+    // The pane's row is gone, so its tab rows cascaded with it. The OWNER's
+    // workspaces THIS emptied retire too (spec 2026-10-17: a workspace exists
+    // exactly as long as it holds a tab), and only the ones it emptied — an
+    // intentionally-empty workspace the delete never touched stays (review
+    // 2026-10-17). Workspaces of OTHER owners that held this shared pane are
+    // deliberately left alone — deleting my pane must not silently delete your
+    // arrangement; yours keeps the (now pane-less) slot until you remove it.
+    await this.#workspaces.retireEmptyAmong(userId, emptiedCandidates).catch((err) => {
       logger.warn(`empty-workspace retire after deleting ${id} failed: ${String(err)}`);
     });
     // Best-effort artifact cleanup ON THE ROW'S NODE (the log is only an

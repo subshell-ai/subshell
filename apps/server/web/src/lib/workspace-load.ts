@@ -39,3 +39,18 @@ export function workspaceLoad(args: { isLoading: boolean; detail: unknown; error
   if (!detail) return "notFound";
   return "ready";
 }
+
+/**
+ * Is a page in this load state allowed to be the app's FILING target (the
+ * `setCurrentWorkspace` fact the rail's "+ New subshell" files into)? Only a
+ * workspace that has ANSWERED. A page standing on a dead id must not hold
+ * every launch hostage: the create pre-check refuses the whole launch when
+ * the `workspaceId` it was handed does not resolve (review 2026-10-17 — the
+ * route used to set the target at mount, before any answer, so clicking a
+ * stale rail row and pressing + answered "Workspace not found" and launched
+ * NOTHING). "deleted" is the page leaving, and the error arms have no
+ * workspace to file into.
+ */
+export function workspaceAcceptsFiling(load: WorkspaceLoad): boolean {
+  return load === "ready";
+}

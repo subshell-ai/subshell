@@ -9,7 +9,7 @@ import { useWorkspace } from "@/hooks/use-workspace";
 import { forgetLastWorkspace, rememberLastWorkspace, setCurrentWorkspace } from "@/lib/current-workspace";
 import { createIntentClaim } from "@/lib/intent-claim";
 import { useWorkspaceFocusedId } from "@/lib/workspace-focus";
-import { workspaceLoad } from "@/lib/workspace-load";
+import { workspaceAcceptsFiling, workspaceLoad } from "@/lib/workspace-load";
 import { parseSplitIntent } from "@/lib/workspace-split-intent";
 
 export const Route = createFileRoute("/workspaces_/$id")({
@@ -56,14 +56,9 @@ function WorkspaceDetailPage() {
   const claimIntent = useCallback(() => claim(intent), [claim, intent]);
   const { data: detail, isLoading, error, refetch } = useWorkspace(id);
   const phoneLayout = useIsPhoneLayout();
-  // Standing in a workspace makes it the launch target ("New subshell lands a
-  // tab HERE", spec 2026-10-17) and the device's landing page. Set once per
-  // mount of this id; the detail route is keyed by workspace id above, so the
-  // cleanup fires on every real departure.
-  useEffect(() => {
-    setCurrentWorkspace(id);
-    return () => setCurrentWorkspace(null);
-  }, [id]);
+  // Standing in a workspace makes it the device's landing page. (The OTHER
+  // half of that sentence — making it the LAUNCH target — waits for an answer
+  // below; see `workspaceAcceptsFiling`.)
   useEffect(() => {
     if (detail) rememberLastWorkspace(detail.workspace.id);
   }, [detail]);
@@ -73,6 +68,16 @@ function WorkspaceDetailPage() {
   // Five truths, kept apart (regression #9; the decision itself is the tested
   // lib/workspace-load.ts predicate, not inline logic).
   const load = workspaceLoad({ isLoading, detail, error });
+  // Only a workspace that ANSWERED becomes the launch target ("New subshell
+  // lands a tab HERE", spec 2026-10-17): a page standing on a dead id used to
+  // claim the fact at mount, and the create's `workspaceId` pre-check then
+  // refused the whole launch (review 2026-10-17). The detail route is keyed by
+  // workspace id above, so the cleanup still fires on every real departure.
+  useEffect(() => {
+    if (!workspaceAcceptsFiling(load)) return;
+    setCurrentWorkspace(id);
+    return () => setCurrentWorkspace(null);
+  }, [id, load]);
   // Deleted mid-view: leave for the subshell view the panes' rows still
   // deserve — deleting the WORKSPACE never deletes the subshells in it, the
   // pane rows just go (the operator's word: drop to the subshell-only view).

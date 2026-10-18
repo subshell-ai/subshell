@@ -31,7 +31,9 @@ export const WORKSPACE_QUERY_KEY = ["workspace"] as const;
 /**
  * Prefix of "which workspaces hold this subshell" (`GET /api/workspaces?subshellId=`):
  * `[...SUBSHELL_WORKSPACES_QUERY_KEY, subshellId]`; read via `useSubshellWorkspaces`.
- * Unlike the list query, this one INCLUDES drafts (spec 2026-09-14 §2).
+ * Ordered by recency (most recently touched holder first), unlike the plain
+ * list's name order — and drafts are gone with migration 0058, so both reads
+ * see the same universe of workspaces.
  */
 export const SUBSHELL_WORKSPACES_QUERY_KEY = ["subshell-workspaces"] as const;
 

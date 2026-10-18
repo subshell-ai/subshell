@@ -7,8 +7,21 @@ import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 
 const ListSubshellsQuerySchema = t.Object({
-  q: t.Optional(t.String({ maxLength: LIST_SEARCH_MAX.subshells })),
-  nodeId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+  q: t.Optional(
+    t.String({
+      maxLength: LIST_SEARCH_MAX.subshells,
+      description:
+        "Case-insensitive substring over the name, working directory, and harness id. Absent or blank lists everything",
+    }),
+  ),
+  nodeId: t.Optional(
+    t.String({
+      minLength: 1,
+      maxLength: 128,
+      description:
+        "Keep only subshells running on this node ('local' matches the control-plane host, whose rows may carry a null node id). An id the caller cannot see simply answers empty — no existence oracle",
+    }),
+  ),
   workspace: t.Optional(
     t.String({
       minLength: 4,
@@ -19,7 +32,7 @@ const ListSubshellsQuerySchema = t.Object({
       // the other (review 2026-10-17).
       pattern: "^(none|[0-9a-zA-Z_-]{4,128})$",
       description:
-        "Filter by workspace membership: 'none' for the caller's ungrouped subshells (the rail's Ungrouped section), or a workspace id for its members. An id the caller does not have simply answers empty — same posture as nodeId, and no existence oracle",
+        "Filter by workspace membership: 'none' for the caller's ungrouped subshells (no workspace of the caller's holds a pane for them), or a workspace id for its members. An id the caller does not have simply answers empty — same posture as nodeId, and no existence oracle",
     }),
   ),
 });

@@ -331,11 +331,11 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
         setError(errMessage(err, "Failed to remove pane"));
         return;
       }
-      // Removing this pane took the whole workspace with it: a workspace
-      // exists exactly as long as it holds a tab (spec 2026-10-17), so this
-      // was the last one and the server retired the row. There is no dock
-      // left to close a tile in, so leave for the pane that remains (none, by
-      // definition, but the navigation below already knows that).
+      // The workspace went with its last tab (spec 2026-10-17): there is no
+      // dock left to close a tile in, so leave. `workspaceDeleted` means the
+      // server held no other pane, so this answers the dashboard in practice
+      // — the find is only a fallback for a stale cached detail still naming
+      // a sibling, which lands on a real pane instead of home.
       if (workspaceDeleted) {
         const other = detail.panes.find((p) => p.id !== paneId);
         if (other) void navigate({ to: "/subshells/$id", params: { id: other.subshellId }, replace: true });
@@ -500,9 +500,10 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
       setDropActive(false);
       const id = readSubshellDrag(e.dataTransfer);
       if (!id) return;
-      // Never a second pane for one subshell (regression #13): the server
-      // does not dedupe, so this client checks its own authoritative pane
-      // list — if it is already here, just show it.
+      // If it is already here, just show it (regression #13). The server's
+      // add is idempotent since 0058, so a stale pane list can no longer
+      // double-tab; this check skips the round trip and focuses the panel
+      // immediately.
       const existingPane = detail.panes.find((p) => p.subshellId === id);
       if (existingPane) {
         apiRef.current?.getPanel(existingPane.id)?.api.setActive();

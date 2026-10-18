@@ -92,22 +92,47 @@ export class WorkspacesRepository extends BaseRepository {
   }
 
   /**
-   * Deletes every one of the user's workspaces that now holds no panes, and
-   * returns how many went. This is the runtime half of the empty-retire rule:
-   * the pane-removal path retires the workspace it was asked about directly,
-   * while this sweep catches the ones EMPTIED by something else — most
-   * commonly a subshell delete cascading its pane rows out of several
-   * workspaces at once.
+   * The owner's workspaces holding a pane for one subshell, as ids. The
+   * caller reads this BEFORE deleting the subshell, because the delete's own
+   * cascade is what erases the evidence: after it, nothing can tell "this
+   * delete emptied that workspace" from "it was already empty."
    *
-   * Scoping by `userId` is the whole authorization and the whole safety: a
-   * cascade can empty someone ELSE's workspace that held the shared pane, and
-   * that one stays (it reads as an empty arrangement the owner can prune from
-   * their own list).
+   * `listBySubshellForUser` is the same question in row form; the delete path
+   * wants only the ids, and wants them in one cheap statement.
    */
-  async retireEmptyForUser(userId: string): Promise<number> {
+  async idsHoldingForUser(userId: string, subshellId: string): Promise<string[]> {
+    const rows = await this.db
+      .selectFrom("workspacePanes")
+      .innerJoin("workspaces", "workspaces.id", "workspacePanes.workspaceId")
+      .where("workspaces.userId", "=", userId)
+      .where("workspacePanes.subshellId", "=", subshellId)
+      .select("workspacePanes.workspaceId")
+      .execute();
+    return rows.map((r) => r.workspaceId);
+  }
+
+  /**
+   * Deletes the named workspaces that now hold no panes, and returns how many
+   * went. This is the runtime half of the empty-retire rule: the pane-removal
+   * path retires the workspace it was asked about directly, while this sweep
+   * catches the ones a subshell delete's cascade emptied (spec 2026-10-17:
+   * "additionally deletes any workspace ITS cascade emptied"). The candidate
+   * set IS the point: a workspace the delete never touched is not in it, so an
+   * intentionally-empty workspace — the new-workspace dialog's "name it now,
+   * fill it inside" answer — survives someone else's tab closing (review
+   * 2026-10-17 caught the old owner-wide sweep eating those).
+   *
+   * Scoping by `userId` stays load-bearing on top of the candidate set: the
+   * caller hands ids read from its own cascade, and a bug elsewhere must not
+   * turn this into a foreign delete. Foreign owners' workspaces that held the
+   * shared pane simply aren't in the set.
+   */
+  async retireEmptyAmong(userId: string, workspaceIds: string[]): Promise<number> {
+    if (workspaceIds.length === 0) return 0;
     const result = await this.db
       .deleteFrom("workspaces")
       .where("userId", "=", userId)
+      .where("id", "in", workspaceIds)
       .where(sql<boolean>`NOT EXISTS (SELECT 1 FROM workspace_panes wp WHERE wp.workspace_id = workspaces.id)`)
       .executeTakeFirst();
     return Number(result?.numDeletedRows ?? 0);

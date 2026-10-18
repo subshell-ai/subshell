@@ -48,14 +48,15 @@ server-behind message, not as a name complaint.)
   read of `/api/subshells?workspace=none` with it). No per-workspace GET,
   no draft half to hide: there is nothing left for a list to lie about.
 - `?subshellId=` is the one opt-in read, feeding the subshell page's workspace
-  control (`components/subshell-workspace-link.tsx`). A subshell can sit on
-  any number of workspaces, so that control has two shapes, decided by the
-  pure `workspaceLinkView`: ONE is a direct link naming it, SEVERAL is
-  "In N workspaces" opening a menu of all of them. The sort is stable so rows
-  the server already ordered by recency keep that order when their timestamps
-  tie, which they do, a split writing several rows inside one millisecond.
-  Menu rows are real links (`render={<Link/>}` + `nativeButton={false}`), so
-  middle-click still works.
+  control (`components/subshell-workspace-link.tsx`). A subshell can sit on any
+  number of workspaces; the control names none of them up front (operator
+  ruling 2026-09-27: the header has no space to spend). It is an icon and the
+  count, and it always opens a menu, the lone holder included. What the pure
+  `workspaceLinkView` decides is the menu's rows and their order. The sort is
+  stable so rows the server already ordered by recency keep that order when
+  their timestamps tie, which they do, a split writing several rows inside one
+  millisecond. Menu rows are real links (`render={<Link/>}` +
+  `nativeButton={false}`), so middle-click still works.
 - Adding a pane is IDEMPOTENT: `workspace_panes` is UNIQUE on
   `(workspace_id, subshell_id)`, and the second add returns the existing row
   with `alreadyPresent: true` rather than failing. Removing the LAST pane

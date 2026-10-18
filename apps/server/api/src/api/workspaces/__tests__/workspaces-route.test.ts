@@ -280,6 +280,51 @@ describe("workspaces route", () => {
     expect(bad.status).toBe(404);
   });
 
+  it("closing the share takes the pane's facts out of both workspace reads", async () => {
+    // A pane filed while a grant was open outlives the grant: the row stays
+    // (the share may return), but the reads must stop copying the foreign
+    // subshell's name, directory and live state once it closes
+    // (review 2026-10-17).
+    const ownerToken = await signIn(ownerEmail, password);
+    const id = await createWorkspace(ownerToken, `revoked-pane-${crypto.randomUUID().slice(0, 8)}`);
+    const foreignId = await makeSubshell(otherId);
+    const shares = new SubshellSharesRepository(db);
+    await shares.replaceForSubshell(foreignId, [{ granteeUserId: null, permission: "view" }], otherId);
+    const added = await workspaceRoutes.fetch(
+      authedRequest(`/api/workspaces/${id}/panes`, ownerToken, {
+        method: "POST",
+        body: JSON.stringify({ subshellId: foreignId }),
+      }),
+    );
+    expect(added.status).toBe(200);
+
+    // While the grant is open the pane reads normally.
+    const shared = (await (await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${id}`, ownerToken))).json()) as {
+      panes: { subshellId: string }[];
+    };
+    expect(shared.panes.map((p) => p.subshellId)).toEqual([foreignId]);
+
+    await shares.replaceForSubshell(foreignId, [], otherId);
+
+    const revoked = (await (
+      await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${id}`, ownerToken))
+    ).json()) as { workspace: { id: string }; panes: { subshellId: string }[] };
+    expect(revoked.workspace.id).toBe(id);
+    expect(revoked.panes).toEqual([]);
+
+    const list = (await (await workspaceRoutes.fetch(authedRequest("/api/workspaces", ownerToken))).json()) as {
+      id: string;
+      panes: { subshellId: string }[];
+      subshellCount: number;
+    }[];
+    const mine = list.find((w) => w.id === id);
+    expect(mine).toBeTruthy();
+    expect(mine!.panes.map((p) => p.subshellId)).not.toContain(foreignId);
+    expect(mine!.subshellCount).toBe(0);
+    // The workspace itself is the caller's own row and untouched by the
+    // revocation: it just no longer discloses the foreign pane.
+  });
+
   it("adding the same subshell twice is the same tab, not a second one", async () => {
     // The add is idempotent (regression #13 retired at the schema level): the
     // second call answers 200 with the EXISTING pane id and alreadyPresent.

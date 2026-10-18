@@ -16,10 +16,10 @@ import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { useWorkspaces, WORKSPACES_QUERY_KEY } from "@/hooks/use-workspaces";
 import { workspaceIdFromPath } from "@/lib/route-ids";
-import { RECENT_LIMIT } from "@/lib/sidebar-recents";
 import { readSubshellDrag, SUBSHELL_DND_TYPE } from "@/lib/subshell-dnd";
 import { FALLBACK_NODE_ID, nodeLabelFor } from "@/lib/subshell-node-groups";
 import { useWorkspaceFocusedId } from "@/lib/workspace-focus";
+import { railWorkspaceRows } from "@/lib/workspace-rail";
 import type { SubshellView } from "@/types/subshell";
 import type { WorkspacePaneRow, WorkspaceRow } from "@/types/workspace";
 
@@ -266,12 +266,12 @@ export function WorkspacesSection(): JSX.Element | null {
   const results = useFilteredList<WorkspaceRow[]>(WORKSPACES_QUERY_KEY, "/api/workspaces", { q: debounced });
 
   // Recency first (the old "Saved" order), capped when not searching; every
-  // name match while searching, uncapped.
+  // name match while searching, uncapped — and the cap never drops the
+  // branch that auto-expands, which is the one the page is standing in.
   const source = search ? (results.data ?? []) : (workspaces ?? []);
   const sorted = [...source].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  const shown = search ? sorted : sorted.slice(0, RECENT_LIMIT);
-
   const activeId = workspaceIdFromPath(location.pathname);
+  const shown = railWorkspaceRows(sorted, { capped: !search, activeId });
   // The rows' tooltip labels, resolved HERE rather than per row, copying the
   // machine groups' ladder: all three lists are ones the rail already holds
   // elsewhere, so inside one tree these reads are cache hits, not requests.
