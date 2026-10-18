@@ -18,13 +18,9 @@ import { subshellIdFromPath, workspaceIdFromPath } from "@/lib/route-ids";
 import {
   collapsedNodeGroups,
   commsGroupOpen,
-  othersGroupOpen,
   setCollapsedNodeGroups,
   setCommsGroupOpen,
-  setOthersGroupOpen,
-  setWorkspaceGroupOpen,
   toggleNodeGroup,
-  workspaceGroupOpen,
 } from "@/lib/sidebar-node-group-pref";
 import { type RailSubshellsView, railSubshellsView, setRailSubshellsView } from "@/lib/sidebar-rail-view-pref";
 import { RECENT_LIMIT } from "@/lib/sidebar-recents";
@@ -39,22 +35,6 @@ import {
 } from "@/lib/subshell-node-groups";
 import { useWorkspaceFocusedId } from "@/lib/workspace-focus";
 import type { SubshellView } from "@/types/subshell";
-
-/**
- * The synthetic id the collapsible "Workspace" section carries into
- * `SubshellNodeGroup`, the same way cross-agent comms is filed under
- * `CROSS_AGENT_GROUP_ID`. It keys `aria-controls` and the section's own collapse
- * preference; it is never a node id and never rendered.
- */
-const WORKSPACE_GROUP_ID = "workspace";
-
-/**
- * The synthetic id for the flat view's counterpart section, "Others": the
- * subshells that are NOT panes of the current workspace. Like the Workspace group
- * it exists only while a workspace page is open, so the two read as distinguishable
- * halves rather than one merged grid.
- */
-const OTHERS_GROUP_ID = "others";
 
 /**
  * The rail's whole subshell section: the mode control, the filter box, the
@@ -194,19 +174,6 @@ export function RailSubshells({
   const toggleCommsOpen = useCallback(() => {
     setCommsOpen((prev) => setCommsGroupOpen(!prev));
   }, []);
-  // The "Workspace" section collapses on its own preference (operator ask
-  // 2026-09-27), keyed to the remembered OPEN state and defaulting OPEN — the
-  // workspace you opened is the work you came to look at.
-  const [workspaceOpen, setWorkspaceOpen] = useState(workspaceGroupOpen);
-  const toggleWorkspaceOpen = useCallback(() => {
-    setWorkspaceOpen((prev) => setWorkspaceGroupOpen(!prev));
-  }, []);
-  // The flat view's "Others" section collapses on its own preference (operator
-  // ask 2026-09-27), defaulting OPEN like its Workspace counterpart.
-  const [othersOpen, setOthersOpen] = useState(othersGroupOpen);
-  const toggleOthersOpen = useCallback(() => {
-    setOthersOpen((prev) => setOthersGroupOpen(!prev));
-  }, []);
   // The rendering mode, read once at mount like every other rail pref.
   const [view, setView] = useState(railSubshellsView);
   const changeView = useCallback((next: RailSubshellsView) => {
@@ -233,7 +200,9 @@ export function RailSubshells({
   // rejected it the same day — "when in a workspace, ALL items have a white
   // border" — after width, brightness, two orchids and a corner bead had all
   // failed to make a single mark legible. The set still drives ORDERING and
-  // click-to-focus, and the Workspace section names it in every mode.
+  // click-to-focus. The old Workspace/Others pseudo-sections are gone (spec
+  // 2026-10-17): the rail tree above IS that grouping, and repeating it here
+  // gave every open pane two homes in one rail.
   const focusedFromUrl = subshellIdFromPath(location.pathname);
   const workspaceId = workspaceIdFromPath(location.pathname);
   const { data: workspaceDetail } = useWorkspace(workspaceId ?? "", { enabled: workspaceId !== null });
@@ -263,72 +232,32 @@ export function RailSubshells({
   // disagree about which panes are on screen.
   const flatRows = flatCellRows(nodeGroups, commsGroup.subshells, attentionRows, selectedIds);
 
-  // The "Workspace" section (operator ask 2026-09-27): the panes of the
-  // workspace you are standing in, surfaced as the TOPMOST item in every view.
-  // A sibling, not an extraction — the same panes stay in their machine groups /
-  // flat clusters below (selection ordering kept), so a pane appears in the
-  // Workspace section AND its machine group, as the Needs Attention spotlight
-  // already does. Rows carry their machine as a third line, because a Workspace
-  // header spans hosts. Pane order is the dock's, not the status sort.
-  const workspaceRows = useMemo(() => {
-    if (workspaceId === null || !workspaceDetail) return [] as SubshellView[];
-    const byId = new Map(railRows.map((s) => [s.id, s] as const));
-    const out: SubshellView[] = [];
-    for (const pane of workspaceDetail.panes) {
-      const s = byId.get(pane.subshellId);
-      if (s) out.push(s);
-    }
-    return out;
-  }, [workspaceId, workspaceDetail, railRows]);
-  // The flat view's other half: everything the merged grid would show MINUS the
-  // panes already listed under Workspace, so the two sections distinguish rather
-  // than duplicate. Unused when no workspace is open (the grid stays whole and
-  // headerless). Pane order and the four bands are still `flatCellRows`'s.
-  const othersRows = useMemo(() => {
-    if (workspaceRows.length === 0) return [] as SubshellView[];
-    const workspaceIds = new Set(workspaceRows.map((s) => s.id));
-    return flatRows.filter((s) => !workspaceIds.has(s.id));
-  }, [flatRows, workspaceRows]);
-  const workspaceCellLabels = (sub: SubshellView) => ({
-    nodeLabel: machineLabel(sub),
-    agentLabel: agentLabel(sub.harnessId),
-    presetLabel: presetLabel(sub.presetId),
-    initial: paneInitial(sub.name),
-  });
-
   // One control folds or opens EVERY collapsible group in the rail at once
   // (operator ask 2026-09-27). "All collapsed" is measured over only the groups
-  // that are PRESENT, so a machine with nothing to file, or comms/Workspace/Others
-  // when there is none, never blocks the reading. While FILTERING the button is
+  // that are PRESENT, so a machine with nothing to file, or comms when there
+  // is none, never blocks the reading. While FILTERING the button is
   // inert exactly like the group headers it would act on: the filter has already
   // forced everything open, and a write now would reopen nothing visible yet shut
   // the rail the moment the filter clears.
-  // Which sections CAN collapse in the CURRENT view, since the three modes
-  // draw different headers: rows/cells draw the per-machine groups and the
-  // comms section but no "Others"; cells-flat draws only Workspace and Others
-  // over one merged grid. The measure and the writes are gated on exactly
-  // this set, so the flat view never reads or saves an Others fold that has
-  // no header on screen, and rows/cells never touch the prefs of sections
-  // they do not draw (operator review 2026-09-27).
+  // Which sections CAN collapse in the CURRENT view, since the modes draw
+  // different headers: rows/cells draw the per-machine groups and the comms
+  // section; cells-flat draws one headerless grid, so it has nothing to fold.
+  // The measure and the writes are gated on exactly this set (operator review
+  // 2026-09-27), and the Workspace/Others pseudo-groups are gone with the
+  // workspace-first rail: the tree above IS the workspace grouping, and
+  // duplicating it here read as two homes for one pane.
   const showsGroupedMachines = view !== "cells-flat";
   const showsComms = showsGroupedMachines && commsGroup.total > 0;
-  const showsWorkspace = workspaceRows.length > 0;
-  const showsOthers = view === "cells-flat" && othersRows.length > 0;
-  const collapsibleGroupsExist =
-    (showsGroupedMachines && nodeGroups.length > 0) || showsComms || showsWorkspace || showsOthers;
+  const collapsibleGroupsExist = (showsGroupedMachines && nodeGroups.length > 0) || showsComms;
   const allCollapsed =
     (!showsGroupedMachines || nodeGroups.every((group) => collapsedGroups.includes(group.nodeId))) &&
-    (!showsComms || !commsOpen) &&
-    (!showsWorkspace || !workspaceOpen) &&
-    (!showsOthers || !othersOpen);
+    (!showsComms || !commsOpen);
   function toggleAllGroups() {
     const expand = allCollapsed; // all shut → open them; otherwise → shut them
     if (showsGroupedMachines) {
       setCollapsedGroups(setCollapsedNodeGroups(expand ? [] : nodeGroups.map((group) => group.nodeId)));
     }
     if (showsComms) setCommsOpen(setCommsGroupOpen(expand));
-    if (showsWorkspace) setWorkspaceOpen(setWorkspaceGroupOpen(expand));
-    if (showsOthers) setOthersOpen(setOthersGroupOpen(expand));
   }
 
   return (
@@ -410,36 +339,6 @@ export function RailSubshells({
 
       {view === "rows" && (
         <>
-          {/* Topmost: the workspace you are standing in, collapsible like every
-              other group (its own OPEN-by-default preference). Rows carry the
-              machine as a third line, since the Workspace header spans hosts. */}
-          {workspaceRows.length > 0 && (
-            <div className="mb-1">
-              <SubshellNodeGroup
-                nodeId={WORKSPACE_GROUP_ID}
-                label="Workspace"
-                title="Workspace"
-                count={workspaceRows.length}
-                open={q !== "" || workspaceOpen}
-                disabled={q !== ""}
-                onToggle={toggleWorkspaceOpen}
-              >
-                {workspaceRows.map((sub) => (
-                  <SubshellRecentRow
-                    key={`ws-${sub.id}`}
-                    subshell={sub}
-                    selected
-                    focused={focusedId === sub.id}
-                    focusOnOpen={onWorkspace}
-                    nodeLine={machineLabel(sub)}
-                    nodeLabel={machineLabel(sub)}
-                    agentLabel={agentLabel(sub.harnessId)}
-                    presetLabel={presetLabel(sub.presetId)}
-                  />
-                ))}
-              </SubshellNodeGroup>
-            </div>
-          )}
           {attentionRows.length > 0 && (
             <section aria-label="Needs Attention" className="mb-1">
               <div className="flex w-full items-center gap-2 py-1 pr-2 pl-3 text-detail text-muted-foreground">
@@ -533,29 +432,6 @@ export function RailSubshells({
 
       {view === "cells" && (
         <>
-          {/* Topmost: the workspace you are standing in (grouped cells), on the
-              same collapsible group the machine cells sit in. */}
-          {workspaceRows.length > 0 && (
-            <div className="mb-1">
-              <SubshellNodeGroup
-                nodeId={WORKSPACE_GROUP_ID}
-                label="Workspace"
-                title="Workspace"
-                count={workspaceRows.length}
-                open={q !== "" || workspaceOpen}
-                disabled={q !== ""}
-                onToggle={toggleWorkspaceOpen}
-              >
-                <SubshellCellGrid
-                  rows={workspaceRows}
-                  selectedIds={selectedIds}
-                  focusedId={focusedId}
-                  focusOnClick={onWorkspace}
-                  labelsFor={workspaceCellLabels}
-                />
-              </SubshellNodeGroup>
-            </div>
-          )}
           {attentionRows.length > 0 && (
             <section aria-label="Needs Attention" className="mb-1">
               <div className="flex w-full items-center gap-2 py-1 pr-2 pl-3 text-detail text-muted-foreground">
@@ -636,71 +512,23 @@ export function RailSubshells({
         </>
       )}
 
-      {view === "cells-flat" &&
-        (workspaceRows.length > 0 ? (
-          <>
-            {/* A workspace is open, so the flat grid splits into two labelled,
-                collapsible halves: the panes you are working in, and everything
-                else. These two sections appear ONLY now (operator ask
-                2026-09-27) — with no workspace the view is the single
-                headerless grid below. The halves exclude each other rather than
-                duplicate, so "Others" really reads as the rest. */}
-            <SubshellNodeGroup
-              nodeId={WORKSPACE_GROUP_ID}
-              label="Workspace"
-              title="Workspace"
-              count={workspaceRows.length}
-              open={q !== "" || workspaceOpen}
-              disabled={q !== ""}
-              onToggle={toggleWorkspaceOpen}
-            >
-              <SubshellCellGrid
-                rows={workspaceRows}
-                selectedIds={selectedIds}
-                focusedId={focusedId}
-                focusOnClick={onWorkspace}
-                labelsFor={workspaceCellLabels}
-                tintOf={(sub) => nodeTintBucket(machineLabel(sub))}
-              />
-            </SubshellNodeGroup>
-            {othersRows.length > 0 && (
-              <SubshellNodeGroup
-                nodeId={OTHERS_GROUP_ID}
-                label="Others"
-                title="Others"
-                count={othersRows.length}
-                open={q !== "" || othersOpen}
-                disabled={q !== ""}
-                onToggle={toggleOthersOpen}
-              >
-                <SubshellCellGrid
-                  rows={othersRows}
-                  selectedIds={selectedIds}
-                  focusedId={focusedId}
-                  focusOnClick={onWorkspace}
-                  labelsFor={workspaceCellLabels}
-                  tintOf={(sub) => nodeTintBucket(machineLabel(sub))}
-                />
-              </SubshellNodeGroup>
-            )}
-          </>
-        ) : (
-          <SubshellCellGrid
-            rows={flatRows}
-            selectedIds={selectedIds}
-            focusedId={focusedId}
-            focusOnClick={onWorkspace}
-            labelsFor={(sub) => ({
-              nodeLabel: machineLabel(sub),
-              agentLabel: agentLabel(sub.harnessId),
-              presetLabel: presetLabel(sub.presetId),
-              // The machine reads from the plate + tooltip; the letter is the
-              // pane's own, and a collision is expected, not a defect.
-              initial: paneInitial(sub.name),
-            })}
-            tintOf={(sub) => nodeTintBucket(machineLabel(sub))}
-          />
-        ))}
+      {view === "cells-flat" && (
+        <SubshellCellGrid
+          rows={flatRows}
+          selectedIds={selectedIds}
+          focusedId={focusedId}
+          focusOnClick={onWorkspace}
+          labelsFor={(sub) => ({
+            nodeLabel: machineLabel(sub),
+            agentLabel: agentLabel(sub.harnessId),
+            presetLabel: presetLabel(sub.presetId),
+            // The machine reads from the plate + tooltip; the letter is the
+            // pane's own, and a collision is expected, not a defect.
+            initial: paneInitial(sub.name),
+          })}
+          tintOf={(sub) => nodeTintBucket(machineLabel(sub))}
+        />
+      )}
     </>
   );
 }

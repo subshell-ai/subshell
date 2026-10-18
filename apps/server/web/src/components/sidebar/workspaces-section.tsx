@@ -129,11 +129,24 @@ function WorkspaceBranch({
   const open = expanded || forceOpen;
   return (
     <div>
-      <div className="flex w-full items-center gap-0.5 pr-1">
+      {/* The accent fill belongs to the WHOLE row, not just the name link: the
+        count and the chevron sit inside the highlighted bar too, or the active
+        workspace reads as a name with two unselected strays beside it (operator
+        note, 2026-10-17). The fill lives here; `branchClass` supplies the shape
+        minus the colour it carries. */}
+      <div
+        className={cn(
+          "flex w-full items-center gap-0.5 rounded-md pr-1",
+          active ? "bg-accent text-accent-foreground" : "text-muted-foreground",
+        )}
+      >
         <Link
           to="/workspaces/$id"
           params={{ id: workspace.id }}
-          className={cn(branchClass(active), "min-w-0 flex-1 truncate font-strong")}
+          className={cn(
+            "my-1 min-w-0 flex-1 truncate rounded-md py-1 pr-3 pl-3 text-detail transition-colors",
+            active ? "font-strong" : "hover:bg-accent/50 hover:text-foreground",
+          )}
         >
           {workspace.name}
         </Link>
@@ -143,7 +156,7 @@ function WorkspaceBranch({
           onClick={onToggle}
           aria-label={open ? `Collapse ${workspace.name}` : `Expand ${workspace.name}`}
           aria-expanded={open}
-          className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+          className="shrink-0 rounded p-0.5 hover:text-foreground"
         >
           <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200", !open && "-rotate-90")} />
         </button>
