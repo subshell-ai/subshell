@@ -18,7 +18,7 @@ import {
 } from "@/components/sidebar/subshell-cell-grid";
 import type { SubshellNodeGroup } from "@/lib/subshell-node-groups";
 import { groupSubshellsByNode } from "@/lib/subshell-node-groups";
-import { onWorkspacePaneFocusRequest } from "@/lib/workspace-focus";
+import { onWorkspacePaneFocusRequest, takePaneFocusOnArrive } from "@/lib/workspace-focus";
 import { setFetchRouter } from "@/test-setup";
 import type { SubshellView } from "@/types/subshell";
 
@@ -61,29 +61,70 @@ function sub(overrides: Partial<SubshellView> = {}): SubshellView {
   } as SubshellView;
 }
 
-function mockFetch(): () => void {
-  setFetchRouter(async (input: RequestInfo | URL) => {
-    const url = String(typeof input === "string" || input instanceof URL ? input : input.url);
-    const body = url.includes("/api/presets") ? [] : url.includes("/api/plugins") ? { plugins: [] } : {};
+function mockFetch(posted: string[] = [], homes: "one" | "none" = "one"): () => void {
+  listGetAnswered = false;
+  setFetchRouter(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = new Request(input as RequestInfo, init);
+    const url = String(req.url);
+    let body: unknown = {};
+    if (url.includes("/api/presets")) body = [];
+    else if (url.includes("/api/plugins")) body = { plugins: [] };
+    else if (url.includes("/api/workspaces")) {
+      if (req.method === "POST") {
+        posted.push(url);
+        body = { id: "w-new" };
+      } else {
+        listGetAnswered = true;
+        // `else` is filed in w2; `here` and `newguy` are not filed anywhere.
+        body =
+          homes === "none"
+            ? []
+            : [
+                {
+                  id: "w2",
+                  name: "Holder",
+                  layout: null,
+                  subshellCount: 1,
+                  createdAt: "",
+                  updatedAt: "2026-10-10T00:00:00.000Z",
+                  panes: [{ id: "p", subshellId: "else" }],
+                },
+              ];
+      }
+    }
     return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
   });
   return () => setFetchRouter(null);
 }
+
+/**
+ * True once the workspaces LIST the open-as-tab hook reads has landed. The
+ * fetch router flags the moment it answers that GET — the settle a test could
+ * otherwise only guess at with ticks.
+ */
+async function listLoaded(): Promise<boolean> {
+  return listGetAnswered;
+}
+let listGetAnswered = false;
 
 function renderCell(ui: ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const rootRoute = createRootRoute();
   const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: () => ui });
   const detailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/subshells/$id" });
+  const wsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/workspaces/$id" });
   const router = createRouter({
-    routeTree: rootRoute.addChildren([indexRoute, detailRoute]),
+    routeTree: rootRoute.addChildren([indexRoute, detailRoute, wsRoute]),
     history: createMemoryHistory({ initialEntries: ["/"] }),
     defaultPreload: false,
   });
-  return render(
-    <QueryClientProvider client={client}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
+  return Object.assign(
+    render(
+      <QueryClientProvider client={client}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    ),
+    { router },
   );
 }
 
@@ -300,46 +341,100 @@ describe("SubshellCell", () => {
     }
   });
 
-  it("a workspace-member cell focuses in place; a plain cell still navigates (operator 2026-09-27)", async () => {
+  it("a plain left-click means the tab: focus here, else go to its workspace (spec 2026-10-17)", async () => {
     const restore = mockFetch();
     const requests: string[] = [];
-    // The dock reports it handled the pane (returns true) → the link's
-    // navigation is suppressed. A return of false would let it navigate.
+    // A dock is up and answers only for "here" (it holds that pane on screen).
     const unsub = onWorkspacePaneFocusRequest((id) => {
       requests.push(id);
-      return true;
+      return id === "here";
     });
     try {
-      renderCell(
+      const { router } = renderCell(
         <>
           <SubshellCell
             subshell={sub({ id: "here", name: "member" })}
             focused={false}
-            focusOnOpen
             labels={{ nodeLabel: "m", agentLabel: "A" }}
           />
           <SubshellCell
             subshell={sub({ id: "else", name: "plain" })}
             focused={false}
-            focusOnOpen={false}
             labels={{ nodeLabel: "m", agentLabel: "A" }}
           />
         </>,
       );
-      const links = await screen.findAllByRole("link");
-      const member = links.find((l) => l.getAttribute("href") === "/subshells/here") as HTMLElement;
-      const plain = links.find((l) => l.getAttribute("href") === "/subshells/else") as HTMLElement;
-      // The workspace member's click is routed to the dock (focus the tab), not
-      // to the router.
-      fireEvent.click(member);
+      const linkFor = async (id: string) =>
+        (await screen.findAllByRole("link")).find((l) => l.getAttribute("href") === `/subshells/${id}`) as HTMLElement;
+      const here = await linkFor("here");
+      // Open on screen → the dock focuses it; nothing navigates.
+      fireEvent.click(here);
       expect(requests).toEqual(["here"]);
-      // ⌘/ctrl-click must NOT focus-in-place: it keeps the browser's
-      // open-in-new-tab, so no focus request fires for it.
-      fireEvent.click(member, { ctrlKey: true });
+      expect(router.state.location.pathname).toBe("/");
+      // ⌘/ctrl-click keeps the browser's open-in-new-tab: no request, no hook.
+      fireEvent.click(here, { ctrlKey: true });
       expect(requests).toEqual(["here"]);
-      // A plain cell is left to its own Link navigation — no focus request.
-      fireEvent.click(plain);
-      expect(requests).toEqual(["here"]);
+      // Wait for the workspaces LIST the hook consults to have landed.
+      await waitFor(async () => expect(await listLoaded()).toBe(true));
+      // Filed in ANOTHER workspace → the click arms the arrival focus for the
+      // holder and navigates there; the cells unmount, which is the point.
+      fireEvent.click(await linkFor("else"));
+      await waitFor(() => expect(requests).toEqual(["here", "else"]));
+      await waitFor(() => expect(router.state.location.pathname).toBe("/workspaces/w2"));
+      expect(takePaneFocusOnArrive()).toBe("else");
+    } finally {
+      unsub();
+      restore();
+    }
+  });
+
+  it("a click on an unfiled pane JOINS the workspace that exists (revision 2026-10-17)", async () => {
+    const posted: string[] = [];
+    const restore = mockFetch(posted);
+    const unsub = onWorkspacePaneFocusRequest(() => false);
+    localStorage.removeItem("subshell.lastWorkspaceId");
+    try {
+      const { router } = renderCell(
+        <SubshellCell
+          subshell={sub({ id: "newguy", name: "unfiled" })}
+          focused={false}
+          labels={{ nodeLabel: "m", agentLabel: "A" }}
+        />,
+      );
+      const link = (await screen.findAllByRole("link"))[0] as HTMLElement;
+      fireEvent.click(link);
+      // The idempotent pane-add onto w2 — NOT a new `/api/workspaces` row:
+      // a click never opens a second window on top of the one you have.
+      await waitFor(() => expect(posted.length).toBe(1));
+      expect(posted[0]).toContain("/api/workspaces/w2/panes");
+      await waitFor(() => expect(router.state.location.pathname).toBe("/workspaces/w2"));
+      // The tab arrives focused, same as the filed-pane path.
+      expect(takePaneFocusOnArrive()).toBe("newguy");
+    } finally {
+      unsub();
+      restore();
+    }
+  });
+
+  it("only an instance with NO workspace creates one around the clicked pane", async () => {
+    const posted: string[] = [];
+    const restore = mockFetch(posted, "none");
+    const unsub = onWorkspacePaneFocusRequest(() => false);
+    localStorage.removeItem("subshell.lastWorkspaceId");
+    try {
+      const { router } = renderCell(
+        <SubshellCell
+          subshell={sub({ id: "newguy", name: "unfiled" })}
+          focused={false}
+          labels={{ nodeLabel: "m", agentLabel: "A" }}
+        />,
+      );
+      const link = (await screen.findAllByRole("link"))[0] as HTMLElement;
+      fireEvent.click(link);
+      await waitFor(() => expect(posted.length).toBe(1));
+      // The create carries the pane and the name, exactly like a split's.
+      expect(posted[0]).toMatch(/\/api\/workspaces$/);
+      await waitFor(() => expect(router.state.location.pathname).toBe("/workspaces/w-new"));
     } finally {
       unsub();
       restore();
@@ -609,7 +704,6 @@ describe("SubshellCellGrid", () => {
       renderCell(
         <SubshellCellGrid
           rows={rows}
-          selectedIds={new Set()}
           focusedId={null}
           labelsFor={() => ({ nodeLabel: "mac-mini", agentLabel: "Claude Code" })}
         />,
@@ -646,7 +740,6 @@ describe("SubshellCellGrid", () => {
       renderCell(
         <SubshellCellGrid
           rows={rows}
-          selectedIds={new Set()}
           focusedId={null}
           labelsFor={() => ({ nodeLabel: "m", agentLabel: "A" })}
           tintOf={(s) => (s.nodeId === "n1" ? 0 : 1)}
@@ -695,7 +788,6 @@ describe("SubshellCellGrid", () => {
       renderCell(
         <SubshellCellGrid
           rows={[sub({ id: "a", name: "one", nodeId: "n1" })]}
-          selectedIds={new Set()}
           focusedId={null}
           labelsFor={() => ({ nodeLabel: "mac-mini", agentLabel: "A" })}
           tintOf={(s) => nodeTintBucket(s.nodeId ?? "")}
@@ -715,12 +807,7 @@ describe("SubshellCellGrid", () => {
     try {
       const rows = [sub({ id: "a", name: "one" }), sub({ id: "b", name: "two" }), sub({ id: "c", name: "three" })];
       renderCell(
-        <SubshellCellGrid
-          rows={rows}
-          selectedIds={new Set(["a", "c"])}
-          focusedId={"c"}
-          labelsFor={() => ({ nodeLabel: "m", agentLabel: "A" })}
-        />,
+        <SubshellCellGrid rows={rows} focusedId={"c"} labelsFor={() => ({ nodeLabel: "m", agentLabel: "A" })} />,
       );
       await waitFor(() => expect(screen.getAllByRole("link")).toHaveLength(3));
       const toks = (id: string) =>
@@ -764,7 +851,6 @@ describe("SubshellCellGrid", () => {
       renderCell(
         <SubshellCellGrid
           rows={flat}
-          selectedIds={new Set()}
           focusedId={null}
           labelsFor={() => ({ nodeLabel: "m", agentLabel: "A" })}
           tintOf={() => 0}

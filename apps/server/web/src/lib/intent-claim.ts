@@ -8,10 +8,11 @@ import type { SplitIntent } from "@/lib/workspace-split-intent";
  * ref, which is correct for as long as the same one stays mounted — and a
  * viewport crossing the tiling breakpoint mid-add does not: the first
  * presentation unmounts with the add in flight, the second mounts with
- * `?add=` still in the URL and a fresh ref, and the server does not dedupe,
- * so the subshell lands on the workspace twice (regression #13, review
- * 2026-09-14). One claim held ABOVE both is what makes the guard survive the
- * swap.
+ * `?add=` still in the URL and a fresh ref, and both fire the add (review
+ * 2026-09-14). The server has deduped since 0058 — the second call answers
+ * the existing pane — so the double is now a wasted round trip and a
+ * twice-run effect rather than a doubled tab; the intent still has to act
+ * exactly once per URL, and only a claim above both survives the swap.
  *
  * Identity, not value, is what resets it: the route memoizes its intent off
  * the search params, so a new object means a new URL means a new split to

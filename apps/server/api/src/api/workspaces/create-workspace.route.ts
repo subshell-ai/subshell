@@ -7,13 +7,7 @@ import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 
 const CreateWorkspaceBodySchema = t.Object({
-  name: t.String({ minLength: 1, maxLength: 120, description: "Workspace name (unique per user, unless draft)" }),
-  draft: t.Optional(
-    t.Boolean({
-      description:
-        "True creates it as an unsaved draft: hidden from the workspace list, and free to share a name with the caller's other drafts",
-    }),
-  ),
+  name: t.String({ minLength: 1, maxLength: 120, description: "Workspace name" }),
   subshellId: t.Optional(
     t.String({
       minLength: 1,
@@ -34,15 +28,14 @@ export const createWorkspaceRoute = new Elysia()
       requireCookieActor(actor);
       // The shared label rule (control bytes, format characters, collapse,
       // code-point cap) — the name renders in every pane header a workspace
-      // is shared into and the per-user unique index compares it. An empty
-      // result means nothing printable was entered; a workspace always has
-      // one, so that is a 400.
+      // is shared into. An empty result means nothing printable was entered;
+      // a workspace always has one, so that is a 400. Names are not unique
+      // (0058): a collision with an existing workspace is fine.
       const name = normalizeLabel(body.name, 120);
       if (!name) throw new HttpError(400, "Workspace name cannot be blank");
       return await ctx.services.workspaces.createWorkspace({
         userId: user.id,
         name,
-        draft: body.draft,
         subshellId: body.subshellId,
       });
     },
@@ -53,7 +46,6 @@ export const createWorkspaceRoute = new Elysia()
         400: "ApiErrorResponse",
         401: "ApiErrorResponse",
         404: "ApiErrorResponse",
-        409: "ApiErrorResponse",
       },
       detail: {
         operationId: "createWorkspace",

@@ -4,12 +4,12 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { DashboardPage } from "@/components/dashboard-page";
 import { WorkspaceDock } from "@/components/workspace-dock";
 import { WorkspaceTabs } from "@/components/workspace-tabs";
-import { useDiscardThinDraft } from "@/hooks/use-discard-thin-draft";
 import { useIsPhoneLayout } from "@/hooks/use-is-phone-layout";
 import { useWorkspace } from "@/hooks/use-workspace";
+import { forgetLastWorkspace, rememberLastWorkspace, setCurrentWorkspace } from "@/lib/current-workspace";
 import { createIntentClaim } from "@/lib/intent-claim";
 import { useWorkspaceFocusedId } from "@/lib/workspace-focus";
-import { workspaceLoad } from "@/lib/workspace-load";
+import { workspaceAcceptsFiling, workspaceLoad } from "@/lib/workspace-load";
 import { parseSplitIntent } from "@/lib/workspace-split-intent";
 
 export const Route = createFileRoute("/workspaces_/$id")({
@@ -35,7 +35,7 @@ export const Route = createFileRoute("/workspaces_/$id")({
  * keeps the dock rather than paying phone chrome for a mouse it is holding —
  * one rule with the stacked header, `useIsPhoneLayout`.
  *
- * Each presentation renders `<WorkspaceHeader>` itself, with its own
+ * Each presentation renders `<PaneFocusHeader>` itself, with its own
  * `<SubshellPicker>` in the header's actions slot — only the presentation
  * knows how to add a pane (the dock splits, the tab strip appends), so the
  * bar is shared but the control that lives in it is not.
@@ -56,16 +56,28 @@ function WorkspaceDetailPage() {
   const claimIntent = useCallback(() => claim(intent), [claim, intent]);
   const { data: detail, isLoading, error, refetch } = useWorkspace(id);
   const phoneLayout = useIsPhoneLayout();
-  // Above every early return: an unsaved workspace that is down to one pane
-  // is discarded and the person sent back to that subshell — unless a split
-  // is still in flight (the `?add=` guard, see the hook).
-  useDiscardThinDraft(detail, intent);
+  // Standing in a workspace makes it the device's landing page. (The OTHER
+  // half of that sentence — making it the LAUNCH target — waits for an answer
+  // below; see `workspaceAcceptsFiling`.)
+  useEffect(() => {
+    if (detail) rememberLastWorkspace(detail.workspace.id);
+  }, [detail]);
   // Soft-keyboard pinning is the shell's job (`__root.tsx`); `h-full` below
   // resolves against the already-pinned scroll container.
 
   // Five truths, kept apart (regression #9; the decision itself is the tested
   // lib/workspace-load.ts predicate, not inline logic).
   const load = workspaceLoad({ isLoading, detail, error });
+  // Only a workspace that ANSWERED becomes the launch target ("New subshell
+  // lands a tab HERE", spec 2026-10-17): a page standing on a dead id used to
+  // claim the fact at mount, and the create's `workspaceId` pre-check then
+  // refused the whole launch (review 2026-10-17). The detail route is keyed by
+  // workspace id above, so the cleanup still fires on every real departure.
+  useEffect(() => {
+    if (!workspaceAcceptsFiling(load)) return;
+    setCurrentWorkspace(id);
+    return () => setCurrentWorkspace(null);
+  }, [id, load]);
   // Deleted mid-view: leave for the subshell view the panes' rows still
   // deserve — deleting the WORKSPACE never deletes the subshells in it, the
   // pane rows just go (the operator's word: drop to the subshell-only view).
@@ -75,10 +87,11 @@ function WorkspaceDetailPage() {
   const focusedPaneId = useWorkspaceFocusedId();
   useEffect(() => {
     if (load !== "deleted" || !detail) return;
+    forgetLastWorkspace(id);
     const home = detail.panes.find((p) => p.subshellId === focusedPaneId) ?? detail.panes[0];
     if (home) void navigate({ to: "/subshells/$id", params: { id: home.subshellId }, replace: true });
     else void navigate({ to: "/workspaces", replace: true });
-  }, [load, detail, focusedPaneId, navigate]);
+  }, [load, detail, focusedPaneId, navigate, id]);
   if (load === "loading") {
     return (
       <DashboardPage>

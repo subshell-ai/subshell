@@ -76,7 +76,10 @@ export function AddSubshellDialog({
   onAdd: (subshellId: string, direction: SplitDirection) => Promise<unknown>;
 }): JSX.Element {
   const { data: subshells, isError: subshellsFailed, isLoading: subshellsLoading } = useSubshellsList();
-  const create = useCreateSubshell();
+  // Placement is this dialog's own decision (the workspace it was opened
+  // from, or the split's, or the workspace it just created) — the hook must
+  // not open a SECOND workspace around the pane. See `useCreateSubshell`.
+  const create = useCreateSubshell({ autoFile: false });
 
   const [sshDraft, setSshDraft] = useState(() => sshSessionDraft({ node: initialForm?.nodeId }));
   const [kind, setKind] = useState<SubshellKind>("agent");

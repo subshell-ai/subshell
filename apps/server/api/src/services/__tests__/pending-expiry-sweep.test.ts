@@ -310,7 +310,6 @@ describe("expirePendingApprovals", () => {
         userId: owner,
         name: `owned-${crypto.randomUUID().slice(0, 8)}`,
         layoutJson: null,
-        draft: 0,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       })

@@ -12,8 +12,9 @@ export type WorkspaceLoad = "loading" | "answeredError" | "notFound" | "deleted"
  *  - "answeredError"  → an ANSWERED non-404 failure (401/403/500) is a genuine
  *    failure to show — it fails fast, so nothing else would ever clear it.
  *  - "loading"        → no answer yet (in-flight, or a NetworkError the query
- *    layer is retrying unbounded, plus `useWorkspace`'s 5 s poll): hold and let
- *    it heal.
+ *    layer is retrying unbounded): hold and let it heal. The detail read is NOT
+ *    polled — the heal is that retry loop plus the live feed's gone/recheck
+ *    frames, which invalidate this query out from under the page.
  *  - "deleted"        → a 404 that lands ON a cached detail: the workspace
  *    was deleted while the page stood on it (from the rail, another tab,
  *    another device). "ready" still paints the last-good dock — the blip
@@ -38,4 +39,19 @@ export function workspaceLoad(args: { isLoading: boolean; detail: unknown; error
   if (answeredError) return "answeredError";
   if (!detail) return "notFound";
   return "ready";
+}
+
+/**
+ * Is a page in this load state allowed to be the app's FILING target (the
+ * `setCurrentWorkspace` fact the rail's "+ New subshell" files into)? Only a
+ * workspace that has ANSWERED. A page standing on a dead id must not hold
+ * every launch hostage: the create pre-check refuses the whole launch when
+ * the `workspaceId` it was handed does not resolve (review 2026-10-17 — the
+ * route used to set the target at mount, before any answer, so clicking a
+ * stale rail row and pressing + answered "Workspace not found" and launched
+ * NOTHING). "deleted" is the page leaving, and the error arms have no
+ * workspace to file into.
+ */
+export function workspaceAcceptsFiling(load: WorkspaceLoad): boolean {
+  return load === "ready";
 }

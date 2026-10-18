@@ -1,9 +1,26 @@
 import { apiFetch, apiPost } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { invalidateWorkspaceMembership } from "@/hooks/use-workspaces";
+import { currentWorkspaceId } from "@/lib/current-workspace";
 import { joinPromptBlocks, type PromptBlock, presetBlocksToWire, promptLaunchMissed } from "@/lib/prompt-stack";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
+import { fileLaunchedPane } from "@/lib/workspace-filing";
+import { armPaneFocusOnArrive } from "@/lib/workspace-focus";
 import type { PresetRow } from "@/types/preset";
+
+/** What a launch answers: the row's id, the prompt truth, and the workspace
+ * this press opened for it (the landing's first pane; spec 2026-10-17). */
+export interface CreatedSubshell {
+  /** The new subshell's id */
+  id: string;
+  /** False when a prompt was asked for but did not reach the pane */
+  promptDelivered?: boolean;
+  /** The workspace this launch was filed into — the one on screen, else an
+   existing one it joined, else a fresh one opened around the pane when the
+   instance has none (spec 2026-10-17, revised 2026-10-18) */
+  workspaceId?: string;
+}
 
 /** The fields the shared new-subshell form collects. */
 export interface CreateSubshellInput {
@@ -93,12 +110,21 @@ export function toSubshellCreateBody({
  * navigating) fails afterwards. What happens after creation — navigate to
  * the subshell, or attach it to a workspace — stays with the caller.
  */
-export function useCreateSubshell() {
+/**
+ * `autoFile` (default true) is the "you are always in a workspace" rule: a
+ * launch raised with no workspace on screen gets a workspace opened around
+ * it. Callers that FILE the pane themselves — the add-a-pane dialog (its
+ * `onAdd` attaches through the idempotent pane path, including the split's)
+ * and the new-workspace dialog (which creates the workspace first) — pass
+ * false, or the shared create would leave a second workspace holding the
+ * same row.
+ */
+export function useCreateSubshell({ autoFile = true }: { autoFile?: boolean } = {}) {
   const queryClient = useQueryClient();
   return useMutation({
     // `promptDelivered: false` is honest "started, prompt did not land": the
     // caller can point at the inject action instead of assuming the task went in.
-    mutationFn: async (input: CreateSubshellInput) => {
+    mutationFn: async (input: CreateSubshellInput): Promise<CreatedSubshell> => {
       // The checkbox's promise first, so a failed preset POST never launches
       // an unremembered subshell (ruling 2026-09-30). SAVE-AS always creates
       // a NEW row - presets are never written back - and it is a FAITHFUL
@@ -150,10 +176,38 @@ export function useCreateSubshell() {
         });
       }
       try {
-        return await apiPost<{ id: string; promptDelivered?: boolean }>(
-          "/api/subshells",
-          toSubshellCreateBody(saved === null ? input : { ...input, presetId: saved.id }),
-        );
+        // Spec 2026-10-17: a launch raised while a workspace page is on screen
+        // LANDS AS A TAB in it, server-side in the create's own write. With no
+        // workspace on screen the pane starts ungrouped, which every
+        // bearer/MCP create already expects; `autoFile` below gives it a
+        // workspace from there. The spread is gated on `autoFile` too
+        // (review 2026-10-17): a dialog that files the pane ITSELF must not
+        // also land it in whatever workspace page happens to be on screen —
+        // that would file it twice, into two workspaces.
+        const filedInto = autoFile ? currentWorkspaceId() : null;
+        const created = await apiPost<Omit<CreatedSubshell, "workspaceId">>("/api/subshells", {
+          ...toSubshellCreateBody(saved === null ? input : { ...input, presetId: saved.id }),
+          ...(filedInto ? { workspaceId: filedInto } : {}),
+        });
+        // A pane filed into the workspace on screen must become the shown tab
+        // when the membership invalidation repaints it — otherwise the phone's
+        // strip keeps displaying the tab you were on and the fresh launch
+        // sits unseen in its own tab. The wide dock reads the same arrival
+        // signal for its own panel activation.
+        if (filedInto) armPaneFocusOnArrive(created.id);
+        // You are always in a workspace (operator ruling, spec 2026-10-17):
+        // with none on screen the pane joins an existing one, or a first
+        // launch opens one around it. `fileLaunchedPane` is the whole ladder
+        // (and the same one the SSH launch in the quick-add dialog files
+        // through), including the arming that makes the filed pane the shown
+        // tab on arrival. A filing that fails leaves the pane unfiled and the
+        // plain detail landing, which is honest: the launch worked, and
+        // clicking that pane later files it the same way.
+        if (autoFile && !filedInto) {
+          const filed = await fileLaunchedPane(created.id, input.name);
+          if (filed) return { ...created, workspaceId: filed };
+        }
+        return created;
       } catch (err) {
         // A row this click created for a launch that did not happen is an
         // orphan: invisible (the list was never invalidated) and poisonous
@@ -182,6 +236,14 @@ export function useCreateSubshell() {
         toast.warning('The prompt wasn\'t entered. Use "Insert prompt" to type it in.');
       }
       void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
+      // A filed launch changed a workspace's pane list (and possibly retired
+      // the landing's stale empty branch): the tree reads membership from the
+      // LIST, and the DOCK reads its tiles from the per-workspace DETAIL. The
+      // launch that files into the workspace already on screen changes that
+      // DETAIL without remounting the page, so the wake is the whole
+      // membership trio — the LIST alone left the open dock a tab short until
+      // the next unrelated refetch (review 2026-10-17).
+      void invalidateWorkspaceMembership(queryClient);
       // The new preset row belongs in every preset list the app has open.
       if (input.saveAsPreset === true) void queryClient.invalidateQueries({ queryKey: ["presets"] });
       // The create touched the recent-paths row for its launch node — every

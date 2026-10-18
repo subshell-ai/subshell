@@ -8,14 +8,9 @@ import { apiModels } from "@/schema/index.js";
 
 const UpdateWorkspaceBodySchema = t.Object({
   name: t.Optional(t.String({ minLength: 1, maxLength: 120, description: "Workspace name" })),
-  draft: t.Optional(
-    t.Literal(false, {
-      description: "false promotes a draft to a saved workspace; the only transition allowed",
-    }),
-  ),
 });
 
-/** `PUT /api/workspaces/:id` — renames or updates a workspace. */
+/** `PUT /api/workspaces/:id` — renames a workspace. */
 export const updateWorkspaceRoute = new Elysia()
   .use(contextPlugin)
   .use(authGuard)
@@ -26,9 +21,9 @@ export const updateWorkspaceRoute = new Elysia()
       requireCookieActor(actor);
       // The label rule create gained on 2026-09-23 applies HERE too, or a
       // workspace could be created clean and renamed dirty — same name, same
-      // unique index, same renders. `updateWorkspace` treats an absent name
-      // as "leave it", so only a PRESENT name is normalized, and one that
-      // empties out answers the same 400 create gives.
+      // renders. `updateWorkspace` treats an absent name as "leave it", so
+      // only a PRESENT name is normalized, and one that empties out answers
+      // the same 400 create gives.
       let name = body.name;
       if (name !== undefined) {
         name = normalizeLabel(name, 120);
@@ -48,7 +43,7 @@ export const updateWorkspaceRoute = new Elysia()
       detail: {
         operationId: "updateWorkspace",
         tags: ["workspaces"],
-        description: "Renames a workspace, and/or promotes an unsaved draft to a saved one",
+        description: "Renames a workspace",
       },
     },
   );

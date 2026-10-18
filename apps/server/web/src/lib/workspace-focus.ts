@@ -59,33 +59,66 @@ export function useWorkspaceFocusedId(): string | null {
  * value above, so the rail's ring follows. A plain event bus, not a snapshot:
  * a request is a transient command, and there is no "current request" to read.
  */
-const focusRequests = new Set<(subshellId: string) => boolean>();
+const focusRequests = new Set<(subshellId: string, workspaceId?: string) => boolean>();
 
 /**
  * Ask the dock to focus the pane running `subshellId`. Returns TRUE only if a
  * mounted consumer (the dock, or the tab strip) found and activated that pane —
  * so the caller can let the link navigate when nothing handled it: a stale pane
  * set, or no dock yet ready, must not turn the click into a dead no-op.
+ *
+ * `workspaceId` scopes the request to ONE workspace: a sidebar branch row
+ * means "this branch's tab", and a pane filed in several workspaces must not
+ * answer a branch click by activating a DIFFERENT workspace's tab (review
+ * 2026-10-17). A scoped request is refused by every presentation that is not
+ * standing on that workspace, and the click then navigates to the branch —
+ * which is exactly the answer. Unscoped (a list row's click) means "wherever
+ * its tab is", and the mounted dock answers for any workspace of its own.
  */
-export function requestWorkspacePaneFocus(subshellId: string): boolean {
+export function requestWorkspacePaneFocus(subshellId: string, workspaceId?: string): boolean {
   let handled = false;
   for (const listener of [...focusRequests]) {
-    if (listener(subshellId)) handled = true;
+    if (listener(subshellId, workspaceId)) handled = true;
   }
   return handled;
 }
 
 /** Subscribe to focus requests; the callback returns whether it handled one. */
-export function onWorkspacePaneFocusRequest(cb: (subshellId: string) => boolean): () => void {
+export function onWorkspacePaneFocusRequest(cb: (subshellId: string, workspaceId?: string) => boolean): () => void {
   focusRequests.add(cb);
   return () => {
     focusRequests.delete(cb);
   };
 }
 
+/**
+ * The ONE-SHOT focus a rail click arms when it sends you to a workspace page
+ * you were not on (spec 2026-10-17: selecting a pane means going to its tab).
+ * `requestWorkspacePaneFocus` only reaches a DOCK that is already mounted;
+ * when the click has to navigate first, the destination presentation takes
+ * this value once its panes are up and activates the matching tab. Consumed
+ * by the first presentation ready to honour it — if none ever is (a dead
+ * pane, a fast redirect), it is simply stale by the next navigation, and
+ * `arm` overwrites rather than queues.
+ */
+let pendingArrivalFocus: string | null = null;
+
+/** Arm the pane the next-ready presentation should focus. */
+export function armPaneFocusOnArrive(subshellId: string): void {
+  pendingArrivalFocus = subshellId;
+}
+
+/** Take the armed id exactly once (null when nothing is armed). */
+export function takePaneFocusOnArrive(): string | null {
+  const id = pendingArrivalFocus;
+  pendingArrivalFocus = null;
+  return id;
+}
+
 /** Drop every listener and the value — for tests only. @internal */
 export function resetWorkspaceFocusForTests(): void {
   focusedSubshellId = null;
+  pendingArrivalFocus = null;
   listeners.clear();
   focusRequests.clear();
 }

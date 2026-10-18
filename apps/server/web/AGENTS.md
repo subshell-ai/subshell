@@ -113,7 +113,8 @@ feed's own copy; activity derives from `lastOutputAt` against a clock
 needs its own tick.
 **Working on anything that reads or writes subshell state: read apps/server/web/docs/live-feed.md first.**
 
-**The home page reads its state as a dot and segments by machine** (tiles and
+**The subshells list (`/subshells` since the workspace-first move of
+2026-10-17) reads its state as a dot and segments by machine** (tiles and
 the list share ONE `SubshellSection` model; the machine combobox is ALWAYS
 drawn), and two instance-wide gates decide what may launch anywhere:
 `allow_server_subshells` refuses every new launch and restart on the host
@@ -122,7 +123,7 @@ non-destructively (running panes finish; the `local` row stays visible), and
 restart before any machine is chosen: turning it ON is typed-confirmed, a
 re-submitted ON is INERT, and `components/lockdown-banner.tsx` tells everyone
 signed-in, mounted in `__root`.
-**Working on the home page, the launch pickers, or these gates: read apps/server/web/docs/home-launch-guidance.md first.**
+**Working on the subshells list, the landing `/`, the launch pickers, or these gates: read apps/server/web/docs/home-launch-guidance.md and apps/server/web/docs/workspace-first.md first.**
 
 **The admin surface is ELEVEN pages behind one collapsible group** (General,
 Users, Auth, API keys, Plugins, Service, Networking, Updates, Backups, Status, Logs),
@@ -390,18 +391,33 @@ When polling for a Happy DOM element to disappear, assert a boolean such as
 `expect(element).toBeNull()` makes Bun serialize the full DOM graph, which can
 block the state update the test is waiting for and exhaust CI timeouts.
 
-## Drafts and the split flow (spec 2026-09-14)
+## Workspaces and the split flow (spec 2026-10-17)
 
-**Split** opens the ordinary add-subshell dialog, creates a DRAFT workspace
-around the current subshell, and navigates to `/workspaces/$id?add=…&dir=…`;
-the dock and the tab strip consume that intent once dockview is ready, through
-their ordinary `handleAdd`, so the first split and every later add run ONE
-code path. Drafts are ABSENT from `GET /api/workspaces`. A draft below two
-panes is DISCARDED: server-side when a pane is removed, and client-side by
-`hooks/use-discard-thin-draft.ts`, which is GUARDED by the `?add=` intent:
-break that ordering and every split discards itself. And the create response
-is CHECKED, not trusted (`lib/split-workspace-refusal.ts`).
-**Working on drafts, splits, or workspace membership: read apps/server/web/docs/drafts-split.md first.**
+**Split** opens the ordinary add-subshell dialog, creates a real, NAMED
+workspace around the current subshell, and navigates to
+`/workspaces/$id?add=…&dir=…`; the dock and the tab strip consume that intent
+once dockview is ready, through their ordinary `handleAdd`, so the first split
+and every later add run ONE code path. Nothing is "unsaved": the workspace is
+in `GET /api/workspaces` from the moment the POST answers, and that LIST
+carries each workspace's PANES, which is what the rail's tree renders from one
+query. The tree shows ONLY workspaces: an unfiled pane lives in the subshells
+list's machine groups, never in an "Ungrouped" branch (operator ruling
+2026-10-17, which deleted that section). Adding a pane is IDEMPOTENT (UNIQUE `(workspace_id, subshell_id)`; the
+second add returns the same row with `alreadyPresent`), and removing the LAST
+pane self-retires the row (`workspaceDeleted`): a workspace exists exactly as
+long as it holds a tab. The user is ALWAYS in a workspace: a launch raised
+with none on screen JOINS an existing one (the remembered-then-recency
+workspace, via the idempotent pane-add; only an instance with none opens
+one around the pane - `autoFile` in
+`hooks/use-create-subshell.ts`; the add-pane and new-workspace dialogs pass
+false and file it themselves), and a plain click on a rail row or cell
+means the tab (`hooks/use-open-pane-as-tab.ts`: focus it on
+screen, else its holder via `armPaneFocusOnArrive`, else create one). The
+landing `/` is a direction, not a page: last visited workspace, else most
+recently touched, else the one-button empty state. The create response is
+still CHECKED, not trusted (`lib/split-workspace-refusal.ts`), now only for a
+server old enough to drop `subshellId`.
+**Working on splits or workspace membership: read apps/server/web/docs/workspace-first.md first.**
 
 ## Terminal gotchas
 

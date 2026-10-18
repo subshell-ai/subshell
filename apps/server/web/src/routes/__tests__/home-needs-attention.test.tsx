@@ -9,7 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import * as quickAdd from "@/components/quick-add";
-import { Route } from "@/routes/index";
+import { Route } from "@/routes/subshells";
 import { setFetchRouter } from "@/test-setup";
 import type { SubshellView } from "@/types/subshell";
 
@@ -55,7 +55,7 @@ function subshell(over: Partial<SubshellView> = {}): SubshellView {
   } as SubshellView;
 }
 
-function mount(subshells: SubshellView[], entry = "/"): () => void {
+function mount(subshells: SubshellView[], entry = "/subshells"): () => void {
   setFetchRouter(async (input: RequestInfo | URL) => {
     const url = String(input);
     const body = url.includes("/api/subshells")
@@ -83,7 +83,7 @@ function mount(subshells: SubshellView[], entry = "/"): () => void {
   // object, so a reconstructed `createRoute` carrying the component would
   // detach the `?view=` search-param wiring. `/subshells/$id` exists only as a
   // Link target for the cards the page renders.
-  const homeRoute = Route.update({ id: "/", path: "/", getParentRoute: () => rootRoute } as any);
+  const homeRoute = Route.update({ id: "/subshells", path: "/subshells", getParentRoute: () => rootRoute } as any);
   const subRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/subshells/$id",
@@ -169,7 +169,7 @@ describe("home Needs Attention section (spec 2026-09-24)", () => {
     // future edit that hoists it out shows up as a failure rather than as
     // a table page that suddenly grew a card grid. The page rendered at
     // all is proven by the row's name appearing in the table.
-    const restore = mount([subshell({ id: "a", name: "waiting", unseenPush: true })], "/?view=list");
+    const restore = mount([subshell({ id: "a", name: "waiting", unseenPush: true })], "/subshells?view=list");
     try {
       await waitFor(() => {
         expect(document.body.textContent).toContain("waiting");

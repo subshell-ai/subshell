@@ -85,6 +85,36 @@ describe("useSubshellMutations invalidation sets (bug audit 2026-09-27)", () => 
     expect(invalidated).toEqual(expect.arrayContaining(["subshells", "subshell", "workspace"]));
   });
 
+  it("Close re-reads the MEMBERSHIP reads too — the LIST the tree branches render from", async () => {
+    // Spec 2026-10-17 gave the LIST each workspace's panes, so the rail's
+    // tree row for a closed subshell lives in the `workspaces` query, not
+    // just the detail; the per-subshell links ride the same wake
+    // (review 2026-10-17: a local delete left ghost rows until some later
+    // act refetched the list).
+    stubFetch();
+    restoreConfirm = () => void setConfirmHandler(null);
+    setConfirmHandler(() => Promise.resolve(true));
+    const { invalidated, wrapper } = mount();
+    const { result } = renderHook(() => useSubshellMutations("s1", row()), { wrapper });
+
+    await act(async () => {
+      await result.current.remove();
+    });
+    await waitFor(() => expect(invalidated.length).toBe(5));
+
+    expect(invalidated).toEqual(
+      expect.arrayContaining(["subshells", "subshell", "workspaces", "subshell-workspaces", "workspace"]),
+    );
+    // Restart moves no membership: the LIST must stay untouched there.
+    stubFetch();
+    const { invalidated: restartKeys, wrapper: w2 } = mount();
+    const { result: r2 } = renderHook(() => useSubshellMutations("s1", row({ alive: false }), {}), { wrapper: w2 });
+    act(() => r2.current.restart());
+    await waitFor(() => expect(restartKeys.length).toBe(3));
+    expect(restartKeys.includes("workspaces")).toBe(false);
+    expect(restartKeys.includes("subshell-workspaces")).toBe(false);
+  });
+
   it("a declined Close spawns nothing — not even an invalidation", async () => {
     stubFetch();
     restoreConfirm = () => void setConfirmHandler(null);

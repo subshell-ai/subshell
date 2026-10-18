@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { ApiError, NetworkError } from "@internal/node-admin";
-import { workspaceLoad } from "@/lib/workspace-load";
+import { workspaceAcceptsFiling, workspaceLoad } from "@/lib/workspace-load";
 
 const detail = { workspace: { id: "w1" } };
 const net = new NetworkError(new TypeError("down"));
@@ -38,5 +38,18 @@ describe("workspaceLoad", () => {
   it("keeps last-good detail over ANY background error — a blip never unmounts the dock", () => {
     expect(workspaceLoad({ isLoading: false, detail, error: net })).toBe("ready");
     expect(workspaceLoad({ isLoading: false, detail, error: new ApiError(500, "busy") })).toBe("ready");
+  });
+});
+
+describe("workspaceAcceptsFiling", () => {
+  // The dead-page bug (review 2026-10-17): a page standing on a retired
+  // workspace used to claim the launch target at mount, so the rail's "+ New
+  // subshell" sent the dead id as `workspaceId`, the create pre-check refused
+  // it, and NOTHING launched. Only an answered page may claim it.
+  it("only a ready workspace claims the launch target", () => {
+    expect(workspaceAcceptsFiling("ready")).toBe(true);
+    for (const load of ["loading", "notFound", "answeredError", "deleted"] as const) {
+      expect(workspaceAcceptsFiling(load)).toBe(false);
+    }
   });
 });

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE, dismissDirectoryPanel, pickAgent } from "./helpers";
+import { ADMIN_STATE, dismissDirectoryPanel, newPaneId, pickAgent } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -13,6 +13,13 @@ const SPAWN_TIMEOUT = 30_000;
  */
 test("accessory key bar sends real bytes into the pane", async ({ page }) => {
   test.setTimeout(120_000);
+
+  // The pane this launch creates, identified by what is NEW afterwards: the
+  // URL names the WORKSPACE (the launch files its pane into it, spec
+  // 2026-10-17), and the workspace a previous spec left can be the one joined.
+  const before = new Set(
+    ((await (await page.request.get("/api/subshells")).json()) as { id: string }[]).map((s) => s.id),
+  );
 
   await page.goto("/new");
   await pickAgent(page.getByPlaceholder("Choose an agent"), "pi");
@@ -32,7 +39,9 @@ test("accessory key bar sends real bytes into the pane", async ({ page }) => {
     timeout: SPAWN_TIMEOUT,
   });
   await page.getByRole("button", { name: "Start subshell" }).click();
-  await expect(page).toHaveURL(/\/subshells\/.+/, { timeout: SPAWN_TIMEOUT });
+  // Phone too: the launch lands as a tab in a workspace (spec 2026-10-17);
+  // the key bar rides the pane component, not the route.
+  await expect(page).toHaveURL(/\/workspaces\/.+/, { timeout: SPAWN_TIMEOUT });
   await tokenRes;
   await socket;
   await expect(page.getByText("reconnecting…")).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
@@ -50,9 +59,9 @@ test("accessory key bar sends real bytes into the pane", async ({ page }) => {
   await bar.getByRole("button", { name: "Send Escape" }).click();
   await bar.getByRole("button", { name: "Send Enter" }).click();
 
-  // URL already asserted to be /subshells/<id>; "" only degrades a lookup to
-  // a failed poll, never a false green.
-  const id = new URL(page.url()).pathname.split("/").pop() ?? "";
+  // The pane this launch added, by the same before/after diff (a previous
+  // mobile spec's tab may still be open in the workspace the URL names).
+  const id = await newPaneId(page, before);
   const logText = async () => {
     const res = await page.request.get(`/api/subshells/${id}/log`);
     if (!res.ok()) return "";

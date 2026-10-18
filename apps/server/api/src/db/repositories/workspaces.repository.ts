@@ -7,14 +7,13 @@ import type { NewWorkspace, WorkspaceTable, WorkspaceUpdate } from "@/db/types/w
  * workspace is private to its owner.
  */
 export class WorkspacesRepository extends BaseRepository {
-  /** Inserts a workspace, stamping both timestamps. An omitted `draft` means saved. */
+  /** Inserts a workspace, stamping both timestamps. */
   async create(workspace: NewWorkspace): Promise<WorkspaceTable> {
     const now = new Date().toISOString();
     return this.db
       .insertInto("workspaces")
       .values({
         ...workspace,
-        draft: workspace.draft ?? 0,
         createdAt: now,
         updatedAt: now,
       })
@@ -35,43 +34,19 @@ export class WorkspacesRepository extends BaseRepository {
       .executeTakeFirst();
   }
 
-  /**
-   * A user's workspaces, ordered by name. **Drafts are excluded by default** —
-   * an unsaved workspace is not something the Workspaces page or the sidebar
-   * should list, so the caller has to ask for them.
-   *
-   * @param userId - Owner whose workspaces to list
-   * @param opts.includeDrafts - true also returns unsaved drafts
-   */
-  async listByUser(userId: string, opts?: { includeDrafts?: boolean }): Promise<WorkspaceTable[]> {
-    let query = this.db.selectFrom("workspaces").selectAll().where("userId", "=", userId);
-    if (!opts?.includeDrafts) query = query.where("draft", "=", 0);
-    return query.orderBy("name", "asc").execute();
-  }
-
-  /**
-   * The caller's UNSAVED drafts only, most recently touched first. The mirror of
-   * `listByUser`'s default (saved only): this is the Workspaces rail's "Drafts"
-   * section, which lists every unsaved workspace rather than hiding them.
-   */
-  async listDraftsByUser(userId: string): Promise<WorkspaceTable[]> {
-    return this.db
-      .selectFrom("workspaces")
-      .selectAll()
-      .where("userId", "=", userId)
-      .where("draft", "=", 1)
-      .orderBy("updatedAt", "desc")
-      .execute();
+  /** A user's workspaces, ordered by name. */
+  async listByUser(userId: string): Promise<WorkspaceTable[]> {
+    return this.db.selectFrom("workspaces").selectAll().where("userId", "=", userId).orderBy("name", "asc").execute();
   }
 
   /**
    * The caller's workspaces that hold a pane for one subshell, most recently
-   * updated first. **Drafts are included** — this is what answers "is this
-   * subshell already part of a workspace", and a freshly split draft is
-   * precisely the case worth surfacing.
+   * updated first. This answers "is this subshell already part of a workspace"
+   * for the pane-header link.
    *
-   * `EXISTS` rather than a join: a subshell could in principle occupy two panes
-   * of one workspace, and a join would then return that workspace twice.
+   * `EXISTS` rather than a join: the unique `(workspace_id, subshell_id)` index
+   * (0058) makes double membership impossible now, but EXISTS also keeps the
+   * row single even if the schema changes back.
    *
    * @param userId - Owner whose workspaces to search (never another user's)
    * @param subshellId - The subshell a pane must reference
@@ -117,21 +92,49 @@ export class WorkspacesRepository extends BaseRepository {
   }
 
   /**
-   * Deletes every one of the user's UNSAVED drafts except an optional id, and
-   * returns how many went. Panes cascade (the `workspace_id` FK is `ON DELETE
-   * CASCADE`); the subshells they held are separate rows and keep running.
+   * The owner's workspaces holding a pane for one subshell, as ids. The
+   * caller reads this BEFORE deleting the subshell, because the delete's own
+   * cascade is what erases the evidence: after it, nothing can tell "this
+   * delete emptied that workspace" from "it was already empty."
    *
-   * This is the sidebar's "discard other unsaved workspaces" cleanup. Scoping by
-   * `userId` is the whole authorization: it can only ever reach the caller's own
-   * drafts, and the drafts it removes are ones the list surface never showed.
-   *
-   * @param userId - Owner whose drafts are eligible (never another user's)
-   * @param exceptId - A draft to spare — normally the one being viewed
+   * `listBySubshellForUser` is the same question in row form; the delete path
+   * wants only the ids, and wants them in one cheap statement.
    */
-  async deleteDraftsExcept(userId: string, exceptId?: string): Promise<number> {
-    let query = this.db.deleteFrom("workspaces").where("userId", "=", userId).where("draft", "=", 1);
-    if (exceptId) query = query.where("id", "<>", exceptId);
-    const result = await query.executeTakeFirst();
+  async idsHoldingForUser(userId: string, subshellId: string): Promise<string[]> {
+    const rows = await this.db
+      .selectFrom("workspacePanes")
+      .innerJoin("workspaces", "workspaces.id", "workspacePanes.workspaceId")
+      .where("workspaces.userId", "=", userId)
+      .where("workspacePanes.subshellId", "=", subshellId)
+      .select("workspacePanes.workspaceId")
+      .execute();
+    return rows.map((r) => r.workspaceId);
+  }
+
+  /**
+   * Deletes the named workspaces that now hold no panes, and returns how many
+   * went. This is the runtime half of the empty-retire rule: the pane-removal
+   * path retires the workspace it was asked about directly, while this sweep
+   * catches the ones a subshell delete's cascade emptied (spec 2026-10-17:
+   * "additionally deletes any workspace ITS cascade emptied"). The candidate
+   * set IS the point: a workspace the delete never touched is not in it, so an
+   * intentionally-empty workspace — the new-workspace dialog's "name it now,
+   * fill it inside" answer — survives someone else's tab closing (review
+   * 2026-10-17 caught the old owner-wide sweep eating those).
+   *
+   * Scoping by `userId` stays load-bearing on top of the candidate set: the
+   * caller hands ids read from its own cascade, and a bug elsewhere must not
+   * turn this into a foreign delete. Foreign owners' workspaces that held the
+   * shared pane simply aren't in the set.
+   */
+  async retireEmptyAmong(userId: string, workspaceIds: string[]): Promise<number> {
+    if (workspaceIds.length === 0) return 0;
+    const result = await this.db
+      .deleteFrom("workspaces")
+      .where("userId", "=", userId)
+      .where("id", "in", workspaceIds)
+      .where(sql<boolean>`NOT EXISTS (SELECT 1 FROM workspace_panes wp WHERE wp.workspace_id = workspaces.id)`)
+      .executeTakeFirst();
     return Number(result?.numDeletedRows ?? 0);
   }
 }

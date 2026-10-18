@@ -5,7 +5,7 @@ import { SquareSplitHorizontal } from "lucide-react";
 import { type JSX, useState } from "react";
 import { AddSubshellDialog } from "@/components/subshell-picker/add-subshell-dialog";
 import { TippedIconButton } from "@/components/tipped-icon-button";
-import { SUBSHELL_WORKSPACES_QUERY_KEY } from "@/lib/query-keys";
+import { invalidateWorkspaceMembership } from "@/hooks/use-workspaces";
 import { splitCreateFailureMessage, splitWorkspaceRefusal } from "@/lib/split-workspace-refusal";
 import { defaultWorkspaceName } from "@/lib/workspace-name";
 import type { SubshellView } from "@/types/subshell";
@@ -17,10 +17,11 @@ import type { SplitDirection, WorkspaceRow } from "@/types/workspace";
  *
  * A split pane IS a new subshell, and two subshells side by side ARE a
  * workspace — so this creates one rather than inventing a second tiling
- * concept. It is created as a DRAFT: it holds this subshell already, stays
- * off `/workspaces` and out of the sidebar until it is named, and is thrown
- * away again if it drops below two panes. What the user does here is pick the
- * second pane, which is the existing add-a-pane dialog, unchanged.
+ * concept. It holds this subshell from the first moment (spec 2026-10-17:
+ * drafts are gone, a workspace simply exists as long as it has a tab), is
+ * named after this subshell, and is editable like any other. What the user
+ * does here is pick the second pane, which is the existing add-a-pane
+ * dialog, unchanged.
  *
  * The pane itself is NOT added here. The `add`/`dir` search params carry the
  * choice into the workspace page, which runs the same `handleAdd` every later
@@ -33,9 +34,9 @@ export function SplitSubshellButton({ subshell }: { subshell: SubshellView }): J
   const queryClient = useQueryClient();
 
   /**
-   * Creates the draft around this subshell and hands the picked second pane
-   * to the workspace page. Errors are left to throw: the dialog catches them
-   * and keeps itself open with the message, which is the behaviour every
+   * Creates the workspace around this subshell and hands the picked second
+   * pane to the workspace page. Errors are left to throw: the dialog catches
+   * them and keeps itself open with the message, which is the behaviour every
    * other caller of `onAdd` already relies on.
    */
   async function handleAdd(subshellId: string, direction: SplitDirection): Promise<void> {
@@ -43,18 +44,18 @@ export function SplitSubshellButton({ subshell }: { subshell: SubshellView }): J
     try {
       workspace = await apiPost<WorkspaceRow>("/api/workspaces", {
         name: subshell.name || defaultWorkspaceName(),
-        draft: true,
         subshellId: subshell.id,
       });
     } catch (err) {
-      // A create that FAILS gets its own reading — above all a 409, which on a
-      // current server cannot happen to an unsaved workspace and so names the
-      // server's build rather than the name it complained about.
+      // A create that FAILS gets its own reading — above all a 409, which a
+      // current server cannot produce for a create at all (names stopped being
+      // keys with 0058), so it names the server's build rather than the name
+      // it complained about.
       throw new Error(splitCreateFailureMessage(err));
     }
     // A 200 is not yet a split: a server older than this page answers one
-    // while silently dropping `draft` and `subshellId`, which lands the person
-    // on a workspace missing the subshell they split. Refuse that instead, and
+    // while silently dropping `subshellId`, which lands the person on a
+    // workspace missing the subshell they split. Refuse that instead, and
     // take the empty workspace it did create back out — the failed attempt
     // must not leave a stray row in their list to clean up by hand.
     const refusal = splitWorkspaceRefusal(workspace);
@@ -62,8 +63,14 @@ export function SplitSubshellButton({ subshell }: { subshell: SubshellView }): J
       await apiFetch(`/api/workspaces/${workspace.id}`, { method: "DELETE" }).catch(() => {});
       throw new Error(refusal);
     }
-    // This subshell now sits on a workspace — the header's link reads it.
-    await queryClient.invalidateQueries({ queryKey: [...SUBSHELL_WORKSPACES_QUERY_KEY, subshell.id] });
+    // This subshell now sits on a workspace — the header's link reads it — and
+    // the workspace itself is new to every membership reader. The LIST in
+    // particular: the destination page's mount covers the DETAIL, but if the
+    // follow-on pane-add there fails, this create is the only signal the rail
+    // tree ever got, and the tree branch for the window you're standing in
+    // would otherwise be missing (review 2026-10-17: waking only the
+    // per-subshell key left it exactly that way).
+    await invalidateWorkspaceMembership(queryClient);
     await navigate({
       to: "/workspaces/$id",
       params: { id: workspace.id },

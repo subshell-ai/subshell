@@ -3,15 +3,15 @@ import { useNavigate } from "@tanstack/react-router";
 import { X } from "lucide-react";
 import { type JSX, useEffect, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
+import { PaneFocusHeader } from "@/components/pane-focus-header";
 import { SubshellDot } from "@/components/subshell-dot";
 import { SubshellPane } from "@/components/subshell-pane";
 import { SubshellPicker } from "@/components/subshell-picker";
 import { TabWaitingMarker } from "@/components/workspace-dock/subshell-tab";
-import { WorkspaceHeader } from "@/components/workspace-header";
 import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { isPaneWaiting } from "@/lib/subshell-order";
-import { onWorkspacePaneFocusRequest, setWorkspaceFocusedId } from "@/lib/workspace-focus";
+import { onWorkspacePaneFocusRequest, setWorkspaceFocusedId, takePaneFocusOnArrive } from "@/lib/workspace-focus";
 import type { SplitIntent } from "@/lib/workspace-split-intent";
 import type { SplitDirection, WorkspaceDetail, WorkspacePaneRow } from "@/types/workspace";
 
@@ -142,17 +142,30 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
     setWorkspaceFocusedId(focusedSubshellId);
   }, [focusedSubshellId]);
   useEffect(() => () => setWorkspaceFocusedId(null), []);
+  // The narrow view's half of the arrival focus (see `workspace-dock.tsx`):
+  // a rail click that navigated here selects the matching tab.
+  useEffect(() => {
+    const target = takePaneFocusOnArrive();
+    if (!target) return;
+    const pane = detail.panes.find((p) => p.subshellId === target);
+    if (pane) setSelectedId(pane.id);
+  }, [detail.panes]);
   // A focus request from the rail selects the matching tab instead of letting
   // the rail's link navigate out of the workspace.
   useEffect(
     () =>
-      onWorkspacePaneFocusRequest((subId) => {
+      onWorkspacePaneFocusRequest((subId, scopedWorkspaceId) => {
+        // Scoped requests name their branch: answer only for the workspace
+        // this strip is standing on (see `requestWorkspacePaneFocus`).
+        if (scopedWorkspaceId !== undefined && scopedWorkspaceId !== detail.workspace.id) {
+          return false;
+        }
         const pane = detail.panes.find((p) => p.subshellId === subId);
         if (!pane) return false;
         setSelectedId(pane.id);
         return true;
       }),
-    [detail.panes],
+    [detail.panes, detail.workspace.id],
   );
 
   /**
@@ -202,9 +215,10 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
       setError(errMessage(err, "Failed to remove pane"));
       return;
     }
-    // Removing this pane took the whole (unsaved) workspace with it — a draft
-    // left with fewer than two panes is deleted server-side. There is no tab
-    // strip left to re-select in, so leave for the pane that remains.
+    // Removing this pane took the whole workspace with it: a workspace exists
+    // exactly as long as it holds a tab (spec 2026-10-17), so this was the
+    // last one and the server retired the row. There is no tab strip left to
+    // re-select in, so go home.
     if (workspaceDeleted) {
       const other = detail.panes.find((p) => p.id !== paneId);
       if (other) void navigate({ to: "/subshells/$id", params: { id: other.subshellId }, replace: true });
@@ -233,38 +247,31 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
         landed = await handleAdd(intent.subshellId, intent.direction);
       }
       await onRefetch();
-      // A pane that did NOT land keeps the params. Stripping them would leave
-      // a one-pane draft with no intent, which `useDiscardThinDraft` reads as
-      // "discard and go back" — and the error banner would unmount with this
-      // screen, so the person who pressed Split would land where they started
-      // with nothing said (review, 2026-09-14). With the params kept, the guard
-      // stays engaged, the banner stays up, and a reload retries the add.
+      // A pane that did NOT land keeps the params: the error banner would
+      // unmount with this screen if we navigated clean, so the person who
+      // pressed Split would land where they started with nothing said
+      // (review, 2026-09-14). With the params kept, the banner stays up and a
+      // reload retries the add.
       if (!landed) return;
-      // Only now are the params spent. `useDiscardThinDraft` reads them as
-      // "the second pane is still in flight", so stripping them any earlier
-      // would auto-discard this draft from under the split that created it.
+      // Only now are the params spent — once the pane has actually landed, so
+      // the claim above keeps a retry from double-adding.
       await navigate({ to: "/workspaces/$id", params: { id: detail.workspace.id }, search: {}, replace: true });
     })();
   }, [intent, claimIntent, detail, onRefetch, navigate]);
 
   return (
     <>
-      <WorkspaceHeader
-        workspace={detail.workspace}
+      <PaneFocusHeader
+        fallbackName={detail.workspace.name}
         panes={detail.panes}
         actions={<SubshellPicker workspaceId={detail.workspace.id} existing={detail.panes} onAdd={handleAdd} />}
-        // A discarded draft lands on the subshell the person was looking at
-        // — the selected tab's — which only this presentation can name.
-        onDiscarded={() => {
-          const pane = detail.panes.find((p) => p.id === selectedId) ?? detail.panes[0];
-          if (pane) void navigate({ to: "/subshells/$id", params: { id: pane.subshellId }, replace: true });
-          else void navigate({ to: "/", replace: true });
-        }}
       />
       {/* This view owns the page's bottom edge (the shell skips its own
-        safe-area padding on /workspaces/$id): the tabs presentation carries
-        no key bar — that is the WIDE dock's pane chrome — so the terminal
-        column pads the home indicator itself, in the canvas colour. */}
+        safe-area padding on /workspaces/$id), so the terminal column pads
+        the home indicator itself, in the canvas colour. The key bar is NOT
+        wide-dock-only: `SubshellPane` renders it under the phone's selected
+        tab too (coarse-gated inside), because this is where a phone launch
+        lands and the bar is how a thumb sends Escape and Ctrl-C. */}
       <div className="flex min-h-0 flex-1 flex-col bg-terminal-canvas pb-[env(safe-area-inset-bottom)]">
         {error && (
           <ErrorBanner
@@ -310,6 +317,12 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
               <SubshellPane
                 pane={pane}
                 active={pane.id === selected?.id}
+                // The phone's answer to `DockedPane`'s `visible && isActive`:
+                // only the selected tab is shown and only one key bar may ride
+                // the strip. `SubshellPane` still gates the bar on coarse
+                // pointer itself, so a narrow desktop window gets no bar here
+                // any more than in the dock.
+                showKeyBar={pane.id === selected?.id}
                 onRestart={(subshellId) => void handleRestart(subshellId)}
                 onRemovePane={(paneId) => void handleRemovePane(paneId)}
               />

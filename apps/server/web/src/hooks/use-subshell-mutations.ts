@@ -1,5 +1,6 @@
 import { apiFetch } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { invalidateWorkspaceMembership } from "@/hooks/use-workspaces";
 import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import { confirmCloseSubshell, confirmRestartSubshell } from "@/lib/subshell-confirmations";
 import type { SubshellView } from "@/types/subshell";
@@ -79,9 +80,15 @@ export function useSubshellMutations(
   const remove = useMutation({
     mutationFn: () => apiFetch<{ ok: boolean }>(`/api/subshells/${id}`, { method: "DELETE" }),
     onSuccess: () => {
-      // The pane CASCADE goes through the workspace read too: closing from
-      // anywhere must close the dock tab, not just the card.
-      refreshWithPanes();
+      // The pane CASCADE touches every membership reader: the dock tile
+      // (DETAIL), the rail's tree row (the LIST carries panes since spec
+      // 2026-10-17), and the page's workspace links. The feed's gone-frame
+      // tells everyone else, but a live socket is a delivery, not a
+      // promise (review 2026-10-17: the tree kept ghost rows after a local
+      // delete) — the client that pulled the trigger already knows, so it
+      // wakes the caches itself instead of waiting on the round trip.
+      refresh();
+      void invalidateWorkspaceMembership(queryClient);
       onDeleted?.();
     },
   });

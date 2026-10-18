@@ -1,33 +1,30 @@
 /**
- * A workspace: a saved tiling layout of subshells, private to one user.
+ * A workspace: a named set of references to subshells with a saved tiling
+ * layout, private to one user. It exists exactly as long as it holds a tab —
+ * the service retires it the moment its last pane is removed (spec 2026-10-17).
  */
 export interface WorkspaceTable {
   /** Unique workspace id (uuid) */
   id: string;
   /** Owning user id; every query filters on this */
   userId: string;
-  /** Friendly label, unique per user */
+  /**
+   * Friendly label. NOT unique: auto-created workspaces reuse their default
+   * title freely, and every lookup is by id (the 0058 migration retired the
+   * old `(user_id, name)` unique index along with the draft machinery).
+   */
   name: string;
   /** Serialized dockview layout tree, or null when none has been saved yet */
   layoutJson: string | null;
-  /**
-   * 1 while this is an unsaved draft created by splitting a subshell, 0 once
-   * named and saved (SQLite has no boolean, like `alive`). Drafts are hidden
-   * from the list endpoint and sit OUTSIDE the unique `(user_id, name)` index —
-   * they are auto-named after their root subshell, so collisions are expected.
-   * The only transition is 1 → 0; a saved workspace never becomes a draft.
-   */
-  draft: number;
   /** ISO 8601 timestamp when the workspace was created */
   createdAt: string;
   /** ISO 8601 timestamp of the last update */
   updatedAt: string;
 }
 
-/** Insert shape: DB defaults fill the timestamps, and an omitted `draft` means saved. */
-export type NewWorkspace = Omit<WorkspaceTable, "createdAt" | "updatedAt" | "layoutJson" | "draft"> & {
+/** Insert shape: DB defaults fill the timestamps. */
+export type NewWorkspace = Omit<WorkspaceTable, "createdAt" | "updatedAt" | "layoutJson"> & {
   layoutJson?: string | null;
-  draft?: number;
 };
 
 /** Update shape. */

@@ -39,12 +39,18 @@ included, while workspace panes were fine because `use-subshell-row.ts` is a
 selector over the list. A removal or an access change INVALIDATES the per-id
 entry instead, so an active page refetches to the honest answer (including the
 404 it renders as not-found) and an inactive one costs nothing. And
-`subshell-gone` INVALIDATES the `["workspace"]` detail too: a close CASCADES
-the pane rows, dock tiles render from that per-workspace read, and it has no
-poll of its own. The gone frame is therefore the ONLY live signal a close made
-elsewhere ever sends the dock (operator bug audit 2026-09-27: without it, a
-remote Close left the tile standing forever). Any new reader of a subshell
-should be a selector over the list, or it needs a line here.
+`subshell-gone` INVALIDATES the workspace reads too: a close CASCADES the pane
+rows, dock tiles render from the per-workspace DETAIL read (which has no poll
+of its own), and since spec 2026-10-17 the LIST carries every workspace's
+panes, so the rail's tree branches are the second surface holding the
+cascaded row and the frame invalidates `["workspaces"]` as well. The gone
+frame is therefore the ONLY live signal a close made elsewhere ever sends
+those surfaces (operator bug audit 2026-09-27: without it, a remote Close
+left the tile standing forever; a 2026-10-17 review caught the tree's half of
+the same gap). A surface that deletes SUBSHELLS itself does not lean on the
+frame, though: the socket can be down, and the actor already knows, so those
+paths call `invalidateWorkspaceMembership` directly. Any new reader of a
+subshell should be a selector over the list, or it needs a line here.
 
 **The feed is not the only writer of that cache, and the page must follow the
 CACHE rather than the feed's own copy.** Every mutation's

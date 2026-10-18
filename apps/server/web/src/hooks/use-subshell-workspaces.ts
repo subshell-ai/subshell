@@ -7,12 +7,12 @@ import type { WorkspaceRow } from "@/types/workspace";
  * The caller's workspaces holding a pane for one subshell, newest update
  * first — `GET /api/workspaces?subshellId=` (spec 2026-09-14 §2).
  *
- * The only read that returns DRAFTS: the plain list excludes them, because a
- * draft is not something to browse to. Here it is exactly what the subshell
- * page wants to offer — "you already split this one, go back to it".
+ * Ordered by recency, unlike the plain list's name order: the subshell page
+ * wants "the arrangement you touched last" at the top of its menu. Drafts are
+ * gone with migration 0058, so this read and the list see the same universe.
  *
  * `staleTime` is 30 s rather than 0 because the answer changes only when this
- * viewer splits or discards, and both of those invalidate this key directly;
+ * viewer files or removes a pane, and those acts invalidate this key directly;
  * a header link is not worth a request per focus.
  * @param subshellId - The subshell whose workspaces to list
  */

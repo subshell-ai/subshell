@@ -6,6 +6,7 @@ import { TooltipLabelledLines } from "@/components/sidebar/TooltipLabelledLines"
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { BELL_TONE, bellAnnouncement, DOT_CLASS, showsBell } from "@/components/subshell-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useOpenPaneAsTab } from "@/hooks/use-open-pane-as-tab";
 import { encodeSubshellDrag } from "@/lib/subshell-dnd";
 import {
   INDICATOR_LABEL,
@@ -16,7 +17,6 @@ import {
 } from "@/lib/subshell-indicator";
 import type { SubshellNodeGroup } from "@/lib/subshell-node-groups";
 import { subshellRowTooltip } from "@/lib/subshell-row-tooltip";
-import { requestWorkspacePaneFocus } from "@/lib/workspace-focus";
 import type { SubshellView } from "@/types/subshell";
 
 /**
@@ -209,7 +209,6 @@ export interface SubshellCellLabels {
 export function SubshellCell({
   subshell,
   focused,
-  focusOnOpen,
   labels,
 }: {
   subshell: SubshellView;
@@ -224,9 +223,9 @@ export function SubshellCell({
    * tab instead of navigating to `/subshells/:id` and leaving the workspace
    * (operator report 2026-09-27). Only true while a dock exists to act on it.
    */
-  focusOnOpen?: boolean;
   labels: SubshellCellLabels;
 }) {
+  const openAsTab = useOpenPaneAsTab();
   const indicator = subshellIndicator(subshell);
   const bell = showsBell(subshell);
   // The ACTIVE square pulses its FILL only: a `bg-success/50` tile blinking
@@ -253,22 +252,14 @@ export function SubshellCell({
               params={{ id: subshell.id }}
               draggable
               onDragStart={(e) => encodeSubshellDrag(e.dataTransfer, subshell.id)}
-              // A workspace member clicked in the rail focuses its tab in place.
-              // Only a plain left-click: ⌘/ctrl/shift-click keeps the browser's
-              // open-in-new-tab. And navigation is suppressed only if the dock
-              // actually activated the pane — a stale/unready pane falls through
-              // to its normal link so the click is never a dead no-op.
+              // A plain left-click means the tab (spec 2026-10-17): focus it
+              // on screen, else go where it IS a tab, else file it in a new
+              // one. ⌘/ctrl/shift-click keeps the browser's open-in-new-tab
+              // on the real href.
               onClick={(e) => {
-                if (
-                  focusOnOpen &&
-                  e.button === 0 &&
-                  !e.metaKey &&
-                  !e.ctrlKey &&
-                  !e.shiftKey &&
-                  requestWorkspacePaneFocus(subshell.id)
-                ) {
-                  e.preventDefault();
-                }
+                if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+                e.preventDefault();
+                void openAsTab(subshell);
               }}
               aria-label={`${subshell.name}: ${bell ? bellAnnouncement(INDICATOR_LABEL[indicator]) : INDICATOR_LABEL[indicator]}`}
               className={cn(
@@ -304,8 +295,8 @@ export function SubshellCell({
                 // "All open panes ring" — the ORIGINAL design — was rejected
                 // outright: "when in a workspace, ALL items have a white
                 // border". Set membership now marks nothing here; it drives
-                // ordering and click-to-focus, which the grid resolves into
-                // `focusOnOpen` before this component ever sees it.
+                // ordering and click-to-focus, which `useOpenPaneAsTab`
+                // resolves per click (spec 2026-10-17).
                 focused ? "border-0 ring-1 ring-foreground" : "border border-foreground/25",
               )}
             />
@@ -394,32 +385,16 @@ export function SubshellCell({
  */
 export function SubshellCellGrid({
   rows,
-  selectedIds,
   focusedId,
-  focusOnClick,
   labelsFor,
   tintOf,
 }: {
   rows: readonly SubshellView[];
   /**
-   * The SET of panes the current page holds open: the viewed `/subshells/:id`,
-   * plus every pane of the `/workspaces/:id` you are standing in. Cells do NOT
-   * render it (the operator's final ruling 2026-09-27: a set-wide mark made
-   * "all items in a workspace" look chosen); it decides which cells
-   * click-to-focus instead of navigating. Ordering and the Workspace section
-   * read the same set one level up in the rail.
-   */
-  selectedIds: ReadonlySet<string>;
-  /**
    * The single pane the dock has focused (or the viewed page's id) — the one
    * cell that wears the full-white ring.
    */
   focusedId: string | null;
-  /**
-   * True while standing in the workspace these cells belong to (a dock is up to
-   * act): a selected cell's click focuses its pane rather than navigating out.
-   */
-  focusOnClick?: boolean;
   labelsFor: (sub: SubshellView) => SubshellCellLabels;
   /** Machine-tint bucket per row; present = flat mode's plate PER RUN */
   tintOf?: (sub: SubshellView) => number;
@@ -432,12 +407,7 @@ export function SubshellCellGrid({
     return (raw + TINT_COUNT) % TINT_COUNT;
   };
   const renderCell = (sub: SubshellView) => (
-    <SubshellCell
-      subshell={sub}
-      focused={focusedId !== null && focusedId === sub.id}
-      focusOnOpen={focusOnClick && selectedIds.has(sub.id)}
-      labels={labelsFor(sub)}
-    />
+    <SubshellCell subshell={sub} focused={focusedId !== null && focusedId === sub.id} labels={labelsFor(sub)} />
   );
   if (tintOf === undefined) {
     return (

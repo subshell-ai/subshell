@@ -7,8 +7,34 @@ import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 
 const ListSubshellsQuerySchema = t.Object({
-  q: t.Optional(t.String({ maxLength: LIST_SEARCH_MAX.subshells })),
-  nodeId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+  q: t.Optional(
+    t.String({
+      maxLength: LIST_SEARCH_MAX.subshells,
+      description:
+        "Case-insensitive substring over the name, working directory, and harness id. Absent or blank lists everything",
+    }),
+  ),
+  nodeId: t.Optional(
+    t.String({
+      minLength: 1,
+      maxLength: 128,
+      description:
+        "Keep only subshells running on this node ('local' matches the control-plane host, whose rows may carry a null node id). An id the caller cannot see simply answers empty — no existence oracle",
+    }),
+  ),
+  workspace: t.Optional(
+    t.String({
+      minLength: 4,
+      maxLength: 128,
+      // Floor 4 on both spellings of the rule: the `none` word IS four
+      // characters, and no id this filter could name is shorter, so the
+      // pattern and `minLength` agree instead of one silently overriding
+      // the other (review 2026-10-17).
+      pattern: "^(none|[0-9a-zA-Z_-]{4,128})$",
+      description:
+        "Filter by workspace membership: 'none' for the caller's ungrouped subshells (no workspace of the caller's holds a pane for them), or a workspace id for its members. An id the caller does not have simply answers empty — same posture as nodeId, and no existence oracle",
+    }),
+  ),
 });
 
 /** `GET /api/subshells` — lists the authenticated user's subshells. */
@@ -25,9 +51,19 @@ export const listSubshellsRoute = new Elysia()
       // .test.ts, enumerate-ok / act-denied) — do not tighten without
       // updating docs/security.md §3.
       const rows = await ctx.services.subshells.listSubshells(user.id);
+      // Membership comes from the CALLER'S workspaces only (a workspace is
+      // private, so "ungrouped" means "in nothing I can see"). A pane shared
+      // INTO me that its owner filed in THEIR workspace still reads as
+      // ungrouped here — the other user's arrangement is not information this
+      // list ever carries.
+      const membership = query.workspace ? await ctx.repos.workspacePanes.listMembershipForUser(user.id) : [];
+      const filedElsewhere = new Set(membership.map((m) => m.subshellId));
+      const inNamed = new Set(membership.filter((m) => m.workspaceId === query.workspace).map((m) => m.subshellId));
       return rows.filter(
         (s) =>
           (!query.nodeId || (s.nodeId || "local") === query.nodeId) &&
+          (query.workspace === undefined ||
+            (query.workspace === "none" ? !filedElsewhere.has(s.id) : inNamed.has(s.id))) &&
           matchesListQuery(query.q, s.name, s.workingDir, s.harnessId),
       );
     },

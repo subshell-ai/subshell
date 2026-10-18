@@ -196,17 +196,13 @@ export const SetSubshellSharesBodySchema = t.Object({
 
 export const WorkspaceSchema = t.Object({
   id: t.String({ description: "Workspace id" }),
-  name: t.String({ description: "Workspace name (unique per user)" }),
+  name: t.String({ description: "Workspace name (not unique; every lookup is by id)" }),
   layout: t.Union([t.Any({ description: "Serialized dockview layout tree" }), t.Null()], {
     description: "Saved tiling layout, or null when none has been saved yet",
   }),
   createdAt: t.String({ description: "Created timestamp" }),
   updatedAt: t.String({ description: "Updated timestamp" }),
   subshellCount: t.Number({ description: "Number of subshells (panes) the workspace currently holds" }),
-  draft: t.Boolean({
-    description:
-      "True while the workspace is an unsaved draft created by splitting a subshell; drafts are hidden from the list until named",
-  }),
 });
 
 export const WorkspacePaneSchema = t.Object({
@@ -235,6 +231,12 @@ export const WorkspacePaneSchema = t.Object({
 export const WorkspaceDetailSchema = t.Object({
   workspace: t.Object(WorkspaceSchema.properties, { description: "The workspace itself" }),
   panes: t.Array(WorkspacePaneSchema, { description: "Panes in this workspace's tiled layout" }),
+});
+
+/** A workspace as the LIST returns it: the row plus every pane, in membership order. */
+export const WorkspaceListItemSchema = t.Object({
+  ...WorkspaceSchema.properties,
+  panes: t.Array(WorkspacePaneSchema, { description: "Panes in membership order (createdAt)" }),
 });
 
 export const HarnessInfoSchema = t.Object({

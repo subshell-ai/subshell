@@ -236,7 +236,9 @@ test("a machine with no agent CLI reaches a live terminal through the wizard", a
   });
 
   await start.click();
-  await expect(page).toHaveURL(/\/subshells\//, { timeout: SPAWN_TIMEOUT });
+  // The onboarding launch lands as a tab in a workspace opened around it
+  // (spec 2026-10-17).
+  await expect(page).toHaveURL(/\/workspaces\//, { timeout: SPAWN_TIMEOUT });
   await tokenRes;
   const ws = await socket;
   expect(ws.url()).toContain(`/ws?subshell=`);
@@ -244,8 +246,17 @@ test("a machine with no agent CLI reaches a live terminal through the wizard", a
   await expectSubshellRunning(page, SPAWN_TIMEOUT);
   await expect(page.locator(".xterm-screen")).toBeVisible();
 
-  // And the shell does NOT bounce back to /setup on reload — the launch
-  // retired setup-status like any completion does.
+  // And the shell does NOT bounce back to /setup — the launch retired
+  // setup-status like any completion does. Back lands on the spent wizard,
+  // which bounces to `/`, which is a direction (spec 2026-10-17): it opens
+  // the workspace this device last visited — the one the launch just filed
+  // into. The proof is where you END UP, not the /Subshells/ heading that
+  // used to be the landing's shape.
   await page.goBack();
-  await expect(page.getByRole("heading", { name: "Subshells" })).toBeVisible();
+  await expect(page).toHaveURL(/\/workspaces\//, { timeout: SPAWN_TIMEOUT });
+
+  // Nothing to delete here: this wizard ran against the spec's own clean
+  // instance (its DB, its tmux sockets, its data dir), and `afterAll` kills
+  // that whole stack and removes the directory. It never touched the shared
+  // suite database the clean-up-after-yourself contract is about.
 });

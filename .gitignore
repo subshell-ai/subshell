@@ -187,3 +187,9 @@ crates/desktop-core/target/
 # Staged release binaries for the image build (docker-image.yml stages these)
 docker/bin/
 docker/dl/
+
+# TanStack Router codegen scratch (route-content memo, keyed by hash), which
+# lands beside each web app. The committed output is src/routeTree.gen.ts;
+# this directory is never read. The `**/` prefix matters: a pattern with an
+# interior slash is anchored to the .gitignore's own directory.
+**/.tanstack/tmp/

@@ -80,7 +80,10 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
   await expect(page.getByLabel("Preset")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Start" })).toBeEnabled();
   await page.getByRole("button", { name: "Skip" }).click();
-  await expect(page.getByRole("heading", { name: "Subshells" })).toBeVisible();
+  // The landing `/` is a direction, not a page (spec 2026-10-17): a brand-new
+  // admin who skips with zero subshells reaches the one-button empty state.
+  // The old `Subshells` heading died with the list landing.
+  await expect(page.getByText("No workspace yet")).toBeVisible();
 
   // The wizard must never show again on a DB with users.
   await page.goto("/setup");

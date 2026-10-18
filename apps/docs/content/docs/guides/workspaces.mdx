@@ -1,38 +1,38 @@
 ---
 title: "Workspaces"
-description: "Arrange subshells in reusable layouts and understand draft workspaces."
+description: "Group subshells into a tabbed layout, split panes side by side, and understand when a workspace ends."
 ---
 
-Arrange existing subshells in a workspace layout.
+A workspace is the window of panes you work in. Launches land as tabs in one, and a workspace holds references to the running subshells rather than copies of them.
 
-## Before you start
+## How they fit together
 
-Create the subshells you want to arrange. A workspace organizes references to those sessions; it doesn't create a separate copy of their processes.
+A subshell is the session; a workspace is how you arrange sessions. The same subshell can sit in several workspaces at once, because a workspace holds a reference, not a copy. Closing a pane in a workspace removes that reference and leaves the session running; closing the subshell itself ends it everywhere (see [Session lifecycle](/guides/lifecycle)).
 
-## Build a layout
+A workspace exists exactly as long as it holds a tab. Launch your first subshell and you're in a workspace, named after it, with nothing to save. Close the last tab and the workspace retires itself; its subshells keep running and wait in the subshells list until you open one again.
 
-1. In the server dashboard's sidebar, choose **Workspaces** and select **New workspace** at the top of the page.
-2. Under **Existing subshells**, select the sessions you want to include and choose **Create workspace**.
-3. Click the workspace title at the top of its page to give it a recognizable name.
-4. Select **Add subshell** at the top of the workspace to include an existing session or launch a new one.
-5. On a wide screen, drag a session's pane tab toward an edge of another pane and release it when the split preview appears.
+## Open and land
+
+The sidebar's **Workspaces** tree shows each workspace with its panes. A session that lives in no workspace appears in the **Subshells** list under its machine instead. Opening the app returns you to the workspace you were last in.
+
+1. To start fresh, open the launch dialog from **+ New subshell** in the sidebar. From inside a workspace the pane lands as a new tab; from anywhere else it joins the workspace you were last in, or opens one around itself when you have none.
+2. Selecting a session in the sidebar means its tab: it focuses if it's open on screen, otherwise you go to the workspace that holds it, and a session in no workspace yet gets one. Dragging onto an open workspace files it there; **Add subshell** at the top of the workspace also picks an existing session or launches a new one.
+3. On a subshell's own page, the **Split** control puts a second session beside it, which is what creates a workspace out of two related panes.
+
+## Arrange the panes
+
+On a wide screen the dock tiles panes side by side: drag a pane's tab toward an edge of another pane and release it when the split preview appears. Each tile group has its own tab row, so tabs sit where you arranged them, not always across the top.
 
 <figure className="docs-screenshot">
-  <ImageZoom src="/screenshots/workspace-layout.png" alt="Project workspace with a shell and test results side by side." width="2112" height="668" loading="lazy" decoding="async" unoptimized />
+  <ImageZoom src="/screenshots/workspace-layout.png" alt="Workspace with a shell and test results side by side." width="2112" height="668" loading="lazy" decoding="async" unoptimized />
   <figcaption>This workspace keeps a project shell beside its test results. Use Add subshell to include another session. Select the image to enlarge it.</figcaption>
 </figure>
 
 On a small touch screen, the workspace presents its panes as tabs instead of side-by-side terminals. A narrow desktop window with a mouse keeps the draggable pane layout.
 
-## Drafts
+## Rename, delete, and the empty case
 
-Splitting a session can create a draft workspace. To keep an unsaved workspace, use the **Save workspace** icon beside its title and enter a name. Drafts appear separately from saved workspaces and can be discarded without creating a named workspace.
-
-Removing a pane from a draft with fewer than two panes deletes that draft. A subshell can still exist independently after its workspace reference is removed.
-
-## Closing sessions
-
-Closing a subshell permanently removes the session and its pane references from workspaces. Review [Session lifecycle](/guides/lifecycle) before confirming the action.
+Right-click a workspace in the sidebar (or open its **⋯** menu) and choose **Rename…** to change its name; the bar above the panes shows the focused terminal's own name instead. The same menu deletes a workspace outright, which drops all of its panes at once; the sessions keep running, and you can file one into another workspace by selecting it in the **Subshells** list.
 
 Changing a layout is different from changing a session's working directory or agent settings. Use [Clone and switch presets](/guides/clone) for those launch operations.
 

@@ -21,8 +21,10 @@ import type { WorkspaceDetail, WorkspacePaneRow } from "@/types/workspace";
  * The branch under test is the one the e2e suite can never reach, because it
  * needs a RELOAD with the params still in the URL: the add already landed, the
  * detail already lists the subshell, and the effect must strip the params
- * without issuing a second `POST …/panes`. The server does not dedupe, so the
- * check lives in this client and nowhere else (regression #13).
+ * without issuing a second `POST …/panes`. The server's add is idempotent
+ * since 0058, so a leak there costs a round trip, not a second tab — but
+ * "already consumed this URL" is a fact only this client holds
+ * (regression #13).
  *
  * The dock runs the identical body behind `ready`; it is tested here rather
  * than there because dockview cannot be mounted in happy-dom, and the
@@ -48,7 +50,6 @@ function detail(subshellIds: string[]): WorkspaceDetail {
     workspace: {
       id: "w1",
       name: "Sep 14, 4:45 PM",
-      draft: true,
       layout: null,
       subshellCount: subshellIds.length,
       createdAt: "2026-09-14T16:45:00.000Z",

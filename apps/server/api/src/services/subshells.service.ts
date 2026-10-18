@@ -445,6 +445,7 @@ export class SubshellsService extends BaseService {
     presetFlags,
     extraPaneEnv,
     subshellId,
+    workspaceId,
   }: {
     /** Owner of the new subshell (never taken from the body). */
     userId: string;
@@ -495,6 +496,13 @@ export class SubshellsService extends BaseService {
     presetFlags?: string[];
     extraPaneEnv?: Record<string, string>;
     subshellId?: string;
+    /**
+     * The caller's workspace to file the new pane in (spec 2026-10-17). The
+     * route owns the 404 for a foreign or absent id; this rides to the
+     * manager untouched, which writes the membership row beside the subshell
+     * row before anything spawns.
+     */
+    workspaceId?: string;
   }): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
     // Lockdown is the FIRST question the instance asks of every create
     // (operator ask 2026-09-24): it answers valid bodies and invalid ones
@@ -665,6 +673,7 @@ export class SubshellsService extends BaseService {
         ...(presetFlags !== undefined ? { presetFlags } : {}),
         ...(extraPaneEnv !== undefined ? { extraPaneEnv } : {}),
         ...(subshellId !== undefined ? { subshellId } : {}),
+        ...(workspaceId !== undefined ? { workspaceId } : {}),
       })
       .catch(rethrowLaunchRefusal);
     // Feed the picker's Recents (and the new-subshell form's pre-fill) from

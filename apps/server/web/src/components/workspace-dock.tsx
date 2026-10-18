@@ -8,20 +8,22 @@ import {
 } from "dockview-react";
 import "dockview-react/dist/styles/dockview.css";
 import { apiFetch, Button, errMessage } from "@internal/node-admin";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type JSX, type DragEvent as ReactDragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
+import { PaneFocusHeader } from "@/components/pane-focus-header";
 import { SubshellPicker } from "@/components/subshell-picker";
 import { type WorkspaceDockContextValue, WorkspaceDockProvider } from "@/components/workspace-dock/context";
 import { DockedPane, type DockedPaneParams } from "@/components/workspace-dock/docked-pane";
 import { GroupHeaderActions } from "@/components/workspace-dock/group-header-actions";
 import { SubshellTab } from "@/components/workspace-dock/subshell-tab";
-import { WorkspaceHeader } from "@/components/workspace-header";
 import { useDebouncedSave } from "@/hooks/use-debounced-save";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
+import { invalidateWorkspaceMembership } from "@/hooks/use-workspaces";
 import { confirmCloseSubshell } from "@/lib/subshell-confirmations";
 import { readSubshellDrag, SUBSHELL_DND_TYPE } from "@/lib/subshell-dnd";
-import { onWorkspacePaneFocusRequest, setWorkspaceFocusedId } from "@/lib/workspace-focus";
+import { onWorkspacePaneFocusRequest, setWorkspaceFocusedId, takePaneFocusOnArrive } from "@/lib/workspace-focus";
 import {
   normalizeLegacyLayout,
   panelIdsInLayout,
@@ -90,16 +92,17 @@ export interface WorkspaceDockProps {
  */
 export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: WorkspaceDockProps): JSX.Element {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const apiRef = useRef<DockviewApi | null>(null);
-  // Pane ids this component has ever given a panel to. The ongoing
-  // reconciliation effect below diffs against this — not against dockview's
-  // live layout — so a pane whose panel was already closed (the tab's ×,
-  // "Remove pane", or a restart replacing it — all of which delete the pane's
-  // server row) is never mistaken for one that needs re-attaching. This set
-  // only ever grows: a delete's `onRefetch` can return before the server has
-  // actually dropped the row, and if this set forgot the id in the meantime
-  // the reconciliation effect below would see it as "missing a panel" and
-  // resurrect the tile it was just closing.
+  // Pane ids this component currently has a reason to consider already
+  // tiled. The ongoing reconciliation effect below diffs against this — not
+  // against dockview's live layout — so a pane whose panel was just closed
+  // locally (the tab's ×, "Remove pane" — a delete's `onRefetch` can return
+  // before the server has actually dropped the row) is never mistaken for
+  // one that needs re-attaching. The set GROWS on add and SHRINKS only in
+  // the vanish-close below, where the server itself has stopped returning
+  // the row: that is the one moment forgetting is safe, and the revocation
+  // prune (row survives, id comes back on re-grant) needs it.
   const knownPaneIdsRef = useRef<Set<string>>(new Set());
   // Pane ids that have appeared in at least one server response. The
   // reconciliation effect only closes a panel once its pane was actually seen
@@ -123,16 +126,51 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
   // outside React render, so they cannot close over `detail` and stay current).
   const panesRef = useRef(detail.panes);
   panesRef.current = detail.panes;
+  // The focus-request handler below subscribes once (stable api), so it reads
+  // the page's workspace id through this ref, not a stale closure.
+  const workspaceIdRef = useRef(detail.workspace.id);
+  workspaceIdRef.current = detail.workspace.id;
   // Publish the dock's focused pane to the rail (it lives in the app shell, a
   // separate tree). Cleared on unmount so a stale focus never outlives the page.
   useEffect(() => () => setWorkspaceFocusedId(null), []);
+  // One focus publisher for every moment focus can change: dockview's events
+  // AND the reconciliation effect. The event alone is not enough — when
+  // `handleAdd` places a new panel, dockview fires `onDidAddPanel`
+  // synchronously, before the refetch that adds the pane row has landed, so
+  // a read of `panesRef` at that instant finds nothing and would clear the
+  // published focus for good (nothing else re-publishes it: the header falls
+  // back to the workspace name and stays there, which is what the e2e split
+  // spec caught). Re-running on `detail.panes` changes is what heals that.
+  const publishFocus = useCallback(() => {
+    const activeId = apiRef.current?.activePanel?.id;
+    const pane = activeId ? panesRef.current.find((p) => p.id === activeId) : undefined;
+    setWorkspaceFocusedId(pane?.subshellId ?? null);
+  }, []);
+  // A rail click that had to NAVIGATE here first (the pane was not on screen
+  // to focus) arms an arrival focus; the first ready render takes it and
+  // activates that panel (spec 2026-10-17: selecting a pane means going to
+  // its tab). Consumed once; a pane the workspace does not hold just drops.
+  useEffect(() => {
+    if (!ready) return;
+    const target = takePaneFocusOnArrive();
+    if (!target) return;
+    const pane = detail.panes.find((p) => p.subshellId === target);
+    if (!pane) return;
+    apiRef.current?.getPanel(pane.id)?.api.setActive();
+  }, [ready, detail.panes]);
   // The rail asks to focus a pane by subshell id when a click lands on a cell
   // that is already open here (so the click focuses the tab instead of
   // navigating away). Activation fires the onDidActiveGroupChange handler, which
   // publishes the new focus back — one request, one ring move.
   useEffect(
     () =>
-      onWorkspacePaneFocusRequest((subshellId) => {
+      onWorkspacePaneFocusRequest((subshellId, scopedWorkspaceId) => {
+        // A scoped request (from a sidebar branch row) belongs only to the
+        // workspace it names; answering for another one would light up THIS
+        // dock's tab while the click meant a different branch.
+        if (scopedWorkspaceId !== undefined && scopedWorkspaceId !== workspaceIdRef.current) {
+          return false;
+        }
         const pane = panesRef.current.find((p) => p.subshellId === subshellId);
         const panel = pane ? apiRef.current?.getPanel(pane.id) : undefined;
         if (!panel) return false; // no such pane here / dock not ready → the click navigates
@@ -218,12 +256,8 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
     event.api.onDidLayoutChange(() => save.schedule(event.api.toJSON()));
     // Publish the focused pane (as its subshell id) so the rail can ring the
     // single active tab. Fires on group/panel activation and layout changes;
-    // called once now to seed the rail on first mount.
-    const publishFocus = () => {
-      const activeId = event.api.activePanel?.id;
-      const pane = activeId ? panesRef.current.find((p) => p.id === activeId) : undefined;
-      setWorkspaceFocusedId(pane?.subshellId ?? null);
-    };
+    // called once now to seed the rail on first mount. The shared publisher
+    // reads `apiRef`, which is this very api.
     // dockview disposes these subscriptions on api destroy (the component
     // unmount); the id→subshell mapping is re-read each fire, so a pane added
     // or removed elsewhere still resolves on the next layout/add event.
@@ -247,9 +281,20 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
     for (const pane of detail.panes) {
       live.add(pane.id);
       serverSeenPaneIdsRef.current.add(pane.id);
+      const panel = api.getPanel(pane.id);
+      if (panel) {
+        // A rename re-titles the tab from here: `addPanel`'s title was a copy
+        // of the server name at the moment of creation and dockview never
+        // updates it, so without this the tab keeps the old name after the
+        // rename invalidation refetches the detail (operator catch,
+        // 2026-10-17). Setting it again on every refetch is a no-op.
+        if (panel.title !== pane.subshellName) panel.api.setTitle(pane.subshellName);
+        knownPaneIdsRef.current.add(pane.id);
+        continue;
+      }
       if (knownPaneIdsRef.current.has(pane.id)) continue;
       knownPaneIdsRef.current.add(pane.id);
-      if (!api.getPanel(pane.id)) addPanel(api, pane);
+      addPanel(api, pane);
     }
     // The mirror of the loop above: a pane can also disappear without this
     // client doing anything — deleting its subshell from /subshells cascades
@@ -262,8 +307,21 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
       if (live.has(panel.id)) continue;
       if (!serverSeenPaneIdsRef.current.has(panel.id)) continue;
       panel.api.close();
+      // Forget the id here and nowhere else: this branch means the SERVER
+      // stopped returning a row the client had a tile for. For a delete that
+      // changes nothing (a new add mints a new id, so the resurrection guard
+      // the ever-growing set exists for stays intact). For a revocation prune
+      // it is the whole difference: the pane ROW survives, a re-grant brings
+      // the same id back in `detail.panes`, and an id still marked "known"
+      // would leave the tab lost while the rail row reappeared (review
+      // 2026-10-17, round 4).
+      knownPaneIdsRef.current.delete(panel.id);
     }
-  }, [detail.panes, addPanel]);
+    // And re-publish the focus: when this render is the refetch that landed
+    // after `handleAdd`, the active panel's pane row exists only NOW, and
+    // without this the header would sit on its workspace-name fallback.
+    publishFocus();
+  }, [detail.panes, addPanel, publishFocus]);
 
   const { addPane, removePane, restartSubshell } = useWorkspacePaneMutations(detail.workspace.id);
 
@@ -295,9 +353,11 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
         setError(errMessage(err, "Failed to remove pane"));
         return;
       }
-      // Removing this pane took the whole (unsaved) workspace with it — a
-      // draft left with fewer than two panes is deleted server-side. There is
-      // no dock left to close a tile in, so leave for the pane that remains.
+      // The workspace went with its last tab (spec 2026-10-17): there is no
+      // dock left to close a tile in, so leave. `workspaceDeleted` means the
+      // server held no other pane, so this answers the dashboard in practice
+      // — the find is only a fallback for a stale cached detail still naming
+      // a sibling, which lands on a real pane instead of home.
       if (workspaceDeleted) {
         const other = detail.panes.find((p) => p.id !== paneId);
         if (other) void navigate({ to: "/subshells/$id", params: { id: other.subshellId }, replace: true });
@@ -324,12 +384,17 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
         // `DockedPane`'s vanished-pane check covers the frame or two in
         // between, when the panel still exists but its pane does not.
         await apiFetch(`/api/subshells/${subshellId}`, { method: "DELETE" });
+        // A close moves membership everywhere the pane seam's wake covers —
+        // the tree's branch row rides the LIST. The feed's gone-frame tells
+        // everyone else; this client already knows what it did, and the
+        // socket is a delivery, not a promise (review 2026-10-17).
+        void invalidateWorkspaceMembership(queryClient);
         void onRefetch();
       } catch (err) {
         setError(errMessage(err, "Failed to close subshell"));
       }
     },
-    [detail.panes, onRefetch],
+    [detail.panes, onRefetch, queryClient],
   );
 
   // The tab context menu's split acts. `splitTarget` resolves the destination;
@@ -376,7 +441,15 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
           // added instead of waiting on the next poll.
           const subshell = await apiFetch<SubshellView>(`/api/subshells/${subshellId}`);
           const api = apiRef.current;
-          if (api) {
+          // `getPanel` before adding, not just the known-set: the detail
+          // refetch this very call kicked (POST → invalidate → refetch) can
+          // land DURING the summary fetch above, and the reconciliation
+          // effect then adds this pane's panel first. Adding again would
+          // throw dockview's "panel with id X already exists" (the e2e split
+          // spec caught exactly this). A pane the effect already tiled keeps
+          // the effect's plain placement — the same degraded-but-correct
+          // landing the finally-block's refetch comment describes.
+          if (api && !api.getPanel(newPane.id)) {
             addPanel(
               api,
               {
@@ -437,17 +510,14 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
         landed = await handleAdd(intent.subshellId, intent.direction);
       }
       await onRefetch();
-      // A pane that did NOT land keeps the params. Stripping them would leave
-      // a one-pane draft with no intent, which `useDiscardThinDraft` reads as
-      // "discard and go back" — and the error banner would unmount with this
-      // screen, so the person who pressed Split would land where they started
-      // with nothing said (review, 2026-09-14). With the params kept, the guard
-      // stays engaged, the banner stays up, and a reload retries the add.
+      // A pane that did NOT land keeps the params: the error banner would
+      // unmount with this screen if we navigated clean, so the person who
+      // pressed Split would land where they started with nothing said
+      // (review, 2026-09-14). With the params kept, the banner stays up and a
+      // reload retries the add.
       if (!landed) return;
-      // Only now are the params spent. `useDiscardThinDraft` reads them as
-      // "the second pane is still in flight", so stripping them before the
-      // refetch shows both panes would auto-discard this draft from under the
-      // split that just created it.
+      // Only now are the params spent — once the pane has actually landed,
+      // so a retry can never double-add through the claim above.
       await navigate({ to: "/workspaces/$id", params: { id: detail.workspace.id }, search: {}, replace: true });
     })();
   }, [ready, intent, claimIntent, detail.panes, detail.workspace.id, handleAdd, onRefetch, navigate]);
@@ -460,9 +530,10 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
       setDropActive(false);
       const id = readSubshellDrag(e.dataTransfer);
       if (!id) return;
-      // Never a second pane for one subshell (regression #13): the server
-      // does not dedupe, so this client checks its own authoritative pane
-      // list — if it is already here, just show it.
+      // If it is already here, just show it (regression #13). The server's
+      // add is idempotent since 0058, so a stale pane list can no longer
+      // double-tab; this check skips the round trip and focuses the panel
+      // immediately.
       const existingPane = detail.panes.find((p) => p.subshellId === id);
       if (existingPane) {
         apiRef.current?.getPanel(existingPane.id)?.api.setActive();
@@ -494,18 +565,10 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
           per-tile, and this control adds panes that belong to no particular
           one. It used to float over the bottom-right tile, where it covered
           that subshell's output. */}
-      <WorkspaceHeader
-        workspace={detail.workspace}
+      <PaneFocusHeader
+        fallbackName={detail.workspace.name}
         panes={detail.panes}
         actions={<SubshellPicker workspaceId={detail.workspace.id} existing={detail.panes} onAdd={handleAdd} />}
-        // A discarded draft lands on the subshell the person was looking at
-        // — the active panel's — which only this presentation can name.
-        onDiscarded={() => {
-          const activeId = apiRef.current?.activePanel?.id;
-          const pane = detail.panes.find((p) => p.id === activeId) ?? detail.panes[0];
-          if (pane) void navigate({ to: "/subshells/$id", params: { id: pane.subshellId }, replace: true });
-          else void navigate({ to: "/", replace: true });
-        }}
       />
       {/* biome-ignore lint/a11y/noStaticElementInteractions: an HTML5 DROP
           target, not a click handler — drag events carry no tap/keyboard

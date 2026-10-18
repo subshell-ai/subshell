@@ -55,6 +55,7 @@ import * as subshellKeyHomeMigration from "@/db/migrations/0052-subshell-key-hom
 import * as sshPresetsMigration from "@/db/migrations/0054-ssh-presets.js";
 import * as sshWideForwardsMigration from "@/db/migrations/0055-node-ssh-wide-forwards.js";
 import * as sshPresetForwardsMigration from "@/db/migrations/0056-ssh-preset-forwards.js";
+import * as workspaceFirstMigration from "@/db/migrations/0058-workspace-first.js";
 import * as dropSshGrantsMigration from "./migrations/0053-drop-ssh-grants.js";
 import * as presetSharingMigration from "./migrations/0057-preset-sharing.js";
 
@@ -169,6 +170,7 @@ export async function runMigrations(): Promise<void> {
           "0055-node-ssh-wide-forwards": sshWideForwardsMigration,
           "0056-ssh-preset-forwards": sshPresetForwardsMigration,
           "0057-preset-sharing": presetSharingMigration,
+          "0058-workspace-first": workspaceFirstMigration,
         };
       },
     },

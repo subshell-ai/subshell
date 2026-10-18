@@ -84,7 +84,9 @@ test("a negotiated attach speaks CBOR both ways and the pane answers", async ({ 
     timeout: SPAWN_TIMEOUT,
   });
   await p.getByRole("button", { name: "Start subshell" }).click();
-  await expect(p).toHaveURL(/\/subshells\/.+/, { timeout: SPAWN_TIMEOUT });
+  // The launch files itself into a fresh workspace and lands there (spec
+  // 2026-10-17); the dock's one tab is the pane.
+  await expect(p).toHaveURL(/\/workspaces\/.+/, { timeout: SPAWN_TIMEOUT });
   await renameSubshell(p, name);
 
   await tokenRes;
@@ -143,7 +145,7 @@ test("a negotiated attach speaks CBOR both ways and the pane answers", async ({ 
     });
 
   // Cleanup: close the probe subshell (Close terminates before deleting).
-  await p.goto("/");
+  await p.goto("/subshells");
   const actions = p.getByRole("button", { name: `Actions for ${name}` });
   await expect(actions).toBeVisible();
   await actions.click();

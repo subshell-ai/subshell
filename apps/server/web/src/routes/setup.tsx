@@ -417,7 +417,14 @@ function SetupPage() {
       const created = await create.mutateAsync(launchForm);
       launchedRef.current = true;
       completeSetup();
-      void navigate({ to: "/subshells/$id", params: { id: created.id } });
+      // The launch files itself (spec 2026-10-17): on this first-run instance
+      // the hook builds a workspace around the pane, and `workspaceId` is that
+      // row — the wizard lands on the dock, the way every launch does now. A
+      // filing that failed leaves an ungrouped pane and the plain detail page,
+      // which stays honest: the launch worked. /setup never mounts over a
+      // workspace page, so there is no on-screen workspace to answer for here.
+      if (created.workspaceId) void navigate({ to: "/workspaces/$id", params: { id: created.workspaceId } });
+      else void navigate({ to: "/subshells/$id", params: { id: created.id } });
     } catch {
       // The mutation keeps the error; it renders below the form. Setup is
       // deliberately NOT completed here: the user is still on the step and

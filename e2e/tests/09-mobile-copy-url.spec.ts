@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE, dismissDirectoryPanel, pickAgent } from "./helpers";
+import { ADMIN_STATE, dismissDirectoryPanel, pickAgent, solePaneId } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -79,12 +79,12 @@ test("copy mode turns typing off, drag selects a URL, and a clean tap opens it (
     timeout: SPAWN_TIMEOUT,
   });
   await page.getByRole("button", { name: "Start subshell" }).click();
-  await expect(page).toHaveURL(/\/subshells\/.+/, { timeout: SPAWN_TIMEOUT });
+  await expect(page).toHaveURL(/\/workspaces\/.+/, { timeout: SPAWN_TIMEOUT });
   await tokenRes;
   await socket;
   await expect(page.getByText("reconnecting…")).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
 
-  const id = new URL(page.url()).pathname.split("/").pop() ?? "";
+  const id = await solePaneId(page);
   const logText = async () => {
     const res = await page.request.get(`/api/subshells/${id}/log`);
     if (!res.ok()) return "";

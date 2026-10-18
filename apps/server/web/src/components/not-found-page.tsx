@@ -30,7 +30,7 @@ export function NotFoundPage() {
     <NotFoundCard
       title="Page not found"
       body="This page doesn't exist. The link may be old or mistyped."
-      action={<Button render={<Link to="/">Go to subshells</Link>} />}
+      action={<Button render={<Link to="/subshells">Go to subshells</Link>} />}
     />
   );
 }
@@ -45,7 +45,7 @@ export function SubshellNotFoundCard() {
     <NotFoundCard
       title="Subshell not found"
       body="It may have been deleted, or its owner hasn't shared it with you."
-      action={<Button variant="outline" render={<Link to="/">Back to subshells</Link>} />}
+      action={<Button variant="outline" render={<Link to="/subshells">Back to subshells</Link>} />}
     />
   );
 }

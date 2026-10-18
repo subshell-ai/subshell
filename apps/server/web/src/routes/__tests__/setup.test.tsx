@@ -20,7 +20,8 @@ import type { SetupStep } from "@/types/setup";
  * that a clean machine — no agent CLI, nothing installed — comes out of the
  * wizard typing into a live pane, so these tests render the ROUTE (its
  * `useNavigate` and the shared-cache retirement are the subject, not plumbing)
- * against a memory router with a stub `/subshells/$id` leaf.
+ * against a memory router with stub `/subshells/$id` and `/workspaces/$id`
+ * leaves (the launch step files its pane into a workspace and lands there).
  */
 
 // better-auth's client binds `fetch` at CREATION (module evaluation of
@@ -76,6 +77,14 @@ interface SetupMocks {
   recent?: { paths: { path: string; label: string | null }[]; home: string | null };
   /** What POST /api/subshells answers; default is a created subshell */
   create?: { status: number; body: unknown };
+  /**
+   * What GET /api/workspaces answers — the filing ladder's read. Default []:
+   * a first-run instance with no workspace yet, which is the wizard's own
+   * case (the launch builds its workspace around the pane).
+   */
+  workspaces?: { id: string; name: string; updatedAt: string }[];
+  /** True = the workspace-create POST fails, so the pane stays unfiled. */
+  workspaceCreateFails?: boolean;
   /** What POST /api/setup/agents/:id/install answers */
   install?: { status: number; body: unknown };
   /** True = the install POST never settles, so the mutation stays pending. */
@@ -124,6 +133,12 @@ const signUpBodies: unknown[] = [];
  * `signUpBodies`; cleared with it.
  */
 const progressPatches: (SetupStep | null)[] = [];
+
+/**
+ * Bodies POST /api/workspaces received, in order — the filing the launch
+ * step's create performs. Same module-level reason as `signUpBodies`.
+ */
+const workspacePosts: { name?: string; subshellId?: string }[] = [];
 
 function routeFetch(opts: SetupMocks): void {
   // Set once an install POST succeeds, so the following harness refetch (the
@@ -205,6 +220,23 @@ function routeFetch(opts: SetupMocks): void {
     if (path === "/api/subshells" && method === "POST") {
       const res = opts.create ?? { status: 201, body: { id: "sub-1" } };
       return Promise.resolve(new Response(JSON.stringify(res.body), { status: res.status }));
+    }
+    if (path === "/api/workspaces") {
+      if (method === "POST") {
+        // The filing ladder's fresh-window create. Recorded so a test can see
+        // the name the pane was filed under, and refusible so the unfiled
+        // fallback is reachable.
+        const body = JSON.parse(String(init?.body)) as { name?: string; subshellId?: string };
+        workspacePosts.push(body);
+        if (opts.workspaceCreateFails) {
+          return Promise.resolve(new Response(JSON.stringify({ message: "nope" }), { status: 500 }));
+        }
+        return Promise.resolve(new Response(JSON.stringify({ id: "ws-1", name: body.name ?? "" }), { status: 201 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify(opts.workspaces ?? [])));
+    }
+    if (path.startsWith("/api/workspaces/") && path.endsWith("/panes") && method === "POST") {
+      return Promise.resolve(new Response(JSON.stringify({ id: "ws-1", alreadyPresent: false }), { status: 201 }));
     }
     if (path.startsWith("/api/setup/agents/") && path.endsWith("/install") && method === "POST") {
       // A real `curl … | bash` takes tens of seconds; a promise that never
@@ -339,9 +371,16 @@ async function renderSetup(opts: SetupMocks, upto: WalkStep) {
     path: "/subshells/$id",
     component: () => <div>subshell page</div>,
   });
+  // The wizard's launch files the pane into a workspace and lands on its
+  // dock (spec 2026-10-17); the walk needs the leaf to reach.
+  const workspaceRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/workspaces/$id",
+    component: () => <div>workspace dock</div>,
+  });
   const history = createMemoryHistory({ initialEntries: ["/setup"] });
   const router = createRouter({
-    routeTree: rootRoute.addChildren([setupRoute, subshellRoute]),
+    routeTree: rootRoute.addChildren([setupRoute, subshellRoute, workspaceRoute]),
     history,
     defaultPreload: false,
   });
@@ -418,6 +457,7 @@ afterEach(() => {
   setFetchRouter(null);
   signUpBodies.length = 0;
   progressPatches.length = 0;
+  workspacePosts.length = 0;
 });
 
 /**
@@ -1083,13 +1123,31 @@ describe("setup wizard: the launch step", () => {
     expect((screen.getByLabelText("Working directory") as HTMLInputElement).value).toBe("/home/ada");
   });
 
-  it("launches a subshell and lands on it", async () => {
+  it("launches a subshell and lands on the dock its filing opened", async () => {
     const { history } = await renderSetup(LAUNCH_MOCKS, "launch");
+    // The filing model (spec 2026-10-17): on this no-workspace instance the
+    // create's ladder builds a workspace AROUND the pane and the wizard lands
+    // there — the same dock every launch raises the person into. The form
+    // names no pane (the server's date default names the row), so the fresh
+    // window arrives with a default name and the new subshell as its tab.
     fireEvent.click(screen.getByRole("button", { name: "Start" }));
     // The final ROUTER LOCATION, not just a navigate call: the redirect
     // effect on this page fires when the setup-status cache flips, and an
     // effect-bounce to "/" after the launch would pass a call spy while
     // leaving the user on the dashboard.
+    await waitFor(() => expect(history.location.pathname).toBe("/workspaces/ws-1"));
+    expect(workspacePosts).toHaveLength(1);
+    expect(workspacePosts[0]?.subshellId).toBe("sub-1");
+    expect((workspacePosts[0]?.name ?? "").length).toBeGreaterThan(0);
+  });
+
+  it("lands on the plain subshell page when the filing call fails", async () => {
+    // The fallback is the honest one: the pane is RUNNING, so the wizard must
+    // not strand the user on the setup screen or claim a dock that was never
+    // built — the detail page it always showed, and clicking the rail row
+    // files it later.
+    const { history } = await renderSetup({ ...LAUNCH_MOCKS, workspaceCreateFails: true }, "launch");
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
     await waitFor(() => expect(history.location.pathname).toBe("/subshells/sub-1"));
   });
 

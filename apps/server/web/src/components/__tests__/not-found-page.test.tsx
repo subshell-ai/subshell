@@ -29,7 +29,11 @@ describe("NotFoundPage", () => {
     renderWithRouter(NotFoundPage);
     expect(await screen.findByText("Page not found")).toBeTruthy();
     const link = screen.getByRole("link", { name: "Go to subshells" });
-    expect(link.getAttribute("href")).toBe("/");
+    // `/` is the workspace landing now (spec 2026-10-17): a link that SAYS
+    // "subshells" has to land on the list, not on a page that may redirect to
+    // a workspace or an empty state (review 2026-10-17: round 2 changed the
+    // component and never reached this file).
+    expect(link.getAttribute("href")).toBe("/subshells");
   });
 });
 
@@ -41,6 +45,6 @@ describe("SubshellNotFoundCard", () => {
     expect(await screen.findByText("Subshell not found")).toBeTruthy();
     expect(screen.getByText(/deleted/i)).toBeTruthy();
     const link = screen.getByRole("link", { name: "Back to subshells" });
-    expect(link.getAttribute("href")).toBe("/");
+    expect(link.getAttribute("href")).toBe("/subshells");
   });
 });

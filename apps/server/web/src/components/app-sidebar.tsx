@@ -437,7 +437,7 @@ export function AppSidebar({
                     onToggleHidden={() => toggleSectionHidden("workspaces")}
                   />
                 )}
-                {!collapsed && item.to === "/" && (
+                {!collapsed && item.to === "/subshells" && (
                   <RailSectionActions
                     addTooltip="New subshell"
                     onAdd={() => {
@@ -463,14 +463,16 @@ export function AppSidebar({
                   so the highlight's bottom edge does not sit flush on the first
                   row (operator ask 2026-09-27). Only while the item is the
                   active route — an unselected pill carries no fill to separate. */}
-              {!collapsed && item.to === "/" && !isSectionHidden("subshells") && (
-                <div className={location.pathname === "/" ? "mt-1.5" : undefined}>
+              {!collapsed && item.to === "/subshells" && !isSectionHidden("subshells") && (
+                <div className={location.pathname === "/subshells" ? "mt-1.5" : undefined}>
                   <RailSubshells filterRef={filterRef} query={subshellQuery} onQueryChange={setSubshellQuery} />
                 </div>
               )}
-              {/* The Workspaces rail body (search, Saved, Drafts) lives in its
-                  own component; it renders nothing when there is nothing to
-                  show, which is the same promise the old inline block made. */}
+              {/* The Workspaces rail body (search and the workspace tree)
+                  lives in its own component; it renders nothing when there is
+                  nothing to show. Unfiled panes are NOT shown here (operator
+                  ruling 2026-10-17); the subshells list's machine groups are
+                  where a session without a workspace appears. */}
               {!collapsed && item.to === "/workspaces" && !isSectionHidden("workspaces") && <WorkspacesSection />}
             </div>
           );

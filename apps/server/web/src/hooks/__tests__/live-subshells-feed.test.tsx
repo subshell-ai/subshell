@@ -2,8 +2,14 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { LiveSubshellsFeedProvider, useLiveSubshellsFeed } from "@/hooks/use-live-subshells-feed";
+import { WORKSPACES_QUERY_KEY } from "@/hooks/use-workspaces";
 import { useLiveSubshells } from "@/hooks/useLiveSubshells";
-import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
+import {
+  SUBSHELL_QUERY_KEY,
+  SUBSHELL_WORKSPACES_QUERY_KEY,
+  SUBSHELLS_QUERY_KEY,
+  WORKSPACE_QUERY_KEY,
+} from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
 
 /** Minimal WebSocket double: records instances, lets the test fire frames. */
@@ -266,6 +272,32 @@ describe("LiveSubshellsFeedProvider", () => {
     });
 
     expect(client.getQueryCache().find({ queryKey: [...WORKSPACE_QUERY_KEY, "w1"] })?.state.isInvalidated).toBe(true);
+  });
+
+  // The question arm needs the same wake-up (review 2026-10-17, round 4):
+  // an Everyone-grant ending is answered with `subshell-recheck`, and the
+  // server prunes the pane's facts out of the LIST and DETAIL on re-read —
+  // but nothing re-reads unless the frame flags these caches. The gone-frame
+  // test above is the deletion half; this is the revocation half.
+  it("a subshell-recheck frame invalidates the workspace reads too", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+
+    // Seeded INACTIVE entries: invalidation must flag them, and the frame
+    // must flag them even though this viewer's LIST never held the row
+    // either — the pane facts ride the workspace caches, not the row list.
+    client.setQueryData([...WORKSPACE_QUERY_KEY, "w1"], { panes: [{ id: "p1", subshellId: "a" }] });
+    client.setQueryData(WORKSPACES_QUERY_KEY, [{ id: "w1", panes: [{ subshellId: "a", subshellName: "s" }] }]);
+    client.setQueryData([...SUBSHELL_WORKSPACES_QUERY_KEY, "a"], []);
+
+    act(() => {
+      FakeWS.instances[0].onmessage?.({ data: JSON.stringify({ type: "subshell-recheck", id: "a" }) } as MessageEvent);
+    });
+
+    for (const key of [[...WORKSPACE_QUERY_KEY, "w1"], WORKSPACES_QUERY_KEY, [...SUBSHELL_WORKSPACES_QUERY_KEY, "a"]]) {
+      expect(client.getQueryCache().find({ queryKey: key })?.state.isInvalidated).toBe(true);
+    }
   });
 
   /**

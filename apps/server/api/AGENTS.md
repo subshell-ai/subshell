@@ -223,16 +223,25 @@ handlers) reaches the same graph via `getRequestlessContext()`
 (`src/lib/context.ts`), a singleton context whose log is the app logger
 (no request id).
 
-**Workspaces have a draft state** (spec 2026-09-14): `workspaces.draft` is 0/1 and
-the per-user unique name index is PARTIAL (`WHERE draft = 0`), so an unsaved
-workspace created by splitting a subshell may share a name freely. `GET /` hides
-drafts; the two opt-in reads are `?subshellId=` (workspaces holding that
-subshell, drafts included) and `?drafts=only` (every draft the caller owns, the
-sidebar's Drafts section), and `DELETE /api/workspaces/drafts?except=` sweeps
-them in one request. `PUT /:id { draft: false }`
-is the only transition, and removing a pane from a draft left with fewer than two
-deletes the draft (`workspaceDeleted: true`). Migration `0029`'s `down` DELETES
-drafts rather than renaming them; the pre-0029 schema cannot express one.
+**Workspaces are work-first, drafts are gone** (spec 2026-10-17, migration
+`0058`): every workspace row is a real, named one, names are NOT unique
+(the old partial unique index `WHERE draft = 0` is dropped; 0058's `down`
+dedupes names by rowid on rollback), and a workspace exists exactly as long as
+it holds a pane: removing its LAST pane deletes the row (`workspaceDeleted:
+true`), and so does deleting a subshell. The delete reads the owner's
+workspace ids HOLDING that subshell first (`idsHoldingForUser`), then retires
+only the candidates the cascade actually left pane-less (`retireEmptyAmong`).
+An intentionally-empty workspace survives an unrelated tab closing, and other
+owners' emptied workspaces are a fact about THEIR arrangement, untouched. `workspace_panes` is UNIQUE on
+`(workspace_id, subshell_id)` (0058 dedupes by oldest `created_at` first), so
+`addWorkspacePane` is idempotent: the second add returns the existing row with
+`alreadyPresent: true`, never a 409, and the UNIQUE race between two adds
+re-reads. `GET /` carries every workspace of the caller's WITH its panes (the
+rail tree reads the LIST, not per-workspace GETs); the one opt-in read left is
+`?subshellId=` (workspaces holding that subshell). `POST /api/subshells`
+accepts an optional `workspaceId`, gated as the resolved owner's workspace
+(404 on any miss, ownership never reading 403); the pane insert rides the
+create and is undone with the subshell row if it fails.
 
 The pane's size with SEVERAL viewers attached is decided by
 `shared-geometry.ts` in `@internal/subshell-protocol`: the browser has
@@ -646,13 +655,15 @@ case-insensitive literal substring, after the caller's visibility rules.
 Nodes also accept `status` and `access`; subshells accept `nodeId`; stacks
 accept `empty=only` for owned stacks. Prompts and stacks also accept
 `scope=own|shared`. Search stack members only after dropping
-references the caller cannot see. Workspace draft searches receive the browser's
-`locale` and `timeZone` to match the labels rendered in the sidebar.
+references the caller cannot see. (Workspaces used to take `locale` and
+`timeZone` for draft-label matching; the draft model and those params are gone
+with spec 2026-10-17.)
 
 Search lengths come from `LIST_SEARCH_MAX` in the protocol package; use the
-same constants for browser input limits. Keep identifier/locale/time-zone
-filters bounded, validate locale and time zone before reading workspace rows,
-and retain enum validation for select filters. See `docs/security.md`'s
+same constants for browser input limits. Keep identifier filters bounded,
+validate locale and time zone at any route that takes them (the workspaces
+list stopped taking them with spec 2026-10-17), and retain enum validation
+for select filters. See `docs/security.md`'s
 Dashboard list search inputs section for the security constraints.
 
 ### First-connection SSH destination confirmation

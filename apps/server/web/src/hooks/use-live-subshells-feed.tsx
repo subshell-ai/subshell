@@ -2,7 +2,13 @@ import { apiFetch } from "@internal/node-admin";
 import type { LiveClientFrame, LiveServerFrame } from "@internal/subshell-protocol";
 import { useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
+import { WORKSPACES_QUERY_KEY } from "@/hooks/use-workspaces";
+import {
+  SUBSHELL_QUERY_KEY,
+  SUBSHELL_WORKSPACES_QUERY_KEY,
+  SUBSHELLS_QUERY_KEY,
+  WORKSPACE_QUERY_KEY,
+} from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
 
 /**
@@ -338,6 +344,18 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
             // recheck, it produces a `subshell` broadcast, and that branch
             // clears.
             recheckDetail(frame.id);
+            // The workspace reads need the same invalidation the gone branch
+            // gives them (review 2026-10-17, round 4): an Everyone grant
+            // ENDING is answered with this frame, and ending the grant is
+            // what prunes the pane's facts out of the LIST and DETAIL
+            // server-side. Neither read is polled, the rail never unmounts,
+            // and window-focus refetch is off — without these the rail kept
+            // drawing a revoked pane's name, directory and live state until
+            // a reload. Invalidate BEFORE the held-row guard: the pane facts
+            // ride the workspace caches, not the subshells row list.
+            void queryClient.invalidateQueries({ queryKey: WORKSPACE_QUERY_KEY });
+            void queryClient.invalidateQueries({ queryKey: WORKSPACES_QUERY_KEY });
+            void queryClient.invalidateQueries({ queryKey: [...SUBSHELL_WORKSPACES_QUERY_KEY, frame.id] });
             if (!current.some((r) => r.id === frame.id)) return;
             askForSnapshot();
             return;
@@ -348,14 +366,20 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
             liveIds.add(id);
             goneIds.add(id);
             recheckDetail(id);
-            // And the dock's tiles. A close CASCADES the workspace pane rows
-            // server-side, and the workspace detail has no poll of its own —
-            // this frame is the only live signal a close made elsewhere (or
-            // an MCP delete) ever sends, and the reconcile effect that closes
-            // a vanished panel runs only when this query re-reads. An
+            // And the workspace reads. A close CASCADES the workspace pane
+            // rows server-side, and the workspace detail has no poll of its
+            // own — this frame is the only live signal a close made elsewhere
+            // (or an MCP delete) ever sends, and the reconcile effect that
+            // closes a vanished panel runs only when this query re-reads. An
             // inactive workspace detail is merely marked stale, so standing
             // on another page the frame costs one cache flag, not a fetch.
+            // The LIST rides too: since spec 2026-10-17 it carries each
+            // workspace's panes, so the rail's tree is the second surface
+            // holding the cascaded row, and without this the sidebar showed a
+            // deleted subshell's row until some later act refetched the list
+            // (operator catch, 2026-10-17).
             void queryClient.invalidateQueries({ queryKey: WORKSPACE_QUERY_KEY });
+            void queryClient.invalidateQueries({ queryKey: WORKSPACES_QUERY_KEY });
             if (!current.some((r) => r.id === id)) return; // never held it; nothing to drop
             commit(current.filter((r) => r.id !== id));
           }

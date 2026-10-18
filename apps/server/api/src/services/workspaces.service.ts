@@ -17,11 +17,6 @@ class WorkspacesError extends Error {
   }
 }
 
-/** Elevates a duplicate (user_id, name) to a 409. */
-function isUniqueViolation(err: unknown): boolean {
-  return err instanceof Error && err.message.includes("UNIQUE");
-}
-
 /** Parses stored layout JSON, treating anything unparseable as "no layout". */
 function safeParse(json: string): unknown {
   try {
@@ -32,26 +27,29 @@ function safeParse(json: string): unknown {
 }
 
 /** A workspace in API shape: parsed `layout` instead of `layoutJson`, plus the pane tally. */
-export type WorkspaceResponse = Omit<WorkspaceTable, "layoutJson" | "draft"> & {
+export type WorkspaceResponse = Omit<WorkspaceTable, "layoutJson"> & {
   /** The serialized dockview layout, or null when absent/unparseable. */
   layout: unknown;
-  /** Number of panes referencing this workspace. */
+  /** Number of subshells (tabs) the workspace currently holds. */
   subshellCount: number;
-  /** True while this is an unsaved draft; saving it ("Save workspace…") clears the flag. */
-  draft: boolean;
 };
+
+/** A workspace in the LIST shape: the row plus every pane, so the rail tree renders from one request. */
+export interface WorkspaceListItem extends WorkspaceResponse {
+  /** Panes in membership order (`createdAt`), each with its subshell summary. */
+  panes: WorkspacePaneView[];
+}
 
 /**
  * Maps a workspace row to its API shape, replacing the stored `layoutJson`
- * string with the parsed `layout`, the 0/1 `draft` column with a boolean, and
- * attaching the pane tally the cards show.
+ * string with the parsed `layout` and attaching the pane tally the cards show.
  */
 function toWorkspaceResponse(workspace: WorkspaceTable, subshellCount: number): WorkspaceResponse {
-  const { layoutJson, draft, ...rest } = workspace;
-  return { ...rest, layout: layoutJson ? safeParse(layoutJson) : null, subshellCount, draft: draft === 1 };
+  const { layoutJson, ...rest } = workspace;
+  return { ...rest, layout: layoutJson ? safeParse(layoutJson) : null, subshellCount };
 }
 
-/** One pane joined with a summary of the subshell it renders, as returned by `GET /:id`. */
+/** One pane joined with a summary of the subshell it renders, as returned by reads. */
 interface WorkspacePaneView {
   /** Pane id */
   id: string;
@@ -100,11 +98,12 @@ export interface WorkspaceDetail {
 /**
  * Business logic behind `/api/workspaces`, one method per endpoint.
  *
- * Moved verbatim from the former monolithic route: same repository calls in
- * the same order, same checks, same `status`-carrying errors (which ride the
- * global error handler via `.status`). Workspace CRUD is owner-scoped —
- * anything outside the caller's ownership reads as 404, never 403, so ids
- * cannot be probed.
+ * Workspace CRUD is owner-scoped — anything outside the caller's ownership
+ * reads as 404, never 403, so ids cannot be probed. Two rules define the
+ * model (spec 2026-10-17): a workspace is a SET OF REFERENCES (it never owns
+ * a subshell, a subshell may sit in many workspaces, and deleting either
+ * side never reaches through to stop a pane), and it EXISTS EXACTLY AS LONG
+ * AS IT HOLDS A TAB (the empty-retire below, on both removal paths).
  */
 export class WorkspacesService extends BaseService {
   /**
@@ -112,8 +111,7 @@ export class WorkspacesService extends BaseService {
    * their own or one shared to them (spec 2026-08-31 §4.3). Invisible (absent
    * or unshared) is a 404, so neither endpoint ever confirms another user's
    * subshell id. Shared by create-with-pane and add-pane so the two cannot
-   * drift; one of them is what keeps a draft from holding a subshell the caller
-   * could not otherwise reach.
+   * drift.
    * @throws WorkspacesError 404
    */
   private async requireVisibleSubshell(userId: string, subshellId: string): Promise<void> {
@@ -128,8 +126,40 @@ export class WorkspacesService extends BaseService {
   }
 
   /**
+   * The ids of every subshell the caller can see, as a set. Both workspace
+   * reads run their panes through this (review 2026-10-17): a pane filed
+   * while a share was open keeps pointing at someone else's session after
+   * the grant closes, and a read that joined its name, directory and live
+   * state unconditionally kept re-disclosing exactly what the revocation
+   * withdrew. `listVisibleTo` is the same resolver the subshells list
+   * answers with, so a revoked pane simply leaves the tree and the dock the
+   * way the revoked subshell leaves the list. The pane ROW stays: the grant
+   * may come back, and a vanished tab is a case the client already handles
+   * (it is what a subshell delete does to every workspace holding the pane).
+   */
+  async #visibleSubshellIds(userId: string): Promise<Set<string>> {
+    const visible = await this.repos.subshells.listVisibleTo(userId);
+    return new Set(visible.map((s) => s.id));
+  }
+
+  /**
+   * The tally `subshellCount` answers everywhere: the panes the caller can
+   * actually see. A rename response that counted raw rows would give the one
+   * field two definitions — visible on the LIST, total here — and the moment
+   * a caller writes the response into the workspace caches the rail badge
+   * contradicts the tree beside it (review 2026-10-17, round 4).
+   */
+  async #visiblePaneCount(userId: string, workspaceId: string): Promise<number> {
+    const [rows, visible] = await Promise.all([
+      this.repos.workspacePanes.listByWorkspace(workspaceId),
+      this.#visibleSubshellIds(userId),
+    ]);
+    return rows.filter((r) => visible.has(r.subshellId)).length;
+  }
+
+  /**
    * Creates a workspace for the caller, optionally with its first pane already
-   * in it — the shape "split this subshell into a workspace" needs, so the
+   * in it — the shape "open a workspace holding this pane" needs, so the
    * browser lands on a dock that already holds the subshell it came from.
    *
    * **Not transactional, because this codebase has no transaction helper** (no
@@ -140,8 +170,9 @@ export class WorkspacesService extends BaseService {
    * rethrown, so a create either yields a workspace with its pane or yields
    * nothing.
    *
-   * @throws WorkspacesError 409 when the caller already has that workspace name
-   *   (drafts are exempt — they sit outside the unique index).
+   * Names are not unique since migration 0058: auto-created workspaces reuse
+   * their default title freely, and nothing reads the name as a key.
+   *
    * @throws WorkspacesError 404 when `subshellId` names a subshell the caller
    *   cannot see (absent, or another user's and unshared — reported as 404 so
    *   the endpoint never confirms someone else's subshell id).
@@ -149,15 +180,12 @@ export class WorkspacesService extends BaseService {
   async createWorkspace({
     userId,
     name,
-    draft = false,
     subshellId,
   }: {
     /** Owner of the new workspace (never taken from the body). */
     userId: string;
-    /** Workspace name, unique per user unless this is a draft. */
+    /** Workspace name. */
     name: string;
-    /** True creates it unsaved: hidden from the list, free to collide by name. */
-    draft?: boolean | undefined;
     /** When given, the workspace is created holding one pane for this subshell. */
     subshellId?: string | undefined;
   }): Promise<WorkspaceResponse> {
@@ -165,20 +193,11 @@ export class WorkspacesService extends BaseService {
     // it is the same check `addWorkspacePane` applies (spec 2026-08-31 §4.3).
     if (subshellId !== undefined) await this.requireVisibleSubshell(userId, subshellId);
 
-    let created: WorkspaceTable;
-    try {
-      created = await this.repos.workspaces.create({
-        id: crypto.randomUUID(),
-        userId,
-        name,
-        draft: draft ? 1 : 0,
-      });
-    } catch (err) {
-      if (isUniqueViolation(err)) {
-        throw new WorkspacesError("duplicate", "You already have a workspace with that name", 409);
-      }
-      throw err;
-    }
+    const created = await this.repos.workspaces.create({
+      id: crypto.randomUUID(),
+      userId,
+      name,
+    });
 
     // Nothing else can reference a workspace that did not exist a moment ago,
     // so the tally is exactly the pane this call adds.
@@ -194,41 +213,66 @@ export class WorkspacesService extends BaseService {
       // The compensating delete stands in for the transaction this codebase
       // has no helper for. Its own failure must not mask the real error.
       await this.repos.workspaces.delete(created.id).catch(() => {});
+      // The same retirement race `addWorkspacePane` answers: the row was
+      // momentarily empty between the two writes, and a sweep (or a tab
+      // closed in another window) took it out before the pane landed. The FK
+      // refusal means "the workspace you asked about is gone" — the plain
+      // 404, never a raw driver error as a 500 (review 2026-10-17).
+      if (err instanceof Error && err.message.includes("FOREIGN KEY")) {
+        throw new WorkspacesError("not_found", "Workspace not found", 404);
+      }
       throw err;
     }
     return toWorkspaceResponse(created, 1);
   }
 
   /**
-   * Lists the caller's workspaces with each pane tally.
-   *
-   * Drafts are EXCLUDED by default — an unsaved workspace belongs to the page
-   * that created it, not to the Workspaces list. The two opt-ins each answer a
-   * different draft question: `subshellId` asks "which of my workspaces hold
-   * this subshell", where a freshly split draft is the most interesting answer,
-   * so that filter INCLUDES drafts and orders by recency instead of name;
-   * `draftsOnly` asks "every draft I hold" (the sidebar's Drafts section),
-   * returning drafts and nothing else. `subshellId` wins when both are passed:
-   * the sidebar never sends the pair, and the hold-check is the more specific
-   * question of the two.
+   * Lists the caller's workspaces, each with its pane tally AND its panes in
+   * membership order — the rail tree renders the whole workspace branch from
+   * this one request (spec 2026-10-17). `subshellId` narrows to the workspaces
+   * holding that subshell, ordered by recency: that is the pane-header link's
+   * "which of my arrangements is this pane in". Panes whose subshell the
+   * caller can no longer see are omitted from `panes` — the same
+   * `listVisibleTo` rule the pane-add guard applies, now on reads; the row
+   * and its workspace survive.
    *
    * @param userId - Owner whose workspaces to list
-   * @param opts.subshellId - Restrict to workspaces holding a pane for this subshell (drafts included)
-   * @param opts.draftsOnly - Return ONLY the caller's unsaved drafts (the sidebar read)
+   * @param opts.subshellId - Restrict to workspaces holding a pane for this subshell
    */
-  async listWorkspaces(
-    userId: string,
-    opts?: { subshellId?: string | undefined; draftsOnly?: boolean | undefined },
-  ): Promise<WorkspaceResponse[]> {
-    // Two queries regardless of list size: the rows, then every pane count
-    // grouped by workspace — merging beats an N+1.
+  async listWorkspaces(userId: string, opts?: { subshellId?: string | undefined }): Promise<WorkspaceListItem[]> {
     const workspaces = opts?.subshellId
       ? await this.repos.workspaces.listBySubshellForUser(userId, opts.subshellId)
-      : opts?.draftsOnly
-        ? await this.repos.workspaces.listDraftsByUser(userId)
-        : await this.repos.workspaces.listByUser(userId);
-    const counts = await this.repos.workspacePanes.countByUser(userId);
-    return workspaces.map((w) => toWorkspaceResponse(w, counts.get(w.id) ?? 0));
+      : await this.repos.workspaces.listByUser(userId);
+    // Three queries regardless of list size: the rows, every pane of the
+    // user joined with its subshell, and the caller's visible subshell ids —
+    // grouping the flat pane list in memory beats an N+1 per workspace.
+    const paneRows = await this.repos.workspacePanes.listForUserWithSubshells(userId);
+    const visible = await this.#visibleSubshellIds(userId);
+    const byWorkspace = new Map<string, WorkspacePaneView[]>();
+    for (const row of paneRows) {
+      // A pane whose subshell the caller can no longer see (the share closed)
+      // carries nothing here; `subshellCount` counts what is shown, not the
+      // rows still held server-side.
+      if (!visible.has(row.subshellId)) continue;
+      const list = byWorkspace.get(row.workspaceId) ?? [];
+      list.push({
+        id: row.id,
+        subshellId: row.subshellId,
+        subshellName: row.subshellName,
+        subshellStatus: row.subshellStatus,
+        subshellAlive: row.subshellAlive === 1,
+        subshellExitCode: row.subshellExitCode,
+        subshellWaitingSince: row.subshellWaitingSince,
+        workingDir: row.workingDir,
+        subshellNodeId: row.subshellNodeId,
+        subshellNodeOffline: isNodeOffline(row.subshellNodeId),
+      });
+      byWorkspace.set(row.workspaceId, list);
+    }
+    return workspaces.map((w) => {
+      const panes = byWorkspace.get(w.id) ?? [];
+      return { ...toWorkspaceResponse(w, panes.length), panes };
+    });
   }
 
   /**
@@ -241,8 +285,14 @@ export class WorkspacesService extends BaseService {
 
     const paneRows = await this.repos.workspacePanes.listByWorkspace(workspace.id);
     const subshellsRepo = this.repos.subshells;
+    // Same visibility screen as the list: a pane whose subshell the caller lost
+    // access to drops out of `panes`, and because the layout below prunes
+    // against the surviving ids, its tile leaves the dock too rather than
+    // rendering a dead tab.
+    const visible = await this.#visibleSubshellIds(userId);
     const panes: WorkspacePaneView[] = [];
     for (const pane of paneRows) {
+      if (!visible.has(pane.subshellId)) continue;
       const subshell = await subshellsRepo.findById(pane.subshellId);
       // The FK cascade means the subshell always exists; the guard keeps the
       // types honest rather than covering a real case.
@@ -272,52 +322,27 @@ export class WorkspacesService extends BaseService {
   }
 
   /**
-   * Renames a workspace, and/or promotes a draft to a saved one.
-   *
-   * `draft` accepts only `false`: promotion is the one transition, and a saved
-   * workspace never becomes a draft (the route's schema is a `t.Literal(false)`,
-   * so the other direction cannot even be spelled). Promotion is where a draft's
-   * auto-name meets the unique index for the first time, which is why the same
-   * 409 a rename produces is the answer here too.
-   *
+   * Renames a workspace.
    * @throws WorkspacesError 404 when absent or owned by someone else.
-   * @throws WorkspacesError 409 when the name collides with one the caller has saved.
    */
-  async updateWorkspace(
-    userId: string,
-    id: string,
-    update: { name?: string | undefined; draft?: false | undefined },
-  ): Promise<WorkspaceResponse> {
+  async updateWorkspace(userId: string, id: string, update: { name?: string | undefined }): Promise<WorkspaceResponse> {
     const repo = this.repos.workspaces;
     const existing = await repo.findByIdForUser(id, userId);
     if (!existing) throw new WorkspacesError("not_found", "Workspace not found", 404);
     // Built key by key rather than spread: an explicit `undefined` would reach
-    // the UPDATE as a column to set.
-    const patch: { name?: string; draft?: number } = {};
-    if (update.name !== undefined) patch.name = update.name;
-    if (update.draft === false) patch.draft = 0;
-    // An empty body validates (both properties are optional) and used to
-    // stamp `updated_at` for a change that never happened — which, now that
-    // `?subshellId=` orders by that column, reordered a list for nothing.
-    if (Object.keys(patch).length === 0) {
-      return toWorkspaceResponse(existing, await this.repos.workspacePanes.countForWorkspace(id));
+    // the UPDATE as a column to set. An empty body answers the current row
+    // WITHOUT stamping `updated_at`, which used to reorder the recency lists
+    // for a change that never happened.
+    if (update.name === undefined) {
+      return toWorkspaceResponse(existing, await this.#visiblePaneCount(userId, id));
     }
-    try {
-      const updated = await repo.update(id, patch);
-      if (!updated) throw new WorkspacesError("not_found", "Workspace not found", 404);
-      const subshellCount = await this.repos.workspacePanes.countForWorkspace(id);
-      return toWorkspaceResponse(updated, subshellCount);
-    } catch (err) {
-      if (err instanceof WorkspacesError) throw err;
-      if (isUniqueViolation(err)) {
-        throw new WorkspacesError("duplicate", "You already have a workspace with that name", 409);
-      }
-      throw err;
-    }
+    const updated = await repo.update(id, { name: update.name });
+    if (!updated) throw new WorkspacesError("not_found", "Workspace not found", 404);
+    return toWorkspaceResponse(updated, await this.#visiblePaneCount(userId, id));
   }
 
   /**
-   * Deletes a workspace; its panes cascade away.
+   * Deletes a workspace; its panes cascade away (the subshells keep running).
    * @throws WorkspacesError 404 when absent or owned by someone else.
    */
   async deleteWorkspace(userId: string, id: string): Promise<{ ok: true }> {
@@ -329,40 +354,60 @@ export class WorkspacesService extends BaseService {
   }
 
   /**
-   * Discards the caller's unsaved DRAFT workspaces except `exceptId` — the
-   * sidebar's "clear my other drafts" cleanup, and the counterpart to the rail
-   * surfacing only the draft you are standing in. Panes cascade; the subshells
-   * those drafts held keep running (deleting a workspace never stops a session),
-   * which is exactly the promise the confirm dialog makes.
-   *
-   * @param exceptId - The active workspace to spare. A no-op if it is already
-   *   gone or not a draft — the exclusion is `id <>`, never a lookup.
-   * @returns `discarded` count, so the caller can report what actually left.
-   */
-  async discardDrafts(userId: string, exceptId?: string): Promise<{ discarded: number }> {
-    const discarded = await this.repos.workspaces.deleteDraftsExcept(userId, exceptId);
-    return { discarded };
-  }
-
-  /**
    * Adds a pane holding a subshell the caller can see (own or shared to them).
+   *
+   * **Idempotent by design (spec 2026-10-17):** adding a subshell the
+   * workspace already holds returns the EXISTING pane row's id with a plain
+   * 200. The unique `(workspace_id, subshell_id)` index makes a double
+   * impossible, and racing inserts land on the re-read branch below (and one
+   * racing the workspace's own retirement lands on the FK branch), so four
+   * client surfaces no longer need their own dedupe guard to be correct —
+   * "already a tab" is the same answer as "now it is".
+   *
    * @throws WorkspacesError 404 when the workspace is absent or not the caller's.
    * @throws WorkspacesError 404 when the subshell is absent or invisible to the
    *   caller (reported as 404 so the endpoint never confirms another user's id).
    */
-  async addWorkspacePane(userId: string, workspaceId: string, subshellId: string): Promise<{ id: string }> {
+  async addWorkspacePane(
+    userId: string,
+    workspaceId: string,
+    subshellId: string,
+  ): Promise<{ id: string; alreadyPresent: boolean }> {
     const workspace = await this.repos.workspaces.findByIdForUser(workspaceId, userId);
     if (!workspace) throw new WorkspacesError("not_found", "Workspace not found", 404);
 
     await this.requireVisibleSubshell(userId, subshellId);
 
     const panesRepo = this.repos.workspacePanes;
-    const created = await panesRepo.create({
-      id: crypto.randomUUID(),
-      workspaceId: workspace.id,
-      subshellId,
-    });
-    return { id: created.id };
+    const existing = await panesRepo.findByWorkspaceAndSubshell(workspace.id, subshellId);
+    if (existing) return { id: existing.id, alreadyPresent: true };
+
+    try {
+      const created = await panesRepo.create({
+        id: crypto.randomUUID(),
+        workspaceId: workspace.id,
+        subshellId,
+      });
+      return { id: created.id, alreadyPresent: false };
+    } catch (err) {
+      // The race: a concurrent insert took the unique slot between the re-read
+      // and this write. Answer it with the row that won, not with an error.
+      if (err instanceof Error && err.message.includes("UNIQUE")) {
+        const raced = await panesRepo.findByWorkspaceAndSubshell(workspace.id, subshellId);
+        if (raced) return { id: raced.id, alreadyPresent: true };
+      }
+      // The OTHER race, and the one the empty-retire makes possible: the last
+      // pane closed (retiring the workspace) between the existence check
+      // above and this insert, so the FK refuses the write. The auto-retire is
+      // NOT one transaction with the pane removal — this codebase has no
+      // transaction helper — so a racing add really does meet the FK refusal,
+      // and it means exactly "the workspace you asked about is gone": answer
+      // the plain 404, never a 500 (spec 2026-10-17, error handling).
+      if (err instanceof Error && err.message.includes("FOREIGN KEY")) {
+        throw new WorkspacesError("not_found", "Workspace not found", 404);
+      }
+      throw err;
+    }
   }
 
   /**
@@ -380,12 +425,12 @@ export class WorkspacesService extends BaseService {
   /**
    * Removes a pane from a workspace (the subshell is untouched).
    *
-   * **A draft left with fewer than two panes is deleted with it.** A draft only
-   * exists because someone split a subshell in two, so one pane is no longer a
-   * tiling of anything — the browser sends the user back to that subshell's own
-   * page, and leaving the row behind would strand an unnamed workspace nothing
-   * lists. A SAVED workspace is a thing the user chose to keep and is left with
-   * its remaining pane (or none), exactly as before.
+   * **A workspace emptied by this removal is deleted with it** — the runtime
+   * half of "a workspace exists exactly as long as it has tabs". The panes
+   * left behind by the removal are zero by definition here, so this is one
+   * count check, not a per-row decision, and it applies to every workspace
+   * alike (the old draft-only rule, and the client hook that mirrored it, are
+   * gone).
    *
    * @returns `workspaceDeleted` so the caller knows whether to close a panel or
    *   navigate away — it cannot infer that from the pane it asked to remove.
@@ -406,7 +451,7 @@ export class WorkspacesService extends BaseService {
     }
     await panesRepo.delete(paneId);
 
-    if (workspace.draft === 1 && (await panesRepo.countForWorkspace(workspace.id)) < 2) {
+    if ((await panesRepo.countForWorkspace(workspace.id)) === 0) {
       await this.repos.workspaces.delete(workspace.id);
       return { ok: true, workspaceDeleted: true };
     }

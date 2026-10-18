@@ -1139,7 +1139,7 @@ export function SubshellTerminal({
       {closed && (
         <div className="flex h-full items-center justify-center bg-background text-muted-foreground text-sm">
           Subshell is not running.{" "}
-          <Link to="/" className="ml-1 text-primary hover:underline">
+          <Link to="/subshells" className="ml-1 text-primary hover:underline">
             Back to subshells
           </Link>
         </div>
