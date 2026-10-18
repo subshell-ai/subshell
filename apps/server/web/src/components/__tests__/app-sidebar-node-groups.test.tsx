@@ -737,6 +737,28 @@ describe("the Workspaces tree (spec 2026-10-17)", () => {
     }
   });
 
+  it("member rows wear the shared dot and name their directory under the pane", async () => {
+    // The tree's pane rows must speak the ONE state language (operator
+    // 2026-10-17: a coarser alive/dead dot read as "just purple"), and say
+    // WHICH directory each pane is in — the pair of bare names could not.
+    const w = ws("w1", "Fix flaky tests", "2026-10-01T00:00:00.000Z", [pane("p1", "claude-backend")]);
+    const spy = quickAddSpy();
+    const restore = stubFetch([subshell({ id: "p1", name: "claude-backend" })], { failNodes: false }, [w]);
+    try {
+      await renderRail("/workspaces/w1");
+      // "/srv/app" (the PANE's directory line) exists only in the tree; the
+      // pane's name also renders in the machine groups below, so the tree is
+      // found by the line, not the name.
+      await waitFor(() => expect(screen.getByText("/srv/app")).toBeTruthy());
+      // The dot is the shared one: its raw pair rides inside the tree row.
+      const row = screen.getByText("/srv/app").closest("button");
+      expect(row?.querySelector('[data-status="running"][data-alive="true"]') !== null).toBe(true);
+    } finally {
+      spy.mockRestore();
+      restore();
+    }
+  });
+
   it("opens a folded workspace on its chevron and remembers the choice", async () => {
     const a = ws("w1", "Alpha", "2026-10-02T00:00:00.000Z", [pane("p1", "alpha-pane")]);
     const b = ws("w2", "Beta", "2026-10-01T00:00:00.000Z", [pane("p2", "beta-pane")]);

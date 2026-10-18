@@ -5,9 +5,11 @@ import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { ChevronDown } from "lucide-react";
 import { type JSX, type MouseEvent, useCallback, useState } from "react";
 import { ListLoadError } from "@/components/list-load-error";
+import { SubshellDot } from "@/components/subshell-dot";
 import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useFilteredList } from "@/hooks/use-filtered-list";
+import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { useWorkspaces, WORKSPACES_QUERY_KEY } from "@/hooks/use-workspaces";
 import { workspaceIdFromPath } from "@/lib/route-ids";
 import { RECENT_LIMIT } from "@/lib/sidebar-recents";
@@ -47,14 +49,6 @@ function branchClass(active: boolean): string {
   );
 }
 
-/** The status dot a pane row wears: alive gold, waiting amber-ish, dead hollow. */
-function PaneDot({ pane }: { pane: WorkspacePaneRow }): JSX.Element {
-  const waiting = pane.subshellWaitingSince !== null;
-  if (!pane.subshellAlive)
-    return <span aria-hidden className="size-1.5 shrink-0 rounded-full border border-current opacity-60" />;
-  return <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", waiting ? "bg-warning" : "bg-primary")} />;
-}
-
 /**
  * One pane row inside a workspace branch. Clicking focuses the dock when that
  * workspace is the page on screen (the event bus, no navigation at all) and
@@ -64,6 +58,13 @@ function PaneDot({ pane }: { pane: WorkspacePaneRow }): JSX.Element {
  */
 function PaneBranchRow({ pane, workspaceId }: { pane: WorkspacePaneRow; workspaceId: string }): JSX.Element {
   const navigate = useNavigate();
+  // The same shared dot every other surface draws (working blink, quiet
+  // green, waiting, offline, dead) — a second, coarser spelling of "is this
+  // pane alive" in the tree was the operator's complaint of 2026-10-17:
+  // every mark in the rail means the same thing or the rail lies. Reads the
+  // live list cache, so it needs no extra request; no row yet (the list is
+  // still loading) draws a placeholder, not a guess.
+  const subshell = useSubshellRow(pane.subshellId);
   function onClick(e: MouseEvent): void {
     e.preventDefault();
     if (requestWorkspacePaneFocus(pane.subshellId)) return;
@@ -73,11 +74,21 @@ function PaneBranchRow({ pane, workspaceId }: { pane: WorkspacePaneRow; workspac
     <button
       type="button"
       onClick={onClick}
-      className={cn(branchClass(false), "ml-4 flex w-[calc(100%-1rem)] items-center gap-2 text-left")}
-      title={`${pane.subshellName} — ${pane.workingDir}`}
+      className={cn(branchClass(false), "ml-4 block w-[calc(100%-1rem)] text-left")}
+      title={`${pane.subshellName}: ${pane.workingDir}`}
     >
-      <PaneDot pane={pane} />
-      <span className="min-w-0 flex-1 truncate">{pane.subshellName}</span>
+      <span className="flex items-center gap-2">
+        {subshell ? (
+          <SubshellDot subshell={subshell} className="h-1.5 w-1.5 shrink-0" />
+        ) : (
+          <span aria-hidden className="size-1.5 shrink-0" />
+        )}
+        <span className="min-w-0 flex-1 truncate">{pane.subshellName}</span>
+      </span>
+      {/* The directory under the name, muted by colour and weight — the
+          line-items rule (label over detail), and the same fact the rail
+          rows carry, so a workspace of two shells says WHICH two. */}
+      <span className="block truncate pl-[14px] text-muted-foreground opacity-80">{pane.workingDir}</span>
     </button>
   );
 }
@@ -97,17 +108,15 @@ function UngroupedRow({ subshell }: { subshell: SubshellView }): JSX.Element {
       draggable
       onDragStart={(e) => encodeSubshellDrag(e.dataTransfer, subshell.id)}
       onClick={() => void navigate({ to: "/subshells/$id", params: { id: subshell.id } })}
-      className={cn(branchClass(false), "ml-4 flex w-[calc(100%-1rem)] cursor-grab items-center gap-2")}
+      className={cn(branchClass(false), "ml-4 block w-[calc(100%-1rem)] cursor-grab text-left")}
       title={`${subshell.name}: drag onto a workspace, or click to open`}
     >
-      <span
-        aria-hidden
-        className={cn(
-          "size-1.5 shrink-0 rounded-full",
-          subshell.alive ? "bg-primary" : "border border-current opacity-60",
-        )}
-      />
-      <span className="min-w-0 flex-1 truncate">{subshell.name}</span>
+      <span className="flex items-center gap-2">
+        <SubshellDot subshell={subshell} className="h-1.5 w-1.5 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{subshell.name}</span>
+      </span>
+      {/* Same directory line the tree's pane rows carry: one rail, one shape. */}
+      <span className="block truncate pl-[14px] text-muted-foreground opacity-80">{subshell.workingDir}</span>
     </Link>
   );
 }
