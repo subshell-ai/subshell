@@ -392,17 +392,17 @@ test("real entry: available older upgrade snapshot restores and migrates before 
   // are stripped (rows AND their DDL) so the snapshot ends where an install of
   // that era would; removing one from the middle while a later row stands
   // above it is exactly the non-contiguous history kysely refuses to boot.
-  // WHY 0047..0056 together: this era's ten migrations are the tail of the
+  // WHY 0047..0058 together: this era's twelve migrations are the tail of the
   // registered ledger, so the prefix runs contiguously through 0046 and boot
-  // re-applies all ten. Advancing LATEST_BACKUP_MIGRATION (0056) means the
+  // re-applies all ten. Advancing LATEST_BACKUP_MIGRATION (0058) means the
   // strip set moves with it in the same commit.
   const migrationRows = db
     .query(
-      "SELECT * FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity','0050-ssh-grants','0051-ssh-request-destination','0052-subshell-key-home','0053-drop-ssh-grants','0054-ssh-presets','0055-node-ssh-wide-forwards','0056-ssh-preset-forwards','0057-preset-sharing') ORDER BY name",
+      "SELECT * FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity','0050-ssh-grants','0051-ssh-request-destination','0052-subshell-key-home','0053-drop-ssh-grants','0054-ssh-presets','0055-node-ssh-wide-forwards','0056-ssh-preset-forwards','0057-preset-sharing','0058-workspace-first') ORDER BY name",
     )
     .all() as { name: string; timestamp: string }[];
   db.exec(
-    "DROP TABLE preset_shares; DROP TABLE ssh_preset_shares; ALTER TABLE nodes DROP COLUMN ssh_wide_forwards; ALTER TABLE nodes DROP COLUMN ssh_enabled_at; ALTER TABLE nodes DROP COLUMN ssh_enabled; DROP TABLE ssh_presets; DROP TABLE ssh_recent_destinations; ALTER TABLE subshells DROP COLUMN ssh; ALTER TABLE identities DROP COLUMN signing_public_key; ALTER TABLE nodes DROP COLUMN ssh_fingerprint; ALTER TABLE subshells DROP COLUMN key_home_node_id; DROP TABLE ssh_host_pins; DELETE FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity','0050-ssh-grants','0051-ssh-request-destination','0052-subshell-key-home','0053-drop-ssh-grants','0054-ssh-presets','0055-node-ssh-wide-forwards','0056-ssh-preset-forwards','0057-preset-sharing'); CREATE TABLE migration_restore_probe(value TEXT); INSERT INTO migration_restore_probe VALUES ('older snapshot');",
+    "ALTER TABLE workspaces ADD COLUMN draft integer NOT NULL DEFAULT 0; CREATE UNIQUE INDEX idx_workspaces_user_name ON workspaces (user_id, name) WHERE draft = 0; DROP INDEX idx_workspace_panes_workspace_subshell; DROP TABLE preset_shares; DROP TABLE ssh_preset_shares; ALTER TABLE nodes DROP COLUMN ssh_wide_forwards; ALTER TABLE nodes DROP COLUMN ssh_enabled_at; ALTER TABLE nodes DROP COLUMN ssh_enabled; DROP TABLE ssh_presets; DROP TABLE ssh_recent_destinations; ALTER TABLE subshells DROP COLUMN ssh; ALTER TABLE identities DROP COLUMN signing_public_key; ALTER TABLE nodes DROP COLUMN ssh_fingerprint; ALTER TABLE subshells DROP COLUMN key_home_node_id; DROP TABLE ssh_host_pins; DELETE FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity','0050-ssh-grants','0051-ssh-request-destination','0052-subshell-key-home','0053-drop-ssh-grants','0054-ssh-presets','0055-node-ssh-wide-forwards','0056-ssh-preset-forwards','0057-preset-sharing','0058-workspace-first'); CREATE TABLE migration_restore_probe(value TEXT); INSERT INTO migration_restore_probe VALUES ('older snapshot');",
   );
   db.query("VACUUM INTO ?").run(snapshot);
   db.exec(
@@ -420,7 +420,7 @@ test("real entry: available older upgrade snapshot restores and migrates before 
   expect(
     offline
       .query(
-        "SELECT name FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity','0050-ssh-grants','0051-ssh-request-destination','0052-subshell-key-home','0053-drop-ssh-grants','0054-ssh-presets','0055-node-ssh-wide-forwards','0056-ssh-preset-forwards','0057-preset-sharing')",
+        "SELECT name FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity','0050-ssh-grants','0051-ssh-request-destination','0052-subshell-key-home','0053-drop-ssh-grants','0054-ssh-presets','0055-node-ssh-wide-forwards','0056-ssh-preset-forwards','0057-preset-sharing','0058-workspace-first')",
       )
       .all(),
   ).toEqual([]);
@@ -430,7 +430,7 @@ test("real entry: available older upgrade snapshot restores and migrates before 
   expect(
     migrated
       .query(
-        "SELECT name FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity','0050-ssh-grants','0051-ssh-request-destination','0052-subshell-key-home','0053-drop-ssh-grants','0054-ssh-presets','0055-node-ssh-wide-forwards','0056-ssh-preset-forwards','0057-preset-sharing') ORDER BY name",
+        "SELECT name FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity','0050-ssh-grants','0051-ssh-request-destination','0052-subshell-key-home','0053-drop-ssh-grants','0054-ssh-presets','0055-node-ssh-wide-forwards','0056-ssh-preset-forwards','0057-preset-sharing','0058-workspace-first') ORDER BY name",
       )
       .all(),
   ).toEqual([
@@ -445,6 +445,7 @@ test("real entry: available older upgrade snapshot restores and migrates before 
     { name: "0055-node-ssh-wide-forwards" },
     { name: "0056-ssh-preset-forwards" },
     { name: "0057-preset-sharing" },
+    { name: "0058-workspace-first" },
   ]);
   expect(migrated.query("SELECT value FROM migration_restore_probe").get()).toEqual({ value: "older snapshot" });
   expect(
