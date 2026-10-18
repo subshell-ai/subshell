@@ -468,9 +468,11 @@ export function AppSidebar({
                   <RailSubshells filterRef={filterRef} query={subshellQuery} onQueryChange={setSubshellQuery} />
                 </div>
               )}
-              {/* The Workspaces rail body (search, the workspace tree, and the
-                  Ungrouped branch) lives in its own component; it renders
-                  nothing when there is nothing to show. */}
+              {/* The Workspaces rail body (search and the workspace tree)
+                  lives in its own component; it renders nothing when there is
+                  nothing to show. Unfiled panes are NOT shown here (operator
+                  ruling 2026-10-17); the subshells list's machine groups are
+                  where a session without a workspace appears. */}
               {!collapsed && item.to === "/workspaces" && !isSectionHidden("workspaces") && <WorkspacesSection />}
             </div>
           );

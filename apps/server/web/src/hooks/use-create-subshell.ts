@@ -178,8 +178,9 @@ export function useCreateSubshell({ autoFile = true }: { autoFile?: boolean } = 
       try {
         // Spec 2026-10-17: a launch raised while a workspace page is on screen
         // LANDS AS A TAB in it, server-side in the create's own write. With no
-        // workspace on screen the pane starts ungrouped, which is what the
-        // rail's Ungrouped branch and every bearer/MCP create already expect.
+        // workspace on screen the pane starts ungrouped, which every
+        // bearer/MCP create already expects; `autoFile` below (or the detail
+        // page for a bare launch) gives it a workspace from there.
         // The workspace the dialog is adding to may differ from the page's
         // (the add-dialog's explicit flow keeps its own path: it launches,
         // then attaches through the idempotent add-pane call, and the server

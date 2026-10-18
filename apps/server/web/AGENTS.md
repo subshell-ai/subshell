@@ -400,14 +400,16 @@ once dockview is ready, through their ordinary `handleAdd`, so the first split
 and every later add run ONE code path. Nothing is "unsaved": the workspace is
 in `GET /api/workspaces` from the moment the POST answers, and that LIST
 carries each workspace's PANES, which is what the rail's tree renders from one
-query. Adding a pane is IDEMPOTENT (UNIQUE `(workspace_id, subshell_id)`; the
+query. The tree shows ONLY workspaces: an unfiled pane lives in the subshells
+list's machine groups, never in an "Ungrouped" branch (operator ruling
+2026-10-17, which deleted that section). Adding a pane is IDEMPOTENT (UNIQUE `(workspace_id, subshell_id)`; the
 second add returns the same row with `alreadyPresent`), and removing the LAST
 pane self-retires the row (`workspaceDeleted`): a workspace exists exactly as
 long as it holds a tab. The user is ALWAYS in a workspace: a launch raised
 with none on screen gets one opened around it (`autoFile` in
 `hooks/use-create-subshell.ts`; the add-pane and new-workspace dialogs pass
-false and file it themselves), and a plain click on a rail row, cell or
-Ungrouped row means the tab (`hooks/use-open-pane-as-tab.ts`: focus it on
+false and file it themselves), and a plain click on a rail row or cell
+means the tab (`hooks/use-open-pane-as-tab.ts`: focus it on
 screen, else its holder via `armPaneFocusOnArrive`, else create one). The
 landing `/` is a direction, not a page: last visited workspace, else most
 recently touched, else the one-button empty state. The create response is

@@ -42,9 +42,11 @@ server-behind message, not as a name complaint.)
 - `GET /api/workspaces` carries every workspace of the caller's WITH its
   panes (`WorkspaceListItem.panes`), which is what the rail's Workspaces tree
   (`components/sidebar/workspaces-section.tsx`) renders: the whole tree is
-  that one query plus one for the Ungrouped branch
-  (`/api/subshells?workspace=none`). No per-workspace GET, no draft half to
-  hide: there is nothing left for a list to lie about.
+  that one query. The tree shows workspaces ONLY: a pane that lives in none
+  appears in the subshells list's machine groups, not in an "Ungrouped"
+  branch (operator ruling 2026-10-17 removed that section, and the rail's
+  read of `/api/subshells?workspace=none` with it). No per-workspace GET,
+  no draft half to hide: there is nothing left for a list to lie about.
 - `?subshellId=` is the one opt-in read, feeding the subshell page's workspace
   control (`components/subshell-workspace-link.tsx`). A subshell can sit on
   any number of workspaces, so that control has two shapes, decided by the
@@ -76,7 +78,7 @@ There is no subshell-side of the app to fall out of (operator ruling, spec
   first - pass `autoFile: false`, or one launch would leave two workspaces
   holding the same row.
 - A SELECTION means a tab. `hooks/use-open-pane-as-tab.ts` backs every plain
-  left-click on a rail row, cell or Ungrouped row: focus the pane if the
+  left-click on a rail row or cell: focus the pane if the
   dock on screen holds it (`requestWorkspacePaneFocus`), else open the most
   recently touched workspace that holds it, else create one around it. The
   destination presentation takes the armed `armPaneFocusOnArrive` id once
@@ -93,8 +95,9 @@ localStorage-last); the landing's "make a workspace" one-shot died with this
 rule because every launch now makes one anyway when there is nothing to join.
 A failed create leaves a running ungrouped pane and the detail landing -
 honest, and clicking that pane later files it the same way. Bearer/MCP
-creates stay unfiled (no human screen to file into), which is what the rail's
-Ungrouped branch and its drag-onto-the-dock exist for.
+creates stay unfiled (no human screen to file into), which is what the
+subshells list's machine-group rows exist for: they are the drag source for
+"drop this onto a workspace" and the click-means-a-tab rows that build one.
 
 ## The pane-focus bar and renaming
 

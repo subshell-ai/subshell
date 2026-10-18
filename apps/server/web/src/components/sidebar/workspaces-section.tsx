@@ -1,6 +1,5 @@
-import { apiFetch, cn, Input } from "@internal/node-admin";
+import { cn, Input } from "@internal/node-admin";
 import { LIST_SEARCH_MAX } from "@internal/subshell-protocol";
-import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { ChevronDown } from "lucide-react";
 import { type JSX, type MouseEvent, useCallback, useState } from "react";
@@ -9,26 +8,22 @@ import { SubshellDot } from "@/components/subshell-dot";
 import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useFilteredList } from "@/hooks/use-filtered-list";
-import { useOpenPaneAsTab } from "@/hooks/use-open-pane-as-tab";
 import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { useWorkspaces, WORKSPACES_QUERY_KEY } from "@/hooks/use-workspaces";
 import { workspaceIdFromPath } from "@/lib/route-ids";
 import { RECENT_LIMIT } from "@/lib/sidebar-recents";
-import { encodeSubshellDrag } from "@/lib/subshell-dnd";
 import { requestWorkspacePaneFocus } from "@/lib/workspace-focus";
-import type { SubshellView } from "@/types/subshell";
 import type { WorkspacePaneRow, WorkspaceRow } from "@/types/workspace";
-
-/** Query key for the Ungrouped branch read (exported for tests). */
-export const UNGROUPED_QUERY_KEY = ["subshells", "workspace-none"] as const;
 
 /**
  * The sidebar's Workspaces tree (spec 2026-10-17): each workspace row expands
- * to the panes it holds, and an Ungrouped section underneath lists the
- * subshells that live in no workspace — the drag source the whole model runs
- * on. This replaced the Saved/Drafts pair: a workspace exists exactly as long
- * as it holds a tab, so there is no unsaved half-list to sweep anymore, and
- * "what you're working on" and "what exists" stopped being two questions.
+ * to the panes it holds. This replaced the Saved/Drafts pair: a workspace
+ * exists exactly as long as it holds a tab, so there is no unsaved half-list
+ * to sweep anymore, and "what you're working on" and "what exists" stopped
+ * being two questions. Panes that live in no workspace are deliberately
+ * absent here (operator ruling, 2026-10-17): the tree is about workspaces,
+ * and an unfiled session is already visible in the subshells list's machine
+ * groups — clicking one there builds a workspace around it.
  *
  * The active workspace auto-expands (its branch is the one you want); others
  * open on the chevron and the choice persists per device. A search force-opens
@@ -36,7 +31,7 @@ export const UNGROUPED_QUERY_KEY = ["subshells", "workspace-none"] as const;
  * branch would read as a broken search.
  *
  * Rows are cheap here by design: the LIST carries every workspace's panes, so
- * the whole tree is this one query plus one for Ungrouped.
+ * the whole tree is this one query.
  */
 const WS_EXPANDED_KEY = "subshell.sidebarWsExpanded";
 
@@ -94,41 +89,6 @@ function PaneBranchRow({ pane, workspaceId }: { pane: WorkspacePaneRow; workspac
   );
 }
 
-/**
- * A subshell that lives in no workspace of the caller's. Draggable with the
- * same payload the dock and the workspace cards already accept, so "add this
- * to a workspace" is drag-onto-the-page, and the keyboard equivalent is the
- * workspace's own Add-subshell picker.
- */
-function UngroupedRow({ subshell }: { subshell: SubshellView }): JSX.Element {
-  const openAsTab = useOpenPaneAsTab();
-  return (
-    <Link
-      to="/subshells/$id"
-      params={{ id: subshell.id }}
-      draggable
-      onDragStart={(e) => encodeSubshellDrag(e.dataTransfer, subshell.id)}
-      // Click means the tab (spec 2026-10-17): an ungrouped pane gets a
-      // workspace built around it; a filed one opens its holder and focuses.
-      // The href stays the detail page for middle-click and new tabs.
-      onClick={(e) => {
-        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
-        e.preventDefault();
-        void openAsTab(subshell);
-      }}
-      className={cn(branchClass(false), "ml-4 block w-[calc(100%-1rem)] cursor-grab text-left")}
-      title={`${subshell.name}: drag onto a workspace, or click to open`}
-    >
-      <span className="flex items-center gap-2">
-        <SubshellDot subshell={subshell} className="h-1.5 w-1.5 shrink-0" />
-        <span className="min-w-0 flex-1 truncate">{subshell.name}</span>
-      </span>
-      {/* Same directory line the tree's pane rows carry: one rail, one shape. */}
-      <span className="block truncate pl-[14px] text-muted-foreground opacity-80">{subshell.workingDir}</span>
-    </Link>
-  );
-}
-
 /** A collapsible branch header for one workspace, with its expand chevron. */
 function WorkspaceBranch({
   workspace,
@@ -147,23 +107,24 @@ function WorkspaceBranch({
   return (
     <div>
       {/* The accent fill belongs to the WHOLE row, not just the name link: the
-        count and the chevron sit inside the highlighted bar too, or the active
-        workspace reads as a name with two unselected strays beside it (operator
-        note, 2026-10-17). The fill lives here; `branchClass` supplies the shape
-        minus the colour it carries. */}
+        count and the chevron sit inside the highlighted bar too, or the row
+        reads as a name with two unselected strays beside it (operator note,
+        2026-10-17). That is true of HOVER exactly as of the active state, so
+        both fills — and the colour transition — live on this container; a
+        hover that painted only the link stopped the bar dead before the count
+        (same note, later the same day). */}
       <div
         className={cn(
-          "flex w-full items-center gap-0.5 rounded-md pr-1",
-          active ? "bg-accent text-accent-foreground" : "text-muted-foreground",
+          "flex w-full items-center gap-0.5 rounded-md pr-1 transition-colors",
+          active
+            ? "bg-accent text-accent-foreground"
+            : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
         )}
       >
         <Link
           to="/workspaces/$id"
           params={{ id: workspace.id }}
-          className={cn(
-            "my-1 min-w-0 flex-1 truncate rounded-md py-1 pr-3 pl-3 text-detail transition-colors",
-            active ? "font-strong" : "hover:bg-accent/50 hover:text-foreground",
-          )}
+          className={cn("my-1 min-w-0 flex-1 truncate rounded-md py-1 pr-3 pl-3 text-detail", active && "font-strong")}
         >
           {workspace.name}
         </Link>
@@ -201,11 +162,6 @@ export function WorkspacesSection(): JSX.Element | null {
   const search = query.trim();
   const debounced = useDebouncedValue(search);
   const results = useFilteredList<WorkspaceRow[]>(WORKSPACES_QUERY_KEY, "/api/workspaces", { q: debounced });
-  const ungrouped = useQuery({
-    queryKey: UNGROUPED_QUERY_KEY,
-    queryFn: ({ signal }) => apiFetch<SubshellView[]>("/api/subshells?workspace=none", { signal }),
-    staleTime: 30_000,
-  });
 
   // Recency first (the old "Saved" order), capped when not searching; every
   // name match while searching, uncapped.
@@ -241,8 +197,7 @@ export function WorkspacesSection(): JSX.Element | null {
     });
   }, []);
 
-  const ungroupedRows = (ungrouped.data ?? []).slice(0, search ? 200 : RECENT_LIMIT);
-  const nothingAtAll = !isLoading && (workspaces?.length ?? 0) === 0 && (ungrouped.data?.length ?? 0) === 0 && !search;
+  const nothingAtAll = !isLoading && (workspaces?.length ?? 0) === 0 && !search;
   if (nothingAtAll) return null;
 
   return (
@@ -268,18 +223,10 @@ export function WorkspacesSection(): JSX.Element | null {
           />
         </WorkspaceActionsMenu>
       ))}
-      {ungroupedRows.length > 0 && (
-        <div className="mt-2">
-          <p className="px-3 pb-0.5 font-strong text-detail text-muted-foreground uppercase opacity-70">Ungrouped</p>
-          {ungroupedRows.map((s) => (
-            <UngroupedRow key={s.id} subshell={s} />
-          ))}
-        </div>
-      )}
       {isError && <ListLoadError message="Couldn’t load workspaces." retry={refetch} busy={isLoading} />}
       {isLoading && <p className="px-3 py-1 text-detail text-muted-foreground">Loading…</p>}
-      {search && !isLoading && !results.isLoading && shown.length === 0 && ungroupedRows.length === 0 && (
-        <p className="px-3 py-1 text-detail text-muted-foreground">No workspaces or panes match.</p>
+      {search && !isLoading && !results.isLoading && shown.length === 0 && (
+        <p className="px-3 py-1 text-detail text-muted-foreground">No workspaces match.</p>
       )}
     </div>
   );

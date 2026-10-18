@@ -86,10 +86,11 @@ function stubFetch(
       ? { viewerIsAdmin: false, instanceName: "Test plane" }
       : url.includes("get-session")
         ? { user: { id: "u1", name: "Theo", email: "theo@test" } }
-        : // The rail's Ungrouped branch: these fixtures model a world where
-          // every listed pane is filed, so the branch is empty unless a test
-          // asks otherwise (an unstubbed fallthrough would show every row
-          // twice, and `getByRole` would (correctly) refuse the ambiguity).
+        : // Kept as a dead-endpoint stub: the Workspaces tree no longer reads
+          // `workspace=none` (the Ungrouped section is gone, 2026-10-17), but a
+          // stray request would otherwise fall through to the FULL subshells
+          // list and double-draw rows, so an explicit answer stays cheaper
+          // than a debugging session.
           url.includes("workspace=none")
           ? ungrouped
           : url.includes("/api/workspaces/")
@@ -784,17 +785,17 @@ describe("the Workspaces tree (spec 2026-10-17)", () => {
     }
   });
 
-  it("lists workspace-less panes under Ungrouped, draggable with the shared payload", async () => {
-    const loose = { id: "s9", name: "node-agent", harnessId: "claude-code", workingDir: "/srv", alive: true };
+  it("shows no Ungrouped section: unfiled panes live only in the machine groups", async () => {
+    const loose = subshell({ id: "s9", name: "node-agent", harnessId: "claude-code", workingDir: "/srv" });
     const spy = quickAddSpy();
-    // The pane is ONLY in the Ungrouped read: the flat subshells list stays
-    // empty so the row matched below is unambiguously the tree's.
-    const restore = stubFetch([], { failNodes: false }, [], undefined, [loose]);
+    // The pane is in the flat list (so it appears in the subshells rail) and
+    // in the `workspace=none` read, but NO workspace holds it: the operator
+    // ruling of 2026-10-17 is that the Workspaces tree says nothing about it.
+    const restore = stubFetch([loose], { failNodes: false }, [], undefined, [loose]);
     try {
       await renderRail("/");
-      await waitFor(() => expect(screen.getByText("Ungrouped")).toBeTruthy());
-      const row = await waitFor(() => screen.getByRole("link", { name: /node-agent/ }));
-      expect(row.getAttribute("draggable")).toBe("true");
+      await waitFor(() => expect(screen.getByText("node-agent")).toBeTruthy());
+      expect(screen.queryByText("Ungrouped") === null).toBe(true);
     } finally {
       spy.mockRestore();
       restore();
@@ -817,7 +818,7 @@ describe("the Workspaces tree (spec 2026-10-17)", () => {
       await waitFor(() => expect(screen.queryByText("Alpha") === null).toBe(true));
 
       fireEvent.change(input, { target: { value: "zzz" } });
-      await waitFor(() => expect(screen.queryByText(/No workspaces or panes match/) !== null).toBe(true));
+      await waitFor(() => expect(screen.queryByText(/No workspaces match/) !== null).toBe(true));
       // The box survives the miss: the text can be cleared without unmount.
       expect(document.querySelector("input[aria-label='Filter workspaces']")).toBeTruthy();
     } finally {
