@@ -349,7 +349,6 @@ export function RailSubshells({
                 <SubshellRecentRow
                   key={`attention-${sub.id}`}
                   subshell={sub}
-                  selected={selectedIds.has(sub.id)}
                   focused={focusedId === sub.id}
                   nodeLabel={machineLabel(sub)}
                   agentLabel={agentLabel(sub.harnessId)}
@@ -382,7 +381,6 @@ export function RailSubshells({
                   <SubshellRecentRow
                     key={`comms-${sub.id}`}
                     subshell={sub}
-                    selected={selectedIds.has(sub.id)}
                     focused={focusedId === sub.id}
                     nodeLabel={machine}
                     subline={machine}
@@ -415,7 +413,6 @@ export function RailSubshells({
                 <SubshellRecentRow
                   key={sub.id}
                   subshell={sub}
-                  selected={selectedIds.has(sub.id)}
                   focused={focusedId === sub.id}
                   nodeLabel={machineLabel(sub)}
                   agentLabel={agentLabel(sub.harnessId)}

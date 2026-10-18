@@ -1,5 +1,5 @@
 import { cn } from "@internal/node-admin";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { TooltipLabelledLines } from "@/components/sidebar/TooltipLabelledLines";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDot } from "@/components/subshell-dot";
@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useOpenPaneAsTab } from "@/hooks/use-open-pane-as-tab";
 import { encodeSubshellDrag } from "@/lib/subshell-dnd";
 import { subshellRowTooltip } from "@/lib/subshell-row-tooltip";
+import { armPaneFocusOnArrive, requestWorkspacePaneFocus } from "@/lib/workspace-focus";
 import type { SubshellView } from "@/types/subshell";
 
 /**
@@ -30,20 +31,21 @@ import type { SubshellView } from "@/types/subshell";
  */
 export function SubshellRecentRow({
   subshell,
-  selected,
   focused,
   nodeLabel,
   agentLabel,
   presetLabel,
   subline,
   nodeLine,
+  branchWorkspaceId,
 }: {
   subshell: SubshellView;
-  /** The pane is open in the current workspace (or is the viewed page) → the
-   * soft accent fill marks the whole SET of open panes. */
-  selected: boolean;
-  /** The pane the dock currently has focused → the one row that adds a white
-   * ring. Focus is a single pane; selection is the set (operator 2026-09-27). */
+  /** The CURRENT pane: the dock's focused one, or the viewed `/subshells/:id`.
+   * The one row that takes the accent fill and the ring. Membership in an
+   * open workspace marks NOTHING (operator ruling 2026-10-17: every pane of
+   * the workspace lit up, bold, and the row that answered "where am I" read
+   * as six of them; the set still decides ordering and click resolution,
+   * never brightness). No bold: the fill and ring carry it alone. */
   focused: boolean;
   /** The group header's label — the node's NAME when resolved, its honest
    * fallback otherwise; one source of truth for header and tooltip alike */
@@ -71,8 +73,19 @@ export function SubshellRecentRow({
    * 2026-09-27). Every other row leaves it undefined.
    */
   nodeLine?: string;
+  /**
+   * The row sits inside a WORKSPACE's branch in the sidebar tree: the tab it
+   * names lives in THAT workspace, so a plain click resolves there — focus the
+   * dock when the branch's workspace is on screen, otherwise navigate to it
+   * and arm the arrival focus. Without this the click would follow the
+   * generic rule (the most recently touched holder), which answers a
+   * different question than "the row you just clicked in THIS branch" (a
+   * pane can sit in several workspaces).
+   */
+  branchWorkspaceId?: string;
 }) {
   const openAsTab = useOpenPaneAsTab();
+  const navigate = useNavigate();
   // `render`, not a wrapper: the Link below is simultaneously the nav, the
   // drag source and the context-menu subject, and the tooltip had to attach
   // to that element without becoming the thing that quietly kills one of
@@ -100,24 +113,29 @@ export function SubshellRecentRow({
               onClick={(e) => {
                 if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
                 e.preventDefault();
+                if (branchWorkspaceId) {
+                  // The branch names its own workspace: focus the pane when a
+                  // dock on screen holds it, else go to the branch and focus
+                  // there once its panes exist.
+                  if (requestWorkspacePaneFocus(subshell.id)) return;
+                  armPaneFocusOnArrive(subshell.id);
+                  void navigate({ to: "/workspaces/$id", params: { id: branchWorkspaceId } });
+                  return;
+                }
                 void openAsTab(subshell);
               }}
               className={cn(
-                // `my-1.5` (12px between pills) separates the rows. Selection is
-                // a SET now, so two adjacent open panes both take the accent fill
-                // and, flush, fuse into one blob; and the focused pane's white
-                // ring is drawn OUTSIDE the pill, so the gap has to clear the ring
-                // as well, not just the fills (operator device review 2026-09-27:
-                // `my-0.5` read as no gap, `my-1` wanted a touch more).
+                // `my-1.5` (12px between pills) separates the rows; the gap
+                // also clears the focused row's ring, which paints OUTSIDE
+                // the pill (operator device review 2026-09-27: `my-0.5` read
+                // as no gap, `my-1` wanted a touch more).
                 "my-1.5 flex items-start gap-2 rounded-md py-1 pr-3 pl-3 text-detail transition-colors",
-                // Two distinct signals (operator 2026-09-27): the SET of open
-                // panes takes the accent FILL; only the DOCK-FOCUSED pane adds
-                // the white ring. Both can hold on the focused row (a focused
-                // pane is also open).
-                selected
-                  ? "bg-accent font-strong text-accent-foreground"
+                // ONE signal (operator ruling 2026-10-17): the CURRENT pane
+                // wears the accent fill and the white ring; workspace
+                // membership marks nothing, and nothing here goes bold.
+                focused
+                  ? "bg-accent text-accent-foreground ring-1 ring-foreground/70"
                   : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
-                focused && "ring-1 ring-foreground/70",
               )}
             />
           }

@@ -61,7 +61,7 @@ function sub(overrides: Partial<SubshellView> = {}): SubshellView {
   } as SubshellView;
 }
 
-function mockFetch(posted: string[] = []): () => void {
+function mockFetch(posted: string[] = [], homes: "one" | "none" = "one"): () => void {
   listGetAnswered = false;
   setFetchRouter(async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = new Request(input as RequestInfo, init);
@@ -76,17 +76,20 @@ function mockFetch(posted: string[] = []): () => void {
       } else {
         listGetAnswered = true;
         // `else` is filed in w2; `here` and `newguy` are not filed anywhere.
-        body = [
-          {
-            id: "w2",
-            name: "Holder",
-            layout: null,
-            subshellCount: 1,
-            createdAt: "",
-            updatedAt: "",
-            panes: [{ id: "p", subshellId: "else" }],
-          },
-        ];
+        body =
+          homes === "none"
+            ? []
+            : [
+                {
+                  id: "w2",
+                  name: "Holder",
+                  layout: null,
+                  subshellCount: 1,
+                  createdAt: "",
+                  updatedAt: "2026-10-10T00:00:00.000Z",
+                  panes: [{ id: "p", subshellId: "else" }],
+                },
+              ];
       }
     }
     return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
@@ -389,10 +392,39 @@ describe("SubshellCell", () => {
     }
   });
 
-  it("a click on an unfiled pane creates a workspace around it and lands there", async () => {
+  it("a click on an unfiled pane JOINS the workspace that exists (revision 2026-10-17)", async () => {
     const posted: string[] = [];
     const restore = mockFetch(posted);
     const unsub = onWorkspacePaneFocusRequest(() => false);
+    localStorage.removeItem("subshell.lastWorkspaceId");
+    try {
+      const { router } = renderCell(
+        <SubshellCell
+          subshell={sub({ id: "newguy", name: "unfiled" })}
+          focused={false}
+          labels={{ nodeLabel: "m", agentLabel: "A" }}
+        />,
+      );
+      const link = (await screen.findAllByRole("link"))[0] as HTMLElement;
+      fireEvent.click(link);
+      // The idempotent pane-add onto w2 — NOT a new `/api/workspaces` row:
+      // a click never opens a second window on top of the one you have.
+      await waitFor(() => expect(posted.length).toBe(1));
+      expect(posted[0]).toContain("/api/workspaces/w2/panes");
+      await waitFor(() => expect(router.state.location.pathname).toBe("/workspaces/w2"));
+      // The tab arrives focused, same as the filed-pane path.
+      expect(takePaneFocusOnArrive()).toBe("newguy");
+    } finally {
+      unsub();
+      restore();
+    }
+  });
+
+  it("only an instance with NO workspace creates one around the clicked pane", async () => {
+    const posted: string[] = [];
+    const restore = mockFetch(posted, "none");
+    const unsub = onWorkspacePaneFocusRequest(() => false);
+    localStorage.removeItem("subshell.lastWorkspaceId");
     try {
       const { router } = renderCell(
         <SubshellCell
@@ -405,6 +437,7 @@ describe("SubshellCell", () => {
       fireEvent.click(link);
       await waitFor(() => expect(posted.length).toBe(1));
       // The create carries the pane and the name, exactly like a split's.
+      expect(posted[0]).toMatch(/\/api\/workspaces$/);
       await waitFor(() => expect(router.state.location.pathname).toBe("/workspaces/w-new"));
     } finally {
       unsub();

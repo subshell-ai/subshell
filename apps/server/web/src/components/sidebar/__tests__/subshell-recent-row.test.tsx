@@ -73,13 +73,7 @@ function renderRow(subshell: SubshellView) {
     getParentRoute: () => rootRoute,
     path: "/",
     component: () => (
-      <SubshellRecentRow
-        subshell={subshell}
-        selected={false}
-        focused={false}
-        nodeLabel="mac mini"
-        agentLabel="Claude Code"
-      />
+      <SubshellRecentRow subshell={subshell} focused={false} nodeLabel="mac mini" agentLabel="Claude Code" />
     ),
   });
   const detailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/subshells/$id" });

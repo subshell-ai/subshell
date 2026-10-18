@@ -744,16 +744,30 @@ describe("the Workspaces tree (spec 2026-10-17)", () => {
     // WHICH directory each pane is in — the pair of bare names could not.
     const w = ws("w1", "Fix flaky tests", "2026-10-01T00:00:00.000Z", [pane("p1", "claude-backend")]);
     const spy = quickAddSpy();
-    const restore = stubFetch([subshell({ id: "p1", name: "claude-backend" })], { failNodes: false }, [w]);
+    // The real row reads the FULL entity from the live list cache (the same
+    // directory the pane row carries; the server copies one from the other).
+    const restore = stubFetch(
+      [subshell({ id: "p1", name: "claude-backend", workingDir: "/srv/app" })],
+      { failNodes: false },
+      [w],
+    );
     try {
       await renderRail("/workspaces/w1");
-      // "/srv/app" (the PANE's directory line) exists only in the tree; the
-      // pane's name also renders in the machine groups below, so the tree is
-      // found by the line, not the name.
-      await waitFor(() => expect(screen.getByText("/srv/app")).toBeTruthy());
+      // The tree row IS `SubshellRecentRow` now (the rail's own link,
+      // 2026-10-17), so the same pane's row appears twice: first in the
+      // Workspaces branch (the tree sits above the Subshells section in the
+      // nav), then in the machine group. The real link arrives only when the
+      // live list answers, so two links means the tree's placeholder has
+      // already been replaced.
+      const rows = await waitFor(() => {
+        const links = screen.getAllByRole("link", { name: /claude-backend/ });
+        expect(links.length).toBe(2);
+        return links;
+      });
+      const treeRow = rows[0]!;
+      expect(treeRow.textContent).toContain("/srv/app");
       // The dot is the shared one: its raw pair rides inside the tree row.
-      const row = screen.getByText("/srv/app").closest("button");
-      expect(row?.querySelector('[data-status="running"][data-alive="true"]') !== null).toBe(true);
+      expect(treeRow.querySelector('[data-status="running"][data-alive="true"]') !== null).toBe(true);
     } finally {
       spy.mockRestore();
       restore();
@@ -779,6 +793,31 @@ describe("the Workspaces tree (spec 2026-10-17)", () => {
       fireEvent.click(screen.getByRole("button", { name: "Collapse Beta" }));
       await waitFor(() => expect(screen.queryByText("beta-pane")).toBeNull());
       expect(JSON.parse(localStorage.getItem(WS_EXPANDED_KEY) ?? "{}")).toEqual({ w2: false });
+    } finally {
+      spy.mockRestore();
+      restore();
+    }
+  });
+
+  it("collapses the ACTIVE branch: its own choice beats the auto-open", async () => {
+    // The bug this pins (operator, 2026-10-17): the active workspace is open
+    // by default, but the old render OR-ed that default over the stored
+    // value, so the chevron on the branch you are standing in closed nothing.
+    const a = ws("w1", "Alpha", "2026-10-02T00:00:00.000Z", [pane("p1", "alpha-pane")]);
+    const spy = quickAddSpy();
+    const restore = stubFetch([], { failNodes: false }, [a]);
+    try {
+      await renderRail("/workspaces/w1");
+      // Auto-opened: the pane shows.
+      await waitFor(() => expect(screen.getByText("alpha-pane")).toBeTruthy());
+
+      fireEvent.click(screen.getByRole("button", { name: "Collapse Alpha" }));
+      await waitFor(() => expect(screen.queryByText("alpha-pane")).toBeNull());
+      expect(JSON.parse(localStorage.getItem(WS_EXPANDED_KEY) ?? "{}")).toEqual({ w1: false });
+
+      // And it opens again from the same chevron.
+      fireEvent.click(screen.getByRole("button", { name: "Expand Alpha" }));
+      await waitFor(() => expect(screen.getByText("alpha-pane")).toBeTruthy());
     } finally {
       spy.mockRestore();
       restore();
