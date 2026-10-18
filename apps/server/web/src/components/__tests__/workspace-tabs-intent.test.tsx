@@ -48,7 +48,6 @@ function detail(subshellIds: string[]): WorkspaceDetail {
     workspace: {
       id: "w1",
       name: "Sep 14, 4:45 PM",
-      draft: true,
       layout: null,
       subshellCount: subshellIds.length,
       createdAt: "2026-09-14T16:45:00.000Z",

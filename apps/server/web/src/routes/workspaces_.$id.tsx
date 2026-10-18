@@ -4,9 +4,9 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { DashboardPage } from "@/components/dashboard-page";
 import { WorkspaceDock } from "@/components/workspace-dock";
 import { WorkspaceTabs } from "@/components/workspace-tabs";
-import { useDiscardThinDraft } from "@/hooks/use-discard-thin-draft";
 import { useIsPhoneLayout } from "@/hooks/use-is-phone-layout";
 import { useWorkspace } from "@/hooks/use-workspace";
+import { forgetLastWorkspace, rememberLastWorkspace, setCurrentWorkspace } from "@/lib/current-workspace";
 import { createIntentClaim } from "@/lib/intent-claim";
 import { useWorkspaceFocusedId } from "@/lib/workspace-focus";
 import { workspaceLoad } from "@/lib/workspace-load";
@@ -56,10 +56,17 @@ function WorkspaceDetailPage() {
   const claimIntent = useCallback(() => claim(intent), [claim, intent]);
   const { data: detail, isLoading, error, refetch } = useWorkspace(id);
   const phoneLayout = useIsPhoneLayout();
-  // Above every early return: an unsaved workspace that is down to one pane
-  // is discarded and the person sent back to that subshell — unless a split
-  // is still in flight (the `?add=` guard, see the hook).
-  useDiscardThinDraft(detail, intent);
+  // Standing in a workspace makes it the launch target ("New subshell lands a
+  // tab HERE", spec 2026-10-17) and the device's landing page. Set once per
+  // mount of this id; the detail route is keyed by workspace id above, so the
+  // cleanup fires on every real departure.
+  useEffect(() => {
+    setCurrentWorkspace(id);
+    return () => setCurrentWorkspace(null);
+  }, [id]);
+  useEffect(() => {
+    if (detail) rememberLastWorkspace(detail.workspace.id);
+  }, [detail]);
   // Soft-keyboard pinning is the shell's job (`__root.tsx`); `h-full` below
   // resolves against the already-pinned scroll container.
 
@@ -75,10 +82,11 @@ function WorkspaceDetailPage() {
   const focusedPaneId = useWorkspaceFocusedId();
   useEffect(() => {
     if (load !== "deleted" || !detail) return;
+    forgetLastWorkspace(id);
     const home = detail.panes.find((p) => p.subshellId === focusedPaneId) ?? detail.panes[0];
     if (home) void navigate({ to: "/subshells/$id", params: { id: home.subshellId }, replace: true });
     else void navigate({ to: "/workspaces", replace: true });
-  }, [load, detail, focusedPaneId, navigate]);
+  }, [load, detail, focusedPaneId, navigate, id]);
   if (load === "loading") {
     return (
       <DashboardPage>

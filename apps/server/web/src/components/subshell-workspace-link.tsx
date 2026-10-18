@@ -11,24 +11,19 @@ import {
 import { useSubshellWorkspaces } from "@/hooks/use-subshell-workspaces";
 import type { WorkspaceRow } from "@/types/workspace";
 
-/** What a draft is called anywhere it sits beside named workspaces. */
-const DRAFT_LABEL = "Unsaved workspace";
-
 /** One workspace the subshell is on, as the control offers it. */
 export interface WorkspaceLinkOption {
   /** Workspace id — the link target */
   id: string;
-  /** The workspace's name, or {@link DRAFT_LABEL} for an unsaved one */
+  /** The workspace's name */
   label: string;
-  /** True for an unsaved workspace */
-  draft: boolean;
 }
 
 /** Everything the subshell header needs to offer a way into this subshell's workspaces. */
 export interface WorkspaceLinkView {
   /** The control's accessible name */
   ariaLabel: string;
-  /** Every workspace, drafts first then most recently updated */
+  /** Every workspace, most recently updated first */
   options: WorkspaceLinkOption[];
 }
 
@@ -43,11 +38,8 @@ export interface WorkspaceLinkView {
  * workspace names (operator ruling 2026-09-27): an icon and the count, and
  * every click opens the same menu.
  *
- * **Drafts lead and are named for what they are.** A draft's stored name is a
- * placeholder nobody chose (the subshell's own name at the moment of the
- * split), so showing it would invent a title the person never typed; and a
- * draft is almost always the split they just made, which is the thing they are
- * most likely coming back for.
+ * Since spec 2026-10-17 there is no unsaved half-state to sort first: every
+ * workspace this returns is a real, named, ordinary one, ordered by recency.
  *
  * The sort is stable, so workspaces the server already ordered by recency keep
  * that order when their timestamps tie — which they do, since a split writes
@@ -58,11 +50,10 @@ export interface WorkspaceLinkView {
 export function workspaceLinkView(workspaces: WorkspaceRow[]): WorkspaceLinkView | null {
   if (workspaces.length === 0) return null;
   const ordered = [...workspaces].sort((a, b) => {
-    if (a.draft !== b.draft) return a.draft ? -1 : 1;
     if (a.updatedAt === b.updatedAt) return 0;
     return a.updatedAt > b.updatedAt ? -1 : 1;
   });
-  const options = ordered.map((w) => ({ id: w.id, label: w.draft ? DRAFT_LABEL : w.name, draft: w.draft }));
+  const options = ordered.map((w) => ({ id: w.id, label: w.name }));
   const n = options.length;
   return {
     ariaLabel: n === 1 ? "Show the workspace this subshell is on" : `Show the ${n} workspaces this subshell is on`,
@@ -107,7 +98,7 @@ export function SubshellWorkspaceLink({ subshellId }: { subshellId: string }): J
             nativeButton={false}
           >
             <LayoutDashboard className="h-4 w-4 shrink-0" />
-            <span className={option.draft ? "truncate text-muted-foreground" : "truncate"}>{option.label}</span>
+            <span className="truncate">{option.label}</span>
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

@@ -3,21 +3,17 @@ import { ApiError } from "@internal/node-admin";
 import { splitCreateFailureMessage, splitWorkspaceRefusal } from "@/lib/split-workspace-refusal";
 
 describe("splitWorkspaceRefusal", () => {
-  it("accepts the response a current server gives: an unsaved workspace holding the subshell", () => {
-    expect(splitWorkspaceRefusal({ draft: true, subshellCount: 1 })).toBeNull();
+  it("accepts the response a current server gives: a workspace holding the subshell", () => {
+    expect(splitWorkspaceRefusal({ subshellCount: 1 })).toBeNull();
   });
 
   // The failure this exists for, observed on 2026-09-14: a dev SPA talking to
-  // a server binary built before drafts existed. Elysia drops body fields its
-  // schema does not declare, so the create SUCCEEDS and silently ignores both
-  // `draft` and `subshellId` — the split then lands on a workspace missing the
-  // subshell it was split from.
+  // a server binary built before the create-with-pane field existed. Elysia
+  // drops body fields its schema does not declare, so the create SUCCEEDS and
+  // silently ignores `subshellId` — the split then lands on a workspace
+  // missing the subshell it was split from.
   it("refuses a response that dropped the subshell", () => {
-    expect(splitWorkspaceRefusal({ draft: true, subshellCount: 0 })).toMatch(/older build/);
-  });
-
-  it("refuses a response that dropped the draft flag", () => {
-    expect(splitWorkspaceRefusal({ draft: false, subshellCount: 1 })).toMatch(/older build/);
+    expect(splitWorkspaceRefusal({ subshellCount: 0 })).toMatch(/older build/);
   });
 
   it("refuses a response missing the fields altogether", () => {
@@ -25,16 +21,17 @@ describe("splitWorkspaceRefusal", () => {
   });
 
   it("refuses more panes than were asked for, rather than assuming the extra is harmless", () => {
-    expect(splitWorkspaceRefusal({ draft: true, subshellCount: 2 })).toMatch(/older build/);
+    expect(splitWorkspaceRefusal({ subshellCount: 2 })).toMatch(/older build/);
   });
 });
 
 describe("splitCreateFailureMessage", () => {
-  // A current server puts drafts OUTSIDE the unique-name index, so a split
-  // cannot collide with a name at all. A 409 here therefore says nothing
-  // about names and everything about the build on the other end — which is
-  // exactly what the person hit on 2026-09-14, reading "You already have a
-  // workspace with that name" about a name they never typed.
+  // A current server does not compare workspace names at all (the unique
+  // index left with migration 0058), so a create cannot collide. A 409 here
+  // therefore says nothing about names and everything about the build on the
+  // other end — which is exactly what the person hit on 2026-09-14, reading
+  // "You already have a workspace with that name" about a name they never
+  // typed.
   it("reads a 409 as the server being behind, not as a name clash", () => {
     expect(splitCreateFailureMessage(new ApiError(409, "You already have a workspace with that name"))).toMatch(
       /older build/,

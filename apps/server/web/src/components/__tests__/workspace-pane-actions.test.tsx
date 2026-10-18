@@ -49,7 +49,7 @@ function row(id: string, access: SubshellView["access"] = "owner"): SubshellView
   };
 }
 
-async function header(rows: SubshellView[], draft = true) {
+async function header(rows: SubshellView[]) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   client.setQueryData(SUBSHELLS_QUERY_KEY, rows);
   globalThis.fetch = (async (input: string | URL | Request) =>
@@ -59,7 +59,6 @@ async function header(rows: SubshellView[], draft = true) {
   const workspace: WorkspaceRow = {
     id: "w1",
     name: "My workspace",
-    draft,
     layout: null,
     subshellCount: rows.length,
     createdAt: "2026-10-01",
@@ -98,7 +97,7 @@ it("offers Insert prompt for the focused pane and retires its dialog when focus 
 
 it("preserves read-only gates in a saved workspace", async () => {
   setWorkspaceFocusedId("viewer");
-  await header([row("viewer", "view")], false);
+  await header([row("viewer", "view")]);
   fireEvent.click(await screen.findByRole("button", { name: "Actions for viewer" }));
   expect(screen.queryByRole("menuitem", { name: "Insert prompt…" })).toBeNull();
   expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
@@ -107,6 +106,9 @@ it("preserves read-only gates in a saved workspace", async () => {
 it("does not expose actions for a stale focus outside this workspace", async () => {
   setWorkspaceFocusedId("other-workspace");
   await header([row("first")]);
-  expect(await screen.findByText("Unsaved workspace")).toBeTruthy();
+  // The header rendered (its own name), and a focus pointing at a pane that
+  // is not in this workspace hoists no actions — the set constrains the
+  // global focus, not just the ring.
+  expect(await screen.findByText("My workspace")).toBeTruthy();
   expect(screen.queryByRole("button", { name: /Actions for/ })).toBeNull();
 });

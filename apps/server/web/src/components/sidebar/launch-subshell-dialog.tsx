@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
+import { consumeCreateInNewWorkspace, currentWorkspaceId } from "@/lib/current-workspace";
 import type { sshConnectSearch } from "@/lib/ssh-connect-search";
 
 /**
@@ -54,6 +55,9 @@ export function LaunchSubshellDialog({
     setForm(emptyNewSubshellForm());
     setError(null);
     setKind("agent");
+    // A cancelled launch must not leave the landing's "open a fresh
+    // workspace" one-shot armed for the next unrelated press.
+    consumeCreateInNewWorkspace();
   }
 
   async function submit() {
@@ -61,11 +65,20 @@ export function LaunchSubshellDialog({
     try {
       const created = await create.mutateAsync(form);
       // A prompt that did not land announces itself through the hook's
-      // toast, across this navigation (spec 2026-09-28); the launch itself
-      // is a success and the subshell page is the right destination.
+      // toast, across this navigation (spec 2026-09-28); the launch itself is
+      // a success. Where the success LANDS depends on where the press came
+      // from: a launch raised over a workspace page was filed there by the
+      // create (spec 2026-10-17), so stay on the workspace and let the dock
+      // reconcile the new tab; anywhere else the subshell page is the
+      // destination it has always been.
+      // `created.workspaceId` when this press was asked to open a fresh
+      // workspace (the landing's first pane); otherwise the workspace page
+      // this press was raised over; otherwise the ordinary subshell page.
+      const landing = created.workspaceId ?? currentWorkspaceId();
       onOpenChange(false);
       reset();
-      void navigate({ to: "/subshells/$id", params: { id: created.id } });
+      if (landing) void navigate({ to: "/workspaces/$id", params: { id: landing } });
+      else void navigate({ to: "/subshells/$id", params: { id: created.id } });
     } catch (err) {
       // Node-aware copy: an offline remote pick answers 409 NODE_OFFLINE and
       // gets the actionable line (same helper as /new and the add-dialog).

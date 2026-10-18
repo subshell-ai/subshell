@@ -16,24 +16,27 @@ export type SplitDirection = "left" | "right" | "above" | "below" | "within";
  */
 export const SPLIT_DIRECTIONS: readonly SplitDirection[] = ["left", "right", "above", "below", "within"];
 
-/** A workspace as returned by the workspaces API. */
+/**
+ * A workspace as returned by the workspaces API (spec 2026-10-17): a named set
+ * of references to live subshells that exists exactly as long as it holds a
+ * tab. Names are not unique (auto-created workspaces reuse theirs; every
+ * lookup is by id), and there is no saved/unsaved half-state.
+ */
 export interface WorkspaceRow {
   /** Workspace id */
   id: string;
-  /** Name, unique per user */
+  /** Name, free to repeat across the user's workspaces */
   name: string;
-  /**
-   * True for an UNSAVED workspace — one made by splitting a subshell, which
-   * exists on the server (so it is reload-safe and cross-device) but is
-   * excluded from `GET /api/workspaces`, and so from the workspaces page and
-   * the sidebar's recents. Saving it is `PUT /:id { name, draft: false }`; a
-   * saved workspace can never become a draft again.
-   */
-  draft: boolean;
   /** Saved dockview layout tree, or null when none has been saved yet */
   layout: unknown | null;
   /** Number of subshells (panes) the workspace currently holds */
   subshellCount: number;
+  /**
+   * Every pane in membership order, on LIST reads (`GET /api/workspaces`) so
+   * the rail tree renders its branches without a request per workspace. The
+   * detail read carries panes beside the workspace instead.
+   */
+  panes?: WorkspacePaneRow[];
   /** Created timestamp (ISO 8601) */
   createdAt: string;
   /** Updated timestamp (ISO 8601) */

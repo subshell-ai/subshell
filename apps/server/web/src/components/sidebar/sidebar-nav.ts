@@ -54,10 +54,12 @@ export type NavEntry = NavItem | NavGroup;
 export const isNavGroup = (entry: NavEntry): entry is NavGroup => "children" in entry;
 
 const NAV_ENTRIES: NavEntry[] = [
+  // The tree rail leads (spec 2026-10-17): workspaces are how panes are seen,
+  // and the flat list moved below it as the everything-at-once escape hatch.
   // Terminal, like the empty subshells box — subshells are terminal harnesses,
   // not a grid (the grid icon belongs to the tiles/list view toggle).
-  { to: "/", label: "Subshells", icon: TerminalSquare },
   { to: "/workspaces", label: "Workspaces", icon: LayoutDashboard, short: "Wksp" },
+  { to: "/subshells", label: "All subshells", icon: TerminalSquare, short: "Panes" },
   // Personal settings (spec 2026-10-07 §A): the pages this viewer always owns,
   // grouped the way the admin's Server Settings group is. No gate: every
   // signed-in person reaches these pages today, and the group is chrome.

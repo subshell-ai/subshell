@@ -295,9 +295,11 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
         setError(errMessage(err, "Failed to remove pane"));
         return;
       }
-      // Removing this pane took the whole (unsaved) workspace with it — a
-      // draft left with fewer than two panes is deleted server-side. There is
-      // no dock left to close a tile in, so leave for the pane that remains.
+      // Removing this pane took the whole workspace with it: a workspace
+      // exists exactly as long as it holds a tab (spec 2026-10-17), so this
+      // was the last one and the server retired the row. There is no dock
+      // left to close a tile in, so leave for the pane that remains (none, by
+      // definition, but the navigation below already knows that).
       if (workspaceDeleted) {
         const other = detail.panes.find((p) => p.id !== paneId);
         if (other) void navigate({ to: "/subshells/$id", params: { id: other.subshellId }, replace: true });
@@ -437,17 +439,14 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
         landed = await handleAdd(intent.subshellId, intent.direction);
       }
       await onRefetch();
-      // A pane that did NOT land keeps the params. Stripping them would leave
-      // a one-pane draft with no intent, which `useDiscardThinDraft` reads as
-      // "discard and go back" — and the error banner would unmount with this
-      // screen, so the person who pressed Split would land where they started
-      // with nothing said (review, 2026-09-14). With the params kept, the guard
-      // stays engaged, the banner stays up, and a reload retries the add.
+      // A pane that did NOT land keeps the params: the error banner would
+      // unmount with this screen if we navigated clean, so the person who
+      // pressed Split would land where they started with nothing said
+      // (review, 2026-09-14). With the params kept, the banner stays up and a
+      // reload retries the add.
       if (!landed) return;
-      // Only now are the params spent. `useDiscardThinDraft` reads them as
-      // "the second pane is still in flight", so stripping them before the
-      // refetch shows both panes would auto-discard this draft from under the
-      // split that just created it.
+      // Only now are the params spent — once the pane has actually landed,
+      // so a retry can never double-add through the claim above.
       await navigate({ to: "/workspaces/$id", params: { id: detail.workspace.id }, search: {}, replace: true });
     })();
   }, [ready, intent, claimIntent, detail.panes, detail.workspace.id, handleAdd, onRefetch, navigate]);
@@ -498,14 +497,6 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
         workspace={detail.workspace}
         panes={detail.panes}
         actions={<SubshellPicker workspaceId={detail.workspace.id} existing={detail.panes} onAdd={handleAdd} />}
-        // A discarded draft lands on the subshell the person was looking at
-        // — the active panel's — which only this presentation can name.
-        onDiscarded={() => {
-          const activeId = apiRef.current?.activePanel?.id;
-          const pane = detail.panes.find((p) => p.id === activeId) ?? detail.panes[0];
-          if (pane) void navigate({ to: "/subshells/$id", params: { id: pane.subshellId }, replace: true });
-          else void navigate({ to: "/", replace: true });
-        }}
       />
       {/* biome-ignore lint/a11y/noStaticElementInteractions: an HTML5 DROP
           target, not a click handler — drag events carry no tap/keyboard

@@ -21,6 +21,7 @@ import { Route as PresetsRouteImport } from './routes/presets'
 import { Route as PromptsRouteImport } from './routes/prompts'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SetupRouteImport } from './routes/setup'
+import { Route as SubshellsRouteImport } from './routes/subshells'
 import { Route as WorkspacesRouteImport } from './routes/workspaces'
 import { Route as NodesIdRouteImport } from './routes/nodes_.$id'
 import { Route as PresetsIdRouteImport } from './routes/presets_.$id'
@@ -98,6 +99,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const SetupRoute = SetupRouteImport.update({
   id: '/setup',
   path: '/setup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SubshellsRoute = SubshellsRouteImport.update({
+  id: '/subshells',
+  path: '/subshells',
   getParentRoute: () => rootRouteImport,
 } as any)
 const WorkspacesRoute = WorkspacesRouteImport.update({
@@ -204,6 +210,7 @@ export interface FileRoutesByFullPath {
   '/prompts': typeof PromptsRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
+  '/subshells': typeof SubshellsRoute
   '/workspaces': typeof WorkspacesRoute
   '/nodes/$id': typeof NodesIdRoute
   '/presets/$id': typeof PresetsIdRoute
@@ -236,6 +243,7 @@ export interface FileRoutesByTo {
   '/prompts': typeof PromptsRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
+  '/subshells': typeof SubshellsRoute
   '/workspaces': typeof WorkspacesRoute
   '/nodes/$id': typeof NodesIdRoute
   '/presets/$id': typeof PresetsIdRoute
@@ -269,6 +277,7 @@ export interface FileRoutesById {
   '/prompts': typeof PromptsRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
+  '/subshells': typeof SubshellsRoute
   '/workspaces': typeof WorkspacesRoute
   '/nodes_/$id': typeof NodesIdRoute
   '/presets_/$id': typeof PresetsIdRoute
@@ -303,6 +312,7 @@ export interface FileRouteTypes {
     | '/prompts'
     | '/settings'
     | '/setup'
+    | '/subshells'
     | '/workspaces'
     | '/nodes/$id'
     | '/presets/$id'
@@ -335,6 +345,7 @@ export interface FileRouteTypes {
     | '/prompts'
     | '/settings'
     | '/setup'
+    | '/subshells'
     | '/workspaces'
     | '/nodes/$id'
     | '/presets/$id'
@@ -367,6 +378,7 @@ export interface FileRouteTypes {
     | '/prompts'
     | '/settings'
     | '/setup'
+    | '/subshells'
     | '/workspaces'
     | '/nodes_/$id'
     | '/presets_/$id'
@@ -400,6 +412,7 @@ export interface RootRouteChildren {
   PromptsRoute: typeof PromptsRoute
   SettingsRoute: typeof SettingsRoute
   SetupRoute: typeof SetupRoute
+  SubshellsRoute: typeof SubshellsRoute
   WorkspacesRoute: typeof WorkspacesRoute
   NodesIdRoute: typeof NodesIdRoute
   PresetsIdRoute: typeof PresetsIdRoute
@@ -504,6 +517,13 @@ declare module '@tanstack/react-router' {
       path: '/setup'
       fullPath: '/setup'
       preLoaderRoute: typeof SetupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/subshells': {
+      id: '/subshells'
+      path: '/subshells'
+      fullPath: '/subshells'
+      preLoaderRoute: typeof SubshellsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/workspaces': {
@@ -648,6 +668,7 @@ const rootRouteChildren: RootRouteChildren = {
   PromptsRoute: PromptsRoute,
   SettingsRoute: SettingsRoute,
   SetupRoute: SetupRoute,
+  SubshellsRoute: SubshellsRoute,
   WorkspacesRoute: WorkspacesRoute,
   NodesIdRoute: NodesIdRoute,
   PresetsIdRoute: PresetsIdRoute,

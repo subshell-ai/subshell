@@ -1,9 +1,23 @@
 import { apiFetch, apiPost } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { WORKSPACES_QUERY_KEY } from "@/hooks/use-workspaces";
+import { consumeCreateInNewWorkspace, currentWorkspaceId, rememberLastWorkspace } from "@/lib/current-workspace";
 import { joinPromptBlocks, type PromptBlock, presetBlocksToWire, promptLaunchMissed } from "@/lib/prompt-stack";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
+import { defaultWorkspaceName } from "@/lib/workspace-name";
 import type { PresetRow } from "@/types/preset";
+
+/** What a launch answers: the row's id, the prompt truth, and the workspace
+ * this press opened for it (the landing's first pane; spec 2026-10-17). */
+export interface CreatedSubshell {
+  /** The new subshell's id */
+  id: string;
+  /** False when a prompt was asked for but did not reach the pane */
+  promptDelivered?: boolean;
+  /** The workspace created alongside this launch, when this press asked for one */
+  workspaceId?: string;
+}
 
 /** The fields the shared new-subshell form collects. */
 export interface CreateSubshellInput {
@@ -98,7 +112,7 @@ export function useCreateSubshell() {
   return useMutation({
     // `promptDelivered: false` is honest "started, prompt did not land": the
     // caller can point at the inject action instead of assuming the task went in.
-    mutationFn: async (input: CreateSubshellInput) => {
+    mutationFn: async (input: CreateSubshellInput): Promise<CreatedSubshell> => {
       // The checkbox's promise first, so a failed preset POST never launches
       // an unremembered subshell (ruling 2026-09-30). SAVE-AS always creates
       // a NEW row - presets are never written back - and it is a FAITHFUL
@@ -150,10 +164,35 @@ export function useCreateSubshell() {
         });
       }
       try {
-        return await apiPost<{ id: string; promptDelivered?: boolean }>(
-          "/api/subshells",
-          toSubshellCreateBody(saved === null ? input : { ...input, presetId: saved.id }),
-        );
+        // Spec 2026-10-17: a launch raised while a workspace page is on screen
+        // LANDS AS A TAB in it, server-side in the create's own write. With no
+        // workspace on screen the pane starts ungrouped, which is what the
+        // rail's Ungrouped branch and every bearer/MCP create already expect.
+        // The workspace the dialog is adding to may differ from the page's
+        // (the add-dialog's explicit flow keeps its own path: it launches,
+        // then attaches through the idempotent add-pane call, and the server
+        // treats the duplicate as the same tab, so the two orders agree).
+        const filedInto = currentWorkspaceId();
+        const asksFresh = consumeCreateInNewWorkspace();
+        const created = await apiPost<Omit<CreatedSubshell, "workspaceId">>("/api/subshells", {
+          ...toSubshellCreateBody(saved === null ? input : { ...input, presetId: saved.id }),
+          ...(filedInto ? { workspaceId: filedInto } : {}),
+        });
+        // The landing's first pane: no window existed to land in, so open one
+        // now and file the pane into it (the create-with-pane shape the split
+        // already uses). A failure here leaves a running ungrouped pane and a
+        // workspace-less landing, which is honest; the launch itself worked.
+        if (!filedInto && asksFresh) {
+          const fresh = await apiPost<{ id: string }>("/api/workspaces", {
+            name: defaultWorkspaceName(),
+            subshellId: created.id,
+          }).catch(() => null);
+          if (fresh) {
+            rememberLastWorkspace(fresh.id);
+            return { ...created, workspaceId: fresh.id };
+          }
+        }
+        return created;
       } catch (err) {
         // A row this click created for a launch that did not happen is an
         // orphan: invisible (the list was never invalidated) and poisonous
@@ -182,6 +221,10 @@ export function useCreateSubshell() {
         toast.warning('The prompt wasn\'t entered. Use "Insert prompt" to type it in.');
       }
       void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
+      // A filed launch changed the workspace's pane list (and possibly retired
+      // the landing's stale empty branch): the tree reads membership from the
+      // workspace list, so it rides along.
+      void queryClient.invalidateQueries({ queryKey: WORKSPACES_QUERY_KEY });
       // The new preset row belongs in every preset list the app has open.
       if (input.saveAsPreset === true) void queryClient.invalidateQueries({ queryKey: ["presets"] });
       // The create touched the recent-paths row for its launch node — every
