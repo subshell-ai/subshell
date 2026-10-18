@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE, dismissDirectoryPanel, pickAgent } from "./helpers";
+import { ADMIN_STATE, dismissDirectoryPanel, newPaneId, pickAgent } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -59,16 +59,9 @@ test("accessory key bar sends real bytes into the pane", async ({ page }) => {
   await bar.getByRole("button", { name: "Send Escape" }).click();
   await bar.getByRole("button", { name: "Send Enter" }).click();
 
-  // The pane behind the workspace in the URL: the one this launch added, not
-  // whatever tab the workspace already held. "" only degrades a lookup to a
-  // failed poll, never a false green.
-  const wsId = new URL(page.url()).pathname.split("/").pop() ?? "";
-  const detailRes = await page.request.get(`/api/workspaces/${wsId}`);
-  // The workspace the URL names must answer: a filing failure that left the
-  // URL on /subshells/ fails HERE, named, instead of as a TypeError.
-  expect(detailRes.ok()).toBe(true);
-  const detail = (await detailRes.json()) as { panes: { subshellId: string }[] };
-  const id = detail.panes.find((p) => !before.has(p.subshellId))?.subshellId ?? "";
+  // The pane this launch added, by the same before/after diff (a previous
+  // mobile spec's tab may still be open in the workspace the URL names).
+  const id = await newPaneId(page, before);
   const logText = async () => {
     const res = await page.request.get(`/api/subshells/${id}/log`);
     if (!res.ok()) return "";

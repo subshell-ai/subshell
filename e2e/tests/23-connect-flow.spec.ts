@@ -7,7 +7,7 @@ import { SSH_FIXTURE_ALIAS, which } from "../fixtures/sshd";
 import { startContainerSshFixture } from "../fixtures/sshd-container";
 import { PORTS } from "../ports";
 import { shortTmuxBase } from "../stack";
-import { expectSubshellRunning, solePaneId } from "./helpers";
+import { expectSubshellRunning, newPaneId, solePaneId } from "./helpers";
 
 /** Real-browser direct SSH proof against a dedicated sshd and isolated backend.
  * Testcontainers owns the destination sshd, including disposable password accounts.
@@ -455,14 +455,23 @@ test("password login prompts in the terminal, retries a wrong password, and save
   await login(page, ADMIN.email, ADMIN.password);
   for (const user of ["developer", "operator"]) {
     const destination = `${user}@${fx.host}:${fx.port}`;
+    // The pane must be identified by what this click ADDED: test 3's pane
+    // is still open (test 4 shares it) and the filing joins that workspace,
+    // so the first tab is not necessarily ours.
+    const beforeLaunch = new Set(
+      ((await (await api.get("/api/subshells")).json()) as { id: string }[]).map((s) => s.id),
+    );
     await openConnectPage(page);
     await page.getByLabel("SSH destination", { exact: true }).fill(destination);
     await page.getByRole("radio", { name: "Enter a password when connecting", exact: true }).check();
     await page.getByRole("checkbox", { name: "Save as preset", exact: true }).check();
     await page.getByLabel("Preset name", { exact: true }).fill(`${user} terminal`);
     await page.getByRole("button", { name: "Start SSH subshell", exact: true }).click();
-    await expect(page).toHaveURL(/\/workspaces\/[a-zA-Z0-9_-]+$/, { timeout: READY_TIMEOUT });
-    const id = await solePaneId(page);
+    // No URL wait: /connect already redirected onto the workspace this launch
+    // will file into (spec 2026-10-17), so that assertion would pass the
+    // instant after the click, before anything committed. The new tab showing
+    // up in that workspace IS the sync point, and newPaneId polls for it.
+    const id = await newPaneId(page, beforeLaunch);
     const readLog = async () => {
       const response = await api.get(`/api/subshells/${id}/log`);
       expect(response.ok()).toBe(true);

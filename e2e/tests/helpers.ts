@@ -188,13 +188,44 @@ export async function dismissDirectoryPanel(page: Page, heading = "New subshell"
  * need the PANE id read it from the workspace detail rather than the URL.
  */
 export async function solePaneId(page: Page): Promise<string> {
+  const detail = await workspaceDetailFromUrl(page);
+  expect(detail.panes.length).toBeGreaterThanOrEqual(1);
+  return detail.panes[0].subshellId;
+}
+
+/**
+ * The pane a launch added to the workspace the page now stands on: the one
+ * whose subshell is NOT in `before` (the ids that existed before the click),
+ * POLLED for. A one-shot read loses a specific race: `/connect` (spec
+ * 2026-10-17) already redirects onto the workspace the launch will file into,
+ * so the URL is no sync point at all, and the first read can land before the
+ * launch and its filing have committed — where an earlier test left a pane
+ * alive to share (23-connect: test 3's pane is test 4's subject), that early
+ * answer is the WRONG pane's row, not none. The poll is the wait.
+ */
+export async function newPaneId(page: Page, before: Set<string>, timeout = 30_000): Promise<string> {
+  let added = "";
+  await expect
+    .poll(
+      async () => {
+        const detail = await workspaceDetailFromUrl(page);
+        const pane = detail.panes.find((p) => !before.has(p.subshellId));
+        added = pane?.subshellId ?? "";
+        return pane !== undefined;
+      },
+      { timeout },
+    )
+    .toBe(true);
+  return added;
+}
+
+/** The `/workspaces/<id>` detail, read from the PAGE's own origin. */
+async function workspaceDetailFromUrl(page: Page): Promise<{ panes: { subshellId: string }[] }> {
   // Absolute against the PAGE's origin: specs that drive their own backend
   // (23-connect runs on its own port) would otherwise read the suite stack's
   // :3199 and 404 a workspace that exists only on the spec's instance.
   const wsId = new URL(page.url()).pathname.split("/").pop() ?? "";
   const res = await page.request.get(new URL(`/api/workspaces/${wsId}`, page.url()).toString());
-  expect(res.ok()).toBe(true);
-  const detail = (await res.json()) as { panes: { subshellId: string }[] };
-  expect(detail.panes.length).toBeGreaterThanOrEqual(1);
-  return detail.panes[0].subshellId;
+  expect(res.ok(), `GET /api/workspaces/${wsId} answered ${res.status()}`).toBe(true);
+  return (await res.json()) as { panes: { subshellId: string }[] };
 }
