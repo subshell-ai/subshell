@@ -97,17 +97,13 @@ function mockFetch(posted: string[] = [], homes: "one" | "none" = "one"): () => 
   return () => setFetchRouter(null);
 }
 
-/** True once the workspaces LIST the open-as-tab hook reads has landed. */
+/**
+ * True once the workspaces LIST the open-as-tab hook reads has landed. The
+ * fetch router flags the moment it answers that GET — the settle a test could
+ * otherwise only guess at with ticks.
+ */
 async function listLoaded(): Promise<boolean> {
-  let answered = false;
-  const prev = (globalThis as { __listLoadedProbe?: () => void }).__listLoadedProbe;
-  void prev;
-  // The mock answers the GET synchronously-ish; a second tick after mount is
-  // enough for react-query to settle the cache — poll the hook indirectly by
-  // firing a click whose effect is observable? Simpler: the fetch router logs
-  // GETs; wait until the list GET has been answered.
-  answered = listGetAnswered;
-  return answered;
+  return listGetAnswered;
 }
 let listGetAnswered = false;
 

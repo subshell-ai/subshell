@@ -253,7 +253,7 @@ function SubshellPage() {
   return (
     <main className="flex h-full flex-col">
       <DetailBackHeader
-        to="/"
+        to="/subshells"
         backLabel="Back to subshells"
         hideBack={findTakesRow}
         title={

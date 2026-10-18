@@ -306,7 +306,8 @@ export class WorkspacesService extends BaseService {
    * **Idempotent by design (spec 2026-10-17):** adding a subshell the
    * workspace already holds returns the EXISTING pane row's id with a plain
    * 200. The unique `(workspace_id, subshell_id)` index makes a double
-   * impossible, and racing inserts land on the re-read branch below, so four
+   * impossible, and racing inserts land on the re-read branch below (and one
+   * racing the workspace's own retirement lands on the FK branch), so four
    * client surfaces no longer need their own dedupe guard to be correct —
    * "already a tab" is the same answer as "now it is".
    *
@@ -341,6 +342,16 @@ export class WorkspacesService extends BaseService {
       if (err instanceof Error && err.message.includes("UNIQUE")) {
         const raced = await panesRepo.findByWorkspaceAndSubshell(workspace.id, subshellId);
         if (raced) return { id: raced.id, alreadyPresent: true };
+      }
+      // The OTHER race, and the one the empty-retire makes possible: the last
+      // pane closed (retiring the workspace) between the existence check
+      // above and this insert, so the FK refuses the write. The auto-retire is
+      // NOT one transaction with the pane removal — this codebase has no
+      // transaction helper — so a racing add really does meet the FK refusal,
+      // and it means exactly "the workspace you asked about is gone": answer
+      // the plain 404, never a 500 (spec 2026-10-17, error handling).
+      if (err instanceof Error && err.message.includes("FOREIGN KEY")) {
+        throw new WorkspacesError("not_found", "Workspace not found", 404);
       }
       throw err;
     }

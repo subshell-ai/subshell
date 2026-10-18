@@ -131,9 +131,13 @@ rail's "Created by agents" filing already expects them.
 - 409 `already_in_workspace` carries the pane id so the client can focus it.
 - `workspaceId` on create: 404 unknown/foreign workspace, same posture as
   every other ownership miss; no enumeration difference.
-- Zero-panes auto-delete runs inside the same transaction as the pane
-  removal; a concurrent add racing it sees the FK row already gone and gets
-  the plain 404 for the workspace it tried to edit.
+- Zero-panes auto-delete follows the pane removal in the same service call
+  (the codebase has no transaction helper, so it is not one transaction). An
+  add racing the retirement either lands after the row is gone, meets the FK
+  refusal on its insert, and is answered with the plain 404 for the workspace
+  it tried to edit, or lands in the sliver between the last removal and the
+  delete and is cascaded away with the workspace. Both are same-instant acts
+  on one owner's own workspace, not a cross-account hole.
 - The promoted-draft migration keeps every row: drafts are the only rows at
   risk of name collision, and names no longer collide at the index level.
 

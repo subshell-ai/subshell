@@ -45,13 +45,25 @@ export function useOpenPaneAsTab(): (sub: SubshellView) => Promise<void> {
   return useCallback(
     async (sub: SubshellView) => {
       if (requestWorkspacePaneFocus(sub.id)) return;
-      const holder = filedWorkspaceFor(sub, workspaces ?? []);
+      // A LIST that has never answered (still loading, or the first read
+      // failed) is not an answer of "no workspaces": filing on that guess
+      // opens a duplicate window beside the one the pane already lives in
+      // (the dashboard rule keeps error and empty distinct; review
+      // 2026-10-17). The plain detail page is the honest fallback, and the
+      // next click after the read lands files the pane for real. Once data
+      // HAS arrived, a later failed refetch leaves the stale rows — the best
+      // answer there is the last known truth, not a fresh window.
+      if (workspaces === undefined) {
+        await navigate({ to: "/subshells/$id", params: { id: sub.id } });
+        return;
+      }
+      const holder = filedWorkspaceFor(sub, workspaces);
       if (holder) {
         armPaneFocusOnArrive(sub.id);
         await navigate({ to: "/workspaces/$id", params: { id: holder.id } });
         return;
       }
-      const homes = workspaces ?? [];
+      const homes = workspaces;
       const remembered = lastWorkspaceId();
       const joinId =
         currentWorkspaceId() ??

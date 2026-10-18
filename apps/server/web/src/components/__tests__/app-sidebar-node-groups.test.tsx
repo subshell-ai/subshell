@@ -69,7 +69,9 @@ function subshell(over: Partial<SubshellView> = {}): SubshellView {
  */
 function stubFetch(
   subshells: SubshellView[],
-  state: { failNodes: boolean; failWorkspaceSearch?: boolean } = { failNodes: false },
+  state: { failNodes: boolean; failWorkspaceSearch?: boolean; failWorkspaceList?: boolean } = {
+    failNodes: false,
+  },
   workspaces: unknown[] = [],
   workspaceDetail?: unknown,
   ungrouped: unknown[] = [],
@@ -86,6 +88,15 @@ function stubFetch(
     // every other request keep answering, so a test sees a failed SEARCH
     // rather than a failed everything.
     if (state.failWorkspaceSearch && /\/api\/workspaces\?/.test(url)) {
+      return new Response(JSON.stringify({ error: "boom" }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    // The COMPLETE LIST failing (the path alone, never a search and never a
+    // detail read): the cold-failure case the Workspaces section must answer
+    // with Retry rather than vanishing (review 2026-10-17).
+    if (state.failWorkspaceList && /\/api\/workspaces$/.test(new URL(url, "http://localhost").pathname)) {
       return new Response(JSON.stringify({ error: "boom" }), {
         status: 500,
         headers: { "content-type": "application/json" },
@@ -890,6 +901,23 @@ describe("the Workspaces tree (spec 2026-10-17)", () => {
       await waitFor(() => expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy());
       // Distinct from a miss: the empty-result copy is NOT what a failed read shows.
       expect(screen.queryByText(/No workspaces match/) === null).toBe(true);
+    } finally {
+      spy.mockRestore();
+      restore();
+    }
+  });
+
+  it("a failed workspace LIST says so with a Retry instead of vanishing", async () => {
+    // The other half of the same rule (review 2026-10-17): with no search
+    // typed, a cold LIST failure used to fall through `nothingAtAll` and hide
+    // the whole Workspaces section — a rail that quietly loses the tree reads
+    // as an empty instance. The error arm now owns that state.
+    const spy = quickAddSpy();
+    const restore = stubFetch([], { failNodes: false, failWorkspaceList: true }, []);
+    try {
+      await renderRail("/");
+      await waitFor(() => expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy());
+      expect(screen.queryByText(/Couldn.t load workspaces/) !== null).toBe(true);
     } finally {
       spy.mockRestore();
       restore();

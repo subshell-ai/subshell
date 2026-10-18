@@ -394,7 +394,7 @@ test("real entry: available older upgrade snapshot restores and migrates before 
   // above it is exactly the non-contiguous history kysely refuses to boot.
   // WHY 0047..0058 together: this era's twelve migrations are the tail of the
   // registered ledger, so the prefix runs contiguously through 0046 and boot
-  // re-applies all ten. Advancing LATEST_BACKUP_MIGRATION (0058) means the
+  // re-applies all twelve. Advancing LATEST_BACKUP_MIGRATION (0058) means the
   // strip set moves with it in the same commit.
   const migrationRows = db
     .query(

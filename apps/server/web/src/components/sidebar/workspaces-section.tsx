@@ -329,7 +329,12 @@ export function WorkspacesSection(): JSX.Element | null {
     [activeId],
   );
 
-  const nothingAtAll = !isLoading && (workspaces?.length ?? 0) === 0 && !search;
+  // A failed read is NOT "nothing at all": hiding the section would swallow
+  // the ListLoadError below (its `isError` arm is why it exists), and a rail
+  // that silently loses the Workspaces tree reads as an empty instance
+  // (review 2026-10-17). Only a settled, successful, genuinely empty list —
+  // with no search typed — hides the section.
+  const nothingAtAll = !isLoading && !isError && (workspaces?.length ?? 0) === 0 && !search;
   if (nothingAtAll) return null;
 
   return (

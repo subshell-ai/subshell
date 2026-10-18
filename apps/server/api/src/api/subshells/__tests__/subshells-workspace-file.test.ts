@@ -14,6 +14,7 @@ import { WorkspacePanesRepository } from "@/db/repositories/workspace-panes.repo
 import { WorkspacesRepository } from "@/db/repositories/workspaces.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
+import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 /**
@@ -132,7 +133,7 @@ describe("subshell ↔ workspace filing", () => {
       expect(((await foreign.json()) as unknown[]).length).toBe(0);
     });
 
-    it("refuses shapes at the boundary, and tolerates the Unicode a real search box can carry", async () => {
+    it("refuses shapes at the boundary, including the Unicode a real search box can carry", async () => {
       // `;` is the SQL-injection-shaped value; regex characters are the other.
       for (const value of ["no;ne", "none*", "none​", "x".repeat(129)]) {
         const res = await get(`/api/subshells?${new URLSearchParams({ workspace: value })}`);
@@ -140,6 +141,38 @@ describe("subshell ↔ workspace filing", () => {
       }
       // "none" itself and a plain uuid-shaped id are both legal.
       expect((await get("/api/subshells?workspace=none")).status).toBe(200);
+    });
+
+    // The filter reads membership BEFORE the visibility resolver runs, so the
+    // door's own posture needs pinning on both filter shapes (spec 2026-10-17
+    // Testing; .claude/rules/testing.md: new filters retain anonymous and
+    // scoped-bearer checks). The guard, not the filter, is what answers these.
+    it("is 401 for an anonymous caller on every filter shape", async () => {
+      for (const path of ["/api/subshells?workspace=none", `/api/subshells?workspace=${ownWorkspaceId}`]) {
+        const res = await app.fetch(new Request(`http://localhost:3080${path}`));
+        expect(res.status).toBe(401);
+      }
+    });
+
+    it("answers a subshell's own token exactly as its owner's cookie (the list-visibility ruling)", async () => {
+      // One filed row and one loose row, so both filters have something to
+      // separate; the pairs compared below are cookie vs bearer on the SAME
+      // database state. A pane token resolves to its owner with shares and
+      // admin off — for this owner's own rows that is the identical answer,
+      // and the filter must not move that line (review 2026-10-17: the shape
+      // tests pinned the parsing, nobody had pinned the posture).
+      const tokenRow = await makeSubshellRow(userId);
+      const key = await issueSubshellToken(tokenRow, userId);
+      const bearer = (path: string) =>
+        app.fetch(new Request(`http://localhost:3080${path}`, { headers: { authorization: `Bearer ${key}` } }));
+      const ids = (res: Response) => res.json().then((rows) => (rows as { id: string }[]).map((s) => s.id).sort());
+
+      for (const path of ["/api/subshells?workspace=none", `/api/subshells?workspace=${ownWorkspaceId}`]) {
+        const asCookie = await get(path);
+        const asToken = await bearer(path);
+        expect(asToken.status).toBe(200);
+        expect(await ids(asToken)).toEqual(await ids(asCookie));
+      }
     });
   });
 

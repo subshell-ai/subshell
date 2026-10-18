@@ -111,6 +111,11 @@ test("subshell: Close from the rail leaves the open detail page", async ({ page 
   await dismissDirectoryPanel(page);
   await page.getByRole("button", { name: "Start subshell" }).click();
   await expect(page).toHaveURL(/\/workspaces\/.+/, { timeout: SPAWN_TIMEOUT });
+  // Remember WHERE the page sits: "left" has to mean THIS workspace's exact
+  // URL. The old `not /subshells/` check was vacuous in this flow (it never
+  // sits at a detail page), so a Close that failed to leave the retired
+  // workspace sailed straight through it (review 2026-10-17).
+  const openWorkspaceUrl = page.url();
   await expectSubshellRunning(page, SPAWN_TIMEOUT);
   await renameSubshell(page, name);
 
@@ -130,8 +135,10 @@ test("subshell: Close from the rail leaves the open detail page", async ({ page 
   await expect(page.getByRole("dialog").getByText(`permanently deletes "${name}"`)).toBeVisible();
   await page.locator("[data-slot='dialog-content'] button", { hasText: /^Close subshell$/ }).click();
 
-  // The page closes out — the operator's exact complaint, now the assertion.
-  await expect(page).not.toHaveURL(/\/subshells\/.+/, { timeout: SPAWN_TIMEOUT });
+  // The page closes out — the operator's exact complaint, now the assertion:
+  // it must leave the workspace URL the launch put it on, not merely avoid a
+  // URL shape it never had.
+  await expect(page).not.toHaveURL(openWorkspaceUrl, { timeout: SPAWN_TIMEOUT });
   // And the rail itself forgot the row everywhere (the list invalidation
   // still works): the machine group, and the tree branch the launch filed.
   await expect(page.locator("aside").getByText(name)).toHaveCount(0, { timeout: SPAWN_TIMEOUT });

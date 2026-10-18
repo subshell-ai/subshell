@@ -1,7 +1,7 @@
 import { apiFetch, apiPost } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { WORKSPACES_QUERY_KEY } from "@/hooks/use-workspaces";
+import { invalidateWorkspaceMembership } from "@/hooks/use-workspaces";
 import { currentWorkspaceId, lastWorkspaceId, rememberLastWorkspace } from "@/lib/current-workspace";
 import { joinPromptBlocks, type PromptBlock, presetBlocksToWire, promptLaunchMissed } from "@/lib/prompt-stack";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
@@ -14,8 +14,6 @@ import type { WorkspaceRow } from "@/types/workspace";
 export interface CreatedSubshell {
   /** The new subshell's id */
   id: string;
-  /** The server's name for the row (subshells are unnamed at launch today) */
-  name: string;
   /** False when a prompt was asked for but did not reach the pane */
   promptDelivered?: boolean;
   /** The workspace this launch was filed into — the one on screen, else an
@@ -203,34 +201,53 @@ export function useCreateSubshell({ autoFile = true }: { autoFile?: boolean } = 
         // which is honest: the launch itself worked, and clicking that pane
         // later files it the same way.
         if (autoFile && !filedInto) {
-          const list = await apiFetch<WorkspaceRow[]>("/api/workspaces").catch(() => []);
-          // The list is a server contract, not a trusted value here: anything
-          // that is not an array means "nothing known", the same as an error.
-          const homes = Array.isArray(list) ? list : [];
-          const remembered = lastWorkspaceId();
-          const join =
-            homes.find((h) => h.id === remembered) ??
-            [...homes].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
-          if (join) {
-            // The idempotent add-pane call: a duplicate answer is the same
-            // tab, so a racing order of create-then-attach is never a second
-            // filing. A failure (the row retired between read and write)
-            // falls through to opening a new one.
-            const attached = await apiPost<{ id: string }>(`/api/workspaces/${join.id}/panes`, {
+          // A read that FAILS is not an answer of "no workspaces": filing on
+          // that guess opens a duplicate window beside the one you already
+          // have (the dashboard rule keeps error and empty distinct). Retry
+          // once, since a blip is usually gone by the second try, and leave
+          // the pane unfiled if the read still refuses — clicking it later
+          // files it the same way. (review 2026-10-17: the old
+          // `.catch(() => [])` answered a failed read as "none", which is how
+          // a transient error became a second workspace holding the same
+          // pane.)
+          let homes: WorkspaceRow[] | null = null;
+          for (let attempt = 0; attempt < 2 && homes === null; attempt += 1) {
+            const list = await apiFetch<WorkspaceRow[]>("/api/workspaces").catch(() => null);
+            // The list is a server contract, not a trusted value here: anything
+            // that is not an array means "nothing known", the same as an error.
+            if (Array.isArray(list)) homes = list;
+          }
+          if (homes !== null) {
+            const remembered = lastWorkspaceId();
+            const join =
+              homes.find((h) => h.id === remembered) ??
+              [...homes].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+            if (join) {
+              // The idempotent add-pane call: a duplicate answer is the same
+              // tab, so a racing order of create-then-attach is never a second
+              // filing. A failure (the row retired between read and write)
+              // falls through to opening a new one.
+              const attached = await apiPost<{ id: string }>(`/api/workspaces/${join.id}/panes`, {
+                subshellId: created.id,
+              }).catch(() => null);
+              if (attached) {
+                rememberLastWorkspace(join.id);
+                return { ...created, workspaceId: join.id };
+              }
+            }
+            // The fresh window is named after the pane the way the split
+            // names it: the name the person typed, when they typed one; the
+            // server's date/time default lands on the ROW, and this is the
+            // client-side counterpart. (The create response carries no name —
+            // `CreatedSubshell` used to claim one it never received.)
+            const fresh = await apiPost<{ id: string }>("/api/workspaces", {
+              name: input.name?.trim() || defaultWorkspaceName(),
               subshellId: created.id,
             }).catch(() => null);
-            if (attached) {
-              rememberLastWorkspace(join.id);
-              return { ...created, workspaceId: join.id };
+            if (fresh) {
+              rememberLastWorkspace(fresh.id);
+              return { ...created, workspaceId: fresh.id };
             }
-          }
-          const fresh = await apiPost<{ id: string }>("/api/workspaces", {
-            name: created.name || defaultWorkspaceName(),
-            subshellId: created.id,
-          }).catch(() => null);
-          if (fresh) {
-            rememberLastWorkspace(fresh.id);
-            return { ...created, workspaceId: fresh.id };
           }
         }
         return created;
@@ -262,10 +279,14 @@ export function useCreateSubshell({ autoFile = true }: { autoFile?: boolean } = 
         toast.warning('The prompt wasn\'t entered. Use "Insert prompt" to type it in.');
       }
       void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
-      // A filed launch changed the workspace's pane list (and possibly retired
+      // A filed launch changed a workspace's pane list (and possibly retired
       // the landing's stale empty branch): the tree reads membership from the
-      // workspace list, so it rides along.
-      void queryClient.invalidateQueries({ queryKey: WORKSPACES_QUERY_KEY });
+      // LIST, and the DOCK reads its tiles from the per-workspace DETAIL. The
+      // launch that files into the workspace already on screen changes that
+      // DETAIL without remounting the page, so the wake is the whole
+      // membership trio — the LIST alone left the open dock a tab short until
+      // the next unrelated refetch (review 2026-10-17).
+      void invalidateWorkspaceMembership(queryClient);
       // The new preset row belongs in every preset list the app has open.
       if (input.saveAsPreset === true) void queryClient.invalidateQueries({ queryKey: ["presets"] });
       // The create touched the recent-paths row for its launch node — every

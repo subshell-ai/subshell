@@ -75,6 +75,7 @@ function mockFetch(opts: { failLaunch?: boolean } = {}) {
 async function launch(
   input: CreateSubshellInput,
   opts?: { autoFile?: boolean },
+  injected?: QueryClient,
 ): Promise<{ err?: unknown; ok?: boolean }> {
   let create: ((i: CreateSubshellInput) => Promise<unknown>) | null = null;
   function Probe() {
@@ -82,7 +83,7 @@ async function launch(
     create = (i) => m.mutateAsync(i);
     return null;
   }
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = injected ?? new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
       <Probe />
@@ -213,6 +214,7 @@ describe("useCreateSubshell filing (always in a workspace)", () => {
     homes: Array<{ id: string; updatedAt: string }>;
     last?: string;
     failPaneAdd?: boolean;
+    failList?: boolean;
   }) {
     const calls: Call[] = [];
     const original = globalThis.fetch;
@@ -227,10 +229,17 @@ describe("useCreateSubshell filing (always in a workspace)", () => {
         body: init?.body ? (JSON.parse(String(init.body)) as Call["body"]) : undefined,
       });
       if (url.pathname === "/api/subshells" && method === "POST") {
-        return Promise.resolve(new Response(JSON.stringify({ id: "s-1", name: "New pane" })));
+        // Exactly what the endpoint answers (CreateSubshellResponseSchema):
+        // no `name`. A mock that invented one once hid the fact that the
+        // filing ladder was reading a field the server never sent.
+        return Promise.resolve(new Response(JSON.stringify({ id: "s-1", promptDelivered: true })));
       }
       if (url.pathname === "/api/workspaces" && method === "GET") {
-        return Promise.resolve(new Response(JSON.stringify(opts.homes)));
+        return Promise.resolve(
+          opts.failList
+            ? new Response(JSON.stringify({ message: "boom" }), { status: 500 })
+            : new Response(JSON.stringify(opts.homes)),
+        );
       }
       if (/^\/api\/workspaces\/[^/]+\/panes$/.test(url.pathname) && method === "POST") {
         return Promise.resolve(
@@ -248,6 +257,10 @@ describe("useCreateSubshell filing (always in a workspace)", () => {
   }
 
   const PLAIN: CreateSubshellInput = { harnessId: "claude-code", workingDir: "/tmp" };
+  // A launch whose FORM carries a name: the fresh window takes it (the split
+  // names the same way). `CreatedSubshell.name` used to pretend the create
+  // response sent one — it never has; the ladder reads the input.
+  const NAMED: CreateSubshellInput = { harnessId: "claude-code", workingDir: "/tmp", name: "Build fix" };
 
   it("joins the remembered workspace through the idempotent pane add", async () => {
     const m = filingFetch({
@@ -291,10 +304,12 @@ describe("useCreateSubshell filing (always in a workspace)", () => {
   it("falls through to opening a fresh workspace when the join races a retire", async () => {
     const m = filingFetch({ homes: [{ id: "ws-x", updatedAt: "2026-10-10T00:00:00.000Z" }], failPaneAdd: true });
     try {
-      const out = await launch(PLAIN);
+      const out = await launch(NAMED);
       expect(out.ok).toBe(true);
       const fresh = m.calls.find((c) => c.url === "/api/workspaces" && c.method === "POST");
-      expect(fresh?.body).toMatchObject({ name: "New pane", subshellId: "s-1" });
+      // The name rides from the FORM (the same source the split's naming
+      // reads); the create response carries no name to read.
+      expect(fresh?.body).toMatchObject({ name: "Build fix", subshellId: "s-1" });
     } finally {
       m.restore();
     }
@@ -306,7 +321,15 @@ describe("useCreateSubshell filing (always in a workspace)", () => {
       const out = await launch(PLAIN);
       expect(out.ok).toBe(true);
       const fresh = m.calls.find((c) => c.url === "/api/workspaces" && c.method === "POST");
-      expect(fresh?.body).toMatchObject({ name: "New pane", subshellId: "s-1" });
+      // No typed name, so the fresh window takes the client's date/time
+      // default — a stamp (digits, comma), never a name invented by this
+      // test's mock (the old assertion here pinned exactly that: the mock
+      // invented `name`, the hook "read" it, and everyone missed that the
+      // real response never has the field).
+      const name = String(fresh?.body?.name ?? "");
+      expect(name.length > 0 && /\d/.test(name)).toBe(true);
+      expect(name).not.toBe("New pane");
+      expect(fresh?.body).toMatchObject({ subshellId: "s-1" });
       expect(m.calls.some((c) => c.url.includes("/panes"))).toBe(false);
       expect(localStorage.getItem("subshell.lastWorkspaceId")).toBe("ws-fresh");
     } finally {
@@ -347,6 +370,48 @@ describe("useCreateSubshell filing (always in a workspace)", () => {
       expect(m.calls.some((c) => c.method === "POST" && c.url.includes("/panes"))).toBe(false);
       expect(m.calls.some((c) => c.method === "POST" && c.url === "/api/workspaces")).toBe(false);
     } finally {
+      m.restore();
+      setCurrentWorkspace(null);
+    }
+  });
+
+  it("a LIST that never answers files NOTHING rather than a duplicate window (review 2026-10-17)", async () => {
+    // The old `.catch(() => [])` read a transient 500 as "this instance has
+    // no workspaces" and POSTed a fresh one — a second window beside the real
+    // one, holding the same pane. The ladder retries the read once, and a
+    // read that still refuses leaves the pane unfiled rather than guessing.
+    const m = filingFetch({ homes: [], failList: true });
+    try {
+      const out = await launch(PLAIN);
+      expect(out.ok).toBe(true);
+      expect(m.calls.filter((c) => c.method === "GET" && c.url === "/api/workspaces")).toHaveLength(2);
+      expect(m.calls.some((c) => c.method === "POST" && c.url === "/api/workspaces")).toBe(false);
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("a filed launch wakes the whole membership trio, the dock's DETAIL included", async () => {
+    // The filed launch lands as a tab of the workspace ALREADY on screen: no
+    // route change, no remount, so the dock's per-workspace DETAIL either
+    // rides this wake or goes stale outright. The LIST alone was invalidated
+    // (review 2026-10-17: the open dock sat a tab short until some later
+    // unrelated refetch brought the DETAIL around).
+    setCurrentWorkspace("ws-on-screen");
+    const m = filingFetch({ homes: [{ id: "ws-on-screen", updatedAt: "2026-10-10T00:00:00.000Z" }] });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const woken: string[] = [];
+    const original = client.invalidateQueries.bind(client);
+    client.invalidateQueries = ((filters?: { queryKey?: readonly unknown[] }) => {
+      woken.push(String(filters?.queryKey?.[0] ?? ""));
+      return original(filters as never);
+    }) as typeof client.invalidateQueries;
+    try {
+      const out = await launch(PLAIN, {}, client);
+      expect(out.ok).toBe(true);
+      expect(woken).toEqual(expect.arrayContaining(["subshells", "workspaces", "subshell-workspaces", "workspace"]));
+    } finally {
+      client.invalidateQueries = original;
       m.restore();
       setCurrentWorkspace(null);
     }

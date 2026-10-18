@@ -5,7 +5,7 @@ import { SquareSplitHorizontal } from "lucide-react";
 import { type JSX, useState } from "react";
 import { AddSubshellDialog } from "@/components/subshell-picker/add-subshell-dialog";
 import { TippedIconButton } from "@/components/tipped-icon-button";
-import { SUBSHELL_WORKSPACES_QUERY_KEY } from "@/lib/query-keys";
+import { invalidateWorkspaceMembership } from "@/hooks/use-workspaces";
 import { splitCreateFailureMessage, splitWorkspaceRefusal } from "@/lib/split-workspace-refusal";
 import { defaultWorkspaceName } from "@/lib/workspace-name";
 import type { SubshellView } from "@/types/subshell";
@@ -63,8 +63,14 @@ export function SplitSubshellButton({ subshell }: { subshell: SubshellView }): J
       await apiFetch(`/api/workspaces/${workspace.id}`, { method: "DELETE" }).catch(() => {});
       throw new Error(refusal);
     }
-    // This subshell now sits on a workspace — the header's link reads it.
-    await queryClient.invalidateQueries({ queryKey: [...SUBSHELL_WORKSPACES_QUERY_KEY, subshell.id] });
+    // This subshell now sits on a workspace — the header's link reads it — and
+    // the workspace itself is new to every membership reader. The LIST in
+    // particular: the destination page's mount covers the DETAIL, but if the
+    // follow-on pane-add there fails, this create is the only signal the rail
+    // tree ever got, and the tree branch for the window you're standing in
+    // would otherwise be missing (review 2026-10-17: waking only the
+    // per-subshell key left it exactly that way).
+    await invalidateWorkspaceMembership(queryClient);
     await navigate({
       to: "/workspaces/$id",
       params: { id: workspace.id },
