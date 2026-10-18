@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
-import { consumeCreateInNewWorkspace, currentWorkspaceId } from "@/lib/current-workspace";
+import { currentWorkspaceId } from "@/lib/current-workspace";
 import type { sshConnectSearch } from "@/lib/ssh-connect-search";
 
 /**
@@ -55,9 +55,6 @@ export function LaunchSubshellDialog({
     setForm(emptyNewSubshellForm());
     setError(null);
     setKind("agent");
-    // A cancelled launch must not leave the landing's "open a fresh
-    // workspace" one-shot armed for the next unrelated press.
-    consumeCreateInNewWorkspace();
   }
 
   async function submit() {
@@ -71,9 +68,10 @@ export function LaunchSubshellDialog({
       // create (spec 2026-10-17), so stay on the workspace and let the dock
       // reconcile the new tab; anywhere else the subshell page is the
       // destination it has always been.
-      // `created.workspaceId` when this press was asked to open a fresh
-      // workspace (the landing's first pane); otherwise the workspace page
-      // this press was raised over; otherwise the ordinary subshell page.
+      // Every launch files itself (spec 2026-10-17): `created.workspaceId`
+      // is the workspace opened around the pane when none was on screen. If
+      // that filing call failed, fall through to the ordinary subshell page
+      // — the pane is running, and clicking it later files it the same way.
       const landing = created.workspaceId ?? currentWorkspaceId();
       onOpenChange(false);
       reset();

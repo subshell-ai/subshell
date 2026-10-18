@@ -107,8 +107,11 @@ export async function renameSubshell(page: Page, name: string): Promise<void> {
   // Wait for the detail header, not a sidebar row's action button. The rail
   // can render before navigation finishes, which made the rename fall back
   // to a dialog that disappeared when the detail page mounted.
+  // Either page's header carries the edit: the subshell detail page, or the
+  // workspace the pane landed as a tab in (spec 2026-10-17 made launches
+  // land there, so most callers rename over the dock).
   const header = page.locator("header").filter({
-    has: page.getByRole("link", { name: "Back to subshells", exact: true }),
+    has: page.getByRole("link", { name: /Back to (subshells|workspaces)/ }),
   });
   const actions = header.getByRole("button", { name: /^Actions for / });
   await actions.waitFor();
@@ -177,4 +180,18 @@ export async function pickAgent(input: Locator, label: string): Promise<void> {
  */
 export async function dismissDirectoryPanel(page: Page, heading = "New subshell"): Promise<void> {
   await page.getByRole("heading", { name: heading }).click();
+}
+
+/**
+ * The subshell behind a `/workspaces/<id>` landing from a fresh launch: since
+ * spec 2026-10-17 every launch files its pane into a workspace, so specs that
+ * need the PANE id read it from the workspace detail rather than the URL.
+ */
+export async function solePaneId(page: Page): Promise<string> {
+  const wsId = new URL(page.url()).pathname.split("/").pop() ?? "";
+  const res = await page.request.get(`/api/workspaces/${wsId}`);
+  expect(res.ok()).toBe(true);
+  const detail = (await res.json()) as { panes: { subshellId: string }[] };
+  expect(detail.panes.length).toBeGreaterThanOrEqual(1);
+  return detail.panes[0].subshellId;
 }

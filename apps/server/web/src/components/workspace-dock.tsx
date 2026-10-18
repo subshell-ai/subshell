@@ -21,7 +21,7 @@ import { useDebouncedSave } from "@/hooks/use-debounced-save";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { confirmCloseSubshell } from "@/lib/subshell-confirmations";
 import { readSubshellDrag, SUBSHELL_DND_TYPE } from "@/lib/subshell-dnd";
-import { onWorkspacePaneFocusRequest, setWorkspaceFocusedId } from "@/lib/workspace-focus";
+import { onWorkspacePaneFocusRequest, setWorkspaceFocusedId, takePaneFocusOnArrive } from "@/lib/workspace-focus";
 import {
   normalizeLegacyLayout,
   panelIdsInLayout,
@@ -126,6 +126,18 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
   // Publish the dock's focused pane to the rail (it lives in the app shell, a
   // separate tree). Cleared on unmount so a stale focus never outlives the page.
   useEffect(() => () => setWorkspaceFocusedId(null), []);
+  // A rail click that had to NAVIGATE here first (the pane was not on screen
+  // to focus) arms an arrival focus; the first ready render takes it and
+  // activates that panel (spec 2026-10-17: selecting a pane means going to
+  // its tab). Consumed once; a pane the workspace does not hold just drops.
+  useEffect(() => {
+    if (!ready) return;
+    const target = takePaneFocusOnArrive();
+    if (!target) return;
+    const pane = detail.panes.find((p) => p.subshellId === target);
+    if (!pane) return;
+    apiRef.current?.getPanel(pane.id)?.api.setActive();
+  }, [ready, detail.panes]);
   // The rail asks to focus a pane by subshell id when a click lands on a cell
   // that is already open here (so the click focuses the tab instead of
   // navigating away). Activation fires the onDidActiveGroupChange handler, which

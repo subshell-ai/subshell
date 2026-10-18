@@ -32,7 +32,9 @@ test("accessory key bar sends real bytes into the pane", async ({ page }) => {
     timeout: SPAWN_TIMEOUT,
   });
   await page.getByRole("button", { name: "Start subshell" }).click();
-  await expect(page).toHaveURL(/\/subshells\/.+/, { timeout: SPAWN_TIMEOUT });
+  // Phone too: the launch lands as a tab in a workspace (spec 2026-10-17);
+  // the key bar rides the pane component, not the route.
+  await expect(page).toHaveURL(/\/workspaces\/.+/, { timeout: SPAWN_TIMEOUT });
   await tokenRes;
   await socket;
   await expect(page.getByText("reconnecting…")).toHaveCount(0, { timeout: SPAWN_TIMEOUT });

@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import { decodeFrame } from "@internal/subshell-protocol/wire";
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE, dismissDirectoryPanel, pickAgent, renameSubshell } from "./helpers";
+import { ADMIN_STATE, dismissDirectoryPanel, pickAgent, renameSubshell, solePaneId } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -99,9 +99,10 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
   await p1.fill("#picker-working-dir", tmpdir());
   await dismissDirectoryPanel(p1);
   await p1.getByRole("button", { name: "Start subshell" }).click();
-  await expect(p1).toHaveURL(/\/subshells\/.+/, { timeout: 60_000 });
-  const subshellId = new URL(p1.url()).pathname.split("/").pop();
-  if (!subshellId) throw new Error("no subshell id in the URL");
+  await expect(p1).toHaveURL(/\/workspaces\/.+/, { timeout: 60_000 });
+  // The landing is the workspace the launch opened; the pane id comes from
+  // its detail (spec 2026-10-17).
+  const subshellId = await solePaneId(p1);
   await renameSubshell(p1, name);
 
   // The replay wait is NODE-SIDE now: the negotiated wire carries every

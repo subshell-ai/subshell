@@ -59,7 +59,10 @@ export function NewWorkspaceDialog({
   // Names already taken, so a same-minute second create does not send the
   // identical default and eat the server's unique-name 409.
   const { data: workspaces } = useWorkspaces();
-  const create = useCreateSubshell();
+  // Placement is this dialog's own decision (the workspace it was opened
+  // from, or the split's, or the workspace it just created) — the hook must
+  // not open a SECOND workspace around the pane. See `useCreateSubshell`.
+  const create = useCreateSubshell({ autoFile: false });
 
   const [sshDraft, setSshDraft] = useState(() => sshSessionDraft());
   const [kind, setKind] = useState<SubshellKind>("agent");

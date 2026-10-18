@@ -11,7 +11,7 @@ import { TabWaitingMarker } from "@/components/workspace-dock/subshell-tab";
 import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { isPaneWaiting } from "@/lib/subshell-order";
-import { onWorkspacePaneFocusRequest, setWorkspaceFocusedId } from "@/lib/workspace-focus";
+import { onWorkspacePaneFocusRequest, setWorkspaceFocusedId, takePaneFocusOnArrive } from "@/lib/workspace-focus";
 import type { SplitIntent } from "@/lib/workspace-split-intent";
 import type { SplitDirection, WorkspaceDetail, WorkspacePaneRow } from "@/types/workspace";
 
@@ -142,6 +142,14 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
     setWorkspaceFocusedId(focusedSubshellId);
   }, [focusedSubshellId]);
   useEffect(() => () => setWorkspaceFocusedId(null), []);
+  // The narrow view's half of the arrival focus (see `workspace-dock.tsx`):
+  // a rail click that navigated here selects the matching tab.
+  useEffect(() => {
+    const target = takePaneFocusOnArrive();
+    if (!target) return;
+    const pane = detail.panes.find((p) => p.subshellId === target);
+    if (pane) setSelectedId(pane.id);
+  }, [detail.panes]);
   // A focus request from the rail selects the matching tab instead of letting
   // the rail's link navigate out of the workspace.
   useEffect(

@@ -6,7 +6,7 @@ import { EmptyState } from "@/components/empty-state";
 import { LoadingCard } from "@/components/loading-card";
 import { useQuickAdd } from "@/components/quick-add";
 import { useWorkspaces } from "@/hooks/use-workspaces";
-import { lastWorkspaceId, requestCreateInNewWorkspace } from "@/lib/current-workspace";
+import { lastWorkspaceId } from "@/lib/current-workspace";
 
 export const Route = createFileRoute("/")({
   component: Landing,
@@ -44,10 +44,8 @@ function Landing(): JSX.Element {
         description="A workspace is the set of panes you're working with. Open a subshell and you're in one."
         actionLabel="New subshell"
         onAction={() => {
-          // The first pane has no window to join, so this press says "make
-          // one": the shared create hook files the launch into a freshly
-          // named workspace, and the dialog lands there.
-          requestCreateInNewWorkspace();
+          // The first pane has no window to join, and the create hook knows:
+          // a launch raised with no workspace on screen opens one around it.
           quickAdd.openLaunch();
         }}
       />

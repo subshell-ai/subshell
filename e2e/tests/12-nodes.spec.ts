@@ -13,6 +13,7 @@ import {
   openAgentPicker,
   pickAgent,
   renameSubshell,
+  solePaneId,
 } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
@@ -424,8 +425,8 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     );
     await page.getByRole("button", { name: "Start subshell" }).click();
     expect((await launchRequest).postDataJSON()).toMatchObject({ nodeId, workingDir });
-    await expect(page).toHaveURL(/\/subshells\/.+/, { timeout: SPAWN_TIMEOUT });
-    subshellId = new URL(page.url()).pathname.split("/").pop() as string;
+    await expect(page).toHaveURL(/\/workspaces\/.+/, { timeout: SPAWN_TIMEOUT });
+    subshellId = await solePaneId(page);
     await tokenRes;
     const ws = await socket;
     expect(ws.url()).toContain("/ws?subshell=");

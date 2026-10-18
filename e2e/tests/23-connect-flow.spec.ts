@@ -7,7 +7,7 @@ import { SSH_FIXTURE_ALIAS, which } from "../fixtures/sshd";
 import { startContainerSshFixture } from "../fixtures/sshd-container";
 import { PORTS } from "../ports";
 import { shortTmuxBase } from "../stack";
-import { expectSubshellRunning } from "./helpers";
+import { expectSubshellRunning, solePaneId } from "./helpers";
 
 /** Real-browser direct SSH proof against a dedicated sshd and isolated backend.
  * Testcontainers owns the destination sshd, including disposable password accounts.
@@ -350,8 +350,10 @@ test("gate on: destination-first launch reaches a live ssh pane whose remote she
     timeout: READY_TIMEOUT,
   });
   await page.getByRole("button", { name: "Start SSH subshell", exact: true }).click();
-  await expect(page).toHaveURL(/\/subshells\/[a-zA-Z0-9_-]{1,64}$/, { timeout: READY_TIMEOUT });
-  paneId = new URL(page.url()).pathname.split("/").pop();
+  // The launch files its pane into a fresh workspace and lands there (spec
+  // 2026-10-17); the pane id comes from the workspace detail.
+  await expect(page).toHaveURL(/\/workspaces\/[a-zA-Z0-9_-]+$/, { timeout: READY_TIMEOUT });
+  paneId = await solePaneId(page);
 
   // The pane's own header labels the kind it is (T4's badge, owner included).
   await expect(page.getByText("SSH", { exact: true }).first()).toBeVisible({ timeout: READY_TIMEOUT });
@@ -459,8 +461,8 @@ test("password login prompts in the terminal, retries a wrong password, and save
     await page.getByRole("checkbox", { name: "Save as preset", exact: true }).check();
     await page.getByLabel("Preset name", { exact: true }).fill(`${user} terminal`);
     await page.getByRole("button", { name: "Start SSH subshell", exact: true }).click();
-    await expect(page).toHaveURL(/\/subshells\/[a-zA-Z0-9_-]+$/, { timeout: READY_TIMEOUT });
-    const id = new URL(page.url()).pathname.split("/").pop();
+    await expect(page).toHaveURL(/\/workspaces\/[a-zA-Z0-9_-]+$/, { timeout: READY_TIMEOUT });
+    const id = await solePaneId(page);
     const readLog = async () => {
       const response = await api.get(`/api/subshells/${id}/log`);
       expect(response.ok()).toBe(true);

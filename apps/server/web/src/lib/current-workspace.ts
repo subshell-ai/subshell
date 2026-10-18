@@ -31,27 +31,6 @@ export function currentWorkspaceId(): string | null {
   return currentId;
 }
 
-/**
- * One-shot: the landing's first "New subshell" press asks the shared create
- * hook to open a fresh workspace for the pane it is about to launch (there is
- * no window to join yet). Consumed exactly once by the next submit and thrown
- * away by closing the dialog, so the request can never leak into a later,
- * unrelated launch.
- */
-let wantsFreshWorkspace = false;
-
-/** Arm the next launch to open its own workspace (landing empty state only). */
-export function requestCreateInNewWorkspace(): void {
-  wantsFreshWorkspace = true;
-}
-
-/** Take the one-shot: true exactly once, for the submit that asks. */
-export function consumeCreateInNewWorkspace(): boolean {
-  const asked = wantsFreshWorkspace;
-  wantsFreshWorkspace = false;
-  return asked;
-}
-
 /** Remembers `id` as this device's landing workspace. */
 export function rememberLastWorkspace(id: string): void {
   try {

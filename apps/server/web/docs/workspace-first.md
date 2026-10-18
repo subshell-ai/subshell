@@ -62,18 +62,39 @@ server-behind message, not as a name complaint.)
   `POST /api/subshells` can file the launch (`workspaceId`), and deleting a
   subshell retires any of ITS owner's workspaces the delete emptied.
 
-## The landing and the one-shot
+## Always in a workspace
 
-`/` is a direction, not a page (`routes/index.tsx`): it opens the last visited
-workspace (`rememberLastWorkspace`, validated against the live LIST so a row
-that self-retired cannot be landed on), else the most recently touched one,
-else an empty state with one button. That button arms the one-shot
-(`requestCreateInNewWorkspace` in `lib/current-workspace.ts`) so the launch it
-opens creates a fresh workspace (`POST /api/workspaces { name, subshellId }`)
-and lands there; a launch from INSIDE a workspace files the tab into it
-instead (`currentWorkspaceId()` rides the create body). The one-shot is CONSUMED
-on read and reset with the dialog, so an abandoned launch does not make the
-next one a workspace-maker.
+There is no subshell-side of the app to fall out of (operator ruling, spec
+2026-10-17):
+
+- A LAUNCH files itself. `currentWorkspaceId()` rides the create body when a
+  workspace page is on screen; with none there, `useCreateSubshell` (its
+  `autoFile` default) opens a workspace around the pane after the POST,
+  named after it, and the dialog lands there. Callers that file the pane
+  themselves - the add-a-pane dialog, whose `onAdd` is the split's and the
+  dock's path, and the new-workspace dialog, which created the workspace
+  first - pass `autoFile: false`, or one launch would leave two workspaces
+  holding the same row.
+- A SELECTION means a tab. `hooks/use-open-pane-as-tab.ts` backs every plain
+  left-click on a rail row, cell or Ungrouped row: focus the pane if the
+  dock on screen holds it (`requestWorkspacePaneFocus`), else open the most
+  recently touched workspace that holds it, else create one around it. The
+  destination presentation takes the armed `armPaneFocusOnArrive` id once
+  its panes exist and activates that tab. Middle-click and open-in-new-tab
+  ride the row's real href, which stays `/subshells/$id`.
+- `/` is still a direction (`routes/index.tsx`): the last visited workspace
+  (`rememberLastWorkspace`, validated against the live LIST so a retired row
+  cannot be landed on), else the most recently touched, else the empty state
+  whose single button just opens the launch dialog - the create hook knows to
+  open the window.
+
+`lib/current-workspace.ts` keeps only those two facts (module-current,
+localStorage-last); the landing's "make a workspace" one-shot died with this
+rule because every launch now makes one anyway when there is nothing to join.
+A failed create leaves a running ungrouped pane and the detail landing -
+honest, and clicking that pane later files it the same way. Bearer/MCP
+creates stay unfiled (no human screen to file into), which is what the rail's
+Ungrouped branch and its drag-onto-the-dock exist for.
 
 ## The pane-focus bar and renaming
 

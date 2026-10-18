@@ -9,6 +9,7 @@ import { SubshellDot } from "@/components/subshell-dot";
 import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useFilteredList } from "@/hooks/use-filtered-list";
+import { useOpenPaneAsTab } from "@/hooks/use-open-pane-as-tab";
 import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { useWorkspaces, WORKSPACES_QUERY_KEY } from "@/hooks/use-workspaces";
 import { workspaceIdFromPath } from "@/lib/route-ids";
@@ -100,14 +101,21 @@ function PaneBranchRow({ pane, workspaceId }: { pane: WorkspacePaneRow; workspac
  * workspace's own Add-subshell picker.
  */
 function UngroupedRow({ subshell }: { subshell: SubshellView }): JSX.Element {
-  const navigate = useNavigate();
+  const openAsTab = useOpenPaneAsTab();
   return (
     <Link
       to="/subshells/$id"
       params={{ id: subshell.id }}
       draggable
       onDragStart={(e) => encodeSubshellDrag(e.dataTransfer, subshell.id)}
-      onClick={() => void navigate({ to: "/subshells/$id", params: { id: subshell.id } })}
+      // Click means the tab (spec 2026-10-17): an ungrouped pane gets a
+      // workspace built around it; a filed one opens its holder and focuses.
+      // The href stays the detail page for middle-click and new tabs.
+      onClick={(e) => {
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+        e.preventDefault();
+        void openAsTab(subshell);
+      }}
       className={cn(branchClass(false), "ml-4 block w-[calc(100%-1rem)] cursor-grab text-left")}
       title={`${subshell.name}: drag onto a workspace, or click to open`}
     >

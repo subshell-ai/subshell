@@ -236,7 +236,9 @@ test("a machine with no agent CLI reaches a live terminal through the wizard", a
   });
 
   await start.click();
-  await expect(page).toHaveURL(/\/subshells\//, { timeout: SPAWN_TIMEOUT });
+  // The onboarding launch lands as a tab in a workspace opened around it
+  // (spec 2026-10-17).
+  await expect(page).toHaveURL(/\/workspaces\//, { timeout: SPAWN_TIMEOUT });
   await tokenRes;
   const ws = await socket;
   expect(ws.url()).toContain(`/ws?subshell=`);

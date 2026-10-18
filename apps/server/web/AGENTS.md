@@ -403,11 +403,14 @@ carries each workspace's PANES, which is what the rail's tree renders from one
 query. Adding a pane is IDEMPOTENT (UNIQUE `(workspace_id, subshell_id)`; the
 second add returns the same row with `alreadyPresent`), and removing the LAST
 pane self-retires the row (`workspaceDeleted`): a workspace exists exactly as
-long as it holds a tab, and its subshells carry on ungrouped. The landing `/`
-is a direction, not a page: it opens the last visited workspace, else the most
-recently touched one, else the one-button empty state whose press arms the
-one-shot `requestCreateInNewWorkspace` so the launch makes a fresh workspace;
-a launch from INSIDE a workspace files the tab there. The create response is
+long as it holds a tab. The user is ALWAYS in a workspace: a launch raised
+with none on screen gets one opened around it (`autoFile` in
+`hooks/use-create-subshell.ts`; the add-pane and new-workspace dialogs pass
+false and file it themselves), and a plain click on a rail row, cell or
+Ungrouped row means the tab (`hooks/use-open-pane-as-tab.ts`: focus it on
+screen, else its holder via `armPaneFocusOnArrive`, else create one). The
+landing `/` is a direction, not a page: last visited workspace, else most
+recently touched, else the one-button empty state. The create response is
 still CHECKED, not trusted (`lib/split-workspace-refusal.ts`), now only for a
 server old enough to drop `subshellId`.
 **Working on splits or workspace membership: read apps/server/web/docs/workspace-first.md first.**

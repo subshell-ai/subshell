@@ -35,7 +35,7 @@ test.fixme("drawer navigation between live subshells never hits the error screen
     await page.fill("#picker-working-dir", "/tmp");
     await dismissDirectoryPanel(page);
     await page.getByRole("button", { name: "Start subshell" }).click();
-    await expect(page).toHaveURL(/\/subshells\/.+/, { timeout: 60_000 });
+    await expect(page).toHaveURL(/\/workspaces\/.+/, { timeout: 60_000 });
     await renameSubshell(page, name);
   }
 
@@ -46,7 +46,8 @@ test.fixme("drawer navigation between live subshells never hits the error screen
       .getByText(names[(i + 1) % 2])
       .first()
       .click();
-    await expect(page).toHaveURL(/\/subshells\/[0-9a-f-]+/);
+    // A rail row is a tab now: each press lands on that pane's workspace.
+    await expect(page).toHaveURL(/\/workspaces\/[0-9a-f-]+/);
     await expect(page.getByText("This page hit an error")).toHaveCount(0);
   }
   expect(errors).toEqual([]);

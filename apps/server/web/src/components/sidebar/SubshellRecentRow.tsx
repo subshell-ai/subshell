@@ -4,9 +4,9 @@ import { TooltipLabelledLines } from "@/components/sidebar/TooltipLabelledLines"
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDot } from "@/components/subshell-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useOpenPaneAsTab } from "@/hooks/use-open-pane-as-tab";
 import { encodeSubshellDrag } from "@/lib/subshell-dnd";
 import { subshellRowTooltip } from "@/lib/subshell-row-tooltip";
-import { requestWorkspacePaneFocus } from "@/lib/workspace-focus";
 import type { SubshellView } from "@/types/subshell";
 
 /**
@@ -32,7 +32,6 @@ export function SubshellRecentRow({
   subshell,
   selected,
   focused,
-  focusOnOpen,
   nodeLabel,
   agentLabel,
   presetLabel,
@@ -46,11 +45,6 @@ export function SubshellRecentRow({
   /** The pane the dock currently has focused → the one row that adds a white
    * ring. Focus is a single pane; selection is the set (operator 2026-09-27). */
   focused: boolean;
-  /**
-   * The row is a pane of the workspace on screen, so clicking focuses that tab
-   * in place instead of navigating to `/subshells/:id` (operator 2026-09-27).
-   */
-  focusOnOpen?: boolean;
   /** The group header's label — the node's NAME when resolved, its honest
    * fallback otherwise; one source of truth for header and tooltip alike */
   nodeLabel: string;
@@ -78,6 +72,7 @@ export function SubshellRecentRow({
    */
   nodeLine?: string;
 }) {
+  const openAsTab = useOpenPaneAsTab();
   // `render`, not a wrapper: the Link below is simultaneously the nav, the
   // drag source and the context-menu subject, and the tooltip had to attach
   // to that element without becoming the thing that quietly kills one of
@@ -97,21 +92,15 @@ export function SubshellRecentRow({
               params={{ id: subshell.id }}
               draggable
               onDragStart={(e) => encodeSubshellDrag(e.dataTransfer, subshell.id)}
-              // Workspace member → focus its tab in place (plain left-click
-              // only; ⌘/ctrl/shift-click keeps open-in-new-tab). Navigation is
-              // suppressed only when the dock handled the pane, so a stale/
-              // unready pane still navigates rather than dead-clicking.
+              // A plain left-click means the tab (operator ruling, spec
+              // 2026-10-17): focus it here if it is open on screen, else go
+              // to where it IS a tab, else make a workspace around it.
+              // ⌘/ctrl/shift-click and middle-click ride the real href, which
+              // stays the detail page.
               onClick={(e) => {
-                if (
-                  focusOnOpen &&
-                  e.button === 0 &&
-                  !e.metaKey &&
-                  !e.ctrlKey &&
-                  !e.shiftKey &&
-                  requestWorkspacePaneFocus(subshell.id)
-                ) {
-                  e.preventDefault();
-                }
+                if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+                e.preventDefault();
+                void openAsTab(subshell);
               }}
               className={cn(
                 // `my-1.5` (12px between pills) separates the rows. Selection is

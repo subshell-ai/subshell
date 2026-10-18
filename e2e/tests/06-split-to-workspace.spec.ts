@@ -25,8 +25,13 @@ const SPAWN_TIMEOUT = 30_000;
  * cannot exit underneath the assertions.
  */
 
-/** Launches a subshell from `/new` and renames it, leaving its detail page open. */
-async function launchSubshell(page: Page, name: string): Promise<void> {
+/**
+ * Launches a subshell from `/new`, renames it, and reports BOTH ids: since
+ * spec 2026-10-17 a launch raised off any workspace page lands as a tab in a
+ * workspace opened around it, so the URL carries that workspace's id and the
+ * pane's own id comes from the workspace detail.
+ */
+async function launchSubshell(page: Page, name: string): Promise<{ subshellId: string; workspaceId: string }> {
   await page.goto("/new");
   await pickAgent(page.getByPlaceholder("Choose an agent"), "pi");
   await page.fill("#picker-working-dir", "/tmp");
@@ -35,8 +40,16 @@ async function launchSubshell(page: Page, name: string): Promise<void> {
   // `dismissDirectoryPanel`).
   await dismissDirectoryPanel(page);
   await page.getByRole("button", { name: "Start subshell" }).click();
-  await expect(page).toHaveURL(/\/subshells\/.+/, { timeout: SPAWN_TIMEOUT });
+  // Not the subshell page any more: the pane is a tab, and the page is its
+  // workspace.
+  await expect(page).toHaveURL(/\/workspaces\/.+/, { timeout: SPAWN_TIMEOUT });
+  const workspaceId = idFromUrl(page);
   await renameSubshell(page, name);
+  const detail = (await (await page.request.get(`/api/workspaces/${workspaceId}`)).json()) as {
+    panes: { subshellId: string }[];
+  };
+  expect(detail.panes).toHaveLength(1);
+  return { subshellId: detail.panes[0].subshellId, workspaceId };
 }
 
 /** Every workspace the signed-in user has holding `subshellId`. */
@@ -78,16 +91,17 @@ test("split a subshell into a real, named workspace", async ({ page }) => {
   const subshellName = `e2e-split-${attempt}`;
   const workspaceName = `e2e-split-ws-${attempt}`;
 
-  await launchSubshell(page, subshellName);
-  const rootSubshellId = idFromUrl(page);
-
-  // Nothing holds this subshell yet, so the header offers no way back to a
-  // workspace — only the split.
-  expect(await workspacesHolding(page, rootSubshellId)).toEqual([]);
+  const { subshellId: rootSubshellId, workspaceId: launchWorkspaceId } = await launchSubshell(page, subshellName);
+  // The launch landed as a tab in a workspace opened around it (spec
+  // 2026-10-17) - nothing is "unfiled" to start from any more.
+  expect((await workspacesHolding(page, rootSubshellId)).map((w) => w.id)).toEqual([launchWorkspaceId]);
   // Read back what the server stored rather than what was typed: it RESOLVES
   // the path (on macOS /tmp is a symlink to /private/tmp), and the seeded form
   // carries the resolved one because that is what the subshell row says.
   const root = await subshellRow(page, rootSubshellId);
+  // Split is a control on the subshell's own page; the rail row's href (and a
+  // direct goto) still reach it.
+  await page.goto(`/subshells/${rootSubshellId}`);
 
   await page.getByRole("button", { name: "Split this subshell into a workspace" }).click();
   // The split's dialog is titled by the button that opened it (2026-09-27).
@@ -127,8 +141,10 @@ test("split a subshell into a real, named workspace", async ({ page }) => {
   };
   expect(created.workspace.name).toBe(subshellName);
   await expect(page.getByRole("button", { name: "Rename subshell" })).toBeVisible();
+  // The pane now sits on TWO workspaces - the one its launch opened and the
+  // one the split made - which is the reference model in one assertion.
   const holding = await workspacesHolding(page, rootSubshellId);
-  expect(holding.map((w) => w.id)).toEqual([workspaceId]);
+  expect(holding.map((w) => w.id).sort()).toEqual([launchWorkspaceId, workspaceId].sort());
   // The LIST now carries each workspace's panes (the sidebar tree renders
   // straight from it, no per-workspace GET): reading it back here pins that
   // the split's workspace is in there holding BOTH tabs.
@@ -166,11 +182,15 @@ test("split a subshell into a real, named workspace", async ({ page }) => {
   // Cleaning up by DELETE rather than by closing tabs: the self-retire the
   // next test pins deliberately would fire here too, and deleting the subshells
   // themselves is what actually frees the tmux processes.
+  // Closing the subshells retires every workspace they were the last tab of
+  // - the split's AND the launch's (the delete-side self-retire, spec
+  // 2026-10-17).
   await closeSubshells(
     page,
     detail.panes.map((p) => p.subshellId),
   );
-  await page.request.delete(`/api/workspaces/${workspaceId}`);
+  await expect(page.request.get(`/api/workspaces/${workspaceId}`)).resolves.toMatchObject({ status: 404 });
+  await expect(page.request.get(`/api/workspaces/${launchWorkspaceId}`)).resolves.toMatchObject({ status: 404 });
 });
 
 test("removing a pane leaves the workspace; removing its last tab retires it", async ({ page }) => {
@@ -182,11 +202,10 @@ test("removing a pane leaves the workspace; removing its last tab retires it", a
   // Two subshells, launched separately: this half of the flow splits onto an
   // EXISTING one, which is both the faster path and the other half of the
   // picker.
-  await launchSubshell(page, otherName);
-  const otherSubshellId = idFromUrl(page);
-  await launchSubshell(page, rootName);
-  const rootSubshellId = idFromUrl(page);
-
+  const { subshellId: otherSubshellId } = await launchSubshell(page, otherName);
+  const { subshellId: rootSubshellId, workspaceId: rootLaunchWs } = await launchSubshell(page, rootName);
+  // Split is the subshell page's control; go there from the launch landing.
+  await page.goto(`/subshells/${rootSubshellId}`);
   await page.getByRole("button", { name: "Split this subshell into a workspace" }).click();
   // The split's dialog is titled by the button that opened it (2026-09-27).
   await expect(page.getByRole("heading", { name: "Split", exact: true })).toBeVisible();
@@ -230,8 +249,13 @@ test("removing a pane leaves the workspace; removing its last tab retires it", a
   await expect(page).not.toHaveURL(new RegExp(`/workspaces/${workspaceId}`), { timeout: SPAWN_TIMEOUT });
   const gone = await page.request.get(`/api/workspaces/${workspaceId}`);
   expect(gone.status()).toBe(404);
+  // ...but each pane is still a tab of the workspace its own launch opened:
+  // retirement took the SPLIT's row, not the other homes.
+  expect((await workspacesHolding(page, rootSubshellId)).map((w) => w.id)).toEqual([rootLaunchWs]);
+  expect((await workspacesHolding(page, otherSubshellId)).length).toBe(1);
+
+  // Closing the subshells retires those too (the delete-side self-retire).
+  await closeSubshells(page, [rootSubshellId, otherSubshellId]);
   expect(await workspacesHolding(page, rootSubshellId)).toEqual([]);
   expect(await workspacesHolding(page, otherSubshellId)).toEqual([]);
-
-  await closeSubshells(page, [rootSubshellId, otherSubshellId]);
 });

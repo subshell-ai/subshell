@@ -210,7 +210,7 @@ export function RailSubshells({
   const focusedId = focusedFromUrl ?? dockFocusedId;
   // Only inside a workspace page (a dock is up to act on a focus request) does
   // clicking an open pane focus its tab rather than navigate out.
-  const onWorkspace = workspaceId !== null;
+  const _onWorkspace = workspaceId !== null;
   const selectedIds = useMemo(() => {
     const ids = new Set<string>();
     if (focusedFromUrl) ids.add(focusedFromUrl);
@@ -351,7 +351,6 @@ export function RailSubshells({
                   subshell={sub}
                   selected={selectedIds.has(sub.id)}
                   focused={focusedId === sub.id}
-                  focusOnOpen={onWorkspace && selectedIds.has(sub.id)}
                   nodeLabel={machineLabel(sub)}
                   agentLabel={agentLabel(sub.harnessId)}
                   presetLabel={presetLabel(sub.presetId)}
@@ -385,7 +384,6 @@ export function RailSubshells({
                     subshell={sub}
                     selected={selectedIds.has(sub.id)}
                     focused={focusedId === sub.id}
-                    focusOnOpen={onWorkspace && selectedIds.has(sub.id)}
                     nodeLabel={machine}
                     subline={machine}
                     agentLabel={agentLabel(sub.harnessId)}
@@ -419,7 +417,6 @@ export function RailSubshells({
                   subshell={sub}
                   selected={selectedIds.has(sub.id)}
                   focused={focusedId === sub.id}
-                  focusOnOpen={onWorkspace && selectedIds.has(sub.id)}
                   nodeLabel={machineLabel(sub)}
                   agentLabel={agentLabel(sub.harnessId)}
                   presetLabel={presetLabel(sub.presetId)}
@@ -440,9 +437,7 @@ export function RailSubshells({
               </div>
               <SubshellCellGrid
                 rows={attentionRows}
-                selectedIds={selectedIds}
                 focusedId={focusedId}
-                focusOnClick={onWorkspace}
                 labelsFor={(sub) => ({
                   nodeLabel: machineLabel(sub),
                   agentLabel: agentLabel(sub.harnessId),
@@ -468,9 +463,7 @@ export function RailSubshells({
             >
               <SubshellCellGrid
                 rows={commsGroup.subshells}
-                selectedIds={selectedIds}
                 focusedId={focusedId}
-                focusOnClick={onWorkspace}
                 labelsFor={(sub) => ({
                   // The comms header spans machines, so each cell's tooltip
                   // names its own (the rows say it in their subline).
@@ -495,9 +488,7 @@ export function RailSubshells({
             >
               <SubshellCellGrid
                 rows={group.subshells}
-                selectedIds={selectedIds}
                 focusedId={focusedId}
-                focusOnClick={onWorkspace}
                 labelsFor={(sub) => ({
                   // Shared groups can span machines; resolve each row's node
                   // independently of its group heading.
@@ -515,9 +506,7 @@ export function RailSubshells({
       {view === "cells-flat" && (
         <SubshellCellGrid
           rows={flatRows}
-          selectedIds={selectedIds}
           focusedId={focusedId}
-          focusOnClick={onWorkspace}
           labelsFor={(sub) => ({
             nodeLabel: machineLabel(sub),
             agentLabel: agentLabel(sub.harnessId),

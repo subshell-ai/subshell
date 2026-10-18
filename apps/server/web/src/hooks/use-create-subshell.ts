@@ -2,7 +2,7 @@ import { apiFetch, apiPost } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { WORKSPACES_QUERY_KEY } from "@/hooks/use-workspaces";
-import { consumeCreateInNewWorkspace, currentWorkspaceId, rememberLastWorkspace } from "@/lib/current-workspace";
+import { currentWorkspaceId, rememberLastWorkspace } from "@/lib/current-workspace";
 import { joinPromptBlocks, type PromptBlock, presetBlocksToWire, promptLaunchMissed } from "@/lib/prompt-stack";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import { defaultWorkspaceName } from "@/lib/workspace-name";
@@ -13,9 +13,12 @@ import type { PresetRow } from "@/types/preset";
 export interface CreatedSubshell {
   /** The new subshell's id */
   id: string;
+  /** The server's name for the row (subshells are unnamed at launch today) */
+  name: string;
   /** False when a prompt was asked for but did not reach the pane */
   promptDelivered?: boolean;
-  /** The workspace created alongside this launch, when this press asked for one */
+  /** The workspace this launch was filed into — the one on screen, or a
+   fresh one opened around the pane when none was (spec 2026-10-17) */
   workspaceId?: string;
 }
 
@@ -107,7 +110,16 @@ export function toSubshellCreateBody({
  * navigating) fails afterwards. What happens after creation — navigate to
  * the subshell, or attach it to a workspace — stays with the caller.
  */
-export function useCreateSubshell() {
+/**
+ * `autoFile` (default true) is the "you are always in a workspace" rule: a
+ * launch raised with no workspace on screen gets a workspace opened around
+ * it. Callers that FILE the pane themselves — the add-a-pane dialog (its
+ * `onAdd` attaches through the idempotent pane path, including the split's)
+ * and the new-workspace dialog (which creates the workspace first) — pass
+ * false, or the shared create would leave a second workspace holding the
+ * same row.
+ */
+export function useCreateSubshell({ autoFile = true }: { autoFile?: boolean } = {}) {
   const queryClient = useQueryClient();
   return useMutation({
     // `promptDelivered: false` is honest "started, prompt did not land": the
@@ -173,18 +185,19 @@ export function useCreateSubshell() {
         // then attaches through the idempotent add-pane call, and the server
         // treats the duplicate as the same tab, so the two orders agree).
         const filedInto = currentWorkspaceId();
-        const asksFresh = consumeCreateInNewWorkspace();
         const created = await apiPost<Omit<CreatedSubshell, "workspaceId">>("/api/subshells", {
           ...toSubshellCreateBody(saved === null ? input : { ...input, presetId: saved.id }),
           ...(filedInto ? { workspaceId: filedInto } : {}),
         });
-        // The landing's first pane: no window existed to land in, so open one
-        // now and file the pane into it (the create-with-pane shape the split
-        // already uses). A failure here leaves a running ungrouped pane and a
-        // workspace-less landing, which is honest; the launch itself worked.
-        if (!filedInto && asksFresh) {
+        // You are always in a workspace (operator ruling, spec 2026-10-17):
+        // a launch raised with none on screen opens one around the pane it
+        // just made, named after it, the same create-with-pane shape the
+        // split uses. A failure here leaves a running ungrouped pane and the
+        // plain detail landing, which is honest: the launch itself worked,
+        // and clicking that pane later files it the same way.
+        if (autoFile && !filedInto) {
           const fresh = await apiPost<{ id: string }>("/api/workspaces", {
-            name: defaultWorkspaceName(),
+            name: created.name || defaultWorkspaceName(),
             subshellId: created.id,
           }).catch(() => null);
           if (fresh) {

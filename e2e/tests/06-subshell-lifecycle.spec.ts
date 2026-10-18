@@ -52,7 +52,9 @@ test("subshell: create -> attach -> terminate -> delete", async ({ page }) => {
 
   await page.getByRole("button", { name: "Start subshell" }).click();
   // The POST spawns tmux before the navigate happens, hence the long leash.
-  await expect(page).toHaveURL(/\/subshells\/.+/, { timeout: SPAWN_TIMEOUT });
+  // A launch raised off any workspace page lands as a TAB in a workspace
+  // opened around it (spec 2026-10-17), so the page is the dock.
+  await expect(page).toHaveURL(/\/workspaces\/.+/, { timeout: SPAWN_TIMEOUT });
 
   // Terminal attached: token minted, socket opened, and the reconnecting pill
   // gone — it renders only while the socket is down, so count 0 IS the proof.
@@ -108,7 +110,7 @@ test("subshell: Close from the rail leaves the open detail page", async ({ page 
   await page.fill("#picker-working-dir", "/tmp");
   await dismissDirectoryPanel(page);
   await page.getByRole("button", { name: "Start subshell" }).click();
-  await expect(page).toHaveURL(/\/subshells\/.+/, { timeout: SPAWN_TIMEOUT });
+  await expect(page).toHaveURL(/\/workspaces\/.+/, { timeout: SPAWN_TIMEOUT });
   await expectSubshellRunning(page, SPAWN_TIMEOUT);
   await renameSubshell(page, name);
 
@@ -129,6 +131,7 @@ test("subshell: Close from the rail leaves the open detail page", async ({ page 
 
   // The page closes out — the operator's exact complaint, now the assertion.
   await expect(page).not.toHaveURL(/\/subshells\/.+/, { timeout: SPAWN_TIMEOUT });
-  // And the rail itself forgot the row (the list invalidation still works).
+  // And the rail itself forgot the row everywhere (the list invalidation
+  // still works): the machine group, and the tree branch the launch filed.
   await expect(page.locator("aside").getByText(name)).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
 });
