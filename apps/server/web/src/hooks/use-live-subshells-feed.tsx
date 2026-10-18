@@ -3,7 +3,12 @@ import type { LiveClientFrame, LiveServerFrame } from "@internal/subshell-protoc
 import { useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { WORKSPACES_QUERY_KEY } from "@/hooks/use-workspaces";
-import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
+import {
+  SUBSHELL_QUERY_KEY,
+  SUBSHELL_WORKSPACES_QUERY_KEY,
+  SUBSHELLS_QUERY_KEY,
+  WORKSPACE_QUERY_KEY,
+} from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
 
 /**
@@ -339,6 +344,18 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
             // recheck, it produces a `subshell` broadcast, and that branch
             // clears.
             recheckDetail(frame.id);
+            // The workspace reads need the same invalidation the gone branch
+            // gives them (review 2026-10-17, round 4): an Everyone grant
+            // ENDING is answered with this frame, and ending the grant is
+            // what prunes the pane's facts out of the LIST and DETAIL
+            // server-side. Neither read is polled, the rail never unmounts,
+            // and window-focus refetch is off — without these the rail kept
+            // drawing a revoked pane's name, directory and live state until
+            // a reload. Invalidate BEFORE the held-row guard: the pane facts
+            // ride the workspace caches, not the subshells row list.
+            void queryClient.invalidateQueries({ queryKey: WORKSPACE_QUERY_KEY });
+            void queryClient.invalidateQueries({ queryKey: WORKSPACES_QUERY_KEY });
+            void queryClient.invalidateQueries({ queryKey: [...SUBSHELL_WORKSPACES_QUERY_KEY, frame.id] });
             if (!current.some((r) => r.id === frame.id)) return;
             askForSnapshot();
             return;

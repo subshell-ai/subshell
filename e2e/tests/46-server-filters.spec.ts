@@ -52,7 +52,10 @@ test("dashboard searches request filtered rows after typing pauses", async ({ pa
     await page.getByRole("button", { name: "Clear filters" }).click();
     await expect(page.getByRole("link", { name: "Server", exact: true })).toBeVisible();
 
-    await page.goto("/");
+    // The list with this search box lives at `/subshells` now; `/` became a
+    // direction (spec 2026-10-17) and navigates to a workspace, whose rail
+    // search is a different control.
+    await page.goto("/subshells");
     const subshellResponse = page.waitForResponse(
       (r) =>
         new URL(r.url()).pathname === "/api/subshells" && new URL(r.url()).searchParams.get("q") === "Filter subshell",

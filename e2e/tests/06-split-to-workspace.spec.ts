@@ -7,6 +7,22 @@ test.use({ storageState: ADMIN_STATE });
 const SPAWN_TIMEOUT = 30_000;
 
 /**
+ * The suite shares one database (`workers: 1`), and filing lands a launch in
+ * an EXISTING workspace when one is on screen — so workspaces a previous spec
+ * left running would ride into this file's first list and every count here
+ * would be measured against a half-full tree that is not the one under test.
+ * Each test starts from an empty instance: the suite is one admin who owns
+ * everything there, and deleting a leftover pane stops its tmux process too
+ * (the same reason the file's own cleanup uses DELETE rather than tabs).
+ */
+test.beforeEach(async ({ page }) => {
+  const subshells = (await (await page.request.get("/api/subshells")).json()) as { id: string }[];
+  for (const s of subshells) await page.request.delete(`/api/subshells/${s.id}`);
+  const workspaces = (await (await page.request.get("/api/workspaces")).json()) as { id: string }[];
+  for (const w of workspaces) await page.request.delete(`/api/workspaces/${w.id}`);
+});
+
+/**
  * Splitting a running subshell (spec 2026-09-14, draft-less by spec 2026-10-17).
  *
  * The flow under test is deliberately end-to-end: a split creates a real
@@ -46,10 +62,15 @@ async function launchSubshell(page: Page, name: string): Promise<{ subshellId: s
   const workspaceId = idFromUrl(page);
   await renameSubshell(page, name);
   const detail = (await (await page.request.get(`/api/workspaces/${workspaceId}`)).json()) as {
-    panes: { subshellId: string }[];
+    panes: { subshellId: string; subshellName: string }[];
   };
-  expect(detail.panes).toHaveLength(1);
-  return { subshellId: detail.panes[0].subshellId, workspaceId };
+  // The row is identified by the name just typed, not by "this workspace has
+  // exactly one tab": filing lands a launch in the workspace already on
+  // screen (the point since spec 2026-10-17), so a test that launches twice
+  // files the second pane beside the first.
+  const pane = detail.panes.find((p) => p.subshellName === name);
+  expect(pane).toBeTruthy();
+  return { subshellId: pane!.subshellId, workspaceId };
 }
 
 /** Every workspace the signed-in user has holding `subshellId`. */
@@ -189,8 +210,13 @@ test("split a subshell into a real, named workspace", async ({ page }) => {
     page,
     detail.panes.map((p) => p.subshellId),
   );
-  await expect(page.request.get(`/api/workspaces/${workspaceId}`)).resolves.toMatchObject({ status: 404 });
-  await expect(page.request.get(`/api/workspaces/${launchWorkspaceId}`)).resolves.toMatchObject({ status: 404 });
+  // `status()` is a method on APIResponse, not a field: `resolves.toMatchObject
+  // ({ status })` compares a property that does not exist and can never match.
+  // The suite's shape is to await the response and ask it.
+  const retiredSplit = await page.request.get(`/api/workspaces/${workspaceId}`);
+  expect(retiredSplit.status()).toBe(404);
+  const retiredLaunch = await page.request.get(`/api/workspaces/${launchWorkspaceId}`);
+  expect(retiredLaunch.status()).toBe(404);
 });
 
 test("removing a pane leaves the workspace; removing its last tab retires it", async ({ page }) => {

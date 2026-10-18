@@ -1,4 +1,3 @@
-import { sql } from "kysely";
 import { BaseRepository } from "@/db/repositories/base.repository.js";
 import type { SubshellStatus } from "@/db/types/subshell-status.js";
 import type { NewWorkspacePane, WorkspacePaneTable } from "@/db/types/workspace-panes.db-types.js";
@@ -119,7 +118,12 @@ export class WorkspacePanesRepository extends BaseRepository {
     await this.db.deleteFrom("workspacePanes").where("id", "=", id).execute();
   }
 
-  /** Pane count for one workspace — the "how full is it" number on API responses. */
+  /**
+   * RAW pane-row count for one workspace. The auto-retire decision is made
+   * with this (a hidden-but-present row still keeps the workspace alive),
+   * deliberately not with the visible tally the API responses carry — see
+   * `WorkspacesService#visiblePaneCount` for the screened number.
+   */
   async countForWorkspace(workspaceId: string): Promise<number> {
     const row = await this.db
       .selectFrom("workspacePanes")
@@ -127,22 +131,5 @@ export class WorkspacePanesRepository extends BaseRepository {
       .where("workspaceId", "=", workspaceId)
       .executeTakeFirst();
     return row?.n ?? 0;
-  }
-
-  /**
-   * Pane counts for every workspace of one user, in a single grouped query —
-   * the list endpoint merges these in so cards can show their subshell count
-   * without an N+1. Workspaces with no panes have no entry; treat a missing
-   * key as zero.
-   */
-  async countByUser(userId: string): Promise<Map<string, number>> {
-    const rows = await this.db
-      .selectFrom("workspacePanes")
-      .innerJoin("workspaces", "workspaces.id", "workspacePanes.workspaceId")
-      .where("workspaces.userId", "=", userId)
-      .select(["workspacePanes.workspaceId", sql<number>`count(*)`.as("n")])
-      .groupBy("workspacePanes.workspaceId")
-      .execute();
-    return new Map(rows.map((r) => [r.workspaceId, Number(r.n)]));
   }
 }

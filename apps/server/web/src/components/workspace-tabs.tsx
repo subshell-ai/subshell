@@ -267,9 +267,11 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
         actions={<SubshellPicker workspaceId={detail.workspace.id} existing={detail.panes} onAdd={handleAdd} />}
       />
       {/* This view owns the page's bottom edge (the shell skips its own
-        safe-area padding on /workspaces/$id): the tabs presentation carries
-        no key bar — that is the WIDE dock's pane chrome — so the terminal
-        column pads the home indicator itself, in the canvas colour. */}
+        safe-area padding on /workspaces/$id), so the terminal column pads
+        the home indicator itself, in the canvas colour. The key bar is NOT
+        wide-dock-only: `SubshellPane` renders it under the phone's selected
+        tab too (coarse-gated inside), because this is where a phone launch
+        lands and the bar is how a thumb sends Escape and Ctrl-C. */}
       <div className="flex min-h-0 flex-1 flex-col bg-terminal-canvas pb-[env(safe-area-inset-bottom)]">
         {error && (
           <ErrorBanner
@@ -315,6 +317,12 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
               <SubshellPane
                 pane={pane}
                 active={pane.id === selected?.id}
+                // The phone's answer to `DockedPane`'s `visible && isActive`:
+                // only the selected tab is shown and only one key bar may ride
+                // the strip. `SubshellPane` still gates the bar on coarse
+                // pointer itself, so a narrow desktop window gets no bar here
+                // any more than in the dock.
+                showKeyBar={pane.id === selected?.id}
                 onRestart={(subshellId) => void handleRestart(subshellId)}
                 onRemovePane={(paneId) => void handleRemovePane(paneId)}
               />

@@ -14,6 +14,13 @@ const SPAWN_TIMEOUT = 30_000;
 test("accessory key bar sends real bytes into the pane", async ({ page }) => {
   test.setTimeout(120_000);
 
+  // The pane this launch creates, identified by what is NEW afterwards: the
+  // URL names the WORKSPACE (the launch files its pane into it, spec
+  // 2026-10-17), and the workspace a previous spec left can be the one joined.
+  const before = new Set(
+    ((await (await page.request.get("/api/subshells")).json()) as { id: string }[]).map((s) => s.id),
+  );
+
   await page.goto("/new");
   await pickAgent(page.getByPlaceholder("Choose an agent"), "pi");
   await page.fill("#picker-working-dir", "/tmp");
@@ -52,9 +59,14 @@ test("accessory key bar sends real bytes into the pane", async ({ page }) => {
   await bar.getByRole("button", { name: "Send Escape" }).click();
   await bar.getByRole("button", { name: "Send Enter" }).click();
 
-  // URL already asserted to be /subshells/<id>; "" only degrades a lookup to
-  // a failed poll, never a false green.
-  const id = new URL(page.url()).pathname.split("/").pop() ?? "";
+  // The pane behind the workspace in the URL: the one this launch added, not
+  // whatever tab the workspace already held. "" only degrades a lookup to a
+  // failed poll, never a false green.
+  const wsId = new URL(page.url()).pathname.split("/").pop() ?? "";
+  const detail = (await (await page.request.get(`/api/workspaces/${wsId}`)).json()) as {
+    panes: { subshellId: string }[];
+  };
+  const id = detail.panes.find((p) => !before.has(p.subshellId))?.subshellId ?? "";
   const logText = async () => {
     const res = await page.request.get(`/api/subshells/${id}/log`);
     if (!res.ok()) return "";

@@ -228,9 +228,11 @@ handlers) reaches the same graph via `getRequestlessContext()`
 (the old partial unique index `WHERE draft = 0` is dropped; 0058's `down`
 dedupes names by rowid on rollback), and a workspace exists exactly as long as
 it holds a pane: removing its LAST pane deletes the row (`workspaceDeleted:
-true`), and so does deleting a subshell that was the last pane of one
-(`retireEmptyForUser`, owner-only: other owners' emptied workspaces are a
-fact about THEIR arrangement, untouched). `workspace_panes` is UNIQUE on
+true`), and so does deleting a subshell. The delete reads the owner's
+workspace ids HOLDING that subshell first (`idsHoldingForUser`), then retires
+only the candidates the cascade actually left pane-less (`retireEmptyAmong`).
+An intentionally-empty workspace survives an unrelated tab closing, and other
+owners' emptied workspaces are a fact about THEIR arrangement, untouched. `workspace_panes` is UNIQUE on
 `(workspace_id, subshell_id)` (0058 dedupes by oldest `created_at` first), so
 `addWorkspacePane` is idempotent: the second add returns the existing row with
 `alreadyPresent: true`, never a 409, and the UNIQUE race between two adds

@@ -12,8 +12,9 @@ export type WorkspaceLoad = "loading" | "answeredError" | "notFound" | "deleted"
  *  - "answeredError"  → an ANSWERED non-404 failure (401/403/500) is a genuine
  *    failure to show — it fails fast, so nothing else would ever clear it.
  *  - "loading"        → no answer yet (in-flight, or a NetworkError the query
- *    layer is retrying unbounded, plus `useWorkspace`'s 5 s poll): hold and let
- *    it heal.
+ *    layer is retrying unbounded): hold and let it heal. The detail read is NOT
+ *    polled — the heal is that retry loop plus the live feed's gone/recheck
+ *    frames, which invalidate this query out from under the page.
  *  - "deleted"        → a 404 that lands ON a cached detail: the workspace
  *    was deleted while the page stood on it (from the rail, another tab,
  *    another device). "ready" still paints the last-good dock — the blip

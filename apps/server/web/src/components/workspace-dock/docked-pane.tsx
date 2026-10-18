@@ -61,9 +61,9 @@ export function DockedPane(props: IDockviewPanelProps<DockedPaneParams>) {
   const handleTerminalDispose = useCallback(() => setSearchAddon(paneId, null), [setSearchAddon, paneId]);
 
   const pane = detail.panes.find((p) => p.id === paneId);
-  // The 5s poll can see a cascade (the subshell — and with it this pane —
-  // deleted from another device) before dockview's own layout catches up.
-  // Rendering nothing is correct for that gap; `WorkspaceDock`'s
+  // An invalidation refetch can see a cascade (the subshell — and with it this
+  // pane — deleted from another device) before dockview's own layout catches
+  // up. Rendering nothing is correct for that gap; `WorkspaceDock`'s
   // reconciliation effect closes the panel itself on the same update.
   if (!pane) return null;
 

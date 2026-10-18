@@ -94,15 +94,15 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const apiRef = useRef<DockviewApi | null>(null);
-  // Pane ids this component has ever given a panel to. The ongoing
-  // reconciliation effect below diffs against this — not against dockview's
-  // live layout — so a pane whose panel was already closed (the tab's ×,
-  // "Remove pane", or a restart replacing it — all of which delete the pane's
-  // server row) is never mistaken for one that needs re-attaching. This set
-  // only ever grows: a delete's `onRefetch` can return before the server has
-  // actually dropped the row, and if this set forgot the id in the meantime
-  // the reconciliation effect below would see it as "missing a panel" and
-  // resurrect the tile it was just closing.
+  // Pane ids this component currently has a reason to consider already
+  // tiled. The ongoing reconciliation effect below diffs against this — not
+  // against dockview's live layout — so a pane whose panel was just closed
+  // locally (the tab's ×, "Remove pane" — a delete's `onRefetch` can return
+  // before the server has actually dropped the row) is never mistaken for
+  // one that needs re-attaching. The set GROWS on add and SHRINKS only in
+  // the vanish-close below, where the server itself has stopped returning
+  // the row: that is the one moment forgetting is safe, and the revocation
+  // prune (row survives, id comes back on re-grant) needs it.
   const knownPaneIdsRef = useRef<Set<string>>(new Set());
   // Pane ids that have appeared in at least one server response. The
   // reconciliation effect only closes a panel once its pane was actually seen
@@ -133,6 +133,19 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
   // Publish the dock's focused pane to the rail (it lives in the app shell, a
   // separate tree). Cleared on unmount so a stale focus never outlives the page.
   useEffect(() => () => setWorkspaceFocusedId(null), []);
+  // One focus publisher for every moment focus can change: dockview's events
+  // AND the reconciliation effect. The event alone is not enough — when
+  // `handleAdd` places a new panel, dockview fires `onDidAddPanel`
+  // synchronously, before the refetch that adds the pane row has landed, so
+  // a read of `panesRef` at that instant finds nothing and would clear the
+  // published focus for good (nothing else re-publishes it: the header falls
+  // back to the workspace name and stays there, which is what the e2e split
+  // spec caught). Re-running on `detail.panes` changes is what heals that.
+  const publishFocus = useCallback(() => {
+    const activeId = apiRef.current?.activePanel?.id;
+    const pane = activeId ? panesRef.current.find((p) => p.id === activeId) : undefined;
+    setWorkspaceFocusedId(pane?.subshellId ?? null);
+  }, []);
   // A rail click that had to NAVIGATE here first (the pane was not on screen
   // to focus) arms an arrival focus; the first ready render takes it and
   // activates that panel (spec 2026-10-17: selecting a pane means going to
@@ -243,12 +256,8 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
     event.api.onDidLayoutChange(() => save.schedule(event.api.toJSON()));
     // Publish the focused pane (as its subshell id) so the rail can ring the
     // single active tab. Fires on group/panel activation and layout changes;
-    // called once now to seed the rail on first mount.
-    const publishFocus = () => {
-      const activeId = event.api.activePanel?.id;
-      const pane = activeId ? panesRef.current.find((p) => p.id === activeId) : undefined;
-      setWorkspaceFocusedId(pane?.subshellId ?? null);
-    };
+    // called once now to seed the rail on first mount. The shared publisher
+    // reads `apiRef`, which is this very api.
     // dockview disposes these subscriptions on api destroy (the component
     // unmount); the id→subshell mapping is re-read each fire, so a pane added
     // or removed elsewhere still resolves on the next layout/add event.
@@ -298,8 +307,21 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
       if (live.has(panel.id)) continue;
       if (!serverSeenPaneIdsRef.current.has(panel.id)) continue;
       panel.api.close();
+      // Forget the id here and nowhere else: this branch means the SERVER
+      // stopped returning a row the client had a tile for. For a delete that
+      // changes nothing (a new add mints a new id, so the resurrection guard
+      // the ever-growing set exists for stays intact). For a revocation prune
+      // it is the whole difference: the pane ROW survives, a re-grant brings
+      // the same id back in `detail.panes`, and an id still marked "known"
+      // would leave the tab lost while the rail row reappeared (review
+      // 2026-10-17, round 4).
+      knownPaneIdsRef.current.delete(panel.id);
     }
-  }, [detail.panes, addPanel]);
+    // And re-publish the focus: when this render is the refetch that landed
+    // after `handleAdd`, the active panel's pane row exists only NOW, and
+    // without this the header would sit on its workspace-name fallback.
+    publishFocus();
+  }, [detail.panes, addPanel, publishFocus]);
 
   const { addPane, removePane, restartSubshell } = useWorkspacePaneMutations(detail.workspace.id);
 
@@ -419,7 +441,15 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
           // added instead of waiting on the next poll.
           const subshell = await apiFetch<SubshellView>(`/api/subshells/${subshellId}`);
           const api = apiRef.current;
-          if (api) {
+          // `getPanel` before adding, not just the known-set: the detail
+          // refetch this very call kicked (POST → invalidate → refetch) can
+          // land DURING the summary fetch above, and the reconciliation
+          // effect then adds this pane's panel first. Adding again would
+          // throw dockview's "panel with id X already exists" (the e2e split
+          // spec caught exactly this). A pane the effect already tiled keeps
+          // the effect's plain placement — the same degraded-but-correct
+          // landing the finally-block's refetch comment describes.
+          if (api && !api.getPanel(newPane.id)) {
             addPanel(
               api,
               {

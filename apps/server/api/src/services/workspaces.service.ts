@@ -143,6 +143,21 @@ export class WorkspacesService extends BaseService {
   }
 
   /**
+   * The tally `subshellCount` answers everywhere: the panes the caller can
+   * actually see. A rename response that counted raw rows would give the one
+   * field two definitions — visible on the LIST, total here — and the moment
+   * a caller writes the response into the workspace caches the rail badge
+   * contradicts the tree beside it (review 2026-10-17, round 4).
+   */
+  async #visiblePaneCount(userId: string, workspaceId: string): Promise<number> {
+    const [rows, visible] = await Promise.all([
+      this.repos.workspacePanes.listByWorkspace(workspaceId),
+      this.#visibleSubshellIds(userId),
+    ]);
+    return rows.filter((r) => visible.has(r.subshellId)).length;
+  }
+
+  /**
    * Creates a workspace for the caller, optionally with its first pane already
    * in it — the shape "open a workspace holding this pane" needs, so the
    * browser lands on a dock that already holds the subshell it came from.
@@ -319,12 +334,11 @@ export class WorkspacesService extends BaseService {
     // WITHOUT stamping `updated_at`, which used to reorder the recency lists
     // for a change that never happened.
     if (update.name === undefined) {
-      return toWorkspaceResponse(existing, await this.repos.workspacePanes.countForWorkspace(id));
+      return toWorkspaceResponse(existing, await this.#visiblePaneCount(userId, id));
     }
     const updated = await repo.update(id, { name: update.name });
     if (!updated) throw new WorkspacesError("not_found", "Workspace not found", 404);
-    const subshellCount = await this.repos.workspacePanes.countForWorkspace(id);
-    return toWorkspaceResponse(updated, subshellCount);
+    return toWorkspaceResponse(updated, await this.#visiblePaneCount(userId, id));
   }
 
   /**

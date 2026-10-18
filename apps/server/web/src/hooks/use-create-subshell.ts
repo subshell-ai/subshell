@@ -2,12 +2,12 @@ import { apiFetch, apiPost } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { invalidateWorkspaceMembership } from "@/hooks/use-workspaces";
-import { currentWorkspaceId, lastWorkspaceId, rememberLastWorkspace } from "@/lib/current-workspace";
+import { currentWorkspaceId } from "@/lib/current-workspace";
 import { joinPromptBlocks, type PromptBlock, presetBlocksToWire, promptLaunchMissed } from "@/lib/prompt-stack";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
-import { defaultWorkspaceName } from "@/lib/workspace-name";
+import { fileLaunchedPane } from "@/lib/workspace-filing";
+import { armPaneFocusOnArrive } from "@/lib/workspace-focus";
 import type { PresetRow } from "@/types/preset";
-import type { WorkspaceRow } from "@/types/workspace";
 
 /** What a launch answers: the row's id, the prompt truth, and the workspace
  * this press opened for it (the landing's first pane; spec 2026-10-17). */
@@ -189,66 +189,23 @@ export function useCreateSubshell({ autoFile = true }: { autoFile?: boolean } = 
           ...toSubshellCreateBody(saved === null ? input : { ...input, presetId: saved.id }),
           ...(filedInto ? { workspaceId: filedInto } : {}),
         });
-        // You are always in a workspace (operator ruling, spec 2026-10-17),
-        // and a workspace you ALREADY have comes first (revision, same day):
-        // with none on screen the pane JOINS an existing one instead of
-        // opening a fresh window on top of the one you left. The join target
-        // is the workspace this device last visited, when it still exists,
-        // else the most recently touched. Only an instance with no
-        // workspace at all (a first launch) builds one around the pane, the
-        // create-with-pane shape the split uses. A failure on every path
-        // leaves a running ungrouped pane and the plain detail landing,
-        // which is honest: the launch itself worked, and clicking that pane
-        // later files it the same way.
+        // A pane filed into the workspace on screen must become the shown tab
+        // when the membership invalidation repaints it — otherwise the phone's
+        // strip keeps displaying the tab you were on and the fresh launch
+        // sits unseen in its own tab. The wide dock reads the same arrival
+        // signal for its own panel activation.
+        if (filedInto) armPaneFocusOnArrive(created.id);
+        // You are always in a workspace (operator ruling, spec 2026-10-17):
+        // with none on screen the pane joins an existing one, or a first
+        // launch opens one around it. `fileLaunchedPane` is the whole ladder
+        // (and the same one the SSH launch in the quick-add dialog files
+        // through), including the arming that makes the filed pane the shown
+        // tab on arrival. A filing that fails leaves the pane unfiled and the
+        // plain detail landing, which is honest: the launch worked, and
+        // clicking that pane later files it the same way.
         if (autoFile && !filedInto) {
-          // A read that FAILS is not an answer of "no workspaces": filing on
-          // that guess opens a duplicate window beside the one you already
-          // have (the dashboard rule keeps error and empty distinct). Retry
-          // once, since a blip is usually gone by the second try, and leave
-          // the pane unfiled if the read still refuses — clicking it later
-          // files it the same way. (review 2026-10-17: the old
-          // `.catch(() => [])` answered a failed read as "none", which is how
-          // a transient error became a second workspace holding the same
-          // pane.)
-          let homes: WorkspaceRow[] | null = null;
-          for (let attempt = 0; attempt < 2 && homes === null; attempt += 1) {
-            const list = await apiFetch<WorkspaceRow[]>("/api/workspaces").catch(() => null);
-            // The list is a server contract, not a trusted value here: anything
-            // that is not an array means "nothing known", the same as an error.
-            if (Array.isArray(list)) homes = list;
-          }
-          if (homes !== null) {
-            const remembered = lastWorkspaceId();
-            const join =
-              homes.find((h) => h.id === remembered) ??
-              [...homes].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
-            if (join) {
-              // The idempotent add-pane call: a duplicate answer is the same
-              // tab, so a racing order of create-then-attach is never a second
-              // filing. A failure (the row retired between read and write)
-              // falls through to opening a new one.
-              const attached = await apiPost<{ id: string }>(`/api/workspaces/${join.id}/panes`, {
-                subshellId: created.id,
-              }).catch(() => null);
-              if (attached) {
-                rememberLastWorkspace(join.id);
-                return { ...created, workspaceId: join.id };
-              }
-            }
-            // The fresh window is named after the pane the way the split
-            // names it: the name the person typed, when they typed one; the
-            // server's date/time default lands on the ROW, and this is the
-            // client-side counterpart. (The create response carries no name —
-            // `CreatedSubshell` used to claim one it never received.)
-            const fresh = await apiPost<{ id: string }>("/api/workspaces", {
-              name: input.name?.trim() || defaultWorkspaceName(),
-              subshellId: created.id,
-            }).catch(() => null);
-            if (fresh) {
-              rememberLastWorkspace(fresh.id);
-              return { ...created, workspaceId: fresh.id };
-            }
-          }
+          const filed = await fileLaunchedPane(created.id, input.name);
+          if (filed) return { ...created, workspaceId: filed };
         }
         return created;
       } catch (err) {

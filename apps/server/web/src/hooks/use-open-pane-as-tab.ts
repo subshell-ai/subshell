@@ -9,7 +9,7 @@ import type { WorkspaceRow } from "@/types/workspace";
 
 /** The most recently touched of the workspaces that already hold this pane. */
 export function filedWorkspaceFor(sub: SubshellView, workspaces: WorkspaceRow[]): WorkspaceRow | null {
-  // The LIST arrives NAME-ordered (the repository sorts `findAll` by name), so
+  // The LIST arrives NAME-ordered (the repository sorts `listByUser` by name), so
   // recency has to be taken here: a pane filed in several workspaces should
   // answer "where is it open?" with the one you touched last, not the one
   // whose name sorts first (review 2026-10-17 caught the comment claiming an

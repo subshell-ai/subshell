@@ -323,6 +323,18 @@ describe("workspaces route", () => {
     expect(mine!.subshellCount).toBe(0);
     // The workspace itself is the caller's own row and untouched by the
     // revocation: it just no longer discloses the foreign pane.
+
+    // The PUT's own tally speaks the SAME screen as the reads it answers
+    // (round-4 review): a raw row count here would give one field two
+    // definitions and let a rename response contradict the rail.
+    const renamed = await workspaceRoutes.fetch(
+      authedRequest(`/api/workspaces/${id}`, ownerToken, {
+        method: "PUT",
+        body: JSON.stringify({ name: "Renamed after revoke" }),
+      }),
+    );
+    expect(renamed.status).toBe(200);
+    expect(((await renamed.json()) as { subshellCount: number }).subshellCount).toBe(0);
   });
 
   it("adding the same subshell twice is the same tab, not a second one", async () => {

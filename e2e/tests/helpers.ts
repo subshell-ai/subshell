@@ -188,8 +188,11 @@ export async function dismissDirectoryPanel(page: Page, heading = "New subshell"
  * need the PANE id read it from the workspace detail rather than the URL.
  */
 export async function solePaneId(page: Page): Promise<string> {
+  // Absolute against the PAGE's origin: specs that drive their own backend
+  // (23-connect runs on its own port) would otherwise read the suite stack's
+  // :3199 and 404 a workspace that exists only on the spec's instance.
   const wsId = new URL(page.url()).pathname.split("/").pop() ?? "";
-  const res = await page.request.get(`/api/workspaces/${wsId}`);
+  const res = await page.request.get(new URL(`/api/workspaces/${wsId}`, page.url()).toString());
   expect(res.ok()).toBe(true);
   const detail = (await res.json()) as { panes: { subshellId: string }[] };
   expect(detail.panes.length).toBeGreaterThanOrEqual(1);

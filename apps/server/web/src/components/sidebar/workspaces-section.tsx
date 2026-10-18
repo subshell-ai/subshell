@@ -374,7 +374,12 @@ export function WorkspacesSection(): JSX.Element | null {
           busy={isLoading || (search !== "" && results.isLoading)}
         />
       )}
-      {isLoading && <p className="px-3 py-1 text-detail text-muted-foreground">Loading…</p>}
+      {/* The search read has its own loading state; while it is in flight the
+        tree is blank, and a blank tree with no signal reads as a broken
+        filter (the machine groups' `rail-subshells` shows the same line). */}
+      {(isLoading || (search !== "" && results.isLoading)) && (
+        <p className="px-3 py-1 text-detail text-muted-foreground">Loading…</p>
+      )}
       {search && !isLoading && !results.isLoading && !results.isError && shown.length === 0 && (
         <p className="px-3 py-1 text-detail text-muted-foreground">No workspaces match.</p>
       )}

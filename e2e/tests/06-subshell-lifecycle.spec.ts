@@ -7,6 +7,22 @@ test.use({ storageState: ADMIN_STATE });
 const SPAWN_TIMEOUT = 30_000;
 
 /**
+ * The filing model (spec 2026-10-17) makes a launch join the workspaces that
+ * already exist, so leftovers from earlier specs are no longer scenery: the
+ * rail-close test below must stand on the workspace ITS launch opened, not on
+ * one an earlier file happened to leave with tabs in it — closing its own pane
+ * there would retire nothing and the page would (correctly) stay put. Start
+ * each test empty; the suite is one admin who owns everything the earlier
+ * files left running.
+ */
+test.beforeEach(async ({ page }) => {
+  const subshells = (await (await page.request.get("/api/subshells")).json()) as { id: string }[];
+  for (const s of subshells) await page.request.delete(`/api/subshells/${s.id}`);
+  const workspaces = (await (await page.request.get("/api/workspaces")).json()) as { id: string }[];
+  for (const w of workspaces) await page.request.delete(`/api/workspaces/${w.id}`);
+});
+
+/**
  * The flagship path: create a real tmux session (stub `pi` binary, no
  * preset — the launch is harness-first since spec 2026-09-13), watch the
  * terminal attach, then terminate and delete.
