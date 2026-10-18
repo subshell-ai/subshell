@@ -8,6 +8,7 @@ import {
 } from "dockview-react";
 import "dockview-react/dist/styles/dockview.css";
 import { apiFetch, Button, errMessage } from "@internal/node-admin";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type JSX, type DragEvent as ReactDragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
@@ -19,6 +20,7 @@ import { GroupHeaderActions } from "@/components/workspace-dock/group-header-act
 import { SubshellTab } from "@/components/workspace-dock/subshell-tab";
 import { useDebouncedSave } from "@/hooks/use-debounced-save";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
+import { invalidateWorkspaceMembership } from "@/hooks/use-workspaces";
 import { confirmCloseSubshell } from "@/lib/subshell-confirmations";
 import { readSubshellDrag, SUBSHELL_DND_TYPE } from "@/lib/subshell-dnd";
 import { onWorkspacePaneFocusRequest, setWorkspaceFocusedId, takePaneFocusOnArrive } from "@/lib/workspace-focus";
@@ -90,6 +92,7 @@ export interface WorkspaceDockProps {
  */
 export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: WorkspaceDockProps): JSX.Element {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const apiRef = useRef<DockviewApi | null>(null);
   // Pane ids this component has ever given a panel to. The ongoing
   // reconciliation effect below diffs against this — not against dockview's
@@ -123,6 +126,10 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
   // outside React render, so they cannot close over `detail` and stay current).
   const panesRef = useRef(detail.panes);
   panesRef.current = detail.panes;
+  // The focus-request handler below subscribes once (stable api), so it reads
+  // the page's workspace id through this ref, not a stale closure.
+  const workspaceIdRef = useRef(detail.workspace.id);
+  workspaceIdRef.current = detail.workspace.id;
   // Publish the dock's focused pane to the rail (it lives in the app shell, a
   // separate tree). Cleared on unmount so a stale focus never outlives the page.
   useEffect(() => () => setWorkspaceFocusedId(null), []);
@@ -144,7 +151,13 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
   // publishes the new focus back — one request, one ring move.
   useEffect(
     () =>
-      onWorkspacePaneFocusRequest((subshellId) => {
+      onWorkspacePaneFocusRequest((subshellId, scopedWorkspaceId) => {
+        // A scoped request (from a sidebar branch row) belongs only to the
+        // workspace it names; answering for another one would light up THIS
+        // dock's tab while the click meant a different branch.
+        if (scopedWorkspaceId !== undefined && scopedWorkspaceId !== workspaceIdRef.current) {
+          return false;
+        }
         const pane = panesRef.current.find((p) => p.subshellId === subshellId);
         const panel = pane ? apiRef.current?.getPanel(pane.id) : undefined;
         if (!panel) return false; // no such pane here / dock not ready → the click navigates
@@ -349,12 +362,17 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
         // `DockedPane`'s vanished-pane check covers the frame or two in
         // between, when the panel still exists but its pane does not.
         await apiFetch(`/api/subshells/${subshellId}`, { method: "DELETE" });
+        // A close moves membership everywhere the pane seam's wake covers —
+        // the tree's branch row rides the LIST. The feed's gone-frame tells
+        // everyone else; this client already knows what it did, and the
+        // socket is a delivery, not a promise (review 2026-10-17).
+        void invalidateWorkspaceMembership(queryClient);
         void onRefetch();
       } catch (err) {
         setError(errMessage(err, "Failed to close subshell"));
       }
     },
-    [detail.panes, onRefetch],
+    [detail.panes, onRefetch, queryClient],
   );
 
   // The tab context menu's split acts. `splitTarget` resolves the destination;

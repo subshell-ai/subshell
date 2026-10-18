@@ -9,9 +9,14 @@ import type { WorkspaceRow } from "@/types/workspace";
 
 /** The most recently touched of the workspaces that already hold this pane. */
 export function filedWorkspaceFor(sub: SubshellView, workspaces: WorkspaceRow[]): WorkspaceRow | null {
-  // The LIST arrives recency-ordered and the sort is stable, so the first
-  // holder wins ties exactly the way the server ordered them.
-  return workspaces.find((w) => (w.panes ?? []).some((p) => p.subshellId === sub.id)) ?? null;
+  // The LIST arrives NAME-ordered (the repository sorts `findAll` by name), so
+  // recency has to be taken here: a pane filed in several workspaces should
+  // answer "where is it open?" with the one you touched last, not the one
+  // whose name sorts first (review 2026-10-17 caught the comment claiming an
+  // order the server never sends).
+  const holders = workspaces.filter((w) => (w.panes ?? []).some((p) => p.subshellId === sub.id));
+  if (holders.length === 0) return null;
+  return [...holders].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]!;
 }
 
 /**

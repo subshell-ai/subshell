@@ -57,7 +57,9 @@ export function NewWorkspaceDialog({
   const invalidate = useInvalidateWorkspaces();
   const { data: subshells, isError: loadFailed, isLoading: loading } = useSubshellsList();
   // Names already taken, so a same-minute second create does not send the
-  // identical default and eat the server's unique-name 409.
+  // identical default: two tree branches reading the same is confusion, not
+  // a server rule — the unique `(user, name)` index left with migration 0058,
+  // and nothing 409s on a repeated name anymore.
   const { data: workspaces } = useWorkspaces();
   // Placement is this dialog's own decision (the workspace it was opened
   // from, or the split's, or the workspace it just created) — the hook must

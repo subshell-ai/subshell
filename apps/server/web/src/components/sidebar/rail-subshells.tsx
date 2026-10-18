@@ -208,9 +208,6 @@ export function RailSubshells({
   const { data: workspaceDetail } = useWorkspace(workspaceId ?? "", { enabled: workspaceId !== null });
   const dockFocusedId = useWorkspaceFocusedId();
   const focusedId = focusedFromUrl ?? dockFocusedId;
-  // Only inside a workspace page (a dock is up to act on a focus request) does
-  // clicking an open pane focus its tab rather than navigate out.
-  const _onWorkspace = workspaceId !== null;
   const selectedIds = useMemo(() => {
     const ids = new Set<string>();
     if (focusedFromUrl) ids.add(focusedFromUrl);

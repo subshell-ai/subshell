@@ -13,7 +13,11 @@ const ListSubshellsQuerySchema = t.Object({
     t.String({
       minLength: 4,
       maxLength: 128,
-      pattern: "^(none|[0-9a-zA-Z_-]{1,128})$",
+      // Floor 4 on both spellings of the rule: the `none` word IS four
+      // characters, and no id this filter could name is shorter, so the
+      // pattern and `minLength` agree instead of one silently overriding
+      // the other (review 2026-10-17).
+      pattern: "^(none|[0-9a-zA-Z_-]{4,128})$",
       description:
         "Filter by workspace membership: 'none' for the caller's ungrouped subshells (the rail's Ungrouped section), or a workspace id for its members. An id the caller does not have simply answers empty — same posture as nodeId, and no existence oracle",
     }),

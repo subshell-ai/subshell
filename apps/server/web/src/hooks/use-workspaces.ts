@@ -41,27 +41,36 @@ export function useWorkspaces() {
 }
 
 /**
- * Invalidates the workspace list AND every per-subshell membership query
- * (`useSubshellWorkspaces`). Both read the same table, and every act that
- * changes it — create, rename, pane moves, the empty self-retire — already
- * calls this, so one invalidator keeps the subshell page's workspace link
- * from outliving a workspace it points at.
+ * The one invalidator for workspace MEMBERSHIP moving: the LIST (the rail's
+ * tree branches render from it), every per-subshell membership query
+ * (`useSubshellWorkspaces` — keeps the subshell page's workspace link from
+ * outliving a workspace it points at), and the OPEN detail. The detail is
+ * load-bearing two ways: a Delete from the rail must reach the page standing
+ * on that workspace (operator bug 2026-09-27: deleting the workspace you are
+ * standing in left the page rendering the dead one's cached detail forever),
+ * and the empty self-retire deletes the row the page is standing on.
+ *
+ * Every act that adds or removes a pane calls it: the pane-mutation seam
+ * (`useWorkspacePaneMutations`), the rail's and dock's subshell closes (the
+ * DELETE cascades the pane rows), and the feed's `subshell-gone` frame for
+ * closes made elsewhere. The actor's own wake is not redundant with the
+ * frame: the socket is a delivery, not a promise, and the surface that
+ * pulled the trigger already knows what it did.
+ */
+export function invalidateWorkspaceMembership(queryClient: QueryClient): Promise<void> {
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: WORKSPACES_QUERY_KEY }),
+    queryClient.invalidateQueries({ queryKey: SUBSHELL_WORKSPACES_QUERY_KEY }),
+    queryClient.invalidateQueries({ queryKey: WORKSPACE_QUERY_KEY }),
+  ]).then(() => {});
+}
+
+/**
+ * The hook shape of `invalidateWorkspaceMembership`, for call sites that act
+ * inside React and want to await the settles (navigation ordering, a dialog
+ * closing only once the caches are fresh).
  */
 export function useInvalidateWorkspaces(): () => Promise<void> {
   const queryClient = useQueryClient();
-  return async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: WORKSPACES_QUERY_KEY }),
-      queryClient.invalidateQueries({ queryKey: SUBSHELL_WORKSPACES_QUERY_KEY }),
-      // And the OPEN detail: a Delete from the rail (or any other surface)
-      // must reach the page standing on that workspace — the detail query is
-      // what it renders, and nothing else re-reads it (operator bug
-      // 2026-09-27: deleting the workspace you are standing in left the
-      // page rendering the dead one's cached detail forever, exactly the
-      // subshell page's earlier half of the same bug). The empty self-retire
-      // makes this even less optional: closing the last tab from anywhere
-      // deletes the row the page is standing on.
-      queryClient.invalidateQueries({ queryKey: WORKSPACE_QUERY_KEY }),
-    ]);
-  };
+  return () => invalidateWorkspaceMembership(queryClient);
 }

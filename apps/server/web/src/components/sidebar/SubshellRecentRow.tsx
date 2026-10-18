@@ -36,7 +36,6 @@ export function SubshellRecentRow({
   agentLabel,
   presetLabel,
   subline,
-  nodeLine,
   branchWorkspaceId,
 }: {
   subshell: SubshellView;
@@ -64,15 +63,6 @@ export function SubshellRecentRow({
    * than the machine. Every other rail row leaves it undefined (the path).
    */
   subline?: string;
-  /**
-   * A THIRD muted line, shown in addition to the working directory. The
-   * "Workspace" section uses it to name each row's MACHINE: those rows sit under
-   * a Workspace header that spans every machine, so (like comms rows) the header
-   * cannot say which host a row is on — but unlike comms rows they keep the
-   * directory, so this rides BELOW it rather than replacing it (operator
-   * 2026-09-27). Every other row leaves it undefined.
-   */
-  nodeLine?: string;
   /**
    * The row sits inside a WORKSPACE's branch in the sidebar tree: the tab it
    * names lives in THAT workspace, so a plain click resolves there — focus the
@@ -114,10 +104,13 @@ export function SubshellRecentRow({
                 if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
                 e.preventDefault();
                 if (branchWorkspaceId) {
-                  // The branch names its own workspace: focus the pane when a
-                  // dock on screen holds it, else go to the branch and focus
-                  // there once its panes exist.
-                  if (requestWorkspacePaneFocus(subshell.id)) return;
+                  // The branch names its own workspace, and the focus request
+                  // is scoped to it: a pane filed in several workspaces must
+                  // not answer a branch click by activating a DIFFERENT
+                  // workspace's tab (review 2026-10-17). Refused here means
+                  // "that branch is not the page on screen" — so navigate to
+                  // the branch and focus there once its panes exist.
+                  if (requestWorkspacePaneFocus(subshell.id, branchWorkspaceId)) return;
                   armPaneFocusOnArrive(subshell.id);
                   void navigate({ to: "/workspaces/$id", params: { id: branchWorkspaceId } });
                   return;
@@ -149,7 +142,6 @@ export function SubshellRecentRow({
             {(subline ?? subshell.workingDir) ? (
               <span className="block truncate text-detail opacity-70">{subline ?? subshell.workingDir}</span>
             ) : null}
-            {nodeLine ? <span className="block truncate text-detail opacity-60">{nodeLine}</span> : null}
           </span>
         </TooltipTrigger>
         <TooltipContent side="right" arrow className="whitespace-pre-line break-words">

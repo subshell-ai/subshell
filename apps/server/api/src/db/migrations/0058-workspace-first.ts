@@ -71,6 +71,13 @@ export async function up(db: Kysely<any>): Promise<void> {
  * workspaces that collide were auto-titled, and this schema cannot hold
  * two alike. `draft` comes back all-zero: nothing here knows which rows
  * were drafts anymore, because the forward migration erased that fact.
+ *
+ * The index is the one 0029 raised: UNIQUE on `(user_id, name)` WHERE
+ * `draft = 0`, partial on purpose (its whole point was letting drafts
+ * share a title). A FULL unique index here would re-impose exactly the
+ * rule 0029's own write-up says got the split 409ing on a name the user
+ * never typed. Kysely's builder cannot express the WHERE half, so this is
+ * the same raw `sql` 0029 used.
  */
 export async function down(db: Kysely<any>): Promise<void> {
   if (!(await hasTable(db, "workspaces"))) return;
@@ -84,12 +91,9 @@ export async function down(db: Kysely<any>): Promise<void> {
       SELECT MIN(rowid) FROM workspaces GROUP BY user_id, name
     )
   `.execute(db);
-  await db.schema
-    .createIndex("idx_workspaces_user_name")
-    .ifNotExists()
-    .on("workspaces")
-    .columns(["user_id", "name"])
-    .unique()
-    .execute();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_user_name
+    ON workspaces (user_id, name) WHERE draft = 0
+  `.execute(db);
   await db.schema.dropIndex("idx_workspace_panes_workspace_subshell").ifExists().execute();
 }

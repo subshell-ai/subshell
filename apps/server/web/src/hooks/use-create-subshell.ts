@@ -181,13 +181,12 @@ export function useCreateSubshell({ autoFile = true }: { autoFile?: boolean } = 
         // Spec 2026-10-17: a launch raised while a workspace page is on screen
         // LANDS AS A TAB in it, server-side in the create's own write. With no
         // workspace on screen the pane starts ungrouped, which every
-        // bearer/MCP create already expects; `autoFile` below (or the detail
-        // page for a bare launch) gives it a workspace from there.
-        // The workspace the dialog is adding to may differ from the page's
-        // (the add-dialog's explicit flow keeps its own path: it launches,
-        // then attaches through the idempotent add-pane call, and the server
-        // treats the duplicate as the same tab, so the two orders agree).
-        const filedInto = currentWorkspaceId();
+        // bearer/MCP create already expects; `autoFile` below gives it a
+        // workspace from there. The spread is gated on `autoFile` too
+        // (review 2026-10-17): a dialog that files the pane ITSELF must not
+        // also land it in whatever workspace page happens to be on screen —
+        // that would file it twice, into two workspaces.
+        const filedInto = autoFile ? currentWorkspaceId() : null;
         const created = await apiPost<Omit<CreatedSubshell, "workspaceId">>("/api/subshells", {
           ...toSubshellCreateBody(saved === null ? input : { ...input, presetId: saved.id }),
           ...(filedInto ? { workspaceId: filedInto } : {}),

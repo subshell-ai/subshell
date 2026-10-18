@@ -113,5 +113,14 @@ describe("migration 0058-workspace-first", () => {
 
     // And a duplicate name now throws again, which is the index being back.
     await expect(workspace("dup-3", "Oct 17, 5:21 PM", 0, "u9")).rejects.toThrow("UNIQUE");
+
+    // The index is back as 0029 raised it: PARTIAL on `draft = 0`. A saved
+    // row collides (the line above), but a DRAFT sharing that name does not
+    // — that exemption is the whole reason 0029 made the index partial, and
+    // a full unique index (which the down() briefly was) would throw here
+    // and hand back the split-409 bug 0029 exists to prevent. A UNIQUE
+    // violation on this insert rejects, and the rejecting await fails the
+    // test.
+    await workspace("draft-dup", "Oct 17, 5:21 PM", 1, "u9");
   });
 });

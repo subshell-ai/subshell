@@ -69,7 +69,7 @@ function subshell(over: Partial<SubshellView> = {}): SubshellView {
  */
 function stubFetch(
   subshells: SubshellView[],
-  state: { failNodes: boolean } = { failNodes: false },
+  state: { failNodes: boolean; failWorkspaceSearch?: boolean } = { failNodes: false },
   workspaces: unknown[] = [],
   workspaceDetail?: unknown,
   ungrouped: unknown[] = [],
@@ -77,6 +77,15 @@ function stubFetch(
   setFetchRouter(async (input: RequestInfo | URL) => {
     const url = String(typeof input === "string" || input instanceof URL ? input : input.url);
     if (state.failNodes && url.includes("/api/nodes")) {
+      return new Response(JSON.stringify({ error: "boom" }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    // Only the FILTERED read fails (it carries `?q=`); the complete LIST and
+    // every other request keep answering, so a test sees a failed SEARCH
+    // rather than a failed everything.
+    if (state.failWorkspaceSearch && /\/api\/workspaces\?/.test(url)) {
       return new Response(JSON.stringify({ error: "boom" }), {
         status: 500,
         headers: { "content-type": "application/json" },
@@ -861,6 +870,64 @@ describe("the Workspaces tree (spec 2026-10-17)", () => {
       // The box survives the miss: the text can be cleared without unmount.
       expect(document.querySelector("input[aria-label='Filter workspaces']")).toBeTruthy();
     } finally {
+      spy.mockRestore();
+      restore();
+    }
+  });
+
+  it("a failed search says so with a Retry, not 'No workspaces match.'", async () => {
+    // The dashboard rule (and the bug review 2026-10-17 caught): a search
+    // whose request never answered must not read as an empty result set.
+    const a = ws("w1", "Alpha", "2026-10-02T00:00:00.000Z");
+    const spy = quickAddSpy();
+    const restore = stubFetch([], { failNodes: false, failWorkspaceSearch: true }, [a]);
+    try {
+      await renderRail("/");
+      const input = (await waitFor(() =>
+        document.querySelector("input[aria-label='Filter workspaces']"),
+      )) as HTMLInputElement;
+      fireEvent.change(input, { target: { value: "alpha" } });
+      await waitFor(() => expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy());
+      // Distinct from a miss: the empty-result copy is NOT what a failed read shows.
+      expect(screen.queryByText(/No workspaces match/) === null).toBe(true);
+    } finally {
+      spy.mockRestore();
+      restore();
+    }
+  });
+
+  it("the branch chevron is inert while a search force-opens the branch", async () => {
+    // Pressing it during a force-open would fold a branch the user never
+    // chose to open, and the fold lands when the filter clears (the machine
+    // group's rule, copied). The press does nothing; the preference is
+    // untouched; clearing the filter restores the branch's own state.
+    const a = ws("w1", "Alpha", "2026-10-02T00:00:00.000Z", [pane("p1", "alpha-pane")]);
+    const spy = quickAddSpy();
+    const restore = stubFetch([], { failNodes: false }, [a]);
+    try {
+      localStorage.removeItem(WS_EXPANDED_KEY);
+      await renderRail("/");
+      const input = (await waitFor(() =>
+        document.querySelector("input[aria-label='Filter workspaces']"),
+      )) as HTMLInputElement;
+      // No filter yet: Alpha is not the active branch, so it rests folded.
+      await waitFor(() => expect(screen.getByText("Alpha")).toBeTruthy());
+      fireEvent.change(input, { target: { value: "alpha" } });
+      await waitFor(() => expect(screen.getByText("alpha-pane")).toBeTruthy());
+      const chevron = screen.getByRole("button", { name: "Collapse Alpha" });
+      // The rail's shared inert idiom: an explained disabled button stays
+      // focusable and answers with `aria-disabled` (as the machine group's
+      // header test asserts).
+      expect(chevron.matches(":disabled, [aria-disabled=true]")).toBe(true);
+      fireEvent.click(chevron);
+      // Inert: the fold was never written.
+      await new Promise((r) => setTimeout(r, 20));
+      expect(JSON.parse(localStorage.getItem(WS_EXPANDED_KEY) ?? "{}")).toEqual({});
+      // Clear the filter: the branch returns to its own (folded) choice.
+      fireEvent.change(input, { target: { value: "" } });
+      await waitFor(() => expect(screen.queryByText("alpha-pane") === null).toBe(true));
+    } finally {
+      localStorage.removeItem(WS_EXPANDED_KEY);
       spy.mockRestore();
       restore();
     }

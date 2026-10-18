@@ -3,6 +3,7 @@ import { LayoutDashboard } from "lucide-react";
 import type { JSX } from "react";
 import { DashboardPage } from "@/components/dashboard-page";
 import { EmptyState } from "@/components/empty-state";
+import { ListLoadError } from "@/components/list-load-error";
 import { LoadingCard } from "@/components/loading-card";
 import { useQuickAdd } from "@/components/quick-add";
 import { useWorkspaces } from "@/hooks/use-workspaces";
@@ -24,10 +25,20 @@ export const Route = createFileRoute("/")({
  * what makes a dead id impossible to land on.
  */
 function Landing(): JSX.Element {
-  const { data: workspaces, isLoading } = useWorkspaces();
+  const { data: workspaces, isLoading, isError, refetch } = useWorkspaces();
   const quickAdd = useQuickAdd();
 
   if (isLoading) return <LoadingCard message="Opening your workspace…" />;
+  // A failed read is its own answer: falling through to the empty state would
+  // tell someone with six workspaces to create one (the dashboard rule keeps
+  // loading, errors, and zero states distinct).
+  if (isError) {
+    return (
+      <DashboardPage>
+        <ListLoadError message="Couldn’t load your workspaces." retry={refetch} busy={false} />
+      </DashboardPage>
+    );
+  }
   const remembered = workspaces?.find((w) => w.id === lastWorkspaceId()) ?? null;
   const target =
     remembered ??

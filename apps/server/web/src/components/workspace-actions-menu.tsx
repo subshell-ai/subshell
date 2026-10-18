@@ -1,4 +1,4 @@
-import { apiFetch, Button, confirmAction, errMessage, Input } from "@internal/node-admin";
+import { ApiError, apiFetch, Button, confirmAction, errMessage, Input } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { ExternalLink, QrCode, SquareArrowOutUpRight, TextCursorInput, Trash2 } from "lucide-react";
 import { type JSX, type ReactNode, useState } from "react";
@@ -70,10 +70,13 @@ export function WorkspaceActionsMenu({
     } catch (err) {
       // Names stopped being unique with migration 0058; a 409 here is a stale
       // server enforcing the retired index, so say what needs updating rather
-      // than blaming the name.
-      const message = errMessage(err, "Failed to rename workspace");
+      // than blaming the name. The STATUS, never the message text: a name
+      // carrying "409" would read as a collision through a substring match
+      // (the lesson the deleted save dialog recorded on 2026-09-14).
       setRenameError(
-        message.includes("409") ? "Your server still treats workspace names as unique; update it." : message,
+        err instanceof ApiError && err.status === 409
+          ? "Your server still treats workspace names as unique; update it."
+          : errMessage(err, "Failed to rename workspace"),
       );
     } finally {
       setSaving(false);

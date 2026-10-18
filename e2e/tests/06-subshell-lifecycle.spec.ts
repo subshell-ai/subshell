@@ -119,10 +119,10 @@ test("subshell: Close from the rail leaves the open detail page", async ({ page 
   // component tree, and that tree used to be the one that did nothing.
   // `.last()`, not `.first()`: since spec 2026-10-17 the launch filed this
   // pane into a workspace, so the Workspaces branch ABOVE the machine groups
-  // also renders a row for it, and that tree row is a focus/click row with no
-  // actions menu. The right-clickable row is the machine group's, which is
-  // last here (no Needs-Attention spotlight or cross-agent section holds this
-  // pane).
+  // renders a second row for it. Both rows are the same rail component and
+  // both carry the shared menu; `.last()` names the machine group's, which
+  // sits lowest (no Needs-Attention spotlight or cross-agent section holds
+  // this pane), so the target is deterministic whichever branch is open.
   const railRow = page.locator("aside").getByText(name).last();
   await railRow.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Close" }).click();

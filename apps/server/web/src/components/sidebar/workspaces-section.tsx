@@ -1,6 +1,5 @@
-import { cn, errMessage, Input } from "@internal/node-admin";
+import { cn, ExplainedButton, errMessage, Input } from "@internal/node-admin";
 import { LIST_SEARCH_MAX } from "@internal/subshell-protocol";
-import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "@tanstack/react-router";
 import { ChevronDown } from "lucide-react";
 import { type DragEvent, type JSX, useCallback, useRef, useState } from "react";
@@ -16,7 +15,6 @@ import { usePresets } from "@/hooks/use-presets";
 import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { useWorkspaces, WORKSPACES_QUERY_KEY } from "@/hooks/use-workspaces";
-import { SUBSHELL_WORKSPACES_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import { workspaceIdFromPath } from "@/lib/route-ids";
 import { RECENT_LIMIT } from "@/lib/sidebar-recents";
 import { readSubshellDrag, SUBSHELL_DND_TYPE } from "@/lib/subshell-dnd";
@@ -136,7 +134,6 @@ function WorkspaceBranch({
   // dragenter/dragleave fire on every child the pointer crosses; only the
   // depth-zero exit means the drag actually left the branch.
   const dragDepth = useRef(0);
-  const queryClient = useQueryClient();
   const { addPane } = useWorkspacePaneMutations(workspace.id);
 
   const accepts = (dt: Pick<DataTransfer, "types">): boolean => Array.from(dt.types).includes(SUBSHELL_DND_TYPE);
@@ -166,17 +163,14 @@ function WorkspaceBranch({
     e.preventDefault();
     dragDepth.current = 0;
     setDropHint(false);
+    // `addPane` belongs to the pane-mutation seam, which wakes every
+    // membership reader (tree LIST, open dock, subshell page) on success —
+    // this handler only reports the failure.
     try {
       await addPane(subshellId);
     } catch (err) {
       toast.error(errMessage(err, "Could not add that subshell to the workspace."));
-      return;
     }
-    // Membership moved, and three surfaces read it: the tree (LIST), an
-    // open dock (DETAIL), and the subshell page's workspace control.
-    void queryClient.invalidateQueries({ queryKey: WORKSPACES_QUERY_KEY });
-    void queryClient.invalidateQueries({ queryKey: WORKSPACE_QUERY_KEY });
-    void queryClient.invalidateQueries({ queryKey: SUBSHELL_WORKSPACES_QUERY_KEY });
   }
 
   return (
@@ -225,15 +219,21 @@ function WorkspaceBranch({
         ) : (
           <span className="shrink-0 tabular-nums opacity-70">{workspace.subshellCount}</span>
         )}
-        <button
+        {/* Inert while the search force-opens this branch (the machine group's
+          rule, copied): a press would move nothing visible, and a press that
+          also wrote its state would fold the branch the moment the filter
+          clears — a choice the user never saw themselves make. */}
+        <ExplainedButton
           type="button"
           onClick={onToggle}
+          disabled={forceOpen}
+          disabledReason="Clear the filter to collapse this workspace."
           aria-label={open ? `Collapse ${workspace.name}` : `Expand ${workspace.name}`}
           aria-expanded={open}
           className="shrink-0"
         >
           <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200", !open && "-rotate-90")} />
-        </button>
+        </ExplainedButton>
       </div>
       {open && (
         <div>
@@ -357,9 +357,20 @@ export function WorkspacesSection(): JSX.Element | null {
           />
         </WorkspaceActionsMenu>
       ))}
-      {isError && <ListLoadError message="Couldn’t load workspaces." retry={refetch} busy={isLoading} />}
+      {/* A failed SEARCH is an error, not an empty match: the old copy
+        announced "No workspaces match." for a request that never answered,
+        and offered no retry (the dashboard rule keeps loading, errors, and
+        zero matches distinct). While searching, the filtered read is the one
+        on screen, so its failure owns the Retry. */}
+      {(isError || (search !== "" && results.isError)) && (
+        <ListLoadError
+          message="Couldn’t load workspaces."
+          retry={search !== "" && results.isError ? results.refetch : refetch}
+          busy={isLoading || (search !== "" && results.isLoading)}
+        />
+      )}
       {isLoading && <p className="px-3 py-1 text-detail text-muted-foreground">Loading…</p>}
-      {search && !isLoading && !results.isLoading && shown.length === 0 && (
+      {search && !isLoading && !results.isLoading && !results.isError && shown.length === 0 && (
         <p className="px-3 py-1 text-detail text-muted-foreground">No workspaces match.</p>
       )}
     </div>

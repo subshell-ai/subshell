@@ -154,13 +154,18 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
   // the rail's link navigate out of the workspace.
   useEffect(
     () =>
-      onWorkspacePaneFocusRequest((subId) => {
+      onWorkspacePaneFocusRequest((subId, scopedWorkspaceId) => {
+        // Scoped requests name their branch: answer only for the workspace
+        // this strip is standing on (see `requestWorkspacePaneFocus`).
+        if (scopedWorkspaceId !== undefined && scopedWorkspaceId !== detail.workspace.id) {
+          return false;
+        }
         const pane = detail.panes.find((p) => p.subshellId === subId);
         if (!pane) return false;
         setSelectedId(pane.id);
         return true;
       }),
-    [detail.panes],
+    [detail.panes, detail.workspace.id],
   );
 
   /**

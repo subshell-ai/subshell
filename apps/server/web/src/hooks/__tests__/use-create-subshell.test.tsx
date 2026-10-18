@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render } from "@testing-library/react";
 import { type CreateSubshellInput, useCreateSubshell } from "@/hooks/use-create-subshell";
+import { setCurrentWorkspace } from "@/lib/current-workspace";
 
 /**
  * The save-as-preset sequence in the launch mutation (review round 3):
@@ -71,10 +72,13 @@ function mockFetch(opts: { failLaunch?: boolean } = {}) {
   return { calls, restore: () => (globalThis.fetch = original) };
 }
 
-async function launch(input: CreateSubshellInput): Promise<{ err?: unknown; ok?: boolean }> {
+async function launch(
+  input: CreateSubshellInput,
+  opts?: { autoFile?: boolean },
+): Promise<{ err?: unknown; ok?: boolean }> {
   let create: ((i: CreateSubshellInput) => Promise<unknown>) | null = null;
   function Probe() {
-    const m = useCreateSubshell();
+    const m = useCreateSubshell(opts ?? {});
     create = (i) => m.mutateAsync(i);
     return null;
   }
@@ -307,6 +311,44 @@ describe("useCreateSubshell filing (always in a workspace)", () => {
       expect(localStorage.getItem("subshell.lastWorkspaceId")).toBe("ws-fresh");
     } finally {
       m.restore();
+    }
+  });
+
+  it("files into the workspace on screen, server-side in the create body", async () => {
+    // A launch raised while a workspace page is up lands as a tab of THAT
+    // page (spec 2026-10-17), and the pane is already filed there by the
+    // time the create returns — so the client's own join ladder never runs.
+    setCurrentWorkspace("ws-on-screen");
+    const m = filingFetch({ homes: [{ id: "ws-on-screen", updatedAt: "2026-10-10T00:00:00.000Z" }] });
+    try {
+      const out = await launch(PLAIN);
+      expect(out.ok).toBe(true);
+      const created = m.calls.find((c) => c.url === "/api/subshells" && c.method === "POST");
+      expect(created?.body).toMatchObject({ workspaceId: "ws-on-screen" });
+      expect(m.calls.some((c) => c.method === "POST" && c.url.includes("/panes"))).toBe(false);
+    } finally {
+      m.restore();
+      setCurrentWorkspace(null);
+    }
+  });
+
+  it("autoFile:false files into NEITHER the page nor a new window (review 2026-10-17)", async () => {
+    // The dialogs that file the pane themselves (new-workspace, add-pane)
+    // must not ALSO land it in whatever workspace page happens to be on
+    // screen: that put one pane in two workspaces. The gate is on the
+    // create body's workspaceId, not just the join ladder.
+    setCurrentWorkspace("ws-on-screen");
+    const m = filingFetch({ homes: [{ id: "ws-on-screen", updatedAt: "2026-10-10T00:00:00.000Z" }] });
+    try {
+      const out = await launch(PLAIN, { autoFile: false });
+      expect(out.ok).toBe(true);
+      const created = m.calls.find((c) => c.url === "/api/subshells" && c.method === "POST");
+      expect(created?.body?.workspaceId).toBeUndefined();
+      expect(m.calls.some((c) => c.method === "POST" && c.url.includes("/panes"))).toBe(false);
+      expect(m.calls.some((c) => c.method === "POST" && c.url === "/api/workspaces")).toBe(false);
+    } finally {
+      m.restore();
+      setCurrentWorkspace(null);
     }
   });
 });
