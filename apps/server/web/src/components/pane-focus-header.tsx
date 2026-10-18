@@ -14,7 +14,7 @@ import { useNodes } from "@/hooks/use-nodes";
 import { usePaneCopyMode } from "@/hooks/use-pane-copy-mode";
 import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { useTrustNotices } from "@/hooks/use-trust-notices";
-import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
+import { invalidateAfterRename } from "@/hooks/use-workspaces";
 import { FALLBACK_NODE_ID, nodeLabelFor } from "@/lib/subshell-node-groups";
 import { useWorkspaceFocusedId } from "@/lib/workspace-focus";
 import type { WorkspacePaneRow } from "@/types/workspace";
@@ -74,10 +74,7 @@ export function PaneFocusHeader({
     if (!focusedPane) return;
     const id = focusedPane.subshellId;
     await apiFetch(`/api/subshells/${id}/name`, { method: "PATCH", body: JSON.stringify({ name }) });
-    void queryClient.invalidateQueries({ queryKey: [...SUBSHELL_QUERY_KEY, id] });
-    void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
-    // Pane rows carry the subshell name; the tab strip and the tree re-read it.
-    void queryClient.invalidateQueries({ queryKey: WORKSPACE_QUERY_KEY });
+    invalidateAfterRename(queryClient, id);
   }
 
   const isPane = Boolean(focusedPane && subshell);

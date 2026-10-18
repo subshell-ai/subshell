@@ -9,8 +9,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { invalidateAfterRename } from "@/hooks/use-workspaces";
 import { NAME_MAX_DEFAULT } from "@/lib/name-limits";
-import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 
 /**
  * Title editor for a subshell: a dialog with a single-line input, persisted via
@@ -51,10 +51,8 @@ export function TitleDialog({
     onSuccess: () => {
       onOpenChange(false);
       // The detail view, the list feed/cards, and the workspace pane titles
-      // (which carry the subshell name) all re-read from these.
-      void queryClient.invalidateQueries({ queryKey: [...SUBSHELL_QUERY_KEY, subshellId] });
-      void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
-      void queryClient.invalidateQueries({ queryKey: WORKSPACE_QUERY_KEY });
+      // and tree rows (which carry the subshell name) all re-read from these.
+      invalidateAfterRename(queryClient, subshellId);
     },
   });
 

@@ -1,10 +1,31 @@
 import { apiFetch } from "@internal/node-admin";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { SUBSHELL_WORKSPACES_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
+import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  SUBSHELL_QUERY_KEY,
+  SUBSHELL_WORKSPACES_QUERY_KEY,
+  SUBSHELLS_QUERY_KEY,
+  WORKSPACE_QUERY_KEY,
+} from "@/lib/query-keys";
 import type { WorkspaceRow } from "@/types/workspace";
 
 /** Query key for the caller's workspaces, shared by every mutation site. */
 export const WORKSPACES_QUERY_KEY = ["workspaces"] as const;
+
+/**
+ * Everything to drop after a subshell RENAME, from every rename surface
+ * (the page header, the workspace's pane-focus bar, the rail's title
+ * dialog). The pane row carries the subshell's name, so the workspace
+ * DETAIL (the dock's tab titles) and the LIST (the rail's tree) both
+ * re-read it: missing the LIST is how tree rows kept showing the old name
+ * after a rename (operator catch, 2026-10-17). One call so the sites
+ * cannot drift apart.
+ */
+export function invalidateAfterRename(queryClient: QueryClient, subshellId: string): void {
+  void queryClient.invalidateQueries({ queryKey: [...SUBSHELL_QUERY_KEY, subshellId] });
+  void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
+  void queryClient.invalidateQueries({ queryKey: WORKSPACE_QUERY_KEY });
+  void queryClient.invalidateQueries({ queryKey: WORKSPACES_QUERY_KEY });
+}
 
 /**
  * Shared query for the caller's workspaces. Since spec 2026-10-17 each row

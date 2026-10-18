@@ -259,9 +259,20 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
     for (const pane of detail.panes) {
       live.add(pane.id);
       serverSeenPaneIdsRef.current.add(pane.id);
+      const panel = api.getPanel(pane.id);
+      if (panel) {
+        // A rename re-titles the tab from here: `addPanel`'s title was a copy
+        // of the server name at the moment of creation and dockview never
+        // updates it, so without this the tab keeps the old name after the
+        // rename invalidation refetches the detail (operator catch,
+        // 2026-10-17). Setting it again on every refetch is a no-op.
+        if (panel.title !== pane.subshellName) panel.api.setTitle(pane.subshellName);
+        knownPaneIdsRef.current.add(pane.id);
+        continue;
+      }
       if (knownPaneIdsRef.current.has(pane.id)) continue;
       knownPaneIdsRef.current.add(pane.id);
-      if (!api.getPanel(pane.id)) addPanel(api, pane);
+      addPanel(api, pane);
     }
     // The mirror of the loop above: a pane can also disappear without this
     // client doing anything — deleting its subshell from /subshells cascades

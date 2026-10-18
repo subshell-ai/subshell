@@ -2,11 +2,12 @@ import { apiFetch, apiPost } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { WORKSPACES_QUERY_KEY } from "@/hooks/use-workspaces";
-import { currentWorkspaceId, rememberLastWorkspace } from "@/lib/current-workspace";
+import { currentWorkspaceId, lastWorkspaceId, rememberLastWorkspace } from "@/lib/current-workspace";
 import { joinPromptBlocks, type PromptBlock, presetBlocksToWire, promptLaunchMissed } from "@/lib/prompt-stack";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import { defaultWorkspaceName } from "@/lib/workspace-name";
 import type { PresetRow } from "@/types/preset";
+import type { WorkspaceRow } from "@/types/workspace";
 
 /** What a launch answers: the row's id, the prompt truth, and the workspace
  * this press opened for it (the landing's first pane; spec 2026-10-17). */
@@ -17,8 +18,9 @@ export interface CreatedSubshell {
   name: string;
   /** False when a prompt was asked for but did not reach the pane */
   promptDelivered?: boolean;
-  /** The workspace this launch was filed into — the one on screen, or a
-   fresh one opened around the pane when none was (spec 2026-10-17) */
+  /** The workspace this launch was filed into — the one on screen, else an
+   existing one it joined, else a fresh one opened around the pane when the
+   instance has none (spec 2026-10-17, revised 2026-10-18) */
   workspaceId?: string;
 }
 
@@ -190,13 +192,39 @@ export function useCreateSubshell({ autoFile = true }: { autoFile?: boolean } = 
           ...toSubshellCreateBody(saved === null ? input : { ...input, presetId: saved.id }),
           ...(filedInto ? { workspaceId: filedInto } : {}),
         });
-        // You are always in a workspace (operator ruling, spec 2026-10-17):
-        // a launch raised with none on screen opens one around the pane it
-        // just made, named after it, the same create-with-pane shape the
-        // split uses. A failure here leaves a running ungrouped pane and the
-        // plain detail landing, which is honest: the launch itself worked,
-        // and clicking that pane later files it the same way.
+        // You are always in a workspace (operator ruling, spec 2026-10-17),
+        // and a workspace you ALREADY have comes first (revision, same day):
+        // with none on screen the pane JOINS an existing one instead of
+        // opening a fresh window on top of the one you left. The join target
+        // is the workspace this device last visited, when it still exists,
+        // else the most recently touched. Only an instance with no
+        // workspace at all (a first launch) builds one around the pane, the
+        // create-with-pane shape the split uses. A failure on every path
+        // leaves a running ungrouped pane and the plain detail landing,
+        // which is honest: the launch itself worked, and clicking that pane
+        // later files it the same way.
         if (autoFile && !filedInto) {
+          const list = await apiFetch<WorkspaceRow[]>("/api/workspaces").catch(() => []);
+          // The list is a server contract, not a trusted value here: anything
+          // that is not an array means "nothing known", the same as an error.
+          const homes = Array.isArray(list) ? list : [];
+          const remembered = lastWorkspaceId();
+          const join =
+            homes.find((h) => h.id === remembered) ??
+            [...homes].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+          if (join) {
+            // The idempotent add-pane call: a duplicate answer is the same
+            // tab, so a racing order of create-then-attach is never a second
+            // filing. A failure (the row retired between read and write)
+            // falls through to opening a new one.
+            const attached = await apiPost<{ id: string }>(`/api/workspaces/${join.id}/panes`, {
+              subshellId: created.id,
+            }).catch(() => null);
+            if (attached) {
+              rememberLastWorkspace(join.id);
+              return { ...created, workspaceId: join.id };
+            }
+          }
           const fresh = await apiPost<{ id: string }>("/api/workspaces", {
             name: created.name || defaultWorkspaceName(),
             subshellId: created.id,

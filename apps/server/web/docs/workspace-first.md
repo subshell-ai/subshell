@@ -69,13 +69,19 @@ server-behind message, not as a name complaint.)
 There is no subshell-side of the app to fall out of (operator ruling, spec
 2026-10-17):
 
-- A LAUNCH files itself. `currentWorkspaceId()` rides the create body when a
-  workspace page is on screen; with none there, `useCreateSubshell` (its
-  `autoFile` default) opens a workspace around the pane after the POST,
-  named after it, and the dialog lands there. Callers that file the pane
-  themselves - the add-a-pane dialog, whose `onAdd` is the split's and the
-  dock's path, and the new-workspace dialog, which created the workspace
-  first - pass `autoFile: false`, or one launch would leave two workspaces
+- A LAUNCH files itself, into a workspace that EXISTS first (operator
+  revision 2026-10-18: each press opening another fresh window on top of
+  the one you just left was not the rule). `currentWorkspaceId()` rides
+  the create body when a workspace page is on screen; with none there,
+  `useCreateSubshell` (its `autoFile` default) JOINS an existing workspace
+  after the POST through the idempotent pane-add call - the one this
+  device last visited when it still exists, else the most recently
+  touched - and the dialog lands there. Only an instance with no
+  workspace at all (or a join that lost a retire race) opens a fresh one
+  around the pane, named after it. Callers that file the pane themselves
+  - the add-a-pane dialog, whose `onAdd` is the split's and the dock's
+  path, and the new-workspace dialog, which created the workspace first -
+  pass `autoFile: false`, or one launch would leave two workspaces
   holding the same row.
 - A SELECTION means a tab. `hooks/use-open-pane-as-tab.ts` backs every plain
   left-click on a rail row or cell: focus the pane if the

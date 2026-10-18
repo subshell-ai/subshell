@@ -70,7 +70,7 @@ function PaneBranchRow({ pane, workspaceId }: { pane: WorkspacePaneRow; workspac
     <button
       type="button"
       onClick={onClick}
-      className={cn(branchClass(false), "ml-4 block w-[calc(100%-1rem)] text-left")}
+      className={cn(branchClass(false), "text-left")}
       title={`${pane.subshellName}: ${pane.workingDir}`}
     >
       <span className="flex items-center gap-2">

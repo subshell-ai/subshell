@@ -406,7 +406,9 @@ list's machine groups, never in an "Ungrouped" branch (operator ruling
 second add returns the same row with `alreadyPresent`), and removing the LAST
 pane self-retires the row (`workspaceDeleted`): a workspace exists exactly as
 long as it holds a tab. The user is ALWAYS in a workspace: a launch raised
-with none on screen gets one opened around it (`autoFile` in
+with none on screen JOINS an existing one (the remembered-then-recency
+workspace, via the idempotent pane-add; only an instance with none opens
+one around the pane - `autoFile` in
 `hooks/use-create-subshell.ts`; the add-pane and new-workspace dialogs pass
 false and file it themselves), and a plain click on a rail row or cell
 means the tab (`hooks/use-open-pane-as-tab.ts`: focus it on

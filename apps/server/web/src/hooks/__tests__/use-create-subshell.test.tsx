@@ -58,6 +58,14 @@ function mockFetch(opts: { failLaunch?: boolean } = {}) {
     if (url.pathname === "/api/presets/p-new" && method === "DELETE") {
       return Promise.resolve(new Response(JSON.stringify({ ok: true })));
     }
+    // The filing path reads the workspace LIST (empty here, so the launch
+    // opens its own) and the pane-add POST answers a plain row.
+    if (url.pathname === "/api/workspaces" && method === "GET") {
+      return Promise.resolve(new Response(JSON.stringify([])));
+    }
+    if (url.pathname === "/api/workspaces" && method === "POST") {
+      return Promise.resolve(new Response(JSON.stringify({ id: "ws-fresh" })));
+    }
     return Promise.resolve(new Response(JSON.stringify({})));
   }) as typeof fetch;
   return { calls, restore: () => (globalThis.fetch = original) };
@@ -184,6 +192,119 @@ describe("useCreateSubshell save-as-preset (review round 3)", () => {
       expect(m.calls.some((c) => c.method === "POST" && c.url === "/api/presets")).toBe(false);
       const launchPost = m.calls.find((c) => c.url === "/api/subshells" && c.method === "POST");
       expect(launchPost?.body?.presetId).toBe("p-src");
+    } finally {
+      m.restore();
+    }
+  });
+});
+
+/**
+ * The "always in a workspace, existing one first" filing (operator ruling,
+ * spec 2026-10-17 revised 2026-10-18): a launch raised outside any workspace
+ * page JOINS a workspace that exists — the remembered one first, else the
+ * most recently touched — and only an instance with none opens a fresh one.
+ */
+describe("useCreateSubshell filing (always in a workspace)", () => {
+  function filingFetch(opts: {
+    homes: Array<{ id: string; updatedAt: string }>;
+    last?: string;
+    failPaneAdd?: boolean;
+  }) {
+    const calls: Call[] = [];
+    const original = globalThis.fetch;
+    if (opts.last === undefined) localStorage.removeItem("subshell.lastWorkspaceId");
+    else localStorage.setItem("subshell.lastWorkspaceId", opts.last);
+    globalThis.fetch = ((input: unknown, init?: RequestInit) => {
+      const url = new URL(String(input), "http://localhost");
+      const method = init?.method ?? "GET";
+      calls.push({
+        method,
+        url: url.pathname,
+        body: init?.body ? (JSON.parse(String(init.body)) as Call["body"]) : undefined,
+      });
+      if (url.pathname === "/api/subshells" && method === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({ id: "s-1", name: "New pane" })));
+      }
+      if (url.pathname === "/api/workspaces" && method === "GET") {
+        return Promise.resolve(new Response(JSON.stringify(opts.homes)));
+      }
+      if (/^\/api\/workspaces\/[^/]+\/panes$/.test(url.pathname) && method === "POST") {
+        return Promise.resolve(
+          opts.failPaneAdd
+            ? new Response(JSON.stringify({ message: "gone" }), { status: 404 })
+            : new Response(JSON.stringify({ id: "pane-1" })),
+        );
+      }
+      if (url.pathname === "/api/workspaces" && method === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({ id: "ws-fresh" })));
+      }
+      return Promise.resolve(new Response(JSON.stringify({})));
+    }) as typeof fetch;
+    return { calls, restore: () => (globalThis.fetch = original) };
+  }
+
+  const PLAIN: CreateSubshellInput = { harnessId: "claude-code", workingDir: "/tmp" };
+
+  it("joins the remembered workspace through the idempotent pane add", async () => {
+    const m = filingFetch({
+      homes: [
+        { id: "ws-old", updatedAt: "2026-10-01T00:00:00.000Z" },
+        { id: "ws-new", updatedAt: "2026-10-10T00:00:00.000Z" },
+      ],
+      last: "ws-old",
+    });
+    try {
+      const out = await launch(PLAIN);
+      expect(out.ok).toBe(true);
+      const paneAdd = m.calls.find((c) => c.url === "/api/workspaces/ws-old/panes" && c.method === "POST");
+      expect(paneAdd?.body).toMatchObject({ subshellId: "s-1" });
+      // No second window: nothing creates a workspace here.
+      expect(m.calls.some((c) => c.method === "POST" && c.url === "/api/workspaces")).toBe(false);
+      expect(localStorage.getItem("subshell.lastWorkspaceId")).toBe("ws-old");
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("joins the most recently touched workspace when the remembered one is gone", async () => {
+    const m = filingFetch({
+      homes: [
+        { id: "ws-a", updatedAt: "2026-10-05T00:00:00.000Z" },
+        { id: "ws-b", updatedAt: "2026-10-12T00:00:00.000Z" },
+      ],
+      last: "ws-retired",
+    });
+    try {
+      const out = await launch(PLAIN);
+      expect(out.ok).toBe(true);
+      expect(m.calls.some((c) => c.url === "/api/workspaces/ws-b/panes" && c.method === "POST")).toBe(true);
+      expect(m.calls.some((c) => c.url === "/api/workspaces/ws-a/panes")).toBe(false);
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("falls through to opening a fresh workspace when the join races a retire", async () => {
+    const m = filingFetch({ homes: [{ id: "ws-x", updatedAt: "2026-10-10T00:00:00.000Z" }], failPaneAdd: true });
+    try {
+      const out = await launch(PLAIN);
+      expect(out.ok).toBe(true);
+      const fresh = m.calls.find((c) => c.url === "/api/workspaces" && c.method === "POST");
+      expect(fresh?.body).toMatchObject({ name: "New pane", subshellId: "s-1" });
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("opens a workspace around the pane only when the instance has none", async () => {
+    const m = filingFetch({ homes: [] });
+    try {
+      const out = await launch(PLAIN);
+      expect(out.ok).toBe(true);
+      const fresh = m.calls.find((c) => c.url === "/api/workspaces" && c.method === "POST");
+      expect(fresh?.body).toMatchObject({ name: "New pane", subshellId: "s-1" });
+      expect(m.calls.some((c) => c.url.includes("/panes"))).toBe(false);
+      expect(localStorage.getItem("subshell.lastWorkspaceId")).toBe("ws-fresh");
     } finally {
       m.restore();
     }

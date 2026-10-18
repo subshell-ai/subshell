@@ -34,8 +34,8 @@ import { useSubshellLog } from "@/hooks/use-subshell-log";
 import { useSubshellMutations } from "@/hooks/use-subshell-mutations";
 import { useSwipeNav } from "@/hooks/use-swipe-nav";
 import { useTrustNotices } from "@/hooks/use-trust-notices";
+import { invalidateAfterRename } from "@/hooks/use-workspaces";
 import { paneDiagnosticsIds, setPaneDiagnosticsIds, togglePaneDiagnostics } from "@/lib/pane-diagnostics-pref";
-import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
 import { findNeighbors } from "@/lib/subshell-neighbors";
 import { FALLBACK_NODE_ID, nodeLabelFor } from "@/lib/subshell-node-groups";
@@ -123,10 +123,7 @@ function SubshellPage() {
   /** Renames this subshell in place (the header title edits itself). */
   async function saveName(name: string): Promise<void> {
     await apiFetch(`/api/subshells/${id}/name`, { method: "PATCH", body: JSON.stringify({ name }) });
-    void queryClient.invalidateQueries({ queryKey: [...SUBSHELL_QUERY_KEY, id] });
-    void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
-    // Workspace pane titles carry the subshell name; their query is per-workspace.
-    void queryClient.invalidateQueries({ queryKey: WORKSPACE_QUERY_KEY });
+    invalidateAfterRename(queryClient, id);
   }
   // This page's half of the shared `useSubshellMutations` implementation —
   // it drives the terminal's exited panel. The header menu uses its own
