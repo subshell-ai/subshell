@@ -44,8 +44,10 @@ export async function fileLaunchedPane(subshellId: string, name?: string): Promi
   if (join) {
     // The idempotent add-pane call: a duplicate answer is the same tab, so a
     // racing order of create-then-attach is never a second filing. A failure
-    // (the row retired between read and write) falls through to opening a new
-    // one.
+    // (the row retired between read and write, or a request that never
+    // answered) falls through to opening a new one — an accepted trade on a
+    // lost response, since the pane-add may have committed server-side and
+    // the fresh window then files the same pane twice.
     const attached = await apiPost<{ id: string }>(`/api/workspaces/${join.id}/panes`, { subshellId }).catch(
       () => null,
     );

@@ -63,9 +63,11 @@ test("accessory key bar sends real bytes into the pane", async ({ page }) => {
   // whatever tab the workspace already held. "" only degrades a lookup to a
   // failed poll, never a false green.
   const wsId = new URL(page.url()).pathname.split("/").pop() ?? "";
-  const detail = (await (await page.request.get(`/api/workspaces/${wsId}`)).json()) as {
-    panes: { subshellId: string }[];
-  };
+  const detailRes = await page.request.get(`/api/workspaces/${wsId}`);
+  // The workspace the URL names must answer: a filing failure that left the
+  // URL on /subshells/ fails HERE, named, instead of as a TypeError.
+  expect(detailRes.ok()).toBe(true);
+  const detail = (await detailRes.json()) as { panes: { subshellId: string }[] };
   const id = detail.panes.find((p) => !before.has(p.subshellId))?.subshellId ?? "";
   const logText = async () => {
     const res = await page.request.get(`/api/subshells/${id}/log`);
