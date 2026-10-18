@@ -456,7 +456,7 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     // and the pane dies on the node (has-session flips false once tmux
     // reaps it); its node artifacts unhook via remove_paths, leaving a clean
     // node for the teardown's node delete (no running subshells).
-    await page.goto("/");
+    await page.goto("/subshells");
     const actions = page.getByRole("button", { name: `Actions for ${subshellName}` });
     await expect(actions).toBeVisible();
     await actions.click();

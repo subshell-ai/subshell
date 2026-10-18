@@ -74,7 +74,7 @@ test("subshell: create -> attach -> terminate -> delete", async ({ page }) => {
   // "Close" is the human name for DELETE (spec 2026-09-03): it terminates
   // the live pane AND removes the row in one act — the old separate
   // Terminate step left the human UI together with this two-step flow.
-  await page.goto("/");
+  await page.goto("/subshells");
   const actions = page.getByRole("button", { name: `Actions for ${name}` });
   await expect(actions).toBeVisible();
   await actions.click();
@@ -115,7 +115,12 @@ test("subshell: Close from the rail leaves the open detail page", async ({ page 
   // Right-click the subshell's ROW in the rail — the sidebar's context menu
   // is the same shared actions menu the page header mounts, but a different
   // component tree, and that tree used to be the one that did nothing.
-  const railRow = page.locator("aside").getByText(name).first();
+  // `.last()`, not `.first()`: since spec 2026-10-17 the Workspaces branch
+  // renders this unfiled pane as an Ungrouped row, which sits ABOVE the
+  // machine groups in the rail and is a drag/click row with no actions menu.
+  // The right-clickable row is the machine group's, which is last here (no
+  // Needs-Attention spotlight or cross-agent section holds this pane).
+  const railRow = page.locator("aside").getByText(name).last();
   await railRow.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Close" }).click();
   await expect(page.getByRole("heading", { name: "Close this subshell?" })).toBeVisible();

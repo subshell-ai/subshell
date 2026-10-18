@@ -229,7 +229,7 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
 
   // Cleanup: close the probe subshell (Close terminates it before deleting,
   // spec 2026-09-03 — no separate terminate step needed).
-  await p2.goto("/");
+  await p2.goto("/subshells");
   const actions = p2.getByRole("button", { name: `Actions for ${name}` });
   await expect(actions).toBeVisible();
   await actions.click();

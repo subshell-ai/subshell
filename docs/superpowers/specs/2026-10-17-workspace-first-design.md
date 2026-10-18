@@ -165,3 +165,27 @@ Workspace sharing, MCP workspace tools, live-feed workspace frames, mobile
 workspace UI, per-device active-workspace sync, tab-order editing beyond
 drag reorder (membership `createdAt` is the order; reordering the rail tree
 is not a feature).
+
+## Amendments made while building
+
+What shipped differs from three lines above. The code and this section are
+the truth; the sections above are the pre-build decision record.
+
+- **Add-pane answers 200, not 409.** A duplicate `POST /:id/panes` returns
+  the existing row with `alreadyPresent: true`, and the UNIQUE race re-reads
+  rather than failing. The 409's only consumer would have been a client
+  branch that focuses the pane it just (successfully) already has; making
+  the second add a plain success removes the branch entirely and makes
+  every add path, including the raced one, idempotent. The client guards
+  stay as wasted-request avoiders, as planned.
+- **The `?add=`/`?dir=` intent survives.** The spec said to delete it with
+  the draft model, but it was never draft machinery: it is how a split
+  carries its second pane into a page that does not exist yet, so the dock
+  adds it through the same `handleAdd` as every later add. Regression #13's
+  reload guard depends on it being consumed-once and kept-on-failure, and
+  deleting it would have needed a different carrier for the same job.
+- **Top-level nav keeps both items.** `Workspaces` and `All subshells` both
+  ride the rail (Workspaces first); the full table needs a route that
+  survives a landing redirect, and a footer link buried under the tree was
+  worse than a nav row. What DID go, per spec, is the Drafts group, the
+  sweep, and every unsaved/saved distinction.

@@ -1,10 +1,11 @@
-# The home page, and what may launch
+# The subshells list, and what may launch
 
 Deep dive for `apps/server/web`, moved verbatim out of `AGENTS.md`.
 This file carries the full history behind the summary; the routing line in
 `AGENTS.md` names when to read it.
 
-**The home page reads its state as a dot and segments by machine** (operator
+**The subshells list (`/subshells` since the workspace-first move of
+2026-10-17; `/` is now the landing) reads its state as a dot and segments by machine** (operator
 calls, 2026-09-24). The cards' corner chip and the list's STATUS column are
 gone; both draw `SubshellDot` beside the title instead, `accessible` because
 there it is the ONLY thing carrying the state word (the rail keeps its dot

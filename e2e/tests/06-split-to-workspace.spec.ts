@@ -7,15 +7,18 @@ test.use({ storageState: ADMIN_STATE });
 const SPAWN_TIMEOUT = 30_000;
 
 /**
- * Splitting a running subshell (spec 2026-09-14).
+ * Splitting a running subshell (spec 2026-09-14, draft-less by spec 2026-10-17).
  *
- * The flow under test is deliberately end-to-end: a split creates a DRAFT
- * workspace on the server, carries the picked second pane through `?add=`/
- * `?dir=` search params, and the dock adds it through the same `handleAdd`
- * every later add uses — then strips the params. None of that is visible to a
- * unit test, and the two failures it is guarding against are both URL-shaped:
- * a reload that re-consumes the intent and adds a duplicate pane, and params
- * that never get stripped.
+ * The flow under test is deliberately end-to-end: a split creates a real
+ * workspace — named after the subshell, on the server, from the first
+ * moment — carries the picked second pane through `?add=`/`?dir=` search
+ * params, and the dock adds it through the same `handleAdd` every later add
+ * uses, then strips the params. None of that is visible to a unit test, and
+ * the two failures it is guarding against are both URL-shaped: a reload that
+ * re-consumes the intent and adds a duplicate pane, and params that never get
+ * stripped. The workspace half used to be "then save it"; since drafts are
+ * gone there is nothing to save, and this suite instead pins that the row is
+ * REAL immediately and self-retires only when its last tab leaves.
  *
  * The `pi` stub is the agent throughout (the e2e stack's `PI_PATH` loop-forever
  * script), for the same reason spec 05 uses it: it needs no agent CLI and it
@@ -36,11 +39,11 @@ async function launchSubshell(page: Page, name: string): Promise<void> {
   await renameSubshell(page, name);
 }
 
-/** Every workspace the signed-in user has holding `subshellId`, drafts included. */
-async function workspacesHolding(page: Page, subshellId: string): Promise<{ id: string; draft: boolean }[]> {
+/** Every workspace the signed-in user has holding `subshellId`. */
+async function workspacesHolding(page: Page, subshellId: string): Promise<{ id: string }[]> {
   const res = await page.request.get(`/api/workspaces?subshellId=${subshellId}`);
   expect(res.ok()).toBe(true);
-  return (await res.json()) as { id: string; draft: boolean }[];
+  return (await res.json()) as { id: string }[];
 }
 
 /** One subshell's row, straight from the API. */
@@ -55,7 +58,9 @@ async function subshellRow(page: Page, id: string): Promise<{ harnessId: string;
  * tmux server across every spec (`workers: 1`), so each left-behind pane is a
  * live process every later spec pays for. "Close" is DELETE (spec 2026-09-03);
  * an already-gone id is fine — the point is that nothing this file started is
- * still running when the next file begins.
+ * still running when the next file begins. A workspace whose tabs all left has
+ * already retired itself (spec 2026-10-17), so only a still-named empty row,
+ * if any, needs the explicit DELETE.
  */
 async function closeSubshells(page: Page, ids: string[]): Promise<void> {
   for (const id of ids) await page.request.delete(`/api/subshells/${id}`);
@@ -66,12 +71,11 @@ function idFromUrl(page: Page): string {
   return new URL(page.url()).pathname.split("/").pop() ?? "";
 }
 
-test("split a subshell into a draft workspace, then save it", async ({ page }) => {
+test("split a subshell into a real, named workspace", async ({ page }) => {
   // Two real tmux launches plus a dock mount; the 30 s default is not enough.
   test.setTimeout(180_000);
   const attempt = test.info().retry;
   const subshellName = `e2e-split-${attempt}`;
-  const workspaceName = `e2e-split-ws-${attempt}`;
 
   await launchSubshell(page, subshellName);
   const rootSubshellId = idFromUrl(page);
@@ -101,8 +105,8 @@ test("split a subshell into a draft workspace, then save it", async ({ page }) =
   await page.getByRole("button", { name: "Split right" }).click();
   await page.getByRole("button", { name: "Start subshell" }).click();
 
-  // The draft workspace is created around the current subshell and the picked
-  // one rides the URL. Long leash: the click launches a real tmux pane first.
+  // The workspace is created around the current subshell and the picked one
+  // rides the URL. Long leash: the click launches a real tmux pane first.
   await expect(page).toHaveURL(/\/workspaces\/.+/, { timeout: SPAWN_TIMEOUT });
   const workspaceId = idFromUrl(page);
 
@@ -110,40 +114,38 @@ test("split a subshell into a draft workspace, then save it", async ({ page }) =
   // consumed — a URL that keeps `add=` is one a reload would replay.
   await expect(page.locator(".dv-default-tab")).toHaveCount(2, { timeout: SPAWN_TIMEOUT });
   await expect(page).not.toHaveURL(/[?&]add=/, { timeout: SPAWN_TIMEOUT });
-  await expect(page.getByText("Unsaved workspace")).toBeVisible();
 
-  // It is a draft on the server too, and invisible to the plain saved-only
-  // list that feeds /workspaces (the sidebar's Drafts section rides its own
-  // `?drafts=only` read, not this one).
+  // There is no unsaved state to graduate from: the header already wears the
+  // name the split chose (the split's subshell, spec 2026-10-17), and the row
+  // is in every list the moment the POST answered.
+  await expect(page.getByRole("button", { name: "Rename workspace" })).toHaveText(subshellName);
   const holding = await workspacesHolding(page, rootSubshellId);
-  expect(holding.map((w) => ({ id: w.id, draft: w.draft }))).toEqual([{ id: workspaceId, draft: true }]);
-  const listed = (await (await page.request.get("/api/workspaces")).json()) as { id: string }[];
-  expect(listed.some((w) => w.id === workspaceId)).toBe(false);
+  expect(holding.map((w) => w.id)).toEqual([workspaceId]);
+  // The LIST now carries each workspace's panes (the sidebar tree renders
+  // straight from it, no per-workspace GET): reading it back here pins that
+  // the split's workspace is in there holding BOTH tabs.
+  const detail = (await (await page.request.get(`/api/workspaces/${workspaceId}`)).json()) as {
+    panes: { subshellId: string }[];
+  };
+  const listed = (await (await page.request.get("/api/workspaces")).json()) as {
+    id: string;
+    panes?: { subshellId: string }[];
+  }[];
+  const row = listed.find((w) => w.id === workspaceId);
+  expect(row).toBeTruthy();
+  expect(row?.panes?.map((p) => p.subshellId).sort()).toEqual(detail.panes.map((p) => p.subshellId).sort());
+  // The split's own subshell is one of them: the POST filed it, the dock did
+  // not re-add it (that would be the duplicate this page's reload test guards).
+  expect(detail.panes.some((p) => p.subshellId === rootSubshellId)).toBe(true);
 
   // Regression #13: a reload with the params already gone must not re-add.
   await page.reload();
   await expect(page.locator(".dv-default-tab")).toHaveCount(2, { timeout: SPAWN_TIMEOUT });
-  await expect(page.getByText("Unsaved workspace")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Rename workspace" })).toHaveText(subshellName);
 
-  // Saving it is naming it — one PUT, and the header stops calling it unsaved.
-  // The header's Save is an icon button now (2026-09-27), so its accessible
-  // name and the dialog's submit button share "Save workspace": the header is
-  // clicked while it is the only one, and the dialog's own button is scoped
-  // to the dialog.
-  await page.getByRole("button", { name: "Save workspace", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Save workspace" })).toBeVisible();
-  await page.getByRole("textbox", { name: "Workspace name" }).fill(workspaceName);
-  await page.getByRole("dialog").getByRole("button", { name: "Save workspace", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Rename workspace" })).toHaveText(workspaceName);
-  await expect(page.getByText("Unsaved workspace")).toHaveCount(0);
-
-  // And only now does it reach the list every other surface reads.
-  await page.goto("/workspaces");
-  await expect(page.getByRole("main").getByText(workspaceName)).toBeVisible();
-
-  const detail = (await (await page.request.get(`/api/workspaces/${workspaceId}`)).json()) as {
-    panes: { subshellId: string }[];
-  };
+  // Cleaning up by DELETE rather than by closing tabs: the self-retire the
+  // next test pins deliberately would fire here too, and deleting the subshells
+  // themselves is what actually frees the tmux processes.
   await closeSubshells(
     page,
     detail.panes.map((p) => p.subshellId),
@@ -151,7 +153,7 @@ test("split a subshell into a draft workspace, then save it", async ({ page }) =
   await page.request.delete(`/api/workspaces/${workspaceId}`);
 });
 
-test("closing a pane of an unsaved workspace discards it and lands on the subshell that remains", async ({ page }) => {
+test("removing a pane leaves the workspace; removing its last tab retires it", async ({ page }) => {
   test.setTimeout(180_000);
   const attempt = test.info().retry;
   const rootName = `e2e-split-close-root-${attempt}`;
@@ -179,15 +181,27 @@ test("closing a pane of an unsaved workspace discards it and lands on the subshe
   await expect(page).toHaveURL(/\/workspaces\/.+/, { timeout: SPAWN_TIMEOUT });
   const workspaceId = idFromUrl(page);
   await expect(page.locator(".dv-default-tab")).toHaveCount(2, { timeout: SPAWN_TIMEOUT });
-  await expect(page.getByText("Unsaved workspace")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Rename workspace" })).toHaveText(rootName);
 
-  // A draft below two panes is not a workspace at all: closing either tab
-  // deletes it server-side and leaves the person on the subshell that is
-  // still there, rather than on a one-tile dock with no name.
+  // Under the old draft model a two-pane split was an unsaved arrangement and
+  // closing either tab threw the whole thing away. Since spec 2026-10-17 a
+  // workspace is exactly as real as its tabs: closing one of two leaves the
+  // other holding a still-named, still-listed workspace.
   await page.getByRole("button", { name: "Close tab" }).first().click();
-  await expect(page).toHaveURL(/\/subshells\/.+/, { timeout: SPAWN_TIMEOUT });
-  expect([rootSubshellId, otherSubshellId]).toContain(idFromUrl(page));
+  await expect(page.locator(".dv-default-tab")).toHaveCount(1, { timeout: SPAWN_TIMEOUT });
+  await expect(page).toHaveURL(new RegExp(`/workspaces/${workspaceId}`));
+  const survivors = (await (await page.request.get(`/api/workspaces/${workspaceId}`)).json()) as {
+    panes: unknown[];
+  };
+  expect(survivors.panes).toHaveLength(1);
 
+  // The LAST tab is the different thing: it took the whole workspace with it
+  // (the row self-retires at zero panes, spec 2026-10-17), so the page has
+  // nowhere to stay — the landing it falls to re-aims at whatever workspace
+  // still exists. What the test can pin from here is the server's truth: the
+  // row is gone and nothing holds the panes any more.
+  await page.getByRole("button", { name: "Close tab" }).first().click();
+  await expect(page).not.toHaveURL(new RegExp(`/workspaces/${workspaceId}`), { timeout: SPAWN_TIMEOUT });
   const gone = await page.request.get(`/api/workspaces/${workspaceId}`);
   expect(gone.status()).toBe(404);
   expect(await workspacesHolding(page, rootSubshellId)).toEqual([]);
