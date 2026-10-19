@@ -110,7 +110,8 @@ export function adaptPlugin(manifest: SubshellManifest, plugin: SubshellPlugin):
     suggestedFlags: () => plugin.suggestedFlags?.() ?? [],
     // A plugin with no MCP capability has no steps to show, which renders as
     // an empty section rather than as a claim that registration is automatic.
-    mcpSetup: (launch: McpLaunchSpec): McpSetupInfo => plugin.mcpSetup?.(launch) ?? { mode: "manual", steps: [] },
+    mcpSetup: (launch: McpLaunchSpec, reporter?: McpLaunchSpec): McpSetupInfo =>
+      plugin.mcpSetup?.(launch, reporter) ?? { mode: "manual", steps: [] },
   };
 
   // Optional members are attached only when the plugin has them, so

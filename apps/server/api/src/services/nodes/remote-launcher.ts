@@ -285,6 +285,7 @@ export class RemoteLauncher implements NodeLauncher {
         ? {
             path: plan.mcpConfigPath as string,
             fileContent: plan.mcp.fileContent,
+            ...(plan.mcp.files ? { files: plan.mcp.files } : {}),
             // Conditional spreads, never bare `args: plan.mcp.args`: the
             // frame's parser refuses an explicit-undefined optional, and an
             // absent half of a dialect must stay absent on the object too, not
@@ -577,7 +578,12 @@ export class RemoteLauncher implements NodeLauncher {
    */
   subshellArtifacts(id: string, sshPane = false): string[] {
     if (!this.#facts()) return [];
-    const artifacts = [this.logPath(id), this.mcpArtifactPath(id), this.metaArtifactPath(id)];
+    const artifacts = [
+      this.logPath(id),
+      this.mcpArtifactPath(id),
+      `${this.mcpArtifactPath(id)}.d`,
+      this.metaArtifactPath(id),
+    ];
     if (sshPane) artifacts.push(this.sshArtifactPath(id));
     return artifacts;
   }

@@ -380,7 +380,7 @@ describe("parseNodeCommandBody", () => {
     // / `ssh_relay_close` signed commands. A tier-17 agent understands no relay
     // frame, and the exact-match gate refuses it BEFORE any relay command
     // (spec §11: never half-relaying).
-    expect(NODE_PROTOCOL_VERSION).toBe(21);
+    expect(NODE_PROTOCOL_VERSION).toBe(22);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {

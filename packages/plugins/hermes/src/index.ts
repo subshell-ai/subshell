@@ -84,7 +84,12 @@ const SUGGESTED_FLAGS: { flag: string; description: string }[] = [
  * `host` carries what this module cannot import. See `@subshell-ai/plugin-api`.
  */
 const createPlugin: HarnessPluginFactory = (host: PluginHost): SubshellPlugin => ({
-  capabilities: (): PluginCapability[] => ["mcp", "settings"],
+  subagents: {
+    discovery: "hooks",
+    navigation: "unavailable",
+    setup: "Configure the subagent_start and subagent_stop shell hooks in Hermes and approve their commands.",
+  },
+  capabilities: (): PluginCapability[] => ["subagents", "mcp", "settings"],
 
   /**
    * Hermes prints a banner, not a bare version: "Hermes Agent v0.16.0
@@ -126,8 +131,10 @@ const createPlugin: HarnessPluginFactory = (host: PluginHost): SubshellPlugin =>
    * SUBSHELL_* env, making the single entry per-subshell-correct. The `--args`
    * flag must come last (hermes' own parser requirement).
    */
-  mcpSetup(launch: McpLaunchSpec): McpSetupInfo {
+  mcpSetup(launch: McpLaunchSpec, hookLaunch?: McpLaunchSpec): McpSetupInfo {
     const argsPart = launch.args.length ? ` --args ${launch.args.map((a) => host.shellQuote(a)).join(" ")}` : "";
+    const reporter =
+      hookLaunch && [hookLaunch.command, ...hookLaunch.args, "subagents"].map((arg) => host.shellQuote(arg)).join(" ");
     return {
       mode: "manual",
       steps: [
@@ -135,6 +142,15 @@ const createPlugin: HarnessPluginFactory = (host: PluginHost): SubshellPlugin =>
           label: `Register ${MCP_SERVER_NAME} once (adds it to ~/.hermes/config.yaml):`,
           command: `hermes mcp add ${MCP_SERVER_NAME} --command ${host.shellQuote(launch.command)}${argsPart}`,
         },
+        ...(reporter
+          ? [
+              {
+                label:
+                  "To show delegated agents, merge these hooks into ~/.hermes/config.yaml and approve the commands in Hermes:",
+                command: `hooks:\n  subagent_start:\n    - command: ${JSON.stringify(reporter)}\n      timeout: 2\n  subagent_stop:\n    - command: ${JSON.stringify(reporter)}\n      timeout: 2`,
+              },
+            ]
+          : []),
         { label: "Remove later with:", command: `hermes mcp remove ${MCP_SERVER_NAME}` },
       ],
     };

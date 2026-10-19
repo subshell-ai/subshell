@@ -180,7 +180,8 @@ import { SSH_CONFIG_FILE_MAX_BYTES, SSH_PATH_MAX_CHARS, SSH_RELAY_FRAME_MAX_BYTE
  * **20 -> 21:** ssh_key_bridge carries bounded public SSH-agent messages to
  * a one-use desktop signer. Older nodes cannot provide this authentication path.
  */
-export const NODE_PROTOCOL_VERSION = 21;
+// Protocol 22 carries bounded companion integration files with the launch.
+export const NODE_PROTOCOL_VERSION = 22;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an
@@ -798,7 +799,13 @@ export type NodeCommandBody =
        * recomputes either. Only the node's own `subshell mcp` path stays
        * node-supplied: it is self-knowledge, not plugin knowledge.
        */
-      mcp?: { path: string; fileContent: string; args?: string[]; env?: Record<string, string> };
+      mcp?: {
+        path: string;
+        fileContent: string;
+        files?: Record<string, string>;
+        args?: string[];
+        env?: Record<string, string>;
+      };
       /**
        * The ssh pane's rendered config: the content the plane composed from
        * the approved snapshot, plus the absolute node-side path the agent
@@ -1731,6 +1738,15 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       if ("mcp" in value) {
         const m = value.mcp;
         if (!isRecord(m) || !isStr(m.path) || !isStr(m.fileContent)) return null;
+        if (
+          "files" in m &&
+          (!isStringMap(m.files) ||
+            Object.keys(m.files).length > 8 ||
+            Object.entries(m.files).some(
+              ([name, body]) => !/^[a-zA-Z0-9_-]+\.(mjs|py|json)$/.test(name) || body.length > 65536,
+            ))
+        )
+          return null;
         if ("args" in m && !isStrArray(m.args)) return null;
         if ("env" in m && !isStringMap(m.env)) return null;
       }

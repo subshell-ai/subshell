@@ -66,6 +66,15 @@ describe("AddSubshellDialog", () => {
     expect(screen.queryByText("here")).toBeNull();
   });
 
+  it("opens the launch form directly when every subshell is already included", async () => {
+    renderDialog({ excludeSubshellIds: ["here", "other", "remote"] });
+    expect(await screen.findByRole("heading", { name: "New subshell" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start subshell" })).toBeTruthy();
+    expect(screen.queryByText("Existing subshell")).toBeNull();
+    expect(screen.queryByPlaceholderText(/Search by name/)).toBeNull();
+    expect(screen.queryByText(/Every subshell is already/)).toBeNull();
+  });
+
   it("seeds the node from initialForm, so the existing half lists that machine", async () => {
     renderDialog({ excludeSubshellIds: [], initialForm: { nodeId: "box" } });
     expect(await screen.findByText("remote")).toBeTruthy();

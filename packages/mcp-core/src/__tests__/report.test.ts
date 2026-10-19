@@ -24,6 +24,30 @@ describe("runReport", () => {
     return { seen, fetchImpl };
   }
 
+  it("reports child lifecycle metadata without forwarding prompts or transcripts", async () => {
+    const { seen, fetchImpl } = recorder();
+    for (const payload of [
+      { hook_event_name: "SubagentStart", agent_id: "child", agent_type: "Explore", prompt: "private" },
+      { hook_event_name: "SubagentStop", agent_id: "child", agent_transcript_path: "private" },
+      {
+        hook_event_name: "subagent_start",
+        extra: { child_session_id: "hermes-child", child_role: "Review", child_goal: "private" },
+      },
+      { hook_event_name: "subagent_stop", extra: { child_session_id: "hermes-child", child_summary: "private" } },
+    ])
+      await runReport(["subagents"], {
+        env: paneEnv,
+        fetch: fetchImpl,
+        readStdin: async () => JSON.stringify(payload),
+      });
+    expect(await Promise.all(seen.map((request) => request.json()))).toEqual([
+      { event: "start", agents: [{ id: "child", name: "Explore", status: "running" }] },
+      { event: "stop", agentId: "child" },
+      { event: "start", agents: [{ id: "hermes-child", name: "Review", status: "running" }] },
+      { event: "stop", agentId: "hermes-child" },
+    ]);
+  });
+
   it("posts the attention kind to the subshell's own attention endpoint", async () => {
     const { seen, fetchImpl } = recorder();
 

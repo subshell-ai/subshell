@@ -56,24 +56,42 @@ function makeSubshell(overrides: Partial<SubshellView> = {}): SubshellView {
   };
 }
 
-function mockFetch() {
+function mockFetch(withSubagents = false) {
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown) => {
     const path = new URL(String(input), "http://localhost").pathname;
+    if (withSubagents && path === "/api/subshells/subagents")
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            s1: {
+              agents: [{ id: "child", name: "Review changes", status: "running" }],
+              selectedId: null,
+              canSelect: false,
+            },
+          }),
+        ),
+      );
     if (path === "/api/presets") return Promise.resolve(new Response(JSON.stringify([])));
     return Promise.resolve(new Response(JSON.stringify({})));
   }) as typeof fetch;
   return () => (globalThis.fetch = original);
 }
 
-function renderRow(subshell: SubshellView) {
+function renderRow(subshell: SubshellView, focused = false, onOpen?: () => void) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const rootRoute = createRootRoute();
   const indexRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/",
     component: () => (
-      <SubshellRecentRow subshell={subshell} focused={false} nodeLabel="mac mini" agentLabel="Claude Code" />
+      <SubshellRecentRow
+        subshell={subshell}
+        focused={focused}
+        onOpen={onOpen}
+        nodeLabel="mac mini"
+        agentLabel="Claude Code"
+      />
     ),
   });
   const detailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/subshells/$id" });
@@ -150,3 +168,27 @@ describe("SubshellRecentRow tooltip (2026-09-24: in-page, so it zooms)", () => {
     }
   });
 });
+
+for (const focused of [true, false]) {
+  it(`toggles child rows from the arrow without opening the ${focused ? "active" : "inactive"} parent`, async () => {
+    const restore = mockFetch(true);
+    let opened = 0;
+    try {
+      renderRow(makeSubshell(), focused, () => {
+        opened++;
+      });
+      const arrow = await screen.findByRole("button", { name: "Collapse subagents" });
+      expect(arrow.closest("a")).toBeNull();
+      expect(screen.queryByText(/^Subagents/)).toBeNull();
+      fireEvent.click(arrow);
+      expect(arrow.getAttribute("aria-expanded")).toBe("false");
+      expect(document.getElementById(arrow.getAttribute("aria-controls") ?? "")?.hidden).toBe(true);
+      expect(opened).toBe(0);
+      fireEvent.click(screen.getByRole("link", { name: /auth-refactor/ }));
+      expect(opened).toBe(focused ? 0 : 1);
+      expect(arrow.getAttribute("aria-expanded")).toBe(focused ? "true" : "false");
+    } finally {
+      restore();
+    }
+  });
+}

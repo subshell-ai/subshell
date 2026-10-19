@@ -624,6 +624,7 @@ describe("execLaunch with a server-built argv (inversion §5)", () => {
           mcp: {
             path: mcpFile,
             fileContent: '{"from":"the control plane"}\n',
+            files: { "bridge.mjs": "export default {};" },
             args: ["--mcp-config", mcpFile],
             env: { OPENCODE_CONFIG: mcpFile },
           },
@@ -634,6 +635,8 @@ describe("execLaunch with a server-built argv (inversion §5)", () => {
       // The WIRE content is the content: with the local regeneration gone
       // (Task 7), there is no second source a drift rule could arbitrate.
       expect(await Bun.file(mcpFile).text()).toBe('{"from":"the control plane"}\n');
+      expect(await Bun.file(`${mcpFile}.d/bridge.mjs`).text()).toBe("export default {};");
+      expect(statSync(`${mcpFile}.d/bridge.mjs`).mode & 0o077).toBe(0);
       expect(statSync(mcpFile).mode & 0o077).toBe(0); // the 0600 write is unchanged on both paths
       expect(statSync(join(dataDir, "mcp")).mode & 0o077).toBe(0); // dir re-tightened to 0700 (its own pin, survived the fallback's death)
       expect(lines.filter((l) => l.toLowerCase().includes("mcp"))).toHaveLength(0); // the drift warn is gone

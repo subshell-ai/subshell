@@ -1,3 +1,4 @@
+import type { HarnessSubagentSupport } from "./subagents.js";
 /**
  * The contract a Subshell plugin implements.
  *
@@ -63,6 +64,7 @@ export type PluginCapability =
   | "mcp"
   | "resume"
   | "attention"
+  | "subagents"
   // network
   | "publish"
   | "supervise"
@@ -75,6 +77,7 @@ export const PLUGIN_CAPABILITIES: readonly PluginCapability[] = [
   "mcp",
   "resume",
   "attention",
+  "subagents",
   "publish",
   "supervise",
   "guard",
@@ -82,7 +85,13 @@ export const PLUGIN_CAPABILITIES: readonly PluginCapability[] = [
 ];
 
 /** The capabilities a harness plugin may declare. */
-export const HARNESS_CAPABILITIES: readonly PluginCapability[] = ["mcp", "resume", "attention", "settings"];
+export const HARNESS_CAPABILITIES: readonly PluginCapability[] = [
+  "mcp",
+  "resume",
+  "attention",
+  "subagents",
+  "settings",
+];
 
 /** The capabilities a network plugin may declare. */
 export const NETWORK_CAPABILITIES: readonly PluginCapability[] = ["publish", "supervise", "guard", "settings"];
@@ -233,6 +242,8 @@ export interface McpLaunchSpec {
 
 /** Per-subshell MCP registration rendered in the plugin's own config dialect. */
 export interface McpRegistration {
+  /** Companion integration modules, written under <configPath>.d. Basenames only. */
+  files?: Record<string, string>;
   /** File content the harness reads, written to the subshell's config path */
   fileContent: string;
   /** argv the harness needs to load the file (e.g. claude's ["--mcp-config", path]) */
@@ -419,6 +430,8 @@ export interface PluginSecrets {
  * plugin is a binary and an argv rather than eight stubs.
  */
 export interface SubshellPlugin {
+  /** Native child-agent reporting and optional in-place navigation. */
+  subagents?: HarnessSubagentSupport;
   /** Builds the argv (no shell) used to launch a subshell. */
   buildCommand(input: BuildCommandInput): string[];
   /** Validates a preset definition before saving. */
@@ -454,7 +467,7 @@ export interface SubshellPlugin {
    */
   mcpRegistration?(launch: McpLaunchSpec, configPath: string): McpRegistration;
   /** How users obtain the subshell MCP tools here. Declare the `mcp` capability with it. */
-  mcpSetup?(launch: McpLaunchSpec): McpSetupInfo;
+  mcpSetup?(launch: McpLaunchSpec, reporter?: McpLaunchSpec): McpSetupInfo;
   /** Settings rendered in the PRESET editor and stored on the preset. */
   presetSettings?(): SettingsField[];
   /** Known extra env var suggestions for the preset editor. */
@@ -802,6 +815,7 @@ export function capabilityMismatches(plugin: SubshellPlugin | NetworkPlugin, typ
           mcp: Boolean(harness.mcpRegistration ?? harness.mcpSetup),
           resume: Boolean(harness.resume),
           attention: harness.supportsAttentionHooks === true,
+          subagents: Boolean(harness.subagents),
           settings: Boolean(harness.presetSettings),
         };
       })()

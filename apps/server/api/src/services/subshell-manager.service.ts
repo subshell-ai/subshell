@@ -1,4 +1,4 @@
-import { unlinkSync } from "node:fs";
+import { rmSync, unlinkSync } from "node:fs";
 import { hostname } from "node:os";
 import { BackendErrorCodes, stripAnsi, throwApiError } from "@internal/backend-errors";
 import {
@@ -1232,6 +1232,7 @@ export class SubshellManagerService {
     sweepRelayForPane(row); // the pane stops existing in every flavor: any brokered relay ends here
     // And the generated MCP config (no secrets, but nothing to leave behind).
     try {
+      rmSync(`${subshellMcpConfigPath(id)}.d`, { recursive: true, force: true });
       unlinkSync(subshellMcpConfigPath(id));
     } catch {
       // no config file

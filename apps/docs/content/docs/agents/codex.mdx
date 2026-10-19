@@ -20,9 +20,17 @@ The plugin detects `codex` through PATH and its known locations. `CODEX_PATH` ca
 
 ## MCP and session behavior
 
-Subshell supplies MCP configuration through per-launch CLI settings. You don't need to register the Subshell MCP server globally for this harness. The built-in plugin declares MCP and settings capabilities; it doesn't declare automatic conversation resumption or attention hooks.
+Subshell supplies MCP configuration through per-launch CLI settings. You don't need to register the Subshell MCP server globally for this harness. The built-in plugin declares MCP, settings, and subagent monitoring capabilities; it doesn't declare automatic conversation resumption or attention hooks.
 
 Subshell runs the real CLI rather than proxying its provider API. Provider configuration, usage limits, and CLI-specific permissions remain the agent's own settings.
+
+## Subagent monitoring hooks
+
+Subshell adds hooks labeled **Subshell subagent monitoring** when it launches Codex. They report subagent identifiers, types, and start/stop events to your Subshell server so active subagents appear beneath their parent in the sidebar. They also clear the list when you clear the Codex conversation. The reporter doesn't send prompts or transcripts.
+
+In Codex, open `/hooks` to review the **SessionStart**, **SubagentStart**, and **SubagentStop** hooks and trust them if you want monitoring enabled. Codex may ask you to review them again when their definitions change. Leaving them untrusted or disabled prevents monitoring; you can still use Codex normally.
+
+These hooks report status only. Use Codex's own controls to open a subagent. See [Harness subagents](/agents/subagents) for supported navigation.
 
 ## Next steps
 

@@ -43,7 +43,9 @@ media refresh. Apply them to future recordings as well as this demo.
   between the Workspaces and Subshells sidebar sections or visit the dashboard
   during the clip.
 - Keep the phone sidebar closed. Keep desktop navigation unobtrusive; the
-  accepted desktop recording uses the collapsed mini rail. Preserve the tab
+  desktop recording normally uses the collapsed mini rail. For a clip specifically
+  demonstrating subagents, keep the workspace sidebar open and show its compact
+  parent arrow and connected child branches. Preserve the tab
   strip so the relationship between the subshells stays clear.
 - Use real agent execution and real output. Trim idle waits, but preserve the
   sequence of request, work, and result. Don't substitute scripted responses,
@@ -74,9 +76,11 @@ Assets live under `public/demos/`: both use H.264 MP4 because it is smaller
 than VP9 WebM at the selected quality. Both have WebP
 posters. Encode without audio at 15 fps, preserve terminal legibility, and use
 MP4 fast-start metadata. Current viewport sizes are 390×844 and 900×560, captured at 2× pixel density
-(780×1688 and 1800×1120 encoded frames). Both clips show an interactive
-Codex subshell implementing a task summary feature and a second subshell running
-its tests. Stay in the same workspace throughout: switch tabs, never sidebar
+(780×1688 and 1800×1120 encoded frames). The phone clip shows an interactive Codex subshell implementing a task summary
+feature and a second subshell running its tests. The desktop clip delegates
+implementation and tests to two real Codex subagents, demonstrates collapsing
+and expanding them with the parent arrow and active parent row, then runs the
+tests in the second subshell. Stay in the same workspace throughout: switch tabs, never sidebar
 sections. Keep the phone sidebar closed and preserve the visible tab strip.
 Generate them with `bun e2e/capture-product-demo.ts` after building the SPA.
 The capture requires an authenticated Codex CLI. It uses sample files in a
@@ -85,10 +89,11 @@ run tests, and trims idle waiting time. Never fabricate terminal output or add
 a notification that the recorded workflow doesn't produce.
 The root README uses an optimized animated GIF linked to the full-quality MP4
 because GitHub strips repository-hosted HTML video elements.
-Terminal font sizes are 22px on desktop and 18px on mobile. The desktop capture
+Terminal font sizes are 20px in the desktop subagent clip (22px when the sidebar
+is collapsed) and 18px on mobile. The desktop capture
 uses a compact viewport so the text stays large when embedded in the page;
 higher recording resolution alone does not make text more legible. Use
-`bun e2e/capture-product-demo.ts --desktop-only` to refresh only the desktop
+`bun e2e/capture-product-demo.ts --subagents` to refresh only the desktop
 clip, its poster, and the README animation.
 Inspect frames for layout changes before encoding; changing viewport during a
 recording is not an acceptable device transition.

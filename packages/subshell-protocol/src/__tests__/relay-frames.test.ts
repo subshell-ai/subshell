@@ -32,12 +32,12 @@ const good = {
   blob: b64OfRawLength(1024),
 } as const;
 
-describe("NODE_PROTOCOL_VERSION 21 (desktop signer bridge)", () => {
+describe("NODE_PROTOCOL_VERSION 22 (desktop signer bridge)", () => {
   it("carries relay selections alongside the temporary desktop key bridge", () => {
     // The bump is load-bearing: a tier-17 agent (M1) understands no relay
     // frame, and the exact-match gate is what refuses it BEFORE any frame is
     // accepted. Never half-relay.
-    expect(NODE_PROTOCOL_VERSION).toBe(21);
+    expect(NODE_PROTOCOL_VERSION).toBe(22);
   });
 });
 

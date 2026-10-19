@@ -1,5 +1,5 @@
 import { Button, errMessage } from "@internal/node-admin";
-import { type JSX, useState } from "react";
+import { type JSX, useEffect, useState } from "react";
 import { ConnectPanel } from "@/components/connect/connect-panel";
 import { sshSessionDraft } from "@/components/connect/ssh-session-draft";
 import { ExistingSubshellList } from "@/components/subshell-picker/existing-subshell-list";
@@ -90,6 +90,12 @@ export function AddSubshellDialog({
 
   const excluded = new Set(excludeSubshellIds);
   const available = (subshells ?? []).filter((s) => !excluded.has(s.id));
+  const newOnly = !subshellsLoading && !subshellsFailed && subshells !== undefined && available.length === 0;
+  const visibleMode = newOnly ? "new" : mode;
+  // Keep a draft open if a refetch discovers another subshell while typing.
+  useEffect(() => {
+    if (open && newOnly) setMode("new");
+  }, [open, newOnly]);
 
   /** Resets everything the next open should not inherit. */
   function reset() {
@@ -167,28 +173,35 @@ export function AddSubshellDialog({
     >
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{title ?? "Add a subshell"}</DialogTitle>
-          <DialogDescription>{description ?? "Pick one you already have, or launch a new one."}</DialogDescription>
+          <DialogTitle>{title ?? (newOnly ? "New subshell" : "Add a subshell")}</DialogTitle>
+          <DialogDescription>
+            {description ??
+              (newOnly
+                ? "Launch an agent or terminal in this workspace."
+                : "Pick one you already have, or launch a new one.")}
+          </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <fieldset disabled={creating || busyId !== null}>
-            <Segmented
-              ariaLabel="What to add"
-              className="gap-1"
-              options={[
-                { value: "existing", label: "Existing subshell" },
-                { value: "new", label: "New subshell" },
-              ]}
-              value={mode}
-              onChange={(next) => {
-                if (!creating) setMode(next);
-              }}
-            />
-          </fieldset>
-        </div>
+        {!newOnly && (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <fieldset disabled={creating || busyId !== null}>
+              <Segmented
+                ariaLabel="What to add"
+                className="gap-1"
+                options={[
+                  { value: "existing", label: "Existing subshell" },
+                  { value: "new", label: "New subshell" },
+                ]}
+                value={visibleMode}
+                onChange={(next) => {
+                  if (!creating) setMode(next);
+                }}
+              />
+            </fieldset>
+          </div>
+        )}
 
-        {mode === "existing" ? (
+        {visibleMode === "existing" ? (
           <ExistingSubshellList
             subshells={available}
             // Keep the two halves coherent: the list shows subshells on the
@@ -236,7 +249,7 @@ export function AddSubshellDialog({
 
         {error && <p className="text-destructive text-detail">{error}</p>}
 
-        {mode === "new" && kind === "agent" && (
+        {visibleMode === "new" && kind === "agent" && (
           <DialogFooter>
             <Button
               variant="outline"

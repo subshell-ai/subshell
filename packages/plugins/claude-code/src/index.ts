@@ -154,6 +154,8 @@ const reporterHook = (host: PluginHost, reporter: ReporterSpec, ...verb: string[
  *   from that payload and nothing else.
  */
 const attentionHooks = (host: PluginHost, reporter: ReporterSpec) => ({
+  SubagentStart: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "subagents") }] }],
+  SubagentStop: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "subagents") }] }],
   Stop: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "attention", "turn_complete") }] }],
   Notification: [
     {
@@ -163,7 +165,14 @@ const attentionHooks = (host: PluginHost, reporter: ReporterSpec) => ({
   ],
   UserPromptSubmit: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "attention", "resumed") }] }],
   PreToolUse: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "attention", "resumed") }] }],
-  SessionStart: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "session") }] }],
+  SessionStart: [
+    {
+      hooks: [
+        { type: "command", command: reporterHook(host, reporter, "session") },
+        { type: "command", command: reporterHook(host, reporter, "subagents") },
+      ],
+    },
+  ],
 });
 
 /** Claude's transcript folder name for a project dir: every non-alphanumeric → `-`. */
@@ -189,7 +198,8 @@ function projectSlug(cwd: string): string {
  * `@subshell-ai/plugin-api`.
  */
 const createPlugin: HarnessPluginFactory = (host: PluginHost): SubshellPlugin => ({
-  capabilities: (): PluginCapability[] => ["mcp", "resume", "attention", "settings"],
+  subagents: { discovery: "hooks", navigation: "unavailable" },
+  capabilities: (): PluginCapability[] => ["subagents", "mcp", "resume", "attention", "settings"],
 
   supportsAttentionHooks: true,
 

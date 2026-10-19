@@ -170,7 +170,7 @@ export interface HarnessPlugin {
    */
   mcpRegistration?(launch: McpLaunchSpec, configPath: string): McpRegistration;
   /** How users obtain the subshell MCP tools in this harness (drives the preset UI). */
-  mcpSetup(launch: McpLaunchSpec): McpSetupInfo;
+  mcpSetup(launch: McpLaunchSpec, reporter?: McpLaunchSpec): McpSetupInfo;
   /** Validates a preset definition before saving. */
   validatePreset(preset: PresetDefinition): PresetValidationResult;
   /** Settings editor schema (or null if the harness has no settings). */

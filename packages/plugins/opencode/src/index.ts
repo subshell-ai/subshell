@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import {
   type BuildCommandInput,
   type HarnessPluginFactory,
@@ -13,6 +14,7 @@ import {
   type SubshellPlugin,
   validateGenericPreset,
 } from "@subshell-ai/plugin-api";
+import { SUBAGENT_BRIDGE } from "./subagents.js";
 
 /** Known opencode settings, applied as per-invocation CLI flags. */
 const OPENCODE_SETTINGS_FIELDS: SettingsField[] = [
@@ -83,7 +85,8 @@ const SUGGESTED_FLAGS: { flag: string; description: string }[] = [
  * `host` carries what this module cannot import. See `@subshell-ai/plugin-api`.
  */
 const createPlugin: HarnessPluginFactory = (_host: PluginHost): SubshellPlugin => ({
-  capabilities: (): PluginCapability[] => ["mcp", "settings"],
+  subagents: { discovery: "extension", navigation: "native" },
+  capabilities: (): PluginCapability[] => ["subagents", "mcp", "settings"],
 
   buildCommand(input: BuildCommandInput): string[] {
     const { binary, preset, extraFlags } = input;
@@ -114,7 +117,14 @@ const createPlugin: HarnessPluginFactory = (_host: PluginHost): SubshellPlugin =
         [MCP_SERVER_NAME]: { type: "local", command: [launch.command, ...launch.args], enabled: true },
       },
     };
-    return { fileContent: `${JSON.stringify(doc, null, 2)}\n`, env: { OPENCODE_CONFIG: configPath } };
+    return {
+      files: {
+        "subagents.mjs": SUBAGENT_BRIDGE,
+        "tui.json": JSON.stringify({ plugin: [pathToFileURL(`${configPath}.d/subagents.mjs`).href] }),
+      },
+      fileContent: `${JSON.stringify(doc, null, 2)}\n`,
+      env: { OPENCODE_CONFIG: configPath, OPENCODE_TUI_CONFIG: `${configPath}.d/tui.json` },
+    };
   },
 
   /** Auto: subshell writes a merged config layer + OPENCODE_CONFIG for every subshell. */

@@ -16,6 +16,7 @@ import { summarySubshellRoute } from "@/api/subshells/summary-subshell.route.js"
 import { terminateSubshellRoute } from "@/api/subshells/terminate-subshell.route.js";
 import { updateSubshellNameRoute } from "@/api/subshells/update-subshell-name.route.js";
 import { updateSubshellNotifyRoute } from "@/api/subshells/update-subshell-notify.route.js";
+import { subshellSubagentsRoute } from "./subshell-subagents.route.js";
 
 /**
  * `/api/subshells` — one Elysia instance per endpoint, mounted in the original
@@ -24,21 +25,23 @@ import { updateSubshellNotifyRoute } from "@/api/subshells/update-subshell-notif
  * `SubshellsService` (`src/services/subshells.service.ts`), reached by handlers
  * via `ctx`.
  */
-export const subshellRoutes = new Elysia({ prefix: "/api/subshells" })
-  .use(createSubshellRoute)
-  .use(listSubshellsRoute)
-  .use(summarySubshellRoute)
-  .use(getSubshellRoute)
-  .use(getSubshellLogRoute)
-  .use(subshellSharesRoutes)
-  .use(updateSubshellNotifyRoute)
-  .use(subshellAttentionRoute)
-  .use(subshellHarnessSessionRoute)
-  .use(subshellExitRoute)
-  .use(updateSubshellNameRoute)
-  .use(inputSubshellRoute)
-  .use(execSubshellRoute)
-  .use(restartSubshellRoute)
-  .use(terminateSubshellRoute)
-  .use(extendSubshellTokenRoute)
-  .use(deleteSubshellRoute);
+export const subshellRoutes = new Elysia({ prefix: "/api/subshells" }).use([
+  createSubshellRoute,
+  listSubshellsRoute,
+  summarySubshellRoute,
+  getSubshellRoute,
+  getSubshellLogRoute,
+  subshellSharesRoutes,
+  updateSubshellNotifyRoute,
+  subshellAttentionRoute,
+  subshellSubagentsRoute,
+  subshellHarnessSessionRoute,
+  subshellExitRoute,
+  updateSubshellNameRoute,
+  inputSubshellRoute,
+  execSubshellRoute,
+  restartSubshellRoute,
+  terminateSubshellRoute,
+  extendSubshellTokenRoute,
+  deleteSubshellRoute,
+]);

@@ -114,7 +114,8 @@ async function settle() {
 }
 
 async function launchSsh() {
-  fireEvent.click(await screen.findByRole("button", { name: "New subshell" }));
+  const newMode = screen.queryByRole("button", { name: "New subshell" });
+  if (newMode) fireEvent.click(newMode);
   fireEvent.click(await screen.findByRole("button", { name: "SSH terminal" }));
   await settle();
   const field = await screen.findByLabelText("SSH destination");
@@ -151,7 +152,7 @@ it("adds the SSH result to the current split and blocks duplicate launches while
   expect(start.getAttribute("aria-disabled")).toBe("true");
   fireEvent.click(start);
   expect(calls.filter((c) => c.path === "/api/ssh/launch")).toHaveLength(1);
-  expect(screen.getByRole("button", { name: "Existing subshell" }).closest("fieldset[disabled]")).not.toBeNull();
+  expect(screen.queryByRole("button", { name: "Existing subshell" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Split down" })).toBeNull();
   await act(async () => {
     finish();

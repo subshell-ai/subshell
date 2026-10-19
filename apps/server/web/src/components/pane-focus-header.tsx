@@ -4,10 +4,12 @@ import type { JSX, ReactNode } from "react";
 import { useMemo } from "react";
 import { DetailBackHeader } from "@/components/detail-back-header";
 import { EditableText } from "@/components/editable-text";
+import { HarnessSubagentTitle } from "@/components/harness-subagents";
 import { SshPaneLabels } from "@/components/ssh-pane-labels";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDot } from "@/components/subshell-dot";
 import { TrustIndicators } from "@/components/trust-indicators";
+import { useHarnessSubagents } from "@/hooks/use-harness-subagents";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
 import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
 import { useNodes } from "@/hooks/use-nodes";
@@ -77,6 +79,7 @@ export function PaneFocusHeader({
     invalidateAfterRename(queryClient, id);
   }
 
+  const { data: agentState } = useHarnessSubagents(subshell?.id ?? "");
   const isPane = Boolean(focusedPane && subshell);
   return (
     <DetailBackHeader
@@ -84,7 +87,9 @@ export function PaneFocusHeader({
       backLabel="Back to workspaces"
       hideBack
       title={
-        isPane && subshell ? (
+        isPane && subshell && agentState?.selectedId ? (
+          <HarnessSubagentTitle id={subshell.id} parentName={subshell.name} />
+        ) : isPane && subshell ? (
           /* The state rides beside the name, as it does on the subshell page:
              the dot is the only carrier of the state here, so `accessible`. */
           <span className="flex min-w-0 items-center gap-2">

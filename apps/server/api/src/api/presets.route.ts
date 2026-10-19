@@ -510,7 +510,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
         // resolved one: the registration is pasted onto every machine that
         // hosts a pane, and an absolute SELF path is wrong on all but this
         // (issue #57). {@link PORTABLE_MCP_LAUNCH} carries the argument.
-        mcp: harness.mcpSetup(PORTABLE_MCP_LAUNCH),
+        mcp: harness.mcpSetup(PORTABLE_MCP_LAUNCH, { command: "subshell", args: ["report"] }),
       };
     },
     {

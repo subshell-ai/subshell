@@ -152,3 +152,17 @@ Import `createTestHost` or `createScriptedHost` from `@subshell-ai/plugin-api/te
 Bundle all third-party runtime dependencies, including contract helpers. A compiled server has no adjacent workspace `node_modules` for bare imports to resolve. Node built-ins are permitted; external package imports need to be inlined. The tutorials use `bun build --target bun --format esm` and verify the packed output against the compiled loader.
 
 See [Publish a plugin](/developers/publish-plugin) for archive inspection, registry requirements, installation, and troubleshooting.
+
+## Subagent integration
+
+Declare the `subagents` capability and a `subagents` descriptor with `discovery` (`hooks` or `extension`) and `navigation` (`native` or `unavailable`). Optional `setup` text explains manual harness configuration. Discovery and navigation are independent: don't promise view selection when only lifecycle events are available.
+
+Manual setup can accept a second, optional `mcpSetup` argument containing the host-resolved reporter command. Omit runnable hook instructions if it is absent; don't derive a reporter from an MCP override.
+
+Hook integrations invoke the host-provided reporter with `subagents` as its argument. Never hard-code Bun or a server binary path. The reporter accepts Claude Code and Codex lifecycle payloads, and Hermes shell-hook payloads, retaining only bounded identity and status metadata.
+
+An extension uses its inherited subshell bearer token to POST to `/api/subshells/:id/subagents/report`. Only that subshell's own token can report. Send `event: "snapshot"`, an `agents` array of `{ id, parentId?, name, status }`, `selectedId` (null for the parent), and `canSelect`. Omit completed children. IDs are limited to 256 characters, names to 160, and snapshots to 256 children.
+
+A navigable integration refreshes its snapshot while attached. The response may contain `command: { id, agentId }`; null selects the parent. Verify the requested child belongs to the current parent, use the harness's native navigation API, and acknowledge the command ID in the next report. Read back the actual native selection for `selectedId`; don't announce a successful selection merely because a command was queued. Navigation must preserve unsent input and must never submit prompts, approve requests, stop agents, or create a terminal.
+
+`McpRegistration.files` can carry up to eight companion files, each at most 65,536 characters. The host writes them beside the registration at `<configPath>.d/<name>` on the execution machine. Names accept letters, numbers, underscores, and hyphens with `.mjs`, `.py`, or `.json` extensions. Return the harness's own activation arguments or environment settings along with those files. The node executes the prepared launch; it doesn't load the control-plane plugin.

@@ -112,7 +112,10 @@ export async function buildPluginReports(dataDir: string): Promise<PluginReportW
               // purpose: importing the server's constant here would breach the
               // type-only licence carve-out, so `plugin-report.test.ts` pins
               // both sides to the same literal instead.
-              mcpSetup: harness.mcpSetup?.({ command: "subshell", args: ["mcp"] }),
+              mcpSetup: harness.mcpSetup?.(
+                { command: "subshell", args: ["mcp"] },
+                { command: "subshell", args: ["report"] },
+              ),
             }
           : {}),
         ...(Object.keys(exitStatuses).length > 0 ? { exitStatuses } : {}),

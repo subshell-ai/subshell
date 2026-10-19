@@ -1,0 +1,50 @@
+---
+title: "Subagents"
+description: "Follow delegated agents beneath their parent subshell and switch supported harness views in the same terminal."
+---
+
+Subagents appear beneath the subshell that runs their parent agent. They aren't separate subshells, and they don't add tabs to your workspace. Completed subagents disappear from the list.
+
+Open **Workspaces** or **Subshells** in the mini rail. When a subshell has active subagents, an arrow appears beneath its status dot. Select the arrow to collapse or expand the connected child rows without changing the focused subshell. Selecting the already active parent row also toggles its children.
+
+Each child shows its name and status. Generic names such as `default` appear as **Subagent 1**, **Subagent 2**, and so on. These numbers stay stable while the children are active; meaningful names supplied by the harness stay unchanged. This works for subshells running on the server host and on enrolled nodes.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/harness-subagents.png" alt="Codex running a task with two numbered subagents connected beneath Build feature in the workspace sidebar, with an arrow beneath the parent's status dot." width="1800" height="1120" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Follow delegated work beneath its parent subshell. Use the arrow to hide or show the children. Select the image to enlarge it.</figcaption>
+</figure>
+
+## Switch agent views
+
+When the harness supports native navigation, select a child to show its view in the parent's existing terminal. The header shows the child's name and a branching icon. Select **Back to main agent** in the header to return. The workspace tab keeps the parent subshell's name.
+
+The view is shared: switching it changes what everyone attached to that subshell sees. People with view access can switch views. Edit access is still required to type, steer an agent, or answer approval prompts.
+
+If native navigation isn't available, the children remain visible as status indicators. Hover over or focus a child for an explanation, and use the harness's own controls to open its view.
+
+## Harness support
+
+| Harness | Discovery | Sidebar navigation |
+| --- | --- | --- |
+| Claude Code | Subagent lifecycle hooks, added at launch. | Status only. |
+| Codex | Subagent lifecycle hooks, added at launch. Review and trust them through `/hooks`. | Status only. |
+| OpenCode | TUI integration, using the native plugin API available in OpenCode 1.18.18. | Switches the existing TUI; changes made inside the harness also update the header. |
+| Hermes | Configure and approve `subagent_start` and `subagent_stop` shell hooks. The harness's setup instructions include the configuration. | Status only. |
+| pi | Bundled `subagent` example extension, or an extension implementing the bridge below. | Status only. |
+| Terminal | No harness subagents. | Not applicable. |
+
+Restart existing subshells to load a newly installed integration. Lifecycle-only integrations report events while they run; after a server restart, existing children won't reappear until the harness reports them again. OpenCode and pi send snapshots instead.
+
+## pi extension bridge
+
+The adapter recognizes the `subagent` tool progress format from pi's bundled example. It doesn't assume that other extensions with different tools or background execution models use that format.
+
+An extension can publish its complete current set through pi's event bus:
+
+```ts
+pi.events.emit("subshell:subagents", {
+  agents: [{ id: "review-1", name: "Review changes", status: "running" }],
+});
+```
+
+Use stable IDs and one of `running`, `waiting`, or `idle`. Publish a new snapshot when the set changes, omitting completed children. An empty `agents` array clears it. Send names and lifecycle metadata only, not prompts or transcripts.

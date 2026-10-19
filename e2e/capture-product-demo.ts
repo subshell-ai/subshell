@@ -9,6 +9,7 @@ import { startStack, stopStack } from "./stack";
 // Real commands and UI on an isolated server; no fabricated agent output.
 // Requires an authenticated Codex CLI. Authentication stays off camera.
 if (PORTS.backend === 3080) throw new Error("Never record against the live server");
+const subagents = process.argv.includes("--subagents");
 const root = mkdtempSync(path.join(tmpdir(), "demo-"));
 const out = path.resolve(import.meta.dirname, "../apps/website/public/demos");
 const cleanup: (() => void | Promise<void>)[] = [() => rmSync(root, { recursive: true, force: true }), stopStack];
@@ -57,7 +58,7 @@ try {
   });
   const browser = await chromium.launch();
   cleanup.push(() => browser.close());
-  for (const mobile of process.argv.includes("--desktop-only") ? [false] : [false, true]) {
+  for (const mobile of process.argv.includes("--desktop-only") || subagents ? [false] : [false, true]) {
     const workingDir = path.join(root, mobile ? "phone" : "desktop", "task-board");
     mkdirSync(workingDir, { recursive: true });
     writeFileSync(
@@ -80,7 +81,9 @@ export function summarize(tasks) {
     );
     writeFileSync(
       path.join(workingDir, "AGENTS.md"),
-      "Work only in this sample project. Implement the requested feature and run bun test. Do not use MCP tools or launch other agents. Keep your final response brief.\n",
+      subagents
+        ? "Work only in this sample project. Use two subagents for implementation and tests when asked. Do not use MCP tools. Keep your final response brief.\n"
+        : "Work only in this sample project. Implement the requested feature and run bun test. Do not use MCP tools or launch other agents. Keep your final response brief.\n",
     );
     run("git", ["-C", workingDir, "init", "-q"]);
     const panes = [
@@ -102,11 +105,11 @@ export function summarize(tasks) {
       colorScheme: "dark",
     });
     await context.addInitScript(
-      (size) => {
+      ({ size, sidebarOpen }) => {
         localStorage.setItem("subshell.termFontSize", String(size));
-        localStorage.setItem("subshell.sidebarCollapsed", "1");
+        localStorage.setItem("subshell.sidebarCollapsed", sidebarOpen ? "0" : "1");
       },
-      mobile ? 18 : 22,
+      { size: mobile ? 18 : subagents ? 20 : 22, sidebarOpen: subagents },
     );
     const page = await context.newPage();
     page.setDefaultTimeout(15000);
@@ -134,8 +137,22 @@ export function summarize(tasks) {
       await post(`/api/subshells/${panes[0].id}/input`, { text: "\x1b", submit: false });
       await page.waitForTimeout(400);
     }
+    if (subagents) {
+      // This fresh CODEX_HOME contains only this fixture's three monitoring
+      // hooks. Review them through the CLI before filming, never in real profiles.
+      await post(`/api/subshells/${panes[0].id}/input`, { text: "/hooks", submit: false });
+      await page.waitForTimeout(500);
+      await post(`/api/subshells/${panes[0].id}/input`, { text: "\r", submit: false });
+      await page.waitForTimeout(700);
+      expect(await log(panes[0].id)).toContain("3 hooks need review");
+      await post(`/api/subshells/${panes[0].id}/input`, { text: "t", submit: false });
+      await page.waitForTimeout(500);
+      await post(`/api/subshells/${panes[0].id}/input`, { text: "\x1b", submit: false });
+      await page.waitForTimeout(500);
+    }
     let frame = 0;
     async function hold(seconds: number) {
+      await page.mouse.move(890, 550);
       for (let i = 0; i < seconds * 15; i++) {
         const start = Date.now();
         await page.screenshot({ path: path.join(frames, `${String(frame++).padStart(4, "0")}.png`) });
@@ -158,15 +175,35 @@ export function summarize(tasks) {
       });
     for (const edge of Object.values(inset)) expect(edge).toBeGreaterThanOrEqual(7);
     console.log(name, "terminal insets", inset);
-    const prompt =
-      "Add task progress to summarize(): total, completed, remaining, and rounded percent. Test empty, mixed, and completed lists. Run bun test.";
+    const prompt = subagents
+      ? "Use two subagents: one implements summarize() in tasks.js; the other writes tasks.test.js. Return total, completed, remaining, and rounded percent; empty lists have 0 percent. Test empty, mixed, and completed lists. Then run bun test and summarize the result."
+      : "Add task progress to summarize(): total, completed, remaining, and rounded percent. Test empty, mixed, and completed lists. Run bun test.";
     await post(`/api/subshells/${panes[0].id}/input`, { text: prompt, submit: false });
     await hold(2);
     await post(`/api/subshells/${panes[0].id}/input`, { text: "\r", submit: false });
     // Retain real bursts of work, trimming idle time between them.
-    for (let stage = 0; stage < 24; stage++) {
+    let demonstrated = false;
+    let posterFrame: number | undefined;
+    for (let stage = 0; stage < 90; stage++) {
       await hold(1);
-      await page.waitForTimeout(4000);
+      if (
+        subagents &&
+        !demonstrated &&
+        (await page.getByRole("button", { name: "Collapse subagents", exact: true }).count())
+      ) {
+        await hold(2);
+        posterFrame = frame - 1;
+        await page.getByRole("button", { name: "Collapse subagents", exact: true }).click();
+        await hold(1);
+        await page.getByRole("button", { name: "Expand subagents", exact: true }).click();
+        await hold(2);
+        await page.getByRole("link", { name: /Build feature/ }).click();
+        await hold(1);
+        await page.getByRole("link", { name: /Build feature/ }).click();
+        await hold(2);
+        demonstrated = true;
+      }
+      await page.waitForTimeout(3000);
       const output = await log(panes[0].id);
       console.log(name, "stage", stage, output.slice(-900));
       if (
@@ -174,8 +211,9 @@ export function summarize(tasks) {
         (output.includes("Worked for") && existsSync(path.join(workingDir, "tasks.test.js")))
       )
         break;
-      if (stage === 23) throw new Error("Agent did not finish the sample task");
+      if (stage === 89) throw new Error("Agent did not finish the sample task");
     }
+    if (subagents) expect(demonstrated).toBe(true);
     await hold(3);
     expect(readFileSync(path.join(workingDir, "tasks.js"), "utf8")).not.toContain("// TODO");
     run("bun", ["test", path.join(workingDir, "tasks.test.js")]);
@@ -217,13 +255,23 @@ export function summarize(tasks) {
       "error",
       "-y",
       "-i",
-      path.join(frames, `${String(frame - 15).padStart(4, "0")}.png`),
+      path.join(frames, `${String(posterFrame ?? frame - 15).padStart(4, "0")}.png`),
       "-c:v",
       "libwebp",
       "-lossless",
       "1",
       path.join(out, `${name}.webp`),
     ]);
+    if (subagents) {
+      run("ffmpeg", [
+        "-v",
+        "error",
+        "-y",
+        "-i",
+        path.join(out, `${name}.webp`),
+        path.resolve(import.meta.dirname, "../apps/docs/public/screenshots/harness-subagents.png"),
+      ]);
+    }
     await context.close();
     console.log(`Captured ${name}: ${frame} frames`);
   }

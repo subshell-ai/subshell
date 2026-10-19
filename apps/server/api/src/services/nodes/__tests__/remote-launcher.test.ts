@@ -424,7 +424,10 @@ describe("launch", () => {
       mcpConfigPath: planned2.configPath,
     });
     const cmd2 = h2.calls[0]?.cmd as Extract<NodeCommandBody, { type: "launch" }>;
-    expect(cmd2.mcp?.env).toEqual({ OPENCODE_CONFIG: planned2.configPath });
+    expect(cmd2.mcp?.env).toEqual({
+      OPENCODE_CONFIG: planned2.configPath,
+      OPENCODE_TUI_CONFIG: `${planned2.configPath}.d/tui.json`,
+    });
     expect("args" in (cmd2.mcp ?? {})).toBe(false); // opencode's dialect has no argv half
   });
 
@@ -1016,6 +1019,7 @@ describe("subshellArtifacts sshPane (spec 2026-10-07 decision 4)", () => {
   const triple = [
     `/home/u/.subshell/subshells/${NODE_SUB}.log`,
     `/home/u/.subshell/mcp/${NODE_SUB}.json`,
+    `/home/u/.subshell/mcp/${NODE_SUB}.json.d`,
     `/home/u/.subshell/subshells/${NODE_SUB}.meta.json`,
   ];
 

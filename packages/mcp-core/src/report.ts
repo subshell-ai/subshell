@@ -45,7 +45,7 @@ export const ATTENTION_KINDS: readonly AttentionKind[] = ["turn_complete", "need
  * Either way {@link runReport}'s own filter is the backstop: a verb listed
  * here but not implemented there sends nothing.
  */
-export const REPORT_VERBS: readonly string[] = ["attention", "session", "exit"];
+export const REPORT_VERBS: readonly string[] = ["attention", "session", "exit", "subagents"];
 
 /** Injectable seams so tests can pin every path (defaults: the real ones). */
 export interface ReportIo {
@@ -129,8 +129,29 @@ export async function runReport(argv: string[], io: ReportIo = {}): Promise<void
 async function resolveBody(
   argv: string[],
   io: ReportIo,
-): Promise<{ path: string; json: Record<string, string> } | undefined> {
+): Promise<{ path: string; json: Record<string, unknown> } | undefined> {
   const [verb, ...rest] = argv;
+
+  if (verb === "subagents") {
+    const raw = await (io.readStdin ?? readStdinBounded)();
+    const payload = JSON.parse(raw) as Record<string, unknown>;
+    const hook = payload.hook_event_name;
+    const extra = payload.extra && typeof payload.extra === "object" ? (payload.extra as Record<string, unknown>) : {};
+    const hermes = hook === "subagent_start" || hook === "subagent_stop";
+    const id = hermes ? extra.child_session_id : payload.agent_id;
+    if (hook === "SessionStart" && payload.source === "clear")
+      return { path: "subagents/report", json: { event: "reset" } };
+    if (typeof id !== "string" || !id || id.length > 256) return undefined;
+    if (hook === "SubagentStop" || hook === "subagent_stop")
+      return { path: "subagents/report", json: { event: "stop", agentId: id } };
+    if (hook !== "SubagentStart" && hook !== "subagent_start") return undefined;
+    const label = hermes ? extra.child_role : payload.agent_type;
+    const name = typeof label === "string" && label ? label : "Subagent";
+    return {
+      path: "subagents/report",
+      json: { event: "start", agents: [{ id, name: name.slice(0, 160), status: "running" }] },
+    };
+  }
 
   if (verb === "attention") {
     const kind = rest[0];

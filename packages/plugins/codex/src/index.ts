@@ -100,12 +100,27 @@ function tomlStringArray(values: string[]): string {
  *
  * `host` carries what this module cannot import. See `@subshell-ai/plugin-api`.
  */
-const createPlugin: HarnessPluginFactory = (_host: PluginHost): SubshellPlugin => ({
-  capabilities: (): PluginCapability[] => ["mcp", "settings"],
+const createPlugin: HarnessPluginFactory = (host: PluginHost): SubshellPlugin => ({
+  subagents: {
+    discovery: "hooks",
+    navigation: "unavailable",
+    setup:
+      "Review the Subshell subagent monitoring hooks in /hooks and trust them to show active subagents in the sidebar.",
+  },
+  capabilities: (): PluginCapability[] => ["subagents", "mcp", "settings"],
 
   buildCommand(input: BuildCommandInput): string[] {
     const { binary, preset, extraFlags, mcp } = input;
     const args: string[] = [binary];
+    if (input.reporter) {
+      const command = [input.reporter.command, ...input.reporter.args, "subagents"].map(host.shellQuote).join(" ");
+      for (const event of ["SubagentStart", "SubagentStop", "SessionStart"]) {
+        args.push(
+          "-c",
+          `hooks.${event}=[{hooks=[{type="command",command=${JSON.stringify(command)},statusMessage="Subshell subagent monitoring",timeout=2}]}]`,
+        );
+      }
+    }
 
     const s = preset.settings ?? {};
     if (typeof s.model === "string" && s.model) args.push("-m", s.model);

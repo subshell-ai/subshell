@@ -8,6 +8,7 @@ import { SlidersHorizontal } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DetailBackHeader } from "@/components/detail-back-header";
 import { EditableText } from "@/components/editable-text";
+import { HarnessSubagentTitle } from "@/components/harness-subagents";
 import { SubshellNotFoundCard } from "@/components/not-found-page";
 import { InjectPromptDialog } from "@/components/prompts/inject-prompt-dialog";
 import { SplitSubshellButton } from "@/components/split-subshell-button";
@@ -23,6 +24,7 @@ import { TranscriptSearch } from "@/components/transcript-search";
 import { TrustIndicators } from "@/components/trust-indicators";
 import { TrustNoticeBanner } from "@/components/trust-notice-banner";
 import { useClockTick } from "@/hooks/use-clock-tick";
+import { useHarnessSubagents } from "@/hooks/use-harness-subagents";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
 import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
 import { useNodes } from "@/hooks/use-nodes";
@@ -81,6 +83,7 @@ function SubshellPage() {
   // exited/offline precedence was this page's second copy of a rule that lives
   // in `subshellIndicator`, and the dot consumes that one directly.
   const { subshell, isLoading, isError, isNotFound, dead } = useSubshellData(id);
+  const { data: agentState } = useHarnessSubagents(id, !dead);
   // What this subshell discloses and to whom (foreign node / shared). The
   // icons render always; the banner shows once per exposure.
   const trustNotices = useTrustNotices(subshell);
@@ -266,22 +269,28 @@ function SubshellPage() {
              never say three things about one subshell. `accessible` because
              here the dot is the only carrier of the state; the rail's rows
              have their link text. */
-          <span className="flex min-w-0 items-center gap-2">
-            {subshell && <SubshellDot subshell={subshell} accessible className="mt-0 h-2 w-2" />}
-            {stacked ? (
-              <span className={cn("truncate", !subshell?.name && "text-muted-foreground")}>{subshell?.name || id}</span>
-            ) : (
-              /* Click to rename; the id stands in, muted, until the record loads. */
-              <EditableText
-                value={subshell?.name ?? ""}
-                placeholder={id}
-                label="Rename subshell"
-                onSave={saveName}
-                className="font-strong"
-                inputClassName="w-56"
-              />
-            )}
-          </span>
+          agentState?.selectedId && subshell ? (
+            <HarnessSubagentTitle id={id} parentName={subshell.name} />
+          ) : (
+            <span className="flex min-w-0 items-center gap-2">
+              {subshell && <SubshellDot subshell={subshell} accessible className="mt-0 h-2 w-2" />}
+              {stacked ? (
+                <span className={cn("truncate", !subshell?.name && "text-muted-foreground")}>
+                  {subshell?.name || id}
+                </span>
+              ) : (
+                /* Click to rename; the id stands in, muted, until the record loads. */
+                <EditableText
+                  value={subshell?.name ?? ""}
+                  placeholder={id}
+                  label="Rename subshell"
+                  onSave={saveName}
+                  className="font-strong"
+                  inputClassName="w-56"
+                />
+              )}
+            </span>
+          )
         }
         /* Indented past the dot so the path lines up with the NAME rather
            than with the dot, which otherwise leaves the title looking

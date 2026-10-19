@@ -117,7 +117,8 @@ export function semverLt(a: string, b: string): boolean {
  * Raised to 2.1.0 with protocol 21 for the temporary desktop SSH signer bridge.
  * The node package moves to the same floor so older nodes cannot accept this flow.
  */
-export const MIN_NODE_VERSION = "2.1.0";
+// Protocol 22 requires nodes that can materialize harness integration files.
+export const MIN_NODE_VERSION = "2.2.0";
 
 /**
  * Whether an agent reporting `version` may connect.

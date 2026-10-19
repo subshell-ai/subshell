@@ -34,7 +34,7 @@ describe("buildPluginReports", () => {
     expect(report?.name).toBe("Claude Code");
     expect(report?.type).toBe("agent-harness");
     expect(report?.version).toMatch(/^\d+\.\d+\.\d+/);
-    expect(report?.capabilities.sort()).toEqual(["attention", "mcp", "resume", "settings"]);
+    expect(report?.capabilities.sort()).toEqual(["attention", "mcp", "resume", "settings", "subagents"]);
     // Non-empty, because an empty settings list renders as a preset editor
     // with nothing in it and looks like a working screen.
     expect((report?.presetSettings ?? []).length).toBeGreaterThan(0);

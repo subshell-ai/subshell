@@ -39,7 +39,7 @@ describe("ClaudeCodePlugin", () => {
   });
 
   it("declares the capabilities it implements", () => {
-    expect(plugin.capabilities().sort()).toEqual(["attention", "mcp", "resume", "settings"]);
+    expect(plugin.capabilities().sort()).toEqual(["attention", "mcp", "resume", "settings", "subagents"]);
   });
 
   it("buildCommand: bare launch with no preset extra", () => {
