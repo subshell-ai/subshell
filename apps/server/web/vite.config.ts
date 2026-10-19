@@ -27,7 +27,11 @@ export default defineConfig(({ mode }) => {
     ...Object.values(networkInterfaces()).flatMap((entries) =>
       (entries ?? []).map(({ address, family }) => family === "IPv6" ? `[${address}]` : address)),
   ];
-  const devOrigins = devHosts.map((host) => `http://${host}:5174`);
+  const devOrigins = [
+    ...devHosts.map((host) => `http://${host}:5174`),
+    // Explicit reverse-proxy origins only; never infer origin trust from Host.
+    ...(env.DEV_ALLOWED_ORIGINS ?? "").split(",").map((origin) => origin.trim()).filter(Boolean),
+  ];
 
   return {
     // Bundle stamp shown in the About dialog (user menu). iOS PWA caches are

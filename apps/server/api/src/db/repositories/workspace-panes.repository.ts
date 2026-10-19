@@ -31,6 +31,25 @@ export interface WorkspaceUserPaneRow {
  * so ownership is checked one level up before any of these run.
  */
 export class WorkspacePanesRepository extends BaseRepository {
+  /** Keep the final tab even when two clients remove different panes together. */
+  async deleteUnlessLast(workspaceId: string, paneId: string): Promise<boolean> {
+    const result = await this.db
+      .deleteFrom("workspacePanes")
+      .where("id", "=", paneId)
+      .where("workspaceId", "=", workspaceId)
+      .where((eb) =>
+        eb.exists(
+          eb
+            .selectFrom("workspacePanes as other")
+            .select("other.id")
+            .where("other.workspaceId", "=", workspaceId)
+            .where("other.id", "!=", paneId),
+        ),
+      )
+      .executeTakeFirst();
+    return result.numDeletedRows > 0n;
+  }
+
   /** All panes of a workspace, oldest first — the fallback tab order. */
   async listByWorkspace(workspaceId: string): Promise<WorkspacePaneTable[]> {
     return this.db

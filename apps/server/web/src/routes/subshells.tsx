@@ -183,18 +183,16 @@ function SubshellsPage() {
         </Button>
       </header>
 
-      {/* Two deliberate rows (operator ask, 2026-09-24): the search spans the
-          content width and the row under it does too — the machine combobox
-          takes the remaining space beside the view toggle, so the columns
-          line up instead of the bottom row floating half-width. */}
-      <div className="space-y-4">
+      {/* Keep search full-width and let the filters stack on phones. On
+          wider screens they wrap before the machine picker loses its label. */}
+      <div className="flex flex-col gap-4">
         <SubshellSearch value={query} onChange={setQuery} className="w-full max-w-full" />
-        <div className="flex items-center gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
           {/* Always rendered (operator ruling, 2026-09-24): the old gate hid
               it until a second machine had rows, which read as the feature
               being missing on exactly the instances where people decide to
               add a machine. It narrows BOTH views. Default is All. */}
-          <div className="min-w-0 flex-1">
+          <div className="w-full min-w-0 sm:w-auto sm:min-w-48 sm:flex-1">
             {/* The same searchable combobox the launch pickers use: type-to-
                   filter is what a machine list earns when a fleet grows past
                   what a click-through enumerates. The sr-only label keeps the
@@ -210,7 +208,7 @@ function SubshellsPage() {
               onValueChange={(v) => setMachine(v === "" ? "all" : v)}
             />
           </div>
-          <div className="w-36 shrink-0">
+          <div className="w-full shrink-0 sm:w-36">
             <Select
               value={groupBy}
               onValueChange={(v) => {
@@ -234,6 +232,7 @@ function SubshellsPage() {
           </div>
           <Segmented
             ariaLabel="Subshells view"
+            className="w-full shrink-0 sm:w-auto"
             options={[
               { value: "tiled", label: "Tiles", icon: <LayoutGrid className="h-4 w-4" />, ariaLabel: "Tiled view" },
               { value: "list", label: "List", icon: <List className="h-4 w-4" />, ariaLabel: "List view" },

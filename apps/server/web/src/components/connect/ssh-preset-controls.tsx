@@ -52,6 +52,7 @@ export function SshPresetPicker({
             id="ssh-preset-picker"
             value=""
             placeholder="Choose a preset"
+            describedBy="ssh-preset-picker-hint"
             options={query.data.map((p) => ({
               value: p.id,
               label: presetChoiceLabel(p),
@@ -64,6 +65,9 @@ export function SshPresetPicker({
               if (preset && !disabled) onApply(preset);
             }}
           />
+          <p id="ssh-preset-picker-hint" className="text-detail text-muted-foreground">
+            Picking one copies its launch settings into this form.
+          </p>
         </Field>
       )}
     </>

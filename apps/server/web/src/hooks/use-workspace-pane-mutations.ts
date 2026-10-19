@@ -55,11 +55,9 @@ export function useWorkspacePaneMutations(workspaceId: string) {
    * re-selects its pane either way. A genuine failure (5xx, network) throws
    * so the caller can surface it instead of pretending the pane is gone.
    *
-   * The server also reports whether removing this pane took the WORKSPACE
-   * with it: a workspace exists exactly as long as it holds a tab (spec
-   * 2026-10-17), so this was the last one. The caller navigates to a
-   * remaining subshell instead of closing a tile. An already-gone pane
-   * answers `false` — there is no body to read.
+   * Current servers refuse to remove the last pane (409). Keep reading the
+   * legacy workspaceDeleted field for older servers that retire the workspace.
+   * An already-gone pane answers false because there is no body to read.
    * @param paneId - The pane row to remove
    * @returns Whether the workspace itself was deleted along with the pane
    */

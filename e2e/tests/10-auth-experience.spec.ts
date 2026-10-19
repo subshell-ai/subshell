@@ -19,12 +19,12 @@ test("signed-out deep-link round-trips through /login?redirect", async ({ page }
   // and no signed-in user menu (the post-split Account/Sign-out affordance).
   await expect(page.locator("aside")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Open navigation" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /^Account:/ })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Account", exact: true })).toHaveCount(0);
 
   await page.fill("#email", ADMIN.email);
   await page.fill("#password", ADMIN.password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page).toHaveURL(/\/workspaces$/);
+  await expect(page).toHaveURL(/\/workspaces(?:\/[^/?]+)?$/);
 });
 
 test("members are turned away from the roster page", async ({ browser }) => {
@@ -108,7 +108,7 @@ test("members are turned away from the roster page", async ({ browser }) => {
   // top-level entry every signed-in person could see. Asserting a label from
   // an older tree would pass for the wrong reason.
   const rail = page.locator("aside");
-  await expect(rail.getByRole("button", { name: "Server Settings" })).toHaveCount(0);
+  await expect(rail.getByRole("heading", { name: "Server Settings" })).toHaveCount(0);
   await expect(rail.getByRole("link", { name: "General" })).toHaveCount(0);
   await expect(rail.getByRole("link", { name: "Users" })).toHaveCount(0);
   await ctx.close();

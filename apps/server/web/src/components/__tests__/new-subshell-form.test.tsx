@@ -595,12 +595,9 @@ describe("NewSubshellForm preset row", () => {
     const restore = mockFetch([LOCAL], [CLAUDE], []);
     try {
       await renderForm();
-      await waitFor(() =>
-        expect(screen.getByText("Picking one copies its launch settings into this form.")).toBeDefined(),
-      );
-      // The row lists EVERY preset now, so emptiness is about the account,
-      // not the agent nobody has picked yet.
-      expect(screen.getByText("No presets yet.")).toBeDefined();
+      await waitFor(() => expect(screen.queryByText("Loading presets…") === null).toBe(true));
+      expect(screen.queryByPlaceholderText("Choose a preset") === null).toBe(true);
+      expect(screen.queryByText("No presets yet.") === null).toBe(true);
     } finally {
       restore();
     }

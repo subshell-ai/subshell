@@ -425,15 +425,12 @@ export class WorkspacesService extends BaseService {
   /**
    * Removes a pane from a workspace (the subshell is untouched).
    *
-   * **A workspace emptied by this removal is deleted with it** — the runtime
-   * half of "a workspace exists exactly as long as it has tabs". The panes
-   * left behind by the removal are zero by definition here, so this is one
-   * count check, not a per-row decision, and it applies to every workspace
-   * alike (the old draft-only rule, and the client hook that mirrored it, are
-   * gone).
+   * The last tab stays in place so removing a tab cannot leave the workspace.
+   * The repository enforces that condition in the delete statement, including
+   * simultaneous removals from different clients.
    *
-   * @returns `workspaceDeleted` so the caller knows whether to close a panel or
-   *   navigate away — it cannot infer that from the pane it asked to remove.
+   * @returns The legacy response shape, with workspaceDeleted always false.
+   * @throws WorkspacesError 409 when this is the final pane.
    * @throws WorkspacesError 404 when the workspace is absent or not the caller's.
    * @throws WorkspacesError 404 when the pane is not part of that workspace.
    */
@@ -449,11 +446,12 @@ export class WorkspacesService extends BaseService {
     if (!panes.some((p) => p.id === paneId)) {
       throw new WorkspacesError("not_found", "Pane not found", 404);
     }
-    await panesRepo.delete(paneId);
-
-    if ((await panesRepo.countForWorkspace(workspace.id)) === 0) {
-      await this.repos.workspaces.delete(workspace.id);
-      return { ok: true, workspaceDeleted: true };
+    if (!(await panesRepo.deleteUnlessLast(workspace.id, paneId))) {
+      // A concurrent removal of this same pane is already-gone, not a last-tab refusal.
+      if (!(await panesRepo.listByWorkspace(workspace.id)).some((pane) => pane.id === paneId)) {
+        throw new WorkspacesError("not_found", "Pane not found", 404);
+      }
+      throw new WorkspacesError("last_pane", "Add another tab before removing this one.", 409);
     }
     return { ok: true, workspaceDeleted: false };
   }

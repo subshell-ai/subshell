@@ -8,6 +8,32 @@ test.use({ storageState: ADMIN_STATE });
  * `ipad-landscape` = 1194x834, touch (desktop shell + dock). */
 const isPhone = () => test.info().project.name === "mobile";
 
+let launchFixtureId: string | undefined;
+test.beforeEach(async ({ page }, info) => {
+  if (
+    !isPhone() ||
+    ![
+      "drawer quick-add: inline ✕, dialog opens, drawer dismissed",
+      "launch dialog survives the agent dropdown's scroll shift",
+    ].includes(info.title)
+  )
+    return;
+  // These actions require an active workspace, regardless of what earlier specs leave behind.
+  const response = await page.request.post("/api/subshells", {
+    data: { harnessId: "terminal", name: "Mobile launch fixture", workingDir: "/tmp" },
+  });
+  expect(response.ok(), await response.text()).toBe(true);
+  launchFixtureId = (await response.json()).id;
+  const workspace = await page.request.post("/api/workspaces", {
+    data: { name: "Mobile launch fixture", subshellId: launchFixtureId },
+  });
+  expect(workspace.ok(), await workspace.text()).toBe(true);
+});
+test.afterEach(async ({ page }) => {
+  if (launchFixtureId) await page.request.delete(`/api/subshells/${launchFixtureId}`);
+  launchFixtureId = undefined;
+});
+
 /** Horizontal overflow of the document, in px (<= 1 is the rounding floor). */
 const overflowOf = (page: import("@playwright/test").Page) =>
   page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
@@ -49,15 +75,12 @@ test("shell chrome follows the 1024px rule", async ({ page }) => {
     await expect(page.locator("aside")).toHaveCount(0);
     await burger.click();
     await expect(page.getByRole("dialog")).toBeVisible();
-    // The admin pages live in one collapsible group now (spec 2026-09-11
-    // grouped-navigation §2.1), and it follows the route: on `/` it is SHUT,
-    // so the press below is the ordinary path rather than a defensive one.
-    // Written as a conditional anyway, because what this test is here to
-    // check is the drawer, and it should not also fail the day the group's
-    // default changes.
-    const group = page.getByRole("button", { name: "Server Settings" });
-    await expect(group).toBeVisible();
-    if ((await group.getAttribute("aria-expanded")) === "false") await group.click();
+    // Selecting a mini-rail section keeps the drawer open for its pages.
+    await page
+      .getByRole("navigation", { name: "Main sections" })
+      .getByRole("link", { name: "Settings", exact: true })
+      .click();
+    await expect(page.getByRole("dialog")).toBeVisible();
     // Positive control for 10-auth-experience's member check, which asserts
     // this exact locator has COUNT 0. Users moved inside the group, so an
     // absence assertion about it is vacuous unless something proves the
@@ -73,8 +96,12 @@ test("shell chrome follows the 1024px rule", async ({ page }) => {
     // dismissed above, so it rides the same burger-open path as any tap.
     await burger.click();
     await expect(page.getByRole("dialog")).toBeVisible();
-    await page.getByRole("button", { name: /Account:/ }).click();
-    await page.getByRole("menuitem", { name: "Account settings" }).click();
+    await page
+      .getByRole("navigation", { name: "Main sections" })
+      .getByRole("link", { name: "Account", exact: true })
+      .click();
+    await page.getByRole("link", { name: "Profile", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Navigation" })).toHaveCount(0);
     await expect(page).toHaveURL(/\/account$/);
     // Composition smoke (spec §7, final-review debt): landing on /account
     // must paint the account cards' titles — the split's whole promise is
@@ -141,9 +168,14 @@ test("drawer quick-add: inline ✕, dialog opens, drawer dismissed", async ({ pa
   // no floating button over the nav rows.
   await expect(drawer.getByLabel("Close")).toBeVisible();
 
-  await drawer.getByRole("button", { name: "New subshell", exact: true }).tap();
-  // The ONLY dialog left is the root-mounted launch one.
-  await expect(page.getByRole("dialog", { name: "New subshell" })).toBeVisible();
+  await drawer
+    .getByRole("combobox", { name: "Switch workspace" })
+    .locator("..")
+    .getByRole("button", { name: /^Actions for / })
+    .tap();
+  await page.getByRole("menuitem", { name: "Add subshell", exact: true }).tap();
+  await expect(page.getByRole("navigation", { name: "Main sections" })).not.toBeVisible();
+  await expect(page.getByRole("dialog", { name: /^(New|Add a) subshell$/ })).toBeVisible();
 });
 
 test("launch dialog survives the agent dropdown's scroll shift", async ({ page }) => {
@@ -174,7 +206,12 @@ test("launch dialog survives the agent dropdown's scroll shift", async ({ page }
   // gesture is pinned by the drawer test above. (Touch-tapping the rail + at
   // this width races the dialog's first commit in-suite and intermittently
   // finds it already dismissed — see the drawer test for the reliable path.)
-  await page.locator("aside").getByRole("button", { name: "New subshell", exact: true }).tap();
+  await page
+    .getByRole("combobox", { name: "Switch workspace" })
+    .locator("..")
+    .getByRole("button", { name: /^Actions for / })
+    .tap();
+  await page.getByRole("menuitem", { name: "Add subshell", exact: true }).tap();
   const dialog = page.locator("[data-slot='dialog-content']").first();
   await expect(dialog).toBeVisible();
   const scroller = page.locator("[data-slot='dialog-content'] > div").first();
@@ -183,6 +220,9 @@ test("launch dialog survives the agent dropdown's scroll shift", async ({ page }
   // Keep the real trigger visible before parking the dialog. The launch-type
   // tabs moved Agent below this short viewport; a fixed25px scroll tapped
   // outside the viewport and never opened the dropdown at all.
+  if (await page.getByRole("dialog", { name: "Add a subshell", exact: true }).isVisible()) {
+    await dialog.getByRole("button", { name: "New subshell", exact: true }).click();
+  }
   const agent = page.getByRole("combobox", { name: "Agent" });
   await agent.scrollIntoViewIfNeeded();
   await expect(agent).toBeInViewport();
@@ -306,5 +346,53 @@ test("home-screen install assets are served", async ({ page }) => {
   for (const href of ["/icons/icon-192.png", "/icons/icon-512.png", "/icons/apple-touch-icon.png"]) {
     const res = await page.request.get(href);
     expect(res.ok(), href).toBe(true);
+  }
+});
+
+test("workspace navigation survives the landing redirect and pane actions stay in the drawer", async ({ page }) => {
+  test.skip(!isPhone(), "Phone drawer behavior");
+  const created = await page.request.post("/api/subshells", {
+    data: { harnessId: "terminal", name: "Mobile sidebar review", workingDir: "/tmp" },
+  });
+  expect(created.ok(), await created.text()).toBe(true);
+  const subshell = await created.json();
+  const workspaceResponse = await page.request.post("/api/workspaces", {
+    data: { name: "Mobile sidebar review", subshellId: subshell.id },
+  });
+  expect(workspaceResponse.ok(), await workspaceResponse.text()).toBe(true);
+  const workspace = await workspaceResponse.json();
+  try {
+    // Starting outside Workspaces leaves its rail destination at "/", which redirects.
+    await page.goto("/account");
+    await page.evaluate((id) => localStorage.setItem("subshell.lastWorkspaceId", id), workspace.id);
+    await page.getByRole("button", { name: "Open navigation" }).click();
+    const rail = page.getByRole("navigation", { name: "Main sections" });
+    await rail.getByRole("link", { name: "Workspaces", exact: true }).click();
+    const picker = page.getByRole("combobox", { name: "Switch workspace" });
+    await expect(picker).toBeVisible();
+    // Pick explicitly if another fixture's workspace was more recently touched.
+    await picker.click();
+    await page.getByRole("option", { name: "Mobile sidebar review", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/workspaces/${workspace.id}$`));
+    // The picker may select the current workspace, so close/reopen consistently.
+    if (!(await page.getByRole("navigation", { name: "Main sections" }).isVisible()))
+      await page.getByRole("button", { name: "Open navigation" }).click();
+    const sidebar = page.locator("aside");
+    const row = sidebar.locator(`a[href="/subshells/${subshell.id}"]`);
+    await expect(row).toBeVisible();
+    const rowActions = row.locator("xpath=../..").getByRole("button", { name: /^Actions for / });
+    await rowActions.click();
+    await expect(page.getByRole("menuitem", { name: "Edit title", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(sidebar).toBeVisible();
+    await row.click();
+    await expect(sidebar).not.toBeVisible();
+    const close = page.getByRole("button", { name: /Remove .* from workspace/ });
+    await expect(close).toHaveAttribute("aria-disabled", "true");
+    await close.click({ force: true });
+    await expect(page).toHaveURL(new RegExp(`/workspaces/${workspace.id}$`));
+    await expect(page.getByText("Add another tab before removing this one.", { exact: true })).toBeVisible();
+  } finally {
+    await page.request.delete(`/api/subshells/${subshell.id}`);
   }
 });

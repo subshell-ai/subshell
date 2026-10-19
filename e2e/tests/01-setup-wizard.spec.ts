@@ -83,7 +83,7 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
   // The landing `/` is a direction, not a page (spec 2026-10-17): a brand-new
   // admin who skips with zero subshells reaches the one-button empty state.
   // The old `Subshells` heading died with the list landing.
-  await expect(page.getByText("No workspace yet")).toBeVisible();
+  await expect(page.getByText("No subshells yet")).toBeVisible();
 
   // The wizard must never show again on a DB with users.
   await page.goto("/setup");
@@ -98,10 +98,21 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
   });
   expect(presets).toEqual([]);
 
-  // Sign out through the sidebar user menu (spec 2026-09-02 settings-split
-  // §3 — it replaced the bare Logout button), then real login through the form.
-  await page.getByRole("button", { name: /Account:/ }).click();
-  await page.getByRole("menuitem", { name: "Sign out" }).click();
+  // Sign out through Account, verifying cancellation before confirming.
+  await page
+    .getByRole("navigation", { name: "Main sections" })
+    .getByRole("link", { name: "Account", exact: true })
+    .click();
+  const signOut = page
+    .getByRole("navigation", { name: "Account pages" })
+    .getByRole("button", { name: "Sign out", exact: true });
+  await signOut.click();
+  const confirmation = page.getByRole("dialog", { name: "Sign out?", exact: true });
+  await confirmation.getByRole("button", { name: "Cancel" }).click();
+  await expect(confirmation).toBeHidden();
+  await expect(page).toHaveURL(/\/account$/);
+  await signOut.click();
+  await confirmation.getByRole("button", { name: "Sign out", exact: true }).click();
   await expect(page).toHaveURL(/\/login$/);
   await page.fill("#email", ADMIN.email);
   await page.fill("#password", ADMIN.password);

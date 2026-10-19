@@ -38,7 +38,10 @@ test.describe("server service page", () => {
     // Through the rail rather than by URL: the seventh child of the Server
     // Settings group is part of what shipped, and a route nobody can reach
     // is not a feature.
-    await page.getByRole("button", { name: "Server Settings" }).click();
+    await page
+      .getByRole("navigation", { name: "Main sections" })
+      .getByRole("link", { name: "Settings", exact: true })
+      .click();
     await page.getByRole("link", { name: "Service", exact: true }).click();
     await expect(page).toHaveURL(/\/settings\/service$/);
     await expect(page.getByRole("heading", { name: "Service" })).toBeVisible();
@@ -65,7 +68,10 @@ test.describe("server service page", () => {
     // Through the rail for the same reason the Service test does it: the card
     // moved between two sibling pages, so "it renders" is only half the claim
     // — the half that regresses is which page a person reaches it from.
-    await page.getByRole("button", { name: "Server Settings" }).click();
+    await page
+      .getByRole("navigation", { name: "Main sections" })
+      .getByRole("link", { name: "Settings", exact: true })
+      .click();
     await page.getByRole("link", { name: "Status", exact: true }).click();
     await expect(page).toHaveURL(/\/settings\/status$/);
 
@@ -230,8 +236,11 @@ test.describe("server service page", () => {
 
   test("About names the instance and the server version, with no desktop shell present", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: /^Account:/ }).click();
-    await page.getByRole("menuitem", { name: "About Subshell" }).click();
+    await page
+      .getByRole("navigation", { name: "Main sections" })
+      .getByRole("link", { name: "Account", exact: true })
+      .click();
+    await page.getByRole("button", { name: "About", exact: true }).click();
 
     const version = await page.request
       .get("/api/settings/public")

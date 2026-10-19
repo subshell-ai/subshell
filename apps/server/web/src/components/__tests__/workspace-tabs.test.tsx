@@ -27,7 +27,13 @@ function pane(overrides: Partial<WorkspacePaneRow> = {}): WorkspacePaneRow {
  * quiet row per pane — unless `rows` overrides it, and `[]` is the world
  * where the list has not answered and the tab must draw no dot.
  */
-function renderTab(opts: { waiting: boolean; removed?: string[]; selected?: string[]; rows?: unknown[] }) {
+function renderTab(opts: {
+  waiting: boolean;
+  removeDisabled?: boolean;
+  removed?: string[];
+  selected?: string[];
+  rows?: unknown[];
+}) {
   const removed = opts.removed ?? [];
   const selected = opts.selected ?? [];
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -42,6 +48,7 @@ function renderTab(opts: { waiting: boolean; removed?: string[]; selected?: stri
         active
         waiting={opts.waiting}
         onSelect={() => selected.push("pane-1")}
+        removeDisabled={opts.removeDisabled}
         onRemove={() => removed.push("pane-1")}
       />
     </QueryClientProvider>,
@@ -91,6 +98,12 @@ describe("WorkspaceTab (narrow tab strip)", () => {
     const { selected } = renderTab({ waiting: true });
     fireEvent.click(screen.getByText("Alpha"));
     expect(selected).toEqual(["pane-1"]);
+  });
+
+  it("keeps the final tab when removal is disabled", () => {
+    const { removed } = renderTab({ waiting: false, removeDisabled: true });
+    fireEvent.click(screen.getByLabelText("Remove Alpha from workspace"));
+    expect(removed).toEqual([]);
   });
 
   it("the × fires onRemove", () => {

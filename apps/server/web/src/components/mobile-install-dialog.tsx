@@ -1,5 +1,5 @@
 import { type JSX, useState } from "react";
-import { AddressQr } from "@/components/address-qr";
+import { MobileInstallContent, PLATFORM_OPTIONS } from "@/components/mobile-install-content";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Segmented } from "@/components/ui/segmented";
 import { type InstallPlatform, installPlatformFor } from "@/lib/mobile-install";
@@ -19,41 +19,6 @@ import { type InstallPlatform, installPlatformFor } from "@/lib/mobile-install";
  * Not admin-gated, and it asks for nothing: the addresses ride the
  * public-settings payload every signed-in page already holds.
  */
-
-/** One platform's steps. The tab group is three GESTURES, not three brands —
- * which is why macOS Safari sits under "Browser" beside Chrome rather than
- * under the Apple tab with the iPhone. */
-const STEPS: Record<InstallPlatform, { label: string; steps: string[] }> = {
-  browser: {
-    label: "Browser",
-    steps: [
-      "Open the address above in Chrome or Edge.",
-      "Click the install icon at the right of the address bar, or ⋮ → Cast, save and share → Install page as app.",
-      "On Safari for macOS it is File → Add to Dock instead.",
-    ],
-  },
-  apple: {
-    label: "iPhone & iPad",
-    steps: [
-      "Open the address above in Safari. Chrome and Firefox on iOS cannot install it; only Safari can.",
-      "Tap the Share button, then Add to Home Screen.",
-      "Tap Add, then open Subshell from its new icon. Notifications only ever arrive for the installed app.",
-    ],
-  },
-  android: {
-    label: "Android",
-    steps: [
-      "Open the address above in Chrome.",
-      "Tap ⋮ → Add to Home screen, then Install app.",
-      "Open Subshell from its new icon.",
-    ],
-  },
-};
-
-const PLATFORM_OPTIONS = (Object.keys(STEPS) as InstallPlatform[]).map((value) => ({
-  value,
-  label: STEPS[value].label,
-}));
 
 export function MobileInstallDialog({
   open,
@@ -80,8 +45,6 @@ export function MobileInstallDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <AddressQr origin={origin} />
-
         <div className="space-y-2">
           <Segmented
             ariaLabel="Where you are installing Subshell"
@@ -90,11 +53,7 @@ export function MobileInstallDialog({
             onChange={setPlatform}
             className="w-full"
           />
-          <ol className="list-decimal space-y-1 pl-5 text-muted-foreground text-sm">
-            {STEPS[platform].steps.map((step) => (
-              <li key={step}>{step}</li>
-            ))}
-          </ol>
+          <MobileInstallContent platform={platform} origin={origin} />
         </div>
       </DialogContent>
     </Dialog>

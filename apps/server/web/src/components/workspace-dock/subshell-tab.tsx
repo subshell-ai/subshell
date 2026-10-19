@@ -1,5 +1,6 @@
+import { ExplainedButton } from "@internal/node-admin";
 import type { IDockviewPanelHeaderProps } from "dockview-react";
-import { Bell, Columns2, Rows2, X } from "lucide-react";
+import { Bell, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SubshellDot } from "@/components/subshell-dot";
 import { ContextMenuRoot, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -63,23 +64,15 @@ function useTitle(api: IDockviewPanelHeaderProps["api"]): string {
  * user rearranged the tiling layout. The close control here only fires from
  * an actual click (or middle-click) on the tab — a move never touches it.
  *
- * The tab is also a right-click trigger (Base UI's `ContextMenu`, the same
- * primitive the sidebar rows use): Split right / Split down drive
- * `onSplitPane`, Close pane is the ×'s own action. The menu exists because
- * nothing on screen names dockview's drag gestures: dragging a tab to an
- * EDGE splits (the one that works) while dropping it on a group's CENTER
- * merges, which reads as the drag having done nothing — the operator's
- * report. Right-click cannot fight the drag: dockview's drag starts from a
- * native `dragstart`, which browsers fire for primary-button gestures only,
- * and its pointer fallback ignores mouse pointers entirely (touch/pen only),
- * so button 2 never arms either source.
+ * The tab’s context menu offers the same close action as its ×. Layout
+ * changes happen by dragging tabs to a group’s center or edge.
  *
  * The pane is looked up in the live detail by panel id (the dock context
  * refreshes every poll), so the marker follows `subshellWaitingSince` without
  * the title itself ever being rewritten.
  */
 export function SubshellTab(props: IDockviewPanelHeaderProps) {
-  const { detail, onRemovePane, onSplitPane } = useWorkspaceDockContext();
+  const { detail, onRemovePane } = useWorkspaceDockContext();
   const title = useTitle(props.api);
   const pane = detail.panes.find((p) => p.id === props.api.id);
   const waiting = pane ? isPaneWaiting(pane) : false;
@@ -96,16 +89,16 @@ export function SubshellTab(props: IDockviewPanelHeaderProps) {
   const close = useCallback(
     (event: { preventDefault(): void }) => {
       event.preventDefault();
-      onRemovePane(props.api.id);
+      if (detail.panes.length > 1) onRemovePane(props.api.id);
     },
-    [onRemovePane, props.api.id],
+    [onRemovePane, props.api.id, detail.panes.length],
   );
 
   // Middle-click closes the tab exactly like the stock default tab.
   const middleDown = useRef(false);
 
   return (
-    <ContextMenuRoot>
+    <ContextMenuRoot open={detail.panes.length <= 1 ? false : undefined}>
       <ContextMenuTrigger
         render={
           <div
@@ -127,7 +120,9 @@ export function SubshellTab(props: IDockviewPanelHeaderProps) {
             {subshell && <SubshellDot subshell={subshell} className="mt-0 mr-1.5" />}
             <span className="dv-default-tab-content">{title}</span>
             {waiting && <TabWaitingMarker />}
-            <button
+            <ExplainedButton
+              disabled={detail.panes.length <= 1}
+              disabledReason="Add another tab before removing this one."
               type="button"
               className="dv-default-tab-action"
               aria-label="Close tab"
@@ -135,23 +130,17 @@ export function SubshellTab(props: IDockviewPanelHeaderProps) {
               onClick={close}
             >
               <X className="h-3 w-3" />
-            </button>
+            </ExplainedButton>
           </div>
         }
       />
       <DropdownMenuContent anchor={anchorRef} side="bottom" align="start" onClick={(e) => e.stopPropagation()}>
-        <DropdownMenuItem onSelect={() => onSplitPane(props.api.id, "right")}>
-          <Columns2 className="h-4 w-4" aria-hidden />
-          Split right
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onSplitPane(props.api.id, "below")}>
-          <Rows2 className="h-4 w-4" aria-hidden />
-          Split down
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onRemovePane(props.api.id)}>
-          <X className="h-4 w-4" aria-hidden />
-          Close pane
-        </DropdownMenuItem>
+        {detail.panes.length > 1 && (
+          <DropdownMenuItem onSelect={() => onRemovePane(props.api.id)}>
+            <X className="h-4 w-4" aria-hidden />
+            Close pane
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </ContextMenuRoot>
   );

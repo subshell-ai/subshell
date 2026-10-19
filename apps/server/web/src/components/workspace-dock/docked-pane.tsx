@@ -73,6 +73,7 @@ export function DockedPane(props: IDockviewPanelProps<DockedPaneParams>) {
       active={visible}
       showKeyBar={visible && isActive}
       onRestart={onRestart}
+      removeDisabled={detail.panes.length <= 1}
       onRemovePane={onRemovePane}
       onReady={handleTerminalReady}
       onDispose={handleTerminalDispose}

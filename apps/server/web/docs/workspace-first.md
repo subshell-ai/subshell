@@ -6,23 +6,23 @@ summary; the routing line in `AGENTS.md` names when to read it.
 
 A workspace is a window of tabs holding REFERENCES to live subshells, and the
 pane world hangs off it: a launch lands as a tab in the workspace you're
-viewing, `Split` is what creates one, and the row self-retires when its last
-pane is removed. The server model (migration 0058, spec
+viewing, launching a first subshell creates one, and removing a tab must keep the final pane in place. The server model (migration 0058, spec
 `docs/superpowers/specs/2026-10-17-workspace-first-design.md`) is what the
 client reads, so each rule below has both halves.
 
-## The split flow
+## Adding subshells
 
-A workspace can begin on a subshell page: **Split**
+A workspace can begin on a subshell page: **Add a subshell to a workspace**
 (`components/split-subshell-button.tsx`) opens the same add-subshell dialog the
 dock uses, creates a NAMED workspace around the current subshell
 (`POST /api/workspaces { name, subshellId }`, named after the subshell), and
 navigates to `/workspaces/$id?add=<subshellId>&dir=<direction>`. The dock and
 the tab strip consume that intent once dockview is ready, through their
 ordinary `handleAdd`, then strip the params, so the first split and every later
-add run one code path, and the picker's direction is honoured. A failed add
+add run one code path, with new subshells added as tabs. Split controls are omitted from the dialog
+and tab context menu; desktop users arrange splits by dragging tabs. A failed add
 KEEPS the params: the error banner would unmount with the screen if the page
-navigated clean, so the person who pressed Split lands where they started with
+navigated clean, so the person adding a subshell lands where they started with
 something said. A reload with the params already gone must not re-add
 (regression #13), which is what the idempotent add makes cheap to guarantee.
 
@@ -59,9 +59,10 @@ server-behind message, not as a name complaint.)
   `nativeButton={false}`), so middle-click still works.
 - Adding a pane is IDEMPOTENT: `workspace_panes` is UNIQUE on
   `(workspace_id, subshell_id)`, and the second add returns the existing row
-  with `alreadyPresent: true` rather than failing. Removing the LAST pane
-  deletes the workspace (`removePane` resolves `{ workspaceDeleted }`) and the
-  presentation takes the person to the subshell that remained, or to `/`.
+  with `alreadyPresent: true` rather than failing. Removing the final tab
+  is refused with 409, including concurrent removals. The mobile and desktop
+  close controls explain that another tab must be added first. Closing a
+  subshell itself remains a separate action.
   `POST /api/subshells` can file the launch (`workspaceId`), and deleting a
   subshell retires any of ITS owner's workspaces the delete emptied.
 
@@ -120,6 +121,11 @@ permissions and confirmation flow, and touch copy mode uses the same persisted
 per-subshell setting as the key bar.
 
 The workspace's own NAME has no control on the page any more. It is edited
-from the context menu that wraps both the rail tree row and the `/workspaces`
-card (`Rename…` in `components/workspace-actions-menu.tsx`, which owns the
+from the workspace selector’s actions menu
+(`Rename…` in `components/workspace-actions-menu.tsx`, which owns the
 PUT), and shown in plain on the bar only while the workspace holds no pane.
+
+The `/workspaces` overview is gone. Both `/` and `/workspaces` use
+`WorkspaceLanding` to resume the last available workspace. The latter keeps
+the workspace sidebar available when none exist, so its selector can create
+one. The workspace header has no back link to an overview.

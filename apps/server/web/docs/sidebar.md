@@ -1,4 +1,51 @@
-# The rail: sidebar rows, node groups, the Needs Attention spotlight
+# Contextual sidebar
+
+The mini rail selects Workspaces, Subshells, Settings, Subshell for Mobile, or
+Account. `lib/sidebar-context.ts` derives the active section from the route,
+including direct visits and browser Back. Each section remembers its last
+visited destination while the shell stays mounted. While a workspace is open,
+Workspaces and Subshells switch only the sidebar panel. Subshells keeps
+search, grouping, status, and actions; selecting a row focuses its tab or adds
+it to the current workspace as a tab, even if another workspace holds it.
+The actions menu beside the filter offers Add subshell and Subshell dashboard.
+Add subshell opens the workspace picker when a workspace is active; Subshell
+dashboard leaves the workspace for `/subshells`.
+Modified clicks still follow the links’ destinations.
+
+`ActiveWorkspaceSection` uses the workspace list and the existing live subshell
+cache. It renders only the selected workspace through `WorkspaceBranch` and
+`SubshellRecentRow`, preserving status, focus, tooltips, context menus and drag
+payloads. The workspace picker includes every available workspace and New workspace. A missing
+workspace URL never falls back to an unrelated workspace. A direct subshell
+link uses a workspace that holds it, or shows just that subshell when unfiled.
+A small attention count links to Subshells for pending work elsewhere.
+The old all-workspaces tree and machine-group list are no longer mounted in
+the shell; their reusable list components and tests remain separate.
+
+`ContextNavigation` reuses `sidebar-nav.ts` for personal and admin pages. Admin
+navigation remains hidden until the server explicitly says the viewer is an
+admin. Mobile setup uses the existing address picker and installation copy,
+shared by its page and dialog. Account presents Profile, Preferences, Feedback, About, and Sign out directly.
+A plain footer shows identity, version, instance name, and admin-only update
+notices without a second account menu.
+
+Collapsing hides the contextual panel while leaving the mini rail available.
+The desktop Find Subshell action opens Subshells and focuses its search.
+Native drag strips and connection footer controls remain supplied by the
+existing desktop wrapper.
+
+`MobileNavProvider` owns one drawer at the shell root, so moving between a
+workspace’s header and a dashboard header does not unmount it. A mini-rail
+selection keeps it open for the new section’s pages. Selecting a page or pane
+closes it, even when focusing a pane leaves the URL unchanged. Quick-add closes
+the drawer before its root-owned dialog opens.
+
+## Earlier sidebar designs
+
+The notes below describe the previous rail and the reusable list components;
+they do not define which lists the contextual shell mounts.
+
+### Sidebar rows, node groups, and the attention spotlight
 
 Deep dive for `apps/server/web`, moved verbatim out of `AGENTS.md`.
 This file carries the full history behind the summary; the routing line in
@@ -6,8 +53,8 @@ This file carries the full history behind the summary; the routing line in
 
 **The sidebar (`components/app-sidebar.tsx` + `components/sidebar/`) is more
 than nav.** Recent subshell rows carry a status dot and are the drag source of
-"drag a session into a workspace" (targets: `workspace-dock.tsx`'s tiles
-wrapper and the `/workspaces` cards; the payload contract is
+"drag a session into a workspace" (target: `workspace-dock.tsx`'s tiles
+wrapper; the payload contract is
 `lib/subshell-dnd.ts`: handlers react ONLY to its MIME, which is what keeps
 xterm's file-drop and dockview's tab-drag untouched). Status words/precedence
 live once in `lib/subshell-indicator.ts`, and `SubshellDot`

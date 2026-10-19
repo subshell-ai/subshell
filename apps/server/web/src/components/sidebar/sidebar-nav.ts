@@ -59,7 +59,7 @@ const NAV_ENTRIES: NavEntry[] = [
   // Terminal, like the empty subshells box — subshells are terminal harnesses,
   // not a grid (the grid icon belongs to the tiles/list view toggle).
   { to: "/workspaces", label: "Workspaces", icon: LayoutDashboard, short: "Wksp" },
-  { to: "/subshells", label: "All subshells", icon: TerminalSquare, short: "Panes" },
+  { to: "/subshells", label: "Subshells", icon: TerminalSquare, short: "Panes" },
   // Personal settings (spec 2026-10-07 §A): the pages this viewer always owns,
   // grouped the way the admin's Server Settings group is. No gate: every
   // signed-in person reaches these pages today, and the group is chrome.

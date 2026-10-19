@@ -178,7 +178,9 @@ test("clicking the provider round-trips the fake IdP and lands signed in", async
 
     // And the signed-in shell, not a stale login frame: the sidebar account
     // menu (spec 01's locator) renders behind the gate.
-    await expect(page.getByRole("button", { name: /Account:/ })).toBeVisible();
+    await expect(
+      page.getByRole("navigation", { name: "Main sections" }).getByRole("link", { name: "Account", exact: true }),
+    ).toBeVisible();
   } finally {
     await context.close();
   }

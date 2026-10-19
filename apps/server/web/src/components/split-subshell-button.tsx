@@ -1,10 +1,11 @@
 import { apiFetch, apiPost } from "@internal/node-admin";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { SquareSplitHorizontal } from "lucide-react";
+import { Plus } from "lucide-react";
 import { type JSX, useState } from "react";
 import { AddSubshellDialog } from "@/components/subshell-picker/add-subshell-dialog";
 import { TippedIconButton } from "@/components/tipped-icon-button";
+import { useIsPhoneLayout } from "@/hooks/use-is-phone-layout";
 import { invalidateWorkspaceMembership } from "@/hooks/use-workspaces";
 import { splitCreateFailureMessage, splitWorkspaceRefusal } from "@/lib/split-workspace-refusal";
 import { defaultWorkspaceName } from "@/lib/workspace-name";
@@ -28,10 +29,11 @@ import type { SplitDirection, WorkspaceRow } from "@/types/workspace";
  * add runs — one add path, and the placement lands in the real dockview
  * layout instead of a guess made before it existed.
  */
-export function SplitSubshellButton({ subshell }: { subshell: SubshellView }): JSX.Element {
+export function SplitSubshellButton({ subshell }: { subshell: SubshellView }): JSX.Element | null {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const phone = useIsPhoneLayout();
 
   /**
    * Creates the workspace around this subshell and hands the picked second
@@ -78,29 +80,20 @@ export function SplitSubshellButton({ subshell }: { subshell: SubshellView }): J
     });
   }
 
+  if (phone) return null;
+
   return (
     <>
-      {/* Icon-only at every width (operator ruling 2026-09-27: the header
-          cannot afford the word). The tooltip carries it, and the dialog it
-          opens is titled "Split" so the word survives where the choice is
-          actually made. */}
       {/* `ghost` like its header neighbours (operator ruling 2026-10-16): the
           outline border made this one icon-only button read as a different
           kind of control than the workspace link and menu beside it. */}
-      <TippedIconButton
-        tooltip="Split this subshell into a workspace"
-        size="sm"
-        variant="ghost"
-        onClick={() => setOpen(true)}
-      >
-        <SquareSplitHorizontal className="h-3.5 w-3.5" />
+      <TippedIconButton tooltip="Add a subshell to a workspace" size="sm" variant="ghost" onClick={() => setOpen(true)}>
+        <Plus className="h-3.5 w-3.5" />
       </TippedIconButton>
       <AddSubshellDialog
         open={open}
         onOpenChange={setOpen}
         excludeSubshellIds={[subshell.id]}
-        title="Split"
-        description="Split the current view into multiple"
         // Same plugin, same machine, same directory: a split is almost always
         // "another one of these", and every one of the three is re-pickable.
         initialForm={{

@@ -7,256 +7,177 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AppSidebar } from "@/components/app-sidebar";
 import * as quickAdd from "@/components/quick-add";
 import { setFetchRouter } from "@/test-setup";
 
-/**
- * The group's open/close WIRING, as opposed to the rule it applies.
- *
- * `groupOpen()` is a pure `override ?? childActive` and cannot meaningfully
- * regress; the bug users actually hit — "I'm not able to collapse things",
- * 2026-09-12 — lived entirely in what this file exercises: that a press flips
- * the state the header is CURRENTLY SHOWING rather than a stored flag, and
- * that a press expires when the route changes. Both are invisible to a test
- * of the pure function, and both are one careless edit away from returning.
- */
-
-/**
- * Answers every query the rail mounts, so nothing reaches the network.
- *
- * Through `setFetchRouter` rather than by swapping `globalThis.fetch`: the
- * better-auth client behind `useCurrentUser` binds fetch at MODULE
- * EVALUATION, so a later swap is invisible to it and the session request goes
- * to the real network (ECONNREFUSED noise, and a test that depends on nothing
- * listening on port 80). The preload's delegator is what that binding
- * captured; see `src/test-setup.ts`.
- */
-function stubFetch(isAdmin: boolean): () => void {
-  setFetchRouter(async (input: RequestInfo | URL) => {
-    const url = String(typeof input === "string" || input instanceof URL ? input : input.url);
+async function renderRail(path: string, admin = false) {
+  setFetchRouter(async (input) => {
+    const url = String(input);
     const body = url.includes("/api/settings/public")
-      ? { viewerIsAdmin: isAdmin, instanceName: "Test plane" }
+      ? { viewerIsAdmin: admin }
       : url.includes("get-session")
-        ? { user: { id: "u1", name: "Admin", email: "admin@test" } }
+        ? { user: { name: "Test", email: "test@example.test" } }
         : [];
-    return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    return Response.json(body);
   });
-  return () => setFetchRouter(null);
-}
-
-/**
- * The group's child container, by the id its header points `aria-controls`
- * at — which also asserts that reference resolves.
- *
- * Openness is read from `aria-expanded` and this element's `hidden` CLASS,
- * never from whether the links are queryable: the children stay mounted (so
- * `aria-controls` has something to name) and are hidden by Tailwind's
- * `display:none`, but no stylesheet is loaded here, so a role query finds
- * them in both states.
- */
-function childList(): HTMLElement {
-  const id = header().getAttribute("aria-controls");
-  const el = id ? document.getElementById(id) : null;
-  if (!el) throw new Error("the group header's aria-controls names no element");
-  return el;
-}
-
-function renderRail(initialPath: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const rootRoute = createRootRoute({ component: () => <AppSidebar /> });
-  // Every path the rail links to must exist, or clicking a child throws.
-  const paths = ["/", "/workspaces", "/nodes", "/nodes/local", "/presets", "/prompts", "/settings"];
-  const children = paths.map((path) => createRoute({ getParentRoute: () => rootRoute, path, component: () => null }));
-  for (const path of [
-    "/settings/users",
-    "/settings/api-keys",
-    "/settings/plugins",
-    "/settings/service",
-    "/settings/updates",
-    "/settings/status",
-    "/settings/logs",
-  ]) {
-    children.push(createRoute({ getParentRoute: () => rootRoute, path, component: () => null }));
-  }
-  const router = createRouter({
-    routeTree: rootRoute.addChildren(children),
-    history: createMemoryHistory({ initialEntries: [initialPath] }),
-    defaultPreload: false,
+  const root = createRootRoute({
+    component: () => (
+      <quickAdd.QuickAddProvider>
+        <AppSidebar />
+      </quickAdd.QuickAddProvider>
+    ),
   });
-  return render(
+  const paths = [
+    "/",
+    "/workspaces",
+    "/subshells",
+    "/nodes",
+    "/nodes/local",
+    "/presets",
+    "/prompts",
+    "/settings",
+    "/settings/logs",
+    "/mobile",
+    "/account",
+    "/preferences",
+  ];
+  const router = createRouter({
+    routeTree: root.addChildren(
+      paths.map((path) => createRoute({ getParentRoute: () => root, path, component: () => null })),
+    ),
+    history: createMemoryHistory({ initialEntries: [path] }),
+  });
+  render(
     <QueryClientProvider client={client}>
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
+  await screen.findByRole("navigation", { name: "Main sections" });
+  return router;
 }
 
-const header = () => screen.getByRole("button", { name: /Server Settings/ });
-const expanded = () => header().getAttribute("aria-expanded");
-
-afterEach(cleanup);
-
-describe("the Server Settings group's open/close wiring", () => {
-  // The rail calls useQuickAdd(), which throws outside its provider; the real
-  // provider would mount two dialogs and their data, none of it under test.
-  const withRail = async (path: string, body: () => Promise<void> | void) => {
-    const restoreFetch = stubFetch(true);
-    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
-      openLaunch: () => {},
-      openSshLaunch: () => {},
-      openNewWorkspace: () => {},
-    });
-    try {
-      renderRail(path);
-      // The group is admin-gated, so it appears only once the settings query
-      // resolves — "unknown ≠ open" means it is genuinely absent until then.
-      await waitFor(() => expect(header()).toBeTruthy());
-      await body();
-    } finally {
-      // Unmount before restoring hooks that pending query updates can call.
-      cleanup();
-      spy.mockRestore();
-      restoreFetch();
-    }
-  };
-
-  it("is shut on a page outside the group, and a press opens it", async () => {
-    await withRail("/", async () => {
-      expect(expanded()).toBe("false");
-      expect(childList().className).toContain("hidden");
-      fireEvent.click(header());
-      await waitFor(() => expect(expanded()).toBe("true"));
-      expect(childList().className).not.toContain("hidden");
-      expect(screen.getByRole("link", { name: "Logs" })).toBeTruthy();
-    });
-  });
-
-  it("is open on a page INSIDE the group, and a press SHUTS it", async () => {
-    // The reported bug: the old rule forced this open, so the press did
-    // nothing on exactly the pages a person presses it from.
-    await withRail("/settings/logs", async () => {
-      expect(expanded()).toBe("true");
-      fireEvent.click(header());
-      await waitFor(() => expect(expanded()).toBe("false"));
-      fireEvent.click(header());
-      await waitFor(() => expect(expanded()).toBe("true"));
-    });
-  });
-
-  it("still names the current page while shut over it", async () => {
-    // What the forced-open rule was protecting, and why shutting it is safe:
-    // the header keeps the lit class, so the rail can still say where you are.
-    await withRail("/settings/logs", async () => {
-      fireEvent.click(header());
-      await waitFor(() => expect(expanded()).toBe("false"));
-      expect(header().className).toContain("text-accent-foreground");
-    });
-  });
-
-  it("expires the press on navigation, so leaving the group shuts it", async () => {
-    await withRail("/settings/logs", async () => {
-      // Press to OPEN-override while already open — a no-op visually, and the
-      // press that a stale record would carry to the next route.
-      fireEvent.click(header());
-      await waitFor(() => expect(expanded()).toBe("false"));
-      fireEvent.click(header());
-      await waitFor(() => expect(expanded()).toBe("true"));
-      fireEvent.click(screen.getByRole("link", { name: "Nodes" }));
-      await waitFor(() => expect(expanded()).toBe("false"));
-    });
-  });
-
-  it("opens on navigation INTO the group, with no press at all", async () => {
-    await withRail("/", async () => {
-      fireEvent.click(header());
-      await waitFor(() => expect(expanded()).toBe("true"));
-      fireEvent.click(screen.getByRole("link", { name: "General" }));
-      await waitFor(() => expect(expanded()).toBe("true"));
-      // Leaving again shuts it, proving the open above came from the route
-      // rather than from the press that survived.
-      fireEvent.click(screen.getByRole("link", { name: "Presets" }));
-      await waitFor(() => expect(expanded()).toBe("false"));
-    });
-  });
-
-  it("hides the whole group from a non-admin", async () => {
-    const restoreFetch = stubFetch(false);
-    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
-      openLaunch: () => {},
-      openSshLaunch: () => {},
-      openNewWorkspace: () => {},
-    });
-    try {
-      renderRail("/");
-      await waitFor(() => expect(screen.getByRole("link", { name: "Nodes" })).toBeTruthy());
-      expect(screen.queryByRole("button", { name: /Server Settings/ })).toBeNull();
-      // Users moved INSIDE the group, so it goes too — the reversal that
-      // e2e's member spec also pins.
-      expect(screen.queryByRole("link", { name: "Users" })).toBeNull();
-    } finally {
-      // Unmount before restoring hooks that pending query updates can call.
-      cleanup();
-      spy.mockRestore();
-      restoreFetch();
-    }
-  });
+afterEach(() => {
+  cleanup();
+  setFetchRouter(null);
+  localStorage.removeItem("subshell.sidebarCollapsed");
 });
 
-/**
- * The personal Settings group (spec 2026-10-07 §A): ungated, route-opened,
- * same machinery as the admin group - which is the point of reusing the
- * header-by-name and child-by-aria-controls helpers.
- */
-describe("the Settings group", () => {
-  // A getByRole string name is already exact-matched (this version's
-  // ByRoleOptions has no `exact` flag), so the admin's "Server Settings"
-  // header cannot answer for it.
-  const personalHeader = () => screen.getByRole("button", { name: "Settings" });
-  const personalList = () => {
-    const id = personalHeader().getAttribute("aria-controls");
-    const el = id ? document.getElementById(id) : null;
-    if (!el) throw new Error("the Settings header's aria-controls names no element");
-    return el;
-  };
-  const withPersonal = async (path: string, body: () => Promise<void> | void) => {
-    const restoreFetch = stubFetch(false); // NOT an admin: the group is ungated
+describe("contextual two-rail navigation", () => {
+  it("opens settings for a direct node detail link and gates admin pages", async () => {
+    await renderRail("/nodes/local");
+    expect(screen.getByRole("link", { name: "Settings" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: "Nodes" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: "Prompts" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Logs" })).toBeNull();
+  });
+  it("updates the active section link immediately when its subsection changes", async () => {
+    const router = await renderRail("/nodes");
+    await act(async () => {
+      await router.navigate({ to: "/presets" });
+    });
+    expect(screen.getByRole("link", { name: "Settings" }).getAttribute("href")).toBe("/presets");
+  });
+
+  it("opens the workspace page even when the remembered landing route would redirect", async () => {
     const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
-      openLaunch: () => {},
-      openSshLaunch: () => {},
-      openNewWorkspace: () => {},
+      openLaunch() {},
+      openSshLaunch() {},
+      openNewWorkspace() {},
     });
     try {
-      renderRail(path);
-      await waitFor(() => expect(personalHeader()).toBeTruthy());
-      await body();
+      const router = await renderRail("/");
+      await act(async () => {
+        await router.navigate({ to: "/subshells" });
+      });
+      fireEvent.click(screen.getByRole("link", { name: "Workspaces" }));
+      await waitFor(() => expect(router.state.location.pathname).toBe("/workspaces"));
+      expect(screen.getByRole("combobox", { name: "Switch workspace" })).toBeTruthy();
     } finally {
-      // Unmount before restoring hooks that pending query updates can call.
+      spy.mockRestore();
+    }
+  });
+
+  it("keeps admin pages together inside Settings", async () => {
+    await renderRail("/settings/logs", true);
+    await screen.findByRole("link", { name: "Logs" });
+    expect(screen.getByRole("heading", { name: "Server Settings" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Logs" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.queryByRole("combobox", { name: "Switch workspace" })).toBeNull();
+  });
+  it("changes subsections with the mini rail and restores the last settings page", async () => {
+    const router = await renderRail("/presets");
+    fireEvent.click(screen.getByRole("link", { name: "Subshells" }));
+    await screen.findByRole("region", { name: "Subshells" });
+    expect(screen.queryByRole("link", { name: "Nodes" })).toBeNull();
+    expect(router.state.location.pathname).toBe("/subshells");
+    expect(screen.getByRole("textbox", { name: "Filter sidebar subshells" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("link", { name: "Settings" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/presets"));
+    await act(async () => {
+      router.history.back();
+    });
+    await screen.findByRole("region", { name: "Subshells" });
+  });
+  it("makes mobile platform choices navigation links instead of opening a modal", async () => {
+    await renderRail("/mobile?platform=android");
+    expect(screen.getByRole("link", { name: "Android" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: "iPhone & iPad" })).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+  it("can collapse and reopen the contextual sidebar", async () => {
+    await renderRail("/nodes");
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    expect(screen.queryByRole("navigation", { name: "Settings pages" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Settings" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
+    expect(screen.getByRole("navigation", { name: "Settings pages" })).toBeTruthy();
+  });
+  it("shows only the chosen workspace and recovers a failed workspace read", async () => {
+    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
+      openLaunch() {},
+      openSshLaunch() {},
+      openNewWorkspace() {},
+    });
+    try {
+      const router = await renderRail("/nodes");
+      let fail = true;
+      setFetchRouter(async (input) => {
+        if (String(input).includes("/api/workspaces"))
+          return fail
+            ? Response.json({ error: "Unavailable" }, { status: 500 })
+            : Response.json([
+                {
+                  id: "w1",
+                  name: "Current work",
+                  updatedAt: "2026-10-18",
+                  subshellCount: 1,
+                  panes: [{ id: "p1", subshellId: "s1", subshellName: "Current pane", workingDir: "/tmp/current" }],
+                },
+                {
+                  id: "w2",
+                  name: "Other work",
+                  updatedAt: "2026-10-17",
+                  subshellCount: 1,
+                  panes: [{ id: "p2", subshellId: "s2", subshellName: "Other pane", workingDir: "/tmp/other" }],
+                },
+              ]);
+        return Response.json([]);
+      });
+      await act(async () => {
+        await router.navigate({ to: "/" });
+      });
+      await screen.findByText("Couldn’t load workspaces.");
+      fail = false;
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      await screen.findByText("Current pane");
+      expect(screen.queryByText("Other pane")).toBeNull();
+      expect(screen.getByRole("combobox", { name: "Switch workspace" })).toBeTruthy();
+    } finally {
       cleanup();
       spy.mockRestore();
-      restoreFetch();
     }
-  };
-
-  it("shows for a member and is open on a page inside it", async () => {
-    await withPersonal("/nodes", async () => {
-      expect(personalHeader().getAttribute("aria-expanded")).toBe("true");
-      expect(personalList().className).not.toContain("hidden");
-      expect(screen.getByRole("link", { name: "Prompts" })).toBeTruthy();
-    });
-  });
-
-  it("stays open on a detail page like /nodes/local", async () => {
-    await withPersonal("/nodes/local", async () => {
-      expect(personalHeader().getAttribute("aria-expanded")).toBe("true");
-    });
-  });
-
-  it("is shut on a page outside it, and a press opens it", async () => {
-    await withPersonal("/", async () => {
-      expect(personalHeader().getAttribute("aria-expanded")).toBe("false");
-      fireEvent.click(personalHeader());
-      await waitFor(() => expect(personalHeader().getAttribute("aria-expanded")).toBe("true"));
-    });
   });
 });

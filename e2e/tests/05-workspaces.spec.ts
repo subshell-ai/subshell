@@ -8,11 +8,8 @@ const PANE_TIMEOUT = 30_000;
 
 test("create a workspace, add a subshell pane, and the layout survives reload", async ({ page }) => {
   await page.goto("/workspaces");
-  // Scoped to <main>: the sidebar's Workspaces-row quick-add + has
-  // aria-label "New workspace" too (spec 2026-09-03 sidebar-quickadd), so the
-  // page-level role query is a 2-element strict-mode violation. Click the
-  // page header's own button.
-  await page.getByRole("main").getByRole("button", { name: "New workspace" }).click();
+  await page.getByRole("combobox", { name: "Switch workspace" }).click();
+  await page.getByRole("option", { name: "New workspace", exact: true }).click();
   // Creation no longer happens on click (spec 2026-09-03 sidebar-quickadd §4b):
   // the button opens NewWorkspaceDialog. Zero selected is the valid "empty
   // workspace, fill it inside" answer — the old immediate-create behavior.
@@ -73,7 +70,8 @@ test("create a workspace, add a subshell pane, and the layout survives reload", 
 test("deleting the open workspace from the sidebar drops you to the subshell", async ({ page }) => {
   test.setTimeout(120_000);
   await page.goto("/workspaces");
-  await page.getByRole("main").getByRole("button", { name: "New workspace" }).click();
+  await page.getByRole("combobox", { name: "Switch workspace" }).click();
+  await page.getByRole("option", { name: "New workspace", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("button", { name: "Create workspace" }).click();
   await expect(page).toHaveURL(/\/workspaces\/.+/);
@@ -92,8 +90,11 @@ test("deleting the open workspace from the sidebar drops you to the subshell", a
   // Delete THIS workspace from the sidebar: the rail row is exactly the link
   // whose href carries the id the URL already shows, and its right-click
   // menu is the rail's own gesture, holding the shared "Delete workspace".
-  const wsId = new URL(page.url()).pathname.split("/").pop();
-  await page.locator(`aside a[href="/workspaces/${wsId}"]`).click({ button: "right" });
+  await page
+    .getByRole("combobox", { name: "Switch workspace" })
+    .locator("..")
+    .getByRole("button", { name: /^Actions for / })
+    .click();
   await page.getByRole("menuitem", { name: "Delete workspace" }).click();
   await expect(page.getByText("Delete this workspace?")).toBeVisible();
   await page.locator("[data-slot='dialog-content'] button", { hasText: /^Delete$/ }).click();

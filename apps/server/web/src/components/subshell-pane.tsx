@@ -32,6 +32,7 @@ export interface SubshellPaneProps {
   onRestart: (subshellId: string) => void;
   /** Removes the pane from the workspace, leaving the subshell alone */
   onRemovePane: (paneId: string) => void;
+  removeDisabled?: boolean;
   /**
    * Forwarded to the underlying `SubshellTerminal`'s `onReady`, republished
    * each time the terminal is (re-)created — a caller that wants to drive the
@@ -62,6 +63,7 @@ export function SubshellPane({
   showKeyBar = false,
   onRestart,
   onRemovePane,
+  removeDisabled = false,
   onReady,
   onDispose,
   copyMode,
@@ -123,7 +125,13 @@ export function SubshellPane({
       <Button variant="outline" size="sm" onClick={() => onRestart(pane.subshellId)}>
         <RotateCcw className="h-3 w-3" /> Restart
       </Button>
-      <Button variant="ghost" size="sm" onClick={() => onRemovePane(pane.id)}>
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={removeDisabled}
+        disabledReason="Add another tab before removing this one."
+        onClick={() => onRemovePane(pane.id)}
+      >
         <Trash2 className="h-3 w-3" /> Remove pane
       </Button>
     </>
@@ -142,7 +150,13 @@ export function SubshellPane({
             This subshell may still be running on its node. Output and input resume when the node reconnects to the
             server.
           </p>
-          <Button variant="ghost" size="sm" onClick={() => onRemovePane(pane.id)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={removeDisabled}
+            disabledReason="Add another tab before removing this one."
+            onClick={() => onRemovePane(pane.id)}
+          >
             <Trash2 className="h-3 w-3" /> Remove pane
           </Button>
         </div>

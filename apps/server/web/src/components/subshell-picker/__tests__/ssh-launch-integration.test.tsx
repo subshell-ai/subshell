@@ -146,13 +146,13 @@ it("adds the SSH result to the current split and blocks duplicate launches while
     />
   ));
   await launchSsh();
-  await waitFor(() => expect(adds).toEqual([["ssh-new", "right"]]));
+  await waitFor(() => expect(adds).toEqual([["ssh-new", "within"]]));
   const start = screen.getByRole("button", { name: "Starting SSH subshell…" });
   expect(start.getAttribute("aria-disabled")).toBe("true");
   fireEvent.click(start);
   expect(calls.filter((c) => c.path === "/api/ssh/launch")).toHaveLength(1);
   expect(screen.getByRole("button", { name: "Existing subshell" }).closest("fieldset[disabled]")).not.toBeNull();
-  expect(screen.getByRole("button", { name: "Split down" }).closest("fieldset[disabled]")).not.toBeNull();
+  expect(screen.queryByRole("button", { name: "Split down" })).toBeNull();
   await act(async () => {
     finish();
   });

@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AccountRouteImport } from './routes/account'
 import { Route as ConnectRouteImport } from './routes/connect'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as MobileRouteImport } from './routes/mobile'
 import { Route as NewRouteImport } from './routes/new'
 import { Route as NodesRouteImport } from './routes/nodes'
 import { Route as PendingRouteImport } from './routes/pending'
@@ -59,6 +60,11 @@ const ConnectRoute = ConnectRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MobileRoute = MobileRouteImport.update({
+  id: '/mobile',
+  path: '/mobile',
   getParentRoute: () => rootRouteImport,
 } as any)
 const NewRoute = NewRouteImport.update({
@@ -202,6 +208,7 @@ export interface FileRoutesByFullPath {
   '/account': typeof AccountRoute
   '/connect': typeof ConnectRoute
   '/login': typeof LoginRoute
+  '/mobile': typeof MobileRoute
   '/new': typeof NewRoute
   '/nodes': typeof NodesRoute
   '/pending': typeof PendingRoute
@@ -235,6 +242,7 @@ export interface FileRoutesByTo {
   '/account': typeof AccountRoute
   '/connect': typeof ConnectRoute
   '/login': typeof LoginRoute
+  '/mobile': typeof MobileRoute
   '/new': typeof NewRoute
   '/nodes': typeof NodesRoute
   '/pending': typeof PendingRoute
@@ -269,6 +277,7 @@ export interface FileRoutesById {
   '/account': typeof AccountRoute
   '/connect': typeof ConnectRoute
   '/login': typeof LoginRoute
+  '/mobile': typeof MobileRoute
   '/new': typeof NewRoute
   '/nodes': typeof NodesRoute
   '/pending': typeof PendingRoute
@@ -304,6 +313,7 @@ export interface FileRouteTypes {
     | '/account'
     | '/connect'
     | '/login'
+    | '/mobile'
     | '/new'
     | '/nodes'
     | '/pending'
@@ -337,6 +347,7 @@ export interface FileRouteTypes {
     | '/account'
     | '/connect'
     | '/login'
+    | '/mobile'
     | '/new'
     | '/nodes'
     | '/pending'
@@ -370,6 +381,7 @@ export interface FileRouteTypes {
     | '/account'
     | '/connect'
     | '/login'
+    | '/mobile'
     | '/new'
     | '/nodes'
     | '/pending'
@@ -404,6 +416,7 @@ export interface RootRouteChildren {
   AccountRoute: typeof AccountRoute
   ConnectRoute: typeof ConnectRoute
   LoginRoute: typeof LoginRoute
+  MobileRoute: typeof MobileRoute
   NewRoute: typeof NewRoute
   NodesRoute: typeof NodesRoute
   PendingRoute: typeof PendingRoute
@@ -461,6 +474,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mobile': {
+      id: '/mobile'
+      path: '/mobile'
+      fullPath: '/mobile'
+      preLoaderRoute: typeof MobileRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/new': {
@@ -660,6 +680,7 @@ const rootRouteChildren: RootRouteChildren = {
   AccountRoute: AccountRoute,
   ConnectRoute: ConnectRoute,
   LoginRoute: LoginRoute,
+  MobileRoute: MobileRoute,
   NewRoute: NewRoute,
   NodesRoute: NodesRoute,
   PendingRoute: PendingRoute,

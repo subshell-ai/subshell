@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-router";
 import { cleanup, render, screen } from "@testing-library/react";
 import { DetailBackHeader } from "@/components/detail-back-header";
+import { MobileNavProvider } from "@/components/mobile-nav-provider";
 
 /** The header needs router context (Link + MobileNav's useLocation). */
 async function renderHeader(extra: { subtitle?: string; hideBack?: boolean } = {}) {
@@ -16,13 +17,15 @@ async function renderHeader(extra: { subtitle?: string; hideBack?: boolean } = {
     getParentRoute: () => rootRoute,
     path: "/",
     component: () => (
-      <DetailBackHeader
-        to="/"
-        backLabel="Back to subshells"
-        title={<>Alpha</>}
-        subtitle={extra.subtitle}
-        hideBack={extra.hideBack}
-      />
+      <MobileNavProvider>
+        <DetailBackHeader
+          to="/"
+          backLabel="Back to subshells"
+          title={<>Alpha</>}
+          subtitle={extra.subtitle}
+          hideBack={extra.hideBack}
+        />
+      </MobileNavProvider>
     ),
   });
   const router = createRouter({
