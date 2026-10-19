@@ -29,7 +29,7 @@ output at all, so its dot waits for an attach, an act, or a terminate. The bell 
 left with the chips, and the group-by selector can band by status again, on the dots'
 own indicator precedence, never a second status model `nodePill` left the card
 with the corner chip, so the section header is the one place a tile says which
-machine it is on. The toolbar is two deliberate rows (operator ask 2026-09-24): search full-width on top; machine combobox (`flex-1`), group-by select, and the view toggle share the row under it. A searchable machine combobox (`SearchableSelect`) narrows BOTH views
+machine it is on. The toolbar keeps search full-width on top. On phones, the machine combobox, group-by select, and view toggle stack at full width; wider screens arrange them in a row that wraps before the machine picker gets squeezed. A searchable machine combobox (`SearchableSelect`) narrows BOTH views
 (default **All**); three rules ride it: its options are the machines with rows
 (`machineIds`, never an option that answers nothing), a stale selection is
 kept in the list so the control never blanks itself out from under its own

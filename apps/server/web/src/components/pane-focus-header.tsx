@@ -82,6 +82,7 @@ export function PaneFocusHeader({
     <DetailBackHeader
       to="/workspaces"
       backLabel="Back to workspaces"
+      hideBack
       title={
         isPane && subshell ? (
           /* The state rides beside the name, as it does on the subshell page:

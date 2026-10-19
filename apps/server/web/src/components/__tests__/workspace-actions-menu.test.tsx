@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
+import { setConfirmHandler } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
@@ -8,6 +9,7 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { toast } from "sonner";
 import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
 import { setFetchRouter } from "@/test-setup";
 import type { WorkspaceRow } from "@/types/workspace";
@@ -56,7 +58,8 @@ describe("WorkspaceActionsMenu — context mode (spec 2026-09-03)", () => {
     await renderRow();
     expect(screen.getByText("ws row")).toBeDefined();
     fireEvent.contextMenu(screen.getByText("ws row"));
-    await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(4));
+    await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(5));
+    expect(screen.getByRole("menuitem", { name: "Add subshell" })).toBeDefined();
     expect(screen.getByRole("menuitem", { name: "Open in new tab" })).toBeDefined();
     // "Open this one somewhere else", the somewhere else being a phone —
     // sidebar-flagged for the same reason "Open in new tab" is (2026-09-19).
@@ -67,7 +70,7 @@ describe("WorkspaceActionsMenu — context mode (spec 2026-09-03)", () => {
     expect(screen.queryByRole("menuitem", { name: "Open" })).toBeNull();
   });
 
-  it("the ⋯ page menu keeps every item, sidebar flags ignored", async () => {
+  it("the ⋯ menu omits Open and keeps the remaining actions", async () => {
     // Button mode ignores the sidebar flags — asserted through the same
     // component the page renders (no children).
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -90,7 +93,7 @@ describe("WorkspaceActionsMenu — context mode (spec 2026-09-03)", () => {
     );
     fireEvent.keyDown(screen.getByRole("button", { name: "Actions for demo ws" }), { key: "ArrowDown" });
     await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(5));
-    expect(screen.getByRole("menuitem", { name: "Open" })).toBeDefined();
+    expect(screen.queryByRole("menuitem", { name: "Open" })).toBeNull();
     expect(screen.getByRole("menuitem", { name: "QR code…" })).toBeDefined();
   });
 });
@@ -131,6 +134,24 @@ describe("renaming from the menu (spec 2026-10-17)", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "Rename…" }));
     const field = await screen.findByRole("textbox", { name: "Workspace name" });
     fireEvent.change(field, { target: { value: "   " } });
-    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Save" }).getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByRole("button", { name: "Save" }).getAttribute("aria-description")).toBe(
+      "Enter a workspace name.",
+    );
+  });
+
+  it("reports a failed sidebar deletion instead of silently leaving the workspace", async () => {
+    const previous = setConfirmHandler(async () => true);
+    const notice = spyOn(toast, "error").mockImplementation(() => "notice");
+    setFetchRouter(async () => new Response("{}", { status: 500 }));
+    try {
+      await renderRow();
+      fireEvent.contextMenu(screen.getByText("ws row"));
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Delete workspace" }));
+      await waitFor(() => expect(notice).toHaveBeenCalledTimes(1));
+    } finally {
+      setConfirmHandler(previous);
+      notice.mockRestore();
+    }
   });
 });

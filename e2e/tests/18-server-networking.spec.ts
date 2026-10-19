@@ -32,7 +32,10 @@ test.describe("server networking page", () => {
 
     // Through the rail rather than by URL: a route nobody can reach is not a
     // feature, and the page gained a form on 2026-09-17 rather than losing one.
-    await page.getByRole("button", { name: "Server Settings" }).click();
+    await page
+      .getByRole("navigation", { name: "Main sections" })
+      .getByRole("link", { name: "Settings", exact: true })
+      .click();
     await page.getByRole("link", { name: "Networking", exact: true }).click();
     await expect(page).toHaveURL(/\/settings\/networking$/);
     await expect(page.getByRole("heading", { name: "Networking" })).toBeVisible();

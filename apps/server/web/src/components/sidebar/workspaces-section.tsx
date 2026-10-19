@@ -104,11 +104,12 @@ function PaneBranchRow({
 }
 
 /** A collapsible branch header for one workspace, with its expand chevron. */
-function WorkspaceBranch({
+export function WorkspaceBranch({
   workspace,
   expanded,
   active,
   forceOpen,
+  collapsible = true,
   onToggle,
   focusedId,
   labelsFor,
@@ -117,6 +118,8 @@ function WorkspaceBranch({
   expanded: boolean;
   active: boolean;
   forceOpen: boolean;
+  /** The focused sidebar always shows its workspace panes. */
+  collapsible?: boolean;
   onToggle: () => void;
   /** The dock's focused pane on this page, when this branch IS the page. */
   focusedId: string | null;
@@ -201,40 +204,44 @@ function WorkspaceBranch({
         the active branch is the ONE extra signal a workspace needs (the
         machine group has no page to be standing in), and the fill covers the
         whole bar - count and chevron inside it (operator note, 2026-10-17). */}
-      <div
-        className={cn(
-          "flex w-full items-center gap-2 rounded-md py-1 pr-2 pl-3 text-detail transition-colors",
-          active
-            ? "bg-accent text-accent-foreground"
-            : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
-        )}
-      >
-        <Link to="/workspaces/$id" params={{ id: workspace.id }} className="min-w-0 flex-1 truncate font-strong">
-          {workspace.name}
-        </Link>
-        {dropHint ? (
-          // The affordance the drag was missing: this row is where a session
-          // gets filed, and it says so only while one is being dragged.
-          <span className="shrink-0 text-primary">Add to workspace</span>
-        ) : (
-          <span className="shrink-0 tabular-nums opacity-70">{workspace.subshellCount}</span>
-        )}
-        {/* Inert while the search force-opens this branch (the machine group's
+      {collapsible && (
+        <div
+          className={cn(
+            "flex w-full items-center gap-2 rounded-md py-1 pr-2 pl-3 text-detail transition-colors",
+            active
+              ? "bg-accent text-accent-foreground"
+              : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
+          )}
+        >
+          <Link to="/workspaces/$id" params={{ id: workspace.id }} className="min-w-0 flex-1 truncate font-strong">
+            {workspace.name}
+          </Link>
+          {dropHint ? (
+            // The affordance the drag was missing: this row is where a session
+            // gets filed, and it says so only while one is being dragged.
+            <span className="shrink-0 text-primary">Add to workspace</span>
+          ) : (
+            <span className="shrink-0 tabular-nums opacity-70">{workspace.subshellCount}</span>
+          )}
+          {/* Inert while the search force-opens this branch (the machine group's
           rule, copied): a press would move nothing visible, and a press that
           also wrote its state would fold the branch the moment the filter
           clears — a choice the user never saw themselves make. */}
-        <ExplainedButton
-          type="button"
-          onClick={onToggle}
-          disabled={forceOpen}
-          disabledReason="Clear the filter to collapse this workspace."
-          aria-label={open ? `Collapse ${workspace.name}` : `Expand ${workspace.name}`}
-          aria-expanded={open}
-          className="shrink-0"
-        >
-          <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200", !open && "-rotate-90")} />
-        </ExplainedButton>
-      </div>
+          {collapsible && (
+            <ExplainedButton
+              type="button"
+              onClick={onToggle}
+              disabled={forceOpen}
+              disabledReason="Clear the filter to collapse this workspace."
+              aria-label={open ? `Collapse ${workspace.name}` : `Expand ${workspace.name}`}
+              aria-expanded={open}
+              className="shrink-0"
+            >
+              <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200", !open && "-rotate-90")} />
+            </ExplainedButton>
+          )}
+        </div>
+      )}
       {open && (
         <div>
           {(workspace.panes ?? []).map((pane) => (

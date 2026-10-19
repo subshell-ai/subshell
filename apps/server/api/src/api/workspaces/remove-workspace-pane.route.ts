@@ -7,8 +7,7 @@ import { apiModels } from "@/schema/index.js";
 const RemovePaneResponseSchema = t.Object({
   ok: t.Boolean({ description: "Always true" }),
   workspaceDeleted: t.Boolean({
-    description:
-      "True when the workspace went with the pane: a workspace exists exactly as long as it holds a tab, so removing its last tab deletes it. The caller navigates away instead of closing a panel",
+    description: "False: removing a workspace’s final tab is refused",
   }),
 });
 
@@ -28,6 +27,7 @@ export const removeWorkspacePaneRoute = new Elysia()
         200: RemovePaneResponseSchema,
         401: "ApiErrorResponse",
         404: "ApiErrorResponse",
+        409: "ApiErrorResponse",
       },
       detail: {
         operationId: "removeWorkspacePane",

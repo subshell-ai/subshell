@@ -34,7 +34,7 @@ test.beforeEach(async ({ page }) => {
  * re-consumes the intent and adds a duplicate pane, and params that never get
  * stripped. The workspace half used to be "then save it"; since drafts are
  * gone there is nothing to save, and this suite instead pins that the row is
- * REAL immediately and self-retires only when its last tab leaves.
+ * REAL immediately and keeps its final tab when tabs are removed.
  *
  * The `pi` stub is the agent throughout (the e2e stack's `PI_PATH` loop-forever
  * script), for the same reason spec 05 uses it: it needs no agent CLI and it
@@ -124,9 +124,9 @@ test("split a subshell into a real, named workspace", async ({ page }) => {
   // direct goto) still reach it.
   await page.goto(`/subshells/${rootSubshellId}`);
 
-  await page.getByRole("button", { name: "Split this subshell into a workspace" }).click();
+  await page.getByRole("button", { name: "Add a subshell to a workspace" }).click();
   // The split's dialog is titled by the button that opened it (2026-09-27).
-  await expect(page.getByRole("heading", { name: "Split", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Add a subshell", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "New subshell" }).click();
 
   // The split seeds the New half from the subshell being split, so the form
@@ -136,9 +136,7 @@ test("split a subshell into a real, named workspace", async ({ page }) => {
   await expect(page.locator("#picker-agent")).toHaveValue("pi");
   expect(root.harnessId).toBe("pi");
   await expect(page.locator("#picker-working-dir")).toHaveValue(root.workingDir);
-  // "Split right" is the direction control's default; click it anyway so the
-  // spec states the direction it is asserting rather than inheriting it.
-  await page.getByRole("button", { name: "Split right" }).click();
+  await expect(page.getByRole("button", { name: "Split right" })).toHaveCount(0);
   await page.getByRole("button", { name: "Start subshell" }).click();
 
   // The workspace is created around the current subshell and the picked one
@@ -189,7 +187,11 @@ test("split a subshell into a real, named workspace", async ({ page }) => {
   // Back on the still-named workspace with a pane header on top; renaming
   // itself is a rail-menu act now.
   await expect(page.getByRole("button", { name: "Rename subshell" })).toBeVisible();
-  await page.locator(`aside a[href="/workspaces/${workspaceId}"]`).first().click({ button: "right" });
+  await page
+    .getByRole("combobox", { name: "Switch workspace" })
+    .locator("..")
+    .getByRole("button", { name: /^Actions for / })
+    .click();
   await page.getByRole("menuitem", { name: "Rename…" }).click();
   const renameDialog = page.getByRole("dialog");
   await expect(renameDialog.getByRole("heading", { name: "Rename workspace" })).toBeVisible();
@@ -219,7 +221,7 @@ test("split a subshell into a real, named workspace", async ({ page }) => {
   expect(retiredLaunch.status()).toBe(404);
 });
 
-test("removing a pane leaves the workspace; removing its last tab retires it", async ({ page }) => {
+test("removing a pane preserves the workspace and its final tab", async ({ page }) => {
   test.setTimeout(180_000);
   const attempt = test.info().retry;
   const rootName = `e2e-split-close-root-${attempt}`;
@@ -229,12 +231,12 @@ test("removing a pane leaves the workspace; removing its last tab retires it", a
   // EXISTING one, which is both the faster path and the other half of the
   // picker.
   const { subshellId: otherSubshellId } = await launchSubshell(page, otherName);
-  const { subshellId: rootSubshellId, workspaceId: rootLaunchWs } = await launchSubshell(page, rootName);
+  const { subshellId: rootSubshellId } = await launchSubshell(page, rootName);
   // Split is the subshell page's control; go there from the launch landing.
   await page.goto(`/subshells/${rootSubshellId}`);
-  await page.getByRole("button", { name: "Split this subshell into a workspace" }).click();
+  await page.getByRole("button", { name: "Add a subshell to a workspace" }).click();
   // The split's dialog is titled by the button that opened it (2026-09-27).
-  await expect(page.getByRole("heading", { name: "Split", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Add a subshell", exact: true })).toBeVisible();
   // The subshell being split is excluded from its own picker; the other one
   // is the only sensible pick and picking it adds the pane immediately.
   // Rows are buttons whose accessible name is the whole line (name, directory,
@@ -266,19 +268,13 @@ test("removing a pane leaves the workspace; removing its last tab retires it", a
   };
   expect(survivors.panes).toHaveLength(1);
 
-  // The LAST tab is the different thing: it took the whole workspace with it
-  // (the row self-retires at zero panes, spec 2026-10-17), so the page has
-  // nowhere to stay — the landing it falls to re-aims at whatever workspace
-  // still exists. What the test can pin from here is the server's truth: the
-  // row is gone and nothing holds the panes any more.
-  await page.getByRole("button", { name: "Close tab" }).first().click();
-  await expect(page).not.toHaveURL(new RegExp(`/workspaces/${workspaceId}`), { timeout: SPAWN_TIMEOUT });
-  const gone = await page.request.get(`/api/workspaces/${workspaceId}`);
-  expect(gone.status()).toBe(404);
-  // ...but each pane is still a tab of the workspace its own launch opened:
-  // retirement took the SPLIT's row, not the other homes.
-  expect((await workspacesHolding(page, rootSubshellId)).map((w) => w.id)).toEqual([rootLaunchWs]);
-  expect((await workspacesHolding(page, otherSubshellId)).length).toBe(1);
+  // The final tab cannot be detached: the workspace remains the working surface.
+  const finalClose = page.getByRole("button", { name: "Close tab" });
+  await expect(finalClose).toHaveAttribute("aria-disabled", "true");
+  await finalClose.click({ force: true });
+  await expect(page.getByText("Add another tab before removing this one.", { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/workspaces/${workspaceId}`));
+  expect((await page.request.get(`/api/workspaces/${workspaceId}`)).ok()).toBe(true);
 
   // Closing the subshells retires those too (the delete-side self-retire).
   await closeSubshells(page, [rootSubshellId, otherSubshellId]);

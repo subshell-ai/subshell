@@ -12,6 +12,7 @@ import { DragStrip, needsStandaloneDragStrip } from "@/components/desktop/drag-s
 import { EmergencyLoginBanner } from "@/components/emergency-login-banner";
 import { ErrorBanner } from "@/components/error-banner";
 import { LockdownBanner } from "@/components/lockdown-banner";
+import { MobileNavProvider } from "@/components/mobile-nav-provider";
 import { MobileTopBar } from "@/components/mobile-top-bar";
 import { OfflineBanner } from "@/components/offline-banner";
 import { QuickAddProvider } from "@/components/quick-add";
@@ -211,7 +212,8 @@ function Shell() {
 
   return (
     <QuickAddProvider>
-      {/* Inside the provider on purpose — the bridge opens the quick-add
+      <MobileNavProvider>
+        {/* Inside the provider on purpose — the bridge opens the quick-add
         dialogs, and a hook called in this component's own body would sit
         above the context it needs.
 
@@ -220,58 +222,63 @@ function Shell() {
         (those pages must paint) — so on a brand-new instance the tray's "New
         Subshell" opened the quick-add dialog over the setup wizard. A dialog
         is not a route, so no route gate had anything to say about it. */}
-      {desktop && !!user && !bare && <DesktopBridge />}
-      <div
-        className="flex h-dvh flex-col overflow-hidden pt-[env(safe-area-inset-top)]"
-        style={insets ? { height: `${insets.heightPx}px`, transform: `translateY(${insets.offsetYpx}px)` } : undefined}
-      >
-        {!bare && <OfflineBanner />}
-        {/* Signed-in only: the pre-auth pages ARE the lockout surface. Above
+        {desktop && !!user && !bare && <DesktopBridge />}
+        <div
+          className="flex h-dvh flex-col overflow-hidden pt-[env(safe-area-inset-top)]"
+          style={
+            insets ? { height: `${insets.heightPx}px`, transform: `translateY(${insets.offsetYpx}px)` } : undefined
+          }
+        >
+          {!bare && <OfflineBanner />}
+          {/* Signed-in only: the pre-auth pages ARE the lockout surface. Above
           the top bar so the warning spans the full width (spec §6 banner). */}
-        {user && <EmergencyLoginBanner />}
-        {/* Lockdown is the same shape of news as the line above: instance-wide,
+          {user && <EmergencyLoginBanner />}
+          {/* Lockdown is the same shape of news as the line above: instance-wide,
             true until someone changes it server-side, nobody's page-specific
             detail (operator ask 2026-09-24). */}
-        {user && <LockdownBanner />}
-        {/* The window's title bar on the routes the rail does not cover.
+          {user && <LockdownBanner />}
+          {/* The window's title bar on the routes the rail does not cover.
           `shell_ready` takes the native one away on EVERY route — /login and
           /setup included, which is where a first launch lands — but the strip
           that replaces it lives in the rail, and those routes render none. So
           the first window a person ever sees could not be dragged by its top
           edge. macOS only, matching the rail's own gate: it is the platform
           whose decorations are dropped for the overlay. */}
-        {desktop && desktopPlatform() === "macos" && needsStandaloneDragStrip(hasSidebar, bare) && <DragStrip fixed />}
-        {!hasSidebar && !bare && <MobileTopBar />}
-        {/* The live feed covers everything below it — sidebar dots, home cards,
+          {desktop && desktopPlatform() === "macos" && needsStandaloneDragStrip(hasSidebar, bare) && (
+            <DragStrip fixed />
+          )}
+          {!hasSidebar && !bare && <MobileTopBar />}
+          {/* The live feed covers everything below it — sidebar dots, home cards,
           pickers — for the whole signed-in session (spec 2026-09-03 §6). The
           enabled gate keeps its token POST away from /login and /setup. */}
-        <LiveSubshellsFeedProvider enabled={!!user && !bare}>
-          {/* Inside the feed and behind the same gate: it reads the live
+          <LiveSubshellsFeedProvider enabled={!!user && !bare}>
+            {/* Inside the feed and behind the same gate: it reads the live
             subshell list, and above them it would fire an unauthenticated
             /api/subshells on the login screen. */}
-          {desktop && !!user && !bare && <DesktopNotifications />}
-          <div className="flex min-h-0 flex-1 overflow-hidden">
-            {/* One branch, deliberately: everything else in this frame —
+            {desktop && !!user && !bare && <DesktopNotifications />}
+            <div className="flex min-h-0 flex-1 overflow-hidden">
+              {/* One branch, deliberately: everything else in this frame —
               the banners, the feed provider, the viewport pinning, the outlet
               — is identical in both shells, and the rail differs only in
               chrome (see components/desktop/desktop-sidebar.tsx). A desktop
               window can be dragged below SIDEBAR_MIN_WIDTH (its floor is 360),
               so MobileTopBar does mount there — the drawer is the right chrome
               once the rail would cost a third of the window. */}
-            {/* `root-frame-guards.test.ts` finds the line that mounts each
+              {/* `root-frame-guards.test.ts` finds the line that mounts each
                 session-only child and requires the check ON IT, so this stays
                 one line. */}
-            {hasSidebar && !bare && (desktop ? <DesktopSidebar /> : <AppSidebar />)}
-            {/* The shell pads the home indicator for the pages that SCROLL.
+              {hasSidebar && !bare && (desktop ? <DesktopSidebar /> : <AppSidebar />)}
+              {/* The shell pads the home indicator for the pages that SCROLL.
               Pages whose bottom-most element is a key bar own that padding
               themselves (`routeOwnsBottomEdge`), and this padding on top of
               theirs is a background band under the bar. */}
-            <div className={cn("flex-1 overflow-y-auto", !bottomOwner && "pb-[env(safe-area-inset-bottom)]")}>
-              <Outlet />
+              <div className={cn("flex-1 overflow-y-auto", !bottomOwner && "pb-[env(safe-area-inset-bottom)]")}>
+                <Outlet />
+              </div>
             </div>
-          </div>
-        </LiveSubshellsFeedProvider>
-      </div>
+          </LiveSubshellsFeedProvider>
+        </div>
+      </MobileNavProvider>
     </QuickAddProvider>
   );
 }

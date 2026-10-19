@@ -2,9 +2,11 @@ import { cn, ExplainedButton, relativeElapsed } from "@internal/node-admin";
 import { Check } from "lucide-react";
 import type { JSX } from "react";
 import { ListLoadError } from "@/components/list-load-error";
+import { SubshellDot } from "@/components/subshell-dot";
 import { SubshellSearch } from "@/components/subshell-search";
-import { RowStatusBadges } from "@/components/subshell-status";
+import { useClockTick } from "@/hooks/use-clock-tick";
 import { useFilteredSubshells, useInvalidateSubshells } from "@/hooks/use-subshells";
+import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
 import { priorityRunning } from "@/lib/subshell-order";
 import type { SubshellView } from "@/types/subshell";
 
@@ -15,11 +17,8 @@ import type { SubshellView } from "@/types/subshell";
  *
  * This replaces three parallel dropdown submenus, which listed every subshell
  * three times with no way to search: fine for four subshells, unusable for
- * forty. It searches through the subshells API and shows status with
- * `RowStatusBadges` — the `StatusChip` state plus the `WaitingChip` "waiting
- * for you" badge, or a lone "node unreachable" badge replacing both when the
- * subshell's node is offline (spec 2026-08-31 §5.6) — the same pieces the
- * subshells page uses, so a subshell reads the same here as it does there.
+ * forty. It searches through the subshells API and uses the same status
+ * dot beside each name as the sidebar, keeping the picker compact on phones.
  * Bell-on waiting subshells sort to the top via `priorityRunning`.
  */
 export function ExistingSubshellList({
@@ -69,6 +68,7 @@ export function ExistingSubshellList({
   /** Toggles a row's membership in `selected`. */
   onToggle?: (id: string) => void;
 }): JSX.Element {
+  useClockTick(ACTIVITY_TICK_MS);
   const multi = selected !== undefined && onToggle !== undefined;
   const results = useFilteredSubshells(query, nodeId);
   const retry = useInvalidateSubshells();
@@ -125,7 +125,10 @@ export function ExistingSubshellList({
                     </span>
                   )}
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-strong text-sm">{subshell.name}</span>
+                    <span className="flex min-w-0 items-center gap-2">
+                      <SubshellDot subshell={subshell} className="mt-0" accessible />
+                      <span className="truncate font-strong text-sm">{subshell.name}</span>
+                    </span>
                     <span className="block truncate font-mono text-detail text-muted-foreground">
                       {subshell.workingDir}
                     </span>
@@ -134,7 +137,6 @@ export function ExistingSubshellList({
                   <span className="shrink-0 text-detail text-muted-foreground">
                     {subshell.lastOutputAt ? relativeElapsed(subshell.lastOutputAt) : "—"}
                   </span>
-                  <RowStatusBadges subshell={subshell} />
                   {busyId === subshell.id && (
                     <span className="shrink-0 text-detail text-muted-foreground">Adding…</span>
                   )}

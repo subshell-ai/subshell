@@ -1,13 +1,13 @@
-# Server Settings: ten pages, one gated group
+# Server Settings: eleven pages, one gated group
 
 Deep dive for `apps/server/web`, moved verbatim out of `AGENTS.md`.
 This file carries the full history behind the summary; the routing line in
 `AGENTS.md` names when to read it.
 
-**The admin surface is TEN pages behind one collapsible group** (spec
+**The admin surface is eleven pages inside the Settings context** (spec
 2026-09-11 grouped-navigation, spec 2026-09-24 §7): General (`/settings`),
 Users (`/settings/users`), Auth (`/settings/auth`, the sign-in providers), API
-keys, Plugins, Service, Networking, Updates, Status and Logs, listed in the
+keys, Plugins, Service, Networking, Updates, Backups, Status and Logs, listed in the
 rail under **Server Settings** and gated as a WHOLE: a member's rail lists
 none of them, and none of them renders for a member who types the URL. The
 roster page moved INTO the namespace on 2026-09-14 and lost its read-only

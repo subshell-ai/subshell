@@ -80,7 +80,7 @@ describe("ExistingSubshellList", () => {
     expect(screen.getByText("Couldn't load subshells.")).toBeDefined();
   });
 
-  it("puts the bell-on waiting subshell first and chips it", () => {
+  it("puts the bell-on waiting subshell first and marks its status", () => {
     const dead = makeSubshell({ id: "dead", name: "dead-one", status: "terminated", alive: false });
     const plain = makeSubshell({ id: "plain", name: "plain-running" });
     const waiting = makeSubshell({
@@ -92,20 +92,21 @@ describe("ExistingSubshellList", () => {
     render(<ExistingSubshellList {...base} subshells={[dead, plain, waiting]} />);
     const rows = screen.getAllByRole("button");
     expect(rows[0]?.textContent).toContain("waiting-one");
-    expect(rows[0]?.textContent).toContain("waiting for you");
+    expect(rows[0]?.querySelector('[role="img"]')?.getAttribute("aria-label")).toBe("waiting for you");
   });
 
-  describe("row status chips (spec §5.6 nodeOffline precedence)", () => {
-    it("chips BOTH status and waiting for an online waiting row (current behavior pinned)", () => {
+  describe("row status dots", () => {
+    it("shows an accessible waiting dot instead of status badges", () => {
       const waiting = makeSubshell({ id: "w", name: "waiting-online", waitingSince: "2026-08-30T00:00:00.000Z" });
       render(<ExistingSubshellList {...base} subshells={[waiting]} />);
       const row = screen.getAllByRole("button")[0]?.textContent ?? "";
-      expect(row).toContain("running");
-      expect(row).toContain("waiting for you");
+      expect(screen.getByRole("img", { name: "waiting for you" })).toBeDefined();
+      expect(row).not.toContain("running");
+      expect(row).not.toContain("waiting for you");
       expect(row).not.toContain("node unreachable");
     });
 
-    it("replaces both chips with 'node unreachable' for a subshell on an unreachable node", () => {
+    it("marks an unreachable node even when the subshell was waiting", () => {
       // alive + waitingSince + activity say nothing while the agent is down —
       // the dot already shows them as offline (subshell-dot.tsx's shared
       // indicator); the picker row must agree.
@@ -119,16 +120,22 @@ describe("ExistingSubshellList", () => {
       });
       render(<ExistingSubshellList {...base} subshells={[ghost]} />);
       const row = screen.getAllByRole("button")[0]?.textContent ?? "";
-      expect(row).toContain("node unreachable");
+      expect(screen.getByRole("img", { name: "node unreachable" })).toBeDefined();
       expect(row).not.toContain("waiting for you");
       expect(row).not.toContain("running");
     });
 
-    it("keeps 'ended' for a terminated row on an online node", () => {
-      const done = makeSubshell({ id: "t", name: "done-online", status: "terminated", alive: false });
+    it("marks a terminated row on an online node", () => {
+      const done = makeSubshell({
+        id: "t",
+        name: "done-online",
+        status: "terminated",
+        activity: "terminated",
+        alive: false,
+      });
       render(<ExistingSubshellList {...base} subshells={[done]} />);
       const row = screen.getAllByRole("button")[0]?.textContent ?? "";
-      expect(row).toContain("ended");
+      expect(screen.getByRole("img", { name: "ended" })).toBeDefined();
       expect(row).not.toContain("node unreachable");
     });
   });

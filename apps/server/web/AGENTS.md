@@ -29,6 +29,10 @@ and membership disclosures remain table detail rows.
   Set `DEV_API_ORIGIN` to use an isolated backend instead, for example
   `DEV_API_ORIGIN=http://127.0.0.1:3199 bun run dev`. Use this hot-reload URL
   for interactive UI testing so edits appear without rebuilding or refreshing.
+  For a development reverse proxy, set `DEV_ALLOWED_HOSTS` to its hostname and
+  `DEV_ALLOWED_ORIGINS` to its exact external origin (for example,
+  `https://test.example.com`). Only those explicit origins are translated to
+  the backend’s trusted localhost development origin.
 - Production: the app is built to `dist/` and served by the backend itself.
 
 ## Commands
@@ -125,12 +129,15 @@ re-submitted ON is INERT, and `components/lockdown-banner.tsx` tells everyone
 signed-in, mounted in `__root`.
 **Working on the subshells list, the landing `/`, the launch pickers, or these gates: read apps/server/web/docs/home-launch-guidance.md and apps/server/web/docs/workspace-first.md first.**
 
-**The admin surface is ELEVEN pages behind one collapsible group** (General,
-Users, Auth, API keys, Plugins, Service, Networking, Updates, Backups, Status, Logs),
-gated as a WHOLE: a member's rail lists none of them, and none of them
-renders for a member who types the URL. The gate the others copy is
-`routes/settings_.status.tsx`'s: server-derived `viewerIsAdmin`, with
-`undefined` counting as NOT admin.
+**The sidebar has a mini rail and a contextual panel.** The route selects
+Workspaces, Subshells, Settings, Mobile, or Account. Workspace detail shows only
+that workspace’s panes; its picker changes workspace. Subshells switches only the contextual panel while a workspace is open, keeping searchable subshell rows and adding selections as tabs in that workspace. Its actions menu offers Add subshell and Subshell dashboard. Outside a workspace, the mini rail opens the list directly. Settings shows personal pages and all eleven
+Server Settings pages, with the whole admin group gated by server-derived
+`viewerIsAdmin === true`. Account contains Profile, Preferences, Feedback, About, and Sign out as direct
+sidebar items, with identity, server details, and admin update notices in a plain footer. `/mobile?platform=apple|android|browser` shares its
+installation content with the mobile dialog. On phones, a root-owned drawer
+survives section changes and closes when a subsection or pane is selected.
+
 **Working on Server Settings navigation or its gating: read apps/server/web/docs/settings-navigation.md first**, plus the per-page dive named below.
 
 **`/settings/updates` is ONE Components table**, not three cards (name /
@@ -393,7 +400,7 @@ block the state update the test is waiting for and exhaust CI timeouts.
 
 ## Workspaces and the split flow (spec 2026-10-17)
 
-**Split** opens the ordinary add-subshell dialog, creates a real, NAMED
+**Add a subshell to a workspace** opens the ordinary add-subshell dialog, creates a real, NAMED
 workspace around the current subshell, and navigates to
 `/workspaces/$id?add=…&dir=…`; the dock and the tab strip consume that intent
 once dockview is ready, through their ordinary `handleAdd`, so the first split
@@ -403,9 +410,9 @@ carries each workspace's PANES, which is what the rail's tree renders from one
 query. The tree shows ONLY workspaces: an unfiled pane lives in the subshells
 list's machine groups, never in an "Ungrouped" branch (operator ruling
 2026-10-17, which deleted that section). Adding a pane is IDEMPOTENT (UNIQUE `(workspace_id, subshell_id)`; the
-second add returns the same row with `alreadyPresent`), and removing the LAST
-pane self-retires the row (`workspaceDeleted`): a workspace exists exactly as
-long as it holds a tab. The user is ALWAYS in a workspace: a launch raised
+second add returns the same row with `alreadyPresent`). Removing the LAST
+tab is refused: add another tab first, so tab removal cannot take someone
+out of their workspace. Closing a subshell itself remains a separate action. The user is ALWAYS in a workspace: a launch raised
 with none on screen JOINS an existing one (the remembered-then-recency
 workspace, via the idempotent pane-add; only an instance with none opens
 one around the pane - `autoFile` in

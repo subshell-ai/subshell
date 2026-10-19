@@ -3,6 +3,7 @@ import { Input, Label } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import type { JSX } from "react";
 import { useState } from "react";
+import { ListLoadError } from "@/components/list-load-error";
 import { PromptStackSection } from "@/components/prompts/prompt-stack-section";
 import { LaunchCommandPreview } from "@/components/subshell-picker/launch-command-preview";
 import {
@@ -111,7 +112,8 @@ export function NewSubshellForm({
   // the same `["presets"]` every other surface does. The Preset row lists
   // ALL of them (it leads the form and fills the agent); per-node fit is
   // the grey matrix, never a list filter.
-  const { data: presetRows } = usePresets();
+  const presetQuery = usePresets();
+  const { data: presetRows } = presetQuery;
   const presets = presetRows ?? [];
 
   // The defaults read the user's most recent subshell off the ONE live-fed
@@ -227,7 +229,11 @@ export function NewSubshellForm({
           and everything stays editable, which is the whole point of
           filling rather than hiding. First run hides the row: a picker
           whose only offer is emptiness is a control with no choice. */}
-      {!firstRun && (
+      {!firstRun && presetQuery.isError && (
+        <ListLoadError message="Couldn’t load presets." retry={presetQuery.refetch} busy={presetQuery.isFetching} />
+      )}
+      {!firstRun && presetQuery.isLoading && <p className="text-detail text-muted-foreground">Loading presets…</p>}
+      {!firstRun && presets.length > 0 && (
         <div className="space-y-2">
           <Label htmlFor={ids.preset}>Preset</Label>
           <SearchableSelect
@@ -244,7 +250,7 @@ export function NewSubshellForm({
             value=""
             placeholder="Choose a preset"
             options={presetList}
-            describedBy={`${ids.preset}-hint${presets.length === 0 ? ` ${ids.preset}-empty` : ""}`}
+            describedBy={`${ids.preset}-hint`}
             onValueChange={(v) => {
               if (v === "") return;
               const row = presets.find((p) => p.id === v);
@@ -256,11 +262,6 @@ export function NewSubshellForm({
           <p id={`${ids.preset}-hint`} className="text-detail text-muted-foreground">
             Picking one copies its launch settings into this form.
           </p>
-          {presets.length === 0 && (
-            <p id={`${ids.preset}-empty`} className="text-detail text-muted-foreground">
-              No presets yet.
-            </p>
-          )}
         </div>
       )}
       <div className="space-y-2">

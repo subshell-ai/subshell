@@ -8,8 +8,10 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { AppSidebar } from "@/components/app-sidebar";
+import { useRef, useState } from "react";
 import * as quickAdd from "@/components/quick-add";
+import { RailSubshells } from "@/components/sidebar/rail-subshells";
+import { WorkspacesSection } from "@/components/sidebar/workspaces-section";
 import { filterSubshells } from "@/lib/subshell-filter";
 import { setFetchRouter } from "@/test-setup";
 import type { SubshellView } from "@/types/subshell";
@@ -138,6 +140,18 @@ function stubFetch(
   return () => setFetchRouter(null);
 }
 
+/** Exercise the reusable list surfaces independently of the contextual shell. */
+function ListSurfaces() {
+  const filterRef = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState("");
+  return (
+    <>
+      <WorkspacesSection />
+      <RailSubshells filterRef={filterRef} query={query} onQueryChange={setQuery} />
+    </>
+  );
+}
+
 /** Renders the rail and hands back the QueryClient, so a test can force the
  * nodes refetch a live user would get from focus/reconnect/invalidation.
  * ASYNC on purpose: the rail mounts Base UI TooltipRoots (the eye, the +, the
@@ -147,7 +161,7 @@ function stubFetch(
  * a few turns inside act() right here settles every mount the same way. */
 async function renderRail(initialPath = "/"): Promise<{ client: QueryClient }> {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const rootRoute = createRootRoute({ component: () => <AppSidebar /> });
+  const rootRoute = createRootRoute({ component: ListSurfaces });
   const children = [
     "/",
     "/subshells",
@@ -404,22 +418,6 @@ describe("the rail's subshell list, grouped by node", () => {
   });
 });
 
-describe("collapsing the RAIL itself", () => {
-  it("keeps the typed filter across a collapse (2026-09-25 review fix)", async () => {
-    // The section unmounts while collapsed. That is only survivable because
-    // the QUERY STATE lives in AppSidebar, not in the section's own state —
-    // this test is the difference between the two designs.
-    await withRail([subshell({ id: "a", name: "one" })], async () => {
-      const input = await screen.findByLabelText("Filter subshells");
-      fireEvent.change(input, { target: { value: "needle" } });
-      fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
-      fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
-      const again = (await screen.findByLabelText("Filter subshells")) as HTMLInputElement;
-      expect(again.value).toBe("needle");
-    });
-  });
-});
-
 describe("collapsing a node group", () => {
   it("opens by default, shuts on a press, and hides its rows", async () => {
     await withRail([subshell({ id: "a", name: "one" })], async () => {
@@ -663,46 +661,6 @@ describe("the cross-agent comms section (operator ask 2026-09-25)", () => {
         }
       },
     );
-  });
-});
-
-describe("the eye toggle (operator ask 2026-09-27)", () => {
-  const HIDDEN_KEY = "subshell.sidebarHiddenSections";
-
-  afterEach(() => localStorage.removeItem(HIDDEN_KEY));
-
-  it("hides and shows the whole Subshells section via the eye", async () => {
-    await withRail([subshell({ id: "a", name: "one", nodeId: "local" })], async () => {
-      // The rail's filter box is the tell that the section body is mounted.
-      expect(screen.getByLabelText("Filter subshells")).toBeTruthy();
-      fireEvent.click(screen.getByRole("button", { name: "Hide subshells" }));
-      // Whole body gone: mode control, filter, groups — the eye is still there.
-      await waitFor(() => expect(screen.queryByLabelText("Filter subshells")).toBeNull());
-      expect(localStorage.getItem(HIDDEN_KEY)).toContain("subshells");
-      fireEvent.click(screen.getByRole("button", { name: "Show subshells" }));
-      await waitFor(() => expect(screen.getByLabelText("Filter subshells")).toBeTruthy());
-    });
-  });
-
-  it("reads a hidden section back from storage on the next mount", async () => {
-    localStorage.setItem(HIDDEN_KEY, JSON.stringify({ subshells: true }));
-    const restore = stubFetch([subshell({ id: "a", name: "one", nodeId: "local" })]);
-    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
-      openLaunch: () => {},
-      openSshLaunch: () => {},
-      openNewWorkspace: () => {},
-    });
-    try {
-      await renderRail();
-      // The eye is ALWAYS drawn (it is the way back); it says Show, and the
-      // rail never mounts — so this is a bare render, not `withRail`, whose
-      // precondition waits on group headers the hidden section does not draw.
-      await waitFor(() => expect(screen.getByRole("button", { name: "Show subshells" })).toBeTruthy());
-      expect(screen.queryByLabelText("Filter subshells")).toBeNull();
-    } finally {
-      spy.mockRestore();
-      restore();
-    }
   });
 });
 

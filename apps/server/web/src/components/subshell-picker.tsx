@@ -1,6 +1,7 @@
 import { Button } from "@internal/node-admin";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
-import { type JSX, useState } from "react";
+import { type JSX, useEffect, useState } from "react";
 import { AddSubshellDialog } from "@/components/subshell-picker/add-subshell-dialog";
 import { TippedIconButton } from "@/components/tipped-icon-button";
 import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
@@ -9,11 +10,8 @@ import type { SplitDirection, WorkspacePaneRow } from "@/types/workspace";
 /** Props for {@link SubshellPicker}. */
 export interface SubshellPickerProps {
   /**
-   * The workspace a picked or newly-created subshell is added to. Not read
-   * inside this component — every network call that actually needs it
-   * (creating the pane, or looking up the workspace's own panes) already
-   * goes through `onAdd` — but part of the contract so a caller never has to
-   * wonder whether this picker is scoped to the right workspace.
+   * The workspace receiving the selected subshell. Also scopes sidebar
+   * requests to open this dialog; pane mutations go through `onAdd`.
    */
   workspaceId: string;
   /** Panes already on this workspace; their subshells are excluded from the list */
@@ -29,15 +27,25 @@ export interface SubshellPickerProps {
 /**
  * The "Add subshell" button on a workspace, and the dialog it opens.
  *
- * It used to be a dropdown with three submenus — one per placement — each
- * listing every subshell, unsearchable. That is fine at four subshells and
- * unusable at forty, so the list moved into a dialog that searches, with the
- * placement chosen once alongside it. It works with a mouse, a finger or a
- * keyboard, which matters because workspaces are used from tablets and
- * phones as well as desktops.
+ * Search keeps larger collections usable. Additions open as tabs; desktop
+ * users can drag them to arrange splits.
  */
-export function SubshellPicker({ existing, onAdd }: SubshellPickerProps): JSX.Element {
+export function SubshellPicker({ workspaceId, existing, onAdd }: SubshellPickerProps): JSX.Element {
   const [open, setOpen] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const requested = location.search.picker === true;
+  useEffect(() => {
+    if (!requested) return;
+    setOpen(true);
+    // Consume the sidebar request without adding another browser history entry.
+    void navigate({
+      to: "/workspaces/$id",
+      params: { id: workspaceId },
+      search: (previous) => ({ add: previous.add, dir: previous.dir }),
+      replace: true,
+    });
+  }, [requested, workspaceId, navigate]);
   // The stacked (phone) header shares its top row with Save/Discard and the nav
   // chrome, so this drops to a bare "+" icon (the aria-label still names it).
   // Icon-only, like every other control in the pane bar (see `pane-focus-header`).

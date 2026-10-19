@@ -2,7 +2,6 @@ import { Button, errMessage } from "@internal/node-admin";
 import { type JSX, useState } from "react";
 import { ConnectPanel } from "@/components/connect/connect-panel";
 import { sshSessionDraft } from "@/components/connect/ssh-session-draft";
-import { DirectionSelect } from "@/components/subshell-picker/direction-select";
 import { ExistingSubshellList } from "@/components/subshell-picker/existing-subshell-list";
 import {
   canSubmit,
@@ -32,11 +31,10 @@ type Mode = "existing" | "new";
 
 /**
  * Adds a subshell to a workspace: an existing one picked from a searchable
- * list, or a brand-new one, with one control deciding where it lands.
+ * list, or a brand-new one. Both join the workspace as tabs.
  *
  * Both halves live in one dialog because they answer the same question —
- * "what goes in this new pane?" — and the placement applies identically to
- * either answer.
+ * "what goes in this new pane?". Users arrange splits by dragging tabs.
  *
  * It takes IDS to exclude rather than the workspace's panes (spec 2026-09-14
  * §3): splitting from a subshell opens this same dialog before any workspace
@@ -84,7 +82,6 @@ export function AddSubshellDialog({
   const [sshDraft, setSshDraft] = useState(() => sshSessionDraft({ node: initialForm?.nodeId }));
   const [kind, setKind] = useState<SubshellKind>("agent");
   const [mode, setMode] = useState<Mode>("existing");
-  const [direction, setDirection] = useState<SplitDirection>("right");
   const [query, setQuery] = useState("");
   const [form, setForm] = useState<NewSubshellFormValue>(() => ({ ...emptyNewSubshellForm(), ...initialForm }));
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -111,7 +108,7 @@ export function AddSubshellDialog({
     setError(null);
     setBusyId(subshellId);
     try {
-      await onAdd(subshellId, direction);
+      await onAdd(subshellId, "within");
       onOpenChange(false);
       reset();
     } catch (err) {
@@ -144,7 +141,7 @@ export function AddSubshellDialog({
     }
 
     try {
-      await onAdd(created.id, direction);
+      await onAdd(created.id, "within");
       onOpenChange(false);
       reset();
     } catch (err) {
@@ -178,6 +175,7 @@ export function AddSubshellDialog({
           <fieldset disabled={creating || busyId !== null}>
             <Segmented
               ariaLabel="What to add"
+              className="gap-1"
               options={[
                 { value: "existing", label: "Existing subshell" },
                 { value: "new", label: "New subshell" },
@@ -187,9 +185,6 @@ export function AddSubshellDialog({
                 if (!creating) setMode(next);
               }}
             />
-          </fieldset>
-          <fieldset disabled={creating || busyId !== null}>
-            <DirectionSelect value={direction} onChange={setDirection} />
           </fieldset>
         </div>
 
@@ -221,7 +216,7 @@ export function AddSubshellDialog({
                 onLeave={() => onOpenChange(false)}
                 onCreated={async (id) => {
                   try {
-                    await onAdd(id, direction);
+                    await onAdd(id, "within");
                     onOpenChange(false);
                     reset();
                   } catch (err) {

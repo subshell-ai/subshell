@@ -226,9 +226,9 @@ handlers) reaches the same graph via `getRequestlessContext()`
 **Workspaces are work-first, drafts are gone** (spec 2026-10-17, migration
 `0058`): every workspace row is a real, named one, names are NOT unique
 (the old partial unique index `WHERE draft = 0` is dropped; 0058's `down`
-dedupes names by rowid on rollback), and a workspace exists exactly as long as
-it holds a pane: removing its LAST pane deletes the row (`workspaceDeleted:
-true`), and so does deleting a subshell. The delete reads the owner's
+dedupes names by rowid on rollback). Removing the final pane is refused with
+409; a conditional delete preserves that pane even across concurrent removals.
+Deleting a subshell can still retire its emptied workspaces. That delete reads the owner's
 workspace ids HOLDING that subshell first (`idsHoldingForUser`), then retires
 only the candidates the cascade actually left pane-less (`retireEmptyAmong`).
 An intentionally-empty workspace survives an unrelated tab closing, and other

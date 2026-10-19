@@ -9,19 +9,19 @@ A workspace is the window of panes you work in. Launches land as tabs in one, an
 
 A subshell is the session; a workspace is how you arrange sessions. The same subshell can sit in several workspaces at once, because a workspace holds a reference, not a copy. Closing a pane in a workspace removes that reference and leaves the session running; closing the subshell itself ends it everywhere (see [Session lifecycle](/guides/lifecycle)).
 
-A workspace exists exactly as long as it holds a tab. Launch your first subshell and you're in a workspace, named after it, with nothing to save. Close the last tab and the workspace retires itself; its subshells keep running and wait in the subshells list until you open one again.
+Launch your first subshell and you're in a workspace, named after it, with nothing to save. You can't remove its final tab: add another tab first so you stay in the workspace. Closing the subshell itself is a separate action and can remove a workspace when no panes remain.
 
 ## Open and land
 
-The sidebar's **Workspaces** tree shows each workspace with its panes. A session that lives in no workspace appears in the **Subshells** list under its machine instead. Opening the app returns you to the workspace you were last in.
+The sidebar’s **Workspaces** selector switches between workspaces and offers **New workspace**. Below it, the sidebar shows the active workspace’s subshells. Choose **Subshells** in the mini rail to browse all your subshells without leaving the active workspace. Opening the app returns you to the workspace you were last in.
 
-1. To start fresh, open the launch dialog from **+ New subshell** in the sidebar. From inside a workspace the pane lands as a new tab; from anywhere else it joins the workspace you were last in, or opens one around itself when you have none.
-2. Selecting a session in the sidebar means its tab: it focuses if it's open on screen, otherwise you go to the workspace that holds it, and a session in no workspace yet gets one. Dragging onto an open workspace files it there; **Add subshell** at the top of the workspace also picks an existing session or launches a new one.
-3. On a subshell's own page, the **Split** control puts a second session beside it, which is what creates a workspace out of two related panes.
+1. Open the **⋯** menu beside the workspace selector and choose **Add subshell** to pick an existing session or launch a new one. The new pane joins as a tab. The same action is available beside the search field in the **Subshells** sidebar.
+2. Selecting a session in the **Subshells** sidebar focuses its tab or adds it to the active workspace. A workspace icon beside its name marks sessions already included. With no workspace open, selecting a session opens a workspace that holds it, or creates one. Choose **Subshell dashboard** from the search field’s **⋯** menu to open the full dashboard.
+3. On a subshell’s own page, **Add a subshell to a workspace** opens a workspace with both subshells as tabs.
 
 ## Arrange the panes
 
-On a wide screen the dock tiles panes side by side: drag a pane's tab toward an edge of another pane and release it when the split preview appears. Each tile group has its own tab row, so tabs sit where you arranged them, not always across the top.
+New subshells join as tabs. On a wide screen, arrange panes side by side: drag a pane's tab toward an edge of another pane and release it when the split preview appears. Each tile group has its own tab row, so tabs sit where you arranged them, not always across the top.
 
 <figure className="docs-screenshot">
   <ImageZoom src="/screenshots/workspace-layout.png" alt="Workspace with a shell and test results side by side." width="2112" height="668" loading="lazy" decoding="async" unoptimized />
@@ -32,7 +32,7 @@ On a small touch screen, the workspace presents its panes as tabs instead of sid
 
 ## Rename, delete, and the empty case
 
-Right-click a workspace in the sidebar (or open its **⋯** menu) and choose **Rename…** to change its name; the bar above the panes shows the focused terminal's own name instead. The same menu deletes a workspace outright, which drops all of its panes at once; the sessions keep running, and you can file one into another workspace by selecting it in the **Subshells** list.
+Open the **⋯** menu beside the workspace picker in the sidebar and choose **Rename…** to change its name; the bar above the panes shows the focused terminal's own name instead. The same menu deletes a workspace outright, which drops all of its panes at once; the sessions keep running, and you can file one into another workspace by selecting it in **Subshells**.
 
 Changing a layout is different from changing a session's working directory or agent settings. Use [Clone and switch presets](/guides/clone) for those launch operations.
 

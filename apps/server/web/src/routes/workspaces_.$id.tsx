@@ -18,7 +18,8 @@ export const Route = createFileRoute("/workspaces_/$id")({
   // intent and strips the params. Both are optional and both are kept as
   // plain strings — `parseSplitIntent` is what decides whether they mean
   // anything, so one tested function answers it for the route and the dock.
-  validateSearch: (search: Record<string, unknown>): { add?: string; dir?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { add?: string; dir?: string; picker?: boolean } => ({
+    ...(search.picker === true ? { picker: true } : {}),
     ...(typeof search.add === "string" && search.add ? { add: search.add } : {}),
     ...(typeof search.dir === "string" && search.dir ? { dir: search.dir } : {}),
   }),

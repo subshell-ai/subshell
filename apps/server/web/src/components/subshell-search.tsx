@@ -11,10 +11,12 @@ export function SubshellSearch({
   value,
   onChange,
   className,
+  ariaLabel = "Search subshells",
 }: {
   value: string;
   onChange: (v: string) => void;
   className?: string;
+  ariaLabel?: string;
 }) {
   return (
     <Input
@@ -23,7 +25,7 @@ export function SubshellSearch({
       onChange={(e) => onChange(e.target.value)}
       placeholder="Search by name, path, or harness…"
       className={cn("max-w-sm", className)}
-      aria-label="Search subshells"
+      aria-label={ariaLabel}
     />
   );
 }

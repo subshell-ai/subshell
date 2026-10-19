@@ -26,7 +26,10 @@ test.describe("server updates page", () => {
 
     // Through the rail rather than by URL: a route nobody can reach is not a
     // feature, and the nav entry is part of what shipped.
-    await page.getByRole("button", { name: "Server Settings" }).click();
+    await page
+      .getByRole("navigation", { name: "Main sections" })
+      .getByRole("link", { name: "Settings", exact: true })
+      .click();
     await page.getByRole("link", { name: "Updates", exact: true }).click();
     await expect(page).toHaveURL(/\/settings\/updates$/);
     await expect(page.getByRole("heading", { name: "Updates" })).toBeVisible();

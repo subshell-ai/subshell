@@ -54,7 +54,6 @@ function renderTab(panes: WorkspacePaneRow[], removed: string[], split: SplitCal
     setSearchAddon: () => {},
     onRestart: () => {},
     onRemovePane: (paneId) => removed.push(paneId),
-    onSplitPane: (panelId, direction) => split.push({ panelId, direction }),
     onCloseSubshell: () => {},
   };
   const props = {
@@ -85,7 +84,7 @@ function renderTab(panes: WorkspacePaneRow[], removed: string[], split: SplitCal
 /** Right-clicks the tab and settles once the menu's items are painted. */
 async function openMenu() {
   fireEvent.contextMenu(screen.getByText("Alpha"));
-  await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(3));
+  await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(1));
 }
 
 afterEach(cleanup);
@@ -129,47 +128,42 @@ describe("SubshellTab", () => {
     expect(screen.queryByRole("img", { name: "waiting for you" })).toBeNull();
   });
 
-  it("the × rewires to onRemovePane with the panel id (closeActionOverride semantics)", () => {
+  it("keeps the last tab on click and middle-click", () => {
     const removed: string[] = [];
     renderTab([pane()], removed);
+    fireEvent.click(screen.getByLabelText("Close tab"));
+    const tab = screen.getByText("Alpha");
+    fireEvent.pointerDown(tab, { button: 1 });
+    fireEvent.pointerUp(tab, { button: 1 });
+    expect(removed).toEqual([]);
+    expect(screen.getByLabelText("Close tab").getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("the × rewires to onRemovePane with the panel id (closeActionOverride semantics)", () => {
+    const removed: string[] = [];
+    renderTab([pane(), pane({ id: "pane-2", subshellId: "s-2" })], removed);
     fireEvent.click(screen.getByLabelText("Close tab"));
     expect(removed).toEqual(["pane-1"]);
   });
 });
 
 describe("SubshellTab context menu", () => {
-  it("right-click opens a menu naming the split the drag gesture never did", async () => {
-    renderTab([pane()], []);
+  it("right-click offers closing without split options", async () => {
+    renderTab([pane(), pane({ id: "pane-2", subshellId: "s-2" })], []);
     await openMenu();
-    expect(screen.getByRole("menuitem", { name: "Split right" })).toBeDefined();
-    expect(screen.getByRole("menuitem", { name: "Split down" })).toBeDefined();
+    expect(screen.queryByRole("menuitem", { name: "Split right" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Split down" })).toBeNull();
     expect(screen.getByRole("menuitem", { name: "Close pane" })).toBeDefined();
   });
 
   it("no menu exists before a right-click (nothing else on the tab opens one)", () => {
-    renderTab([pane()], []);
+    renderTab([pane(), pane({ id: "pane-2", subshellId: "s-2" })], []);
     expect(screen.queryAllByRole("menuitem")).toHaveLength(0);
-  });
-
-  it("Split right calls onSplitPane with this tab's panel id and 'right'", async () => {
-    const split: SplitCall[] = [];
-    renderTab([pane()], [], split);
-    await openMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Split right" }));
-    expect(split).toEqual([{ panelId: "pane-1", direction: "right" }]);
-  });
-
-  it("Split down calls onSplitPane with 'below'", async () => {
-    const split: SplitCall[] = [];
-    renderTab([pane()], [], split);
-    await openMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Split down" }));
-    expect(split).toEqual([{ panelId: "pane-1", direction: "below" }]);
   });
 
   it("Close pane runs the SAME onRemovePane the × calls, exactly once", async () => {
     const removed: string[] = [];
-    renderTab([pane()], removed);
+    renderTab([pane(), pane({ id: "pane-2", subshellId: "s-2" })], removed);
     await openMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: "Close pane" }));
     expect(removed).toEqual(["pane-1"]);
@@ -178,16 +172,16 @@ describe("SubshellTab context menu", () => {
 
   it("Escape closes the menu without running anything", async () => {
     const split: SplitCall[] = [];
-    renderTab([pane()], [], split);
+    renderTab([pane(), pane({ id: "pane-2", subshellId: "s-2" })], [], split);
     await openMenu();
-    fireEvent.keyDown(screen.getByRole("menuitem", { name: "Split right" }), { key: "Escape" });
+    fireEvent.keyDown(screen.getByRole("menuitem", { name: "Close pane" }), { key: "Escape" });
     await waitFor(() => expect(screen.queryAllByRole("menuitem")).toHaveLength(0));
     expect(split).toEqual([]);
   });
 
   it("a click outside the menu closes it", async () => {
     const split: SplitCall[] = [];
-    renderTab([pane()], [], split);
+    renderTab([pane(), pane({ id: "pane-2", subshellId: "s-2" })], [], split);
     await openMenu();
     fireEvent.mouseDown(document.body);
     await waitFor(() => expect(screen.queryAllByRole("menuitem")).toHaveLength(0));

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { setConfirmHandler } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
@@ -11,22 +12,10 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import type { ReactNode } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import * as quickAdd from "@/components/quick-add";
+import * as auth from "@/lib/auth";
 import { setFetchRouter } from "@/test-setup";
 
-/**
- * The account card where the footer used to be (spec 2026-10-07 §B/§C).
- * What these pin: the card sits in the header and the browser rail carries no
- * footer at all; the version row's audience split survives the move (member
- * never fetches /api/admin/updates, no dot; admin with news gets dot + row +
- * door); desktop shells keep their footer rows. The trigger's accessible name
- * keeps its /Account:/ prefix (the update notice is appended after it when
- * the dot is lit) - the e2e specs sign out through it.
- *
- * Negative DOM asserts in this file use the length-based forms
- * (`querySelectorAll(...).length` / `queryAllByRole(...).length`) because they
- * fail on presence by construction. The element-`toBeNull()` forms are sound
- * generally; a rewrite back to them here is not wanted.
- */
+/** Account context retains sign out, version details and admin-only update notices. */
 
 function stubFetch(opts: { admin: boolean; updateTo?: string }) {
   const calls: string[] = [];
@@ -96,7 +85,7 @@ function renderRail(initialPath: string, footerEnd?: () => ReactNode) {
   return router;
 }
 
-const accountTrigger = () => screen.getByRole("button", { name: /Account: Admin/ });
+const signOutButton = () => screen.getByRole("button", { name: "Sign out" });
 
 let restoreQuickAdd: () => void;
 beforeEach(() => {
@@ -116,48 +105,74 @@ afterEach(() => {
   setFetchRouter(null);
 });
 
-describe("the header account card", () => {
+describe("the contextual account sidebar", () => {
   const withRail = async (
     opts: { admin: boolean; updateTo?: string; footer?: boolean },
     body: () => Promise<void> | void,
   ) => {
     const calls = stubFetch(opts);
-    const router = renderRail("/", opts.footer ? () => <span data-testid="plane-row" /> : undefined);
-    await waitFor(() => expect(accountTrigger()).toBeTruthy());
+    const router = renderRail("/account", opts.footer ? () => <span data-testid="plane-row" /> : undefined);
+    await waitFor(() => expect(signOutButton()).toBeTruthy());
     await body();
     return { calls, router };
   };
 
-  it("replaces the footer card and leaves the browser rail footerless", async () => {
+  it("integrates account actions into its context and leaves the browser rail footerless", async () => {
     await withRail({ admin: false }, async () => {
-      expect(accountTrigger()).toBeTruthy();
+      expect(signOutButton()).toBeTruthy();
+      expect(screen.getAllByRole("link", { name: "Preferences" }).length).toBe(1);
+      expect(screen.getAllByRole("link", { name: "Profile" }).length).toBe(1);
+      expect(screen.getByRole("link", { name: "Feedback" }).getAttribute("target")).toBe("_blank");
+      expect(screen.queryAllByRole("button", { name: /Account:/ }).length).toBe(0);
       // The bordered footer div was a direct child of the aside with
       // `border-t`; nothing supplies footerEnd on the web, so none exists.
       expect(document.querySelectorAll("aside > div.border-t").length).toBe(0);
-      // Sign out still reaches anyone, everywhere.
-      fireEvent.click(accountTrigger());
-      fireEvent.click(await screen.findByRole("menuitem", { name: "Sign out" }));
     });
+  });
+
+  it("signs out only after confirmation, and Cancel leaves the session alone", async () => {
+    const signOut = spyOn(auth, "signOutAndRedirect").mockResolvedValue(undefined);
+    let answer: ((confirmed: boolean) => void) | undefined;
+    const previous = setConfirmHandler(
+      () =>
+        new Promise<boolean>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    try {
+      await withRail({ admin: false }, async () => {
+        fireEvent.click(signOutButton());
+        expect(signOut).not.toHaveBeenCalled();
+        answer?.(false);
+        await Promise.resolve();
+        expect(signOut).not.toHaveBeenCalled();
+        fireEvent.click(signOutButton());
+        expect(signOut).not.toHaveBeenCalled();
+        answer?.(true);
+        await waitFor(() => expect(signOut).toHaveBeenCalledTimes(1));
+      });
+    } finally {
+      setConfirmHandler(previous);
+      signOut.mockRestore();
+    }
   });
 
   it("gives a member the version line and never fires the admin updates read", async () => {
     const run = await withRail({ admin: false }, async () => {
-      fireEvent.click(accountTrigger());
       // Version and instance name are separate detail lines (split 2026-10-09
       // so a long hostname cannot truncate the version away).
       expect(await screen.findByText("Subshell Server 0.11.1")).toBeTruthy();
       expect(screen.getByText("Test plane")).toBeTruthy();
-      expect(screen.queryAllByRole("menuitem", { name: /Update available/ }).length).toBe(0);
+      expect(screen.queryAllByRole("link", { name: /Update available/ }).length).toBe(0);
     });
     expect(run?.calls).not.toContain("/api/admin/updates");
-    expect(accountTrigger().querySelectorAll(".bg-warning").length).toBe(0);
+    expect(screen.queryAllByRole("img", { name: "Update available" }).length).toBe(0);
   });
 
-  it("gives an admin with news the avatar dot and a row that walks to /settings/updates", async () => {
+  it("gives an admin with news the rail dot and a row that walks to /settings/updates", async () => {
     const run = await withRail({ admin: true, updateTo: "0.12.0" }, async () => {
-      await waitFor(() => expect(accountTrigger().querySelectorAll(".bg-warning").length).toBeGreaterThan(0));
-      fireEvent.click(accountTrigger());
-      fireEvent.click(await screen.findByRole("menuitem", { name: "Update available: v0.12.0" }));
+      await waitFor(() => expect(screen.queryAllByRole("img", { name: "Update available" }).length).toBeGreaterThan(0));
+      fireEvent.click(await screen.findByRole("link", { name: "Update available: v0.12.0" }));
     });
     await waitFor(() => expect(run?.router.state.location.pathname).toBe("/settings/updates"));
   });
@@ -167,10 +182,9 @@ describe("the header account card", () => {
       // The retired footer was a door even with no news; §B moved that door
       // to the Server Settings group's Updates page, so the card stays quiet.
       await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(accountTrigger().querySelectorAll(".bg-warning").length).toBe(0);
-      fireEvent.click(accountTrigger());
-      await screen.findByRole("menuitem", { name: "Sign out" });
-      expect(screen.queryAllByRole("menuitem", { name: /Update available/ }).length).toBe(0);
+      expect(screen.queryAllByRole("img", { name: "Update available" }).length).toBe(0);
+      await screen.findByRole("button", { name: "Sign out" });
+      expect(screen.queryAllByRole("link", { name: /Update available/ }).length).toBe(0);
     });
     expect(run?.calls).toContain("/api/admin/updates");
   });
@@ -185,12 +199,14 @@ describe("the header account card", () => {
     });
   });
 
-  it("collapses to the avatar alone", async () => {
+  it("keeps Account reachable from the collapsed mini rail", async () => {
     localStorage.setItem("subshell.sidebarCollapsed", "1");
-    await withRail({ admin: false }, async () => {
-      expect(accountTrigger()).toBeTruthy();
-      // No display-name text on the face of the collapsed rail.
-      expect(screen.queryAllByText("Admin").length).toBe(0);
-    });
+    stubFetch({ admin: false });
+    renderRail("/account");
+    const link = await screen.findByRole("link", { name: "Account" });
+    expect(screen.queryAllByRole("button", { name: "Sign out" }).length).toBe(0);
+    fireEvent.click(link);
+    await waitFor(() => expect(signOutButton()).toBeTruthy());
+    expect(localStorage.getItem("subshell.sidebarCollapsed")).toBe("0");
   });
 });

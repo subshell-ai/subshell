@@ -111,7 +111,7 @@ export async function renameSubshell(page: Page, name: string): Promise<void> {
   // workspace the pane landed as a tab in (spec 2026-10-17 made launches
   // land there, so most callers rename over the dock).
   const header = page.locator("header").filter({
-    has: page.getByRole("link", { name: /Back to (subshells|workspaces)/ }),
+    has: page.getByRole("button", { name: /^Actions for / }),
   });
   const actions = header.getByRole("button", { name: /^Actions for / });
   await actions.waitFor();

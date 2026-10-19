@@ -1,5 +1,6 @@
 import { cn } from "@internal/node-admin";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { LayoutDashboard } from "lucide-react";
 import { TooltipLabelledLines } from "@/components/sidebar/TooltipLabelledLines";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDot } from "@/components/subshell-dot";
@@ -37,14 +38,17 @@ export function SubshellRecentRow({
   presetLabel,
   subline,
   branchWorkspaceId,
+  onOpen,
+  inActiveWorkspace = false,
 }: {
   subshell: SubshellView;
   /** The CURRENT pane: the dock's focused one, or the viewed `/subshells/:id`.
    * The one row that takes the accent fill and the ring. Membership in an
-   * open workspace marks NOTHING (operator ruling 2026-10-17: every pane of
+   * open workspace does not take this highlight (operator ruling 2026-10-17: every pane of
    * the workspace lit up, bold, and the row that answered "where am I" read
    * as six of them; the set still decides ordering and click resolution,
-   * never brightness). No bold: the fill and ring carry it alone. */
+   * never brightness). The all-subshells browser marks membership with a
+   * separate icon. No bold: the fill and ring carry focus alone. */
   focused: boolean;
   /** The group header's label — the node's NAME when resolved, its honest
    * fallback otherwise; one source of truth for header and tooltip alike */
@@ -73,6 +77,10 @@ export function SubshellRecentRow({
    * pane can sit in several workspaces).
    */
   branchWorkspaceId?: string;
+  /** Override plain-click navigation for a workspace-scoped browser. */
+  onOpen?: () => void;
+  /** Membership marker in the all-subshells browser, independent of focus. */
+  inActiveWorkspace?: boolean;
 }) {
   const openAsTab = useOpenPaneAsTab();
   const navigate = useNavigate();
@@ -103,6 +111,10 @@ export function SubshellRecentRow({
               onClick={(e) => {
                 if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
                 e.preventDefault();
+                if (onOpen) {
+                  onOpen();
+                  return;
+                }
                 if (branchWorkspaceId) {
                   // The branch names its own workspace, and the focus request
                   // is scoped to it: a pane filed in several workspaces must
@@ -122,7 +134,7 @@ export function SubshellRecentRow({
                 // also clears the focused row's ring, which paints OUTSIDE
                 // the pill (operator device review 2026-09-27: `my-0.5` read
                 // as no gap, `my-1` wanted a touch more).
-                "my-1.5 flex items-start gap-2 rounded-md py-1 pr-3 pl-3 text-detail transition-colors",
+                "my-1.5 flex min-w-0 items-start gap-2 rounded-md py-1 pr-12 pl-3 text-detail transition-colors",
                 // ONE signal (operator ruling 2026-10-17): the CURRENT pane
                 // wears the accent fill and the white ring; workspace
                 // membership marks nothing, and nothing here goes bold.
@@ -138,7 +150,14 @@ export function SubshellRecentRow({
               size (the thing this row just left). */}
           <SubshellDot subshell={subshell} hideTitle />
           <span className="min-w-0 flex-1">
-            <span className="block truncate">{subshell.name}</span>
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="truncate">{subshell.name}</span>
+              {inActiveWorkspace && (
+                <span role="img" aria-label="In active workspace" className="flex shrink-0 text-muted-foreground">
+                  <LayoutDashboard className="size-3.5" aria-hidden="true" />
+                </span>
+              )}
+            </span>
             {(subline ?? subshell.workingDir) ? (
               <span className="block truncate text-detail opacity-70">{subline ?? subshell.workingDir}</span>
             ) : null}
@@ -146,9 +165,17 @@ export function SubshellRecentRow({
         </TooltipTrigger>
         <TooltipContent side="right" arrow className="whitespace-pre-line break-words">
           <TooltipLabelledLines text={subshellRowTooltip(subshell, nodeLabel, agentLabel, presetLabel)} />
+          {inActiveWorkspace && <p className="mt-1">In active workspace</p>}
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );
-  return <SubshellActionsMenu subshell={subshell}>{row}</SubshellActionsMenu>;
+  return (
+    <div className="relative">
+      <SubshellActionsMenu subshell={subshell}>{row}</SubshellActionsMenu>
+      <div className="absolute top-1/2 right-0 -translate-y-1/2">
+        <SubshellActionsMenu subshell={subshell} />
+      </div>
+    </div>
+  );
 }

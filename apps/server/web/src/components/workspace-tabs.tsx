@@ -1,4 +1,4 @@
-import { Button, cn, errMessage } from "@internal/node-admin";
+import { Button, cn, ExplainedButton, errMessage } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { X } from "lucide-react";
 import { type JSX, useEffect, useState } from "react";
@@ -25,6 +25,7 @@ export interface WorkspaceTabProps {
   onSelect: () => void;
   /** Removes this pane from the workspace (the tab's × — same action as `<SubshellPane>`'s "Remove pane" button) */
   onRemove: () => void;
+  removeDisabled?: boolean;
   /** The pane's subshell is waiting for the operator — show the amber bell marker (see `<TabWaitingMarker>`) */
   waiting: boolean;
 }
@@ -42,7 +43,14 @@ export interface WorkspaceTabProps {
  * No row cached yet (list still loading) draws no dot — a missing dot is
  * honest, a wrong one is not.
  */
-export function WorkspaceTab({ pane, active, onSelect, onRemove, waiting }: WorkspaceTabProps): JSX.Element {
+export function WorkspaceTab({
+  pane,
+  active,
+  onSelect,
+  onRemove,
+  waiting,
+  removeDisabled = false,
+}: WorkspaceTabProps): JSX.Element {
   const subshell = useSubshellRow(pane.subshellId);
   return (
     <div
@@ -57,20 +65,22 @@ export function WorkspaceTab({ pane, active, onSelect, onRemove, waiting }: Work
         type="button"
         onClick={onSelect}
         aria-current={active}
-        className={cn("flex min-h-11 max-w-[220px] items-center gap-2 px-4 text-sm", active && "font-strong")}
+        className={cn("flex min-h-9 max-w-[220px] items-center gap-2 px-4 text-sm", active && "font-strong")}
       >
         {subshell && <SubshellDot subshell={subshell} className="mt-0" />}
         <span className="truncate">{pane.subshellName}</span>
         {waiting && <TabWaitingMarker />}
       </button>
-      <button
+      <ExplainedButton
         type="button"
+        disabled={removeDisabled}
+        disabledReason="Add another tab before removing this one."
         onClick={onRemove}
         aria-label={`Remove ${pane.subshellName} from workspace`}
-        className="flex h-11 w-11 shrink-0 items-center justify-center hover:bg-accent/50"
+        className="flex h-9 w-11 shrink-0 items-center justify-center hover:bg-accent/50"
       >
         <X className="h-4 w-4" />
-      </button>
+      </ExplainedButton>
     </div>
   );
 }
@@ -208,6 +218,7 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
 
   /** Removes a pane from the workspace, leaving its subshell running (or gone) untouched. */
   async function handleRemovePane(paneId: string) {
+    if (detail.panes.length <= 1) return;
     let workspaceDeleted = false;
     try {
       ({ workspaceDeleted } = await removePane(paneId));
@@ -301,6 +312,7 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
               pane={pane}
               active={pane.id === selected?.id}
               onSelect={() => setSelectedId(pane.id)}
+              removeDisabled={detail.panes.length <= 1}
               onRemove={() => void handleRemovePane(pane.id)}
               waiting={isPaneWaiting(pane)}
             />
@@ -324,6 +336,7 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
                 // any more than in the dock.
                 showKeyBar={pane.id === selected?.id}
                 onRestart={(subshellId) => void handleRestart(subshellId)}
+                removeDisabled={detail.panes.length <= 1}
                 onRemovePane={(paneId) => void handleRemovePane(paneId)}
               />
             </div>

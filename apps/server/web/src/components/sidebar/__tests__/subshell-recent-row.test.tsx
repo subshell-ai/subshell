@@ -95,6 +95,20 @@ afterEach(() => {
 });
 
 describe("SubshellRecentRow tooltip (2026-09-24: in-page, so it zooms)", () => {
+  it("opens actions from a visible button without navigating", async () => {
+    const restore = mockFetch();
+    try {
+      renderRow(makeSubshell());
+      const actions = await screen.findByRole("button", { name: "Actions for auth-refactor" });
+      expect(actions.closest("a")).toBeNull();
+      fireEvent.click(actions);
+      await waitFor(() => expect(screen.getByRole("menuitem", { name: /Edit title/ })).toBeDefined());
+      expect(screen.getByRole("link", { name: /auth-refactor/ })).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
   it("merges the tooltip trigger onto the Link itself, not a wrapper", async () => {
     const restore = mockFetch();
     try {
