@@ -11,9 +11,9 @@ Sign in and choose a machine where you have launch access. The node must be onli
 
 ## Launch
 
-1. In the server dashboard's sidebar, choose **Subshells**, then select **New subshell** at the top of the page.
+1. In the server dashboard's sidebar, choose **Subshells**, open the **⋯** menu beside the search field, and choose **Add subshell**. If a workspace is open, select **New subshell** in the dialog.
 2. Under **Agent or terminal**, choose the agent you want to run.
-3. Select a preset if you want saved settings. A human launch can run without a preset.
+3. Select a preset if you want saved settings. The picker appears when you have presets available; you can launch without one.
 4. Choose a launchable node.
 5. Choose an existing working directory on that node.
 6. Add task text if needed, then launch.
@@ -27,6 +27,8 @@ A preset's defaults are hints in the human launch form and remain editable. Agen
 Choose **SSH terminal** in the same dialog to connect from a node to an SSH destination. The destination doesn’t need Subshell installed. Follow [Connect over SSH](/guides/ssh) for the connection form, authentication choices, and destination verification.
 
 ## Check the result
+
+The new subshell opens as a workspace tab. With no workspace on screen, it joins your last available workspace or creates one if none exists.
 
 Open the terminal and confirm that the CLI reaches its normal prompt. Complete provider authentication on the execution machine if the agent needs it.
 

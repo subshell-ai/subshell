@@ -1,6 +1,6 @@
 ---
 title: "Use and manage presets"
-description: "Launch with saved configuration, edit or clone a preset, and enable eligible presets for MCP-created helpers."
+description: "Launch with saved configuration, share agent and SSH presets, and move settings between servers with preset files."
 ---
 
 Reuse a saved preset when starting another subshell.
@@ -9,7 +9,7 @@ For SSH presets, select **SSH** on the **Presets** page. A preset’s **Connect*
 
 ## Launch an agent from the dashboard
 
-1. In the server dashboard sidebar, open **Subshells** and select **New subshell**.
+1. In the server dashboard sidebar, open **Subshells**, open the **⋯** menu beside the search field, and choose **Add subshell**. If a workspace is open, select **New subshell** in the dialog.
 2. Choose the agent and your saved preset.
 3. Review the machine, working directory, and prompts filled from the preset. Change them for this launch if needed.
 4. Launch and confirm that the agent reaches its normal prompt.
@@ -18,7 +18,7 @@ Changing a field in the launch form changes that launch; it doesn't update the s
 
 ## Share a preset
 
-You must own a preset to manage its sharing. In the dashboard sidebar, open **Presets**, choose **Agent** or **SSH**, and open the preset's **⋯** menu.
+You must own a preset to manage its sharing. In the dashboard sidebar, open **Settings** → **Presets**, choose **Agent** or **SSH**, and open the preset's **⋯** menu.
 
 1. Choose **Share preset**.
 2. Select a person or **Everyone**, then choose **View** or **Edit** and select **Add**.
@@ -36,11 +36,20 @@ To revoke access, open **Share preset**, select **Remove** beside the grant, and
 
 Machine tokens don't inherit preset sharing. MCP helpers can still use only their owner's presets.
 
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/preset-sharing.png" alt="Preset sharing dialog with View and Edit permission controls and Save for applying grants." width="1072" height="968" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Sharing applies to the saved preset. Node access and SSH destination approvals remain separate. Select the image to enlarge it.</figcaption>
+</figure>
+
 ## Export or import
 
-To export an agent or SSH preset you can view, open **Presets** in the dashboard sidebar, open its **⋯** menu, and choose **Export preset**. Your browser downloads a JSON file named after the preset with a `.preset` extension. Characters that aren't safe in a filename are replaced with underscores.
+To export an agent or SSH preset you can view, open **Settings** → **Presets** in the dashboard sidebar, open its **⋯** menu, and choose **Export preset**. Your browser downloads a JSON file named after the preset with a `.preset` extension. Characters that aren't safe in a filename are replaced with underscores.
 
 Exports include all saved settings. An agent preset can include environment secrets and prompt text, so treat its exported file accordingly. Ownership, sharing grants, and timestamps aren't exported. SSH exports include connection choices and public key fingerprints, never private keys, passwords, or destination approvals.
+
+If an exported preset refers to a deleted node, you can still export it. Choose
+replacement nodes in the import dialog before importing; SSH key selections and
+node permissions are checked again when you connect.
 
 To import a file:
 
@@ -55,7 +64,7 @@ Preset files use the `subshell-preset` format with `version: 1` and a `preset` o
 
 ## Edit or clone
 
-If you own a preset or have Edit access, open **Presets** in the dashboard sidebar, open its **⋯** menu, and choose **Edit**. Change its values and select **Save**. Existing processes keep their launch-time configuration.
+If you own a preset or have Edit access, open **Settings** → **Presets** in the dashboard sidebar, open its **⋯** menu, and choose **Edit**. Change its values and select **Save**. Existing processes keep their launch-time configuration.
 
 To keep the original, open the preset row's **⋯** menu and choose **Clone preset**. Give the copy a distinct name and review its values before saving. The agent stays the same; create a new preset to choose a different agent.
 
@@ -89,7 +98,3 @@ The agent that creates a helper must clean it up when the work is done. Follow [
 ## Next steps
 
 Build task text with [Reusable Prompts](/prompts) or review [MCP tool reference](/mcp/tools).
-
-If an exported preset refers to a deleted node, you can still export it. Choose
-replacement nodes in the import dialog before importing; SSH key selections and
-node permissions are checked again when you connect.

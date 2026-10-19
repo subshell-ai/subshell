@@ -28,8 +28,44 @@ it is a site, not one of server/node/client, which is why it sits directly under
 
 ## Product demonstration clips
 
+### Editorial expectations
+
+These are standing user preferences, established during the October 19, 2026
+media refresh. Apply them to future recordings as well as this demo.
+
+- Show an interactive agent running inside a subshell and doing a useful,
+  concrete task. Give the viewer a clear request, visible work, and a result
+  they can understand, such as a feature implemented and its tests passing.
+  Trivial one-sentence prompts, explanations of sample code, and terminal
+  sessions merely named after agents don't demonstrate this workflow.
+- Create multiple subshells in one workspace. Switch between that workspace's
+  tabs to show related work, such as implementation and tests. Don't switch
+  between the Workspaces and Subshells sidebar sections or visit the dashboard
+  during the clip.
+- Keep the phone sidebar closed. Keep desktop navigation unobtrusive; the
+  accepted desktop recording uses the collapsed mini rail. Preserve the tab
+  strip so the relationship between the subshells stays clear.
+- Use real agent execution and real output. Trim idle waits, but preserve the
+  sequence of request, work, and result. Don't substitute scripted responses,
+  fabricated notifications, or unrelated output to make the recording busier.
+- Record the current built UI. Refresh the website videos and posters, README
+  animation, and affected documentation screenshots together. Captions must
+  describe the workflow actually shown.
+- Watch each complete clip at its displayed desktop and phone sizes before
+  calling it finished. Check that the task makes sense, text is readable,
+  terminal padding is intact, controls aren't clipped, and the result stays
+  visible long enough to read. Passing playback checks alone isn't enough. Judge text size in the embedded
+  player, not in a full-resolution frame: a large desktop viewport can shrink
+  otherwise readable text into tiny lettering on the website.
+
+The task-summary example below is one acceptable scenario, not a requirement
+to reuse that exact task forever. A replacement should tell an equally clear
+story about doing real work with an agent in Subshell.
+
+### Capture and playback
+
 `components/product-demo.tsx` replaces the phone and desktop screenshots with
-silent, ten-second recordings from a real session on an isolated demo server.
+short, silent recordings of a real task on an isolated demo server.
 Mobile shows browser/PWA access, not the native mobile app. Keep recordings at
 fixed viewport sizes and use sample projects and accounts without credentials
 or personal content.
@@ -37,17 +73,23 @@ or personal content.
 Assets live under `public/demos/`: both use H.264 MP4 because it is smaller
 than VP9 WebM at the selected quality. Both have WebP
 posters. Encode without audio at 15 fps, preserve terminal legibility, and use
-MP4 fast-start metadata. Current viewport sizes are 390×844 and 1280×800, captured at 2× pixel density
-(780×1688 and 2560×1600 encoded frames). Both clips switch between Codex
-and Claude Code in the same workspace and show a real prompt submission and
-response; preserve the visible tab strip. The notification is an editing overlay
-using the browser notification payload wording
-“Done, waiting for you”. It previews an OS notification outside the browser
-capture, not an in-app toast. Show the session name and notification body
-without an added sample label.
+MP4 fast-start metadata. Current viewport sizes are 390×844 and 900×560, captured at 2× pixel density
+(780×1688 and 1800×1120 encoded frames). Both clips show an interactive
+Codex subshell implementing a task summary feature and a second subshell running
+its tests. Stay in the same workspace throughout: switch tabs, never sidebar
+sections. Keep the phone sidebar closed and preserve the visible tab strip.
+Generate them with `bun e2e/capture-product-demo.ts` after building the SPA.
+The capture requires an authenticated Codex CLI. It uses sample files in a
+temporary project and an isolated server, lets the agent edit those files and
+run tests, and trims idle waiting time. Never fabricate terminal output or add
+a notification that the recorded workflow doesn't produce.
 The root README uses an optimized animated GIF linked to the full-quality MP4
 because GitHub strips repository-hosted HTML video elements.
-Terminal font sizes are 20px on desktop and 18px on mobile.
+Terminal font sizes are 22px on desktop and 18px on mobile. The desktop capture
+uses a compact viewport so the text stays large when embedded in the page;
+higher recording resolution alone does not make text more legible. Use
+`bun e2e/capture-product-demo.ts --desktop-only` to refresh only the desktop
+clip, its poster, and the README animation.
 Inspect frames for layout changes before encoding; changing viewport during a
 recording is not an acceptable device transition.
 

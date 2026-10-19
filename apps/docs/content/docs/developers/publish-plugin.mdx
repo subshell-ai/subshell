@@ -65,7 +65,7 @@ For local distribution testing, serve the package through an npm-compatible test
 ## Install on an isolated instance
 
 1. Sign in as an administrator to the isolated server dashboard.
-2. In the sidebar, open **Server Settings** → **Plugins**.
+2. In the sidebar, open **Settings** → **Plugins**.
 3. In **Install from npm**, enter your package specification, preferably an exact version for a repeatable test.
 4. Enter the manifest's ID in **Plugin id**, such as `docs-shell` for the Bash example.
 5. Select **Install** and review the third-party code confirmation.
@@ -92,7 +92,7 @@ Test the packed package against a compiled Subshell server, not only the source 
 For the Bash example:
 
 1. Confirm Bash is installed on the execution machine.
-2. In the dashboard sidebar, open **Presets** → **New preset** → **New agent preset** and choose **Docs Shell**.
+2. In the dashboard sidebar, open **Settings** → **Presets** → **New preset** → **New agent preset** and choose **Docs Shell**.
 3. Save a preset with the login-shell setting enabled.
 4. Open **Subshells** → **New subshell**, choose that preset, and select an accessible working directory and online node.
 5. Confirm that the shell starts. Run `printf 'plugin works\n'` in its pane and inspect the output.

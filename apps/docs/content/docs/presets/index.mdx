@@ -9,7 +9,7 @@ Save agent launch settings or SSH connection choices for later use.
 
 An agent preset records the agent, command flags, environment values, and restart policy you want to reuse. It can also provide a machine, working directory, and initial prompts. For example, a repository-review preset can launch Codex in your project with review instructions and explicit approval settings.
 
-Open **Presets** in the dashboard sidebar and choose **Agent** or **SSH**. Agent presets are grouped by agent. SSH presets list their destination, connecting node, and authentication choice. The **New preset** menu offers **New agent preset** and **New SSH preset** from either tab. See [Connect over SSH](/guides/ssh#ssh-presets-and-recent-destinations) to create and use an SSH preset.
+Open **Settings** → **Presets** in the dashboard sidebar and choose **Agent** or **SSH**. Agent presets are grouped by agent. SSH presets list their destination, connecting node, and authentication choice. The **New preset** menu offers **New agent preset** and **New SSH preset** from either tab. See [Connect over SSH](/guides/ssh#ssh-presets-and-recent-destinations) to create and use an SSH preset.
 
 Presets are private to your account until you [share them](/presets/use#share-a-preset). You can share agent and SSH presets with individual people or everyone signed in to the instance. Saving an agent preset doesn't install or authenticate the agent CLI; those steps happen on the machine where the session runs.
 
@@ -26,3 +26,8 @@ For the task text itself, use [Reusable Prompts](/prompts). A reusable prompt st
 Saving a preset changes future launches that use it. It doesn't reconfigure a running process. Human launch forms prefill the saved defaults and let you review or override them.
 
 For an existing subshell, follow [Clone and switch presets](/guides/clone) to start with different settings.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/preset-library.png" alt="Agent preset library listing Repository review for Codex and Project shell for Terminal, with owner and sharing columns." width="1736" height="984" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Keep launch settings in your preset library and manage each preset from its actions menu. Select the image to enlarge it.</figcaption>
+</figure>

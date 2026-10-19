@@ -184,16 +184,23 @@ layout changes. Never point it at the live server.
 For the other documentation screenshots, run `bun e2e/capture-docs.ts` after
 building the SPA. It uses the same isolated stack with sample presets, prompts,
 a workspace, and real terminal sessions running a small temporary project.
-No coding-agent responses are simulated. The script also refreshes the six
-marketing-site WebP copies using `ffmpeg`, which must be installed.
+The script also refreshes the six lossless website screenshots using ffmpeg.
+No coding-agent responses are simulated. The marketing recordings and README animation come from
+`bun e2e/capture-product-demo.ts`, which requires `ffmpeg` and an authenticated
+Codex CLI. It records a real interactive agent implementing and testing a feature
+in a disposable project, then switches to a test subshell in the same workspace.
+It never switches sidebar sections or opens the phone sidebar.
+Before changing the recording scenario, read the standing
+[website video expectations](../apps/website/AGENTS.md#editorial-expectations).
+Review the finished clips against those expectations, not just their encoding
+and playback checks.
 
-Review every capture, update intrinsic dimensions in the referring MDX and
-`apps/website/components/feature-showcase.tsx`, and check the captions against
+Review every capture, update intrinsic dimensions in the referring MDX, and check the captions against
 the actual controls. The example address and QR code are public sample values;
 no setup key is generated. Remove obsolete assets and their references together.
 
-Both capture scripts use `screenshot.ts` for a 12px page-colored margin and 2×
+Both screenshot scripts use `screenshot.ts` for a 12px page-colored margin and 2×
 pixel density. The helper hides unrelated UI and modal backdrops only during
 capture; the photographed controls and their content remain unchanged. Keep
-PNG dimensions and the lossless marketing WebP copies at native resolution.
+PNG dimensions at native resolution.
 The sites supply the same single border around each image, without extra padding.

@@ -13,7 +13,7 @@ For example, you could open the dashboard on your phone, connect from a node in 
 
 ## Open the connection form
 
-1. In the server dashboard's sidebar, choose **Subshells**, then **New subshell**.
+1. In the server dashboard's sidebar, choose **Subshells**, open the **⋯** menu beside the search field, and choose **Add subshell**. If a workspace is open, select **New subshell** in the dialog.
 2. Select **SSH terminal**.
 3. Under **Connect from**, choose the node that will make the SSH connection.
 4. Under **SSH destination**, enter an address such as `developer@build.example.com:22`, or choose a suggestion. SSH aliases come from the connecting node's SSH configuration; their suggestions show the resolved username, host, and port when available.
@@ -80,7 +80,7 @@ Select **Start SSH subshell**. If you're using another node's keys and neither t
 A host key is the destination machine's public SSH key. It identifies that machine; your login key or password identifies you. Remembering the host key lets SSH detect a different machine answering at the same address later. You don't need to generate, paste, or manage host keys in the dashboard.
 
 <figure className="docs-screenshot">
-  <ImageZoom src="/screenshots/ssh-destination-confirmation.png" alt="Connect to this destination confirmation showing the destination address, the host fingerprint with a copy button, an explanation of remembering its identity, a warning that the identity isn't independently verified, and Cancel and Trust and connect buttons." width="840" height="1032" loading="lazy" decoding="async" unoptimized />
+  <ImageZoom src="/screenshots/ssh-destination-confirmation.png" alt="Connect to this destination confirmation showing the destination address, the host fingerprint with a copy button, an explanation of remembering its identity, a warning that the identity isn't independently verified, and Cancel and Trust and connect buttons." width="816" height="1008" loading="lazy" decoding="async" unoptimized />
   <figcaption>A first connection using another node's keys asks before remembering an unfamiliar destination. This screenshot was captured from a sandboxed review instance with test data. Select the image to enlarge it.</figcaption>
 </figure>
 
@@ -97,7 +97,7 @@ Once connected, the terminal shows the destination's shell. Its top bar has an *
 
 ## SSH presets and recent destinations
 
-In the dashboard sidebar, open **Presets** → **New preset** → **New SSH preset**. This option is available from either the **Agent** or **SSH** tab. If your SSH library is empty, you can also select **Create your first SSH preset** on that tab.
+In the dashboard sidebar, open **Settings** → **Presets** → **New preset** → **New SSH preset**. This option is available from either the **Agent** or **SSH** tab. If your SSH library is empty, you can also select **Create your first SSH preset** on that tab.
 
 Enter a **Name**, choose the connecting node and destination, then select an authentication option. Names can contain up to 120 characters. Select **Save preset** to keep these choices without starting a connection.
 
@@ -122,7 +122,7 @@ Forward ports through an SSH connection to reach a web app, database, or other T
 
 ### Add a port forward
 
-1. In the dashboard, open **Subshells** → **New subshell** → **SSH terminal**. Choose **Connect from**, enter the **SSH destination**, and choose how to authenticate.
+1. In the dashboard, open **Subshells**, then choose **Add subshell** from the **⋯** menu beside the search field. If a workspace is open, select **New subshell**. Choose **SSH terminal**. Choose **Connect from**, enter the **SSH destination**, and choose how to authenticate.
 2. Under **Port forwards**, select **Add port forward**.
 3. Choose a kind from the table below. Enter **Local port** or **Remote port** and, for local or remote forwarding, **Target host** and **Target port**.
 4. Select **Add port forward** again to add the completed row to the connection. Repeat for more ports, up to 16 forwards. Use **Remove** to discard a row; to change one, remove it and add its replacement.
@@ -137,7 +137,7 @@ Forward ports through an SSH connection to reach a web app, database, or other T
 “Local” means the node selected under **Connect from**, which may be a different machine from your browser. Choosing a key from your laptop doesn't move the listening port to your laptop.
 
 <figure className="docs-screenshot">
-  <ImageZoom src="/screenshots/ssh-connection.png" alt="SSH connection form showing the connecting node, destination, authentication options, and a local forward from port 8080 to port 3000." width="1200" height="1964" loading="lazy" decoding="async" unoptimized />
+  <ImageZoom src="/screenshots/ssh-connection.png" alt="SSH connection form showing the connecting node, destination, authentication options, and a local forward from port 8080 to port 3000." width="1200" height="2092" loading="lazy" decoding="async" unoptimized />
   <figcaption>Review the listed ports beneath the authentication options before connecting. Select the image to enlarge it.</figcaption>
 </figure>
 

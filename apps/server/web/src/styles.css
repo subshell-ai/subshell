@@ -254,9 +254,17 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* xterm container: fill the terminal strip */
+/* Keep text off pane edges. The shared-grid sizing reads these insets from
+   xterm itself, so the last row and column still fit inside the pane. */
 .xterm {
   height: 100%;
+  padding: calc(var(--spacing) * 2);
+  background: var(--terminal-strip);
+}
+
+/* xterm's opaque viewport extends beneath the padding and defaults to black. */
+body .xterm:not(.allow-transparency) .xterm-viewport {
+  background-color: var(--terminal-strip);
 }
 
 /* iOS auto-zoom rule: focusing a text input whose computed font-size is

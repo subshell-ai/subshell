@@ -30,6 +30,10 @@ A plain footer shows identity, version, instance name, and admin-only update
 notices without a second account menu.
 
 Collapsing hides the contextual panel while leaving the mini rail available.
+On desktop, clicking the active mini-rail icon toggles its panel; choosing a
+different section opens that panel. The panel header also has a collapse button,
+and the collapsed rail has an expand button near the top. The choice persists
+in local storage.
 The desktop Find Subshell action opens Subshells and focuses its search.
 Native drag strips and connection footer controls remain supplied by the
 existing desktop wrapper.

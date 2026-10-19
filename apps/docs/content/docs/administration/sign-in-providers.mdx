@@ -11,7 +11,7 @@ Use an administrator account and retain a working sign-in method. For OIDC, obta
 
 ## Add an OIDC provider
 
-1. In the server dashboard's sidebar, open **Server Settings** → **Auth**.
+1. In the server dashboard's sidebar, open **Settings** → **Auth**.
 2. Add the provider and give it a recognizable name.
 3. Enter its issuer and client credentials.
 4. Register the displayed redirect URI at your identity provider. Leave the callback base URL override blank to use the public base URL.
@@ -19,7 +19,7 @@ Use an administrator account and retain a working sign-in method. For OIDC, obta
 
 Saving performs discovery and verifies credentials when the issuer supports the corresponding grant. The login button uses the provider's configured name.
 
-OAuth callbacks use the public base URL configured under **Server Settings → Networking → Addresses**. Changing that URL updates callbacks after restarting the server; register the new redirect URI with your identity provider too.
+OAuth callbacks use the public base URL configured under **Settings → Networking → Addresses**. Changing that URL updates callbacks after restarting the server; register the new redirect URI with your identity provider too.
 
 A provider's optional **Callback base URL override** replaces that base only for that provider. Enter a full HTTP or HTTPS origin, without a path; Subshell adds `/api/auth/callback/<provider-id>`. Clear the override to follow the public base URL again. The callback never comes from the hostname a visitor happens to open or from the order of an address list.
 
