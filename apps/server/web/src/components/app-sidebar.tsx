@@ -105,7 +105,10 @@ export function AppSidebar({
     <aside
       className={cn(
         "relative flex min-h-0 shrink-0 flex-col border-border border-r bg-card",
-        variant === "desktop" ? "w-76" : "w-72",
+        // Both drop the 56px icon rail retired this branch. The desktop shell keeps
+        // 48px instead of 56: its bar carries a fifth button ("Open in browser"),
+        // and 5 size-11 buttons plus gaps and padding need 252px, which w-62 would clip.
+        variant === "desktop" ? "w-64" : "w-58",
         className,
       )}
     >

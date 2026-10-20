@@ -30,7 +30,7 @@ function restoreUA() {
   resetDesktopShellForTests();
 }
 
-async function renderRail(path: string, admin = false) {
+async function renderRail(path: string, admin = false, variant: "web" | "desktop" = "web") {
   setFetchRouter(async (input) => {
     const url = String(input);
     const body = url.includes("/api/settings/public")
@@ -47,7 +47,7 @@ async function renderRail(path: string, admin = false) {
   const root = createRootRoute({
     component: () => (
       <quickAdd.QuickAddProvider>
-        <AppSidebar />
+        <AppSidebar variant={variant} />
       </quickAdd.QuickAddProvider>
     ),
   });
@@ -167,6 +167,22 @@ describe("the panel and its bottom section bar", () => {
     const desktopBar = screen.getByRole("navigation", { name: "Main sections" });
     expect(within(desktopBar).getByRole("button", { name: "Open in browser" })).toBeTruthy();
     expect(within(desktopBar).getAllByRole("link")).toHaveLength(4);
+  });
+
+  it("test_panel_width_retired_rail: the panel sheds the retired rail's width and the desktop bar's fifth button still fits", async () => {
+    // Browser: four size-11 buttons (4*44 + 3*4 gap + 16 padding = 204px) inside w-58 (232px).
+    await renderRail("/nodes");
+    expect(document.querySelector("aside")?.classList.contains("w-58")).toBe(true);
+    cleanup();
+    // Server desktop shell: the bar gains "Open in browser", and five size-11
+    // buttons (5*44 + 4*4 + 16 = 252px) need w-64 (256px); w-62 would clip them.
+    setUA(SERVER_UA);
+    await renderRail("/nodes", false, "desktop");
+    const aside = document.querySelector("aside");
+    expect(aside?.classList.contains("w-64")).toBe(true);
+    const bar = screen.getByRole("navigation", { name: "Main sections" });
+    expect(within(bar).getAllByRole("link")).toHaveLength(4);
+    expect(within(bar).getByRole("button", { name: "Open in browser" })).toBeTruthy();
   });
 
   it("test_no_collapse_pref_or_state: clicking the active section never collapses the panel or records a preference", async () => {
