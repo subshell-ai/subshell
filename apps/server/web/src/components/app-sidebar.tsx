@@ -247,16 +247,16 @@ export function AppSidebar({
                       {item.id === "workspaces" ? (
                         // The mark the old collapsed rail wore, now on the bar
                         // cell. The link's own aria-label names it, so the
-                        // image is decorative. `size-4`, not `size-5`: the
-                        // mark is a full-bleed rounded square and the lucide
-                        // glyphs carry internal padding, so equal boxes read
-                        // as the mark sitting heavier than its neighbours
-                        // (operator ruling 2026-10-20).
+                        // image is decorative. `h-4 w-auto`, never a `size-*`
+                        // box: the asset is 30x40, so a square forces the /S
+                        // wide and squashes it, and 16px tall is what matches
+                        // the padded lucide glyphs' optical weight on the bar
+                        // (operator ruling 2026-10-20, measured at :5174).
                         <img
                           src="/icons/mark-40.png"
                           srcSet="/icons/mark-80.png 2x, /icons/mark-120.png 3x"
                           alt=""
-                          className="size-4"
+                          className="h-4 w-auto"
                         />
                       ) : (
                         <item.icon className="size-5" />
