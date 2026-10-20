@@ -94,10 +94,41 @@ test("a blocked child row explains itself with the task label and elapsed line",
   const described = row.getAttribute("aria-description") ?? "";
   expect(described).toContain("pi keeps agent views in the app.");
   expect(described).toContain("Reading the diff");
-  expect(described).toContain("running for 2m 5s");
+  expect(described).toContain("running · 2m 5s");
   // The reason here already ends in a period; the join must not double it,
   // and the sentence must close with exactly one.
   expect(described).not.toContain("..");
   expect(described.endsWith(".")).toBe(true);
+  client.clear();
+});
+
+test("a blocked row without a reported reason still explains itself", async () => {
+  // The server answers canSelect:false with no reason when the harness never
+  // said why; the fallback sentence must still reach the row, or the disabled
+  // control has nothing to explain itself with.
+  const state = {
+    pane: {
+      agents: [{ id: "child", name: "worker", status: "running", startedAt: Date.now() }],
+      selectedId: null,
+      canSelect: false,
+    },
+  };
+  setFetchRouter(async () => Response.json(state));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(["harness-subagents"], state);
+  const rootRoute = createRootRoute({ component: () => <HarnessSubagentRows id="pane" alive /> });
+  const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/" });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([indexRoute]),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+    defaultPreload: false,
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
+  const row = await screen.findByRole("button", { name: /worker/ });
+  expect(row.getAttribute("aria-description")).toContain("does not support switching views");
   client.clear();
 });

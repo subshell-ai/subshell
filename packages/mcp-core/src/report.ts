@@ -138,13 +138,20 @@ async function resolveBody(
     const hook = payload.hook_event_name;
     const extra = payload.extra && typeof payload.extra === "object" ? (payload.extra as Record<string, unknown>) : {};
     const hermes = hook === "subagent_start" || hook === "subagent_stop";
-    // /clear and /fork move the pane to a conversation the reported children
-    // died with, so the roster resets. /compact keeps ONE conversation's
-    // history (and any live children) and must not clear them; startup and
-    // resume start from nothing the server already knows (a restart is a new
-    // generation anyway). Sources per the hooks reference:
-    // startup|resume|clear|compact|fork.
-    if (hook === "SessionStart" && (payload.source === "clear" || payload.source === "fork"))
+    // /clear, /fork and an in-pane /resume move the pane to a different
+    // conversation, and the reported children died with the old one, so the
+    // roster resets. /compact keeps ONE conversation's history (and any live
+    // children) and must not clear them; startup needs nothing. A launch
+    // with --resume also lands here, where the reset is provably harmless:
+    // the server dropped everything the moment the row's generation changed.
+    // Keeping on resume was the wrong trade: a resumed conversation cannot
+    // re-announce its children, so a stale roster would sit there forever,
+    // while resetting costs at most a live row until its next event.
+    // Sources per the hooks reference: startup|resume|clear|compact|fork.
+    if (
+      hook === "SessionStart" &&
+      (payload.source === "clear" || payload.source === "fork" || payload.source === "resume")
+    )
       return { path: "subagents/report", json: { event: "reset" } };
     // Claude Code's SubagentStart payload carries no task label (measured
     // against the hooks reference), but the Agent tool's own input does:

@@ -247,7 +247,7 @@ export interface McpRegistration {
   /**
    * Companion integration modules written next to the config file, under
    * `<configPath>.d/`. Keys are basenames only, and the host refuses a name
-   * outside `[A-Za-z0-9_-]+.(mjs|py|json)`, more than eight files, or more
+   * outside `[A-Za-z0-9_-]+\.(mjs|py|json)`, more than eight files, or more
    * than 64 KiB of content — by throwing at launch, so the registration must
    * stay inside those rules. Each file ships self-contained: on a pane's
    * machine nothing of ours is importable (see the package doc).

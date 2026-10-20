@@ -30,17 +30,20 @@ export default { id: 'subshell-subagents', tui: async (api) => {
           seen.add(parent);
           const children = data(await api.client.session.children({sessionID: parent}));
           for (const child of children) {
+            // An id the route would refuse (over 256) must drop this one
+            // entry, not poison the whole snapshot body past the schema.
+            if (typeof child.id !== 'string' || !child.id || child.id.length > 256) continue;
             queue.push(child.id);
             const status = statuses[child.id]?.type;
             if (status !== 'busy' && status !== 'retry') continue;
-            agents.push({ id: child.id, parentId: child.parentID, name: (child.title || 'Subagent').slice(0,160),
+            agents.push({ id: child.id, parentId: typeof child.parentID === 'string' && child.parentID.length <= 256 ? child.parentID : undefined, name: (child.title || 'Subagent').slice(0,160),
               status: api.state.session.permission(child.id).length || api.state.session.question(child.id).length ? 'waiting' : 'running' });
           }
         }
       }
       const response = await fetch(base + '/api/subshells/' + pane + '/subagents/report', {
         method: 'POST', headers: {authorization: 'Bearer ' + token, 'content-type': 'application/json'},
-        body: JSON.stringify({event:'snapshot', agents:agents.slice(0,256), selectedId: selected === root ? null : selected,
+        body: JSON.stringify({event:'snapshot', agents:agents.slice(0,256), selectedId: selected && selected !== root && selected.length <= 256 ? selected : null,
           canSelect: Boolean(root), acknowledged}), signal: AbortSignal.timeout(2000)
       });
       if (!response.ok) return;

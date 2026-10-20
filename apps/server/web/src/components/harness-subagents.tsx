@@ -36,14 +36,21 @@ function selectionState(data: HarnessSubagentSnapshot, pending: boolean) {
     ? "Switching agent views…"
     : data.canSelect
       ? undefined
-      : (data.unavailableReason ?? "This agent does not support switching views.");
+      : // A reason that renders as nothing is no reason: fall through to the
+        // default sentence rather than tooltip an empty explanation.
+        data.unavailableReason || "This agent does not support switching views.";
   return { blocked, reason };
 }
 
-/** "running for 4m35s", from the server's sighting stamp against this clock. */
+/**
+ * "running · 4m 35s": the harness's status word beside the time since the
+ * server first saw this child. Deliberately not "running FOR 4m 35s": the
+ * stamp is first-sighting, and a child can change status without a new
+ * event, so no duration belongs to the status word itself.
+ */
 function spentLine(agent: HarnessSubagentView): string {
   const seconds = Math.floor((Date.now() - agent.startedAt) / 1000);
-  return seconds < 1 ? agent.status : `${agent.status} for ${formatDuration(seconds)}`;
+  return seconds < 1 ? agent.status : `${agent.status} · ${formatDuration(seconds)}`;
 }
 
 /**

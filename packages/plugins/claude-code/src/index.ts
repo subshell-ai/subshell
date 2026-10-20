@@ -158,7 +158,7 @@ const reporterHook = (host: PluginHost, reporter: ReporterSpec, ...verb: string[
  *   and reads stdin like `Stop` now does — the reporter forwards `session_id`
  *   from that payload and nothing else.
  */
-const attentionHooks = (host: PluginHost, reporter: ReporterSpec) => ({
+const paneHooks = (host: PluginHost, reporter: ReporterSpec) => ({
   SubagentStart: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "subagents") }] }],
   SubagentStop: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "subagents") }] }],
   Stop: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "attention", "turn_complete") }] }],
@@ -263,7 +263,7 @@ const createPlugin: HarnessPluginFactory = (host: PluginHost): SubshellPlugin =>
     // settings of its own.
     const settings: Record<string, unknown> = { ...(preset.settings ?? {}) };
     if (reporter) {
-      settings.hooks = attentionHooks(host, reporter);
+      settings.hooks = paneHooks(host, reporter);
     } else {
       host.log.warn("no reporter resolved for this launch: attention and conversation-identity hooks are omitted");
     }

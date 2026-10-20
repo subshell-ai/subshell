@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { unlinkSync } from "node:fs";
+import { existsSync, rmSync, unlinkSync } from "node:fs";
 import { getHarness } from "@internal/pane-runtime";
 import { planRemoteSubshellMcp, registerSubshellMcp, subshellMcpConfigPath } from "@/services/mcp-launch.js";
 
@@ -86,5 +86,45 @@ describe("planRemoteSubshellMcp", () => {
     });
     if (!plan) throw new Error("remote mcp plan missing");
     expect(plan.configPath).toBe("/node/d/mcp/a5000000-0000-4000-8000-000000000005.json");
+  });
+});
+
+describe("registerSubshellMcp companion files", () => {
+  // The plugin is trusted input like any harness dialect: the bounds guard
+  // runs BEFORE any write, so a ninth file, a traversal name, or an oversize
+  // body refuses the registration outright instead of half-writing a `.d`.
+  const filesHarness = (files: Record<string, string>) =>
+    ({
+      mcpRegistration: (_launch: unknown, file: string) => ({ path: file, fileContent: "{}", files }),
+    }) as unknown as Parameters<typeof registerSubshellMcp>[0];
+
+  it("writes a bounded set beside the registration", () => {
+    const id = `launch-test-${crypto.randomUUID()}`;
+    const reg = registerSubshellMcp(filesHarness({ "bridge.mjs": "export default 1;" }), id);
+    expect(reg?.files).toEqual({ "bridge.mjs": "export default 1;" });
+    const companion = Bun.file(`${subshellMcpConfigPath(id)}.d/bridge.mjs`);
+    expect(companion.size).toBeGreaterThan(0);
+    rmSync(`${subshellMcpConfigPath(id)}.d`, { recursive: true, force: true });
+    unlinkSync(subshellMcpConfigPath(id));
+  });
+
+  it("refuses over-count, traversal, bad extension, and oversize content before writing", () => {
+    const id = `launch-test-${crypto.randomUUID()}`;
+    expect(() =>
+      registerSubshellMcp(
+        filesHarness(Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`f${i}.mjs`, "x"]))),
+        id,
+      ),
+    ).toThrow("Too many harness integration files");
+    expect(() => registerSubshellMcp(filesHarness({ "../evil.mjs": "x" }), id)).toThrow(
+      "Invalid harness integration file",
+    );
+    expect(() => registerSubshellMcp(filesHarness({ "big.mjs": "y".repeat(65_537) }), id)).toThrow(
+      "Invalid harness integration file",
+    );
+    expect(existsSync(`${subshellMcpConfigPath(id)}.d/evil.mjs`)).toBe(false);
+    expect(existsSync(`${subshellMcpConfigPath(id)}.d/big.mjs`)).toBe(false);
+    expect(existsSync(subshellMcpConfigPath(id))).toBe(false);
+    rmSync(`${subshellMcpConfigPath(id)}.d`, { recursive: true, force: true });
   });
 });

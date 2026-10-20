@@ -104,16 +104,25 @@ describe("runReport", () => {
     });
     expect(seen).toHaveLength(2);
     expect(await seen[1]?.json()).toEqual({ event: "reset" });
-    // /compact keeps ONE conversation and its live children; startup and
-    // resume announce nothing about children. None of them resets or posts.
-    for (const source of ["compact", "startup", "resume"]) {
+    // An in-pane /resume is a DIFFERENT conversation on the same row, so it
+    // resets too (a stale roster never re-announces itself). /compact keeps
+    // ONE conversation and its live children, and startup announces nothing:
+    // neither posts at all.
+    await runReport(["subagents"], {
+      env: paneEnv,
+      fetch: fetchImpl,
+      readStdin: async () => JSON.stringify({ hook_event_name: "SessionStart", source: "resume" }),
+    });
+    expect(seen).toHaveLength(3);
+    expect(await seen[2]?.json()).toEqual({ event: "reset" });
+    for (const source of ["compact", "startup"]) {
       await runReport(["subagents"], {
         env: paneEnv,
         fetch: fetchImpl,
         readStdin: async () => JSON.stringify({ hook_event_name: "SessionStart", source }),
       });
     }
-    expect(seen).toHaveLength(2);
+    expect(seen).toHaveLength(3);
     // The endpoint is built from the pane's own env id, like every other verb:
     // a report can only ever describe its own subshell.
     expect(seen[0]?.url).toBe("http://h:3080/api/subshells/sub_42/subagents/report");
@@ -125,7 +134,7 @@ describe("runReport", () => {
       fetch: fetchImpl,
       readStdin: async () => JSON.stringify({ hook_event_name: "SubagentStart", agent_id: "x" }),
     });
-    expect(await seen[2]?.json()).toEqual({
+    expect(await seen[3]?.json()).toEqual({
       event: "start",
       agents: [{ id: "x", name: "Subagent", status: "running" }],
     });
@@ -137,7 +146,7 @@ describe("runReport", () => {
       readStdin: async () =>
         JSON.stringify({ hook_event_name: "SubagentStart", agent_id: "x".repeat(257), agent_type: "A" }),
     });
-    expect(seen).toHaveLength(3);
+    expect(seen).toHaveLength(4);
   });
 
   it("posts the attention kind to the subshell's own attention endpoint", async () => {

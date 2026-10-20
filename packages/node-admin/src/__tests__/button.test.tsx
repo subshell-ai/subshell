@@ -75,3 +75,12 @@ it("pairs a node reason with its text, or keeps the caller's description", () =>
   );
   expect(screen.getByRole("button", { name: "Go" }).getAttribute("aria-description")).toBe("Caller's own description");
 });
+
+it("prefers a string reason over a stale text twin", () => {
+  render(
+    <Button disabled disabledReason="The real blocker." disabledReasonText="Stale twin.">
+      Save
+    </Button>,
+  );
+  expect(screen.getByRole("button", { name: "Save" }).getAttribute("aria-description")).toBe("The real blocker.");
+});

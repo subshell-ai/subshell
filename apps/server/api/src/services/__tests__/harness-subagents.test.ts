@@ -129,6 +129,47 @@ test("a flood of distinct agent types is bounded by the oldest key leaving", () 
   expect(state.read("pane", "run", true).agents.find((a) => a.id === "o")?.activity).toBeUndefined();
 });
 
+test("fifteen seconds of silence flips selection off and refuses a queue", () => {
+  const state = new HarnessSubagents();
+  state.report("pane", "run", { event: "snapshot", agents: [child], canSelect: true, selectedId: "child" });
+  // The harness stopped answering; its hooks are dead, so navigation would
+  // queue into nothing. The roster stays visible, the door closes with the
+  // reason that names the silence, and select refuses outright.
+  const realNow = Date.now;
+  Date.now = () => realNow() + 15_001;
+  try {
+    const snapshot = state.read("pane", "run", true);
+    expect(snapshot.canSelect).toBe(false);
+    expect(snapshot.unavailableReason).toContain("isn't responding");
+    expect(state.select("pane", "run", null)).toBe(false);
+  } finally {
+    Date.now = realNow;
+  }
+  // One fresh report revives the pane: silence was the only complaint.
+  state.report("pane", "run", { event: "snapshot", agents: [child], canSelect: true });
+  expect(state.read("pane", "run", true).canSelect).toBe(true);
+});
+
+test("a queued command rides the next report, expires in five seconds, and dies with a reset", () => {
+  const state = new HarnessSubagents();
+  state.report("pane", "run", { event: "snapshot", agents: [child], canSelect: true });
+  expect(state.select("pane", "run", "child")).toBe(true);
+  const realNow = Date.now;
+  Date.now = () => realNow() + 5_001;
+  try {
+    // Queueing is not a promise: five seconds without an acknowledgement and
+    // the report carries nothing, because the viewer's read shows the view
+    // that never moved.
+    expect(state.report("pane", "run", { event: "snapshot", agents: [child] })).toEqual({});
+    // A second, unexpired command still dies with a reset: the conversation
+    // that would have carried it is gone.
+    expect(state.select("pane", "run", "child")).toBe(true);
+  } finally {
+    Date.now = realNow;
+  }
+  expect(state.report("pane", "run", { event: "reset" })).toEqual({});
+});
+
 test("generic names stay distinct through updates and completion", () => {
   const state = new HarnessSubagents();
   const first = { ...child, id: "a", name: "default" };
