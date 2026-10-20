@@ -111,7 +111,9 @@ surfaces that draw them. The feed writes exactly `SUBSHELLS_QUERY_KEY`, plus
 the per-id `["subshell", id]` entry only when it already exists; removals and
 access changes INVALIDATE it instead, and a removal also INVALIDATES the
 `["workspace"]` detail (a close cascades the pane rows; the dock tiles render
-from that read and nothing else wakes it). Pages must follow the CACHE, not the
+from that read and nothing else wakes it), and a rename invalidates the same
+detail read, so an open dock tab re-titles itself instead of holding the old
+name until remount. Pages must follow the CACHE, not the
 feed's own copy; activity derives from `lastOutputAt` against a clock
 (`hooks/use-clock-tick.ts`), and any NEW surface rendering `subshellIndicator`
 needs its own tick.
@@ -129,16 +131,20 @@ re-submitted ON is INERT, and `components/lockdown-banner.tsx` tells everyone
 signed-in, mounted in `__root`.
 **Working on the subshells list, the landing `/`, the launch pickers, or these gates: read apps/server/web/docs/home-launch-guidance.md and apps/server/web/docs/workspace-first.md first.**
 
-**The sidebar has a mini rail and a contextual panel.** The route selects
-Workspaces, Settings, Mobile, or Account. Workspaces combines the selected
+**The sidebar is one panel with its section bar docked at the bottom.** The
+route selects Workspaces, Settings, Subshell for Mobile, or Account, and the
+panel's section links ride a centered icon-button row at its bottom (plus
+"Open in browser" as the bar's last button, desktop shells only). There is no
+icon rail, no logo button, and no panel collapse. Workspaces combines the selected
 workspace's panes with a grouped **Subshells** section;
 members are excluded from that lower list. Clicking another subshell adds it
 as a tab. Dragging between the lists adds or removes membership, with centered
 labels and no success toast. Removing the last pane is refused; subshell
 processes stay running. Row menus provide the same membership actions.
 Subshell dashboard remains in the grouping dropdown’s actions menu and uses this same
-sidebar. The active mini-rail icon collapses/expands the panel; no header or
-collapse arrow takes space above the workspace selector. Settings shows personal pages and all eleven
+sidebar. Each bar button navigates to its section's remembered page, the
+active one too, except a Workspaces click inside `/workspaces/$id`, which
+stays a no-op. Settings shows personal pages and all eleven
 Server Settings pages, with the whole admin group gated by server-derived
 `viewerIsAdmin === true`. Account contains Profile, Preferences, Feedback, About, and Sign out as direct
 sidebar items, with identity, server details, and admin update notices in a plain footer. `/mobile?platform=apple|android|browser` shares its

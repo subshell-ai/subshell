@@ -1,8 +1,18 @@
 # Contextual sidebar
 
-The mini rail selects Workspaces, Settings, Subshell for Mobile, or Account.
-`lib/sidebar-context.ts` derives route context; the Subshell dashboard uses the
-same workspace panel. Each section remembers its last visited destination.
+The wide panel is the whole sidebar. Its section links dock as a horizontal
+button bar at the panel's bottom, inside the panel column, below the scroll
+area and above the desktop `footerEnd` strip (`aria-label="Main sections"`,
+the name the drawer's close logic and the e2e specs select): Workspaces,
+Subshell for Mobile, Settings, Account, each an icon-only link with its
+tooltip above the bar, `aria-current="page"` plus the accent background on
+the active section, and the amber update dot on Account. Inside a desktop
+shell "Open in browser" joins as the bar's last button. There is no icon rail
+and no logo button. `lib/sidebar-context.ts` derives route context; the
+Subshell dashboard uses the same workspace panel. Each section remembers its
+last visited destination and its button navigates there, the active one too;
+the exception is a Workspaces click inside `/workspaces/$id`, which stays a
+no-op. Modifier and middle clicks pass through to the real Link.
 
 `ActiveWorkspaceSection` combines the workspace picker and its member rows
 with other subshells below a **Subshells** divider and no collapse button. The latter retains
@@ -14,7 +24,7 @@ it. With no selected workspace, the bottom section shows all subshells.
 Plain clicks in the lower Subshells section add a tab to the selected workspace and focus
 it; modified clicks retain the real subshell link. The actions menu beside grouping
 keeps Add subshell and Subshell dashboard. The dashboard is an explicit route
-change, not a separate mini-rail section.
+change, not a separate section.
 
 `WorkspaceSidebarDrag` coordinates the two MIME-scoped drop areas. A drag
 exposes a centered Add to workspace or Remove from workspace overlay, without
@@ -36,20 +46,23 @@ shared by its page and dialog. Account presents Profile, Preferences, Feedback, 
 A plain footer shows identity, version, instance name, and admin-only update
 notices without a second account menu.
 
-Collapsing hides the contextual panel while leaving the mini rail available.
-Everywhere the panel is collapsible (the browser SPA and the desktop app; not
-the mobile drawer, which is always expanded), clicking the active mini-rail
-icon toggles its panel; choosing a different section opens that panel. There is no separate collapse/expand button. The choice persists
-in local storage.
+Panel collapse retired with the rail (spec 2026-10-20): no
+`subshell.sidebarCollapsed` pref, no `forceExpanded` prop, no active-icon
+toggle gesture. A collapsed panel has no affordance to expand once the rail
+is gone, so the state retires rather than being re-parented. The server
+desktop app's "Toggle Sidebar" menu item and its CmdOrCtrl+B accelerator are
+deleted end to end, and no other item reclaims that key.
 The desktop Find Subshell action opens the subshell dashboard and focuses its search.
 Native drag strips and connection footer controls remain supplied by the
 existing desktop wrapper.
 
 `MobileNavProvider` owns one drawer at the shell root, so moving between a
-workspace’s header and a dashboard header does not unmount it. A mini-rail
-selection keeps it open for the new section’s pages. Selecting a page or pane
+workspace’s header and a dashboard header does not unmount it. A section-bar
+click keeps it open for the new section’s pages. Selecting a page or pane
 closes it, even when focusing a pane leaves the URL unchanged. Quick-add closes
-the drawer before its root-owned dialog opens.
+the drawer before its root-owned dialog opens. The drawer keeps its width
+(`w-80 max-w-[90vw]`) and gains the 56px the rail used to eat; the panel
+header, the section title and its close control, is unchanged.
 
 ## Earlier sidebar designs
 
