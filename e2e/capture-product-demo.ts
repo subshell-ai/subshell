@@ -34,7 +34,12 @@ try {
   });
   expect((await api.patch("/api/setup/progress", { data: { step: null } })).ok()).toBe(true);
   // Keep personal configuration, history, and MCP connections out of the demo.
-  const codexHome = mkdtempSync(path.join(homedir(), ".cache/subshell-demo-codex-"));
+  // Create ~/.cache first: mkdtempSync fails with ENOENT when its parent is
+  // absent (fresh macOS homes have no ~/.cache), which would only surface
+  // after the whole stack had been booted.
+  const cacheRoot = path.join(homedir(), ".cache");
+  mkdirSync(cacheRoot, { recursive: true });
+  const codexHome = mkdtempSync(path.join(cacheRoot, "subshell-demo-codex-"));
   cleanup.push(() => rmSync(codexHome, { recursive: true, force: true }));
   copyFileSync(path.join(homedir(), ".codex/auth.json"), path.join(codexHome, "auth.json"));
   const agentPreset = await post("/api/presets", {
@@ -258,6 +263,11 @@ export function summarize(tasks) {
     await hold(2);
     expect(page.url()).toContain(`/workspaces/${workspace.id}`);
     if (mobile) await expect(page.getByRole("navigation", { name: "Main sections" })).not.toBeVisible();
+    // Every ffmpeg write lands in the scratch root first and is copied to the
+    // committed path only on success: an encode killed mid-write (Ctrl-C, OOM)
+    // would otherwise leave a corrupt binary sitting exactly where the next
+    // commit would pick it up.
+    const publish = (file: string) => copyFileSync(path.join(root, file), path.join(out, file));
     run("ffmpeg", [
       "-v",
       "error",
@@ -275,8 +285,9 @@ export function summarize(tasks) {
       "-an",
       "-movflags",
       "+faststart",
-      path.join(out, `${name}.mp4`),
+      path.join(root, `${name}.mp4`),
     ]);
+    publish(`${name}.mp4`);
     run("ffmpeg", [
       "-v",
       "error",
@@ -287,21 +298,27 @@ export function summarize(tasks) {
       "libwebp",
       "-lossless",
       "1",
-      path.join(out, `${name}.webp`),
+      path.join(root, `${name}.webp`),
     ]);
+    publish(`${name}.webp`);
     if (subagents) {
       run("ffmpeg", [
         "-v",
         "error",
         "-y",
         "-i",
-        path.join(out, `${name}.webp`),
-        path.resolve(import.meta.dirname, "../apps/docs/public/screenshots/harness-subagents.png"),
+        path.join(root, `${name}.webp`),
+        path.join(root, "harness-subagents.png"),
       ]);
+      copyFileSync(
+        path.join(root, "harness-subagents.png"),
+        path.resolve(import.meta.dirname, "../apps/docs/public/screenshots/harness-subagents.png"),
+      );
     }
     await context.close();
     console.log(`Captured ${name}: ${frame} frames`);
   }
+  // Same scratch-then-copy rule for the gif: only a finished encode reaches docs/.
   run("ffmpeg", [
     "-v",
     "error",
@@ -312,8 +329,12 @@ export function summarize(tasks) {
     "fps=10,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=3",
     "-loop",
     "0",
-    path.resolve(import.meta.dirname, "../docs/assets/subshell-demo.gif"),
+    path.join(root, "subshell-demo.gif"),
   ]);
+  copyFileSync(
+    path.join(root, "subshell-demo.gif"),
+    path.resolve(import.meta.dirname, "../docs/assets/subshell-demo.gif"),
+  );
 } finally {
   for (const stop of cleanup.reverse()) await stop();
 }

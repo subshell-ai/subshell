@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium, expect, type Locator, type Page, request } from "@playwright/test";
@@ -220,6 +220,10 @@ try {
     "node-enrollment",
     "ssh-connection",
   ]) {
+    // Encode into the temp project dir and copy only on success, so an
+    // interrupted ffmpeg never leaves a corrupt webp at the committed path
+    // (the site's install one-liners reference these by name).
+    const scratch = path.join(project, `${name}.webp`);
     const encoded = spawnSync("ffmpeg", [
       "-v",
       "error",
@@ -230,9 +234,10 @@ try {
       "libwebp",
       "-lossless",
       "1",
-      path.resolve(import.meta.dirname, `../apps/website/public/shots/${name}.webp`),
+      scratch,
     ]);
     if (encoded.status !== 0) throw new Error(`Could not encode ${name}: ${encoded.stderr}`);
+    copyFileSync(scratch, path.resolve(import.meta.dirname, `../apps/website/public/shots/${name}.webp`));
   }
   console.log(JSON.stringify(dimensions));
 } finally {
