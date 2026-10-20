@@ -74,10 +74,11 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
                   </SelectItem>
                 ))}
               </SelectGroup>
-              {/* The gap, divider and padding separate the groups when the one
-                  above has rows; with no workspaces there is nothing to separate,
-                  and even the plain margin would read as a stray gap up top. */}
-              <SelectGroup className={cn(rows.length > 0 && "mt-1 border-t pt-1")}>
+              {/* With rows, the divider separates the groups. With none, the row
+                  stands alone and py-1 mirrors the List's p-1 edge padding on
+                  both sides, so it sits with equal space above and below (the
+                  item's own py-1.5 is symmetric; only the container edges differ). */}
+              <SelectGroup className={cn(rows.length > 0 ? "mt-1 border-t pt-1" : "py-1")}>
                 <SelectItem value={NEW_WORKSPACE}>
                   <span className="flex items-center gap-2">
                     <Plus className="size-4" />
