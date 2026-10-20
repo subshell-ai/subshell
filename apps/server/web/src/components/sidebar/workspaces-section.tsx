@@ -256,7 +256,7 @@ export function WorkspaceBranch({
             />
           ))}
           {workspace.subshellCount === 0 && (
-            <p className="ml-6 py-0.5 text-detail text-muted-foreground opacity-70">No tabs yet.</p>
+            <p className="ml-6 py-0.5 text-detail text-muted-foreground opacity-70">No subshells yet</p>
           )}
         </div>
       )}

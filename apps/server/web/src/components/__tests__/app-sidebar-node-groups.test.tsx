@@ -719,6 +719,24 @@ describe("the Workspaces tree (spec 2026-10-17)", () => {
     }
   });
 
+  it("says 'No subshells yet' under an empty branch — rows are not tabs", async () => {
+    // Operator copy fix: "tab" belongs to dockview tabs, not sidebar rows, and
+    // the sibling empty state (`all-subshells-section`) already says it this
+    // way. The word "tabs" here is the regression this pins.
+    const w = ws("w1", "Empty", "2026-10-02T00:00:00.000Z");
+    const spy = quickAddSpy();
+    const restore = stubFetch([], { failNodes: false }, [w]);
+    try {
+      // The active workspace auto-expands, so its empty branch shows its copy.
+      await renderRail("/workspaces/w1");
+      await waitFor(() => expect(screen.getByText("No subshells yet")).toBeTruthy());
+      expect(screen.queryByText(/No tabs/) === null).toBe(true);
+    } finally {
+      spy.mockRestore();
+      restore();
+    }
+  });
+
   it("member rows wear the shared dot and name their directory under the pane", async () => {
     // The tree's pane rows must speak the ONE state language (operator
     // 2026-10-17: a coarser alive/dead dot read as "just purple"), and say
