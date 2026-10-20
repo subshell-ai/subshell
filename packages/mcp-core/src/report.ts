@@ -138,18 +138,44 @@ async function resolveBody(
     const hook = payload.hook_event_name;
     const extra = payload.extra && typeof payload.extra === "object" ? (payload.extra as Record<string, unknown>) : {};
     const hermes = hook === "subagent_start" || hook === "subagent_stop";
-    const id = hermes ? extra.child_session_id : payload.agent_id;
     if (hook === "SessionStart" && payload.source === "clear")
       return { path: "subagents/report", json: { event: "reset" } };
+    // Claude Code's SubagentStart payload carries no task label (measured
+    // against the hooks reference), but the Agent tool's own input does:
+    // PreToolUse for a spawn hands over {subagent_type, description, prompt},
+    // and ONLY the two short harness-written labels are forwarded. The server
+    // pairs the label with the child its SubagentStart announces next.
+    if (hook === "PreToolUse" && (payload.tool_name === "Agent" || payload.tool_name === "Task")) {
+      const toolInput =
+        payload.tool_input && typeof payload.tool_input === "object"
+          ? (payload.tool_input as Record<string, unknown>)
+          : {};
+      const description = toolInput.description;
+      if (typeof description !== "string" || description.trim() === "") return undefined;
+      const agentType = typeof toolInput.subagent_type === "string" ? toolInput.subagent_type.trim() : "";
+      return {
+        path: "subagents/report",
+        json: { event: "describe", agentType: agentType.slice(0, 160), activity: description.trim().slice(0, 160) },
+      };
+    }
+    const id = hermes ? extra.child_session_id : payload.agent_id;
     if (typeof id !== "string" || !id || id.length > 256) return undefined;
     if (hook === "SubagentStop" || hook === "subagent_stop")
       return { path: "subagents/report", json: { event: "stop", agentId: id } };
     if (hook !== "SubagentStart" && hook !== "subagent_start") return undefined;
     const label = hermes ? extra.child_role : payload.agent_type;
     const name = typeof label === "string" && label ? label : "Subagent";
+    // Hermes names the task right here (`child_goal`); Claude Code's label
+    // arrives from the PreToolUse branch above. Hermes's `child_summary` is
+    // the child's OUTPUT, and stays exactly as private as the prompt.
+    const goal = hermes ? extra.child_goal : undefined;
+    const activity = typeof goal === "string" && goal.trim() ? goal.trim().slice(0, 160) : undefined;
     return {
       path: "subagents/report",
-      json: { event: "start", agents: [{ id, name: name.slice(0, 160), status: "running" }] },
+      json: {
+        event: "start",
+        agents: [{ id, name: name.slice(0, 160), status: "running", ...(activity ? { activity } : {}) }],
+      },
     };
   }
 

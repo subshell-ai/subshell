@@ -31,7 +31,12 @@ describe("runReport", () => {
       { hook_event_name: "SubagentStop", agent_id: "child", agent_transcript_path: "private" },
       {
         hook_event_name: "subagent_start",
-        extra: { child_session_id: "hermes-child", child_role: "Review", child_goal: "private" },
+        extra: {
+          child_session_id: "hermes-child",
+          child_role: "Review",
+          child_goal: "Review the migration plan",
+          child_summary: "private",
+        },
       },
       { hook_event_name: "subagent_stop", extra: { child_session_id: "hermes-child", child_summary: "private" } },
     ])
@@ -43,9 +48,39 @@ describe("runReport", () => {
     expect(await Promise.all(seen.map((request) => request.json()))).toEqual([
       { event: "start", agents: [{ id: "child", name: "Explore", status: "running" }] },
       { event: "stop", agentId: "child" },
-      { event: "start", agents: [{ id: "hermes-child", name: "Review", status: "running" }] },
+      // Hermes names its child's task in the start payload, and the goal line
+      // IS the tooltip content; its stop-side summary is output text and
+      // stays as private as the prompt.
+      {
+        event: "start",
+        agents: [{ id: "hermes-child", name: "Review", status: "running", activity: "Review the migration plan" }],
+      },
       { event: "stop", agentId: "hermes-child" },
     ]);
+  });
+
+  it("turns an Agent spawn's PreToolUse input into a describe report, keeping the prompt out", async () => {
+    const { seen, fetchImpl } = recorder();
+    const spawn = (toolInput: Record<string, unknown>, toolName = "Agent") =>
+      runReport(["subagents"], {
+        env: paneEnv,
+        fetch: fetchImpl,
+        readStdin: async () =>
+          JSON.stringify({ hook_event_name: "PreToolUse", tool_name: toolName, tool_input: toolInput }),
+      });
+    await spawn({ subagent_type: "code-reviewer", description: "Review the migration plan", prompt: "private" });
+    expect(await seen[0]?.json()).toEqual({
+      event: "describe",
+      agentType: "code-reviewer",
+      activity: "Review the migration plan",
+    });
+    // No description means nothing to pair; a non-Agent tool is not a spawn.
+    await spawn({ subagent_type: "code-reviewer", description: "  " });
+    await spawn({ command: "ls private-thing" }, "Bash");
+    expect(seen).toHaveLength(1);
+    // A spawn with no declared type still carries its label under the open key.
+    await spawn({ description: "Investigate the flake" });
+    expect(await seen[1]?.json()).toEqual({ event: "describe", agentType: "", activity: "Investigate the flake" });
   });
 
   it("routes the roster report to the pane's own endpoint, and handles the reset, fallback and cap edges", async () => {

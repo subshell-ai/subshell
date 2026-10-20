@@ -85,7 +85,11 @@ describe("harness subagent reporting and selection", () => {
     expect((await request(a.id, "/report", { authorization: `Bearer ${a.key}` }, body)).status).toBe(200);
     const state = await request(a.id, "", cookie);
     expect(state.status).toBe(200);
-    expect(((await state.json()) as { agents: unknown[] }).agents).toEqual(body.agents);
+    const served = ((await state.json()) as { agents: { startedAt: number }[] }).agents;
+    // Every served child carries the server's sighting stamp; the harness's
+    // own words come back unchanged beside it.
+    expect(served.map(({ startedAt: _stamp, ...rest }) => rest)).toEqual(body.agents);
+    expect(typeof served[0]?.startedAt).toBe("number");
     expect((await request(a.id, "/select", cookie, { agentId: "missing" })).status).toBe(409);
     expect((await request(a.id, "/select", cookie, { agentId: "child" })).status).toBe(200);
     const poll = await request(a.id, "/report", { authorization: `Bearer ${a.key}` }, body);
@@ -112,8 +116,10 @@ describe("harness subagent reporting and selection", () => {
     const ownerCookieHdr = { cookie: `better-auth.session_token=${ownerCookie}` };
     const res = await app.fetch(new Request("http://localhost/api/subshells/subagents", { headers: ownerCookieHdr }));
     expect(res.status).toBe(200);
-    const all = (await res.json()) as Record<string, { agents: unknown[] }>;
-    expect(all[a.id]?.agents).toEqual([{ id: "child", name: "Review", status: "running" }]);
+    const all = (await res.json()) as Record<string, { agents: { startedAt: number }[] }>;
+    expect(all[a.id]?.agents.map(({ startedAt: _stamp, ...rest }) => rest)).toEqual([
+      { id: "child", name: "Review", status: "running" },
+    ]);
     const foreignEmail = `subagent-stranger-${crypto.randomUUID()}@subshell.local`;
     const foreignId = await new UsersRepository(db).createUser({
       email: foreignEmail,
@@ -131,6 +137,36 @@ describe("harness subagent reporting and selection", () => {
       void foreignId;
       await deleteUserByEmailOrId(foreignEmail);
     }
+  });
+
+  it("pairs a describe label with the next child of its type and normalizes it", async () => {
+    const a = await subshellWithToken();
+    const own = { authorization: `Bearer ${a.key}` };
+    expect(
+      (
+        await request(a.id, "/report", own, {
+          event: "describe",
+          agentType: "Explorer",
+          activity: "Map the \u001b[31mrepo",
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await request(a.id, "/report", own, {
+          event: "start",
+          agents: [{ id: "c1", name: "Explorer", status: "running" }],
+        })
+      ).status,
+    ).toBe(200);
+    const view = (await (await request(a.id, "", own)).json()) as {
+      agents: { id: string; activity?: string; startedAt: number }[];
+    };
+    const c1 = view.agents.find((agent) => agent.id === "c1");
+    // The pane-reported label takes the same NAME-path treatment as names:
+    // the ESC becomes a space, and readers get one line, not a terminal.
+    expect(c1?.activity).toBe("Map the [31mrepo");
+    expect(typeof c1?.startedAt).toBe("number");
   });
 
   it("refuses oversized and malformed reports at the boundary with production errors", async () => {

@@ -1,4 +1,3 @@
-import type { HarnessSubagentSupport } from "./subagents.js";
 /**
  * The contract a Subshell plugin implements.
  *
@@ -13,6 +12,9 @@ import type { HarnessSubagentSupport } from "./subagents.js";
  * the plugin was built against; a filesystem probe that did that would keep
  * searching last year's install locations forever. Those belong on the host.
  */
+
+import type { HarnessSubagentSupport } from "./subagents.js";
+import { HARNESS_SUBAGENT_DISCOVERIES, HARNESS_SUBAGENT_NAVIGATIONS } from "./subagents.js";
 
 /**
  * What kind of thing a plugin provides.
@@ -257,8 +259,10 @@ export interface McpRegistration {
   args?: string[];
   /**
    * Extra pane env the harness needs to discover the file (e.g. OPENCODE_CONFIG).
-   * Consumed by the HOST, which bakes it into the pane env ahead of preset env;
-   * plugins never read it back.
+   * Consumed by the HOST, which layers it AFTER preset env in the pane's
+   * environment: the wiring wins on purpose, so the harness always finds the
+   * config this launch wrote even when a preset sets the same name. Plugins
+   * never read it back.
    */
   env?: Record<string, string>;
 }
@@ -884,6 +888,27 @@ export function capabilityMismatches(plugin: SubshellPlugin | NetworkPlugin, typ
     }
     if (!declared.has(capability) && present[capability]) {
       problems.push(`implements "${capability}" members but does not declare the capability`);
+    }
+  }
+
+  // The subagent descriptor is data the control plane serves to readers
+  // (preset schema) and branches on (what the sidebar may offer), so its
+  // values are checked at load like every other declaration-by-value: an
+  // out-of-union `discovery` that slipped through would fail response
+  // validation on every read of that harness's schema, for every user.
+  if (isHarnessType(type)) {
+    const support = (plugin as SubshellPlugin).subagents;
+    if (support) {
+      if (!HARNESS_SUBAGENT_DISCOVERIES.includes(support.discovery))
+        problems.push(
+          `subagents.discovery is ${JSON.stringify(support.discovery)}, not one of ${HARNESS_SUBAGENT_DISCOVERIES.join(" or ")}`,
+        );
+      if (!HARNESS_SUBAGENT_NAVIGATIONS.includes(support.navigation))
+        problems.push(
+          `subagents.navigation is ${JSON.stringify(support.navigation)}, not one of ${HARNESS_SUBAGENT_NAVIGATIONS.join(" or ")}`,
+        );
+      if (support.setup !== undefined && (typeof support.setup !== "string" || support.setup.trim() === ""))
+        problems.push("subagents.setup, when present, must be a non-empty sentence");
     }
   }
   return problems;

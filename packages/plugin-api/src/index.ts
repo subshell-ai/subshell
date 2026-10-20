@@ -20,6 +20,7 @@ export {
   type HarnessSubagentSnapshot,
   type HarnessSubagentStatus,
   type HarnessSubagentSupport,
+  type HarnessSubagentView,
 } from "./subagents.js";
 export {
   type BuildCommandInput,

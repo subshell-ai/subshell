@@ -263,7 +263,7 @@ describe("ClaudeCodePlugin attention hooks", () => {
   });
 
   /** Pulls the hooks object out of a built command's --settings JSON. */
-  function hooksOf(cmd: string[]): Record<string, { hooks: { command: string }[] }[] | undefined> {
+  function hooksOf(cmd: string[]): Record<string, { matcher?: string; hooks: { command: string }[] }[] | undefined> {
     const idx = cmd.indexOf("--settings");
     expect(idx).toBeGreaterThan(-1);
     const settings = JSON.parse(cmd[idx + 1]) as {
@@ -450,5 +450,11 @@ describe("ClaudeCodePlugin attention hooks", () => {
     // carries a SECOND reporter hook so the roster re-reports (as a reset)
     // on every transition, not just the first one.
     expect(hooks.SessionStart?.[0].hooks[1].command).toBe(roster);
+    // A subagent spawn's TASK LABEL only exists in the Agent tool's own
+    // PreToolUse input, so a second PreToolUse entry matches Agent and runs
+    // the same roster verb, which forwards description + subagent_type and
+    // never the prompt.
+    expect(hooks.PreToolUse?.[1]?.matcher).toBe("Agent");
+    expect(hooks.PreToolUse?.[1]?.hooks[0].command).toBe(roster);
   });
 });

@@ -44,7 +44,7 @@ See [Security model](/concepts/security#backup-and-restore-protection) for encry
 
 You must be an instance administrator.
 
-1. Open **Settings → Backups** in the server dashboard.
+1. Open **Settings** → **Server Settings** → **Backups** in the server dashboard.
 2. Select **Backup**, optionally enable **Encrypt the archive with a password**, and enter and confirm your password. Invalid or mismatched passwords prevent creation; errors appear when you leave a field.
 3. Select **Create backup**. Wait for the progress pane to finish, then select **Next**.
 4. Review the archive filename, size, and encryption status, then select **Download backup**. Select **Done** to return to configuration.
@@ -55,7 +55,7 @@ The server keeps only a temporary download copy. The link is available once, for
 
 ## Restore in the control plane
 
-1. Open **Settings → Backups** as an instance administrator.
+1. Open **Settings** → **Server Settings** → **Backups** as an instance administrator.
 2. Select **Restore**, then choose **Open a backup file** or **Use a saved backup**. Select **Choose backup file…** or choose a saved archive under **Available backups**. The selection is validated automatically.
 3. If the archive is encrypted, enter its password and select **Validate backup**. The password field appears only when needed. **Configure backup** stays disabled until validation succeeds.
 4. Select **Configure backup**. Choose the restore mode and review destination paths and addresses. Optionally enable **Recover an existing administrator**, choose the account, and enter and confirm a temporary password.
@@ -121,7 +121,7 @@ Use `subshell-server backup --list --json` to list files in the server’s backu
 
 An older restored database receives pending application and authentication migrations when the server starts, before it serves requests. Invalid archives, unsupported newer migrations, and wrong encryption passwords are rejected before replacement. The restore preserves the previous destination state until the restored server completes a successful boot. An interrupted replacement is recovered before configuration is loaded; a failed boot rolls back to the previous state. If you choose not to start, the previous state remains until the next successful boot.
 
-Migration writes the selected destination paths into configuration. It retains network settings and secrets but disables network plugins and clears publication addresses until you review **Settings → Networking**. Operating system services and external network daemons still belong to the destination machine.
+Migration writes the selected destination paths into configuration. It retains network settings and secrets but disables network plugins and clears publication addresses until you review **Settings** → **Server Settings** → **Networking**. Operating system services and external network daemons still belong to the destination machine.
 
 ## Verify recovery
 

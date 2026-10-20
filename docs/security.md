@@ -716,7 +716,12 @@ route checks `principal === sess:<id>` explicitly
 (`subshell-exit.route.ts:49`), plus the token self-extension route. A
 harness can report about itself, never about another subshell; a forged
 session id merely selects an existing transcript the pane's own user could
-already read.
+already read. `subagents/report` forwards rosters and the harness's own
+short labels: each child's name, status, and at most a one-line task label
+(a Hermes child's goal, or the description Claude Code wrote for the Agent
+tool's `PreToolUse` input). Prompts, transcripts, and child output never
+cross this door, and every forwarded word takes the NAME-path treatment
+(`normalizeLabel` before store).
 
 **The filesystem picker is browser-only.** `/api/files/explore` returns 403 to
 machine credentials. A running harness holding its own token must not be able to

@@ -5,7 +5,8 @@ import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 import { HarnessSubagents } from "@/services/harness-subagents.js";
 
-// A separate registry per application context, including isolated test servers.
+// One registry per database context. The WeakMap key is the app's `ctx.db`;
+// per-file test isolation comes from each test file's fresh module registry.
 const registries = new WeakMap<object, HarnessSubagents>();
 function registry(context: object): HarnessSubagents {
   let value = registries.get(context);
@@ -23,7 +24,9 @@ const identifier = t.String({
 });
 /** Elysia's t.Optional/t.Nullable take no trailing options; describe the STRING. */
 const identifierAs = (description: string) => t.String({ minLength: 1, maxLength: 256, description });
-const SubagentSchema = t.Object({
+// The reported fields an agent is built from, shared by the report body and
+// the served view so the two can never drift apart on shape.
+const agentProps = {
   id: identifier,
   parentId: t.Optional(identifierAs("Parent agent within the harness, when it nests")),
   name: t.String({
@@ -34,9 +37,18 @@ const SubagentSchema = t.Object({
   status: t.Union([t.Literal("running"), t.Literal("waiting"), t.Literal("idle")], {
     description: "What the harness says the agent is doing",
   }),
+  activity: t.Optional(
+    t.String({ maxLength: 160, description: "One-line task label in the harness's own words, when it has one" }),
+  ),
+};
+/** What a harness may report about one child. `startedAt` is the server's own stamp, never input. */
+const ReportAgentSchema = t.Object(agentProps);
+const ViewAgentSchema = t.Object({
+  ...agentProps,
+  startedAt: t.Number({ description: "Epoch ms of when the server first saw this child; derive elapsed from it" }),
 });
 const SnapshotSchema = t.Object({
-  agents: t.Array(SubagentSchema, { description: "Reported children, bounded to 256" }),
+  agents: t.Array(ViewAgentSchema, { description: "Reported children with server stamps, bounded to 256" }),
   selectedId: t.Nullable(identifierAs("The child the PARENT's terminal is showing, if any")),
   canSelect: t.Boolean({ description: "Whether this actor may move the parent's view; false with a reason when not" }),
   unavailableReason: t.Optional(t.String({ maxLength: 256, description: "Why selection is unavailable" })),
@@ -47,11 +59,19 @@ const SubagentSelectBodySchema = t.Object({
   }),
 });
 const SubagentReportBodySchema = t.Object({
-  event: t.Union([t.Literal("snapshot"), t.Literal("start"), t.Literal("stop"), t.Literal("reset")], {
-    description: "snapshot replaces the roster; start/stop adjust it; reset (a harness-side restart) discards it",
-  }),
-  agents: t.Optional(t.Array(SubagentSchema, { maxItems: 256, description: "The roster for snapshot/start reports" })),
+  event: t.Union(
+    [t.Literal("snapshot"), t.Literal("start"), t.Literal("stop"), t.Literal("reset"), t.Literal("describe")],
+    {
+      description:
+        "snapshot replaces the roster; start/stop adjust it; describe parks a task label for the next child of that type; reset (a harness-side restart) discards it",
+    },
+  ),
+  agents: t.Optional(
+    t.Array(ReportAgentSchema, { maxItems: 256, description: "The roster for snapshot/start reports" }),
+  ),
   agentId: t.Optional(identifierAs("The agent a start/stop report names")),
+  agentType: t.Optional(t.String({ maxLength: 160, description: "Which kind of agent a describe label belongs to" })),
+  activity: t.Optional(t.String({ maxLength: 160, description: "One-line task label from a describe report" })),
   selectedId: t.Optional(
     t.Union([identifier, t.Null()], { description: "The parent's current view, per the harness" }),
   ),
@@ -73,14 +93,14 @@ const ReportResponseSchema = t.Object({
 });
 
 /**
- * `/api/subshells/:id/subagents*` — the harness subagents surface. Reads are
+ * `/api/subshells/:id/subagents*`: the harness subagents surface. Reads are
  * ordinary visibility-filtered reads (viewer sees what the parent's children
  * are); `select` changes the parent's SHARED view, so it stays open to anyone
  * who may watch the pane, while typing still requires edit. `report` is the
  * fourth harness self-report surface (with attention, harness-session, and
  * exit): the route accepts ONLY the subshell's own key, checked before any row
  * is read, and a harness reports about itself, never another subshell. State
- * is in-memory and transient — after a plane or pane restart the harness
+ * is in-memory and transient: after a plane or pane restart the harness
  * re-reports from scratch.
  */
 export const subshellSubagentsRoute = new Elysia()
@@ -187,11 +207,20 @@ export const subshellSubagentsRoute = new Elysia()
       return registry(ctx.db).report(row.id, row.startedAt ?? "", {
         ...body,
         ...(body.agents
-          ? { agents: body.agents.map((agent) => ({ ...agent, name: normalizeLabel(agent.name, 160) })) }
+          ? {
+              agents: body.agents.map((agent) => ({
+                ...agent,
+                name: normalizeLabel(agent.name, 160),
+                ...(agent.activity !== undefined ? { activity: normalizeLabel(agent.activity, 160) } : {}),
+              })),
+            }
           : {}),
         ...(body.unavailableReason !== undefined
           ? { unavailableReason: normalizeLabel(body.unavailableReason, 256) }
           : {}),
+        // The describe pair is pane-reported text like the names beside it.
+        ...(body.agentType !== undefined ? { agentType: normalizeLabel(body.agentType, 160) } : {}),
+        ...(body.activity !== undefined ? { activity: normalizeLabel(body.activity, 160) } : {}),
       });
     },
     {

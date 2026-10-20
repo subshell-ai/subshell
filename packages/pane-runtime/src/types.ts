@@ -20,6 +20,7 @@ export {
   type HarnessResume,
   type HarnessSubagent,
   type HarnessSubagentSnapshot,
+  type HarnessSubagentView,
   MCP_SERVER_NAME,
   type McpLaunchSpec,
   type McpRegistration,

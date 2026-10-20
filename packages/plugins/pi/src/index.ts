@@ -81,6 +81,14 @@ const SUGGESTED_FLAGS: { flag: string; description: string }[] = [
  */
 const createPlugin: HarnessPluginFactory = (_host: PluginHost): SubshellPlugin => ({
   subagents: { discovery: "extension", navigation: "unavailable" },
+  /**
+   * Named for the host's MCP wiring slot, but pi gets no MCP config from it:
+   * subshell MCP stays a manual install (see `mcpSetup`). What this really
+   * ships is the subagent bridge: the `{}` is the placeholder config file
+   * whose sibling `.d` directory carries `subagents.mjs`, and the args splice
+   * `--extension` onto the launch so pi loads it. No secrets; the file exists
+   * to give the companion a home path.
+   */
   mcpRegistration(_launch, configPath) {
     return {
       fileContent: "{}",

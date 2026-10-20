@@ -3,11 +3,16 @@ import { HarnessSubagents } from "../harness-subagents.js";
 
 const child = { id: "child", name: "Review", status: "running" as const };
 
+/** Drops the server's own stamp so lifecycle assertions can read against plain payloads. */
+function bare(agents: { startedAt: number }[]) {
+  return agents.map(({ startedAt: _stamp, ...rest }) => rest);
+}
+
 describe("harness subagents", () => {
   test("lifecycle removes completed children and restart discards old state", () => {
     const state = new HarnessSubagents();
     state.report("pane", "first", { event: "start", agents: [child] });
-    expect(state.read("pane", "first", true).agents).toEqual([child]);
+    expect(bare(state.read("pane", "first", true).agents)).toEqual([child]);
     state.report("pane", "first", { event: "stop", agentId: "child" });
     expect(state.read("pane", "first", true).agents).toEqual([]);
     state.report("pane", "first", { event: "start", agents: [child] });
@@ -32,12 +37,79 @@ describe("harness subagents", () => {
     expect(state.read("pane", "run", true).selectedId).toBe("child");
     expect(state.select("pane", "run", null)).toBe(true);
   });
+  test("a pane that can select and answers carries no unavailableReason", () => {
+    // The field description promises a reason exactly when selection is off.
+    // The old shape attached the "doesn't support switching" default to
+    // WORKING panes too, contradicting its own `canSelect: true`.
+    const state = new HarnessSubagents();
+    state.report("pane", "run", { event: "snapshot", agents: [child], canSelect: true });
+    const snapshot = state.read("pane", "run", true);
+    expect(snapshot.canSelect).toBe(true);
+    expect(snapshot.unavailableReason).toBeUndefined();
+    // A harness that says it cannot keeps its own reason, and an unsaid one
+    // gets the default.
+    state.report("pane", "run", { event: "snapshot", agents: [child], canSelect: false });
+    expect(state.read("pane", "run", true).unavailableReason).toContain("doesn't support");
+  });
   test("discovery never grants navigation and dead parents lose children", () => {
     const state = new HarnessSubagents();
     state.report("pane", "run", { event: "start", agents: [child] });
     expect(state.select("pane", "run", "child")).toBe(false);
     expect(state.read("pane", "run", false).agents).toEqual([]);
   });
+});
+
+test("describe labels pair with the next child of their type", () => {
+  const state = new HarnessSubagents();
+  // Claude Code fires PreToolUse BEFORE SubagentStart, so the label arrives
+  // first; FIFO per type pairs the fan-out case (four reviewers, four labels)
+  // in spawn order.
+  state.report("pane", "run", { event: "describe", agentType: "code-reviewer", activity: "Reading the diff" });
+  state.report("pane", "run", { event: "describe", agentType: "code-reviewer", activity: "Checking the tests" });
+  state.report("pane", "run", { event: "describe", agentType: "scout", activity: "Mapping the repo" });
+  state.report("pane", "run", { event: "start", agents: [{ id: "a", name: "code-reviewer", status: "running" }] });
+  state.report("pane", "run", { event: "start", agents: [{ id: "b", name: "code-reviewer", status: "running" }] });
+  const agents = state.read("pane", "run", true).agents;
+  expect(agents.map((agent) => agent.activity)).toEqual(["Reading the diff", "Checking the tests"]);
+  // An inline label (hermes's goal) wins over anything parked for the type,
+  // and a scout starting next takes the one queued for scouts.
+  state.report("pane", "run", {
+    event: "start",
+    agents: [{ id: "c", name: "code-reviewer", status: "running", activity: "Verifying findings" }],
+  });
+  state.report("pane", "run", { event: "start", agents: [{ id: "d", name: "scout", status: "running" }] });
+  expect(
+    state
+      .read("pane", "run", true)
+      .agents.filter((agent) => agent.id === "c" || agent.id === "d")
+      .map((agent) => agent.activity),
+  ).toEqual(["Verifying findings", "Mapping the repo"]);
+});
+
+test("unclaimed labels are capped, and a type's labels never cross to another type", () => {
+  const state = new HarnessSubagents();
+  for (let i = 0; i < 10; i++)
+    state.report("pane", "run", { event: "describe", agentType: "worker", activity: `Label ${i}` });
+  state.report("pane", "run", { event: "describe", agentType: "other", activity: "Elsewhere" });
+  state.report("pane", "run", { event: "start", agents: [{ id: "w", name: "worker", status: "running" }] });
+  const started = state.read("pane", "run", true).agents.find((agent) => agent.id === "w");
+  // Ten pushes at a cap of eight drop the two oldest; Label 2 is next up.
+  expect(started?.activity).toBe("Label 2");
+  // A start whose name no queue matches leaves the child unlabeled rather
+  // than stealing some other type's label.
+  state.report("pane", "run", { event: "start", agents: [{ id: "x", name: "unmatched", status: "running" }] });
+  expect(state.read("pane", "run", true).agents.find((agent) => agent.id === "x")?.activity).toBeUndefined();
+});
+
+test("a periodic snapshot keeps first-sighting stamps and issued labels", () => {
+  const state = new HarnessSubagents();
+  state.report("pane", "run", { event: "start", agents: [child] });
+  const first = state.read("pane", "run", true).agents[0];
+  state.report("pane", "run", { event: "snapshot", agents: [child] });
+  const again = state.read("pane", "run", true).agents[0];
+  // Elapsed time must survive the bridge's periodic re-list, and so must a
+  // label the harness does not repeat in later passes.
+  expect(again.startedAt).toBe(first?.startedAt);
 });
 
 test("generic names stay distinct through updates and completion", () => {

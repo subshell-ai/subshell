@@ -1,9 +1,10 @@
 import { Button, cn } from "@internal/node-admin";
-import type { HarnessSubagent } from "@subshell-ai/plugin-api";
+import type { HarnessSubagent, HarnessSubagentSnapshot, HarnessSubagentView } from "@subshell-ai/plugin-api";
 import { useNavigate } from "@tanstack/react-router";
 import { GitBranch, Undo2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useHarnessSubagents, useSelectHarnessAgent } from "@/hooks/use-harness-subagents";
+import { formatDuration } from "@/lib/format-units";
 import { armPaneFocusOnArrive, requestWorkspacePaneFocus } from "@/lib/workspace-focus";
 
 /**
@@ -21,6 +22,57 @@ function AgentStatusDot({ agent, className }: { agent: HarnessSubagent; classNam
         agent.status === "waiting" ? "bg-warning" : agent.status === "idle" ? "bg-muted-foreground" : "bg-success",
       )}
     />
+  );
+}
+
+/**
+ * Whether the switch control is currently inert and how to say why. Both
+ * surfaces ask the same question of the same snapshot, so the answer is one
+ * function, not two ternaries that drift apart.
+ */
+function selectionState(data: HarnessSubagentSnapshot, pending: boolean) {
+  const blocked = !data.canSelect || pending;
+  const reason = pending
+    ? "Switching agent views…"
+    : data.canSelect
+      ? undefined
+      : (data.unavailableReason ?? "This agent does not support switching views.");
+  return { blocked, reason };
+}
+
+/** "running for 4m35s", from the server's sighting stamp against this clock. */
+function spentLine(agent: HarnessSubagentView): string {
+  const seconds = Math.floor((Date.now() - agent.startedAt) / 1000);
+  return seconds < 1 ? agent.status : `${agent.status} for ${formatDuration(seconds)}`;
+}
+
+/**
+ * One child's hover card: what it was asked to do (when the harness said),
+ * what it's doing now, and for how long. The poll refreshes it, so elapsed
+ * time ages in place rather than freezing at the last read.
+ */
+function AgentTooltipLines({ agent, lead, hint }: { agent: HarnessSubagentView; lead?: string; hint?: string }) {
+  return (
+    <div className="flex flex-col gap-1">
+      {lead && <p>{lead}</p>}
+      {agent.activity && <p>{agent.activity}</p>}
+      <p className="text-muted-foreground">{spentLine(agent)}</p>
+      {hint && <p className="text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+/** The card as one sentence, for the `aria-description` of a disabled control. */
+function agentTooltipText(agent: HarnessSubagentView, lead?: string): string {
+  return [lead, agent.activity, spentLine(agent)].filter(Boolean).join(". ");
+}
+
+/** The shared failure line under both switch surfaces. */
+function SwitchAgentError() {
+  return (
+    <span role="alert" className="text-destructive text-detail">
+      Couldn't switch agent views. Try again.
+    </span>
   );
 }
 
@@ -45,12 +97,7 @@ export function HarnessSubagentRows({
   const { data } = useHarnessSubagents(id, alive);
   const select = useSelectHarnessAgent(id);
   if (!data?.agents.length) return null;
-  const blocked = !data.canSelect || select.isPending;
-  const reason = select.isPending
-    ? "Switching agent views…"
-    : data.canSelect
-      ? undefined
-      : (data.unavailableReason ?? "This agent does not support switching views.");
+  const { blocked, reason } = selectionState(data, select.isPending);
   return (
     <div className="relative -mt-1 ml-4 flex min-w-0 flex-col pt-1 before:absolute before:top-0 before:left-0 before:h-1 before:border-border before:border-l">
       {data.agents.map((agent, index) => (
@@ -72,7 +119,8 @@ export function HarnessSubagentRows({
                 data.selectedId === agent.id && "bg-accent",
               )}
               disabled
-              disabledReason={reason}
+              disabledReason={<AgentTooltipLines agent={agent} lead={reason} />}
+              disabledReasonText={agentTooltipText(agent, reason)}
             >
               <AgentStatusDot agent={agent} className="size-1.5" />
               <span className="truncate">{agent.name}</span>
@@ -106,17 +154,18 @@ export function HarnessSubagentRows({
                   <AgentStatusDot agent={agent} className="size-1.5" />
                   <span className="truncate">{agent.name}</span>
                 </TooltipTrigger>
-                <TooltipContent>Show in the parent terminal. Everyone attached sees this view.</TooltipContent>
+                <TooltipContent>
+                  <AgentTooltipLines
+                    agent={agent}
+                    hint="Show in the parent terminal. Everyone attached sees this view."
+                  />
+                </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           )}
         </div>
       ))}
-      {select.isError && (
-        <p role="alert" className="text-destructive text-detail">
-          Couldn't switch agent views. Try again.
-        </p>
-      )}
+      {select.isError && <SwitchAgentError />}
     </div>
   );
 }
@@ -131,12 +180,7 @@ export function HarnessSubagentTitle({ id, parentName }: { id: string; parentNam
   const select = useSelectHarnessAgent(id);
   if (!data?.selectedId) return null;
   const agent = data.agents.find((row) => row.id === data.selectedId);
-  const blocked = !data.canSelect || select.isPending;
-  const reason = select.isPending
-    ? "Switching agent views…"
-    : data.canSelect
-      ? undefined
-      : (data.unavailableReason ?? "This agent does not support switching views.");
+  const { blocked, reason } = selectionState(data, select.isPending);
   return (
     <span className="flex min-w-0 items-center gap-2">
       <span role="img" aria-label={`Subagent of ${parentName}`} className="flex shrink-0">
@@ -167,11 +211,7 @@ export function HarnessSubagentTitle({ id, parentName }: { id: string; parentNam
           </Tooltip>
         </TooltipProvider>
       )}
-      {select.isError && (
-        <span role="alert" className="text-destructive text-detail">
-          Couldn't switch agent views. Try again.
-        </span>
-      )}
+      {select.isError && <SwitchAgentError />}
     </span>
   );
 }

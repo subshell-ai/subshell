@@ -3,7 +3,7 @@ import type { HarnessSubagent, HarnessSubagentSnapshot } from "@internal/pane-ru
 /**
  * One parent pane's reported subagents, plus the bookkeeping the harness never
  * sees. Lives only in this process: a control-plane restart (or a pane
- * restart) starts from nothing, and the harness re-reports — the harness
+ * restart) starts from nothing, and the harness re-reports: the harness
  * remains the authority on its children.
  */
 interface State extends HarnessSubagentSnapshot {
@@ -15,11 +15,33 @@ interface State extends HarnessSubagentSnapshot {
   labels: Map<string, number>;
   /** Last report received; a stale silence flips `canSelect` off (the harness stopped answering) */
   lastSeen: number;
+  /**
+   * Task labels that arrived from `PreToolUse` before the child they describe
+   * announced itself. Queued per agent type (lowercased; the empty key for
+   * unlabeled spawns), FIFO to eight per key. A label whose child never
+   * starts is dropped with the next generation, exactly like the roster.
+   */
+  describeQueue: Map<string, string[]>;
   /** The one pending view-switch command, consumed when the harness acknowledges it or the 5 s lapses */
   command?: { id: string; agentId: string | null; expiresAt: number };
 }
 
 const empty = (): HarnessSubagentSnapshot => ({ agents: [], selectedId: null, canSelect: false });
+
+/** The queue a name or type routes to: lowercased, and generic words share the empty key. */
+function typeKey(word: string | undefined): string {
+  const key = (word ?? "").trim().toLowerCase();
+  return /^(default|subagent)?$/.test(key) ? "" : key;
+}
+
+/** Takes the oldest parked label for this child's type, if one is waiting. */
+function popActivity(state: State, name: string): string | undefined {
+  const key = typeKey(name);
+  const queue = state.describeQueue.get(key);
+  const next = queue?.shift();
+  if (queue && queue.length === 0) state.describeQueue.delete(key);
+  return next;
+}
 
 /**
  * The in-memory view of every live pane's reported subagents, keyed by parent
@@ -35,7 +57,7 @@ export class HarnessSubagents {
    * The snapshot one parent's viewers receive. Generic names ("", "default",
    * "Subagent") come back as "Subagent N" with the N this parent's labels
    * assigned, and `canSelect` answers false with a reason once the harness has
-   * been silent for 15 s — its hooks stopped answering, so navigation would
+   * been silent for 15 s. Its hooks stopped answering, so navigation would
    * queue into nothing.
    */
   read(id: string, generation: string, alive: boolean): HarnessSubagentSnapshot {
@@ -54,27 +76,39 @@ export class HarnessSubagents {
       ),
       selectedId: state.selectedId,
       canSelect: state.canSelect && connected,
+      // A reason belongs only with a "no". A working pane (canSelect true and
+      // answering) must not carry one, let alone the default "doesn't
+      // support" string — the field description promises a reason exactly
+      // when selection is off.
       unavailableReason:
-        state.canSelect && !connected
-          ? "The harness integration isn't responding. Use its own agent selector."
-          : (state.unavailableReason ?? "This harness doesn't support switching subagent views from the sidebar."),
+        state.canSelect && connected
+          ? undefined
+          : state.canSelect
+            ? "The harness integration isn't responding. Use its own agent selector."
+            : (state.unavailableReason ?? "This harness doesn't support switching subagent views from the sidebar."),
     };
   }
 
   /**
    * Applies one lifecycle report from the parent's own hooks: `snapshot`
-   * replaces the roster, `start`/`stop` adjust it, `reset` throws the state
-   * away (a harness-side restart). Carries the parent's one pending view
-   * command back so the harness can acknowledge it, and renumbers nothing:
-   * labels are issued once per agent id and only expire with the agent.
+   * replaces the roster, `start`/`stop` adjust it, `describe` parks a task
+   * label until the child it describes announces itself, and `reset` throws
+   * the state away (a harness-side restart). Carries the parent's one pending
+   * view command back so the harness can acknowledge it, and renumbers
+   * nothing: labels are issued once per agent id and only expire with the
+   * agent.
    */
   report(
     id: string,
     generation: string,
     input: {
-      event: "snapshot" | "start" | "stop" | "reset";
+      event: "snapshot" | "start" | "stop" | "reset" | "describe";
       agents?: HarnessSubagent[];
       agentId?: string;
+      /** Agent type a `describe` label belongs to; the empty key takes unlabeled ones */
+      agentType?: string;
+      /** One-line task label, normalized by the caller before this runs */
+      activity?: string;
       selectedId?: string | null;
       canSelect?: boolean;
       unavailableReason?: string;
@@ -85,15 +119,52 @@ export class HarnessSubagents {
     if (this.states.size >= 4096 && !this.states.has(id)) this.states.delete(this.states.keys().next().value ?? "");
     let state = this.states.get(id);
     if (!state || state.generation !== generation || input.event === "reset") {
-      state = { ...empty(), generation, lastSeen: Date.now(), nextLabel: 1, labels: new Map() };
+      state = {
+        ...empty(),
+        generation,
+        lastSeen: Date.now(),
+        nextLabel: 1,
+        labels: new Map(),
+        describeQueue: new Map(),
+      };
       this.states.set(id, state);
     }
     state.lastSeen = Date.now();
-    if (input.event === "snapshot")
-      state.agents = [...new Map((input.agents ?? []).map((agent) => [agent.id, agent])).values()].slice(0, 256);
+    if (input.event === "describe") {
+      if (input.activity) {
+        const key = typeKey(input.agentType);
+        const queue = state.describeQueue.get(key) ?? [];
+        queue.push(input.activity);
+        // Eight live labels per type is more than a turn can pair; an old
+        // unclaimed label is worse than no tooltip.
+        if (queue.length > 8) queue.shift();
+        state.describeQueue.set(key, queue);
+      }
+    }
+    if (input.event === "snapshot") {
+      const now = Date.now();
+      const previous = new Map(state.agents.map((agent) => [agent.id, agent]));
+      state.agents = [...new Map((input.agents ?? []).map((agent) => [agent.id, agent])).values()]
+        .slice(0, 256)
+        .map((agent) => {
+          // A periodic snapshot re-lists the same children; their first
+          // sighting and any label they were given stay, so elapsed time does
+          // not reset every pass and a label never vanishes on a re-list.
+          const was = previous.get(agent.id);
+          return {
+            ...agent,
+            startedAt: was?.startedAt ?? now,
+            activity: agent.activity ?? was?.activity ?? popActivity(state, agent.name),
+          };
+        });
+    }
     if (input.event === "start") {
+      const now = Date.now();
       for (const agent of input.agents ?? []) {
-        state.agents = [...state.agents.filter((a) => a.id !== agent.id), agent].slice(-256);
+        state.agents = [
+          ...state.agents.filter((a) => a.id !== agent.id),
+          { ...agent, startedAt: now, activity: agent.activity ?? popActivity(state, agent.name) },
+        ].slice(-256);
       }
     }
     if (input.event === "stop") state.agents = state.agents.filter((a) => a.id !== input.agentId);
@@ -117,9 +188,9 @@ export class HarnessSubagents {
 
   /**
    * Queues a view switch for the harness to pick up on its next report
-   * (null returns to the main agent). Returns false — and the caller answers
-   * 409 — unless the harness says it can select, has been heard from within
-   * 15 s, and the target is a child it actually reported. Queueing is not a
+   * (null returns to the main agent). Returns false, and the caller then
+   * answers 409, unless the harness says it can select, has been heard from
+   * within 15 s, and the target is a child it actually reported. Queueing is not a
    * promise: if the harness never acknowledges within 5 s the command
    * expires, and the viewer's next read shows the unchanged view.
    */

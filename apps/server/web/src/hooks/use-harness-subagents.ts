@@ -1,6 +1,6 @@
 import { apiFetch } from "@internal/node-admin";
 import type { HarnessSubagentSnapshot } from "@subshell-ai/plugin-api";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
 /** App-wide batch snapshot: every visible subshell's reported children in one record. */
@@ -13,20 +13,32 @@ const HARNESS_SUBAGENTS_POLL_MS = 2000;
  * TanStack's `refetchInterval` is an observer-level option, so putting it on
  * this query would give every mounted row its own timer against the same
  * endpoint: a sidebar with N live panes issued roughly 2N batch requests every
- * 2 s, each of which lists every visible subshell server-side. Watchers
- * register an invalidator when they mount active and drop it on unmount; the
- * timer exists only while at least one observer wants updates.
+ * 2 s, each of which lists every visible subshell server-side.
+ *
+ * The registry is a REFCOUNT PER QUERY CLIENT, not a set of per-observer
+ * invalidators: a tick calls `invalidateQueries` once per client (measured —
+ * N invalidator calls per tick re-fan into N fetches, because invalidation is
+ * not deduped across calls). Observers of the same client share one entry,
+ * and the timer exists only while at least one wants updates.
  */
-const watchers = new Set<() => void>();
+const watchers = new Map<QueryClient, number>();
 let ticker: ReturnType<typeof setInterval> | null = null;
 
-function watchHarnessSubagents(invalidate: () => void): () => void {
-  watchers.add(invalidate);
+function watchHarnessSubagents(client: QueryClient): () => void {
+  watchers.set(client, (watchers.get(client) ?? 0) + 1);
   ticker ??= setInterval(() => {
-    for (const watch of [...watchers]) watch();
+    // A hidden tab gets nothing to look at, and a raw setInterval keeps
+    // ticking where `refetchInterval` would have paused: the batch read lists
+    // every visible subshell server-side, so a dashboard left backgrounded
+    // over lunch would hammer it. The first tick after the tab is visible
+    // again refetches, so a stale roster costs seconds, never correctness.
+    if (document.visibilityState === "hidden") return;
+    for (const watching of watchers.keys()) watching.invalidateQueries({ queryKey: HARNESS_SUBAGENTS_KEY });
   }, HARNESS_SUBAGENTS_POLL_MS);
   return () => {
-    watchers.delete(invalidate);
+    const left = (watchers.get(client) ?? 1) - 1;
+    if (left <= 0) watchers.delete(client);
+    else watchers.set(client, left);
     if (watchers.size === 0 && ticker) {
       clearInterval(ticker);
       ticker = null;
@@ -46,9 +58,7 @@ export function useHarnessSubagents(id: string, enabled = true) {
   const active = enabled && Boolean(id);
   useEffect(() => {
     if (!active) return;
-    return watchHarnessSubagents(() => {
-      void client.invalidateQueries({ queryKey: HARNESS_SUBAGENTS_KEY });
-    });
+    return watchHarnessSubagents(client);
   }, [active, client]);
   return useQuery({
     queryKey: HARNESS_SUBAGENTS_KEY,

@@ -179,8 +179,10 @@ import { SSH_CONFIG_FILE_MAX_BYTES, SSH_PATH_MAX_CHARS, SSH_RELAY_FRAME_MAX_BYTE
  *
  * **20 -> 21:** ssh_key_bridge carries bounded public SSH-agent messages to
  * a one-use desktop signer. Older nodes cannot provide this authentication path.
+ *
+ * **21 -> 22:** a launch may carry bounded companion integration files beside
+ * its MCP config, which only nodes that materialize them can run.
  */
-// Protocol 22 carries bounded companion integration files with the launch.
 export const NODE_PROTOCOL_VERSION = 22;
 
 /**

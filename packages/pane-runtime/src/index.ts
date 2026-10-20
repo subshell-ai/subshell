@@ -245,6 +245,7 @@ export type {
   HarnessResume,
   HarnessSubagent,
   HarnessSubagentSnapshot,
+  HarnessSubagentView,
   InstallHint,
   McpLaunchSpec,
   McpRegistration,

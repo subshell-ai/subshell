@@ -14,6 +14,24 @@ export interface HarnessSubagent {
   name: string;
   /** What the harness says this agent is doing */
   status: HarnessSubagentStatus;
+  /**
+   * The harness's own one-line label for what this child was asked to do,
+   * when the harness has one to give. The host bounds it and normalizes it
+   * like a name; it is the harness's summary of the task, never the prompt
+   * text or anything read from the child's transcript.
+   */
+  activity?: string;
+}
+
+/**
+ * A reported child as the control plane SERVES it: what the harness said, plus
+ * the server's own observation of when the child appeared. Viewers derive
+ * elapsed time from that stamp against their own clock, so a roster that
+ * stopped being polled ages honestly instead of freezing at its last read.
+ */
+export interface HarnessSubagentView extends HarnessSubagent {
+  /** Epoch milliseconds of when the server first saw this child; never sent by a harness */
+  startedAt: number;
 }
 
 /** How the plugin learns about children: harness lifecycle hooks, or a loaded extension. */
@@ -28,8 +46,8 @@ export const HARNESS_SUBAGENT_NAVIGATIONS: readonly HarnessSubagentNavigation[] 
 
 /** The control-plane view of one parent's children at a moment; transient, never stored. */
 export interface HarnessSubagentSnapshot {
-  /** The reported children, bounded by the host (256 per parent) */
-  agents: HarnessSubagent[];
+  /** The reported children with server stamps, bounded by the host (256 per parent) */
+  agents: HarnessSubagentView[];
   /** Which child the PARENT's terminal is showing; null for the main agent */
   selectedId: string | null;
   /** Whether this actor may move the parent's view (capability AND permission) */

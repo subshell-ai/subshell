@@ -1,7 +1,7 @@
 import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { Tooltip } from "@base-ui/react/tooltip";
 import { cva, type VariantProps } from "class-variance-authority";
-import { useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { cn } from "../lib/utils";
 
 const buttonVariants = cva(
@@ -44,8 +44,14 @@ const buttonVariants = cva(
  * plus the cva variant selectors.
  */
 export interface ButtonProps extends ButtonPrimitive.Props, VariantProps<typeof buttonVariants> {
-  /** Explain the current blocker, including what the user can do about it. */
-  disabledReason?: string;
+  /**
+   * Explain the current blocker, including what the user can do about it.
+   * A node renders a richer card; pair it with `disabledReasonText` so the
+   * accessible description still carries the same sentence.
+   */
+  disabledReason?: ReactNode;
+  /** Plain-text form of a node `disabledReason`, for `aria-description`. */
+  disabledReasonText?: string;
 }
 
 /**
@@ -62,7 +68,11 @@ export function Button({ className, variant, size, ...props }: ButtonProps) {
  * While disabled, suppress activation capture handlers too: they may perform
  * the action themselves. The explanation replaces any native title tooltip.
  */
-export function ExplainedButton({ disabledReason, ...props }: ButtonPrimitive.Props & { disabledReason?: string }) {
+export function ExplainedButton({
+  disabledReason,
+  disabledReasonText,
+  ...props
+}: ButtonPrimitive.Props & { disabledReason?: ReactNode; disabledReasonText?: string }) {
   const reasonId = useId();
   const hasExplanation = useRef(false);
   if (disabledReason !== undefined) hasExplanation.current = true;
@@ -78,7 +88,13 @@ export function ExplainedButton({ disabledReason, ...props }: ButtonPrimitive.Pr
       aria-describedby={
         [props["aria-describedby"], explained && open ? reasonId : undefined].filter(Boolean).join(" ") || undefined
       }
-      aria-description={explained ? disabledReason : props["aria-description"]}
+      aria-description={
+        explained
+          ? typeof disabledReason === "string"
+            ? disabledReason
+            : disabledReasonText
+          : props["aria-description"]
+      }
       onClickCapture={(event) => {
         if (explained) {
           event.preventDefault();

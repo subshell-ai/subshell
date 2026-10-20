@@ -7,7 +7,7 @@ Subagents appear beneath the subshell that runs their parent agent. They aren't 
 
 Open **Workspaces** or **Subshells** in the mini rail. When a subshell has active subagents, an arrow appears beneath its status dot. Select the arrow to collapse or expand the connected child rows without changing the focused subshell. Selecting the already active parent row also toggles its children.
 
-Each child shows its name and status. Generic names such as `default` appear as **Subagent 1**, **Subagent 2**, and so on. These numbers stay stable while the children are active; meaningful names supplied by the harness stay unchanged. This works for subshells running on the server host and on enrolled nodes.
+Each child shows its name and status. Hover or focus a child for a card with its status, how long it has been running, and, when the harness supplies one, the one-line task label it was given: Claude Code passes the description from the Agent tool's input, and Hermes passes the child's stated goal. Generic names such as `default` appear as **Subagent 1**, **Subagent 2**, and so on. These numbers stay stable while the children are active; meaningful names supplied by the harness stay unchanged. This works for subshells running on the server host and on enrolled nodes.
 
 <figure className="docs-screenshot">
   <ImageZoom src="/screenshots/harness-subagents.png" alt="Codex running a task with two numbered subagents connected beneath Build feature in the workspace sidebar, with an arrow beneath the parent's status dot." width="1800" height="1120" loading="lazy" decoding="async" unoptimized />
@@ -45,8 +45,15 @@ An extension can publish its complete current set through pi's event bus:
 
 ```ts
 pi.events.emit("subshell:subagents", {
-  agents: [{ id: "review-1", name: "Review changes", status: "running" }],
+  agents: [
+    {
+      id: "review-1",
+      name: "Review changes",
+      status: "running",
+      activity: "Checking the migration plan",
+    },
+  ],
 });
 ```
 
-Use stable IDs and one of `running`, `waiting`, or `idle`. Publish a new snapshot when the set changes, omitting completed children. An empty `agents` array clears it. Send names and lifecycle metadata only, not prompts or transcripts.
+Use stable IDs and one of `running`, `waiting`, or `idle`. Publish a new snapshot when the set changes, omitting completed children. An empty `agents` array clears it. Send names, lifecycle metadata, and optionally a one-line `activity` label for the hover card. Not prompts or transcripts.

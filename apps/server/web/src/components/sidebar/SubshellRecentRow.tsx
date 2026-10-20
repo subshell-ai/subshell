@@ -2,6 +2,7 @@ import { Button, cn } from "@internal/node-admin";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight, LayoutDashboard } from "lucide-react";
 import { useId, useState } from "react";
+import { toast } from "sonner";
 import { HarnessSubagentRows } from "@/components/harness-subagents";
 import { TooltipLabelledLines } from "@/components/sidebar/TooltipLabelledLines";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
@@ -123,7 +124,13 @@ export function SubshellRecentRow({
                   setExpanded((value) => !value);
                   return;
                 }
-                if (agentState?.selectedId && agentState.canSelect) selectAgent.mutate(null);
+                if (agentState?.selectedId && agentState.canSelect)
+                  selectAgent.mutate(null, {
+                    // A reset that dies quietly is the worst outcome: the
+                    // user goes on to the navigation below while the pane
+                    // still shows the child. Say so on the thing that failed.
+                    onError: () => toast.error("Couldn't return the pane to its main agent."),
+                  });
                 if (onOpen) {
                   onOpen();
                   return;

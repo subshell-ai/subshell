@@ -72,18 +72,14 @@ export interface McpSetupStepInfo {
  */
 export type McpSetupInfo = { mode: "auto"; summary: string } | { mode: "manual"; steps: McpSetupStepInfo[] };
 
+import type { HarnessSubagentSupport } from "@subshell-ai/plugin-api";
+
 /**
- * What a harness can surface of its child agents (mirrors the API's
- * `HarnessSubagentSupportSchema`; the server answers null when it reports none).
+ * What a harness can surface of its child agents: the contract's own type, so
+ * a change to `discovery` or `navigation` lands here with it (the server
+ * answers null when the harness reports none).
  */
-export interface HarnessSubagentSupportInfo {
-  /** How subagent lifecycle events reach Subshell */
-  discovery: "hooks" | "extension";
-  /** Whether the sidebar can move the parent's own view to a child */
-  navigation: "native" | "unavailable";
-  /** One-time user action needed for reporting to work, if any */
-  setup?: string;
-}
+export type HarnessSubagentSupportInfo = HarnessSubagentSupport;
 
 /** Reference data for one harness, backing the preset editor's suggestions. */
 export interface HarnessSchema {
