@@ -95,5 +95,9 @@ test("a blocked child row explains itself with the task label and elapsed line",
   expect(described).toContain("pi keeps agent views in the app.");
   expect(described).toContain("Reading the diff");
   expect(described).toContain("running for 2m 5s");
+  // The reason here already ends in a period; the join must not double it,
+  // and the sentence must close with exactly one.
+  expect(described).not.toContain("..");
+  expect(described.endsWith(".")).toBe(true);
   client.clear();
 });

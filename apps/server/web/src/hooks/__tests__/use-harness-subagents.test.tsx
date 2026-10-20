@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import { setFetchRouter } from "@/test-setup";
 import { useHarnessSubagents } from "../use-harness-subagents";
 
@@ -36,7 +36,10 @@ test("one batch fetch per tick serves every watching row, and hidden tabs stop w
       <Probe id="dead" enabled={false} />
     </QueryClientProvider>,
   );
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 2600));
+  // The window sleeps inside `act`, so refetch-driven observer notifications
+  // land in a wrapped flush instead of the "not wrapped in act" warning, and
+  // a rejection surfaces at its await rather than as an unhandled error.
+  const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 2600)));
   // The mount fetch plus the two ticks inside the window: three active
   // observers collapsed to one request each, and the inactive row
   // registered nothing extra.
@@ -53,7 +56,7 @@ test("one batch fetch per tick serves every watching row, and hidden tabs stop w
   Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
   await settle();
   expect(gets, `gets=${gets}`).toBe(4);
-  cleanup();
+  await act(async () => cleanup());
   await settle();
   // With no watchers left the interval is gone, not merely skipped.
   expect(gets, `gets=${gets}`).toBe(4);

@@ -11,6 +11,6 @@
 "@subshell-ai/plugin-pi": patch
 ---
 
-Show active harness subagents beneath their parent subshell, each with a hover card: status, how long it has run, and the harness's own one-line task label where it supplies one (Claude Code and Hermes). OpenCode's native integration switches the existing terminal view and updates its compact header; other integrations expose lifecycle status. Viewers can navigate the shared view while terminal input still requires edit access. Add companion integration files to node launches.
+Show active harness subagents beneath their parent subshell. Each row carries a hover card with its status, how long it has been running and, where the harness gives one, its own one-line task label (Claude Code and Hermes do). OpenCode's native integration switches the existing terminal view and updates its compact header; other integrations expose lifecycle status. Viewers can navigate the shared view while terminal input still requires edit access. Add companion integration files to node launches.
 
 Refresh the desktop website demo and README animation with a real Codex subagent task and compact sidebar navigation.
