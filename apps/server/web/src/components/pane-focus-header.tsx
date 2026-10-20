@@ -85,14 +85,19 @@ export function PaneFocusHeader({
     subshell && subshell.status === "running" && subshell.alive === true ? subshell.id : "",
   );
   const isPane = Boolean(focusedPane && subshell);
+  const showingAgent = isPane && subshell && agentState?.selectedId;
   return (
     <DetailBackHeader
       to="/workspaces"
       backLabel="Back to workspaces"
       hideBack
       title={
-        isPane && subshell && agentState?.selectedId ? (
-          <HarnessSubagentTitle id={subshell.id} parentName={subshell.name} />
+        showingAgent && subshell ? (
+          <HarnessSubagentTitle
+            id={subshell.id}
+            parentName={subshell.name}
+            alive={subshell.status === "running" && subshell.alive === true}
+          />
         ) : isPane && subshell ? (
           /* The state rides beside the name, as it does on the subshell page:
              the dot is the only carrier of the state here, so `accessible`. */

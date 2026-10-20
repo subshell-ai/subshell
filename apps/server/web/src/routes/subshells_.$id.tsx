@@ -269,8 +269,16 @@ function SubshellPage() {
              never say three things about one subshell. `accessible` because
              here the dot is the only carrier of the state; the rail's rows
              have their link text. */
-          agentState?.selectedId && subshell ? (
-            <HarnessSubagentTitle id={id} parentName={subshell.name} />
+          // A disabled observer still serves cached data, so the gate has to
+          // cover the render too: once the pane is dead its header returns to
+          // the plain name, and the title's own default-enabled poll can never
+          // re-arm the shared ticker for a dead pane.
+          agentState?.selectedId && subshell && !dead ? (
+            <HarnessSubagentTitle
+              id={id}
+              parentName={subshell.name}
+              alive={subshell.status === "running" && subshell.alive === true}
+            />
           ) : (
             <span className="flex min-w-0 items-center gap-2">
               {subshell && <SubshellDot subshell={subshell} accessible className="mt-0 h-2 w-2" />}
@@ -301,7 +309,7 @@ function SubshellPage() {
            condition is the same `subshell?.workingDir`. */
         subtitle={
           subshell?.workingDir ? (
-            <span className={cn("block truncate", agentState?.selectedId ? "pl-6" : "pl-4")}>
+            <span className={cn("block truncate", agentState?.selectedId && !dead ? "pl-6" : "pl-4")}>
               {subshell.workingDir}
             </span>
           ) : undefined

@@ -1,7 +1,7 @@
 import { apiFetch } from "@internal/node-admin";
 import type { HarnessSubagentSnapshot } from "@subshell-ai/plugin-api";
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 /** App-wide batch snapshot: every visible subshell's reported children in one record. */
 const HARNESS_SUBAGENTS_KEY = ["harness-subagents"] as const;
@@ -70,20 +70,59 @@ export function useHarnessSubagents(id: string, enabled = true) {
 }
 
 /**
+ * Switches currently in flight, counted per pane. The pane has ONE queued
+ * view command server-side, so two surfaces clicking at once (a row and the
+ * header's return button) would silently replace each other's request while
+ * only one of them looked busy. Pending therefore belongs to the PANE, not
+ * to the mutation instance that happened to send the POST.
+ */
+const inFlightSelects = new Map<string, number>();
+const selectWatchers = new Map<string, Set<() => void>>();
+
+function shiftInFlight(id: string, delta: number): void {
+  const next = (inFlightSelects.get(id) ?? 0) + delta;
+  if (next > 0) inFlightSelects.set(id, next);
+  else inFlightSelects.delete(id);
+  for (const notify of selectWatchers.get(id) ?? []) notify();
+}
+
+/**
  * Asks the server to move the PARENT's own terminal view onto a reported child
  * (null returns to the main agent). The server queues the command and answers
  * before the harness switches views, so a resolved mutation means the request
  * landed, not that the view already moved — renderers keep showing the last
- * confirmed state until a poll carries the new one.
+ * confirmed state until a poll carries the new one. `isPending` is shared
+ * across every hook instance for the same pane, so all switch controls go
+ * blocked together while one request is on the wire.
  */
 export function useSelectHarnessAgent(id: string) {
   const client = useQueryClient();
-  return useMutation({
-    mutationFn: (agentId: string | null) =>
-      apiFetch(`/api/subshells/${id}/subagents/select`, {
-        method: "POST",
-        body: JSON.stringify({ agentId }),
-      }),
+  const select = useMutation({
+    mutationFn: async (agentId: string | null) => {
+      shiftInFlight(id, 1);
+      try {
+        return await apiFetch(`/api/subshells/${id}/subagents/select`, {
+          method: "POST",
+          body: JSON.stringify({ agentId }),
+        });
+      } finally {
+        shiftInFlight(id, -1);
+      }
+    },
     onSuccess: () => client.invalidateQueries({ queryKey: HARNESS_SUBAGENTS_KEY }),
   });
+  const subscribe = useCallback(
+    (notify: () => void) => {
+      let watchers = selectWatchers.get(id);
+      if (!watchers) {
+        watchers = new Set();
+        selectWatchers.set(id, watchers);
+      }
+      watchers.add(notify);
+      return () => watchers.delete(notify);
+    },
+    [id],
+  );
+  const panePending = useSyncExternalStore(subscribe, () => inFlightSelects.has(id));
+  return { ...select, isPending: select.isPending || panePending };
 }

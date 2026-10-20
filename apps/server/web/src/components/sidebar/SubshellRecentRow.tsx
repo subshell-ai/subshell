@@ -87,7 +87,12 @@ export function SubshellRecentRow({
   inActiveWorkspace?: boolean;
 }) {
   const openAsTab = useOpenPaneAsTab();
-  const { data: agentState } = useHarnessSubagents(subshell.id, subshell.alive === true);
+  // RUNNING is the row's two facts; a pane parked at running/alive:0 (or
+  // flipped to terminated ahead of its alive bit) must not watch or fetch.
+  const { data: agentState } = useHarnessSubagents(
+    subshell.id,
+    subshell.status === "running" && subshell.alive === true,
+  );
   const selectAgent = useSelectHarnessAgent(subshell.id);
   const navigate = useNavigate();
   const [expanded, setExpanded] = useState(true);

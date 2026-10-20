@@ -185,10 +185,12 @@ export function HarnessSubagentRows({
 /**
  * The header title while a reported child is on screen: the parent's name is
  * never renamed, this only marks which agent the pane is showing and offers
- * the return. Renders nothing until the server confirms a selection.
+ * the return. Renders nothing until the server confirms a selection. Pass
+ * `alive` with the parent's liveness: a dead row keeps no child to show, and
+ * the poll must not restart just because a cached snapshot still names one.
  */
-export function HarnessSubagentTitle({ id, parentName }: { id: string; parentName: string }) {
-  const { data } = useHarnessSubagents(id);
+export function HarnessSubagentTitle({ id, parentName, alive }: { id: string; parentName: string; alive: boolean }) {
+  const { data } = useHarnessSubagents(id, alive);
   const select = useSelectHarnessAgent(id);
   if (!data?.selectedId) return null;
   const agent = data.agents.find((row) => row.id === data.selectedId);

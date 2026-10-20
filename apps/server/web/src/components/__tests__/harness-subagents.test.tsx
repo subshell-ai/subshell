@@ -7,7 +7,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { setFetchRouter } from "@/test-setup";
 import { HarnessSubagentRows, HarnessSubagentTitle } from "../harness-subagents";
 
@@ -40,7 +40,7 @@ test("the compact header uses confirmed native selection and returns through the
   client.setQueryData(["harness-subagents"], state);
   render(
     <QueryClientProvider client={client}>
-      <HarnessSubagentTitle id="pane" parentName="Build feature" />
+      <HarnessSubagentTitle id="pane" parentName="Build feature" alive />
     </QueryClientProvider>,
   );
   expect(screen.getByText("Review changes")).toBeTruthy();
@@ -130,5 +130,77 @@ test("a blocked row without a reported reason still explains itself", async () =
   );
   const row = await screen.findByRole("button", { name: /worker/ });
   expect(row.getAttribute("aria-description")).toContain("does not support switching views");
+  client.clear();
+});
+
+test("a switch in flight blocks every surface of the pane, and a refusal says so", async () => {
+  // Pending belongs to the pane, not to the button that sent the POST: the
+  // header's return and the rows share the pane's one queued command, so a
+  // click on either surface must block all of them while it is on the wire.
+  const state = {
+    pane: {
+      agents: [
+        { id: "a", name: "alpha", status: "running", startedAt: Date.now() },
+        { id: "b", name: "beta", status: "running", startedAt: Date.now() },
+      ],
+      selectedId: "a",
+      canSelect: true,
+    },
+  };
+  let mode: "hold" | "fail" = "hold";
+  let release: () => void = () => {};
+  setFetchRouter(async (url) => {
+    if (String(url).endsWith("/subagents/select")) {
+      if (mode === "hold") {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return Response.json({ ok: true });
+      }
+      return Response.json({ error: "gone" }, { status: 409 });
+    }
+    return Response.json(state);
+  });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  client.setQueryData(["harness-subagents"], state);
+  const rootRoute = createRootRoute({
+    component: () => (
+      <>
+        <HarnessSubagentRows id="pane" alive />
+        <HarnessSubagentTitle id="pane" parentName="Build" alive />
+      </>
+    ),
+  });
+  const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/" });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([indexRoute]),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+    defaultPreload: false,
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
+  const back = (await screen.findByRole("button", { name: "Back to main agent" })) as HTMLButtonElement;
+  expect(back.disabled).toBe(false);
+  // The rows need their own settle: the tree renders the surface and the
+  // batch read answers from cache, but beta's button only exists once the
+  // router has painted.
+  await screen.findByRole("button", { name: /beta/ });
+  fireEvent.click(back);
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: /beta/ }).getAttribute("aria-description")).toContain(
+      "Switching agent views",
+    ),
+  );
+  await act(async () => release());
+  // A refused switch explains itself on the surface that failed.
+  mode = "fail";
+  fireEvent.click(screen.getByRole("button", { name: /beta/ }));
+  await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+  expect(screen.getByRole("alert").textContent).toContain("Couldn't switch agent views");
   client.clear();
 });
