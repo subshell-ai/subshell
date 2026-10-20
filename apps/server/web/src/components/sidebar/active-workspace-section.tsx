@@ -74,9 +74,10 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
                   </SelectItem>
                 ))}
               </SelectGroup>
-              {/* The divider earns its place only when the group above has rows;
-                  with no workspaces there is nothing to separate. */}
-              <SelectGroup className={cn("mt-1", rows.length > 0 && "border-t pt-1")}>
+              {/* The gap, divider and padding separate the groups when the one
+                  above has rows; with no workspaces there is nothing to separate,
+                  and even the plain margin would read as a stray gap up top. */}
+              <SelectGroup className={cn(rows.length > 0 && "mt-1 border-t pt-1")}>
                 <SelectItem value={NEW_WORKSPACE}>
                   <span className="flex items-center gap-2">
                     <Plus className="size-4" />

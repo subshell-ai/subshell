@@ -459,9 +459,11 @@ function openWorkspacePicker(): void {
   });
 }
 
-/** The SelectGroup that wraps the "New workspace" row in the open picker. */
+/** The SelectGroup that wraps the "New workspace" row in the open picker.
+ *  Keyed on Base UI's own role, since in the empty case the group carries no
+ *  class to match against. */
 function newWorkspaceGroup(): HTMLElement {
-  const group = screen.getByText("New workspace").closest('[class*="mt-1"]');
+  const group = screen.getByText("New workspace").closest('[role="group"]');
   if (!group) throw new Error("the New workspace row sits in no group");
   return group as HTMLElement;
 }
@@ -474,9 +476,11 @@ test("the picker separates New workspace only when there are workspaces above it
   expect(newWorkspaceGroup().className).toContain("border-t");
   cleanup();
 
-  // With none, the first group is empty and the line floats over nothing.
+  // With none, nothing hangs above the row: no divider over an empty group,
+  // and no plain margin either — the row sits flush at the popover top.
   await mountRig({ workspaces: [], subshells: [] });
   openWorkspacePicker();
   await screen.findByText("New workspace");
   expect(newWorkspaceGroup().className).not.toContain("border-t");
+  expect(newWorkspaceGroup().className).not.toContain("mt-1");
 });
