@@ -109,6 +109,11 @@ describe("tree_manifest", () => {
     expect(all.map((e) => e.relPath)).toEqual([0, 1, 2, 3, 4, 5].map((i) => `f${i}.txt`));
   });
 
+  // This cap test is the suite's heaviest fixture: 501 real files written one by
+  // one, then a full page of sha256 through the command. CI's hosted container
+  // runs a fraction of its labelled cores and timed this out at the default 5 s
+  // budget twice on main (2026-10-20) while a local run finishes well under a
+  // second, so it carries an explicit 30 s like the ssh-exec tests carry theirs.
   it("caps a page at MAX_MANIFEST_PAGE_ENTRIES rows and a cursor past the end answers empty", async () => {
     const { work, ctx } = setup("cap");
     for (let i = 0; i < MAX_MANIFEST_PAGE_ENTRIES + 1; i++)
@@ -123,7 +128,7 @@ describe("tree_manifest", () => {
     expect(second.nextCursor).toBeNull();
     const past = await manifest(ctx, work, "zzzz");
     expect(past).toEqual({ entries: [], nextCursor: null });
-  });
+  }, 30_000);
 
   it("is allowlist-gated on root", async () => {
     const { dataDir, work, ctx } = setup("gate");
