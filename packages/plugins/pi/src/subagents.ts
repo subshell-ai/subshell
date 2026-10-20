@@ -2,10 +2,14 @@
 export const SUBAGENT_BRIDGE = `
 export default function (pi) {
   const agents = new Map();
-  const put = (id, name, status = 'running') => {
+  const put = (id, name, status = 'running', activity) => {
     if (typeof id !== 'string' || !id.length || id.length > 256 || typeof name !== 'string') return;
     if (!agents.has(id) && agents.size >= 256) return;
-    agents.set(id, { id, name: name.trim().slice(0,160) || 'Subagent', status });
+    const entry = { id, name: name.trim().slice(0,160) || 'Subagent', status };
+    // The hover-card label is a harness one-liner, bounded like the name;
+    // the server normalizes it again before storing.
+    if (typeof activity === 'string' && activity.trim()) entry.activity = activity.trim().slice(0,160);
+    agents.set(id, entry);
   };
   let busy = false;
   const report = async () => {
@@ -50,7 +54,7 @@ export default function (pi) {
     if (!Array.isArray(value?.agents)) return;
     agents.clear();
     for (const a of value.agents.slice(0,256)) if (a) {
-      put(a.id, a.name, ['running','waiting','idle'].includes(a.status) ? a.status : 'running');
+      put(a.id, a.name, ['running','waiting','idle'].includes(a.status) ? a.status : 'running', a.activity);
     }
     void report();
   });

@@ -446,9 +446,9 @@ describe("ClaudeCodePlugin attention hooks", () => {
     const roster = "'/usr/local/bin/subshell-server' 'report' 'subagents'";
     expect(hooks.SubagentStart?.[0].hooks[0].command).toBe(roster);
     expect(hooks.SubagentStop?.[0].hooks[0].command).toBe(roster);
-    // /clear and /fork keep the pane but drop the children: SessionStart
-    // carries a SECOND reporter hook so the roster re-reports (as a reset)
-    // on every transition, not just the first one.
+    // /clear and /fork move the pane to a conversation the children died
+    // with: SessionStart carries a SECOND reporter hook so it fires on every
+    // transition, and the reporter turns a clear or fork into a roster reset.
     expect(hooks.SessionStart?.[0].hooks[1].command).toBe(roster);
     // A subagent spawn's TASK LABEL only exists in the Agent tool's own
     // PreToolUse input, so a second PreToolUse entry matches Agent and runs

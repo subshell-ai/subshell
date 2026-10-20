@@ -85,7 +85,8 @@ export class HarnessSubagents {
           ? undefined
           : state.canSelect
             ? "The harness integration isn't responding. Use its own agent selector."
-            : (state.unavailableReason ?? "This harness doesn't support switching subagent views from the sidebar."),
+            : state.unavailableReason?.trim() ||
+              "This harness doesn't support switching subagent views from the sidebar.",
     };
   }
 
@@ -93,7 +94,7 @@ export class HarnessSubagents {
    * Applies one lifecycle report from the parent's own hooks: `snapshot`
    * replaces the roster, `start`/`stop` adjust it, `describe` parks a task
    * label until the child it describes announces itself, and `reset` throws
-   * the state away (a harness-side restart). Carries the parent's one pending
+   * the state away (the pane cleared or forked its conversation). Carries the parent's one pending
    * view command back so the harness can acknowledge it, and renumbers
    * nothing: labels are issued once per agent id and only expire with the
    * agent.
@@ -139,6 +140,10 @@ export class HarnessSubagents {
         // unclaimed label is worse than no tooltip.
         if (queue.length > 8) queue.shift();
         state.describeQueue.set(key, queue);
+        // The type name is pane-chosen text, so the KEY COUNT needs a bound
+        // too: sixty-four types is far beyond any fan-out, and Map keeps
+        // insertion order, so the oldest type's labels leave first.
+        while (state.describeQueue.size > 64) state.describeQueue.delete(state.describeQueue.keys().next().value ?? "");
       }
     }
     if (input.event === "snapshot") {

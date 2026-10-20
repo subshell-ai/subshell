@@ -64,7 +64,12 @@ function AgentTooltipLines({ agent, lead, hint }: { agent: HarnessSubagentView; 
 
 /** The card as one sentence, for the `aria-description` of a disabled control. */
 function agentTooltipText(agent: HarnessSubagentView, lead?: string): string {
-  return [lead, agent.activity, spentLine(agent)].filter(Boolean).join(". ");
+  // A sentence-joined string must not carry a doubled period or lack its
+  // final one: trim each line's terminator, then join and close.
+  const lines = [lead, agent.activity, spentLine(agent)]
+    .filter((line): line is string => Boolean(line))
+    .map((line) => line.replace(/[.…]+$/, ""));
+  return lines.length ? `${lines.join(". ")}.` : "";
 }
 
 /** The shared failure line under both switch surfaces. */

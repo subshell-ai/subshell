@@ -63,7 +63,7 @@ const SubagentReportBodySchema = t.Object({
     [t.Literal("snapshot"), t.Literal("start"), t.Literal("stop"), t.Literal("reset"), t.Literal("describe")],
     {
       description:
-        "snapshot replaces the roster; start/stop adjust it; describe parks a task label for the next child of that type; reset (a harness-side restart) discards it",
+        "snapshot replaces the roster; start/stop adjust it; describe parks a task label for the next child of that type; reset (a cleared or forked conversation) discards it",
     },
   ),
   agents: t.Optional(

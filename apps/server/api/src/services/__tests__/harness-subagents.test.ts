@@ -50,6 +50,10 @@ describe("harness subagents", () => {
     // gets the default.
     state.report("pane", "run", { event: "snapshot", agents: [child], canSelect: false });
     expect(state.read("pane", "run", true).unavailableReason).toContain("doesn't support");
+    // A harness that "explains" itself with whitespace gets the default too:
+    // a reason that renders as nothing is an empty tooltip.
+    state.report("pane", "run", { event: "snapshot", agents: [child], unavailableReason: "  " });
+    expect(state.read("pane", "run", true).unavailableReason).toContain("doesn't support");
   });
   test("discovery never grants navigation and dead parents lose children", () => {
     const state = new HarnessSubagents();
@@ -110,6 +114,19 @@ test("a periodic snapshot keeps first-sighting stamps and issued labels", () => 
   // Elapsed time must survive the bridge's periodic re-list, and so must a
   // label the harness does not repeat in later passes.
   expect(again.startedAt).toBe(first?.startedAt);
+});
+
+test("a flood of distinct agent types is bounded by the oldest key leaving", () => {
+  const state = new HarnessSubagents();
+  // agentType is pane-chosen text; every distinct value could otherwise
+  // plant a permanent Map key. Sixty-four types, oldest evicted first.
+  for (let i = 0; i < 70; i++)
+    state.report("pane", "run", { event: "describe", agentType: `type-${i}`, activity: `Label ${i}` });
+  state.report("pane", "run", { event: "start", agents: [{ id: "z", name: "type-69", status: "running" }] });
+  expect(state.read("pane", "run", true).agents.find((a) => a.id === "z")?.activity).toBe("Label 69");
+  // The oldest types are gone: type-0 can no longer label its child.
+  state.report("pane", "run", { event: "start", agents: [{ id: "o", name: "type-0", status: "running" }] });
+  expect(state.read("pane", "run", true).agents.find((a) => a.id === "o")?.activity).toBeUndefined();
 });
 
 test("generic names stay distinct through updates and completion", () => {

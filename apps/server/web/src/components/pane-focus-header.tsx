@@ -79,7 +79,11 @@ export function PaneFocusHeader({
     invalidateAfterRename(queryClient, id);
   }
 
-  const { data: agentState } = useHarnessSubagents(subshell?.id ?? "");
+  // A dead pane is a mounted header, so liveness gates the poll here too,
+  // same as the rail and the agent page.
+  const { data: agentState } = useHarnessSubagents(
+    subshell && subshell.status === "running" && subshell.alive === true ? subshell.id : "",
+  );
   const isPane = Boolean(focusedPane && subshell);
   return (
     <DetailBackHeader

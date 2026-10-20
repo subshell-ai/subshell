@@ -720,8 +720,9 @@ already read. `subagents/report` forwards rosters and the harness's own
 short labels: each child's name, status, and at most a one-line task label
 (a Hermes child's goal, or the description Claude Code wrote for the Agent
 tool's `PreToolUse` input). Prompts, transcripts, and child output never
-cross this door, and every forwarded word takes the NAME-path treatment
-(`normalizeLabel` before store).
+cross this door, and every forwarded name and label takes the NAME-path
+treatment (`normalizeLabel` before store; the id fields carry length bounds
+only, not normalization).
 
 **The filesystem picker is browser-only.** `/api/files/explore` returns 403 to
 machine credentials. A running harness holding its own token must not be able to
