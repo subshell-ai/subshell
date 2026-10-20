@@ -204,19 +204,11 @@ try {
     310,
   );
   await post("/api/subshells", { harnessId: "terminal", presetId: shell.id, workingDir: project, name: "Build tools" });
-  await page
-    .getByRole("navigation", { name: "Main sections" })
-    .getByRole("link", { name: "Subshells", exact: true })
-    .click();
-  await expect(page.getByRole("img", { name: "In active workspace" })).toHaveCount(2);
+  await expect(page.locator('[data-sidebar-drop="add"] a[href^="/subshells/"]')).toHaveCount(2);
   await expect(page.locator("aside").getByText("Build tools", { exact: true })).toBeVisible();
   const sidebarMargin = await page.addStyleTag({ content: "aside { margin: 12px; height: calc(100% - 24px); }" });
   await capture(page, "workspace-browser", page.locator("aside"));
   await sidebarMargin.evaluate((element) => element.parentNode?.removeChild(element));
-  await page
-    .getByRole("navigation", { name: "Main sections" })
-    .getByRole("link", { name: "Workspaces", exact: true })
-    .click();
   await page.getByRole("button", { name: "Add a subshell to this workspace" }).click();
   await capture(page, "add-subshell", dialog);
   await close();

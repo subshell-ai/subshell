@@ -47,8 +47,11 @@ export function SubshellActionsMenu({
   diagnostics,
   copyMode,
   children,
+  workspaceAction,
 }: {
   subshell: SubshellView;
+  /** Membership action for this sidebar, independent of subshell process access. */
+  workspaceAction?: ActionItem;
   /** Disables the trigger, e.g. while a bulk action is running over this row. */
   disabled?: boolean;
   /** Called after the subshell is deleted, e.g. to leave a now-dead detail page. */
@@ -112,6 +115,7 @@ export function SubshellActionsMenu({
   const [qrOpen, setQrOpen] = useState(false);
 
   const items: ActionItem[] = [
+    ...(workspaceAction ? [workspaceAction] : []),
     ...(canEdit
       ? [
           // The modal is also how a phone renames: below the tiling

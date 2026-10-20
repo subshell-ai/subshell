@@ -10,6 +10,7 @@ import { startStack, stopStack } from "./stack";
 // Requires an authenticated Codex CLI. Authentication stays off camera.
 if (PORTS.backend === 3080) throw new Error("Never record against the live server");
 const subagents = process.argv.includes("--subagents");
+const mobileOnly = process.argv.includes("--mobile-only");
 const root = mkdtempSync(path.join(tmpdir(), "demo-"));
 const out = path.resolve(import.meta.dirname, "../apps/website/public/demos");
 const cleanup: (() => void | Promise<void>)[] = [() => rmSync(root, { recursive: true, force: true }), stopStack];
@@ -58,7 +59,11 @@ try {
   });
   const browser = await chromium.launch();
   cleanup.push(() => browser.close());
-  for (const mobile of process.argv.includes("--desktop-only") || subagents ? [false] : [false, true]) {
+  for (const mobile of mobileOnly
+    ? [true]
+    : process.argv.includes("--desktop-only") || subagents
+      ? [false]
+      : [false, true]) {
     const workingDir = path.join(root, mobile ? "phone" : "desktop", "task-board");
     mkdirSync(workingDir, { recursive: true });
     writeFileSync(
@@ -151,8 +156,8 @@ export function summarize(tasks) {
       await page.waitForTimeout(500);
     }
     let frame = 0;
-    async function hold(seconds: number) {
-      await page.mouse.move(890, 550);
+    async function hold(seconds: number, keepPointer = false) {
+      if (!keepPointer) await page.mouse.move(890, 550);
       for (let i = 0; i < seconds * 15; i++) {
         const start = Date.now();
         await page.screenshot({ path: path.join(frames, `${String(frame++).padStart(4, "0")}.png`) });
@@ -217,6 +222,28 @@ export function summarize(tasks) {
     await hold(3);
     expect(readFileSync(path.join(workingDir, "tasks.js"), "utf8")).not.toContain("// TODO");
     run("bun", ["test", path.join(workingDir, "tasks.test.js")]);
+    if (subagents) {
+      // Membership changes don't stop the tests shell or leave this workspace.
+      const members = page.locator('[data-sidebar-drop="add"]');
+      const others = page.locator('[data-sidebar-drop="remove"]');
+      async function transferRow(from: typeof members, to: typeof members, label: string) {
+        const row = from.locator(`a[href="/subshells/${panes[1].id}"]`);
+        const source = await row.boundingBox();
+        const target = await to.boundingBox();
+        if (!source || !target) throw new Error("Sidebar transfer bounds unavailable");
+        await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 20 });
+        await expect(to.getByRole("status")).toHaveText(label);
+        await hold(2, true);
+        await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2);
+        await page.mouse.up();
+        await expect(to.locator(`a[href="/subshells/${panes[1].id}"]`)).toBeVisible();
+        await hold(2);
+      }
+      await transferRow(members, others, "Remove from workspace");
+      await transferRow(others, members, "Add to workspace");
+    }
     await tab("Run tests").click();
     await post(`/api/subshells/${panes[1].id}/input`, { text: "bun test", submit: false });
     await hold(1);

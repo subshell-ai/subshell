@@ -82,6 +82,9 @@ implementation and tests to two real Codex subagents, demonstrates collapsing
 and expanding them with the parent arrow and active parent row, then runs the
 tests in the second subshell. Stay in the same workspace throughout: switch tabs, never sidebar
 sections. Keep the phone sidebar closed and preserve the visible tab strip.
+The desktop clip also drags the test subshell into the lower Subshells section
+and back into the workspace, holding each centered drop hint long enough to
+read. The same running session returns as a tab.
 Generate them with `bun e2e/capture-product-demo.ts` after building the SPA.
 The capture requires an authenticated Codex CLI. It uses sample files in a
 temporary project and an isolated server, lets the agent edit those files and
@@ -95,6 +98,9 @@ uses a compact viewport so the text stays large when embedded in the page;
 higher recording resolution alone does not make text more legible. Use
 `bun e2e/capture-product-demo.ts --subagents` to refresh only the desktop
 clip, its poster, and the README animation.
+Use `--mobile-only` to refresh the phone clip without replacing the desktop
+subagent demonstration. The sidebar has one workspace panel with a lower
+Subshells section; don't restore the removed Subshells mini-rail icon in captures.
 Inspect frames for layout changes before encoding; changing viewport during a
 recording is not an acceptable device transition.
 

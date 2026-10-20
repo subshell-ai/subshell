@@ -49,11 +49,11 @@ describe("harness subagents", () => {
     // A harness that says it cannot keeps its own reason, and an unsaid one
     // gets the default.
     state.report("pane", "run", { event: "snapshot", agents: [child], canSelect: false });
-    expect(state.read("pane", "run", true).unavailableReason).toContain("doesn't support");
+    expect(state.read("pane", "run", true).unavailableReason).toContain("Subshell can't switch");
     // A harness that "explains" itself with whitespace gets the default too:
     // a reason that renders as nothing is an empty tooltip.
     state.report("pane", "run", { event: "snapshot", agents: [child], unavailableReason: "  " });
-    expect(state.read("pane", "run", true).unavailableReason).toContain("doesn't support");
+    expect(state.read("pane", "run", true).unavailableReason).toContain("Subshell can't switch");
   });
   test("discovery never grants navigation and dead parents lose children", () => {
     const state = new HarnessSubagents();
@@ -185,4 +185,59 @@ test("generic names stay distinct through updates and completion", () => {
   state.report("pane", "run", { event: "reset" });
   state.report("pane", "run", { event: "start", agents: [first] });
   expect(names()).toEqual(["Subagent 1"]);
+});
+
+test("spawn names survive repeat starts and exact descriptions cannot resurrect stopped children", () => {
+  const state = new HarnessSubagents();
+  state.report("p", "r", {
+    event: "describe",
+    agentType: "general-purpose",
+    agentName: "Reviewer",
+    activity: "Review changes",
+  });
+  const agent = { id: "a", name: "general-purpose", status: "running" as const };
+  state.report("p", "r", { event: "start", agents: [agent] });
+  state.report("p", "r", { event: "start", agents: [agent] });
+  expect(state.read("p", "r", true).agents[0]?.name).toBe("Reviewer");
+  state.report("p", "r", { event: "describe", agentId: "a", agentName: "Tester", activity: "Run tests" });
+  expect(state.read("p", "r", true).agents[0]?.activity).toBe("Run tests");
+  state.report("p", "r", { event: "stop", agentId: "a" });
+  state.report("p", "r", { event: "describe", agentId: "a", activity: "Late result" });
+  expect(state.read("p", "r", true).agents).toEqual([]);
+});
+
+test("an implicit Claude type pairs with general-purpose", () => {
+  const state = new HarnessSubagents();
+  state.report("p", "r", { event: "describe", activity: "Inspect the routes" });
+  state.report("p", "r", { event: "start", agents: [{ id: "a", name: "general-purpose", status: "running" }] });
+  expect(state.read("p", "r", true).agents[0]?.activity).toBe("Inspect the routes");
+});
+
+test("resumed children retain their description without another Agent tool call", () => {
+  const state = new HarnessSubagents();
+  const agent = { id: "a", name: "general-purpose", status: "running" as const };
+  state.report("p", "r", { event: "describe", activity: "Report system info" });
+  state.report("p", "r", { event: "start", agents: [agent] });
+  state.report("p", "r", { event: "stop", agentId: "a" });
+  expect(state.read("p", "r", true).agents).toEqual([]);
+  state.report("p", "r", { event: "start", agents: [agent] });
+  expect(state.read("p", "r", true).agents[0]?.activity).toBe("Report system info");
+  state.report("p", "new-run", { event: "start", agents: [agent] });
+  expect(state.read("p", "new-run", true).agents[0]?.activity).toBeUndefined();
+});
+
+test("new metadata updates the same child in place without resetting its elapsed time", () => {
+  const state = new HarnessSubagents();
+  state.report("p", "r", {
+    event: "start",
+    agents: [{ id: "a", name: "Reviewer", activity: "Review code", status: "running" }],
+  });
+  const startedAt = state.read("p", "r", true).agents[0]?.startedAt;
+  state.report("p", "r", {
+    event: "start",
+    agents: [{ id: "a", name: "Tester", activity: "Run tests", status: "running" }],
+  });
+  const agents = state.read("p", "r", true).agents;
+  expect(agents).toHaveLength(1);
+  expect(agents[0]).toMatchObject({ id: "a", name: "Tester", activity: "Run tests", startedAt });
 });

@@ -130,8 +130,15 @@ signed-in, mounted in `__root`.
 **Working on the subshells list, the landing `/`, the launch pickers, or these gates: read apps/server/web/docs/home-launch-guidance.md and apps/server/web/docs/workspace-first.md first.**
 
 **The sidebar has a mini rail and a contextual panel.** The route selects
-Workspaces, Subshells, Settings, Mobile, or Account. Workspace detail shows only
-that workspace’s panes; its picker changes workspace. Subshells switches only the contextual panel while a workspace is open, keeping searchable subshell rows and adding selections as tabs in that workspace. Its actions menu offers Add subshell and Subshell dashboard. Outside a workspace, the mini rail opens the list directly. Settings shows personal pages and all eleven
+Workspaces, Settings, Mobile, or Account. Workspaces combines the selected
+workspace's panes with a grouped **Subshells** section;
+members are excluded from that lower list. Clicking another subshell adds it
+as a tab. Dragging between the lists adds or removes membership, with centered
+labels and no success toast. Removing the last pane is refused; subshell
+processes stay running. Row menus provide the same membership actions.
+Subshell dashboard remains in the grouping dropdown’s actions menu and uses this same
+sidebar. The active mini-rail icon collapses/expands the panel; no header or
+collapse arrow takes space above the workspace selector. Settings shows personal pages and all eleven
 Server Settings pages, with the whole admin group gated by server-derived
 `viewerIsAdmin === true`. Account contains Profile, Preferences, Feedback, About, and Sign out as direct
 sidebar items, with identity, server details, and admin update notices in a plain footer. `/mobile?platform=apple|android|browser` shares its

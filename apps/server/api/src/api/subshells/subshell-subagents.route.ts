@@ -72,6 +72,7 @@ const SubagentReportBodySchema = t.Object({
   agentId: t.Optional(identifierAs("The agent a start/stop report names")),
   agentType: t.Optional(t.String({ maxLength: 160, description: "Which kind of agent a describe label belongs to" })),
   activity: t.Optional(t.String({ maxLength: 160, description: "One-line task label from a describe report" })),
+  agentName: t.Optional(t.String({ maxLength: 160, description: "The name assigned when spawning a subagent" })),
   selectedId: t.Optional(
     t.Union([identifier, t.Null()], { description: "The parent's current view, per the harness" }),
   ),
@@ -219,6 +220,7 @@ export const subshellSubagentsRoute = new Elysia()
           ? { unavailableReason: normalizeLabel(body.unavailableReason, 256) }
           : {}),
         // The describe pair is pane-reported text like the names beside it.
+        ...(body.agentName !== undefined ? { agentName: normalizeLabel(body.agentName, 160) } : {}),
         ...(body.agentType !== undefined ? { agentType: normalizeLabel(body.agentType, 160) } : {}),
         ...(body.activity !== undefined ? { activity: normalizeLabel(body.activity, 160) } : {}),
       });

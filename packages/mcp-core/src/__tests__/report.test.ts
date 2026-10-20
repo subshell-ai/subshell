@@ -1,4 +1,7 @@
 import { describe, expect, it } from "bun:test";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { postTimeoutMs, runReport } from "../report.js";
 
 /**
@@ -85,6 +88,100 @@ describe("runReport", () => {
     // same way.
     await spawn({ subagent_type: "scout", description: "Map the repo" }, "Task");
     expect(await seen[2]?.json()).toEqual({ event: "describe", agentType: "scout", activity: "Map the repo" });
+  });
+
+  it("reports exact background child names without forwarding output or prompts", async () => {
+    const { seen, fetchImpl } = recorder();
+    await runReport(["subagents"], {
+      env: paneEnv,
+      fetch: fetchImpl,
+      readStdin: async () =>
+        JSON.stringify({
+          hook_event_name: "PostToolUse",
+          tool_name: "Agent",
+          tool_input: {
+            name: "Reviewer",
+            description: "Review changes",
+            subagent_type: "general-purpose",
+            prompt: "private",
+          },
+          tool_response: { agentId: "child", status: "async_launched", outputFile: "private", content: "private" },
+        }),
+    });
+    expect(await seen[0]?.json()).toEqual({
+      event: "describe",
+      agentType: "general-purpose",
+      agentName: "Reviewer",
+      activity: "Review changes",
+      agentId: "child",
+    });
+  });
+
+  it("recovers a resumed Claude child's description from bounded metadata only", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "claude-label-"));
+    try {
+      await mkdir(join(dir, "session", "subagents"), { recursive: true });
+      const meta = join(dir, "session", "subagents", "agent-child.meta.json");
+      const { seen, fetchImpl } = recorder();
+      const run = () =>
+        runReport(["subagents"], {
+          env: paneEnv,
+          fetch: fetchImpl,
+          readStdin: async () =>
+            JSON.stringify({
+              hook_event_name: "SubagentStart",
+              agent_id: "child",
+              agent_type: "general-purpose",
+              transcript_path: join(dir, "session.jsonl"),
+            }),
+        });
+      await writeFile(
+        meta,
+        JSON.stringify({ description: "Report system info", prompt: "private", toolUseId: "private" }),
+      );
+      await run();
+      expect(await seen[0]?.json()).toEqual({
+        event: "start",
+        agents: [{ id: "child", name: "general-purpose", status: "running", activity: "Report system info" }],
+      });
+      await writeFile(meta, "x".repeat(17000));
+      await run();
+      expect((await seen[1]?.json())?.agents[0].activity).toBeUndefined();
+      await rm(meta);
+      await writeFile(join(dir, "secret"), JSON.stringify({ description: "private" }));
+      await symlink(join(dir, "secret"), meta);
+      await run();
+      expect((await seen[2]?.json())?.agents[0].activity).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("ignores tool descriptions that cannot represent live subagent summaries", async () => {
+    const { seen, fetchImpl } = recorder();
+    await runReport(["subagents"], {
+      env: paneEnv,
+      fetch: fetchImpl,
+      readStdin: async () =>
+        JSON.stringify({
+          hook_event_name: "PreToolUse",
+          agent_id: "child",
+          tool_name: "Bash",
+          tool_input: { description: "Sleep for 6 minutes", command: "private" },
+        }),
+    });
+    expect(seen).toHaveLength(0);
+    await runReport(["subagents"], {
+      env: paneEnv,
+      fetch: fetchImpl,
+      readStdin: async () =>
+        JSON.stringify({
+          hook_event_name: "PreToolUse",
+          tool_name: "Bash",
+          tool_input: { description: "Parent task", command: "private" },
+        }),
+    });
+    expect(seen).toHaveLength(0);
   });
 
   it("routes the roster report to the pane's own endpoint, and handles the reset, fallback and cap edges", async () => {

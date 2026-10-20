@@ -1,19 +1,9 @@
 import { Button, cn } from "@internal/node-admin";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import {
-  ExternalLink,
-  LayoutDashboard,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Settings,
-  Smartphone,
-  TerminalSquare,
-  UserRound,
-} from "lucide-react";
+import { ExternalLink, LayoutDashboard, Settings, Smartphone, UserRound } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { AboutDialog } from "@/components/about-dialog";
 import { ActiveWorkspaceSection } from "@/components/sidebar/active-workspace-section";
-import { AllSubshellsSection } from "@/components/sidebar/all-subshells-section";
 import { ContextNavigation } from "@/components/sidebar/context-navigation";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useClockTick } from "@/hooks/use-clock-tick";
@@ -28,7 +18,6 @@ import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
 const COLLAPSED_KEY = "subshell.sidebarCollapsed";
 const SECTIONS = [
   { id: "workspaces", label: "Workspaces", to: "/workspaces", icon: LayoutDashboard },
-  { id: "subshells", label: "Subshells", to: "/subshells", icon: TerminalSquare },
   { id: "mobile", label: "Subshell for Mobile", to: "/mobile", icon: Smartphone },
   { id: "settings", label: "Settings", to: "/nodes", icon: Settings },
   { id: "account", label: "Account", to: "/account", icon: UserRound },
@@ -66,8 +55,7 @@ export function AppSidebar({
   const navigate = useNavigate();
   const routeSection = sidebarSection(location.pathname);
   const workspaceId = workspaceIdFromPath(location.pathname);
-  const [panel, setPanel] = useState<{ path: string; section: "workspaces" | "subshells" } | null>(null);
-  const section = workspaceId && panel?.path === location.pathname ? panel.section : routeSection;
+  const section = routeSection === "subshells" ? "workspaces" : routeSection;
   const { data: user } = useCurrentUser();
   const { data: publicSettings } = usePublicSettings();
   const isAdmin = publicSettings?.viewerIsAdmin === true;
@@ -82,21 +70,9 @@ export function AppSidebar({
     }
   });
   const collapsed = !forceExpanded && collapsedState;
-  const toggleButtonRef = useRef<HTMLButtonElement>(null);
-  const restoreToggleFocus = useRef(false);
-  // Runs after the collapse/expand re-render, which is when the toggle moves
-  // between rails and loses its focus; scoping to `collapsed` is the moment,
-  // not every render (the sidebar re-renders on each activity tick).
-  // biome-ignore lint/correctness/useExhaustiveDependencies: fire-on-change effect, `collapsed` is deliberately the trigger (the toggle moves rails when it flips), not a read
-  useEffect(() => {
-    if (!restoreToggleFocus.current) return;
-    toggleButtonRef.current?.focus();
-    restoreToggleFocus.current = false;
-  }, [collapsed]);
-  const [subshellQuery, setSubshellQuery] = useState("");
   const [focusPending, setFocusPending] = useState(false);
-  // Remember route destinations independently from the workspace’s sidebar
-  // panel, so browsing subshells cannot replace the saved dashboard URL.
+  // Remember each section’s last destination without replacing the workspace
+  // destination when its dashboard is opened.
   const destinations = useRef<Partial<Record<SidebarSection, { pathname: string; search: Record<string, unknown> }>>>(
     {},
   );
@@ -121,16 +97,17 @@ export function AppSidebar({
       onDesktopAction((action) => {
         if (action === "toggle-sidebar") toggle();
         if (action === "focus-filter") {
+          if (collapsed) toggle();
           void navigate({ to: "/subshells" }).then(() => setFocusPending(true));
         }
       }),
-    [toggle, navigate],
+    [toggle, navigate, collapsed],
   );
   useEffect(() => {
     if (!focusPending) return;
     const focusSearch = () => {
       const input = document.querySelector<HTMLInputElement>('input[aria-label="Search subshells"]');
-      if (!input) return false;
+      if (!input || input.closest("[hidden]")) return false;
       input.focus();
       setFocusPending(false);
       return true;
@@ -140,34 +117,9 @@ export function AppSidebar({
     const observer = new MutationObserver(() => {
       if (focusSearch()) observer.disconnect();
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden"] });
     return () => observer.disconnect();
   }, [focusPending]);
-
-  const sidebarToggle = (
-    <TooltipProvider delay={200}>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              ref={toggleButtonRef}
-              variant="ghost"
-              size="icon"
-              onClick={() => {
-                restoreToggleFocus.current = true;
-                toggle();
-              }}
-              aria-expanded={!collapsed}
-              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            >
-              {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
-            </Button>
-          }
-        />
-        <TooltipContent side="right">{collapsed ? "Expand sidebar" : "Collapse sidebar"}</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  );
 
   return (
     <aside
@@ -184,13 +136,9 @@ export function AppSidebar({
             aria-label="Main sections"
             className="flex w-14 shrink-0 flex-col items-center gap-2 overflow-y-auto border-border border-r bg-background px-1 py-3"
           >
-            {collapsed ? (
-              <div className="mb-2 flex size-11 items-center justify-center">{sidebarToggle}</div>
-            ) : (
-              <Link to="/" aria-label="Subshell" className="mb-2 flex size-11 items-center justify-center">
-                <img src="/icons/mark-80.png" alt="" className="h-6 w-auto" />
-              </Link>
-            )}
+            <Link to="/" aria-label="Subshell" className="mb-2 flex size-11 items-center justify-center">
+              <img src="/icons/mark-80.png" alt="" className="h-6 w-auto" />
+            </Link>
             {SECTIONS.map((item) => {
               const remembered =
                 routeSection === item.id
@@ -208,6 +156,7 @@ export function AppSidebar({
                           search={(destination?.search ?? {}) as never}
                           aria-label={item.label}
                           aria-current={section === item.id ? "true" : undefined}
+                          aria-expanded={section === item.id ? !collapsed : undefined}
                           onClick={(event) => {
                             if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
                               return;
@@ -217,12 +166,10 @@ export function AppSidebar({
                               return;
                             }
                             if (collapsed) toggle();
-                            if (workspaceId && (item.id === "workspaces" || item.id === "subshells")) {
+                            if (workspaceId && item.id === "workspaces") {
                               event.preventDefault();
-                              setPanel({ path: location.pathname, section: item.id });
                               return;
                             }
-                            setPanel(null);
                             if (!onSectionNavigate || section === item.id) return;
                             event.preventDefault();
                             onSectionNavigate();
@@ -277,21 +224,22 @@ export function AppSidebar({
         </TooltipProvider>
         {!collapsed && (
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <div className="flex min-h-14 items-center justify-between gap-2 px-3 py-2">
-              <h2 className="min-w-0 font-strong text-label">{SECTIONS.find((item) => item.id === section)?.label}</h2>
-              {!forceExpanded && sidebarToggle}
-              {headerEnd}
-            </div>
-            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-2 pt-1 pb-3">
+            {section !== "workspaces" && (
+              <div className="flex min-h-14 items-center justify-between gap-2 px-3 py-2">
+                <h2 className="min-w-0 font-strong text-label">
+                  {SECTIONS.find((item) => item.id === section)?.label}
+                </h2>
+                {headerEnd}
+              </div>
+            )}
+            <div
+              className={cn(
+                "flex min-h-0 flex-1 flex-col gap-4 px-2 pb-3",
+                section === "workspaces" ? "overflow-hidden pt-3" : "overflow-y-auto pt-1",
+              )}
+            >
               {section === "workspaces" ? (
-                <ActiveWorkspaceSection onQuickAdd={onQuickAdd} />
-              ) : section === "subshells" ? (
-                <AllSubshellsSection
-                  query={subshellQuery}
-                  onQueryChange={setSubshellQuery}
-                  workspaceId={workspaceId ?? undefined}
-                  onAction={onQuickAdd}
-                />
+                <ActiveWorkspaceSection onQuickAdd={onQuickAdd} headerEnd={headerEnd} />
               ) : (
                 <ContextNavigation section={section} isAdmin={isAdmin} onAbout={() => setAboutOpen(true)} />
               )}

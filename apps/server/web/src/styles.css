@@ -262,13 +262,6 @@ body {
   background: var(--terminal-strip);
 }
 
-/* xterm's opaque viewport extends beneath the padding and defaults to black.
-   (The mobile terminal.html keeps its own `.allow-transparency` escape hatch
-   in its own stylesheet; nothing in the SPA sets that class.) */
-body .xterm .xterm-viewport {
-  background-color: var(--terminal-strip);
-}
-
 /* iOS auto-zoom rule: focusing a text input whose computed font-size is
    below 16px makes WebKit zoom the whole page (factor ~= 16/font-size), and
    in home-screen PWAs that zoom — plus the keyboard-shrunk viewport it
@@ -420,4 +413,11 @@ body .xterm .xterm-viewport {
   50% {
     opacity: 1;
   }
+}
+
+/* xterm's opaque viewport extends beneath the padding and defaults to black.
+   (The mobile terminal.html keeps its own `.allow-transparency` escape hatch
+   in its own stylesheet; nothing in the SPA sets that class.) */
+body .xterm:not(.allow-transparency) .xterm-viewport {
+  background-color: var(--terminal-strip);
 }

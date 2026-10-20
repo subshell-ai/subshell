@@ -21,7 +21,9 @@ interface State extends HarnessSubagentSnapshot {
    * unlabeled spawns), FIFO to eight per key. A label whose child never
    * starts is dropped with the next generation, exactly like the roster.
    */
-  describeQueue: Map<string, string[]>;
+  describeQueue: Map<string, { activity?: string; name?: string }[]>;
+  /** Bounded metadata survives child stops so resuming the same child retains its label. */
+  descriptions: Map<string, { activity?: string; name?: string }>;
   /** The one pending view-switch command, consumed when the harness acknowledges it or the 5 s lapses */
   command?: { id: string; agentId: string | null; expiresAt: number };
 }
@@ -31,11 +33,11 @@ const empty = (): HarnessSubagentSnapshot => ({ agents: [], selectedId: null, ca
 /** The queue a name or type routes to: lowercased, and generic words share the empty key. */
 function typeKey(word: string | undefined): string {
   const key = (word ?? "").trim().toLowerCase();
-  return /^(default|subagent)?$/.test(key) ? "" : key;
+  return /^(default|subagent|general-purpose)?$/.test(key) ? "" : key;
 }
 
 /** Takes the oldest parked label for this child's type, if one is waiting. */
-function popActivity(state: State, name: string): string | undefined {
+function popActivity(state: State, name: string): { activity?: string; name?: string } | undefined {
   const key = typeKey(name);
   const queue = state.describeQueue.get(key);
   const next = queue?.shift();
@@ -85,7 +87,8 @@ export class HarnessSubagents {
           ? undefined
           : state.canSelect
             ? "The harness integration isn't responding. Use its own agent selector."
-            : state.unavailableReason?.trim() || "This harness doesn't support switching subagent views.",
+            : state.unavailableReason?.trim() ||
+              "Subshell can't switch views in this harness yet. Use the harness's own agent selector.",
     };
   }
 
@@ -109,6 +112,7 @@ export class HarnessSubagents {
       agentType?: string;
       /** One-line task label, normalized by the caller before this runs */
       activity?: string;
+      agentName?: string;
       selectedId?: string | null;
       canSelect?: boolean;
       unavailableReason?: string;
@@ -126,15 +130,36 @@ export class HarnessSubagents {
         nextLabel: 1,
         labels: new Map(),
         describeQueue: new Map(),
+        descriptions: new Map(),
       };
       this.states.set(id, state);
     }
     state.lastSeen = Date.now();
     if (input.event === "describe") {
-      if (input.activity) {
+      if (input.agentId) {
+        state.descriptions.set(input.agentId, {
+          ...state.descriptions.get(input.agentId),
+          ...(input.activity ? { activity: input.activity } : {}),
+          ...(input.agentName ? { name: input.agentName } : {}),
+        });
+        // PostToolUse identifies the exact child, correcting ambiguous parallel spawns.
+        // A completed child must never be resurrected by a late description.
+        state.agents = state.agents.map((agent) =>
+          agent.id === input.agentId
+            ? {
+                ...agent,
+                ...(input.activity ? { activity: input.activity } : {}),
+                ...(input.agentName ? { name: input.agentName } : {}),
+              }
+            : agent,
+        );
+      } else if (input.activity || input.agentName) {
         const key = typeKey(input.agentType);
         const queue = state.describeQueue.get(key) ?? [];
-        queue.push(input.activity);
+        queue.push({
+          ...(input.activity ? { activity: input.activity } : {}),
+          ...(input.agentName ? { name: input.agentName } : {}),
+        });
         // Eight live labels per type is more than a turn can pair; an old
         // unclaimed label is worse than no tooltip.
         if (queue.length > 8) queue.shift();
@@ -155,22 +180,38 @@ export class HarnessSubagents {
           // sighting and any label they were given stay, so elapsed time does
           // not reset every pass and a label never vanishes on a re-list.
           const was = previous.get(agent.id);
+          const label = was ? undefined : popActivity(state, agent.name);
           return {
             ...agent,
+            name: label?.name ?? agent.name,
             startedAt: was?.startedAt ?? now,
-            activity: agent.activity ?? was?.activity ?? popActivity(state, agent.name),
+            activity: agent.activity ?? was?.activity ?? label?.activity,
           };
         });
     }
     if (input.event === "start") {
       const now = Date.now();
       for (const agent of input.agents ?? []) {
+        const previous = state.agents.find((row) => row.id === agent.id);
+        const label = previous ? undefined : (state.descriptions.get(agent.id) ?? popActivity(state, agent.name));
         state.agents = [
           ...state.agents.filter((a) => a.id !== agent.id),
-          { ...agent, startedAt: now, activity: agent.activity ?? popActivity(state, agent.name) },
+          {
+            ...agent,
+            name: /^(general-purpose|default|subagent)?$/i.test(agent.name.trim())
+              ? (label?.name ?? previous?.name ?? agent.name)
+              : agent.name,
+            startedAt: previous?.startedAt ?? now,
+            activity: agent.activity ?? previous?.activity ?? label?.activity,
+          },
         ].slice(-256);
       }
     }
+    // Keep only labels, not output or lifecycle state, between runs of a child.
+    for (const agent of state.agents) {
+      state.descriptions.set(agent.id, { name: agent.name, activity: agent.activity });
+    }
+    while (state.descriptions.size > 256) state.descriptions.delete(state.descriptions.keys().next().value ?? "");
     if (input.event === "stop") state.agents = state.agents.filter((a) => a.id !== input.agentId);
     const activeIds = new Set(state.agents.map((agent) => agent.id));
     for (const agentId of state.labels.keys()) {

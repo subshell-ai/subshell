@@ -445,6 +445,8 @@ describe("ClaudeCodePlugin attention hooks", () => {
     );
     const roster = "'/usr/local/bin/subshell-server' 'report' 'subagents'";
     expect(hooks.SubagentStart?.[0].hooks[0].command).toBe(roster);
+    expect(hooks.PostToolUse?.[0].matcher).toBe("Agent|Task");
+    expect(hooks.PostToolUse?.[0].hooks[0].command).toBe(roster);
     expect(hooks.SubagentStop?.[0].hooks[0].command).toBe(roster);
     // /clear, /fork and an in-pane /resume move the pane to a conversation
     // the children died with: SessionStart carries a SECOND reporter hook so

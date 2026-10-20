@@ -1,26 +1,33 @@
 # Contextual sidebar
 
-The mini rail selects Workspaces, Subshells, Settings, Subshell for Mobile, or
-Account. `lib/sidebar-context.ts` derives the active section from the route,
-including direct visits and browser Back. Each section remembers its last
-visited destination while the shell stays mounted. While a workspace is open,
-Workspaces and Subshells switch only the sidebar panel. Subshells keeps
-search, grouping, status, and actions; selecting a row focuses its tab or adds
-it to the current workspace as a tab, even if another workspace holds it.
-The actions menu beside the filter offers Add subshell and Subshell dashboard.
-Add subshell opens the workspace picker when a workspace is active; Subshell
-dashboard leaves the workspace for `/subshells`.
-Modified clicks still follow the links’ destinations.
+The mini rail selects Workspaces, Settings, Subshell for Mobile, or Account.
+`lib/sidebar-context.ts` derives route context; the Subshell dashboard uses the
+same workspace panel. Each section remembers its last visited destination.
 
-`ActiveWorkspaceSection` uses the workspace list and the existing live subshell
-cache. It renders only the selected workspace through `WorkspaceBranch` and
-`SubshellRecentRow`, preserving status, focus, tooltips, context menus and drag
-payloads. The workspace picker includes every available workspace and New workspace. A missing
-workspace URL never falls back to an unrelated workspace. A direct subshell
-link uses a workspace that holds it, or shows just that subshell when unfiled.
-A small attention count links to Subshells for pending work elsewhere.
-The old all-workspaces tree and machine-group list are no longer mounted in
-the shell; their reusable list components and tests remain separate.
+`ActiveWorkspaceSection` combines the workspace picker and its member rows
+with other subshells below a **Subshells** divider and no collapse button. The latter retains
+grouping, status and actions, filtering out members of the selected workspace.
+The two lists scroll independently. No workspace heading or dedicated collapse
+button sits above the picker. The mobile drawer's close control stays beside
+it. With no selected workspace, the bottom section shows all subshells.
+
+Plain clicks in the lower Subshells section add a tab to the selected workspace and focus
+it; modified clicks retain the real subshell link. The actions menu beside grouping
+keeps Add subshell and Subshell dashboard. The dashboard is an explicit route
+change, not a separate mini-rail section.
+
+`WorkspaceSidebarDrag` coordinates the two MIME-scoped drop areas. A drag
+exposes a centered Add to workspace or Remove from workspace overlay, without
+moving the lists. Its preview clones just the row, never the subagent tree.
+Addition uses the workspace route's existing add intent; removal uses
+`useWorkspacePaneMutations` and invalidates membership readers. Neither act
+shows a success toast. Removing the final tab is guarded in the UI and by the
+server; failures remain visible. Row action menus provide non-drag equivalents.
+Only membership changes: removing a row never closes its subshell.
+
+The picker still shows every workspace and New workspace. A missing workspace
+URL never substitutes another workspace. A direct subshell link uses a workspace
+that holds it, or shows the standalone subshell when unfiled.
 
 `ContextNavigation` reuses `sidebar-nav.ts` for personal and admin pages. Admin
 navigation remains hidden until the server explicitly says the viewer is an
@@ -32,10 +39,9 @@ notices without a second account menu.
 Collapsing hides the contextual panel while leaving the mini rail available.
 Everywhere the panel is collapsible (the browser SPA and the desktop app; not
 the mobile drawer, which is always expanded), clicking the active mini-rail
-icon toggles its panel; choosing a different section opens that panel. The panel header also has a collapse button,
-and the collapsed rail has an expand button near the top. The choice persists
+icon toggles its panel; choosing a different section opens that panel. There is no separate collapse/expand button. The choice persists
 in local storage.
-The desktop Find Subshell action opens Subshells and focuses its search.
+The desktop Find Subshell action opens the subshell dashboard and focuses its search.
 Native drag strips and connection footer controls remain supplied by the
 existing desktop wrapper.
 

@@ -39,9 +39,9 @@ function selectionState(data: HarnessSubagentSnapshot, pending: boolean) {
       : // A reason that renders as nothing is no reason: fall through to the
         // default sentence rather than tooltip an empty explanation. It is
         // the server's own default wording, so one situation stays one
-        // sentence wherever either is rendered (and "harness" is the noun
-        // that lacks the navigation, not the agent).
-        data.unavailableReason || "This harness doesn't support switching subagent views.";
+        // sentence wherever either is rendered.
+        data.unavailableReason ||
+        "Subshell can't switch views in this harness yet. Use the harness's own agent selector.";
   return { blocked, reason };
 }
 
@@ -57,15 +57,29 @@ function spentLine(agent: HarnessSubagentView): string {
 }
 
 /**
- * One child's hover card: what it was asked to do (when the harness said),
- * what it's doing now, and for how long. The poll refreshes it, so elapsed
- * time ages in place rather than freezing at the last read.
+ * A child's visible name and activity share a compact two-line row.
  */
+function AgentRowText({ agent, showActivity }: { agent: HarnessSubagent; showActivity: boolean }) {
+  return (
+    <span className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-1.5 text-left">
+      <AgentStatusDot agent={agent} className="size-1.5" />
+      <span className="truncate">{agent.name}</span>
+      {showActivity && agent.activity && (
+        <span
+          className="col-start-2 truncate text-muted-foreground"
+          style={{ fontSize: "calc(var(--text-detail) - 1px)" }}
+        >
+          {agent.activity}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function AgentTooltipLines({ agent, lead, hint }: { agent: HarnessSubagentView; lead?: string; hint?: string }) {
   return (
     <div className="flex flex-col gap-1">
-      {lead && <p>{lead}</p>}
-      {agent.activity && <p>{agent.activity}</p>}
+      {lead && <p style={{ fontSize: "calc(var(--text-detail) - 1px)" }}>{lead}</p>}
       <p className="text-muted-foreground">{spentLine(agent)}</p>
       {hint && <p className="text-muted-foreground">{hint}</p>}
     </div>
@@ -76,7 +90,7 @@ function AgentTooltipLines({ agent, lead, hint }: { agent: HarnessSubagentView; 
 function agentTooltipText(agent: HarnessSubagentView, lead?: string): string {
   // A sentence-joined string must not carry a doubled period or lack its
   // final one: trim each line's terminator, then join and close.
-  const lines = [lead, agent.activity, spentLine(agent)]
+  const lines = [lead, spentLine(agent)]
     .filter((line): line is string => Boolean(line))
     .map((line) => line.replace(/[.…]+$/, ""));
   return lines.length ? `${lines.join(". ")}.` : "";
@@ -103,16 +117,21 @@ export function HarnessSubagentRows({
   id,
   alive,
   branchWorkspaceId,
+  harnessId,
 }: {
   id: string;
   alive: boolean;
   branchWorkspaceId?: string;
+  harnessId?: string;
 }) {
   const navigate = useNavigate();
   const { data } = useHarnessSubagents(id, alive);
   const select = useSelectHarnessAgent(id);
   if (!data?.agents.length) return null;
   const { blocked, reason } = selectionState(data, select.isPending);
+  // Claude's tool descriptions aren't its live task-picker summaries. Showing
+  // them here makes the sidebar look stale even when reports arrive correctly.
+  const showActivity = harnessId !== "claude-code";
   return (
     <div className="relative -mt-1 ml-4 flex min-w-0 flex-col pt-1 before:absolute before:top-0 before:left-0 before:h-1 before:border-border before:border-l">
       {data.agents.map((agent, index) => (
@@ -121,24 +140,23 @@ export function HarnessSubagentRows({
             aria-hidden="true"
             className={cn(
               "pointer-events-none absolute top-0 left-0 border-border border-l",
-              index === data.agents.length - 1 ? "h-1/2" : "h-full",
+              index === data.agents.length - 1 ? "h-3.5" : "h-full",
             )}
           />
-          <span aria-hidden="true" className="pointer-events-none absolute top-1/2 left-0 w-3 border-border border-t" />
+          <span aria-hidden="true" className="pointer-events-none absolute top-3.5 left-0 w-3 border-border border-t" />
           {blocked ? (
             <Button
               variant="ghost"
               size="sm"
               className={cn(
-                "h-7 w-full justify-start gap-1.5 px-2 font-regular text-detail [&_svg]:size-3",
+                "h-auto min-h-7 w-full justify-start gap-1.5 px-2 py-1 font-regular text-detail [&_svg]:size-3",
                 data.selectedId === agent.id && "bg-accent",
               )}
               disabled
               disabledReason={<AgentTooltipLines agent={agent} lead={reason} />}
               disabledReasonText={agentTooltipText(agent, reason)}
             >
-              <AgentStatusDot agent={agent} className="size-1.5" />
-              <span className="truncate">{agent.name}</span>
+              <AgentRowText agent={agent} showActivity={showActivity} />
             </Button>
           ) : (
             <TooltipProvider>
@@ -149,7 +167,7 @@ export function HarnessSubagentRows({
                       variant="ghost"
                       size="sm"
                       className={cn(
-                        "h-7 w-full justify-start gap-1.5 px-2 font-regular text-detail [&_svg]:size-3",
+                        "h-auto min-h-7 w-full justify-start gap-1.5 px-2 py-1 font-regular text-detail [&_svg]:size-3",
                         data.selectedId === agent.id && "bg-accent",
                       )}
                       onClick={() =>
@@ -166,8 +184,7 @@ export function HarnessSubagentRows({
                     />
                   }
                 >
-                  <AgentStatusDot agent={agent} className="size-1.5" />
-                  <span className="truncate">{agent.name}</span>
+                  <AgentRowText agent={agent} showActivity={showActivity} />
                 </TooltipTrigger>
                 <TooltipContent>
                   <AgentTooltipLines

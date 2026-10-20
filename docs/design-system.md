@@ -30,7 +30,9 @@ no class at all is the one escape.
 Line-height 1.2 for `display`/`heading`, 1.5 otherwise. Code is `detail` in the
 monospace stack.
 
-**There is no 12px.** A `caption` role at 12 was dropped (2026-09-14) as too
+**Sidebar subagent descriptions and tooltip availability explanations are a scoped exception** (operator request, 2026-10-20): they render one pixel below `detail` to keep supporting text smaller than the agent name and activity. Other quiet text keeps the `detail` floor.
+
+**There is no general-purpose 12px role.** A `caption` role at 12 was dropped (2026-09-14) as too
 small to read; `detail` absorbed it, so quiet text is separated from loud text
 by COLOUR and WEIGHT rather than by a third size. `text-xs` and `text-caption`
 are refused by `lint:design`, and that refusal is load-bearing, because

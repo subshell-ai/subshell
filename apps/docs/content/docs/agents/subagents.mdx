@@ -5,9 +5,9 @@ description: "Follow delegated agents beneath their parent subshell and switch s
 
 Subagents appear beneath the subshell that runs their parent agent. They aren't separate subshells, and they don't add tabs to your workspace. Completed subagents disappear from the list.
 
-Open **Workspaces** or **Subshells** in the mini rail. When a subshell has active subagents, an arrow appears beneath its status dot. Select the arrow to collapse or expand the connected child rows without changing the focused subshell. Selecting the already active parent row also toggles its children.
+Open **Workspaces** in the mini rail. Subagents appear under parents in both the workspace list and the **Subshells** section. When a subshell has active subagents, an arrow appears beneath its status dot. Select the arrow to collapse or expand the connected child rows without changing the focused subshell. Selecting the already active parent row also toggles its children.
 
-Each child shows its name and status. Hover or focus a child for a card with its status, how long it has been running, and, when the harness supplies one, the one-line task label it was given: Claude Code passes the description from the Agent tool's input, and Hermes passes the child's stated goal. Generic names such as `default` appear as **Subagent 1**, **Subagent 2**, and so on. These numbers stay stable while the children are active; meaningful names supplied by the harness stay unchanged. This works for subshells running on the server host and on enrolled nodes.
+Each child shows its name and status. When a task description is available, it appears on a second line beneath the name. Hover or focus a child for its status, how long it has been running, and whether you can switch to its view. Generic names such as `default` appear as **Subagent 1**, **Subagent 2**, and so on. These numbers stay stable while the children are active; meaningful names supplied by the harness stay unchanged. This works for subshells running on the server host and on enrolled nodes.
 
 <figure className="docs-screenshot">
   <ImageZoom src="/screenshots/harness-subagents.png" alt="Codex running a task with one numbered subagent, Subagent 1, connected beneath its parent Build feature in the workspace sidebar." width="1800" height="1120" loading="lazy" decoding="async" unoptimized />
@@ -33,7 +33,9 @@ If native navigation isn't available, the children remain visible as status indi
 | pi | pi's own `subagent` example extension (installed into pi separately), or an extension implementing the bridge below. | Status only. |
 | Terminal | No harness subagents. | Not applicable. |
 
-Restart existing subshells to load a newly installed integration. Lifecycle-only integrations report events while they run; after a server restart, existing children won't reappear until the harness reports them again. OpenCode and pi send snapshots instead.
+New name and description reports update the existing row. Claude Code's subagent descriptions are hidden because its reported task and tool descriptions don't match the generated progress summaries in its task picker. Use Claude's own task picker to see current activity. The sidebar still shows subagent names and status. Hermes supplies the child's stated goal.
+
+Restart existing subshells to load a newly installed integration. Restarting doesn't enable Claude's generated progress summaries. Lifecycle-only integrations report events while they run; after a server restart, existing children won't reappear until the harness reports them again. OpenCode and pi send snapshots instead.
 
 ## pi extension bridge
 
@@ -56,4 +58,4 @@ pi.events.emit("subshell:subagents", {
 });
 ```
 
-Use stable IDs and one of `running`, `waiting`, or `idle`. Publish a new snapshot when the set changes, omitting completed children. An empty `agents` array clears it. Send names, lifecycle metadata, and optionally a one-line `activity` label for the hover card. Not prompts or transcripts.
+Use stable IDs and one of `running`, `waiting`, or `idle`. Publish a new snapshot when the set changes, omitting completed children. An empty `agents` array clears it. Send names, lifecycle metadata, and optionally a one-line `activity` label for the second line beneath the name. Not prompts or transcripts.

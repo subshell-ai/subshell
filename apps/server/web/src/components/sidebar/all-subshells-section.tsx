@@ -1,3 +1,4 @@
+import { Button } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { ChartNoAxesCombined, Plus } from "lucide-react";
 import { useState } from "react";
@@ -5,11 +6,10 @@ import { ActionsMenu } from "@/components/actions-menu";
 import { ListLoadError } from "@/components/list-load-error";
 import { useQuickAdd } from "@/components/quick-add";
 import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
-import { SubshellSearch } from "@/components/subshell-search";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useNodes } from "@/hooks/use-nodes";
 import { useSubshellLabels } from "@/hooks/use-subshell-labels";
-import { useFilteredSubshells } from "@/hooks/use-subshells";
+import { useSubshellsList } from "@/hooks/use-subshells";
 import { useWorkspaces } from "@/hooks/use-workspaces";
 import { sortByStatus } from "@/lib/subshell-indicator";
 import { groupSubshellsByNode } from "@/lib/subshell-node-groups";
@@ -36,15 +36,13 @@ function savedGroupBy(): GroupBy {
 
 /** Every visible subshell, using the same live cache and actions as workspace rows. */
 export function AllSubshellsSection({
-  query,
-  onQueryChange,
   workspaceId,
   onAction,
+  excludeIds,
 }: {
   workspaceId?: string;
+  excludeIds?: ReadonlySet<string>;
   onAction?: () => void;
-  query: string;
-  onQueryChange: (value: string) => void;
 }) {
   const navigate = useNavigate();
   const quickAdd = useQuickAdd();
@@ -53,11 +51,11 @@ export function AllSubshellsSection({
   const memberIds = new Set(
     workspaces?.find((workspace) => workspace.id === workspaceId)?.panes?.map((pane) => pane.subshellId),
   );
-  const results = useFilteredSubshells(query);
+  const results = useSubshellsList();
   const labelsFor = useSubshellLabels();
   const { data: nodes } = useNodes();
   const [groupBy, setGroupBy] = useState<GroupBy>(savedGroupBy);
-  const sorted = sortByStatus(results.data ?? []);
+  const sorted = sortByStatus((results.data ?? []).filter((row) => !excludeIds?.has(row.id)));
   const sections =
     groupBy === "machine"
       ? sectionsByNode(
@@ -66,29 +64,50 @@ export function AllSubshellsSection({
       : groupBy === "status"
         ? sectionsByStatus(sorted)
         : [{ key: "all", label: "", title: "", subshells: sorted }];
+  const addSubshell = () => {
+    if (workspaceId) {
+      void navigate({ to: "/workspaces/$id", params: { id: workspaceId }, search: { picker: true } });
+    } else {
+      quickAdd.openLaunch();
+    }
+    onAction?.();
+  };
   return (
-    <section aria-label="Subshells" className="flex flex-col gap-3">
-      <div className="flex min-w-0 items-center gap-2">
-        <SubshellSearch
-          ariaLabel="Filter sidebar subshells"
-          value={query}
-          onChange={onQueryChange}
-          className="min-w-0 flex-1"
-        />
+    <section aria-label="Subshells" className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className="flex min-w-0 shrink-0 items-center gap-2">
+        <Select
+          value={groupBy}
+          items={GROUP_OPTIONS}
+          onValueChange={(value) => {
+            if (value !== "machine" && value !== "status" && value !== "none") return;
+            setGroupBy(value);
+            try {
+              localStorage.setItem(GROUP_KEY, value);
+            } catch {
+              // Keep the current choice even when it cannot be saved.
+            }
+          }}
+        >
+          <SelectTrigger aria-label="Group sidebar subshells by" className="h-7 min-w-0 flex-1 px-2 py-0.5 text-detail">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {GROUP_OPTIONS.map(({ value, label }) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
         <ActionsMenu
           label="Subshells"
           items={[
             {
               label: "Add subshell",
               icon: Plus,
-              onSelect: () => {
-                if (workspaceId) {
-                  void navigate({ to: "/workspaces/$id", params: { id: workspaceId }, search: { picker: true } });
-                } else {
-                  quickAdd.openLaunch();
-                }
-                onAction?.();
-              },
+              onSelect: addSubshell,
             },
             {
               label: "Subshell dashboard",
@@ -101,38 +120,13 @@ export function AllSubshellsSection({
           ]}
         />
       </div>
-      <Select
-        value={groupBy}
-        items={GROUP_OPTIONS}
-        onValueChange={(value) => {
-          if (value !== "machine" && value !== "status" && value !== "none") return;
-          setGroupBy(value);
-          try {
-            localStorage.setItem(GROUP_KEY, value);
-          } catch {
-            // Keep the current choice even when it cannot be saved.
-          }
-        }}
-      >
-        <SelectTrigger aria-label="Group sidebar subshells by">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectGroup>
-            {GROUP_OPTIONS.map(({ value, label }) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
+
       {results.isError ? (
         <ListLoadError message="Couldn’t load subshells." retry={results.refetch} busy={results.isFetching} />
       ) : results.isLoading ? (
         <p className="px-3 text-detail text-muted-foreground">Loading subshells…</p>
-      ) : results.data?.length ? (
-        <div className="flex flex-col gap-3">
+      ) : sorted.length ? (
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1 pb-2">
           {sections.map((section) => (
             <div key={section.key}>
               {section.label && (
@@ -163,9 +157,17 @@ export function AllSubshellsSection({
           ))}
         </div>
       ) : (
-        <p className="px-3 text-detail text-muted-foreground">
-          {query.trim() ? "No subshells match your search." : "No subshells yet."}
-        </p>
+        <div className="flex flex-col gap-2 rounded-md border border-dashed p-3 text-detail">
+          <p className="font-strong">{excludeIds?.size ? "No other subshells" : "No subshells yet"}</p>
+          <p className="text-muted-foreground">
+            {excludeIds?.size
+              ? "All subshells are in this workspace."
+              : "Start an agent or a terminal session to get going."}
+          </p>
+          <Button size="sm" className="mt-1 self-start" onClick={addSubshell}>
+            <Plus /> Add subshell
+          </Button>
+        </div>
       )}
     </section>
   );
