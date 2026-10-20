@@ -304,7 +304,7 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
             const merged = { ...previous, ...row, access: previous.access, preview: previous.preview } as SubshellView;
             // A rename must reach the DOCK too. Tab titles render from the
             // workspace pane rows, and the dock re-titles itself only when
-            // `detail.panes` changes — a read with no poll of its own. Without
+            // `detail.panes` changes, a read with no poll of its own. Without
             // these two invalidations (mirroring the gone branch) an open tab
             // kept the old title until remount (operator report 2026-10-20).
             // Only a name change pays this: an activity- or status-only frame
