@@ -24,7 +24,7 @@ try {
   mkdirSync(path.join(project, "src"));
   writeFileSync(
     path.join(project, "src/tasks.ts"),
-    "export const complete = (tasks, id) => tasks.map(task => task.id === id ? { ...task, done: true } : task);\n",
+    "export const complete = (tasks, id) =>\n  tasks.map(task =>\n    task.id === id ? { ...task, done: true } : task\n  );\n",
   );
   writeFileSync(
     path.join(project, "tasks.test.ts"),
@@ -128,6 +128,11 @@ try {
   await capture(page, "preset-codex-configuration", dialog.getByRole("heading"), page.locator("#preset-command"));
   await close();
   await page.getByRole("button", { name: "Actions for Repository review", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Share preset", exact: true }).click();
+  await dialog.getByRole("button", { name: "Add", exact: true }).click();
+  await capture(page, "preset-sharing", dialog);
+  await close();
+  await page.getByRole("button", { name: "Actions for Repository review", exact: true }).click();
   await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
   await capture(page, "preset-launch-defaults", page.getByText("Launch defaults", { exact: true }).locator(".."));
 
@@ -145,10 +150,8 @@ try {
   await capture(page, "node-enrollment", dialog);
   await close();
 
-  await page.getByRole("button", { name: "Subshell for Mobile", exact: true }).click();
-  await page.getByRole("button", { name: "iPhone & iPad", exact: true }).click();
-  await capture(page, "mobile-web-install", dialog);
-  await close();
+  await page.goto("/mobile?platform=apple");
+  await capture(page, "mobile-web-install", page.locator("main h1"), card.last());
 
   await page.goto("/settings/networking");
   await expect(page.locator("#server-base-url")).toHaveValue(BASE_URL);
@@ -160,12 +163,12 @@ try {
   );
 
   await page.goto(`/subshells/${panes[0].id}`);
-  await page.getByRole("button", { name: "Actions for Project shell", exact: true }).click();
+  await page.locator("main").getByRole("button", { name: "Actions for Project shell", exact: true }).click();
   await page.getByRole("menuitem", { name: "Share…", exact: true }).click();
   await dialog.getByRole("button", { name: "Add", exact: true }).click();
   await capture(page, "session-sharing", dialog);
   await close();
-  await page.goto("/");
+  await page.goto("/subshells");
   await expect(page.locator("main").getByText("Project shell", { exact: true })).toBeVisible();
   await page.locator("main").getByRole("button", { name: "List view", exact: true }).click();
   await page.getByRole("combobox", { name: "Group by", exact: true }).click();
@@ -200,6 +203,23 @@ try {
     page.locator("main"),
     310,
   );
+  await post("/api/subshells", { harnessId: "terminal", presetId: shell.id, workingDir: project, name: "Build tools" });
+  await page
+    .getByRole("navigation", { name: "Main sections" })
+    .getByRole("link", { name: "Subshells", exact: true })
+    .click();
+  await expect(page.getByRole("img", { name: "In active workspace" })).toHaveCount(2);
+  await expect(page.locator("aside").getByText("Build tools", { exact: true })).toBeVisible();
+  const sidebarMargin = await page.addStyleTag({ content: "aside { margin: 12px; height: calc(100% - 24px); }" });
+  await capture(page, "workspace-browser", page.locator("aside"));
+  await sidebarMargin.evaluate((element) => element.parentNode?.removeChild(element));
+  await page
+    .getByRole("navigation", { name: "Main sections" })
+    .getByRole("link", { name: "Workspaces", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Add a subshell to this workspace" }).click();
+  await capture(page, "add-subshell", dialog);
+  await close();
   for (const name of [
     "workspace-layout",
     "prompt-stack-members",

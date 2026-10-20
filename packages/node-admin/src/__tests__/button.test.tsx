@@ -50,3 +50,37 @@ it("preserves focus when an explanation clears after enabling", () => {
   expect(screen.getByRole("button", { name: "Save" })).toBe(button);
   expect(document.activeElement).toBe(button);
 });
+
+it("pairs a node reason with its text, or keeps the caller's description", () => {
+  const { rerender } = render(
+    <Button
+      disabled
+      disabledReason={
+        <span>
+          Two <b>lines</b>
+        </span>
+      }
+      disabledReasonText="Two lines."
+    >
+      Go
+    </Button>,
+  );
+  expect(screen.getByRole("button", { name: "Go" }).getAttribute("aria-description")).toBe("Two lines.");
+  // Without the paired text the tooltip still renders visually, and a
+  // caller-supplied description survives instead of going undefined.
+  rerender(
+    <Button disabled disabledReason={<span>Two lines</span>} aria-description="Caller's own description">
+      Go
+    </Button>,
+  );
+  expect(screen.getByRole("button", { name: "Go" }).getAttribute("aria-description")).toBe("Caller's own description");
+});
+
+it("prefers a string reason over a stale text twin", () => {
+  render(
+    <Button disabled disabledReason="The real blocker." disabledReasonText="Stale twin.">
+      Save
+    </Button>,
+  );
+  expect(screen.getByRole("button", { name: "Save" }).getAttribute("aria-description")).toBe("The real blocker.");
+});

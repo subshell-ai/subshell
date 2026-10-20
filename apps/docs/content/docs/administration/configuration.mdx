@@ -24,16 +24,16 @@ Restart the process when changing boot-time settings. Network plugin addresses a
 
 ## Instance labels
 
-Sign in as an administrator. In the server dashboard's sidebar, open **Server Settings** → **General** and edit the **Instance name** card. It appears in the sidebar and sign-in page. The default is the host's hostname.
+Sign in as an administrator. In the server dashboard's sidebar, open **Settings** → **Server Settings** → **General** and edit the **Instance name** card. It appears in the sidebar and sign-in page. The default is the host's hostname.
 
 The control-plane host's node has a separate name, defaulting to **Server**. Changing it updates launch pickers without changing its internal `local` ID.
 
 ## Launch controls
 
-On **Server Settings** → **General**, find the **Nodes** card. Its server-execution switch reads **The server and nodes can run subshells** when enabled and **Only nodes can run subshells** when disabled. Disabling server-host subshells prevents new launches and restarts on that host while existing panes finish.
+On **Settings** → **Server Settings** → **General**, find the **Nodes** card. Its server-execution switch reads **The server and nodes can run subshells** when enabled and **Only nodes can run subshells** when disabled. Disabling server-host subshells prevents new launches and restarts on that host while existing panes finish.
 
 > [!warning] Lockdown
-> The **Lockdown mode** card is also on **Server Settings** → **General**. Enabling lockdown blocks new launches and restarts across the instance and tries to stop running subshells. Some may keep running if they can't be stopped. Review its confirmation before applying it.
+> The **Lockdown mode** card is also on **Settings** → **Server Settings** → **General**. Enabling lockdown blocks new launches and restarts across the instance and tries to stop running subshells. Some may keep running if they can't be stopped. Review its confirmation before applying it.
 
 ## Next steps
 

@@ -645,8 +645,10 @@ semantics), and the docs.yml/website.yml deploy shape.
 How an installation moves to the next version is designed in
 `docs/superpowers/specs/2026-09-15-updates-design.md`, read §15
 ("Amendments made while building"); the code and §15 are what shipped, not
-§§1–14. The rules to code by are in `.claude/rules/security-context.md`
-("Updates & releases"); the publishing mechanics are in
+§§1–14. The rules to code by sit with the code they govern: the plane
+routes and the install transaction in `apps/server/api/AGENTS.md`, the
+agent's own half in `apps/node/agent/AGENTS.md`, the desktop updater rules
+in the two desktop `AGENTS.md` files; the publishing mechanics are in
 `docs/release-and-ci.md`.
 
 ## Build Dependencies
@@ -675,25 +677,8 @@ bun run lint:lockfile:fix  # ...and resync them
 
 ### The one thing `bun install` will not fix
 
-`bun.lock` records a `version` for every workspace, and **bun writes it once
-and never resyncs it**. Measured on bun 1.4.0 against a workspace bumped in its
-package.json while the lockfile stayed behind: `bun install`, `--force`,
-`--lockfile-only` and `--lockfile-only --force` all leave the stale value, and
-`bun install --frozen-lockfile` exits **0** rather than objecting. Only deleting
-the lockfile and resolving from scratch fixes it, which on this repo also
-moves `lockfileVersion` 1 → 2 and floats ~550 lines of transitive dependencies,
-so it is a dependency upgrade, not a lockfile repair, and must never run
-unattended.
-
-This bit once: the changesets Action runs `changeset version` and commits the
-bumps ITSELF, so lefthook's local "update bun lockfile" hook never fires, and
-`bun.lock` trailed a whole release before anyone noticed. `version-packages`
-therefore ends with `lint:lockfile:fix`, and `lint.yml` runs `lint:lockfile`:
-a fix with no detector silently rots.
-
-`scripts/lockfile-workspace-versions.ts` rewrites the one `version` field
-inside a workspace's own entry and nothing else. That is not the hand-editing
-the pinned-versions rule forbids: it resolves nothing, adds nothing, reorders
-nothing, and every replacement is anchored to its workspace path and asserted
-to match exactly once. If you need anything more than that field changed, run
-`bun install`, not this.
+`bun.lock` records a `version` for every workspace and bun never resyncs it;
+`bun run lint:lockfile:fix` is the only sanctioned repair. The measured
+details and the script's exact scope live in
+`.claude/rules/dependencies.md` (also auto-loaded) - read that, not a rerun
+of the experiment.

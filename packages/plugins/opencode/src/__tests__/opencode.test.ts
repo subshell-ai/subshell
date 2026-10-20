@@ -10,6 +10,14 @@ function preset(overrides: Partial<PresetDefinition> = {}): PresetDefinition {
 }
 
 describe("OpencodePlugin", () => {
+  it("escapes integration file URLs without changing the path passed to the harness", () => {
+    const reg = plugin.mcpRegistration?.({ command: "subshell", args: ["mcp"] }, "/data/with #space/session.json");
+    expect(JSON.parse(reg?.files?.["tui.json"] ?? "{}").plugin).toEqual([
+      "file:///data/with%20%23space/session.json.d/subagents.mjs",
+    ]);
+    expect(reg?.env?.OPENCODE_TUI_CONFIG).toBe("/data/with #space/session.json.d/tui.json");
+  });
+
   it("has stable metadata", () => {
     // Identity moved to package.json so the host can list and detect this
     // plugin without importing or running a line of it.

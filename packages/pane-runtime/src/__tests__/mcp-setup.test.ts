@@ -32,7 +32,7 @@ describe("ClaudeCodePlugin MCP registration", () => {
 describe("OpencodePlugin MCP registration", () => {
   it("renders the opencode mcp dialect and points OPENCODE_CONFIG at the file", () => {
     const reg = getHarness("opencode")!.mcpRegistration?.(bunLaunch, "/data/sess.json");
-    expect(reg?.env).toEqual({ OPENCODE_CONFIG: "/data/sess.json" });
+    expect(reg?.env).toEqual({ OPENCODE_CONFIG: "/data/sess.json", OPENCODE_TUI_CONFIG: "/data/sess.json.d/tui.json" });
     const doc = JSON.parse(reg?.fileContent ?? "{}") as {
       mcp: { subshell: { type: string; command: string[]; enabled: boolean } };
     };

@@ -11,8 +11,9 @@ import { isSubshellId, type SubshellMetaStore } from "./subshell-meta.js";
  *
  * **Why this exists on the node at all.** An ssh pane's generated config is
  * a DIRECTORY (`<dataDir>/ssh/<id>/config`), but the plane-commanded
- * `remove_paths` executor unlinks FILES only — so a delete-after-death on an
- * AGENT node removed the config and left the empty per-pane dir forever
+ * `remove_paths` executor unlinks FILES and recurses into nothing but the
+ * exact-shaped `mcp/<id>.json.d` companion dirs — so a delete-after-death on
+ * an AGENT node removed the config and left the empty per-pane dir forever
  * (the local twin of that leak was closed plane-side in the same wave; this
  * is the machine's copy of the rule, same doctrine as
  * `pane-log-retention.ts`). Nothing else ever names these paths: the id is

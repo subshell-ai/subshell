@@ -30,6 +30,7 @@ import { logger } from "@/utils/logger.js";
  * usually one somebody just made faster in a different package.
  */
 export const REQUEST_LOG_IGNORE: (string | RegExp)[] = [
+  /^\/api\/subshells\/(?:[^/]+\/)?subagents(?:\/report)?$/,
   "/api/admin/status",
   "/api/admin/server",
   "/api/admin/server/logs",

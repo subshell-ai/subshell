@@ -1,4 +1,4 @@
-import { unlinkSync } from "node:fs";
+import { rmSync, unlinkSync } from "node:fs";
 import { hostname } from "node:os";
 import { BackendErrorCodes, stripAnsi, throwApiError } from "@internal/backend-errors";
 import {
@@ -1231,10 +1231,19 @@ export class SubshellManagerService {
     sweepLocalSshDir(row); // guard: local node ∧ snapshot; agent rows skip (their disk, their watcher)
     sweepRelayForPane(row); // the pane stops existing in every flavor: any brokered relay ends here
     // And the generated MCP config (no secrets, but nothing to leave behind).
+    // The config itself first, its companion directory in its own try: a
+    // throwing directory sweep must not skip the unlink and then have the
+    // catch read the survivor as "no config file".
     try {
       unlinkSync(subshellMcpConfigPath(id));
     } catch {
       // no config file
+    }
+    try {
+      rmSync(`${subshellMcpConfigPath(id)}.d`, { recursive: true, force: true });
+    } catch {
+      // the companion sweep is best-effort: a surviving generated file never
+      // blocks deleting the pane
     }
     logger.info(`subshell deleted: ${id}`);
     await this.#audit({

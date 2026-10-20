@@ -24,6 +24,131 @@ describe("runReport", () => {
     return { seen, fetchImpl };
   }
 
+  it("reports child lifecycle metadata without forwarding prompts or transcripts", async () => {
+    const { seen, fetchImpl } = recorder();
+    for (const payload of [
+      { hook_event_name: "SubagentStart", agent_id: "child", agent_type: "Explore", prompt: "private" },
+      { hook_event_name: "SubagentStop", agent_id: "child", agent_transcript_path: "private" },
+      {
+        hook_event_name: "subagent_start",
+        extra: {
+          child_session_id: "hermes-child",
+          child_role: "Review",
+          child_goal: "Review the migration plan",
+          child_summary: "private",
+        },
+      },
+      { hook_event_name: "subagent_stop", extra: { child_session_id: "hermes-child", child_summary: "private" } },
+    ])
+      await runReport(["subagents"], {
+        env: paneEnv,
+        fetch: fetchImpl,
+        readStdin: async () => JSON.stringify(payload),
+      });
+    expect(await Promise.all(seen.map((request) => request.json()))).toEqual([
+      { event: "start", agents: [{ id: "child", name: "Explore", status: "running" }] },
+      { event: "stop", agentId: "child" },
+      // Hermes names its child's task in the start payload, and the goal line
+      // IS the tooltip content; its stop-side summary is output text and
+      // stays as private as the prompt.
+      {
+        event: "start",
+        agents: [{ id: "hermes-child", name: "Review", status: "running", activity: "Review the migration plan" }],
+      },
+      { event: "stop", agentId: "hermes-child" },
+    ]);
+  });
+
+  it("turns an Agent spawn's PreToolUse input into a describe report, keeping the prompt out", async () => {
+    const { seen, fetchImpl } = recorder();
+    const spawn = (toolInput: Record<string, unknown>, toolName = "Agent") =>
+      runReport(["subagents"], {
+        env: paneEnv,
+        fetch: fetchImpl,
+        readStdin: async () =>
+          JSON.stringify({ hook_event_name: "PreToolUse", tool_name: toolName, tool_input: toolInput }),
+      });
+    await spawn({ subagent_type: "code-reviewer", description: "Review the migration plan", prompt: "private" });
+    expect(await seen[0]?.json()).toEqual({
+      event: "describe",
+      agentType: "code-reviewer",
+      activity: "Review the migration plan",
+    });
+    // No description means nothing to pair; a non-Agent tool is not a spawn.
+    await spawn({ subagent_type: "code-reviewer", description: "  " });
+    await spawn({ command: "ls private-thing" }, "Bash");
+    expect(seen).toHaveLength(1);
+    // A spawn with no declared type still carries its label under the open key.
+    await spawn({ description: "Investigate the flake" });
+    expect(await seen[1]?.json()).toEqual({ event: "describe", agentType: "", activity: "Investigate the flake" });
+    // The rename's older spelling is the matcher's other arm, so it pairs the
+    // same way.
+    await spawn({ subagent_type: "scout", description: "Map the repo" }, "Task");
+    expect(await seen[2]?.json()).toEqual({ event: "describe", agentType: "scout", activity: "Map the repo" });
+  });
+
+  it("routes the roster report to the pane's own endpoint, and handles the reset, fallback and cap edges", async () => {
+    const { seen, fetchImpl } = recorder();
+    // SessionStart with source "clear" (or "fork"): the children died with
+    // the old conversation, so the roster is dropped rather than re-reported.
+    await runReport(["subagents"], {
+      env: paneEnv,
+      fetch: fetchImpl,
+      readStdin: async () => JSON.stringify({ hook_event_name: "SessionStart", source: "clear" }),
+    });
+    expect(seen).toHaveLength(1);
+    await runReport(["subagents"], {
+      env: paneEnv,
+      fetch: fetchImpl,
+      readStdin: async () => JSON.stringify({ hook_event_name: "SessionStart", source: "fork" }),
+    });
+    expect(seen).toHaveLength(2);
+    expect(await seen[1]?.json()).toEqual({ event: "reset" });
+    // An in-pane /resume is a DIFFERENT conversation on the same row, so it
+    // resets too (a stale roster never re-announces itself). /compact keeps
+    // ONE conversation and its live children, and startup announces nothing:
+    // neither posts at all.
+    await runReport(["subagents"], {
+      env: paneEnv,
+      fetch: fetchImpl,
+      readStdin: async () => JSON.stringify({ hook_event_name: "SessionStart", source: "resume" }),
+    });
+    expect(seen).toHaveLength(3);
+    expect(await seen[2]?.json()).toEqual({ event: "reset" });
+    for (const source of ["compact", "startup"]) {
+      await runReport(["subagents"], {
+        env: paneEnv,
+        fetch: fetchImpl,
+        readStdin: async () => JSON.stringify({ hook_event_name: "SessionStart", source }),
+      });
+    }
+    expect(seen).toHaveLength(3);
+    // The endpoint is built from the pane's own env id, like every other verb:
+    // a report can only ever describe its own subshell.
+    expect(seen[0]?.url).toBe("http://h:3080/api/subshells/sub_42/subagents/report");
+    expect(await seen[0]?.json()).toEqual({ event: "reset" });
+    // A start payload with no usable type label still reports, under the
+    // generic name the sidebar numbers.
+    await runReport(["subagents"], {
+      env: paneEnv,
+      fetch: fetchImpl,
+      readStdin: async () => JSON.stringify({ hook_event_name: "SubagentStart", agent_id: "x" }),
+    });
+    expect(await seen[3]?.json()).toEqual({
+      event: "start",
+      agents: [{ id: "x", name: "Subagent", status: "running" }],
+    });
+    // An over-long id is refused SILENTLY: no request, nothing thrown — the
+    // hook stays invisible in the user's session.
+    await runReport(["subagents"], {
+      env: paneEnv,
+      fetch: fetchImpl,
+      readStdin: async () =>
+        JSON.stringify({ hook_event_name: "SubagentStart", agent_id: "x".repeat(257), agent_type: "A" }),
+    });
+    expect(seen).toHaveLength(4);
+  });
+
   it("posts the attention kind to the subshell's own attention endpoint", async () => {
     const { seen, fetchImpl } = recorder();
 

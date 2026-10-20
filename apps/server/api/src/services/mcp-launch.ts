@@ -38,9 +38,9 @@ export function subshellMcpEnv(apiKey: string, subshellId: string, subshellName:
  * Registers `subshell mcp` for one subshell launch, in the HARNESS'S OWN dialect:
  * the plugin renders the config file content (plus any argv/env that activates
  * it), and this writes the file. Returns the registration for the caller to
- * bake into the pane — or undefined for harnesses with no per-subshell format
- * (hermes, pi), which the UI explains via their one-time mcpSetup steps.
- * Content holds no secrets, but the file stays 0600 — least exposure is free.
+ * bake into the pane, or undefined for the one harness with no per-subshell
+ * format (hermes), whose one-time mcpSetup steps the UI explains instead.
+ * Content holds no secrets, but the file stays 0600: least exposure is free.
  */
 export function registerSubshellMcp(
   harness: HarnessPlugin,
@@ -51,6 +51,21 @@ export function registerSubshellMcp(
   const reg = harness.mcpRegistration?.(launch, file);
   if (!reg) return undefined;
   mkdirSync(dirname(file), { recursive: true });
+  if (reg.files) {
+    if (Object.keys(reg.files).length > 8) throw new Error("Too many harness integration files");
+    // Validate EVERY entry before the first write. Checking names and sizes
+    // inside the write loop meant a bad entry midway left its valid siblings
+    // sitting in a half-populated `.d`, and a restart onto the same row
+    // would load them as if the registration had gone through.
+    for (const [name, content] of Object.entries(reg.files)) {
+      if (!/^[a-zA-Z0-9_-]+\.(mjs|py|json)$/.test(name) || content.length > 65536)
+        throw new Error("Invalid harness integration file");
+    }
+    mkdirSync(`${file}.d`, { recursive: true, mode: 0o700 });
+    for (const [name, content] of Object.entries(reg.files)) {
+      writeFileSync(join(`${file}.d`, name), content, { mode: 0o600 });
+    }
+  }
   writeFileSync(file, reg.fileContent, { mode: 0o600 });
   return reg;
 }
@@ -102,8 +117,8 @@ export function nodeSelfInvoke(facts: Pick<NodeFacts, "selfInvoke">, subcommand:
  * @param harness - The resolved plugin (its `mcpRegistration` dialect)
  * @param subshellId - The subshell the config is generated for
  * @param facts - The node's live facts (dataDir + the ready-reported mcpLaunch)
- * @returns the registration plus the node-side path, or undefined for
- *          harnesses with no per-subshell format (hermes, pi)
+ * @returns the registration plus the node-side path, or undefined for the
+ *          one harness with no per-subshell format (hermes)
  */
 export function planRemoteSubshellMcp(
   harness: HarnessPlugin,

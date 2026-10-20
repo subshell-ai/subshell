@@ -318,12 +318,26 @@ export const McpSetupSchema = t.Union([
   }),
 ]);
 
+/** What a harness can surface of its child agents in the sidebar. */
+export const HarnessSubagentSupportSchema = t.Object({
+  discovery: t.Union([t.Literal("hooks"), t.Literal("extension")], {
+    description: "How subagent lifecycle events reach Subshell",
+  }),
+  navigation: t.Union([t.Literal("native"), t.Literal("unavailable")], {
+    description: "Whether the sidebar can move the parent's own view to a child",
+  }),
+  setup: t.Optional(t.String({ description: "One-time user action needed for reporting to work, if any" })),
+});
+
 /** Everything the preset editor needs to know about one harness. */
 export const HarnessSchemaResponseSchema = t.Object({
   settingsFields: t.Array(SettingsFieldSchema, { description: "Settings editor schema (empty if none)" }),
   suggestedEnv: t.Array(SuggestedEnvSchema, { description: "Known env var suggestions" }),
   suggestedFlags: t.Array(SuggestedFlagSchema, { description: "Known CLI flag suggestions" }),
   mcp: McpSetupSchema,
+  subagents: t.Nullable(HarnessSubagentSupportSchema, {
+    description: "Subagent surfacing this harness supports; null when it reports none",
+  }),
 });
 
 /**

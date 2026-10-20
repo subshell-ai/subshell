@@ -73,8 +73,12 @@ export function StackPageRow({
           in the DOM for find-in-page to trip over. */}
       {open && (
         <tr className="border-b last:border-0">
-          <td colSpan={5} className="max-w-0">
-            <ul id={membersId} className="space-y-1 border-t bg-muted/40 px-3 py-2" aria-label="Stack members">
+          <td colSpan={5} className="max-w-0 p-0">
+            <ul
+              id={membersId}
+              className="flex flex-col gap-1 border-t bg-muted/40 py-2 pl-3"
+              aria-label="Stack members"
+            >
               {stack.items.length === 0 && (
                 <li className="text-muted-foreground text-sm">
                   Nothing here: its prompts were removed or unshared.
@@ -82,7 +86,7 @@ export function StackPageRow({
                 </li>
               )}
               {stack.items.map((item, i) => (
-                <li key={item.id} className="flex items-center gap-2 rounded-md px-1 py-1">
+                <li key={item.id} className="flex items-center gap-2 rounded-md py-1 pl-1">
                   <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="flex min-w-0 flex-wrap items-center gap-2">
                       <span className="max-w-full truncate font-strong text-sm">
@@ -98,13 +102,15 @@ export function StackPageRow({
                       {item.body.split("\n", 1)[0]}
                     </span>
                   </span>
-                  <CopyButton text={item.body} label={item.description === "" ? "prompt" : item.description} />
-                  {canEditMember(item) && (
-                    <ActionsMenu
-                      label={item.description === "" ? "Untitled prompt" : item.description}
-                      items={[{ label: "Edit", icon: Pencil, onSelect: () => onEditMember(item) }]}
-                    />
-                  )}
+                  <div className="grid shrink-0 grid-cols-2 items-center gap-1">
+                    <CopyButton text={item.body} label={item.description === "" ? "prompt" : item.description} />
+                    {canEditMember(item) && (
+                      <ActionsMenu
+                        label={item.description === "" ? "Untitled prompt" : item.description}
+                        items={[{ label: "Edit", icon: Pencil, onSelect: () => onEditMember(item) }]}
+                      />
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>

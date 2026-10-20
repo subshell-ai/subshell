@@ -51,7 +51,7 @@ Passkeys authenticate through WebAuthn and create the same browser session as pa
 
 Disabling an account revokes its browser sessions, rejects its pane credentials, closes its terminal and dashboard connections, invalidates outstanding WebSocket attachment tokens, and disconnects its enrolled nodes. Re-enabling the account lets its nodes reconnect with their existing node credentials.
 
-A password reset has a narrower effect. It revokes stored browser sessions but doesn't remove passkeys or close already-connected WebSockets. Use account disabling when you need to cut off an account's active access during an incident. Administrators manage this from **Server Settings** → **Users** in the server dashboard's sidebar; see [Users and roles](/administration/users).
+A password reset has a narrower effect. It revokes stored browser sessions but doesn't remove passkeys or close already-connected WebSockets. Use account disabling when you need to cut off an account's active access during an incident. Administrators manage this from **Settings** → **Server Settings** → **Users** in the server dashboard's sidebar; see [Users and roles](/administration/users).
 
 Emergency administrator recovery overwrites the administrator's stored password. It is audited and shown as a warning to signed-in users. Clear the emergency value from every configuration layer and restart after recovery. Follow [Account recovery](/administration/recovery), which links to the relevant configuration paths.
 

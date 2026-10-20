@@ -65,7 +65,9 @@ setup key, and discards the node key whose only home was that 0600 file.
 A node-bound **Re-register** key instead retains the existing node entry and
 local preferences while replacing credentials.
 `configure` (`src/configure.ts`) makes the two maintenance edits that keep
-the SAME node: `--server` repoints, `--key` stores a rotated bearer secret in
+the SAME node. `--server` is unprivileged, non-destructive, one plane with two
+names; it does disclose the node key to the host named, so treat it as naming a
+host you trust. It repoints, `--key` stores a rotated bearer secret in
 place (and refuses an `nsk_` setup key by name). A repoint CLEARS `nodeWsUrl`
 (the old plane's self-reported ws URL, which `resolveWsUrl` prefers, except a
 loopback pin beside a remote `serverUrl`, #225 residue that derives; the
@@ -79,6 +81,29 @@ uses the pinned encryption identity and one-use upgrade tickets, keeps the
 configured address as fallback, and never replaces a healthy socket. Cached
 LAN hints are re-verified on every use. Read `docs/repointing.md` before changing
 `src/route-selection.ts` or the daemon's dialing path.
+
+The plane-driven half of a repoint is the signed `set_server_url` command:
+repointing is owner-only and a real widening, because the machine then dials
+the named host with the node key, a key valid on THIS plane. Loopback is
+refused outright; addresses are validated by component and stored
+canonicalized; the audit names the NEW value only. The running daemon
+hot-reloads the change and re-dials on its next heartbeat beat (~15 s, no
+restart).
+
+## The `/ws/node` link (§6)
+
+**The link is app-layer encrypted since protocol 14**: `crypto_kx` against the
+pinned statics, then `secretstream` only. The ratchet never resyncs: a bad
+frame is close `4410` and a redial, never a repair, never plaintext fallback.
+`4411` is the ONLY pre-establishment close on which the agent drops its
+control pin. Replacing the PLANE keypair is not self-healed: it takes a
+manual per-node rotate, `subshell configure --key`, and a restart.
+
+Command signing is a second, deliberately independent layer (spec 2026-09-24
+§9): every command is a JWS signed per node, short-lived and single-use, and
+it proves authenticity, freshness, and target, never confidentiality. The
+agent verifies each signature before executing and refuses stale or expired
+commands.
 
 ## CLI (`src/cli.ts`, hand-rolled parser, no flag library)
 
@@ -146,8 +171,12 @@ NEXT process completes: the swap keeps `<binary>.previous` and writes
 `update-pending.json`; the boot that follows deletes both on acceptance, or,
 on a 4406 refusal, renames `.previous` back, writes `update-failed.json` and
 exits 1 so the manager respawns the version that worked. That swap-back IS
-the node's whole rollback; without a marker, 4406 just logs and exits. No
-network path installs anything the publisher did not sign: the
+the node's whole rollback; without a marker, 4406 just logs and exits. The
+agent refuses a non-newer `version` unless the command carries `force`, and
+an EQUAL version is refused even under force; the loopback dashboard's
+deliberate downgrade path keeps working. And the swapper never picks the
+installed binary by convention: `selfInvokePrefix()` names the one to write
+here. No network path installs anything the publisher did not sign: the
 `release-manifest.json` + `.sig` pair verifies against `RELEASE_PUBKEY`
 before the swap, and the install digest comes from the signed `assets` map,
 never the `.sha256` sidecar; `--from` and `--rollback` stay signature-free
@@ -159,13 +188,16 @@ read `apps/node/agent/docs/update.md` first.**
 
 One flag, `<dataDir>/maintenance.json` = `{ on, changedAt }`: this machine
 stays enrolled and answers everything, but takes no new subshells. It is
-settable from either end and reconciled on reconnect by the NEWER
-`changedAt`, which is why every writer stores the stamp it was GIVEN and
-never re-stamps a relay. It is its own file (a `config.json` value would not
-reach a live daemon), and the read is fail-CLOSED, deliberately unlike
-`allowed-dirs.json` beside it; an absent file is the third answer, and
-absence travels differently: `ready` omits the field. `maintenance on` STOPS
-every subshell running here. The reporting ORDER is load-bearing:
+settable from either end (the machine's own `subshell maintenance on|off`
+sets the same flag) and reconciled on reconnect by the NEWER `changedAt`,
+where newer wins and ties go to the plane, which is why every writer stores
+the stamp it was GIVEN and never re-stamps a relay. That newer-wins rule
+makes this node's mirror check defence in depth, not a second switch. It is
+its own file (a `config.json` value would not reach a live daemon), and the
+read is fail-CLOSED, deliberately unlike `allowed-dirs.json` beside it; an
+absent file is the third answer, and absence travels differently: `ready`
+omits the field. `maintenance on` STOPS every subshell running here, whoever
+owns them. The reporting ORDER is load-bearing:
 `maybeReportMaintenance` runs inside `reportDeath` BEFORE the `exit` frame.
 **Working on maintenance: read `apps/node/agent/docs/maintenance.md` first.**
 
@@ -180,20 +212,43 @@ default 1 day; `0 + 0` is keep-forever and schedules nothing; the default
 pass re-reads `config.json` every run, which is what lets a dashboard write
 land without a restart). A running pane's log is never swept and a probe that
 THROWS counts the pane running (unknown is not dead); only
-`<valid-id>.log` names inside the data dir are eligible. The setter surface is
-node-local (`GET`/`PUT /api/self/log-retention` on the loopback dashboard;
+`<valid-id>.log` names inside the data dir are eligible, following the same
+`pathAllowed`/`isSubshellId` rules as `remove_paths`, and the sweep never
+follows symlinks. The setter surface is node-local
+(`GET`/`PUT /api/self/log-retention` on the loopback dashboard;
 the plane has no counterpart route). **Working on retention: read
 `apps/node/agent/docs/pane-log-retention.md` first.**
+
+## Pane launch posture (`packages/pane-runtime`)
+
+The launch code lives in `packages/pane-runtime`, which has no AGENTS.md of
+its own; this section is its documentation. Harnesses spawn under `env -i`
+with an allowlist (PATH, HOME, USER, LOGNAME, SHELL, TMPDIR, LANG, LC_ALL,
+plus `CLAUDE_PATH`); preset env merges on top, MCP wiring env last (the same
+precedence `paneEnvFor` states, see "Exit watch"). The launch DOES become a
+shell string via tmux, so `shellQuote` on **every** token is the
+load-bearing defense; never reason from "there is no shell string". Typed
+input transits argv (`tmux send-keys -t <id> -l -- <input>`, and a paste is
+one argv element, `/proc`-readable), and the pane's bearer token rides the
+launch argv **and** the pane's tmux hook table. Both are accepted (§11.2,
+§11.14). A hook-carried credential value containing `' " \` or `#` is
+refused, not escaped: tmux re-parses hook values when it fires and `#`
+expands (§11.14).
 
 ## The loopback dashboard (`src/dashboard/`, spec 2026-09-19)
 
 `subshell run` binds **127.0.0.1:3090** and serves the node its own admin
 page (Status, Node Settings, Updates) under the control plane's verbatim
 `/api/nodes/:id/*` contract, so the cards in `@internal/node-admin` run
-untouched against either backend. There is no login: the listen address plus
-the OS user IS the access control, and the load-bearing guards and their full
-accounting are `.claude/rules/security-context.md` (§Nodes) and
-`docs/security.md` §6, not this file. A busy port costs the dashboard and
+untouched against either backend. There is no login BY DESIGN: the listen
+address plus the OS user IS the access control. The guards that hold that up
+live here: `Host` must be loopback, `Origin` when present must be loopback,
+and mutations need `content-type: application/json`. The multi-user-host gap
+is ACCEPTED and is a widening (a second local user can maintenance-kill,
+stop, or repoint this machine); `SUBSHELL_DASHBOARD=0` is the remedy. No
+audit rows are written here, the daemon log is the record; `maintenance on`
+from this page kills panes, node-CLI semantics verbatim. Full accounting:
+`docs/security.md` §6. A busy port costs the dashboard and
 never the daemon; mutations reuse the command executors, so the supervision
 and pane-safety refusals and the signed-update verification are ONE
 implementation with the plane-driven path; pages come disk → embedded →
@@ -340,6 +395,12 @@ counter budget (a relaunch resets it), hardening design 2026-09-02 §1.
   dir itself), `mcp/<id>.json`
   per-subshell MCP configs, and the MCP children's `identities/sess-<id>.json` +
   `peers.json` (they run with `SUBSHELL_DATA_DIR` = the node's data dir).
+- **Two keypairs sit in the data dir**: `node-signing.json` (0600) and the
+  link keypair `node-encryption.json` beside it, generate-once, fail-closed.
+  Enrolling **delegates arbitrary command execution under that machine's OS
+  user**: the node's OS user owns every pane, file, and `ps`-visible bearer
+  token launched there, and the node signing keypair rules every enrolled
+  node, so there is never resilience to control-plane compromise.
 - **The `<id>.log` capture child is the agent's OWN `pane-log` verb**, not
   `cat`: `launch.ts` calls `pipePane(…, selfInvocation("pane-log"))`, and
   `cli.ts`'s pre-boot `pane-log --file <path>` runs
@@ -347,7 +408,8 @@ counter budget (a relaunch resets it), hardening design 2026-09-02 §1.
   `readSync`→`writeSync` copy that opens 0600). A bare `cat >>` froze the
   browser's live view on hosts whose `cat` is uutils coreutils: it buffers a
   partial write to a regular file, so a keystroke echo never reached the log
-  until an Enter-sized burst flushed it (the exit-hook re-entry above uses the
+  until an Enter-sized burst flushed it (`cat >>` stays only as pipePane's
+  no-child fallback; the exit-hook re-entry above uses the
   same `selfInvocation` for `report`). Full accounting: `docs/security.md`,
   "Pane logs".
 - **Enroll preflights `tmux`** on PATH (macOS hint: `brew install tmux`);

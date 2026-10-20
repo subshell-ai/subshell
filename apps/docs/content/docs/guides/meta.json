@@ -2,6 +2,7 @@
   "title": "Use Subshell",
   "pages": [
     "index",
+    "navigation",
     "launch",
     "ssh",
     "lifecycle",

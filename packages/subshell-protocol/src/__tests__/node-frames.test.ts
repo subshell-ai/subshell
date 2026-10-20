@@ -380,7 +380,7 @@ describe("parseNodeCommandBody", () => {
     // / `ssh_relay_close` signed commands. A tier-17 agent understands no relay
     // frame, and the exact-match gate refuses it BEFORE any relay command
     // (spec §11: never half-relaying).
-    expect(NODE_PROTOCOL_VERSION).toBe(21);
+    expect(NODE_PROTOCOL_VERSION).toBe(22);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
@@ -1745,5 +1745,31 @@ describe("partPathOf (the shared .part derivation, spec 2026-10-01 §4)", () => 
     const base = temp.slice(temp.lastIndexOf("/") + 1);
     expect(base.startsWith(".")).toBe(true);
     expect(base.endsWith(".tar.gz.part")).toBe(true);
+  });
+});
+
+describe("launch mcp companion files", () => {
+  // The plane builds this frame, and the agent re-checks the same rules and
+  // its own path policy before writing, so this wire guard is the FIRST line
+  // against a rogue or buggy frame, not the only one: count, name shape, and
+  // per-file size all refuse the whole launch rather than sanitizing an entry.
+  const mcp = { path: "/p", fileContent: "{}" };
+  const launchWith = (files: unknown) => parseNodeCommandBody({ ...launchCmd, mcp: { ...mcp, files } });
+
+  it("accepts a bounded, well-named set", () => {
+    const files = Object.fromEntries(Array.from({ length: 8 }, (_, i) => [`ext-${i}.mjs`, "x"]));
+    const cmd = launchWith(files);
+    expect(cmd?.type === "launch" && cmd.mcp?.files).toEqual(files);
+  });
+
+  it("refuses a ninth file, a bad name, a traversal, and an oversize body", () => {
+    expect(launchWith(Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`f${i}.mjs`, "x"])))).toBeNull();
+    expect(launchWith({ "../evil.mjs": "x" })).toBeNull();
+    expect(launchWith({ "ext.sh": "x" })).toBeNull();
+    expect(launchWith({ "two names.mjs": "x" })).toBeNull();
+    expect(launchWith({ "big.mjs": "y".repeat(65_537) })).toBeNull();
+    expect(launchWith({ "ok.mjs": "y".repeat(65_536) })).not.toBeNull();
+    expect(launchWith({ n: 7 })).toBeNull();
+    expect(launchWith("bridge.mjs")).toBeNull();
   });
 });

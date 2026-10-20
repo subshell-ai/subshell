@@ -4,10 +4,12 @@ import type { JSX, ReactNode } from "react";
 import { useMemo } from "react";
 import { DetailBackHeader } from "@/components/detail-back-header";
 import { EditableText } from "@/components/editable-text";
+import { HarnessSubagentTitle } from "@/components/harness-subagents";
 import { SshPaneLabels } from "@/components/ssh-pane-labels";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDot } from "@/components/subshell-dot";
 import { TrustIndicators } from "@/components/trust-indicators";
+import { useHarnessSubagents } from "@/hooks/use-harness-subagents";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
 import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
 import { useNodes } from "@/hooks/use-nodes";
@@ -77,14 +79,26 @@ export function PaneFocusHeader({
     invalidateAfterRename(queryClient, id);
   }
 
+  // A dead pane is a mounted header, so liveness gates the poll here too,
+  // same as the rail and the agent page.
+  const { data: agentState } = useHarnessSubagents(
+    subshell && subshell.status === "running" && subshell.alive === true ? subshell.id : "",
+  );
   const isPane = Boolean(focusedPane && subshell);
+  const showingAgent = isPane && subshell && agentState?.selectedId;
   return (
     <DetailBackHeader
       to="/workspaces"
       backLabel="Back to workspaces"
       hideBack
       title={
-        isPane && subshell ? (
+        showingAgent && subshell ? (
+          <HarnessSubagentTitle
+            id={subshell.id}
+            parentName={subshell.name}
+            alive={subshell.status === "running" && subshell.alive === true}
+          />
+        ) : isPane && subshell ? (
           /* The state rides beside the name, as it does on the subshell page:
              the dot is the only carrier of the state here, so `accessible`. */
           <span className="flex min-w-0 items-center gap-2">
@@ -106,7 +120,15 @@ export function PaneFocusHeader({
           <span className={cn("truncate", stacked && "font-normal")}>{fallbackName}</span>
         )
       }
-      subtitle={subshell?.workingDir ? <span className="block truncate pl-4">{subshell.workingDir}</span> : undefined}
+      /* Same indent rule the subshell page applies: the path lines up with
+         whichever title is on screen. The subagent title's `size-4` icon
+         (16px) plus `gap-2` is `pl-6`; the dot's box (`w-2` 8px) plus
+         `gap-2` is `pl-4`. */
+      subtitle={
+        subshell?.workingDir ? (
+          <span className={cn("block truncate", showingAgent ? "pl-6" : "pl-4")}>{subshell.workingDir}</span>
+        ) : undefined
+      }
       actions={
         <>
           {isPane && subshell && <SshPaneLabels subshell={subshell} nodeLabel={nodeLabel} />}

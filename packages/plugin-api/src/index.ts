@@ -11,6 +11,18 @@ export {
   type SubshellManifest,
 } from "./manifest.js";
 export {
+  HARNESS_SUBAGENT_DISCOVERIES,
+  HARNESS_SUBAGENT_NAVIGATIONS,
+  HARNESS_SUBAGENT_STATUSES,
+  type HarnessSubagent,
+  type HarnessSubagentDiscovery,
+  type HarnessSubagentNavigation,
+  type HarnessSubagentSnapshot,
+  type HarnessSubagentStatus,
+  type HarnessSubagentSupport,
+  type HarnessSubagentView,
+} from "./subagents.js";
+export {
   type BuildCommandInput,
   capabilitiesFor,
   capabilityMismatches,

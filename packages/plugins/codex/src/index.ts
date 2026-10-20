@@ -88,7 +88,11 @@ function tomlStringArray(values: string[]): string {
  * launch carries `-c mcp_servers.subshell.command=… -c mcp_servers.subshell.args=…`
  * config overrides (dotted path, value parsed as TOML — verified against the
  * real binary), which codex merges over ~/.codex/config.toml for that run
- * only. No config file the harness must read, no CODEX_HOME redirect (that
+ * only. The subagent monitoring hooks ride the same mechanism as
+ * `hooks.SubagentStart/SubagentStop/SessionStart` overrides, so a user's own
+ * `hooks.*` table is REPLACED for the duration of a subshell-launched run —
+ * the documented limitation, same shape as claude-code's; nothing on disk
+ * changes. No config file the harness must read, no CODEX_HOME redirect (that
  * dir holds the user's auth.json). The spawned `subshell mcp` child inherits
  * the subshell's baked SUBSHELL_* pane env for its credential, like every
  * harness.
@@ -100,12 +104,27 @@ function tomlStringArray(values: string[]): string {
  *
  * `host` carries what this module cannot import. See `@subshell-ai/plugin-api`.
  */
-const createPlugin: HarnessPluginFactory = (_host: PluginHost): SubshellPlugin => ({
-  capabilities: (): PluginCapability[] => ["mcp", "settings"],
+const createPlugin: HarnessPluginFactory = (host: PluginHost): SubshellPlugin => ({
+  subagents: {
+    discovery: "hooks",
+    navigation: "unavailable",
+    setup:
+      "Review the Subshell subagent monitoring hooks in /hooks and trust them to show active subagents in the sidebar.",
+  },
+  capabilities: (): PluginCapability[] => ["subagents", "mcp", "settings"],
 
   buildCommand(input: BuildCommandInput): string[] {
     const { binary, preset, extraFlags, mcp } = input;
     const args: string[] = [binary];
+    if (input.reporter) {
+      const command = [input.reporter.command, ...input.reporter.args, "subagents"].map(host.shellQuote).join(" ");
+      for (const event of ["SubagentStart", "SubagentStop", "SessionStart"]) {
+        args.push(
+          "-c",
+          `hooks.${event}=[{hooks=[{type="command",command=${JSON.stringify(command)},statusMessage="Subshell subagent monitoring",timeout=2}]}]`,
+        );
+      }
+    }
 
     const s = preset.settings ?? {};
     if (typeof s.model === "string" && s.model) args.push("-m", s.model);
@@ -166,7 +185,7 @@ const createPlugin: HarnessPluginFactory = (_host: PluginHost): SubshellPlugin =
     return {
       mode: "auto",
       summary:
-        "Subshell registers itself with every Codex subshell automatically (per-invocation -c mcp_servers.subshell.* overrides; your ~/.codex config is never modified).",
+        "Subshell registers itself with every Codex subshell automatically (per-invocation -c mcp_servers.subshell.* overrides; your ~/.codex config is never modified). The same overrides carry the subagent monitoring hooks, so a hooks.* you set in ~/.codex is replaced FOR THAT RUN only, and nothing on disk changes.",
     };
   },
 

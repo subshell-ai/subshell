@@ -285,6 +285,7 @@ export class RemoteLauncher implements NodeLauncher {
         ? {
             path: plan.mcpConfigPath as string,
             fileContent: plan.mcp.fileContent,
+            ...(plan.mcp.files ? { files: plan.mcp.files } : {}),
             // Conditional spreads, never bare `args: plan.mcp.args`: the
             // frame's parser refuses an explicit-undefined optional, and an
             // absent half of a dialect must stay absent on the object too, not
@@ -563,8 +564,9 @@ export class RemoteLauncher implements NodeLauncher {
   }
 
   /**
-   * The three files a subshell leaves on the node — log + MCP config + the
-   * agent's own meta record, in the order the pre-seam `deleteSubshell` block
+   * Every file a subshell leaves on the node — log + MCP config + its
+   * companion directory + the agent's own meta record, in the order the
+   * pre-seam `deleteSubshell` block
    * pushed them (spec §6.4). Empty when the node has no live `ready` facts:
    * no facts, no layout to name paths from, and the artifacts age out with
    * the node — the same offline skip every pre-seam path made individually.
@@ -572,12 +574,17 @@ export class RemoteLauncher implements NodeLauncher {
    * interpolation to forget.
    *
    * `sshPane` (the row's kind fact, spec 2026-10-07 decision 4) adds the
-   * rendered config as a fourth path; every non-ssh caller gets the triple
+   * rendered config as a fifth path; every non-ssh caller gets the four
    * unchanged.
    */
   subshellArtifacts(id: string, sshPane = false): string[] {
     if (!this.#facts()) return [];
-    const artifacts = [this.logPath(id), this.mcpArtifactPath(id), this.metaArtifactPath(id)];
+    const artifacts = [
+      this.logPath(id),
+      this.mcpArtifactPath(id),
+      `${this.mcpArtifactPath(id)}.d`,
+      this.metaArtifactPath(id),
+    ];
     if (sshPane) artifacts.push(this.sshArtifactPath(id));
     return artifacts;
   }

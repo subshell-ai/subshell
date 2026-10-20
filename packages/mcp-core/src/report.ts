@@ -45,7 +45,7 @@ export const ATTENTION_KINDS: readonly AttentionKind[] = ["turn_complete", "need
  * Either way {@link runReport}'s own filter is the backstop: a verb listed
  * here but not implemented there sends nothing.
  */
-export const REPORT_VERBS: readonly string[] = ["attention", "session", "exit"];
+export const REPORT_VERBS: readonly string[] = ["attention", "session", "exit", "subagents"];
 
 /** Injectable seams so tests can pin every path (defaults: the real ones). */
 export interface ReportIo {
@@ -129,8 +129,70 @@ export async function runReport(argv: string[], io: ReportIo = {}): Promise<void
 async function resolveBody(
   argv: string[],
   io: ReportIo,
-): Promise<{ path: string; json: Record<string, string> } | undefined> {
+): Promise<{ path: string; json: Record<string, unknown> } | undefined> {
   const [verb, ...rest] = argv;
+
+  if (verb === "subagents") {
+    const raw = await (io.readStdin ?? readStdinBounded)();
+    const payload = JSON.parse(raw) as Record<string, unknown>;
+    const hook = payload.hook_event_name;
+    const extra = payload.extra && typeof payload.extra === "object" ? (payload.extra as Record<string, unknown>) : {};
+    const hermes = hook === "subagent_start" || hook === "subagent_stop";
+    // /clear, /fork and an in-pane /resume move the pane to a different
+    // conversation, and the reported children died with the old one, so the
+    // roster resets. /compact keeps ONE conversation's history (and any live
+    // children) and must not clear them; startup needs nothing. A launch
+    // with --resume also lands here, where the reset is provably harmless:
+    // the server dropped everything the moment the row's generation changed.
+    // Keeping on resume was the wrong trade: a resumed conversation cannot
+    // re-announce its children, so a stale roster would sit there forever,
+    // while resetting costs at most a live row until its next event.
+    // Sources per the hooks reference: startup|resume|clear|compact|fork.
+    if (
+      hook === "SessionStart" &&
+      (payload.source === "clear" || payload.source === "fork" || payload.source === "resume")
+    )
+      return { path: "subagents/report", json: { event: "reset" } };
+    // Claude Code's SubagentStart payload carries no task label (measured
+    // against the hooks reference), but the Agent tool's own input does:
+    // PreToolUse for a spawn hands over {subagent_type, description, prompt},
+    // and ONLY the two short harness-written labels are forwarded. The server
+    // pairs the label with the child its SubagentStart announces next.
+    if (hook === "PreToolUse" && (payload.tool_name === "Agent" || payload.tool_name === "Task")) {
+      const toolInput =
+        payload.tool_input && typeof payload.tool_input === "object"
+          ? (payload.tool_input as Record<string, unknown>)
+          : {};
+      const description = toolInput.description;
+      if (typeof description !== "string" || description.trim() === "") return undefined;
+      const agentType = typeof toolInput.subagent_type === "string" ? toolInput.subagent_type.trim() : "";
+      return {
+        path: "subagents/report",
+        json: { event: "describe", agentType: agentType.slice(0, 160), activity: description.trim().slice(0, 160) },
+      };
+    }
+    const id = hermes ? extra.child_session_id : payload.agent_id;
+    if (typeof id !== "string" || !id || id.length > 256) return undefined;
+    if (hook === "SubagentStop" || hook === "subagent_stop")
+      return { path: "subagents/report", json: { event: "stop", agentId: id } };
+    if (hook !== "SubagentStart" && hook !== "subagent_start") return undefined;
+    const label = hermes ? extra.child_role : payload.agent_type;
+    // A whitespace-only type label is the same absence as none, and the
+    // sidebar numbers the generic name the same way the pi bridge does.
+    const name = typeof label === "string" && label.trim() ? label : "Subagent";
+    // Hermes names the task right here (`child_goal`); Claude Code's label
+    // arrives from the PreToolUse branch above. Hermes's `child_summary` is
+    // the child's OUTPUT, and stays exactly as private as the prompt.
+    const goal = hermes ? extra.child_goal : undefined;
+    const activity = typeof goal === "string" && goal.trim() ? goal.trim().slice(0, 160) : undefined;
+    return {
+      path: "subagents/report",
+      json: {
+        event: "start",
+        agents: [{ id, name: name.slice(0, 160), status: "running", ...(activity ? { activity } : {}) }],
+      },
+    };
+  }
 
   if (verb === "attention") {
     const kind = rest[0];
@@ -155,7 +217,7 @@ async function resolveBody(
     // guessing one would turn "could not be read" into "exited cleanly".
     const raw = rest[0];
     const code = raw !== undefined && /^\d{1,3}$/.test(raw) ? Number(raw) : null;
-    return { path: "exit", json: { exitCode: code } as unknown as Record<string, string> };
+    return { path: "exit", json: { exitCode: code } };
   }
 
   if (verb === "session") {

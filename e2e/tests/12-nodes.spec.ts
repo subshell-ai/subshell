@@ -13,7 +13,6 @@ import {
   openAgentPicker,
   pickAgent,
   renameSubshell,
-  solePaneId,
 } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
@@ -420,13 +419,18 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
       predicate: (w) => w.url().includes("/ws?subshell="),
       timeout: SPAWN_TIMEOUT,
     });
+    const launchResponse = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/api/subshells" && response.request().method() === "POST",
+    );
     const launchRequest = page.waitForRequest(
       (outgoing) => new URL(outgoing.url()).pathname === "/api/subshells" && outgoing.method() === "POST",
     );
     await page.getByRole("button", { name: "Start subshell" }).click();
     expect((await launchRequest).postDataJSON()).toMatchObject({ nodeId, workingDir });
     await expect(page).toHaveURL(/\/workspaces\/.+/, { timeout: SPAWN_TIMEOUT });
-    subshellId = await solePaneId(page);
+    const launched = await launchResponse;
+    expect(launched.ok(), await launched.text()).toBe(true);
+    subshellId = ((await launched.json()) as { id: string }).id;
     await tokenRes;
     const ws = await socket;
     expect(ws.url()).toContain("/ws?subshell=");
@@ -458,7 +462,9 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     // reaps it); its node artifacts unhook via remove_paths, leaving a clean
     // node for the teardown's node delete (no running subshells).
     await page.goto("/subshells");
-    const actions = page.getByRole("button", { name: `Actions for ${subshellName}` });
+    // Scoped to the list's own tree: the sidebar rail carries a matching
+    // row action too, and an unscoped locator would match both.
+    const actions = page.getByRole("main").getByRole("button", { name: `Actions for ${subshellName}` });
     await expect(actions).toBeVisible();
     await actions.click();
     await page.getByRole("menuitem", { name: "Close" }).click();

@@ -13,6 +13,9 @@
  * searching last year's install locations forever. Those belong on the host.
  */
 
+import type { HarnessSubagentSupport } from "./subagents.js";
+import { HARNESS_SUBAGENT_DISCOVERIES, HARNESS_SUBAGENT_NAVIGATIONS } from "./subagents.js";
+
 /**
  * What kind of thing a plugin provides.
  *
@@ -63,6 +66,7 @@ export type PluginCapability =
   | "mcp"
   | "resume"
   | "attention"
+  | "subagents"
   // network
   | "publish"
   | "supervise"
@@ -75,6 +79,7 @@ export const PLUGIN_CAPABILITIES: readonly PluginCapability[] = [
   "mcp",
   "resume",
   "attention",
+  "subagents",
   "publish",
   "supervise",
   "guard",
@@ -82,7 +87,13 @@ export const PLUGIN_CAPABILITIES: readonly PluginCapability[] = [
 ];
 
 /** The capabilities a harness plugin may declare. */
-export const HARNESS_CAPABILITIES: readonly PluginCapability[] = ["mcp", "resume", "attention", "settings"];
+export const HARNESS_CAPABILITIES: readonly PluginCapability[] = [
+  "mcp",
+  "resume",
+  "attention",
+  "subagents",
+  "settings",
+];
 
 /** The capabilities a network plugin may declare. */
 export const NETWORK_CAPABILITIES: readonly PluginCapability[] = ["publish", "supervise", "guard", "settings"];
@@ -233,14 +244,25 @@ export interface McpLaunchSpec {
 
 /** Per-subshell MCP registration rendered in the plugin's own config dialect. */
 export interface McpRegistration {
+  /**
+   * Companion integration modules written next to the config file, under
+   * `<configPath>.d/`. Keys are basenames only, and the host refuses a name
+   * outside `[A-Za-z0-9_-]+\.(mjs|py|json)`, more than eight files, or more
+   * than 64 KiB of content — by throwing at launch, so the registration must
+   * stay inside those rules. Each file ships self-contained: on a pane's
+   * machine nothing of ours is importable (see the package doc).
+   */
+  files?: Record<string, string>;
   /** File content the harness reads, written to the subshell's config path */
   fileContent: string;
   /** argv the harness needs to load the file (e.g. claude's ["--mcp-config", path]) */
   args?: string[];
   /**
    * Extra pane env the harness needs to discover the file (e.g. OPENCODE_CONFIG).
-   * Consumed by the HOST, which bakes it into the pane env ahead of preset env;
-   * plugins never read it back.
+   * Consumed by the HOST, which layers it AFTER preset env in the pane's
+   * environment: the wiring wins on purpose, so the harness always finds the
+   * config this launch wrote even when a preset sets the same name. Plugins
+   * never read it back.
    */
   env?: Record<string, string>;
 }
@@ -419,6 +441,8 @@ export interface PluginSecrets {
  * plugin is a binary and an argv rather than eight stubs.
  */
 export interface SubshellPlugin {
+  /** Native child-agent reporting and optional in-place navigation. */
+  subagents?: HarnessSubagentSupport;
   /** Builds the argv (no shell) used to launch a subshell. */
   buildCommand(input: BuildCommandInput): string[];
   /** Validates a preset definition before saving. */
@@ -453,8 +477,15 @@ export interface SubshellPlugin {
    * then surfaces one-time manual setup via {@link mcpSetup} instead.
    */
   mcpRegistration?(launch: McpLaunchSpec, configPath: string): McpRegistration;
-  /** How users obtain the subshell MCP tools here. Declare the `mcp` capability with it. */
-  mcpSetup?(launch: McpLaunchSpec): McpSetupInfo;
+  /**
+   * How users obtain the subshell MCP tools here. Declare the `mcp`
+   * capability with it. `reporter` is the host-resolved command prefix that
+   * re-enters the subshell binary on a pane's machine (same shape as
+   * {@link BuildCommandInput.reporter}), present only when the host could
+   * resolve one: use it to render hook-configuration steps, and omit those
+   * steps when it is absent rather than guessing a binary name.
+   */
+  mcpSetup?(launch: McpLaunchSpec, reporter?: ReporterSpec): McpSetupInfo;
   /** Settings rendered in the PRESET editor and stored on the preset. */
   presetSettings?(): SettingsField[];
   /** Known extra env var suggestions for the preset editor. */
@@ -802,6 +833,7 @@ export function capabilityMismatches(plugin: SubshellPlugin | NetworkPlugin, typ
           mcp: Boolean(harness.mcpRegistration ?? harness.mcpSetup),
           resume: Boolean(harness.resume),
           attention: harness.supportsAttentionHooks === true,
+          subagents: Boolean(harness.subagents),
           settings: Boolean(harness.presetSettings),
         };
       })()
@@ -856,6 +888,27 @@ export function capabilityMismatches(plugin: SubshellPlugin | NetworkPlugin, typ
     }
     if (!declared.has(capability) && present[capability]) {
       problems.push(`implements "${capability}" members but does not declare the capability`);
+    }
+  }
+
+  // The subagent descriptor is data the control plane serves to readers
+  // (preset schema) and branches on (what the sidebar may offer), so its
+  // values are checked at load like every other declaration-by-value: an
+  // out-of-union `discovery` that slipped through would fail response
+  // validation on every read of that harness's schema, for every user.
+  if (isHarnessType(type)) {
+    const support = (plugin as SubshellPlugin).subagents;
+    if (support) {
+      if (!HARNESS_SUBAGENT_DISCOVERIES.includes(support.discovery))
+        problems.push(
+          `subagents.discovery is ${JSON.stringify(support.discovery)}, not one of ${HARNESS_SUBAGENT_DISCOVERIES.join(" or ")}`,
+        );
+      if (!HARNESS_SUBAGENT_NAVIGATIONS.includes(support.navigation))
+        problems.push(
+          `subagents.navigation is ${JSON.stringify(support.navigation)}, not one of ${HARNESS_SUBAGENT_NAVIGATIONS.join(" or ")}`,
+        );
+      if (support.setup !== undefined && (typeof support.setup !== "string" || support.setup.trim() === ""))
+        problems.push("subagents.setup, when present, must be a non-empty sentence");
     }
   }
   return problems;

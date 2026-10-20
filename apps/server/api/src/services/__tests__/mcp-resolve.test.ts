@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
   type McpProbeOutcome,
   PORTABLE_MCP_LAUNCH,
+  PORTABLE_REPORTER,
   probeMcpLaunch,
   probeReporterLaunch,
   resolveMcpLaunch,
@@ -154,6 +155,10 @@ describe("PORTABLE_MCP_LAUNCH", () => {
     // (issue #57 reversed the earlier display-resolution behavior).
     expect(PORTABLE_MCP_LAUNCH).toEqual({ command: "subshell", args: ["mcp"] });
     expect(PORTABLE_MCP_LAUNCH.command).not.toContain("/");
+    // The reporter sibling must stay the same portable binary with its own
+    // verb words; plugin-report.ts spells the same literal for the Nodes
+    // page, and these two pins are what keep them from drifting.
+    expect(PORTABLE_REPORTER).toEqual({ command: "subshell", args: ["report"] });
   });
 });
 

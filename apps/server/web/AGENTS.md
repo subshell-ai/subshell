@@ -428,6 +428,10 @@ server old enough to drop `subshellId`.
 
 ## Terminal gotchas
 
+**Pane bytes are untrusted input: a terminal renders them in xterm, never as
+injected HTML.** A PTY stream can carry anything a program printed, and the
+SPA must not route it through anything that parses markup.
+
 Workspace panes hold live xterm.js terminals inside dockview panels. A dockview
 panel remount disposes its terminal, closes the WS, and forces a history
 replay; every panel must keep `renderer: "always"`, which is what keeps the

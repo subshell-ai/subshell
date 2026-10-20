@@ -424,7 +424,10 @@ describe("launch", () => {
       mcpConfigPath: planned2.configPath,
     });
     const cmd2 = h2.calls[0]?.cmd as Extract<NodeCommandBody, { type: "launch" }>;
-    expect(cmd2.mcp?.env).toEqual({ OPENCODE_CONFIG: planned2.configPath });
+    expect(cmd2.mcp?.env).toEqual({
+      OPENCODE_CONFIG: planned2.configPath,
+      OPENCODE_TUI_CONFIG: `${planned2.configPath}.d/tui.json`,
+    });
     expect("args" in (cmd2.mcp ?? {})).toBe(false); // opencode's dialect has no argv half
   });
 
@@ -1013,19 +1016,20 @@ describe("removeArtifacts", () => {
 
 describe("subshellArtifacts sshPane (spec 2026-10-07 decision 4)", () => {
   const NODE_SUB = "11111111-2222-4333-8444-555555555555";
-  const triple = [
+  const baseArtifacts = [
     `/home/u/.subshell/subshells/${NODE_SUB}.log`,
     `/home/u/.subshell/mcp/${NODE_SUB}.json`,
+    `/home/u/.subshell/mcp/${NODE_SUB}.json.d`,
     `/home/u/.subshell/subshells/${NODE_SUB}.meta.json`,
   ];
 
   it("names the derived ssh config path only when the caller says the pane was an ssh pane", () => {
     const h = makeHarness();
-    expect(h.launcher.subshellArtifacts(NODE_SUB)).toEqual(triple);
+    expect(h.launcher.subshellArtifacts(NODE_SUB)).toEqual(baseArtifacts);
     // The path template is the SAME pane-runtime composition the launch-side
     // configPath used; on the node it is composed from `ready.dataDir`.
     expect(h.launcher.subshellArtifacts(NODE_SUB, true)).toEqual([
-      ...triple,
+      ...baseArtifacts,
       `/home/u/.subshell/ssh/${NODE_SUB}/config`,
     ]);
   });

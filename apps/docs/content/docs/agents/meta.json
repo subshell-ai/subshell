@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "install-cli",
+    "subagents",
     "claude-code",
     "codex",
     "opencode",

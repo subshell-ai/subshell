@@ -39,7 +39,7 @@ describe("ClaudeCodePlugin", () => {
   });
 
   it("declares the capabilities it implements", () => {
-    expect(plugin.capabilities().sort()).toEqual(["attention", "mcp", "resume", "settings"]);
+    expect(plugin.capabilities().sort()).toEqual(["attention", "mcp", "resume", "settings", "subagents"]);
   });
 
   it("buildCommand: bare launch with no preset extra", () => {
@@ -263,11 +263,11 @@ describe("ClaudeCodePlugin attention hooks", () => {
   });
 
   /** Pulls the hooks object out of a built command's --settings JSON. */
-  function hooksOf(cmd: string[]): Record<string, [{ hooks: [{ command: string }] }] | undefined> {
+  function hooksOf(cmd: string[]): Record<string, { matcher?: string; hooks: { command: string }[] }[] | undefined> {
     const idx = cmd.indexOf("--settings");
     expect(idx).toBeGreaterThan(-1);
     const settings = JSON.parse(cmd[idx + 1]) as {
-      hooks?: Record<string, [{ hooks: [{ command: string }] }]>;
+      hooks?: Record<string, { hooks: { command: string }[] }[]>;
     };
     return settings.hooks ?? {};
   }
@@ -431,5 +431,31 @@ describe("ClaudeCodePlugin attention hooks", () => {
     // bounds on reading it, are the reporter's contract now (mcp-core's
     // `report.ts`), not something re-decided per plugin in an inlined script.
     expect(hooks.SessionStart?.[0].hooks[0].command).toBe("'/usr/local/bin/subshell-server' 'report' 'session'");
+  });
+
+  it("reports the child roster through start, stop, and every conversation transition", () => {
+    const hooks = hooksOf(
+      plugin.buildCommand({
+        binary: "/usr/bin/claude",
+        cwd: "/tmp/ws",
+        preset: emptyPreset(),
+        subshellName: "",
+        reporter,
+      }),
+    );
+    const roster = "'/usr/local/bin/subshell-server' 'report' 'subagents'";
+    expect(hooks.SubagentStart?.[0].hooks[0].command).toBe(roster);
+    expect(hooks.SubagentStop?.[0].hooks[0].command).toBe(roster);
+    // /clear, /fork and an in-pane /resume move the pane to a conversation
+    // the children died with: SessionStart carries a SECOND reporter hook so
+    // it fires on every transition, and the reporter turns those three into
+    // a roster reset.
+    expect(hooks.SessionStart?.[0].hooks[1].command).toBe(roster);
+    // A subagent spawn's TASK LABEL only exists in the Agent tool's own
+    // PreToolUse input, so a second PreToolUse entry matches Agent and runs
+    // the same roster verb, which forwards description + subagent_type and
+    // never the prompt.
+    expect(hooks.PreToolUse?.[1]?.matcher).toBe("Agent|Task");
+    expect(hooks.PreToolUse?.[1]?.hooks[0].command).toBe(roster);
   });
 });

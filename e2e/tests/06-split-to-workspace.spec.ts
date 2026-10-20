@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { ADMIN_STATE, dismissDirectoryPanel, pickAgent, renameSubshell } from "./helpers";
+import { ADMIN_STATE, dismissDirectoryPanel, pickAgent, renameSubshell, showNewSubshellForm } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -125,9 +125,11 @@ test("split a subshell into a real, named workspace", async ({ page }) => {
   await page.goto(`/subshells/${rootSubshellId}`);
 
   await page.getByRole("button", { name: "Add a subshell to a workspace" }).click();
-  // The split's dialog is titled by the button that opened it (2026-09-27).
-  await expect(page.getByRole("heading", { name: "Add a subshell", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "New subshell" }).click();
+  // The split's dialog is titled by the button that opened it (2026-09-27),
+  // unless nothing is left to add besides the split source: then it opens
+  // straight on the New half, titled "New subshell" (newOnly, 2026-10-19).
+  await expect(page.getByRole("dialog").getByRole("heading").first()).toContainText(/Add a subshell|New subshell/);
+  await showNewSubshellForm(page);
 
   // The split seeds the New half from the subshell being split, so the form
   // arrives as "another one like this" and needs no filling in. Asserting the

@@ -47,7 +47,14 @@ bun run lint:lockfile:fix  # rewrite just those version fields
 
 This is the ONLY sanctioned edit to `bun.lock` that is not a `bun install`, and
 `scripts/lockfile-workspace-versions.ts` is deliberately narrow enough to stay
-that way: it resolves nothing, adds nothing and reorders nothing. Everything
-else in that file still comes from bun.
+that way: it resolves nothing, adds nothing and reorders nothing; every
+replacement is anchored to its workspace path and asserted to match exactly
+once. Everything else in that file still comes from bun.
+
+It drifted once for real: the changesets Action runs `changeset version` and
+commits the bumps ITSELF, so lefthook's local "update bun lockfile" hook never
+fires, and `bun.lock` trailed a whole release before anyone noticed.
+`version-packages` therefore ends with `lint:lockfile:fix`, and `lint.yml` runs
+`lint:lockfile`: a fix with no detector silently rots.
 
 The pre-commit hook will fail if unpinned versions are committed.

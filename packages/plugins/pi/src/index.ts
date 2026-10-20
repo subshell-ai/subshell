@@ -12,6 +12,7 @@ import {
   type SubshellPlugin,
   validateGenericPreset,
 } from "@subshell-ai/plugin-api";
+import { SUBAGENT_BRIDGE } from "./subagents.js";
 
 /** pi per-invocation overrides, applied as CLI flags. */
 const PI_SETTINGS_FIELDS: SettingsField[] = [
@@ -79,11 +80,27 @@ const SUGGESTED_FLAGS: { flag: string; description: string }[] = [
  * `host` carries what this module cannot import. See `@subshell-ai/plugin-api`.
  */
 const createPlugin: HarnessPluginFactory = (_host: PluginHost): SubshellPlugin => ({
-  capabilities: (): PluginCapability[] => ["mcp", "settings"],
+  subagents: { discovery: "extension", navigation: "unavailable" },
+  /**
+   * Named for the host's MCP wiring slot, but pi gets no MCP config from it:
+   * subshell MCP stays a manual install (see `mcpSetup`). What this really
+   * ships is the subagent bridge: the `{}` is the placeholder config file
+   * whose sibling `.d` directory carries `subagents.mjs`, and the args splice
+   * `--extension` onto the launch so pi loads it. No secrets; the file exists
+   * to give the companion a home path.
+   */
+  mcpRegistration(_launch, configPath) {
+    return {
+      fileContent: "{}",
+      files: { "subagents.mjs": SUBAGENT_BRIDGE },
+      args: ["--extension", `${configPath}.d/subagents.mjs`],
+    };
+  },
+  capabilities: (): PluginCapability[] => ["subagents", "mcp", "settings"],
 
   buildCommand(input: BuildCommandInput): string[] {
     const { binary, preset, subshellName, extraFlags } = input;
-    const args: string[] = [binary];
+    const args: string[] = [binary, ...(input.mcp?.args ?? [])];
 
     const s = preset.settings ?? {};
     if (typeof s.model === "string" && s.model) args.push("--model", s.model);

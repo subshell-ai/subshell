@@ -710,12 +710,19 @@ denies.
 
 **The harness self-report class.** A handful of routes exist for the pane to
 report its OWN state, and each accepts only that pane's own key: `POST
-/:id/attention`, `POST /:id/harness-session`, `POST /:id/exit`, the exit
+/:id/attention`, `POST /:id/harness-session`, `POST /:id/subagents/report`,
+`POST /:id/exit`, the exit
 route checks `principal === sess:<id>` explicitly
 (`subshell-exit.route.ts:49`), plus the token self-extension route. A
 harness can report about itself, never about another subshell; a forged
 session id merely selects an existing transcript the pane's own user could
-already read.
+already read. `subagents/report` forwards rosters and the harness's own
+short labels: each child's name, status, and at most a one-line task label
+(a Hermes child's goal, or the description Claude Code wrote for the Agent
+tool's `PreToolUse` input). Prompts, transcripts, and child output never
+cross this door, and every forwarded name and label takes the NAME-path
+treatment (`normalizeLabel` before store; the id fields carry length bounds
+only, not normalization).
 
 **The filesystem picker is browser-only.** `/api/files/explore` returns 403 to
 machine credentials. A running harness holding its own token must not be able to
@@ -800,6 +807,24 @@ a value read out of a `.env`.
   refused, not followed. (The mode-repair half of the server's hygiene,
   `tightenPaneLogModes`, still runs on the server only; the node's files are
   created 0600/0700 by the `pane-log` verb and `launch`'s dir ensure.)
+
+**Subagent view selection is navigation.** `POST /api/subshells/:id/subagents/select`
+requires visibility and `subshells:read`, deliberately allowing view grantees.
+Subshell keys are refused on this door. The request carries only a reported
+child ID or null for the parent, never terminal input or an arbitrary harness
+command. The current harness integration must have reported native navigation
+support within 15 seconds. Queued requests expire after five seconds, and only
+a subsequent harness report changes the selected header. A switch affects all
+viewers of the existing terminal. Typing, steering and approval responses still
+use the existing edit gate. Integrations without a native selection API remain
+status-only; keyboard automation is not a fallback.
+
+Child reports are bounded metadata, accepted only from the parent's own token.
+Restart rotates that token and the run timestamp invalidates the old in-memory
+set. List reads apply normal subshell visibility. Nothing persists child prompts
+or transcripts. Launch companion files are bounded, named files prepared by the
+trusted control-plane plugin and written inside the node's existing data-dir
+policy. They execute with the same privileges as the harness itself.
 
 **Typed input also transits argv.** Input reaches the pane as
 `tmux send-keys -t <id> -l -- <input>`, one process per client frame, and a

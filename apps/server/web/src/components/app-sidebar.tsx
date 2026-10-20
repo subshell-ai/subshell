@@ -1,10 +1,10 @@
 import { Button, cn } from "@internal/node-admin";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
-  ChevronLeft,
-  ChevronRight,
   ExternalLink,
   LayoutDashboard,
+  PanelLeftClose,
+  PanelLeftOpen,
   Settings,
   Smartphone,
   TerminalSquare,
@@ -82,6 +82,17 @@ export function AppSidebar({
     }
   });
   const collapsed = !forceExpanded && collapsedState;
+  const toggleButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreToggleFocus = useRef(false);
+  // Runs after the collapse/expand re-render, which is when the toggle moves
+  // between rails and loses its focus; scoping to `collapsed` is the moment,
+  // not every render (the sidebar re-renders on each activity tick).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fire-on-change effect, `collapsed` is deliberately the trigger (the toggle moves rails when it flips), not a read
+  useEffect(() => {
+    if (!restoreToggleFocus.current) return;
+    toggleButtonRef.current?.focus();
+    restoreToggleFocus.current = false;
+  }, [collapsed]);
   const [subshellQuery, setSubshellQuery] = useState("");
   const [focusPending, setFocusPending] = useState(false);
   // Remember route destinations independently from the workspace’s sidebar
@@ -133,6 +144,31 @@ export function AppSidebar({
     return () => observer.disconnect();
   }, [focusPending]);
 
+  const sidebarToggle = (
+    <TooltipProvider delay={200}>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              ref={toggleButtonRef}
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                restoreToggleFocus.current = true;
+                toggle();
+              }}
+              aria-expanded={!collapsed}
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+            </Button>
+          }
+        />
+        <TooltipContent side="right">{collapsed ? "Expand sidebar" : "Collapse sidebar"}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+
   return (
     <aside
       className={cn(
@@ -148,9 +184,13 @@ export function AppSidebar({
             aria-label="Main sections"
             className="flex w-14 shrink-0 flex-col items-center gap-2 overflow-y-auto border-border border-r bg-background px-1 py-3"
           >
-            <Link to="/" aria-label="Subshell" className="mb-2 flex size-11 items-center justify-center">
-              <img src="/icons/mark-80.png" alt="" className="h-6 w-auto" />
-            </Link>
+            {collapsed ? (
+              <div className="mb-2 flex size-11 items-center justify-center">{sidebarToggle}</div>
+            ) : (
+              <Link to="/" aria-label="Subshell" className="mb-2 flex size-11 items-center justify-center">
+                <img src="/icons/mark-80.png" alt="" className="h-6 w-auto" />
+              </Link>
+            )}
             {SECTIONS.map((item) => {
               const remembered =
                 routeSection === item.id
@@ -171,6 +211,11 @@ export function AppSidebar({
                           onClick={(event) => {
                             if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
                               return;
+                            if (!forceExpanded && section === item.id) {
+                              event.preventDefault();
+                              toggle();
+                              return;
+                            }
                             if (collapsed) toggle();
                             if (workspaceId && (item.id === "workspaces" || item.id === "subshells")) {
                               event.preventDefault();
@@ -228,29 +273,13 @@ export function AppSidebar({
                 <TooltipContent side="right">Open in browser</TooltipContent>
               </Tooltip>
             )}
-            {!forceExpanded && (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={toggle}
-                      aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-                    >
-                      {collapsed ? <ChevronRight /> : <ChevronLeft />}
-                    </Button>
-                  }
-                />
-                <TooltipContent side="right">{collapsed ? "Expand sidebar" : "Collapse sidebar"}</TooltipContent>
-              </Tooltip>
-            )}
           </nav>
         </TooltipProvider>
         {!collapsed && (
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <div className="flex min-h-14 items-center justify-between gap-2 px-3 py-2">
               <h2 className="min-w-0 font-strong text-label">{SECTIONS.find((item) => item.id === section)?.label}</h2>
+              {!forceExpanded && sidebarToggle}
               {headerEnd}
             </div>
             <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-2 pt-1 pb-3">

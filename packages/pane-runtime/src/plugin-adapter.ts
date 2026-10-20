@@ -1,6 +1,6 @@
 import type { SubshellManifest, SubshellPlugin } from "@subshell-ai/plugin-api";
 import { type DetectionResult, detectBinary } from "./binary-lookup.js";
-import type { HarnessPlugin, McpLaunchSpec, McpRegistration, McpSetupInfo } from "./types.js";
+import type { HarnessPlugin, McpLaunchSpec, McpRegistration, McpSetupInfo, ReporterSpec } from "./types.js";
 import { probeVersion } from "./version-probe.js";
 
 /**
@@ -110,7 +110,11 @@ export function adaptPlugin(manifest: SubshellManifest, plugin: SubshellPlugin):
     suggestedFlags: () => plugin.suggestedFlags?.() ?? [],
     // A plugin with no MCP capability has no steps to show, which renders as
     // an empty section rather than as a claim that registration is automatic.
-    mcpSetup: (launch: McpLaunchSpec): McpSetupInfo => plugin.mcpSetup?.(launch) ?? { mode: "manual", steps: [] },
+    mcpSetup: (launch: McpLaunchSpec, reporter?: ReporterSpec): McpSetupInfo =>
+      plugin.mcpSetup?.(launch, reporter) ?? { mode: "manual", steps: [] },
+    // What the harness can show of its child agents; the preset editor uses
+    // the `setup` copy when the harness needs a one-time human act.
+    ...(plugin.subagents ? { subagents: plugin.subagents } : {}),
   };
 
   // Optional members are attached only when the plugin has them, so

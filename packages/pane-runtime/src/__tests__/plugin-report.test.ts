@@ -34,7 +34,7 @@ describe("buildPluginReports", () => {
     expect(report?.name).toBe("Claude Code");
     expect(report?.type).toBe("agent-harness");
     expect(report?.version).toMatch(/^\d+\.\d+\.\d+/);
-    expect(report?.capabilities.sort()).toEqual(["attention", "mcp", "resume", "settings"]);
+    expect(report?.capabilities.sort()).toEqual(["attention", "mcp", "resume", "settings", "subagents"]);
     // Non-empty, because an empty settings list renders as a preset editor
     // with nothing in it and looks like a working screen.
     expect((report?.presetSettings ?? []).length).toBeGreaterThan(0);
@@ -61,6 +61,21 @@ describe("buildPluginReports", () => {
     const mcp = report?.mcpSetup as { mode: string; steps: { command: string }[] };
     expect(mcp.mode).toBe("manual");
     expect(JSON.parse(mcp.steps[1].command).mcpServers.subshell).toEqual({ command: "subshell", args: ["mcp"] });
+  });
+
+  it("renders manual hook lines against the PORTABLE reporter — the server's own spelling", async () => {
+    // Same cross-package rule as the mcp literal above: `plugin-report.ts`
+    // spells { command: "subshell", args: ["report"] } for the Nodes page and
+    // `apps/server/api/src/services/mcp-resolve.ts` pins PORTABLE_REPORTER
+    // for the preset editor. Both sides hold the literal; drift would show
+    // users two different hook commands for one harness.
+    const dir = tempDataDir();
+    await installEmbedded(dir, "hermes");
+    const [report] = await buildPluginReports(dir);
+    const mcp = report?.mcpSetup as { mode: string; steps: { command: string }[] };
+    expect(mcp.mode).toBe("manual");
+    const hooksStep = mcp.steps.find((step) => step.command.includes("subagent_start"));
+    expect(hooksStep?.command).toContain("'subshell' 'report' 'subagents'");
   });
 
   it("reports a plugin that fails to load, carrying its error", async () => {

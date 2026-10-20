@@ -134,16 +134,21 @@ const reporterHook = (host: PluginHost, reporter: ReporterSpec, ...verb: string[
  *   answered (spec 2026-09-23). `Stop` reports `turn_complete` blind here:
  *   the reporter reads the hook payload and stays silent for a session
  *   parked on background work (`packages/mcp-core/src/report.ts`).
- * - `UserPromptSubmit` / `PreToolUse` — the waiting CLEAR (`resumed`). The
- *   plane's idle-watcher can only clear what it can stat, so an agent-node
- *   pane — log on the node's disk — stayed "waiting for you" for its whole
- *   next turn (2026-09-24). The pane knows better: work has resumed when the
- *   human's prompt is submitted, AND when a tool starts after an approval
- *   answered in the dialog (approving is not a prompt, so
- *   UserPromptSubmit alone misses that path). PreToolUse fires on every tool
- *   call; the endpoint's clear is conditional, so the common stamp-less case
- *   is a silent no-op. Neither hook's stdin is read — their payloads are the
- *   prompt text and the tool input, and the report is only ever the fact.
+ * - `UserPromptSubmit` / `PreToolUse` (the matcher-less entry) — the waiting
+ *   CLEAR (`resumed`). The plane's idle-watcher can only clear what it can
+ *   stat, so an agent-node pane — log on the node's disk — stayed "waiting
+ *   for you" for its whole next turn (2026-09-24). The pane knows better:
+ *   work has resumed when the human's prompt is submitted, AND when a tool
+ *   starts after an approval answered in the dialog (approving is not a
+ *   prompt, so UserPromptSubmit alone misses that path). PreToolUse fires on
+ *   every tool call; the endpoint's clear is conditional, so the common
+ *   stamp-less case is a silent no-op. Neither of these two reads its stdin:
+ *   their payloads are the prompt text and the tool input, and the report is
+ *   only ever the fact.
+ * - `PreToolUse` with the `Agent|Task` matcher (the rename's two spellings) — the subagent task label. Claude's
+ *   SubagentStart payload has no description field, but the spawn's tool
+ *   input does, so this second entry runs the same `report subagents` verb,
+ *   which forwards `description` and `subagent_type` and never the prompt.
  * - `SessionStart` — conversation identity. The restart-resume pin
  *   (`--session-id` at launch) only survives while the pane keeps that ONE
  *   conversation, but /clear, /resume <other> and /fork start a DIFFERENT
@@ -153,7 +158,9 @@ const reporterHook = (host: PluginHost, reporter: ReporterSpec, ...verb: string[
  *   and reads stdin like `Stop` now does — the reporter forwards `session_id`
  *   from that payload and nothing else.
  */
-const attentionHooks = (host: PluginHost, reporter: ReporterSpec) => ({
+const paneHooks = (host: PluginHost, reporter: ReporterSpec) => ({
+  SubagentStart: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "subagents") }] }],
+  SubagentStop: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "subagents") }] }],
   Stop: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "attention", "turn_complete") }] }],
   Notification: [
     {
@@ -162,8 +169,18 @@ const attentionHooks = (host: PluginHost, reporter: ReporterSpec) => ({
     },
   ],
   UserPromptSubmit: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "attention", "resumed") }] }],
-  PreToolUse: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "attention", "resumed") }] }],
-  SessionStart: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "session") }] }],
+  PreToolUse: [
+    { hooks: [{ type: "command", command: reporterHook(host, reporter, "attention", "resumed") }] },
+    { matcher: "Agent|Task", hooks: [{ type: "command", command: reporterHook(host, reporter, "subagents") }] },
+  ],
+  SessionStart: [
+    {
+      hooks: [
+        { type: "command", command: reporterHook(host, reporter, "session") },
+        { type: "command", command: reporterHook(host, reporter, "subagents") },
+      ],
+    },
+  ],
 });
 
 /** Claude's transcript folder name for a project dir: every non-alphanumeric → `-`. */
@@ -189,7 +206,8 @@ function projectSlug(cwd: string): string {
  * `@subshell-ai/plugin-api`.
  */
 const createPlugin: HarnessPluginFactory = (host: PluginHost): SubshellPlugin => ({
-  capabilities: (): PluginCapability[] => ["mcp", "resume", "attention", "settings"],
+  subagents: { discovery: "hooks", navigation: "unavailable" },
+  capabilities: (): PluginCapability[] => ["subagents", "mcp", "resume", "attention", "settings"],
 
   supportsAttentionHooks: true,
 
@@ -245,9 +263,11 @@ const createPlugin: HarnessPluginFactory = (host: PluginHost): SubshellPlugin =>
     // settings of its own.
     const settings: Record<string, unknown> = { ...(preset.settings ?? {}) };
     if (reporter) {
-      settings.hooks = attentionHooks(host, reporter);
+      settings.hooks = paneHooks(host, reporter);
     } else {
-      host.log.warn("no reporter resolved for this launch: attention and conversation-identity hooks are omitted");
+      host.log.warn(
+        "no reporter resolved for this launch: attention, conversation-identity, and subagent-roster hooks are omitted",
+      );
     }
     if (Object.keys(settings).length > 0) {
       args.push("--settings", JSON.stringify(settings));

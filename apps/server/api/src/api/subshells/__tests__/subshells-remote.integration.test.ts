@@ -347,6 +347,7 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
           paths: [
             `${SCRIPTED_DATA_DIR}/subshells/${body.id}.log`,
             `${SCRIPTED_DATA_DIR}/mcp/${body.id}.json`,
+            `${SCRIPTED_DATA_DIR}/mcp/${body.id}.json.d`,
             `${SCRIPTED_DATA_DIR}/subshells/${body.id}.meta.json`,
           ],
         },

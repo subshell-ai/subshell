@@ -178,8 +178,34 @@ export async function pickAgent(input: Locator, label: string): Promise<void> {
  * does not fail fast — it hangs a spec for its whole timeout, or leaves the
  * form reset with the submit button disabled and no dialog to speak of.
  */
-export async function dismissDirectoryPanel(page: Page, heading = "New subshell"): Promise<void> {
+export async function dismissDirectoryPanel(page: Page, heading: string | RegExp = "New subshell"): Promise<void> {
   await page.getByRole("heading", { name: heading }).click();
+}
+
+/**
+ * Drive the workspace add dialog onto its NEW half, whichever half it opened on.
+ *
+ * When no subshell is available to add (nothing exists, or everything that
+ * does is already in the target workspace), the dialog skips the Existing/New
+ * choice entirely (newOnly, 2026-10-19): no segmented control, title
+ * "New subshell". During the roster fetch it still shows the old title and the
+ * segmented control, so the click can race the flip — retry until the launch
+ * form (`#picker-agent`) is on screen.
+ */
+export async function showNewSubshellForm(page: Page): Promise<void> {
+  const dialog = page.getByRole("dialog");
+  const segment = dialog.getByRole("button", { name: "New subshell", exact: true });
+  await expect
+    .poll(
+      async () => {
+        if (await segment.isVisible().catch(() => false)) {
+          await segment.click({ timeout: 2_000 }).catch(() => {});
+        }
+        return dialog.locator("#picker-agent").isVisible();
+      },
+      { timeout: 20_000 },
+    )
+    .toBe(true);
 }
 
 /**

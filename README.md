@@ -8,8 +8,8 @@ Subshell is an open-source, self-hosted dashboard for interactive coding agents.
 Run Claude Code, Codex, and other agent CLIs on your own machines, then access
 them from a browser or desktop app.
 
-<a href="apps/website/public/demos/desktop.mp4">
-  <img src="docs/assets/subshell-demo.gif" width="640" alt="Subshell workspace: send a prompt to Codex, see a notification sample, and switch to Claude Code" />
+<a href="apps/website/public/demos/desktop-workspace.mp4">
+  <img src="docs/assets/subshell-demo.gif" width="640" alt="Subshell workspace: an agent delegates to two subagents, then tests run in a second subshell" />
 </a>
 
 - **Your machines, your data.** Host the server yourself and run agents on its

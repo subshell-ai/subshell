@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
-import { realpath, stat, unlink } from "node:fs/promises";
+import { realpath, rm, stat, unlink } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { detectBinary, probeVersion, tmuxSocketFor } from "@internal/pane-runtime";
 import {
   type DetectResultWire,
@@ -265,7 +266,11 @@ export async function execRemovePaths(ctx: CommandContext, cmd: Cmd<"remove_path
   let removed = 0;
   for (const p of cmd.paths) {
     try {
-      await unlink(p);
+      // Only generated companion directories are recursively removed. The
+      // general remove_paths surface still refuses ordinary directories.
+      if (dirname(p) === join(ctx.config.dataDir, "mcp") && /^[a-zA-Z0-9_-]+\.json\.d$/.test(basename(p))) {
+        await rm(p, { recursive: true });
+      } else await unlink(p);
       removed += 1;
     } catch {
       // already gone — not an error, just not a removal

@@ -149,3 +149,32 @@ describe("capabilityMismatches: the publish pair's undeclared half", () => {
     expect(capabilityMismatches(p, "network")[0]).toContain("only part of it");
   });
 });
+
+describe("capabilityMismatches: the subagent descriptor's values", () => {
+  it("accepts a descriptor whose words are in the value sets", () => {
+    const p = harness(["subagents"], {
+      subagents: { discovery: "hooks", navigation: "native", setup: "Approve the hooks when asked." },
+    });
+    expect(capabilityMismatches(p, "agent-harness")).toEqual([]);
+  });
+
+  it("refuses a discovery word outside the set at load", () => {
+    // This is the loader's job because the alternative is worse: a registry
+    // plugin shipping `discovery: "teleport"` would pass every install-time
+    // check and then fail response validation on EVERY read of that harness's
+    // preset schema. The value sets exist so this line has one edit site.
+    const p = harness(["subagents"], {
+      subagents: { discovery: "teleport", navigation: "native" } as unknown as NonNullable<SubshellPlugin["subagents"]>,
+    });
+    expect(capabilityMismatches(p, "agent-harness")[0]).toContain('subagents.discovery is "teleport"');
+  });
+
+  it("refuses an unknown navigation word, and a setup that is present but blank", () => {
+    const badNav = harness(["subagents"], {
+      subagents: { discovery: "hooks", navigation: "teleport" } as unknown as NonNullable<SubshellPlugin["subagents"]>,
+    });
+    expect(capabilityMismatches(badNav, "agent-harness")[0]).toContain('subagents.navigation is "teleport"');
+    const blankSetup = harness(["subagents"], { subagents: { discovery: "hooks", navigation: "native", setup: "  " } });
+    expect(capabilityMismatches(blankSetup, "agent-harness")[0]).toContain("subagents.setup");
+  });
+});

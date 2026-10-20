@@ -73,4 +73,22 @@ describe("HermesPlugin", () => {
   it("parseVersion: answers null for empty output", () => {
     expect(plugin.parseVersion?.("   \n\n")).toBeNull();
   });
+
+  it("mcpSetup: prints hook lines only when the host resolved a reporter", () => {
+    // The reporter is the one portable spelling the server's own
+    // PORTABLE_REPORTER pins; drift between the two would show users two
+    // different hook commands (the #57 class, reporter half).
+    const launch = { command: "subshell", args: ["mcp"] };
+    const bare = plugin.mcpSetup?.(launch);
+    expect(bare?.mode).toBe("manual");
+    const bareSteps = bare?.mode === "manual" ? bare.steps : [];
+    expect(bareSteps[0].command).toContain("hermes mcp add");
+    expect(bareSteps.some((step) => step.command.includes("subagent_start"))).toBe(false);
+    const withHooks = plugin.mcpSetup?.(launch, { command: "subshell", args: ["report"] });
+    expect(withHooks?.mode).toBe("manual");
+    const steps = withHooks?.mode === "manual" ? withHooks.steps : [];
+    const hooks = steps.find((step) => step.command.includes("subagent_start"));
+    expect(hooks?.command).toContain("'subshell' 'report' 'subagents'");
+    expect(hooks?.command).toContain("subagent_stop");
+  });
 });

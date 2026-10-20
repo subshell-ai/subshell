@@ -63,6 +63,7 @@ describe("RemoteLauncher path composition refuses non-conforming ids", () => {
     expect(launcher.subshellArtifacts(id)).toEqual([
       `/var/lib/subshell/subshells/${id}.log`,
       `/var/lib/subshell/mcp/${id}.json`,
+      `/var/lib/subshell/mcp/${id}.json.d`,
       `/var/lib/subshell/subshells/${id}.meta.json`,
     ]);
   });

@@ -239,6 +239,6 @@ describe("ssh_key_bridge: a closed gate or maintenance destroys live signing, no
 });
 
 /** Desktop signing requires the temporary key bridge command on the connecting node. */
-it("NODE_PROTOCOL_VERSION is 21 (temporary desktop key bridge)", () => {
-  expect(NODE_PROTOCOL_VERSION).toBe(21);
+it("NODE_PROTOCOL_VERSION is 22 (temporary desktop key bridge)", () => {
+  expect(NODE_PROTOCOL_VERSION).toBe(22);
 });

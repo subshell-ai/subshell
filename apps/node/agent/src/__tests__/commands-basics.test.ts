@@ -337,6 +337,22 @@ describe("command executors (spec §7)", () => {
     expect(relative).toEqual({ ok: true, data: { exists: false } });
   });
 
+  it("removes generated integration directories without recursively removing ordinary directories", async () => {
+    const generated = join(dataDir, "mcp", `${S1}.json.d`);
+    const ordinary = join(dataDir, "keep-directory");
+    mkdirSync(generated, { recursive: true });
+    mkdirSync(ordinary, { recursive: true });
+    writeFileSync(join(generated, "bridge.mjs"), "export default {};");
+    writeFileSync(join(ordinary, "keep.txt"), "keep");
+    const { ctx } = makeCtx({}, []);
+    expect(await dispatchCommand(ctx, { type: "remove_paths", paths: [generated, ordinary] })).toEqual({
+      ok: true,
+      data: { removed: 1 },
+    });
+    expect(existsSync(generated)).toBe(false);
+    expect(existsSync(join(ordinary, "keep.txt"))).toBe(true);
+  });
+
   it("remove_paths: unlinks what exists under the roots; an absent path counts not", async () => {
     const { ctx } = makeCtx({}, []);
     await ctx.meta.record({

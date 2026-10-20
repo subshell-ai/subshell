@@ -19,7 +19,10 @@ async function renderRail(path: string, admin = false) {
       ? { viewerIsAdmin: admin }
       : url.includes("get-session")
         ? { user: { name: "Test", email: "test@example.test" } }
-        : [];
+        : url.includes("/api/subshells/subagents")
+          ? // The batch snapshot the rail rows share; empty means "no children".
+            {}
+          : [];
     return Response.json(body);
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -132,8 +135,24 @@ describe("contextual two-rail navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
     expect(screen.queryByRole("navigation", { name: "Settings pages" })).toBeNull();
     expect(screen.getByRole("link", { name: "Settings" })).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Expand sidebar" }));
     fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
     expect(screen.getByRole("navigation", { name: "Settings pages" })).toBeTruthy();
+  });
+  it("toggles the active rail panel without navigating and opens a different section", async () => {
+    const router = await renderRail("/nodes");
+    fireEvent.click(screen.getByRole("link", { name: "Settings" }));
+    expect(screen.queryByRole("navigation", { name: "Settings pages" })).toBeNull();
+    expect(localStorage.getItem("subshell.sidebarCollapsed")).toBe("1");
+    expect(router.state.location.pathname).toBe("/nodes");
+    fireEvent.click(screen.getByRole("link", { name: "Settings" }));
+    expect(screen.getByRole("navigation", { name: "Settings pages" })).toBeTruthy();
+    expect(localStorage.getItem("subshell.sidebarCollapsed")).toBe("0");
+    fireEvent.click(screen.getByRole("link", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("link", { name: "Account" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/account"));
+    expect(screen.getByRole("link", { name: "Profile" })).toBeTruthy();
+    expect(localStorage.getItem("subshell.sidebarCollapsed")).toBe("0");
   });
   it("shows only the chosen workspace and recovers a failed workspace read", async () => {
     const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({

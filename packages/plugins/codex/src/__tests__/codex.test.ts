@@ -29,6 +29,27 @@ describe("CodexPlugin", () => {
     ).toEqual(["/usr/bin/codex"]);
   });
 
+  it("labels every monitoring hook for Codex's trust review", () => {
+    const args = plugin.buildCommand({
+      binary: "/usr/bin/codex",
+      cwd: "/tmp/ws",
+      subshellName: "",
+      preset: preset(),
+      reporter: bunLaunch,
+    });
+    const overrides = args.filter((arg) => arg.startsWith("hooks."));
+    expect(overrides).toHaveLength(3);
+    for (const override of overrides) {
+      const parsed = Bun.TOML.parse(override) as {
+        hooks: Record<string, { hooks: { statusMessage: string; command: string; timeout: number }[] }[]>;
+      };
+      const hook = Object.values(parsed.hooks)[0]?.[0]?.hooks[0];
+      expect(hook?.statusMessage).toBe("Subshell subagent monitoring");
+      expect(hook?.command).toContain("subagents");
+      expect(hook?.timeout).toBe(2);
+    }
+  });
+
   it("buildCommand: maps settings to flags, then preset and extra flags", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/codex",

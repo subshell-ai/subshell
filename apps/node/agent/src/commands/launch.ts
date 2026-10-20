@@ -130,6 +130,23 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
     const dir = dirname(cmd.mcp.path);
     await mkdir(dir, { recursive: true, mode: 0o700 });
     await enforceMode(dir, 0o700);
+    if (cmd.mcp.files) {
+      const companionDir = `${cmd.mcp.path}.d`;
+      if (!(await pathAllowed(companionDir, await realpathRoots([ctx.config.dataDir]))))
+        return { ok: false, error: "integration path refused" };
+      await mkdir(companionDir, { recursive: true, mode: 0o700 });
+      await enforceMode(companionDir, 0o700);
+      for (const [name, content] of Object.entries(cmd.mcp.files)) {
+        const target = `${companionDir}/${name}`;
+        if (
+          !/^[a-zA-Z0-9_-]+\.(mjs|py|json)$/.test(name) ||
+          !(await pathAllowed(target, await realpathRoots([ctx.config.dataDir])))
+        )
+          return { ok: false, error: "integration path refused" };
+        await writeFile(target, content, { mode: 0o600 });
+        await enforceMode(target, 0o600);
+      }
+    }
     await writeFile(cmd.mcp.path, cmd.mcp.fileContent, { mode: 0o600 });
     await enforceMode(cmd.mcp.path, 0o600); // Task-2 re-tightening: umask cannot leak bits here
   }

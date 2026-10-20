@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import {
   type BuildCommandInput,
   type HarnessPluginFactory,
@@ -13,6 +14,7 @@ import {
   type SubshellPlugin,
   validateGenericPreset,
 } from "@subshell-ai/plugin-api";
+import { SUBAGENT_BRIDGE } from "./subagents.js";
 
 /** Known opencode settings, applied as per-invocation CLI flags. */
 const OPENCODE_SETTINGS_FIELDS: SettingsField[] = [
@@ -37,14 +39,16 @@ const OPENCODE_SETTINGS_FIELDS: SettingsField[] = [
 ];
 
 const SUGGESTED_ENV: { key: string; description: string }[] = [
-  // OPENCODE_CONFIG is deliberately NOT suggested: subshell owns it — it points
-  // at each subshell's generated MCP config layer (mcpRegistration), and a
-  // preset that set it would shadow its own cross-subshell comms. Users who
-  // want their own extra layer use OPENCODE_CONFIG_CONTENT (independent merge
-  // source) or OPENCODE_CONFIG_DIR.
+  // OPENCODE_CONFIG and OPENCODE_TUI_CONFIG are deliberately NOT suggested:
+  // subshell owns both. The first points at each subshell's generated MCP
+  // config layer (mcpRegistration); the second at the generated tui.json that
+  // loads the subagent bridge. The wiring env lands LAST in the pane's env,
+  // so a preset that set either would be silently shadowed rather than
+  // honored. Users who want their own extra layer use OPENCODE_CONFIG_CONTENT
+  // (independent merge source), OPENCODE_CONFIG_DIR, or their own TUI plugin
+  // installed in the user config.
   { key: "OPENCODE_CONFIG_CONTENT", description: "Inline JSON config merged at runtime" },
   { key: "OPENCODE_CONFIG_DIR", description: "Extra config dir (agents/commands/plugins), isolation knob" },
-  { key: "OPENCODE_TUI_CONFIG", description: "Path to a custom TUI config file" },
   { key: "OPENCODE_API_KEY", description: "OpenCode Zen / OpenCode Go API key" },
 ];
 
@@ -83,7 +87,8 @@ const SUGGESTED_FLAGS: { flag: string; description: string }[] = [
  * `host` carries what this module cannot import. See `@subshell-ai/plugin-api`.
  */
 const createPlugin: HarnessPluginFactory = (_host: PluginHost): SubshellPlugin => ({
-  capabilities: (): PluginCapability[] => ["mcp", "settings"],
+  subagents: { discovery: "extension", navigation: "native" },
+  capabilities: (): PluginCapability[] => ["subagents", "mcp", "settings"],
 
   buildCommand(input: BuildCommandInput): string[] {
     const { binary, preset, extraFlags } = input;
@@ -114,7 +119,14 @@ const createPlugin: HarnessPluginFactory = (_host: PluginHost): SubshellPlugin =
         [MCP_SERVER_NAME]: { type: "local", command: [launch.command, ...launch.args], enabled: true },
       },
     };
-    return { fileContent: `${JSON.stringify(doc, null, 2)}\n`, env: { OPENCODE_CONFIG: configPath } };
+    return {
+      files: {
+        "subagents.mjs": SUBAGENT_BRIDGE,
+        "tui.json": JSON.stringify({ plugin: [pathToFileURL(`${configPath}.d/subagents.mjs`).href] }),
+      },
+      fileContent: `${JSON.stringify(doc, null, 2)}\n`,
+      env: { OPENCODE_CONFIG: configPath, OPENCODE_TUI_CONFIG: `${configPath}.d/tui.json` },
+    };
   },
 
   /** Auto: subshell writes a merged config layer + OPENCODE_CONFIG for every subshell. */

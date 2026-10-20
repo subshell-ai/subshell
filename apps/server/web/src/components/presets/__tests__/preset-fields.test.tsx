@@ -121,6 +121,37 @@ describe("PresetFields MCP block gate (review round 3)", () => {
   });
 });
 
+describe("PresetFields subagent setup line", () => {
+  const seed = (harnessId: string): PresetFormValue => ({ ...emptyPresetForm(), harnessId, name: "N" });
+
+  it("shows the one-time act for a harness that needs one, auto wiring included", async () => {
+    // Codex wires MCP by itself but still asks for /hooks trust: the line
+    // renders even though the MCP block (manual only) does not.
+    const restore = mockFetch([CLAUDE], {
+      mcp: { mode: "auto" },
+      subagents: { discovery: "hooks", navigation: "unavailable", setup: "Trust the hooks in /hooks." },
+    });
+    try {
+      renderEditor(seed("claude-code"), []);
+      await waitFor(() => expect(screen.getByText("Trust the hooks in /hooks.")).toBeDefined());
+      expect(screen.queryByText(/register subshell once on each node/)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("renders nothing when the harness reports no subagents or no act", async () => {
+    const restore = mockFetch([CLAUDE], { mcp: { mode: "auto" }, subagents: null });
+    try {
+      renderEditor(seed("claude-code"), []);
+      await waitFor(() => expect(screen.getByPlaceholderText(/e\.g\. Fast model/)).toBeDefined());
+      expect(screen.queryByText("Subagents")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});
+
 describe("PresetFields agent select (unlocked)", () => {
   it("carries the frozen ids and copy, and hides everything else until an agent is chosen", async () => {
     const restore = mockFetch([CLAUDE, PI]);

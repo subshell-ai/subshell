@@ -72,6 +72,15 @@ export interface McpSetupStepInfo {
  */
 export type McpSetupInfo = { mode: "auto"; summary: string } | { mode: "manual"; steps: McpSetupStepInfo[] };
 
+import type { HarnessSubagentSupport } from "@subshell-ai/plugin-api";
+
+/**
+ * What a harness can surface of its child agents: the contract's own type, so
+ * a change to `discovery` or `navigation` lands here with it (the server
+ * answers null when the harness reports none).
+ */
+export type HarnessSubagentSupportInfo = HarnessSubagentSupport;
+
 /** Reference data for one harness, backing the preset editor's suggestions. */
 export interface HarnessSchema {
   /** Settings editor schema (empty when the harness has none) */
@@ -82,4 +91,6 @@ export interface HarnessSchema {
   suggestedFlags: { flag: string; description: string }[];
   /** How this harness gets cross-subshell comms (auto vs one-time manual setup) */
   mcp: McpSetupInfo;
+  /** Subagent surfacing this harness supports; null when it reports none */
+  subagents: HarnessSubagentSupportInfo | null;
 }

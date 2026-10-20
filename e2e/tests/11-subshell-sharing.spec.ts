@@ -62,7 +62,7 @@ test("sharing: view is read-only, edit manages, private subshells are invisible"
 
     await page.goto(`/subshells/${sharedId}`);
     // A viewer has no actions menu at all (the component returns null for view).
-    await expect(page.getByRole("button", { name: /^Actions for / })).toHaveCount(0);
+    await expect(page.getByRole("main").getByRole("button", { name: /^Actions for / })).toHaveCount(0);
 
     // Escalate to EDIT. The member's effective access rises and the menu appears.
     await admin.request.put(`/api/subshells/${sharedId}/shares`, {
@@ -71,7 +71,9 @@ test("sharing: view is read-only, edit manages, private subshells are invisible"
     const asEdit = await (await memberBrowser.request.get(`/api/subshells/${sharedId}`)).json();
     expect(asEdit.access).toBe("edit");
     await page.goto(`/subshells/${sharedId}`);
-    await expect(page.getByRole("button", { name: /^Actions for / })).toBeVisible({ timeout: SPAWN_TIMEOUT });
+    await expect(page.getByRole("main").getByRole("button", { name: /^Actions for / })).toBeVisible({
+      timeout: SPAWN_TIMEOUT,
+    });
 
     // Revoke entirely: the subshell vanishes from the member again (404).
     await admin.request.put(`/api/subshells/${sharedId}/shares`, { data: { shares: [] } });

@@ -1,10 +1,14 @@
-import { cn } from "@internal/node-admin";
+import { Button, cn } from "@internal/node-admin";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { LayoutDashboard } from "lucide-react";
+import { ChevronDown, ChevronRight, LayoutDashboard } from "lucide-react";
+import { useId, useState } from "react";
+import { toast } from "sonner";
+import { HarnessSubagentRows } from "@/components/harness-subagents";
 import { TooltipLabelledLines } from "@/components/sidebar/TooltipLabelledLines";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDot } from "@/components/subshell-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useHarnessSubagents, useSelectHarnessAgent } from "@/hooks/use-harness-subagents";
 import { useOpenPaneAsTab } from "@/hooks/use-open-pane-as-tab";
 import { encodeSubshellDrag } from "@/lib/subshell-dnd";
 import { subshellRowTooltip } from "@/lib/subshell-row-tooltip";
@@ -83,7 +87,17 @@ export function SubshellRecentRow({
   inActiveWorkspace?: boolean;
 }) {
   const openAsTab = useOpenPaneAsTab();
+  // RUNNING is the row's two facts; a pane parked at running/alive:0 (or
+  // flipped to terminated ahead of its alive bit) must not watch or fetch.
+  const { data: agentState } = useHarnessSubagents(
+    subshell.id,
+    subshell.status === "running" && subshell.alive === true,
+  );
+  const selectAgent = useSelectHarnessAgent(subshell.id);
   const navigate = useNavigate();
+  const [expanded, setExpanded] = useState(true);
+  const childrenId = useId();
+  const hasSubagents = subshell.status === "running" && subshell.alive === true && !!agentState?.agents.length;
   // `render`, not a wrapper: the Link below is simultaneously the nav, the
   // drag source and the context-menu subject, and the tooltip had to attach
   // to that element without becoming the thing that quietly kills one of
@@ -111,6 +125,17 @@ export function SubshellRecentRow({
               onClick={(e) => {
                 if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
                 e.preventDefault();
+                if (focused && hasSubagents) {
+                  setExpanded((value) => !value);
+                  return;
+                }
+                if (agentState?.selectedId && agentState.canSelect)
+                  selectAgent.mutate(null, {
+                    // A reset that dies quietly is the worst outcome: the
+                    // user goes on to the navigation below while the pane
+                    // still shows the child. Say so on the thing that failed.
+                    onError: () => toast.error("Couldn't return the pane to its main agent."),
+                  });
                 if (onOpen) {
                   onOpen();
                   return;
@@ -138,6 +163,7 @@ export function SubshellRecentRow({
                 // ONE signal (operator ruling 2026-10-17): the CURRENT pane
                 // wears the accent fill and the white ring; workspace
                 // membership marks nothing, and nothing here goes bold.
+                hasSubagents && !(subline ?? subshell.workingDir) && "min-h-12",
                 focused
                   ? "bg-accent text-accent-foreground ring-1 ring-foreground/70"
                   : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
@@ -171,11 +197,46 @@ export function SubshellRecentRow({
     </TooltipProvider>
   );
   return (
-    <div className="relative">
-      <SubshellActionsMenu subshell={subshell}>{row}</SubshellActionsMenu>
-      <div className="absolute top-1/2 right-0 -translate-y-1/2">
-        <SubshellActionsMenu subshell={subshell} />
+    <>
+      <div className="relative">
+        <SubshellActionsMenu subshell={subshell}>{row}</SubshellActionsMenu>
+        {hasSubagents && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    /* Centered on the row's SECOND line (py-1 plus 1.5 detail
+                       line boxes; both lines are truncate, so they never wrap).
+                       Derived from the line-height token, not a font-size
+                       multiple, so a type-scale edit moves it in step. */
+                    className="absolute top-[calc(var(--spacing)+var(--text-detail)*var(--text-detail--line-height)*1.5)] left-1 size-5 -translate-y-1/2 text-muted-foreground [&_svg]:size-3"
+                    aria-label={expanded ? "Collapse subagents" : "Expand subagents"}
+                    aria-expanded={expanded}
+                    aria-controls={childrenId}
+                    onClick={() => setExpanded((value) => !value)}
+                  />
+                }
+              >
+                {expanded ? <ChevronDown /> : <ChevronRight />}
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{expanded ? "Collapse subagents" : "Expand subagents"}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+        <div className="absolute top-1/2 right-0 -translate-y-1/2">
+          <SubshellActionsMenu subshell={subshell} />
+        </div>
       </div>
-    </div>
+      <div id={childrenId} hidden={!expanded || !hasSubagents}>
+        <HarnessSubagentRows
+          branchWorkspaceId={branchWorkspaceId}
+          id={subshell.id}
+          alive={subshell.status === "running" && subshell.alive === true}
+        />
+      </div>
+    </>
   );
 }
