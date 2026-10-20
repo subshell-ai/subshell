@@ -227,7 +227,9 @@ test("launch dialog survives the agent dropdown's scroll shift", async ({ page }
   await agent.scrollIntoViewIfNeeded();
   await expect(agent).toBeInViewport();
   const parked = await scroller.evaluate((el) => el.scrollTop);
-  expect(parked).toBeGreaterThan(0);
+  // A shorter launch form can leave Agent visible at scrollTop 0.
+  // What matters is that the simulated keyboard shift actually moves it.
+  expect(await scroller.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeGreaterThan(parked);
   const combo = await page.getByRole("combobox", { name: "Agent" }).boundingBox();
   expect(combo).toBeTruthy();
   if (!combo) throw new Error("Agent combobox has no bounding box");
@@ -237,6 +239,7 @@ test("launch dialog survives the agent dropdown's scroll shift", async ({ page }
   await scroller.evaluate((el) => {
     el.scrollTop = el.scrollHeight;
   });
+  expect(await scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(parked);
   // Dismiss only the dropdown by tapping the dialog's bottom padding.
   const dbox = await dialog.boundingBox();
   expect(dbox).toBeTruthy();
@@ -259,6 +262,15 @@ test("add-subshell dialog fits and scrolls on small screens", async ({ page }, t
   });
   expect(created.ok(), await created.text()).toBe(true);
   const { id } = (await created.json()) as { id: string };
+
+  // One real subshell to offer: with nothing pickable the dialog opens
+  // straight on the New half (newOnly, 2026-10-19), and the tall
+  // Existing/New form this test measures would not exist at all.
+  const spawned = await page.request.post("/api/subshells", {
+    data: { harnessId: "pi", workingDir: "/tmp", name: `e2e-mobile-fit-${testInfo.project.name}-${Date.now()}` },
+  });
+  expect(spawned.ok(), await spawned.text()).toBe(true);
+
   await page.goto(`/workspaces/${id}`);
 
   // Shell rule on the workspace page itself: tabs below 1024px, dock above.

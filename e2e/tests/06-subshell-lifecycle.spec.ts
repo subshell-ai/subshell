@@ -93,7 +93,7 @@ test("subshell: create -> attach -> terminate -> delete", async ({ page }) => {
   // the live pane AND removes the row in one act — the old separate
   // Terminate step left the human UI together with this two-step flow.
   await page.goto("/subshells");
-  const actions = page.getByRole("button", { name: `Actions for ${name}` });
+  const actions = page.getByRole("main").getByRole("button", { name: `Actions for ${name}` });
   await expect(actions).toBeVisible();
   await actions.click();
   await page.getByRole("menuitem", { name: "Close" }).click();

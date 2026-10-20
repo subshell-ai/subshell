@@ -1,5 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE, newSubshellName, pickAgent, subshellIds } from "./helpers";
+import {
+  ADMIN_STATE,
+  dismissDirectoryPanel,
+  newSubshellName,
+  pickAgent,
+  showNewSubshellForm,
+  subshellIds,
+} from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -22,8 +29,10 @@ test("create a workspace, add a subshell pane, and the layout survives reload", 
   // is its aria-label "Add a subshell to this workspace" (aria-label wins over
   // the "Add subshell" text content), so a partial label would not match.
   await page.getByRole("button", { name: "Add a subshell to this workspace" }).click();
-  await expect(page.getByRole("heading", { name: "Add a subshell" })).toBeVisible();
-  await page.getByRole("button", { name: "New subshell" }).click();
+  // With nothing on the instance yet, the dialog can open straight on the
+  // New half (newOnly): no segmented control, title "New subshell". The
+  // helper lands on the launch form whichever half it opened on.
+  await showNewSubshellForm(page);
   // Stable id from NewSubshellForm; the only other control group in the dialog
   // (direction) is buttons, not comboboxes, but the id survives either way.
   // Agent options render as the plugin display name, greyed never hidden;
@@ -40,7 +49,8 @@ test("create a workspace, add a subshell pane, and the layout survives reload", 
   // heading: inside the dialog (stays open) but outside the picker root
   // (panel closes). Env-dependent: only bites when /tmp has directory entries
   // to populate the panel (CI's own playwright-artifacts-*).
-  await page.getByRole("heading", { name: "Add a subshell" }).click();
+  // The dialog's title is "New subshell" in the newOnly state, so match either.
+  await dismissDirectoryPanel(page, /Add a subshell|New subshell/);
   // Sampled BEFORE the launch: the pane's title is the name the server gives
   // the new subshell, and the only way to know which row is new is to know
   // which rows are not.
@@ -78,10 +88,10 @@ test("deleting the open workspace from the sidebar drops you to the subshell", a
 
   // Add one subshell pane (a real `pi` stub) so there is a view to drop to.
   await page.getByRole("button", { name: "Add a subshell to this workspace" }).click();
-  await page.getByRole("button", { name: "New subshell" }).click();
+  await showNewSubshellForm(page);
   await pickAgent(page.locator("#picker-agent"), "pi");
   await page.fill("#picker-working-dir", "/tmp");
-  await page.getByRole("heading", { name: "Add a subshell" }).click();
+  await dismissDirectoryPanel(page, /Add a subshell|New subshell/);
   const before = await subshellIds(page);
   await page.getByRole("button", { name: "Start subshell" }).click();
   await newSubshellName(page, before);

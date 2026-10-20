@@ -146,7 +146,7 @@ test("a negotiated attach speaks CBOR both ways and the pane answers", async ({ 
 
   // Cleanup: close the probe subshell (Close terminates before deleting).
   await p.goto("/subshells");
-  const actions = p.getByRole("button", { name: `Actions for ${name}` });
+  const actions = p.getByRole("main").getByRole("button", { name: `Actions for ${name}` });
   await expect(actions).toBeVisible();
   await actions.click();
   await p.getByRole("menuitem", { name: "Close" }).click();
