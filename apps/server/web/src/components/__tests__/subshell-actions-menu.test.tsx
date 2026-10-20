@@ -714,10 +714,13 @@ describe("subshell menu target changes", () => {
         );
         if (context) {
           fireEvent.contextMenu(screen.getByText("First row"));
-          await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Close" })).not.toBeNull());
+          // Boolean asserts in these polls: `expect(element).toBeNull()` makes
+          // bun serialize the whole DOM graph on a failed attempt, which can
+          // wedge the state update the poll is waiting for (web AGENTS.md).
+          await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Close" }) !== null).toBe(true));
         } else await openMenu("First");
         act(() => control.set?.(makeSubshell({ id: "id-2", name: "Second" })));
-        await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Close" })).toBeNull());
+        await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Close" }) === null).toBe(true));
         expect(calls.filter((call) => call.method !== "GET")).toHaveLength(0);
       } finally {
         restore();
@@ -732,9 +735,9 @@ describe("subshell menu target changes", () => {
       await renderMenu(makeSubshell({ name: "First" }), undefined, undefined, undefined, control);
       await openMenu("First");
       fireEvent.click(screen.getByRole("menuitem", { name: "Edit title" }));
-      await waitFor(() => expect(screen.queryByRole("textbox", { name: "New subshell title" })).not.toBeNull());
+      await waitFor(() => expect(screen.queryByRole("textbox", { name: "New subshell title" }) !== null).toBe(true));
       act(() => control.set?.(makeSubshell({ id: "id-2", name: "Second" })));
-      await waitFor(() => expect(screen.queryByRole("textbox", { name: "New subshell title" })).toBeNull());
+      await waitFor(() => expect(screen.queryByRole("textbox", { name: "New subshell title" }) === null).toBe(true));
     } finally {
       restore();
     }
