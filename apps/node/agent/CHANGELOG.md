@@ -1,5 +1,20 @@
 # @internal/node
 
+## 2.2.1
+
+### Patch Changes
+
+- [#398](https://github.com/subshell-ai/subshell/pull/398) [`d622470`](https://github.com/subshell-ai/subshell/commit/d622470349c12c79b2073a96fa992044e70dcf74) Thanks [@theogravity](https://github.com/theogravity)! - Show Claude subagent names and task labels, including spawns with an implicit agent type. Match background task metadata by agent ID when Claude reports it, and preserve names across repeated start events. Clarify that sidebar view switching is unavailable in the Subshell integration, rather than in the harness itself.
+  
+  Hide Claude subagent descriptions in the sidebar because the reported labels do not match Claude’s live progress summaries. Keep names and status visible.
+
+- [#397](https://github.com/subshell-ai/subshell/pull/397) [`a21df83`](https://github.com/subshell-ai/subshell/commit/a21df83fd3db184750403e0a0fc566a87ede4d7e) Thanks [@theogravity](https://github.com/theogravity)! - Show active harness subagents beneath their parent subshell. Each row carries a hover card with its status, how long it has been running and, where the harness gives one, its own one-line task label (Claude Code and Hermes do). OpenCode's native integration switches the existing terminal view and updates its compact header; other integrations expose lifecycle status. Switching moves the shared terminal view onto any reported agent; typing still needs edit access. Add companion integration files to node launches.
+
+- [#391](https://github.com/subshell-ai/subshell/pull/391) [`e215250`](https://github.com/subshell-ai/subshell/commit/e215250fb191b34b371ff5696e7c4e6076c238bc) Thanks [@theogravity](https://github.com/theogravity)! - Make dashboard information easier to scan with consistent labels, readable values, and wrapping for long paths and addresses. Keep conditional fields beneath their selected radio option, disable Save for unchanged drafts, and clarify warnings and validation. Apply the shared fact styling to the node dashboard as well. On the docs site, the SSH destination-confirmation guide and its screenshot now match the always-visible fingerprint.
+- Updated dependencies [[`a21df83`](https://github.com/subshell-ai/subshell/commit/a21df83fd3db184750403e0a0fc566a87ede4d7e)]:
+  - @subshell-ai/plugin-api@3.2.0
+  - @internal/pane-runtime@1.0.0
+
 ## 2.1.2
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @subshell-ai/plugin-hermes
 
+## 1.0.1
+
+### Patch Changes
+
+- [#397](https://github.com/subshell-ai/subshell/pull/397) [`a21df83`](https://github.com/subshell-ai/subshell/commit/a21df83fd3db184750403e0a0fc566a87ede4d7e) Thanks [@theogravity](https://github.com/theogravity)! - Show active harness subagents beneath their parent subshell. Each row carries a hover card with its status, how long it has been running and, where the harness gives one, its own one-line task label (Claude Code and Hermes do). OpenCode's native integration switches the existing terminal view and updates its compact header; other integrations expose lifecycle status. Switching moves the shared terminal view onto any reported agent; typing still needs edit access. Add companion integration files to node launches.
+
 ## 1.0.0
 
 ### Major Changes

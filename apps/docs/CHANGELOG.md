@@ -1,5 +1,33 @@
 # @internal/docs
 
+## 0.10.0
+
+### Minor Changes
+
+- [#397](https://github.com/subshell-ai/subshell/pull/397) [`a21df83`](https://github.com/subshell-ai/subshell/commit/a21df83fd3db184750403e0a0fc566a87ede4d7e) Thanks [@theogravity](https://github.com/theogravity)! - Show active harness subagents beneath their parent subshell. Each row carries a hover card with its status, how long it has been running and, where the harness gives one, its own one-line task label (Claude Code and Hermes do). OpenCode's native integration switches the existing terminal view and updates its compact header; other integrations expose lifecycle status. Switching moves the shared terminal view onto any reported agent; typing still needs edit access. Add companion integration files to node launches.
+
+- [#391](https://github.com/subshell-ai/subshell/pull/391) [`e215250`](https://github.com/subshell-ai/subshell/commit/e215250fb191b34b371ff5696e7c4e6076c238bc) Thanks [@theogravity](https://github.com/theogravity)! - Make dashboard information easier to scan with consistent labels, readable values, and wrapping for long paths and addresses. Keep conditional fields beneath their selected radio option, disable Save for unchanged drafts, and clarify warnings and validation. Apply the shared fact styling to the node dashboard as well. On the docs site, the SSH destination-confirmation guide and its screenshot now match the always-visible fingerprint.
+
+### Patch Changes
+
+- [#395](https://github.com/subshell-ai/subshell/pull/395) [`af7deee`](https://github.com/subshell-ai/subshell/commit/af7deeee0cfa44e010a4892ae27d9b2296987185) Thanks [@theogravity](https://github.com/theogravity)! - Replace the crowded sidebar with a mini rail for app sections and a contextual sidebar for their pages. Workspaces show only the selected workspace’s subshells, with a workspace switcher and the existing pane actions. Settings, account pages, and mobile setup each have their own navigation, including on phones.
+  
+  Keep the final workspace tab in place when removing panes, with an explanation on the disabled close control and an API guard for concurrent removals.
+
+- [#393](https://github.com/subshell-ai/subshell/pull/393) [`4844bad`](https://github.com/subshell-ai/subshell/commit/4844bad3d9a1b0aff01a338f8ca056b916829e2e) Thanks [@theogravity](https://github.com/theogravity)! - Document sharing agent and SSH presets, access levels, secret disclosure, revocation behavior, and version 1 preset export/import.
+
+- [#397](https://github.com/subshell-ai/subshell/pull/397) [`a21df83`](https://github.com/subshell-ai/subshell/commit/a21df83fd3db184750403e0a0fc566a87ede4d7e) Thanks [@theogravity](https://github.com/theogravity)! - Refresh navigation, workspace, launch, and account instructions for the contextual sidebar. Add a navigation guide, retain the original homepage sections with updated product screenshots, and replace screenshots with captures of the current interface. Replace the desktop and phone demo recordings, posters, and README animation.
+
+- [#398](https://github.com/subshell-ai/subshell/pull/398) [`d622470`](https://github.com/subshell-ai/subshell/commit/d622470349c12c79b2073a96fa992044e70dcf74) Thanks [@theogravity](https://github.com/theogravity)! - Refresh website videos, posters, documentation screenshots, and the README animation for the unified workspace sidebar. Show real agent work and moving a running subshell between the sidebar sections, and update navigation copy to match the current controls.
+
+- [#398](https://github.com/subshell-ai/subshell/pull/398) [`d622470`](https://github.com/subshell-ai/subshell/commit/d622470349c12c79b2073a96fa992044e70dcf74) Thanks [@theogravity](https://github.com/theogravity)! - Browse workspace members and other subshells together in one sidebar. Drag rows between the sections to add or remove workspace tabs without stopping sessions, with matching menu actions and protection for the last tab. Keep the dashboard in the actions menu and use the active mini-rail icon to collapse the sidebar.
+  
+  Keep sidebar tooltips above the terminal and match the terminal padding background to the terminal palette instead of xterm's black viewport default.
+
+- [#394](https://github.com/subshell-ai/subshell/pull/394) [`67c1d73`](https://github.com/subshell-ai/subshell/commit/67c1d738d1e2c7369eb489d54b6cf4168c07c71a) Thanks [@theogravity](https://github.com/theogravity)! - Workspaces are now the default home for panes. Launches land as tabs in the workspace you're viewing (or a fresh one from the landing page), Split creates a real named workspace instead of a draft, and a workspace retires itself when its last pane is removed. The sidebar's Workspaces tree lists each workspace's panes (unfiled sessions stay in the subshells list), and opening the app returns to the workspace you were last in. Drafts, the discard sweep, and the unsaved/saved split are gone: `GET /api/workspaces` now carries every workspace with its panes, adding a pane twice is idempotent, and `POST /api/subshells` accepts a `workspaceId`. Migration 0058 drops the draft column and adds the unique pane constraint.
+  
+  The same move finishes on the surface: the page bar above the panes is now the FOCUSED PANE's subshell header (dot, in-place rename, directory, disclosures, its ⋯ menu), and the workspace's name edits from the rail's context menu (`Rename…`). You are always in a workspace: a launch raised with none on screen joins a workspace that exists (the last one you visited, else the most recent), opening a fresh one only when the instance has none, a plain click on a rail row means its tab (focus, its holder, or filing it into an existing workspace), and the Workspace/Others pseudo-groups in the subshell list are gone. Tree pane rows are the same component as the list's rows, wearing the shared status dot and their working directory, and a workspace row is a drop target: dragging a session onto it says "Add to workspace" and files it there.
+
 ## 0.9.0
 
 ### Minor Changes

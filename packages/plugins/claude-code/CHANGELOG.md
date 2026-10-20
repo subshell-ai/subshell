@@ -1,5 +1,15 @@
 # @subshell-ai/plugin-claude-code
 
+## 3.1.1
+
+### Patch Changes
+
+- [#398](https://github.com/subshell-ai/subshell/pull/398) [`d622470`](https://github.com/subshell-ai/subshell/commit/d622470349c12c79b2073a96fa992044e70dcf74) Thanks [@theogravity](https://github.com/theogravity)! - Show Claude subagent names and task labels, including spawns with an implicit agent type. Match background task metadata by agent ID when Claude reports it, and preserve names across repeated start events. Clarify that sidebar view switching is unavailable in the Subshell integration, rather than in the harness itself.
+  
+  Hide Claude subagent descriptions in the sidebar because the reported labels do not match Claude’s live progress summaries. Keep names and status visible.
+
+- [#397](https://github.com/subshell-ai/subshell/pull/397) [`a21df83`](https://github.com/subshell-ai/subshell/commit/a21df83fd3db184750403e0a0fc566a87ede4d7e) Thanks [@theogravity](https://github.com/theogravity)! - Show active harness subagents beneath their parent subshell. Each row carries a hover card with its status, how long it has been running and, where the harness gives one, its own one-line task label (Claude Code and Hermes do). OpenCode's native integration switches the existing terminal view and updates its compact header; other integrations expose lifecycle status. Switching moves the shared terminal view onto any reported agent; typing still needs edit access. Add companion integration files to node launches.
+
 ## 3.1.0
 
 ### Minor Changes
