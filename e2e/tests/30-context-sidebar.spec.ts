@@ -74,10 +74,14 @@ test("the unified sidebar transfers workspace membership and restores section de
       .getByRole("navigation", { name: "Settings pages" })
       .getByRole("link", { name: "Presets", exact: true })
       .click();
-    await rail.getByRole("link", { name: "Subshell for Mobile", exact: true }).click();
-    await page.getByRole("link", { name: "Android", exact: true }).click();
-    await expect(page).toHaveURL(/\/mobile\?platform=android$/);
-    await expect(page.getByText("Open the address above in Chrome.", { exact: true })).toBeVisible();
+    // The mobile cell opens the install dialog rather than navigating.
+    await rail.getByRole("button", { name: "Subshell for Mobile", exact: true }).click();
+    const installDialog = page.getByRole("dialog", { name: "Subshell for Mobile", exact: true });
+    await expect(installDialog).toBeVisible();
+    await installDialog.getByRole("button", { name: "Android", exact: true }).click();
+    await expect(installDialog.getByText("Open the address above in Chrome.", { exact: true })).toBeVisible();
+    await installDialog.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(installDialog).toBeHidden();
     await rail.getByRole("link", { name: "Settings", exact: true }).click();
     await expect(page).toHaveURL(/\/presets$/);
     // The panel can no longer collapse: clicking the active section lands on

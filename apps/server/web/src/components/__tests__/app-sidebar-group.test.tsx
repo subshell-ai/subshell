@@ -151,14 +151,20 @@ describe("the panel and its bottom section bar", () => {
     expect(screen.queryByRole("combobox", { name: "Switch workspace" })).toBeNull();
   });
 
-  it("test_section_bar_named_links_no_logo: the bar exposes exactly the section links, plus Open in browser in a shell", async () => {
+  it("test_section_bar_named_links_no_logo: the bar exposes the two section links, the mobile-dialog cell and the account card cell, plus Open in browser in a shell", async () => {
     await renderRail("/nodes");
     const bar = screen.getByRole("navigation", { name: "Main sections" });
     expect(
       within(bar)
         .getAllByRole("link")
         .map((link) => link.getAttribute("aria-label")),
-    ).toEqual(["Workspaces", "Subshell for Mobile", "Settings", "Account"]);
+    ).toEqual(["Workspaces", "Settings"]);
+    // The Workspaces cell wears the mark the old collapsed rail used; the
+    // link's aria-label names it, so the image itself stays decorative.
+    const mark = within(bar).getByRole("link", { name: "Workspaces" }).querySelector('img[src="/icons/mark-40.png"]');
+    expect(mark?.getAttribute("alt")).toBe("");
+    expect(within(bar).getByRole("button", { name: "Subshell for Mobile" })).toBeTruthy();
+    expect(within(bar).getByRole("button", { name: "Account: Test" })).toBeTruthy();
     expect(within(bar).queryByRole("link", { name: "Subshell" })).toBeNull();
     expect(within(bar).queryByRole("button", { name: "Open in browser" })).toBeNull();
     cleanup();
@@ -166,7 +172,31 @@ describe("the panel and its bottom section bar", () => {
     await renderRail("/nodes");
     const desktopBar = screen.getByRole("navigation", { name: "Main sections" });
     expect(within(desktopBar).getByRole("button", { name: "Open in browser" })).toBeTruthy();
-    expect(within(desktopBar).getAllByRole("link")).toHaveLength(4);
+    expect(within(desktopBar).getAllByRole("link")).toHaveLength(2);
+  });
+
+  it("test_mobile_cell_opens_dialog: the bar's mobile cell opens the install dialog instead of navigating", async () => {
+    const router = await renderRail("/nodes");
+    fireEvent.click(screen.getByRole("button", { name: "Subshell for Mobile" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Subshell for Mobile")).toBeTruthy();
+    expect(router.state.location.pathname).toBe("/nodes");
+    // Drain the dialog's public-settings refetch so its notify cannot land
+    // outside an acting scope after the test returns.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  });
+
+  it("test_account_cell_opens_card: the bar's account cell opens the profile card instead of navigating", async () => {
+    const router = await renderRail("/nodes");
+    const cell = screen.getByRole("button", { name: "Account: Test" });
+    // Base UI opens on pointerdown, which happy-dom cannot emulate; ArrowDown
+    // is the keyboard equivalent.
+    fireEvent.keyDown(cell, { key: "ArrowDown" });
+    expect(await screen.findByRole("menuitem", { name: "Account settings" })).toBeTruthy();
+    expect(await screen.findByText("test@example.test")).toBeTruthy();
+    expect(router.state.location.pathname).toBe("/nodes");
   });
 
   it("test_panel_width_retired_rail: the panel sheds the retired rail's width and the desktop bar's fifth button still fits", async () => {
@@ -181,7 +211,9 @@ describe("the panel and its bottom section bar", () => {
     const aside = document.querySelector("aside");
     expect(aside?.classList.contains("w-64")).toBe(true);
     const bar = screen.getByRole("navigation", { name: "Main sections" });
-    expect(within(bar).getAllByRole("link")).toHaveLength(4);
+    // Four cells ride the bar (Workspaces, mobile, Settings, Account) and the
+    // shell adds a fifth; only two of them are links now.
+    expect(within(bar).getAllByRole("link")).toHaveLength(2);
     expect(within(bar).getByRole("button", { name: "Open in browser" })).toBeTruthy();
   });
 
@@ -226,7 +258,13 @@ describe("the panel and its bottom section bar", () => {
     await act(async () => {
       await router.navigate({ to: "/account" });
     });
-    expect(within(bar).getByRole("link", { name: "Account" }).getAttribute("aria-current")).toBe("page");
+    // Account is the profile card's trigger, not a route: even while
+    // /account is on screen its cell carries no aria-current.
+    expect(within(bar).getByRole("button", { name: "Account: Test" }).getAttribute("aria-current")).toBeNull();
+    await act(async () => {
+      await router.navigate({ to: "/mobile" as never });
+    });
+    expect(within(bar).getByRole("button", { name: "Subshell for Mobile" }).getAttribute("aria-current")).toBeNull();
   });
 
   it("test_modified_click_passes_through: modifier and middle clicks are never preventDefaulted, plain Workspaces clicks inside a workspace are", async () => {

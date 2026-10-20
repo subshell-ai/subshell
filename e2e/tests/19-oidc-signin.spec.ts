@@ -176,10 +176,10 @@ test("clicking the provider round-trips the fake IdP and lands signed in", async
     expect(session.ok(), await session.text()).toBe(true);
     expect(((await session.json()) as { user: { email: string } | null }).user?.email).toBe(email);
 
-    // And the signed-in shell, not a stale login frame: the sidebar account
-    // menu (spec 01's locator) renders behind the gate.
+    // And the signed-in shell, not a stale login frame: the sidebar's
+    // account cell (the profile card's trigger) renders behind the gate.
     await expect(
-      page.getByRole("navigation", { name: "Main sections" }).getByRole("link", { name: "Account", exact: true }),
+      page.getByRole("navigation", { name: "Main sections" }).getByRole("button", { name: /^Account: / }),
     ).toBeVisible();
   } finally {
     await context.close();

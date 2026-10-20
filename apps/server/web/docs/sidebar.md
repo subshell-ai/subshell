@@ -1,18 +1,20 @@
 # Contextual sidebar
 
-The wide panel is the whole sidebar. Its section links dock as a horizontal
+The wide panel is the whole sidebar. Its section cells dock as a horizontal
 button bar at the panel's bottom, inside the panel column, below the scroll
 area and above the desktop `footerEnd` strip (`aria-label="Main sections"`,
-the name the drawer's close logic and the e2e specs select): Workspaces,
-Subshell for Mobile, Settings, Account, each an icon-only link with its
-tooltip above the bar, `aria-current="page"` plus the accent background on
-the active section, and the amber update dot on Account. Inside a desktop
+the name the drawer's close logic and the e2e specs select): Workspaces and
+Settings are icon-only links with their tooltips above the bar and
+`aria-current="page"` plus the accent background on the active one; Subshell
+for Mobile is a button that opens the PWA install dialog; and Account is the
+`UserMenu` profile card's trigger, its avatar wearing the amber update dot
+and carrying no tooltip (the card names the person). Inside a desktop
 shell "Open in browser" joins as the bar's last button. There is no icon rail
 and no logo button. `lib/sidebar-context.ts` derives route context; the
-Subshell dashboard uses the same workspace panel. Each section remembers its
-last visited destination and its button navigates there, the active one too;
-the exception is a Workspaces click inside `/workspaces/$id`, which stays a
-no-op. Modifier and middle clicks pass through to the real Link.
+Subshell dashboard uses the same workspace panel. Each link section remembers
+its last visited destination and its button navigates there, the active one
+too; the exception is a Workspaces click inside `/workspaces/$id`, which
+stays a no-op. Modifier and middle clicks pass through to the real Link.
 
 `ActiveWorkspaceSection` combines the workspace picker and its member rows
 with other subshells below a **Subshells** divider and no collapse button. The latter retains

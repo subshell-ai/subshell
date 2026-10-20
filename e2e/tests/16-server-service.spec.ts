@@ -236,10 +236,13 @@ test.describe("server service page", () => {
 
   test("About names the instance and the server version, with no desktop shell present", async ({ page }) => {
     await page.goto("/");
+    // The bar's Account cell opens the profile card; its item lands on
+    // /account, where the account context's About button lives.
     await page
       .getByRole("navigation", { name: "Main sections" })
-      .getByRole("link", { name: "Account", exact: true })
+      .getByRole("button", { name: /^Account: / })
       .click();
+    await page.getByRole("menuitem", { name: "Account settings", exact: true }).click();
     await page.getByRole("button", { name: "About", exact: true }).click();
 
     const version = await page.request

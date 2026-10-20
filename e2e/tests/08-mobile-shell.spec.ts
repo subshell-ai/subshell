@@ -92,15 +92,16 @@ test("shell chrome follows the 1024px rule", async ({ page }) => {
     // Navigating dismisses the drawer (route-change effect).
     await expect(page.getByRole("dialog")).toHaveCount(0);
     // The user menu (spec 2026-09-02 settings-split §3) replaces Logout in
-    // the drawer: Account settings must reach /account. The drawer was
-    // dismissed above, so it rides the same burger-open path as any tap.
+    // the drawer: the bar's Account cell opens the profile card, and its
+    // Account settings item navigates, which dismisses the drawer. The drawer
+    // was dismissed above, so it rides the same burger-open path as any tap.
     await burger.click();
     await expect(page.getByRole("dialog")).toBeVisible();
     await page
       .getByRole("navigation", { name: "Main sections" })
-      .getByRole("link", { name: "Account", exact: true })
+      .getByRole("button", { name: /^Account: / })
       .click();
-    await page.getByRole("link", { name: "Profile", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Account settings", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "Navigation" })).toHaveCount(0);
     await expect(page).toHaveURL(/\/account$/);
     // Composition smoke (spec §7, final-review debt): landing on /account

@@ -133,9 +133,11 @@ signed-in, mounted in `__root`.
 
 **The sidebar is one panel with its section bar docked at the bottom.** The
 route selects Workspaces, Settings, Subshell for Mobile, or Account, and the
-panel's section links ride a centered icon-button row at its bottom (plus
-"Open in browser" as the bar's last button, desktop shells only). There is no
-icon rail, no logo button, and no panel collapse. Workspaces combines the selected
+panel's section cells ride a centered icon-button row at its bottom: Workspaces
+and Settings are links, Subshell for Mobile opens the PWA install dialog, and
+Account is the profile card's trigger (plus "Open in browser" as the bar's last
+button, desktop shells only). There is no icon rail, no logo button, and no
+panel collapse. Workspaces combines the selected
 workspace's panes with a grouped **Subshells** section;
 members are excluded from that lower list. Clicking another subshell adds it
 as a tab. Dragging between the lists adds or removes membership, with centered
@@ -263,7 +265,8 @@ keys WITH their text (owner-scoped, cookie-only) and offers `Setup` on the
 
 ## Subshell for Mobile (the PWA install dialog)
 
-`components/mobile-install-dialog.tsx` is UNGATED, desktop shells included:
+`components/mobile-install-dialog.tsx` is UNGATED, desktop shells included,
+and the section bar's Subshell for Mobile cell opens it (it is not a route):
 its payload is a QR code, read by a DIFFERENT device. Its first control is an
 address picker built from `lib/install-addresses.ts`; loopback rows are
 DROPPED in `installAddresses`, not labelled here. `trustedOrigins` on

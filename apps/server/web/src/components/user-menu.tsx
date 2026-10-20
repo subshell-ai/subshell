@@ -36,6 +36,11 @@ export interface UserMenuProps {
   email: string;
   /** Icon-only trigger for the collapsed rail */
   collapsed: boolean;
+  /** The sidebar's bottom section bar mounts the menu as one of its cells:
+   * a size-11 square like the neighbours, avatar only, and no native title -
+   * the bar's cells carry no tooltips, and the card names the person when it
+   * opens. */
+  barCell?: boolean;
   /** The server's version from public settings; "" until the read lands, and
    * the version line renders only when something can fill it. */
   serverVersion?: string;
@@ -64,6 +69,7 @@ export function UserMenu({
   name,
   email,
   collapsed,
+  barCell = false,
   serverVersion = "",
   instanceName = "",
   updateNotice = null,
@@ -108,16 +114,16 @@ export function UserMenu({
             aria-label={
               updateNotice === null ? `Account: ${display}` : `Account: ${display}. Update available: v${updateNotice}.`
             }
-            title={collapsed ? `Account: ${display}` : undefined}
+            title={!barCell && collapsed ? `Account: ${display}` : undefined}
             className={cn(
               "flex items-center rounded-md text-muted-foreground text-sm transition-colors hover:bg-accent/50 hover:text-foreground",
-              collapsed ? "justify-center p-2" : "w-full justify-start gap-2 p-2",
+              barCell ? "size-11 justify-center" : collapsed ? "justify-center p-2" : "w-full justify-start gap-2 p-2",
             )}
           />
         }
       >
         {avatar}
-        {!collapsed && (
+        {!collapsed && !barCell && (
           <>
             <span className="min-w-0 flex-1 truncate text-left">{display}</span>
             <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />

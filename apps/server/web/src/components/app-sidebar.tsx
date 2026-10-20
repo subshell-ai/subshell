@@ -1,33 +1,44 @@
 import { Button, cn } from "@internal/node-admin";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { ExternalLink, LayoutDashboard, Settings, Smartphone, UserRound } from "lucide-react";
+import { ExternalLink, Settings, Smartphone } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { AboutDialog } from "@/components/about-dialog";
+import { MobileInstallDialog } from "@/components/mobile-install-dialog";
 import { ActiveWorkspaceSection } from "@/components/sidebar/active-workspace-section";
 import { ContextNavigation } from "@/components/sidebar/context-navigation";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { UserMenu } from "@/components/user-menu";
 import { useClockTick } from "@/hooks/use-clock-tick";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useUpdates } from "@/hooks/use-updates";
-import { useCurrentUser } from "@/lib/auth";
+import { signOutAndRedirect, useCurrentUser } from "@/lib/auth";
 import { desktopInvoke, isDesktop, onDesktopAction } from "@/lib/desktop";
 import { workspaceIdFromPath } from "@/lib/route-ids";
 import { type SidebarSection, sidebarSection } from "@/lib/sidebar-context";
 import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
 
+/**
+ * The bar's cells, in order. Only Workspaces and Settings are links: Subshell
+ * for Mobile opens the install dialog and Account opens the profile card, so
+ * those carry no `to`, no active state, and no remembered destination. The
+ * header still reads the labels from here for the two panel sections.
+ * Workspaces renders the Subshell mark rather than a lucide glyph, the way
+ * the old collapsed rail's logo cell did; its link entry carries no icon.
+ */
 const SECTIONS = [
-  { id: "workspaces", label: "Workspaces", to: "/workspaces", icon: LayoutDashboard },
-  { id: "mobile", label: "Subshell for Mobile", to: "/mobile", icon: Smartphone },
+  { id: "workspaces", label: "Workspaces", to: "/workspaces" },
+  { id: "mobile", label: "Subshell for Mobile", icon: Smartphone },
   { id: "settings", label: "Settings", to: "/nodes", icon: Settings },
-  { id: "account", label: "Account", to: "/account", icon: UserRound },
+  { id: "account", label: "Account" },
 ] as const;
 
 /**
  * The sidebar panel, shared by browser, desktop shells and the mobile drawer:
- * the route's own navigation fills the panel, and the four section links dock
- * as a horizontal bar at its bottom (`aria-label="Main sections"`, the name
- * the drawer's close logic and the e2e specs select). "Open in browser" joins
- * that bar only inside a desktop shell.
+ * the route's own navigation fills the panel, and the section cells dock as a
+ * horizontal bar at its bottom (`aria-label="Main sections"`, the name the
+ * drawer's close logic and the e2e specs select): the Workspaces and Settings
+ * links, the cell that opens the Subshell for Mobile dialog, and the Account
+ * profile card. "Open in browser" joins that bar only inside a desktop shell.
  */
 export function AppSidebar({
   className,
@@ -65,6 +76,7 @@ export function AppSidebar({
   const { data: updates } = useUpdates(isAdmin);
   const updateNotice = updates?.server?.updateAvailable ? (updates.server.latest?.version ?? null) : null;
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [focusPending, setFocusPending] = useState(false);
   // Remember each section’s last destination without replacing the workspace
   // destination when its dashboard is opened.
@@ -154,6 +166,46 @@ export function AppSidebar({
           className="flex shrink-0 items-center justify-center gap-1 border-border border-t px-2 py-1"
         >
           {SECTIONS.map((item) => {
+            // This cell opens a dialog, so it is never "where you are": no
+            // active state, no remembered destination, no navigation.
+            if (item.id === "mobile")
+              return (
+                <Tooltip key={item.id}>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        aria-label={item.label}
+                        onClick={() => setMobileOpen(true)}
+                        className="relative flex size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+                      >
+                        <item.icon className="size-5" />
+                      </button>
+                    }
+                  />
+                  <TooltipContent side="top">{item.label}</TooltipContent>
+                </Tooltip>
+              );
+            // The card names the person, so this cell carries no tooltip; the
+            // avatar's own amber dot (inside UserMenu) is the update notice.
+            if (item.id === "account")
+              return (
+                <UserMenu
+                  key={item.id}
+                  name={user?.name ?? ""}
+                  email={user?.email ?? ""}
+                  collapsed={false}
+                  barCell
+                  serverVersion={publicSettings?.serverVersion ?? ""}
+                  instanceName={publicSettings?.instanceName ?? ""}
+                  updateNotice={updateNotice}
+                  onOpenUpdates={isAdmin ? () => void navigate({ to: "/settings/updates" }) : undefined}
+                  onPreferences={() => void navigate({ to: "/preferences" })}
+                  onAccountSettings={() => void navigate({ to: "/account" })}
+                  onAbout={() => setAboutOpen(true)}
+                  onSignOut={() => void signOutAndRedirect()}
+                />
+              );
             const remembered =
               routeSection === item.id
                 ? { pathname: location.pathname, search: location.search }
@@ -192,13 +244,22 @@ export function AppSidebar({
                         active && "bg-accent text-accent-foreground",
                       )}
                     >
-                      <item.icon className="size-5" />
-                      {item.id === "account" && updateNotice && (
-                        <span
-                          role="img"
-                          aria-label="Update available"
-                          className="absolute top-1 right-1 size-2 rounded-full bg-warning"
+                      {item.id === "workspaces" ? (
+                        // The mark the old collapsed rail wore, now on the bar
+                        // cell. The link's own aria-label names it, so the
+                        // image is decorative. `size-4`, not `size-5`: the
+                        // mark is a full-bleed rounded square and the lucide
+                        // glyphs carry internal padding, so equal boxes read
+                        // as the mark sitting heavier than its neighbours
+                        // (operator ruling 2026-10-20).
+                        <img
+                          src="/icons/mark-40.png"
+                          srcSet="/icons/mark-80.png 2x, /icons/mark-120.png 3x"
+                          alt=""
+                          className="size-4"
                         />
+                      ) : (
+                        <item.icon className="size-5" />
                       )}
                     </Link>
                   }
@@ -232,7 +293,11 @@ export function AppSidebar({
         </nav>
       </TooltipProvider>
       {footerEnd && <div className="border-border border-t p-2">{footerEnd()}</div>}
+      {/* Both overlays mount at the panel root: the menu item or the bar cell
+          that raises them must not lose the dialog the way a dialog mounted
+          in a closing menu would. */}
       <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
+      <MobileInstallDialog open={mobileOpen} onOpenChange={setMobileOpen} />
     </aside>
   );
 }

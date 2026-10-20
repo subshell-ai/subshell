@@ -127,7 +127,10 @@ describe("the contextual account sidebar", () => {
       expect(screen.getAllByRole("link", { name: "Preferences" }).length).toBe(1);
       expect(screen.getAllByRole("link", { name: "Profile" }).length).toBe(1);
       expect(screen.getByRole("link", { name: "Feedback" }).getAttribute("target")).toBe("_blank");
-      expect(screen.queryAllByRole("button", { name: /Account:/ }).length).toBe(0);
+      // The bar's Account cell is the profile card's trigger, closed until
+      // pressed; the panel's own items above are its only duplicates.
+      expect(screen.getByRole("button", { name: "Account: Admin" })).toBeTruthy();
+      expect(screen.queryAllByRole("menuitem").length).toBe(0);
       // The bordered footer div was a direct child of the aside with
       // `border-t`; nothing supplies footerEnd on the web, so none exists.
       // The section bar also breaks the panel, but it is the nav itself, never
@@ -173,12 +176,16 @@ describe("the contextual account sidebar", () => {
       expect(screen.queryAllByRole("link", { name: /Update available/ }).length).toBe(0);
     });
     expect(run?.calls).not.toContain("/api/admin/updates");
-    expect(screen.queryAllByRole("img", { name: "Update available" }).length).toBe(0);
+    // The trigger's accessible name carries the notice when there is one, so
+    // a member's name stays the bare identity.
+    expect(screen.getByRole("button", { name: "Account: Admin" })).toBeTruthy();
   });
 
-  it("gives an admin with news the rail dot and a row that walks to /settings/updates", async () => {
+  it("gives an admin with news the card dot and a row that walks to /settings/updates", async () => {
     const run = await withRail({ admin: true, updateTo: "0.12.0" }, async () => {
-      await waitFor(() => expect(screen.queryAllByRole("img", { name: "Update available" }).length).toBeGreaterThan(0));
+      // The amber dot is aria-hidden; it reaches assistive tech through the
+      // trigger's accessible name, which is what pins it here.
+      await screen.findByRole("button", { name: "Account: Admin. Update available: v0.12.0." });
       fireEvent.click(await screen.findByRole("link", { name: "Update available: v0.12.0" }));
     });
     await waitFor(() => expect(run?.router.state.location.pathname).toBe("/settings/updates"));
@@ -189,11 +196,23 @@ describe("the contextual account sidebar", () => {
       // The retired footer was a door even with no news; §B moved that door
       // to the Server Settings group's Updates page, so the card stays quiet.
       await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(screen.queryAllByRole("img", { name: "Update available" }).length).toBe(0);
+      expect(screen.queryByRole("button", { name: /Update available/ })).toBeNull();
       await screen.findByRole("button", { name: "Sign out" });
       expect(screen.queryAllByRole("link", { name: /Update available/ }).length).toBe(0);
     });
     expect(run?.calls).toContain("/api/admin/updates");
+  });
+
+  it("opens the profile card from the bar cell and its About item raises the dialog", async () => {
+    await withRail({ admin: false }, async () => {
+      const bar = screen.getByRole("navigation", { name: "Main sections" });
+      const cell = within(bar).getByRole("button", { name: "Account: Admin" });
+      // Base UI opens on pointerdown, which happy-dom cannot emulate;
+      // ArrowDown is the keyboard equivalent.
+      fireEvent.keyDown(cell, { key: "ArrowDown" });
+      fireEvent.click(await screen.findByRole("menuitem", { name: "About Subshell" }));
+      expect(await screen.findByRole("dialog")).toBeTruthy();
+    });
   });
 
   it("keeps the desktop shell's footer rows", async () => {
@@ -209,12 +228,16 @@ describe("the contextual account sidebar", () => {
   it("keeps Account on the section bar while a stale collapse pref changes nothing", async () => {
     localStorage.setItem("subshell.sidebarCollapsed", "1");
     stubFetch({ admin: false });
-    renderRail("/nodes");
+    const router = renderRail("/nodes");
     const bar = await screen.findByRole("navigation", { name: "Main sections" });
     // The panel is always expanded now: the settings context renders beside
     // the bar even though the retired preference still says "1" on disk.
     expect(screen.getByRole("navigation", { name: "Settings pages" })).toBeTruthy();
-    fireEvent.click(within(bar).getByRole("link", { name: "Account" }));
+    const cell = within(bar).getByRole("button", { name: "Account: Admin" });
+    // Base UI opens on pointerdown, which happy-dom cannot emulate.
+    fireEvent.keyDown(cell, { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Account settings" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/account"));
     await waitFor(() => expect(signOutButton()).toBeTruthy());
     // Nothing reads the retired key, so nothing rewrites it either.
     expect(localStorage.getItem("subshell.sidebarCollapsed")).toBe("1");
