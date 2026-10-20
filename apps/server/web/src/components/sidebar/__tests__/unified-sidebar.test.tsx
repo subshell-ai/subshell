@@ -443,3 +443,40 @@ test("rows sharing a name stay keyed by their id in the branch and the list", as
     ).toBe("/subshells/t2"),
   );
 });
+
+/** Base UI popups open on a real pointer gesture; a bare click does not
+ *  reach the trigger in happy-dom (the prompt-picker precedent in
+ *  new-subshell-form.test.tsx). */
+function openWorkspacePicker(): void {
+  const trigger = screen.getByLabelText("Switch workspace");
+  act(() => {
+    for (const type of ["pointerdown", "pointerup"]) {
+      trigger.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: "mouse" }));
+    }
+    for (const type of ["mousedown", "mouseup", "click"]) {
+      trigger.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+    }
+  });
+}
+
+/** The SelectGroup that wraps the "New workspace" row in the open picker. */
+function newWorkspaceGroup(): HTMLElement {
+  const group = screen.getByText("New workspace").closest('[class*="mt-1"]');
+  if (!group) throw new Error("the New workspace row sits in no group");
+  return group as HTMLElement;
+}
+
+test("the picker separates New workspace only when there are workspaces above it", async () => {
+  // With rows, the divider earns its place: it separates the two groups.
+  await mountRig(standardRig());
+  openWorkspacePicker();
+  await screen.findByText("New workspace");
+  expect(newWorkspaceGroup().className).toContain("border-t");
+  cleanup();
+
+  // With none, the first group is empty and the line floats over nothing.
+  await mountRig({ workspaces: [], subshells: [] });
+  openWorkspacePicker();
+  await screen.findByText("New workspace");
+  expect(newWorkspaceGroup().className).not.toContain("border-t");
+});
