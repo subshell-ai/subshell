@@ -60,6 +60,10 @@ function makeSubshell(overrides: Partial<SubshellView> = {}): SubshellView {
 function mockFetch(withSubagents = false, canSelect = false) {
   const original = globalThis.fetch;
   const selectPosts: unknown[] = [];
+  // How many batch reads the row actually issued — a parked row must
+  // watch nothing, and only the DOM assertions would not catch a fetch that
+  // happens and draws nothing.
+  let subagentReads = 0;
   // The snapshot answers with whatever the LAST select chose: the row's
   // parent-click reset branch only fires while a selection is confirmed, so a
   // constant null would hide it (and a queued command only becomes the
@@ -67,7 +71,8 @@ function mockFetch(withSubagents = false, canSelect = false) {
   let selectedId: string | null = null;
   globalThis.fetch = ((input: unknown, init?: RequestInit) => {
     const path = new URL(String(input), "http://localhost").pathname;
-    if (withSubagents && path === "/api/subshells/subagents")
+    if (withSubagents && path === "/api/subshells/subagents") {
+      subagentReads += 1;
       return Promise.resolve(
         new Response(
           JSON.stringify({
@@ -79,6 +84,7 @@ function mockFetch(withSubagents = false, canSelect = false) {
           }),
         ),
       );
+    }
     if (withSubagents && canSelect && path === "/api/subshells/s1/subagents/select" && init?.method === "POST") {
       const body = JSON.parse(String(init.body)) as { agentId: string | null };
       selectedId = body.agentId;
@@ -88,7 +94,7 @@ function mockFetch(withSubagents = false, canSelect = false) {
     if (path === "/api/presets") return Promise.resolve(new Response(JSON.stringify([])));
     return Promise.resolve(new Response(JSON.stringify({})));
   }) as typeof fetch;
-  return { restore: () => (globalThis.fetch = original), selectPosts };
+  return { restore: () => (globalThis.fetch = original), selectPosts, subagentReads: () => subagentReads };
 }
 
 function renderRow(subshell: SubshellView, focused = false, onOpen?: () => void) {
@@ -235,3 +241,24 @@ for (const focused of [true, false]) {
     }
   });
 }
+
+it("a parked row (running at alive:0) draws no child roster and issues no batch read", async () => {
+  // RUNNING is the row's TWO facts. The snapshot below carries a live child,
+  // so an `enabled` gate that trusted only `status === "running"` would draw
+  // the roster AND start the batch watch on a pane that has no child to show
+  // (the parked running/alive:0 shape an MCP-created window parks at).
+  const { restore, subagentReads } = mockFetch(true);
+  try {
+    renderRow(makeSubshell({ alive: false }));
+    await screen.findByRole("link", { name: /auth-refactor/ });
+    // `hidden: true` on purpose: the children container stays mounted and
+    // merely hidden, so a default query would pass vacuously even if the
+    // roster rendered into it.
+    expect(screen.queryByRole("button", { name: /subagents/i, hidden: true })).toBeNull();
+    expect(screen.queryByText("Review changes")).toBeNull();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(subagentReads()).toBe(0);
+  } finally {
+    restore();
+  }
+});

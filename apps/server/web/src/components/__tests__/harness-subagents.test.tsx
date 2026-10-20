@@ -228,3 +228,53 @@ test("a switch in flight blocks every surface of the pane, and a refusal says so
   expect(screen.getByRole("alert").textContent).toContain("Couldn't switch agent views");
   client.clear();
 });
+
+test("a dead parent keeps no child to show, even from the cached snapshot", async () => {
+  // The poll stops for a dead pane (`enabled` false), but a DISABLED query
+  // still serves whatever sits in the cache — and the batch ticker stops
+  // when nothing watches, so a cached selection can outlive the pane
+  // INDEFINITELY while its detail page is open. The docstring's promise is
+  // "a dead row keeps no child to show"; this pins it at the render, where
+  // the cache serves it, not just at the fetch.
+  const state = {
+    pane: {
+      agents: [{ id: "child", name: "Review changes", status: "running", startedAt: Date.now() }],
+      selectedId: "child",
+      canSelect: true,
+    },
+  };
+  const reads: string[] = [];
+  setFetchRouter(async (url) => {
+    if (String(url).includes("/subshells/subagents") && !String(url).endsWith("/select")) reads.push(String(url));
+    return Response.json(state);
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(["harness-subagents"], state);
+  const rootRoute = createRootRoute({
+    component: () => (
+      <>
+        <HarnessSubagentTitle id="pane" parentName="Build" alive={false} />
+        <HarnessSubagentRows id="pane" alive={false} />
+      </>
+    ),
+  });
+  const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/" });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([indexRoute]),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+    defaultPreload: false,
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 20));
+  });
+  expect(screen.queryByText("Review changes")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Back to main agent" })).toBeNull();
+  // And the dead pane starts no watch over the batch read.
+  expect(reads).toHaveLength(0);
+  client.clear();
+});

@@ -7,10 +7,13 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { QuickAddProvider } from "@/components/quick-add";
+import { WORKSPACES_QUERY_KEY } from "@/hooks/use-workspaces";
+import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import { SUBSHELL_DND_TYPE } from "@/lib/subshell-dnd";
+import { resetWorkspaceFocusForTests, setWorkspaceFocusedId } from "@/lib/workspace-focus";
 import { setFetchRouter } from "@/test-setup";
 
 const dragImage = spyOn(DataTransfer.prototype, "setDragImage").mockImplementation(() => {});
@@ -104,6 +107,7 @@ afterEach(() => {
   cleanup();
   setFetchRouter(null);
   localStorage.clear();
+  resetWorkspaceFocusForTests();
 });
 
 test("shows workspace members and other subshells once in a single panel", async () => {
@@ -156,4 +160,286 @@ test("failed removal keeps the membership and last-tab safety intact", async () 
   await waitFor(() => expect(requests).toHaveLength(1));
   expect(within(add).getByRole("link", { name: /Member 2/ })).toBeTruthy();
   expect(within(remove).queryByRole("link", { name: /Member 2/ })).toBeNull();
+});
+
+/**
+ * The deep/state probes below drive the transitions the surface-level pins
+ * above never exercise: a destination change or a membership change DURING a
+ * drag, a rename and a re-order between render and interaction, a replaced
+ * pane row under a live focus mark, and name collisions between workspaces
+ * and subshells. Every fixture mutation goes through `fx` — the same arrays
+ * the fetch router reads — followed by a query invalidation, so the rail
+ * catches up mid-gesture exactly as it would from a live feed or a second
+ * client. One fixture detail matters for the workspace-switch case: w2
+ * deliberately SHARES pane s2 with w1 (a pane may sit in several workspaces),
+ * which is what makes the wrong-workspace drop a real target rather than a
+ * tautology.
+ */
+interface RigPane {
+  id: string;
+  subshellId: string;
+  subshellName: string;
+}
+interface RigWs {
+  id: string;
+  name: string;
+  panes: RigPane[];
+  updatedAt: string;
+}
+
+function rigSubshell(id: string, name: string, over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id,
+    name,
+    workingDir: "/project",
+    harnessId: "terminal",
+    status: "running",
+    alive: true,
+    activity: "idle",
+    access: "owner",
+    nodeId: "local",
+    createdAt: "2026-10-20T00:00:00Z",
+    waitingSince: null,
+    ...over,
+  };
+}
+
+function standardRig(): { workspaces: RigWs[]; subshells: Record<string, unknown>[] } {
+  return {
+    workspaces: [
+      {
+        id: "w1",
+        name: "Task board",
+        updatedAt: "2026-10-20",
+        panes: [
+          { id: "p1", subshellId: "s1", subshellName: "Member 1" },
+          { id: "p2", subshellId: "s2", subshellName: "Member 2" },
+        ],
+      },
+      {
+        id: "w2",
+        name: "Shared board",
+        updatedAt: "2026-10-19",
+        panes: [
+          { id: "q2", subshellId: "s2", subshellName: "Member 2" },
+          { id: "q3", subshellId: "s9", subshellName: "Board nine" },
+        ],
+      },
+    ],
+    subshells: [
+      rigSubshell("s1", "Member 1"),
+      rigSubshell("s2", "Member 2"),
+      rigSubshell("s9", "Board nine"),
+      rigSubshell("outside", "Other agent"),
+    ],
+  };
+}
+
+async function mountRig(fx: { workspaces: RigWs[]; subshells: Record<string, unknown>[] }) {
+  const requests: string[] = [];
+  setFetchRouter(async (input, init) => {
+    const url = new URL(String(input), "http://localhost");
+    if (init?.method === "DELETE") {
+      requests.push(`${init.method} ${url.pathname}`);
+      const parts = url.pathname.split("/"); // ["", "api", "workspaces", ws, "panes", pane]
+      const ws = fx.workspaces.find((w) => w.id === parts[3]);
+      if (ws) ws.panes = ws.panes.filter((p) => p.id !== parts[5]);
+      return Response.json({ ok: true });
+    }
+    if (url.pathname === "/api/workspaces")
+      return Response.json(
+        fx.workspaces.map((w) => ({
+          id: w.id,
+          name: w.name,
+          panes: w.panes,
+          subshellCount: w.panes.length,
+          updatedAt: w.updatedAt,
+        })),
+      );
+    if (url.pathname === "/api/subshells/subagents") return Response.json({});
+    if (url.pathname === "/api/subshells")
+      return Response.json(
+        fx.subshells.filter(
+          (s) =>
+            !url.searchParams.get("q") ||
+            String(s.name)
+              .toLowerCase()
+              .includes((url.searchParams.get("q") ?? "").toLowerCase()),
+        ),
+      );
+    if (url.pathname === "/api/nodes") return Response.json({ nodes: [{ id: "local", name: "Server" }] });
+    if (url.pathname === "/api/plugins") return Response.json({ plugins: [] });
+    if (url.pathname.includes("get-session")) return Response.json({ user: { id: "u", name: "Test" } });
+    if (url.pathname === "/api/settings/public") return Response.json({ viewerIsAdmin: false });
+    return Response.json([]);
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const root = createRootRoute({
+    component: () => (
+      <QuickAddProvider>
+        <AppSidebar />
+      </QuickAddProvider>
+    ),
+  });
+  const router = createRouter({
+    routeTree: root.addChildren([
+      createRoute({ getParentRoute: () => root, path: "/workspaces/$id", component: () => null }),
+      createRoute({ getParentRoute: () => root, path: "/subshells/$id", component: () => null }),
+    ]),
+    history: createMemoryHistory({ initialEntries: ["/workspaces/w1"] }),
+  });
+  const result = render(
+    <QueryClientProvider client={client}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
+  // The router's first commit precedes its location load, so the contextual
+  // panel — and with it the drop areas — lands one tick after render(). Wait
+  // on it before grabbing the elements (the same reason `mount` above waits
+  // on a row).
+  await screen.findByLabelText("Switch workspace");
+  const add = result.container.querySelector('[data-sidebar-drop="add"]') as HTMLElement;
+  const remove = result.container.querySelector('[data-sidebar-drop="remove"]') as HTMLElement;
+  const refresh = async (key: readonly unknown[]) => {
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: [...key] });
+    });
+  };
+  return { router, client, requests, add, remove, fx, refresh };
+}
+
+test("a workspace switch mid-drag ends the gesture and nothing transfers into the new workspace", async () => {
+  const { router, requests, add, remove } = await mountRig(standardRig());
+  const row = await within(add).findByRole("link", { name: /Member 2/ });
+  const dt = transfer("s2");
+  fireEvent.dragStart(row, { dataTransfer: dt });
+  expect(within(remove).getByRole("status").textContent).toBe("Remove from workspace");
+  // Mid-drag the rail moves to the workspace that ALSO holds s2. Its remove
+  // area would otherwise gladly accept the drop — with the destination-change
+  // guard in place, the gesture ends the moment its destination moves.
+  await act(async () => {
+    await router.navigate({ to: "/workspaces/$id", params: { id: "w2" } });
+  });
+  await waitFor(() => expect(within(remove).queryByRole("status") === null).toBe(true));
+  fireEvent.drop(remove, { dataTransfer: dt });
+  await new Promise((r) => setTimeout(r, 20));
+  // Without the guard this DELETEs /api/workspaces/w2/panes/q2 — a pane
+  // removed from a workspace the person never meant to touch.
+  expect(requests).toEqual([]);
+});
+
+test("an outside membership change mid-drag retracts the remove offer and the drop does nothing", async () => {
+  const rig = await mountRig(standardRig());
+  const { requests, add, remove, refresh } = rig;
+  const row = await within(add).findByRole("link", { name: /Member 2/ });
+  const dt = transfer("s2");
+  fireEvent.dragStart(row, { dataTransfer: dt });
+  expect(within(remove).getByRole("status").textContent).toBe("Remove from workspace");
+  // Another client closes the pane; the live list catches up mid-drag.
+  const w1 = rig.fx.workspaces.find((w) => w.id === "w1")!;
+  w1.panes = w1.panes.filter((p) => p.id !== "p2");
+  await refresh(WORKSPACES_QUERY_KEY);
+  // The offer follows the live truth: nothing is offered as a removal now.
+  await waitFor(() => expect(within(remove).queryByRole("status") === null).toBe(true));
+  expect(within(add).getByRole("status").textContent).toBe("Add to workspace");
+  fireEvent.drop(remove, { dataTransfer: dt });
+  await new Promise((r) => setTimeout(r, 20));
+  // No phantom removal of a pane row that changed underneath the drag.
+  expect(requests).toEqual([]);
+});
+
+test("dropping a member row onto the add area files nothing", async () => {
+  const { router, requests, add } = await mountRig(standardRig());
+  const row = await within(add).findByRole("link", { name: /Member 2/ });
+  const dt = transfer("s2");
+  fireEvent.dragStart(row, { dataTransfer: dt });
+  // The add offer is for non-members only; a member row over the add area
+  // sees no offer and its drop resolves to nothing.
+  expect(within(add).queryByRole("status") === null).toBe(true);
+  fireEvent.drop(add, { dataTransfer: dt });
+  await new Promise((r) => setTimeout(r, 20));
+  expect(requests).toEqual([]);
+  expect(router.state.location.search).toEqual({});
+});
+
+test("a rename and a re-order after render do not change what the drag carries", async () => {
+  const rig = await mountRig(standardRig());
+  const { router, add, remove, refresh } = rig;
+  await within(remove).findByRole("link", { name: /Other agent/ });
+  // The live feed renames the row and a waiting pane sorts above it.
+  const other = rig.fx.subshells.find((s) => s.id === "outside")!;
+  other.name = "Renamed outside";
+  rig.fx.subshells.push(rigSubshell("s5", "Waiting pane", { waitingSince: "2026-10-20T00:00:30Z" }));
+  await refresh(SUBSHELLS_QUERY_KEY);
+  const row = await within(remove).findByRole("link", { name: /Renamed outside/ });
+  const dt = transfer("outside");
+  fireEvent.dragStart(row, { dataTransfer: dt });
+  fireEvent.drop(add, { dataTransfer: dt });
+  // The add intent speaks the id, and the id survives both the rename and
+  // the reorder.
+  await waitFor(() => expect(router.state.location.search).toEqual({ add: "outside", dir: "within" }));
+});
+
+test("a replaced pane row keeps the focused mark: focus is a subshell id, not a row", async () => {
+  setWorkspaceFocusedId("s2");
+  const rig = await mountRig(standardRig());
+  const { add, refresh } = rig;
+  await within(add).findByRole("link", { name: /Member 2/ });
+  expect(add.querySelector("a.ring-1")?.getAttribute("href")).toBe("/subshells/s2");
+  // Another client closes the pane and files the same subshell again: the
+  // pane row is a NEW row id for the same subshell.
+  const w1 = rig.fx.workspaces.find((w) => w.id === "w1")!;
+  w1.panes = [
+    { id: "p1", subshellId: "s1", subshellName: "Member 1" },
+    { id: "p9", subshellId: "s2", subshellName: "Member 2" },
+  ];
+  await refresh(WORKSPACES_QUERY_KEY);
+  await waitFor(() => expect(add.querySelectorAll("a.ring-1").length).toBe(1));
+  const rows = within(add).getAllByRole("link", { name: /Member 2/ });
+  expect(rows).toHaveLength(1);
+  expect(rows[0]!.getAttribute("href")).toBe("/subshells/s2");
+});
+
+test("rows sharing a name stay keyed by their id in the branch and the list", async () => {
+  const { router, add, remove } = await mountRig({
+    workspaces: [
+      {
+        id: "w1",
+        name: "Task board",
+        updatedAt: "2026-10-20",
+        panes: [{ id: "a1", subshellId: "t1", subshellName: "Twin agent" }],
+      },
+      {
+        id: "w2",
+        name: "Task board",
+        updatedAt: "2026-10-19",
+        panes: [{ id: "b1", subshellId: "t2", subshellName: "Twin agent" }],
+      },
+    ],
+    subshells: [rigSubshell("t1", "Twin agent"), rigSubshell("t2", "Twin agent")],
+  });
+  await within(add).findByRole("link", { name: /Twin agent/ });
+  // Two rows, one name, two workspaces named alike: only the ids tell them
+  // apart, and every action below rides the id.
+  expect(
+    within(add)
+      .getByRole("link", { name: /Twin agent/ })
+      .getAttribute("href"),
+  ).toBe("/subshells/t1");
+  expect(
+    within(remove)
+      .getByRole("link", { name: /Twin agent/ })
+      .getAttribute("href"),
+  ).toBe("/subshells/t2");
+  // The other same-named workspace: the branch follows the URL's id.
+  await act(async () => {
+    await router.navigate({ to: "/workspaces/$id", params: { id: "w2" } });
+  });
+  await waitFor(() =>
+    expect(
+      within(add)
+        .getByRole("link", { name: /Twin agent/ })
+        .getAttribute("href"),
+    ).toBe("/subshells/t2"),
+  );
 });

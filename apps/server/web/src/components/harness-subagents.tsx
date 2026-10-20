@@ -127,7 +127,10 @@ export function HarnessSubagentRows({
   const navigate = useNavigate();
   const { data } = useHarnessSubagents(id, alive);
   const select = useSelectHarnessAgent(id);
-  if (!data?.agents.length) return null;
+  // `alive` gates the RENDER, not just the fetch: a disabled query still
+  // serves the cache, and once nothing watches the batch the ticker stops —
+  // so a dead pane's cached roster would sit on screen indefinitely.
+  if (!alive || !data?.agents.length) return null;
   const { blocked, reason } = selectionState(data, select.isPending);
   // Claude's tool descriptions aren't its live task-picker summaries. Showing
   // them here makes the sidebar look stale even when reports arrive correctly.
@@ -212,7 +215,9 @@ export function HarnessSubagentRows({
 export function HarnessSubagentTitle({ id, parentName, alive }: { id: string; parentName: string; alive: boolean }) {
   const { data } = useHarnessSubagents(id, alive);
   const select = useSelectHarnessAgent(id);
-  if (!data?.selectedId) return null;
+  // Same reason as the rows: the dead pane's snapshot stays in the cache,
+  // and the branch mark must not outlive the pane it marks.
+  if (!alive || !data?.selectedId) return null;
   const agent = data.agents.find((row) => row.id === data.selectedId);
   const { blocked, reason } = selectionState(data, select.isPending);
   return (
