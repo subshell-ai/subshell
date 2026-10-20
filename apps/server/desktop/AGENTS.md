@@ -116,9 +116,12 @@ answers a manager's questions the same way a manager does: respawn on any exit
 after five seconds, **SIGTERM to the MAIN PID, never the process group** (the
 group signal takes every live tmux pane with it), and it names itself through
 `SUBSHELL_SUPERVISOR*`, which the server believes only when the pid is its own
-parent. One load-bearing macOS login fact is UNMEASURED and must be confirmed
-once: the doc names the probe, and the rest of the mode has no automated
-coverage either.
+parent. A forged claim buys `restart.available: true` AND pane-safety-refusal
+suppression, accepted because the forger is whoever launched the process.
+Signalling the MAIN pid, never the process group, is what earns this mode its
+`paneSafety: "keeps"`. One load-bearing macOS login fact is UNMEASURED and
+must be confirmed once: the doc names the probe, and the rest of the mode has
+no automated coverage either.
 
 **Working on supervision, the service modes or `supervisor.rs`: read
 apps/server/desktop/docs/supervision.md first.**
@@ -127,19 +130,27 @@ apps/server/desktop/docs/supervision.md first.**
 
 One press updates the app AND the server that app ships, as **two phases
 separated by the relaunch** (the app first, because the new app carries the
-newer server). Replacing a managed copy runs
-`<installed> update --from <sidecar> --yes --no-restart --json`: a
-TRANSACTION the new binary completes or reverts at boot (backup,
+newer server). The app's own half is `tauri-plugin-updater`, which verifies
+minisign over the BUNDLE bytes against the compiled-in pubkey. Replacing a
+managed copy runs `<installed> update --from <sidecar> --yes --no-restart
+--json`: a TRANSACTION the new binary completes or reverts at boot (backup,
 `pending.json`, `.previous`), while a first install stays a plain copy, and a
 server older than the `update` verb falls back to the copy with the missing
 backup named on screen. The `PendingBundledInstall` marker is written BEFORE
-the relaunch and never itself decides there is work; both update commands are
-`wizard`-only, `desktop_install_app_update` taking exactly TWO booleans and no
-strings. Force governs the pane-safety refusal ONLY and may never install an
-older bundled CLI over a newer installed one. One publisher keypair for both
-desktop apps: **losing `TAURI_SIGNING_PRIVATE_KEY` means every installed app
-can never auto-update again**, and a local `bun run compile` needs a
-(throwaway) private key set; `tauri dev` is unaffected.
+the relaunch and never itself decides there is work (whether work EXISTS is
+re-derived at boot), and resume retries are bounded at two; both update
+commands are `wizard`-only and no remote window gained one,
+`desktop_install_app_update` taking exactly TWO booleans and no strings. The
+pane-safety consent persists as `settings.json`'s `pendingBundledInstall.forced`,
+never written by a page: the command takes booleans only and ANDs `forced`
+with the machine's own `pane_risk_now`, so a page can decline, never
+manufacture, a force. Force governs the pane-safety refusal ONLY and may
+never install an older bundled CLI over a newer installed one. One publisher
+keypair for ALL FOUR components (both desktop apps and both CLIs): **losing
+`TAURI_SIGNING_PRIVATE_KEY` means no installed component can ever auto-update
+again**, and a local `bun run compile` needs a (throwaway) private key set;
+`tauri dev` is unaffected. The keypair's committed spellings and the test
+pinning them: `apps/server/api/AGENTS.md`.
 
 **Working on any update path or the signing setup: read
 apps/server/desktop/docs/updating.md first.**
@@ -151,13 +162,15 @@ The dashboard's danger card may name a SCREEN
 the five deletion paths come all-or-nothing from the server's own
 `status --json` `paths` block and are stashed in APP state before anything
 mutates (the chain uninstalls the server that would otherwise be asked where
-its own data lives). `desktop_reset` takes ONLY the typed hostname, and both
-guards run before the first mutation: the shape rules (absolute, never `/`,
+its own data lives). `desktop_reset` takes ONLY the typed hostname (compared
+to Rust's memoized `hostname(1)`), and both guards run before the first
+mutation: the shape rules (absolute, never `/`,
 never `$HOME`) and the containment guard refusing any recursive delete that IS
 or CONTAINS the managed `~/.local/bin/subshell-server`, canonicalized on BOTH
 sides. The chain ends by `destroy()`-ing `main` (not `close()`) and restarting
 the app ON THE MAIN THREAD, and **never close the assistant from inside the
-chain**: it is the window the command runs in.
+chain**: it is the window the command runs in. A reset does NOT reach
+enrolled remote nodes or a same-machine `subshell` agent.
 
 **Working on the reset chain or screen: read
 apps/server/desktop/docs/reset.md first.**
@@ -355,6 +368,17 @@ Three rules about that binary:
 
 `binaries/*` is gitignored: it is a ~110 MB build input.
 
+## macOS entitlements
+
+Each app keeps a SEPARATE entitlements plist (one Tauri slot per bundle;
+sharing one silently widens whichever pipeline was not edited), carrying only
+`allow-jit` + `allow-unsigned-executable-memory`, pinned by test;
+`disable-library-validation`, `allow-dyld-environment-variables` and
+`disable-executable-page-protection` are ABSENT. That is the single slot the
+nested-binary signing above signs inside-out against; the rule is repeated in
+`apps/client/desktop/AGENTS.md` because one rule about two files belongs in
+both files, and the two plists are deliberately separate.
+
 ## Names
 
 | | this app |
@@ -446,19 +470,40 @@ read apps/server/desktop/docs/page-structure.md first.**
 `src-tauri/permissions/desktop.toml`'s existence is the boundary: without it
 Tauri leaves every app command ungated for every local window. Capabilities
 separate the bundled assistant, the server dashboard, and the bundled SSH key
-unlock form. Dashboard commands are answered only from a committed trusted
-origin: loopback HTTP or the configured `APP_BASE_URL`. `remote.urls` is a
-wildcard for OAuth sign-in redirects, so `trust.rs` remains the runtime guard;
-provisional navigation and subframes must never arm it.
+unlock form. Commands touching a CLI, config, service manager or filesystem
+are granted to BUNDLED pages only; the shared window-KIND rule is written up
+once in `crates/desktop-core/AGENTS.md`. The remote window opens on
+`APP_BASE_URL` when that is https, else on the managed server's loopback
+page, and it may NAVIGATE anywhere http(s), because an OAuth-proxy sign-in
+has to leave the origin and come back. That makes the capability's wildcard
+`remote.urls` NOT the boundary: it is a wildcard for OAuth sign-in redirects,
+so `trust.rs` remains the runtime guard, and the app commands answer only
+while the COMMITTED main-frame page is on loopback (either spelling, http,
+any port) or the configured `APP_BASE_URL`, keyed on the calling webview.
+Arming is by committed main-frame load only, never a navigation request or
+iframe: provisional navigation and subframes must never arm it, and
+`on_navigation` refuses OS-actionable schemes and arms nothing. The grant is
+scoped to the WINDOW, not an admin session.
 
-The dashboard also holds four constrained local SSH key commands. Native
-approval names the SSH destination and fingerprint before the native file
-picker opens. The signer verifies the host's session proof and authorizes one
-host-bound login for that host key and username, for at most 90 seconds. Keys
-and passphrases stay native; encrypted keys use `ssh-key-unlock`, a separate
-bundled form with only one-use passphrase submission authority. Local signing
-requires HTTPS except on loopback and records the committed page origin.
+`main` holds eleven commands now: four constrained local SSH key
+(`desktop_ssh_key_*`) commands joined the original seven on 2026-10-14, and
+six of those original seven cannot touch the machine. The signer commands
+require HTTPS except on loopback, bind each selection to the COMMITTED page,
+and need native approval before a key loads; they keep nothing past one
+signature. Native approval names the SSH destination and fingerprint before
+the native file picker opens. The signer verifies the host's session proof
+and authorizes one host-bound login for that host key and username, for at
+most 90 seconds. Keys and passphrases stay native; encrypted keys use
+`ssh-key-unlock`, a separate bundled form with only one-use passphrase
+submission authority. Local signing records the committed page origin.
 Navigation, close, explicit release, and a native timer cancel the signer.
+
+The seventh of the original seven is `desktop_set_supervision`, the ONE
+deliberate CLI-touching grant: it applies the restart route's pane-safety
+refusal (failing closed on an unreadable definition), refuses to interleave
+with itself (refuse, never queue), and its audit row
+(`server.supervision.request`) is best-effort, posted by the CALLER: legible,
+not a control.
 
 `ipc-acl.test.ts` pins every window's exact command set, and
 `desktop-core::ssh_signer` tests the protocol and cancellation constraints.
@@ -500,7 +545,10 @@ webview. Text size is a Rust-owned zoom ladder (`desktop-core`'s `zoom`), with
 the two menus' shared ids routed in exactly ONE place: a Tauri menu event is
 GLOBAL, and matching ids in two handlers steps the ladder twice per click.
 Notifications are native and edge-triggered off the SSE feed the app already
-reads, and the title bar is a HANDSHAKE, not a version check: `main` starts
+reads. The desktop notification watcher reads the visible subshell list (own
++ shared, every role alike since 2026-10-09): its owner-only + bell +
+master-switch filters stay load-bearing (the owner gate is now belt, not
+braces). The title bar is a HANDSHAKE, not a version check: `main` starts
 hidden and the SPA asks for the overlay, six-second decorated fallback. The
 tray is a shortcut, never the only route.
 

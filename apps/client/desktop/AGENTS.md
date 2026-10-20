@@ -38,11 +38,15 @@ built from `window.location.host`), so a `tauri://` page could not carry the
 **The remote page holds browser navigation and constrained local SSH signing.**
 `capabilities/main.json` uses a wildcard http(s) scope because a chosen plane
 can live anywhere and OAuth redirects must work. That scope is not authority:
-`desktop_open_in_browser` joins a validated path to `PlanePin`, and
-`ssh_key.rs` allows local key operations only when the last committed
-main-frame origin equals that pin. HTTPS is required except on loopback.
-Provisional navigation URLs must never decide this check; `on_page_load`'s
-committed callback records the origin and cancels any previous signer.
+`desktop_open_in_browser` takes a PATH (`/`-prefixed, no authority, no
+backslash, no whitespace/control; the validator lives once in
+`crates/desktop-core`, see `crates/desktop-core/AGENTS.md`) and joins that
+validated path onto `PlanePin`, the origin the window was OPENED with (moved
+by a deliberate plane switch, never by a redirect). And `ssh_key.rs` allows
+local key operations only when the last committed main-frame origin equals
+that pin. HTTPS is required except on loopback. Provisional navigation URLs
+must never decide this check; `on_page_load`'s committed callback records the
+origin and cancels any previous signer.
 
 The four `desktop_ssh_key_*` commands expose availability, native key picking,
 public SSH-agent requests, and release. Picking first shows a native approval
@@ -65,11 +69,16 @@ without depending on the remote page. See the
 [signer boundary](../../server/desktop/docs/ipc-boundary.md#local-ssh-keys).
 
 No `node_*` command or generic file, dialog, event, or opener permission is
-available to the plane window. `ipc-acl.test.ts` pins the exact command sets,
-including the unlock window's separate authority. The SPA detects this app
-through its `SubshellClient` user-agent token and `withGlobalTauri`; the global
-itself grants no command. `disable_drag_drop_handler` preserves HTML drags,
-and navigation still refuses schemes other than http(s).
+available to the plane window; everything privileged lives on the **bundled
+node page** (`capabilities/node.json`): reset/enroll/unenroll/service/
+install-agent, the plane verbs, and the updater verbs. Refusals are invisible
+by design. `ipc-acl.test.ts` pins the exact command sets, including the
+unlock window's separate authority. The SPA detects this app through its
+`SubshellClient` user-agent token and `withGlobalTauri`; the global itself
+grants no command. That `SubshellClient/…` marker is what
+`isServerDesktop()`/`isDesktop()` gate on in the SPA.
+`disable_drag_drop_handler` preserves HTML drags, and navigation still refuses
+schemes other than http(s).
 
 **The node window is a FIXED 1024x720 assistant frame** (spec 2026-09-12 § 6.4),
 non-resizable and centred, and the window-state plugin is DENYLISTED for it.
@@ -231,6 +240,16 @@ machine this app is installed on, and would collide with a hand-installed
 node, which is exactly the file this app has to be able to tell apart from
 its own.
 
+## macOS entitlements
+
+Each app keeps a SEPARATE entitlements plist (one Tauri slot per bundle;
+sharing one silently widens whichever pipeline was not edited), carrying only
+`allow-jit` + `allow-unsigned-executable-memory`, pinned by test;
+`disable-library-validation`, `allow-dyld-environment-variables` and
+`disable-executable-page-protection` are ABSENT. `apps/server/desktop/AGENTS.md`
+carries the same rule, because one rule about two files belongs in both files,
+and the two plists are deliberately separate.
+
 ## Identity: four strings that must differ from `apps/server/desktop`
 
 | | desktop-server | desktop-client |
@@ -301,7 +320,9 @@ src/scripts/       the release script (TS): `bun run compile:release`
 ```
 
 Shared with `apps/server/desktop` via `crates/desktop-core`: process spawning
-with a login PATH and a deadline, the login-shell PATH probe, semver
+with a login PATH and a deadline, the login-shell PATH probe (which runs the
+user's own profile, arbitrary code by construction; the accepted posture and
+the rest of the shared rules are in `crates/desktop-core/AGENTS.md`), semver
 comparison, the settings file, the atomic sidecar install, and the tray
 capability probe that gates close-to-tray. Do not re-implement any of those
 here. (`src-tauri/src/tray.rs` is the ICON: builder, menu, ids;
@@ -325,9 +346,10 @@ transaction: a managed CLI gets `<installed> update --from <sidecar> --yes
 SAYS no rollback point was recorded. The screen is a selection table,
 all-or-nothing, stating a reason where an act is impossible and deliberately
 carrying no Force checkbox here (phase 2 restarts nothing; it OFFERS the
-restart, where the pane-safety override lives). The publisher keypair is
-shared with `apps/server/desktop`: losing it means no installed app ever
-auto-updates again. And with the pubkey configured, `bun run compile` needs `TAURI_SIGNING_PRIVATE_KEY`
+restart, where the pane-safety override lives). The publisher keypair serves
+ALL FOUR components (both desktop apps and both CLIs): losing
+`TAURI_SIGNING_PRIVATE_KEY` means no installed component can ever auto-update
+again. And with the pubkey configured, `bun run compile` needs `TAURI_SIGNING_PRIVATE_KEY`
 set (`tauri dev` is unaffected). **Working on install or update: read
 `apps/client/desktop/docs/updates.md` first.**
 
@@ -468,9 +490,10 @@ the first mutation. `planeUrl` is KEPT. **Working on reset: read
   enroll-time loopback warning sits with it and with the walk door. The
   Status fact rows never carry a plane address; the subtitle states the
   machine, and a test pins the address's absence from the facts list.
-- **A setup key is single-use and lasts 24 hours.** Everything checkable is
-  checked before the server consumes it, but a 409 (name already taken) or a 500
-  arrives AFTER, and spends it. Those say "mint a new key", never "retry".
+- **A setup key is single-use and lasts 24 hours.** A pasted setup key reaches
+  `subshell enroll --key` as one argv element, and the returned node key is
+  never surfaced. Everything checkable is checked before the server consumes
+  it, but a 409 (name already taken) or a 500 arrives AFTER, and spends it. Those say "mint a new key", never "retry".
   What is NOT spent is a retry's name: `clearSpentKey` clears the credential and
   LEAVES the name, because the next attempt is usually the same machine with a
   fresh key, and wiping a field the operator typed to make them retype it is a
