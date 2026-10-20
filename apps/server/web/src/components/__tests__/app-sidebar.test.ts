@@ -30,9 +30,9 @@ describe("sidebar nav icons (spec 2026-09-02 §3, 2026-09-11 §3.1)", () => {
   });
 
   it("no two visible icons are the same — group headers included", () => {
-    // Icons are how the collapsed rail names a page, so a duplicate there is
-    // two rows that read as one. The group's own icon counts: it sits in the
-    // same column as every leaf above it.
+    // Icons name the context-nav rows and the section-bar buttons, so a
+    // duplicate reads as one control seen twice. The group's own icon counts:
+    // it sits in the same column as every leaf above it.
     const icons = [...entries.filter(isNavGroup).map((g) => g.icon), ...items.map((i) => i.icon)];
     expect(new Set(icons).size).toBe(icons.length);
   });
