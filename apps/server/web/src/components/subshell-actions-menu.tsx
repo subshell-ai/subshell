@@ -40,15 +40,7 @@ import type { SubshellView } from "@/types/subshell";
  * grows. The mutations themselves live in `useSubshellMutations`, which the
  * terminal's exited-state panel uses too.
  */
-export function SubshellActionsMenu({
-  subshell,
-  disabled,
-  onDeleted,
-  diagnostics,
-  copyMode,
-  children,
-  workspaceAction,
-}: {
+type SubshellActionsMenuProps = {
   subshell: SubshellView;
   /** Membership action for this sidebar, independent of subshell process access. */
   workspaceAction?: ActionItem;
@@ -76,7 +68,23 @@ export function SubshellActionsMenu({
   /** When present: the menu opens on right-click of this subtree instead of
    * behind a ⋯ button — the sidebar's recent rows (spec 2026-09-03). */
   children?: ReactNode;
-}): ReactNode {
+};
+
+export function SubshellActionsMenu(props: SubshellActionsMenuProps): ReactNode {
+  // A menu or dialog opened for one subshell must not transfer to another
+  // when a route or a reused sidebar slot changes its entity.
+  return <SubshellActionsMenuForTarget key={props.subshell.id} {...props} />;
+}
+
+function SubshellActionsMenuForTarget({
+  subshell,
+  disabled,
+  onDeleted,
+  diagnostics,
+  copyMode,
+  children,
+  workspaceAction,
+}: SubshellActionsMenuProps): ReactNode {
   // ReactNode, not JSX.Element | null: the zero-item path returns the
   // caller's children verbatim (whatever element, or elements, they are).
   // Since issue 242 this is a defense, not the viewer's route: a `view`

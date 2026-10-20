@@ -184,3 +184,35 @@ describe("useSubshellMutations invalidation sets (bug audit 2026-09-27)", () => 
     expect(invalidated).not.toContain("workspace");
   });
 });
+
+for (const action of ["remove", "restart"] as const) {
+  it(`${action} keeps the confirmed target when the displayed subshell changes`, async () => {
+    const requests: string[] = [];
+    globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+      requests.push(`${init?.method} ${String(input)}`);
+      return new Response(JSON.stringify({ ok: true, id: "s1" }), { status: 200 });
+    }) as typeof fetch;
+    let answer!: (confirmed: boolean) => void;
+    restoreConfirm = () => void setConfirmHandler(null);
+    setConfirmHandler(
+      () =>
+        new Promise<boolean>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const { wrapper } = mount();
+    const { result, rerender } = renderHook(({ id }) => useSubshellMutations(id, row({ id, name: id, alive: true })), {
+      wrapper,
+      initialProps: { id: "s1" },
+    });
+    act(() => {
+      void result.current[action]();
+    });
+    rerender({ id: "s2" });
+    await act(async () => {
+      answer(true);
+    });
+    await waitFor(() => expect(requests).toHaveLength(1));
+    expect(requests[0]).toBe(action === "remove" ? "DELETE /api/subshells/s1" : "POST /api/subshells/s1/restart");
+  });
+}
