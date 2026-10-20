@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AddSubshellDialog } from "@/components/subshell-picker/add-subshell-dialog";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
@@ -74,21 +74,31 @@ describe("AddSubshellDialog", () => {
   it("disables the mode switch while an add is in flight", async () => {
     // The pre-newOnly suite asserted this through the old dialog; the branch
     // is unchanged and still needs a pin: no mode flip (or double add) while
-    // an add is running.
-    let release: () => void = () => {};
+    // an add is running. The click retries inside waitFor because the list
+    // re-renders once the filtered queries hydrate: on a starved runner the
+    // first click can land on an element React has already replaced, and a
+    // detached node dispatches events the root never sees. EVERY pending
+    // promise is released, so a failure mid-loop cannot leave the dialog
+    // mounted busy into the next test.
+    const releases: (() => void)[] = [];
     renderDialog({
       excludeSubshellIds: [],
       onAdd: () =>
         new Promise<void>((resolve) => {
-          release = resolve;
+          releases.push(resolve);
         }),
     });
-    fireEvent.click(await screen.findByText("other"));
-    const toggle = await screen.findByRole("button", { name: "Existing subshell" });
-    expect(toggle.closest("fieldset[disabled]")).not.toBeNull();
-    await act(async () => {
-      release();
-    });
+    await screen.findByText("other");
+    try {
+      await waitFor(() => {
+        fireEvent.click(screen.getByRole("button", { name: /other/ }));
+        expect(screen.getByRole("button", { name: "Existing subshell" }).closest("fieldset[disabled]")).not.toBeNull();
+      });
+    } finally {
+      await act(async () => {
+        for (const release of releases) release();
+      });
+    }
   });
 
   it("opens the launch form directly when every subshell is already included", async () => {
