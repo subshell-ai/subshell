@@ -75,7 +75,7 @@ test("shell chrome follows the 1024px rule", async ({ page }) => {
     await expect(page.locator("aside")).toHaveCount(0);
     await burger.click();
     await expect(page.getByRole("dialog")).toBeVisible();
-    // Selecting a mini-rail section keeps the drawer open for its pages.
+    // Selecting a section bar link keeps the drawer open for its pages.
     await page
       .getByRole("navigation", { name: "Main sections" })
       .getByRole("link", { name: "Settings", exact: true })

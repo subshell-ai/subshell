@@ -80,12 +80,13 @@ test("the unified sidebar transfers workspace membership and restores section de
     await expect(page.getByText("Open the address above in Chrome.", { exact: true })).toBeVisible();
     await rail.getByRole("link", { name: "Settings", exact: true }).click();
     await expect(page).toHaveURL(/\/presets$/);
+    // The panel can no longer collapse: clicking the active section lands on
+    // its remembered page and its navigation stays on screen.
+    await rail.getByRole("link", { name: "Settings", exact: true }).click();
+    await expect(page).toHaveURL(/\/presets$/);
+    await expect(page.getByRole("navigation", { name: "Settings pages" })).toBeVisible();
     await rail.getByRole("link", { name: "Workspaces", exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`/workspaces/${workspaces[1]}$`));
-    await rail.getByRole("link", { name: "Workspaces", exact: true }).click();
-    await expect(page.getByRole("combobox", { name: "Switch workspace" })).toHaveCount(0);
-    await rail.getByRole("link", { name: "Workspaces", exact: true }).click();
-    await expect(page.getByRole("combobox", { name: "Switch workspace" })).toBeVisible();
   } finally {
     for (const id of panes) await page.request.delete(`/api/subshells/${id}`);
   }
