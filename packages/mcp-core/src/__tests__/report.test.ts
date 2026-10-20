@@ -81,6 +81,10 @@ describe("runReport", () => {
     // A spawn with no declared type still carries its label under the open key.
     await spawn({ description: "Investigate the flake" });
     expect(await seen[1]?.json()).toEqual({ event: "describe", agentType: "", activity: "Investigate the flake" });
+    // The rename's older spelling is the matcher's other arm, so it pairs the
+    // same way.
+    await spawn({ subagent_type: "scout", description: "Map the repo" }, "Task");
+    expect(await seen[2]?.json()).toEqual({ event: "describe", agentType: "scout", activity: "Map the repo" });
   });
 
   it("routes the roster report to the pane's own endpoint, and handles the reset, fallback and cap edges", async () => {

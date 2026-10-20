@@ -145,7 +145,7 @@ const reporterHook = (host: PluginHost, reporter: ReporterSpec, ...verb: string[
  *   stamp-less case is a silent no-op. Neither of these two reads its stdin:
  *   their payloads are the prompt text and the tool input, and the report is
  *   only ever the fact.
- * - `PreToolUse` with the `Agent` matcher — the subagent task label. Claude's
+ * - `PreToolUse` with the `Agent|Task` matcher (the rename's two spellings) — the subagent task label. Claude's
  *   SubagentStart payload has no description field, but the spawn's tool
  *   input does, so this second entry runs the same `report subagents` verb,
  *   which forwards `description` and `subagent_type` and never the prompt.
@@ -171,7 +171,7 @@ const attentionHooks = (host: PluginHost, reporter: ReporterSpec) => ({
   UserPromptSubmit: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "attention", "resumed") }] }],
   PreToolUse: [
     { hooks: [{ type: "command", command: reporterHook(host, reporter, "attention", "resumed") }] },
-    { matcher: "Agent", hooks: [{ type: "command", command: reporterHook(host, reporter, "subagents") }] },
+    { matcher: "Agent|Task", hooks: [{ type: "command", command: reporterHook(host, reporter, "subagents") }] },
   ],
   SessionStart: [
     {

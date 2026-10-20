@@ -92,7 +92,11 @@ export function ExplainedButton({
         explained
           ? typeof disabledReason === "string"
             ? disabledReason
-            : disabledReasonText
+            : // A node reason without its text twin keeps whatever description
+              // the caller wrote, rather than silently dropping it: the visual
+              // tooltip renders either way, but the accessible one must not go
+              // undefined just because nobody paired a string.
+              (disabledReasonText ?? props["aria-description"])
           : props["aria-description"]
       }
       onClickCapture={(event) => {

@@ -454,7 +454,7 @@ describe("ClaudeCodePlugin attention hooks", () => {
     // PreToolUse input, so a second PreToolUse entry matches Agent and runs
     // the same roster verb, which forwards description + subagent_type and
     // never the prompt.
-    expect(hooks.PreToolUse?.[1]?.matcher).toBe("Agent");
+    expect(hooks.PreToolUse?.[1]?.matcher).toBe("Agent|Task");
     expect(hooks.PreToolUse?.[1]?.hooks[0].command).toBe(roster);
   });
 });

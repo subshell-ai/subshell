@@ -47,7 +47,7 @@ test("the example's provisional zero exit code does not hide running children", 
 
 test("extension metadata skips invalid entries and normalizes empty names", async () => {
   let publish: (value: unknown) => void = () => {};
-  const reports: { agents: { id: string; name: string; status: string }[] }[] = [];
+  const reports: { agents: { id: string; name: string; status: string; activity?: string }[] }[] = [];
   const install = new Function(
     "process",
     "fetch",
@@ -72,8 +72,23 @@ test("extension metadata skips invalid entries and normalizes empty names", asyn
     },
   });
   publish({
-    agents: [null, { id: "", name: "invalid" }, { id: "x".repeat(257), name: "invalid" }, { id: "valid", name: " " }],
+    agents: [
+      null,
+      { id: "", name: "invalid" },
+      { id: "x".repeat(257), name: "invalid" },
+      { id: "valid", name: " " },
+      // The hover-card label is the shipped reason this channel exists; a
+      // non-string one is noise and an over-long one lands bounded.
+      { id: "labelled", name: "worker", activity: "Review the migration plan" },
+      { id: "flooded", name: "other", activity: `${"y".repeat(200)}` },
+      { id: "noise", name: "third", activity: 7 },
+    ],
   });
   await Promise.resolve();
-  expect(reports.at(-1)?.agents).toEqual([{ id: "valid", name: "Subagent", status: "running" }]);
+  expect(reports.at(-1)?.agents).toEqual([
+    { id: "valid", name: "Subagent", status: "running" },
+    { id: "labelled", name: "worker", status: "running", activity: "Review the migration plan" },
+    { id: "flooded", name: "other", status: "running", activity: "y".repeat(160) },
+    { id: "noise", name: "third", status: "running" },
+  ]);
 });

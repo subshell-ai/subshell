@@ -170,7 +170,9 @@ async function resolveBody(
       return { path: "subagents/report", json: { event: "stop", agentId: id } };
     if (hook !== "SubagentStart" && hook !== "subagent_start") return undefined;
     const label = hermes ? extra.child_role : payload.agent_type;
-    const name = typeof label === "string" && label ? label : "Subagent";
+    // A whitespace-only type label is the same absence as none, and the
+    // sidebar numbers the generic name the same way the pi bridge does.
+    const name = typeof label === "string" && label.trim() ? label : "Subagent";
     // Hermes names the task right here (`child_goal`); Claude Code's label
     // arrives from the PreToolUse branch above. Hermes's `child_summary` is
     // the child's OUTPUT, and stays exactly as private as the prompt.
