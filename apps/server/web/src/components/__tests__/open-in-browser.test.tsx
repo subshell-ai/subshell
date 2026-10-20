@@ -4,13 +4,13 @@
  * A desktop window is still a webview: no second tab, no profile switcher, no
  * password manager, no "open this in the browser I already trust". So both
  * shells offer a way out to the system browser, and the SPA is where the
- * SPECIFIC page to open is known — the rail opens the current route, a
- * subshell's menu opens that subshell.
+ * SPECIFIC page to open is known — the bottom section bar opens the current
+ * route, a subshell's menu opens that subshell.
  *
  * Both are gated on `isDesktop()`, which is the WIDE question (either shell),
  * because both work in Subshell Client too — its plane window is granted
  * exactly this one command. In a BROWSER neither renders, and that is the
- * assertion that matters: a browser tab already is the browser, so the row
+ * assertion that matters: a browser tab already is the browser, so the button
  * would be a control that re-opens the page you are on.
  *
  * Two things the person will notice, neither of which this feature tries to
@@ -99,8 +99,9 @@ function stubFetch() {
         : [];
     return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
   });
-  // The rail calls `useQuickAdd()`, which throws outside its provider; the real
-  // provider would mount two dialogs and their data, none of it under test.
+  // The sidebar's workspace section calls `useQuickAdd()`, which throws outside
+  // its provider; the real provider would mount two dialogs and their data,
+  // none of it under test.
   const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
     openLaunch: () => {},
     openSshLaunch: () => {},
@@ -112,7 +113,7 @@ function stubFetch() {
   };
 }
 
-/** The rail, on a route whose path + search is what the row must open. */
+/** The sidebar, on a route whose path + search is what the section bar's button must open. */
 async function renderSidebar(initialEntry: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rootRoute = createRootRoute({ component: () => <AppSidebar /> });
@@ -198,7 +199,7 @@ afterEach(() => {
   delete (window as unknown as Record<string, unknown>).__TAURI__;
 });
 
-describe("the rail's Open in browser row", () => {
+describe("the section bar's Open in browser button", () => {
   it("opens the CURRENT route, path and search together", async () => {
     const restore = stubFetch();
     try {
