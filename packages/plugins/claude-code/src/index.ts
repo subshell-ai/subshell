@@ -265,7 +265,9 @@ const createPlugin: HarnessPluginFactory = (host: PluginHost): SubshellPlugin =>
     if (reporter) {
       settings.hooks = paneHooks(host, reporter);
     } else {
-      host.log.warn("no reporter resolved for this launch: attention and conversation-identity hooks are omitted");
+      host.log.warn(
+        "no reporter resolved for this launch: attention, conversation-identity, and subagent-roster hooks are omitted",
+      );
     }
     if (Object.keys(settings).length > 0) {
       args.push("--settings", JSON.stringify(settings));
