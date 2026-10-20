@@ -246,17 +246,17 @@ export function AppSidebar({
                     >
                       {item.id === "workspaces" ? (
                         // The mark the old collapsed rail wore, now on the bar
-                        // cell. The link's own aria-label names it, so the
-                        // image is decorative. `h-4 w-auto`, never a `size-*`
-                        // box: the asset is 30x40, so a square forces the /S
-                        // wide and squashes it, and 16px tall is what matches
-                        // the padded lucide glyphs' optical weight on the bar
-                        // (operator ruling 2026-10-20, measured at :5174).
+                        // cell; the link's aria-label names it, so the image
+                        // is decorative. `h-5 w-auto`: the height matches the
+                        // neighbours' size-5 boxes, and the width follows the
+                        // 30x40 asset's aspect. No `size-*` box ever, which
+                        // would squash the /S wide (ruling 2026-10-20,
+                        // measured on the live bar).
                         <img
                           src="/icons/mark-40.png"
                           srcSet="/icons/mark-80.png 2x, /icons/mark-120.png 3x"
                           alt=""
-                          className="h-4 w-auto"
+                          className="h-5 w-auto"
                         />
                       ) : (
                         <item.icon className="size-5" />
