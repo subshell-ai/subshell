@@ -436,6 +436,200 @@ describe("report exit — the pane's own death (spec 2026-09-19 §4.3)", () => {
   });
 });
 
+describe("subagent report: encoding and numeric edges (review probe F-V2-report)", () => {
+  const paneEnv = {
+    SUBSHELL_API_KEY: "subshell_key123",
+    SUBSHELL_BASE_URL: "http://h:3080",
+    SUBSHELL_ID: "sub_42",
+  } as NodeJS.ProcessEnv;
+
+  /** Captures raw bodies so the test can assert the WIRE is valid JSON, not just the parse. */
+  function rawRecorder() {
+    const bodies: string[] = [];
+    const fetchImpl = (async (_input: string | URL, init?: { body?: string | null }) => {
+      bodies.push(String(init?.body));
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    return { bodies, fetchImpl };
+  }
+
+  const startWith = (fetchImpl: typeof fetch, payload: Record<string, unknown>) =>
+    runReport(["subagents"], { env: paneEnv, fetch: fetchImpl, readStdin: async () => JSON.stringify(payload) });
+
+  it("caps label fields at the route's UTF-16 maxLength without breaking the JSON wire", async () => {
+    // The cap is `.slice(0, 160)` in UTF-16 units, and the report route validates
+    // with TypeBox's `value.length <= maxLength`, which counts units too. So a
+    // name of 161 units ships as exactly 160 and can never 400 at the boundary,
+    // even when the cut lands inside a surrogate pair: JSON.stringify is
+    // well-formed (ES2019) and escapes the orphan half as a \udXXX sequence,
+    // which is why the body below still round-trips through JSON.parse.
+    const { bodies, fetchImpl } = rawRecorder();
+    const emojiName = `${"a".repeat(159)}\u{1F600}`; // 161 units: the slice splits the pair
+    await startWith(fetchImpl, { hook_event_name: "SubagentStart", agent_id: "c", agent_type: emojiName });
+    expect(bodies).toHaveLength(1);
+    const body = JSON.parse(bodies[0] as string) as { agents: { name: string }[] };
+    expect(body.agents[0]?.name.length).toBe(160);
+    const tail = body.agents[0]?.name.charCodeAt(159) ?? 0;
+    expect(tail >= 0xd800 && tail <= 0xdbff).toBe(true); // the cut really did split the pair
+    expect((bodies[0] as string).includes("\\ud83d")).toBe(true); // escaped, so the wire stays valid JSON
+    // Exactly at the cap ships untouched.
+    await startWith(fetchImpl, { hook_event_name: "SubagentStart", agent_id: "c", agent_type: "b".repeat(160) });
+    expect((JSON.parse(bodies[1] as string) as { agents: { name: string }[] }).agents[0]?.name).toBe("b".repeat(160));
+  });
+
+  it("escapes control bytes into the body without dropping or mangling the report", async () => {
+    // ESC and BEL are not whitespace, so `trim()` leaves them and nothing else
+    // filters them. They reach the body as JSON's mandatory \u00XX escapes: the
+    // payload a JS server (and a JSON-aware renderer) parses back is the same
+    // string, so the report survives intact and the wire stays valid.
+    const { bodies, fetchImpl } = rawRecorder();
+    await startWith(fetchImpl, { hook_event_name: "SubagentStart", agent_id: "c", agent_type: "x\u001b\u0007y" });
+    expect(bodies).toHaveLength(1);
+    const body = JSON.parse(bodies[0] as string) as { agents: { name: string }[] };
+    expect(body.agents[0]?.name).toBe("x\u001b\u0007y");
+  });
+
+  it("sends nothing for a payload that is not a reportable object, silently", async () => {
+    const { bodies, fetchImpl } = rawRecorder();
+    // A non-object JSON document parses but has no `hook_event_name`; "" does not
+    // parse at all. Every one of them ends in the outer catch: zero POSTs and an
+    // undefined resolution, so the hook exits 0 and prints nothing into the pane.
+    for (const raw of ["null", "[]", "5", '"str"', "true", "", "{oops"]) {
+      await runReport(["subagents"], { env: paneEnv, fetch: fetchImpl, readStdin: async () => raw });
+    }
+    expect(bodies).toHaveLength(0);
+  });
+
+  it("refuses non-string ids and labels rather than coercing them", async () => {
+    const { bodies, fetchImpl } = rawRecorder();
+    // A numeric id cannot name a child the server would ever see back, so it is
+    // the same absence as none; a numeric label falls to the generic name.
+    await startWith(fetchImpl, { hook_event_name: "SubagentStart", agent_id: 42, agent_type: "T" });
+    expect(bodies).toHaveLength(0);
+    await startWith(fetchImpl, { hook_event_name: "SubagentStart", agent_id: "c", agent_type: 42 });
+    expect((JSON.parse(bodies[0] as string) as { agents: { name: string }[] }).agents[0]?.name).toBe("Subagent");
+    await startWith(fetchImpl, { hook_event_name: "SubagentStart", agent_id: "", agent_type: "T" });
+    expect(bodies).toHaveLength(1);
+    // A hermes child whose role and goal are not strings still starts, unnamed,
+    // with no activity line (Infinity arrives through JSON.parse as null).
+    await startWith(fetchImpl, { hook_event_name: "subagent_start", extra: { child_session_id: "h", child_role: 7 } });
+    const hermesBody = (JSON.parse(bodies[1] as string) as { agents: Record<string, unknown>[] }).agents[0];
+    expect(hermesBody).toEqual({ id: "h", name: "Subagent", status: "running" });
+    expect(hermesBody).not.toHaveProperty("activity");
+  });
+
+  it("never coerces an exit word that is not a plain 1-3 digit status", async () => {
+    // The gate is `/^\d{1,3}$/`: negatives, "NaN", "Infinity", exponents, hex,
+    // non-ASCII digits, and padded digits all read as "tmux gave no status",
+    // which is null, never a guessed number. (A coerced NaN would have shipped
+    // as JSON null anyway; the regex refuses it before serialization instead.)
+    const env = { ...paneEnv };
+    for (const word of ["-1", "NaN", "Infinity", "1e3", "0x10", "١٢٣", " 7", "7 ", "+7"]) {
+      const { bodies, fetchImpl } = rawRecorder();
+      await runReport(["exit", word], { env, fetch: fetchImpl });
+      expect(JSON.parse(bodies[0] as string)).toEqual({ exitCode: null });
+    }
+    // Leading zeros are a real status written oddly, not a different status.
+    const { bodies, fetchImpl } = rawRecorder();
+    await runReport(["exit", "007"], { env, fetch: fetchImpl });
+    expect(JSON.parse(bodies[0] as string)).toEqual({ exitCode: 7 });
+  });
+});
+
+describe("subagent report: frame pairing and unknown-id edges (review probe F-V2-report)", () => {
+  const paneEnv = {
+    SUBSHELL_API_KEY: "subshell_key123",
+    SUBSHELL_BASE_URL: "http://h:3080",
+    SUBSHELL_ID: "sub_42",
+  } as NodeJS.ProcessEnv;
+
+  function recorder() {
+    const seen: { url: string; json: Record<string, unknown> }[] = [];
+    const fetchImpl = (async (input: string | URL, init?: { body?: string }) => {
+      seen.push({ url: String(input), json: JSON.parse(String(init?.body)) as Record<string, unknown> });
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    return { seen, fetchImpl };
+  }
+
+  const feed = (fetchImpl: typeof fetch, payload: unknown) =>
+    runReport(["subagents"], { env: paneEnv, fetch: fetchImpl, readStdin: async () => JSON.stringify(payload) });
+
+  it("keeps pairing authority with PostToolUse: a PreToolUse frame never carries an agentId", async () => {
+    const { seen, fetchImpl } = recorder();
+    await feed(fetchImpl, {
+      hook_event_name: "PreToolUse",
+      tool_name: "Agent",
+      tool_input: { subagent_type: "Explore", description: "Map the repo" },
+      // A PreToolUse payload has no tool_response; a forged one must not leak
+      // into the frame, because only the tool's own result names the child.
+      tool_response: { agentId: "forged" },
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.json).toEqual({ event: "describe", agentType: "Explore", activity: "Map the repo" });
+    expect("agentId" in (seen[0]?.json ?? {})).toBe(false);
+  });
+
+  it("sends the exact-id describe only for a response that names the child, on both tool spellings", async () => {
+    const { seen, fetchImpl } = recorder();
+    const post = (toolName: string, response: unknown) =>
+      feed(fetchImpl, {
+        hook_event_name: "PostToolUse",
+        tool_name: toolName,
+        tool_input: { description: "Label" },
+        tool_response: response,
+      });
+    await post("Agent", { agentId: "a1" });
+    await post("Task", { agentId: "a2" }); // the rename's older spelling pairs the same way
+    expect(seen.map((entry) => entry.json.agentId)).toEqual(["a1", "a2"]);
+    // Absent, empty, non-string, over-cap, and a whole response that is not an
+    // object: the frame cannot pair, so it must not queue an unpairable label.
+    await post("Agent", { agentId: "" });
+    await post("Agent", { agentId: 42 });
+    await post("Agent", { agentId: "x".repeat(257) });
+    await post("Agent", "done");
+    await post("Agent", null);
+    expect(seen).toHaveLength(2);
+  });
+
+  it("carries the same id through describe, start, and stop so the server pairs without guessing", async () => {
+    const { seen, fetchImpl } = recorder();
+    // The live sequence one spawn emits through this plugin's hook wiring:
+    // PreToolUse (label, type-keyed, unpaired), PostToolUse (label + exact id),
+    // SubagentStart (the child announces itself), SubagentStop. A start with a
+    // non-absolute transcript path skips the metadata sidecar by contract.
+    await feed(fetchImpl, {
+      hook_event_name: "PreToolUse",
+      tool_name: "Agent",
+      tool_input: { subagent_type: "Explore", description: "Map the repo" },
+    });
+    await feed(fetchImpl, {
+      hook_event_name: "PostToolUse",
+      tool_name: "Agent",
+      tool_input: { subagent_type: "Explore", description: "Map the repo" },
+      tool_response: { agentId: "a1" },
+    });
+    await feed(fetchImpl, {
+      hook_event_name: "SubagentStart",
+      agent_id: "a1",
+      agent_type: "Explore",
+      transcript_path: "relative/path.jsonl",
+    });
+    await feed(fetchImpl, { hook_event_name: "SubagentStop", agent_id: "a1" });
+    expect(seen.map((entry) => entry.json)).toEqual([
+      { event: "describe", agentType: "Explore", activity: "Map the repo" },
+      { event: "describe", agentType: "Explore", activity: "Map the repo", agentId: "a1" },
+      { event: "start", agents: [{ id: "a1", name: "Explore", status: "running" }] },
+      { event: "stop", agentId: "a1" },
+    ]);
+    // An unknown id is not this layer's business: stop reports exactly what the
+    // harness named, and the server's roster filter makes an unknown id a no-op.
+    await feed(fetchImpl, { hook_event_name: "SubagentStop", agent_id: "never-seen" });
+    expect(seen[4]?.json).toEqual({ event: "stop", agentId: "never-seen" });
+    expect(new Set(seen.map((entry) => entry.url)).size).toBe(1); // every frame: this pane's own endpoint
+  });
+});
+
 describe("turn_complete gating on the Stop payload (spec 2026-09-23)", () => {
   const paneEnv = {
     SUBSHELL_API_KEY: "subshell_key123",
