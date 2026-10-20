@@ -115,7 +115,7 @@ function stubFetch() {
 /** The rail, on a route whose path + search is what the row must open. */
 async function renderSidebar(initialEntry: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const rootRoute = createRootRoute({ component: () => <AppSidebar forceExpanded /> });
+  const rootRoute = createRootRoute({ component: () => <AppSidebar /> });
   const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/" });
   const subshellRoute = createRoute({ getParentRoute: () => rootRoute, path: "/subshells/$id" });
   const workspacesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/workspaces" });
