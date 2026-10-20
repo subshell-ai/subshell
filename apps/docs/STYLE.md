@@ -256,12 +256,19 @@ readable with line continuations when needed, and preserve their exact argv.
 Do not assume readers know where a control lives. On the first actionable
 mention in each page or procedure, name the interface, navigation path, and
 control: “In the server dashboard's sidebar, open **Settings** →
-**Networking**. In **Addresses**, edit **Other addresses browsers will use**.”
-State required roles before administrative actions. If sign-in is unavailable,
-give the host-side CLI alternative rather than directing readers to an
-inaccessible dashboard.
+**Server Settings** → **Networking**. In **Addresses**, edit **Other
+addresses browsers will use**.” The sidebar holds two groups under
+**Settings**: **Personal** (Nodes, Presets, Prompts) and, for
+administrators, **Server Settings** (General, Users, Auth, API keys,
+Plugins, Service, Networking, Updates, Backups, Status, Logs). An admin
+page's path names the group. State required roles before administrative
+actions. If sign-in is unavailable, give the host-side CLI alternative
+rather than directing readers to an inaccessible dashboard.
 
-Locate dialogs by the action that opens them, such as **Subshells** → **⋯** beside search → **Add subshell**. Locate session actions through their **⋯** menu. Profile and Preferences start under **Account** in the mini rail; distinguish those pages from instance-wide Server Settings. Desktop
+Locate dialogs by the action that opens them, such as **Subshells** → **⋯**
+beside search → **Add subshell**. Locate session actions through their
+**⋯** menu. Profile and Preferences start under **Account** in the mini
+rail; distinguish those pages from instance-wide Server Settings. Desktop
 instructions must name the app and how to open its local management window.
 
 Link to a focused guide when the navigation would distract from the current

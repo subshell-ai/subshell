@@ -176,7 +176,7 @@ async function resolveBody(
     // guessing one would turn "could not be read" into "exited cleanly".
     const raw = rest[0];
     const code = raw !== undefined && /^\d{1,3}$/.test(raw) ? Number(raw) : null;
-    return { path: "exit", json: { exitCode: code } as unknown as Record<string, string> };
+    return { path: "exit", json: { exitCode: code } };
   }
 
   if (verb === "session") {

@@ -63,6 +63,21 @@ describe("buildPluginReports", () => {
     expect(JSON.parse(mcp.steps[1].command).mcpServers.subshell).toEqual({ command: "subshell", args: ["mcp"] });
   });
 
+  it("renders manual hook lines against the PORTABLE reporter — the server's own spelling", async () => {
+    // Same cross-package rule as the mcp literal above: `plugin-report.ts`
+    // spells { command: "subshell", args: ["report"] } for the Nodes page and
+    // `apps/server/api/src/services/mcp-resolve.ts` pins PORTABLE_REPORTER
+    // for the preset editor. Both sides hold the literal; drift would show
+    // users two different hook commands for one harness.
+    const dir = tempDataDir();
+    await installEmbedded(dir, "hermes");
+    const [report] = await buildPluginReports(dir);
+    const mcp = report?.mcpSetup as { mode: string; steps: { command: string }[] };
+    expect(mcp.mode).toBe("manual");
+    const hooksStep = mcp.steps.find((step) => step.command.includes("subagent_start"));
+    expect(hooksStep?.command).toContain("'subshell' 'report' 'subagents'");
+  });
+
   it("reports a plugin that fails to load, carrying its error", async () => {
     // Dropping the row would make a broken plugin look uninstalled, and the
     // node page could not explain the difference.

@@ -88,7 +88,11 @@ function tomlStringArray(values: string[]): string {
  * launch carries `-c mcp_servers.subshell.command=… -c mcp_servers.subshell.args=…`
  * config overrides (dotted path, value parsed as TOML — verified against the
  * real binary), which codex merges over ~/.codex/config.toml for that run
- * only. No config file the harness must read, no CODEX_HOME redirect (that
+ * only. The subagent monitoring hooks ride the same mechanism as
+ * `hooks.SubagentStart/SubagentStop/SessionStart` overrides, so a user's own
+ * `hooks.*` table is REPLACED for the duration of a subshell-launched run —
+ * the documented limitation, same shape as claude-code's; nothing on disk
+ * changes. No config file the harness must read, no CODEX_HOME redirect (that
  * dir holds the user's auth.json). The spawned `subshell mcp` child inherits
  * the subshell's baked SUBSHELL_* pane env for its credential, like every
  * harness.
@@ -181,7 +185,7 @@ const createPlugin: HarnessPluginFactory = (host: PluginHost): SubshellPlugin =>
     return {
       mode: "auto",
       summary:
-        "Subshell registers itself with every Codex subshell automatically (per-invocation -c mcp_servers.subshell.* overrides; your ~/.codex config is never modified).",
+        "Subshell registers itself with every Codex subshell automatically (per-invocation -c mcp_servers.subshell.* overrides; your ~/.codex config is never modified). The same overrides carry the subagent monitoring hooks, so a hooks.* you set in ~/.codex is replaced FOR THAT RUN only, and nothing on disk changes.",
     };
   },
 

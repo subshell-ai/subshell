@@ -84,11 +84,15 @@ export function AppSidebar({
   const collapsed = !forceExpanded && collapsedState;
   const toggleButtonRef = useRef<HTMLButtonElement>(null);
   const restoreToggleFocus = useRef(false);
+  // Runs after the collapse/expand re-render, which is when the toggle moves
+  // between rails and loses its focus; scoping to `collapsed` is the moment,
+  // not every render (the sidebar re-renders on each activity tick).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fire-on-change effect, `collapsed` is deliberately the trigger (the toggle moves rails when it flips), not a read
   useEffect(() => {
     if (!restoreToggleFocus.current) return;
     toggleButtonRef.current?.focus();
     restoreToggleFocus.current = false;
-  });
+  }, [collapsed]);
   const [subshellQuery, setSubshellQuery] = useState("");
   const [focusPending, setFocusPending] = useState(false);
   // Remember route destinations independently from the workspace’s sidebar

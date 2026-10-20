@@ -4,7 +4,14 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { setFetchRouter } from "@/test-setup";
 import { HarnessSubagentTitle } from "../harness-subagents";
 
-afterEach(cleanup);
+// The router is a PROCESS global: leaving it set lets this file's snapshot
+// object answer a later file's `/api/subshells` read as if it were a list
+// (test-setup's afterEach resets the global fetch, but only to the delegator,
+// which still routes through whatever router is live).
+afterEach(() => {
+  setFetchRouter(null);
+  cleanup();
+});
 
 test("the compact header uses confirmed native selection and returns through the parent endpoint", async () => {
   const state = {
@@ -30,7 +37,9 @@ test("the compact header uses confirmed native selection and returns through the
     </QueryClientProvider>,
   );
   expect(screen.getByText("Review changes")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Subagent of Build feature" })).toBeTruthy();
+  // The branch mark is a label, not a control: it marks which agent the pane
+  // is showing and activates nothing, so it sits out of the tab order.
+  expect(screen.getByRole("img", { name: "Subagent of Build feature" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Back to main agent" }));
   await waitFor(() => expect(sent).toEqual([{ agentId: null }]));
   // A queued command is not confirmation that the harness changed views.

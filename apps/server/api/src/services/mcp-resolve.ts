@@ -1,5 +1,5 @@
 import { basename, resolve } from "node:path";
-import type { McpLaunchSpec } from "@internal/pane-runtime";
+import type { McpLaunchSpec, ReporterSpec } from "@internal/pane-runtime";
 
 /**
  * Pure resolution of HOW this binary gets re-entered in this deployment —
@@ -50,6 +50,13 @@ const NODE_BINARY = "subshell";
  * resolved launch for that host.
  */
 export const PORTABLE_MCP_LAUNCH: McpLaunchSpec = { command: NODE_BINARY, args: ["mcp"] };
+
+/**
+ * The reporter sibling of {@link PORTABLE_MCP_LAUNCH}: the same portable
+ * binary with the `report` subcommand, for harness manuals that print hook
+ * lines. One naming site for the binary (the first line of the #57 rule).
+ */
+export const PORTABLE_REPORTER: ReporterSpec = { command: NODE_BINARY, args: ["report"] };
 
 /** Which rung answered — surfaced by `status` so an operator sees WHY it resolves. */
 export type McpLaunchSource = "env" | "self" | "agent-on-path";

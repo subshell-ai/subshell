@@ -27,7 +27,7 @@ import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch, nodeCanLaunchOn } f
 import { presetAccess, presetOwnerName, withPresetAccess } from "@/lib/preset-access.js";
 import { duplicatePresetName } from "@/lib/preset-name-error.js";
 import { apiModels } from "@/schema/index.js";
-import { PORTABLE_MCP_LAUNCH } from "@/services/mcp-resolve.js";
+import { PORTABLE_MCP_LAUNCH, PORTABLE_REPORTER } from "@/services/mcp-resolve.js";
 import { presetShares } from "@/services/preset-sharing.service.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
 import { saveSshPreset } from "@/services/ssh-presets.service.js";
@@ -509,8 +509,10 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
         // The manual steps embed the PORTABLE launch, never this plane's
         // resolved one: the registration is pasted onto every machine that
         // hosts a pane, and an absolute SELF path is wrong on all but this
-        // (issue #57). {@link PORTABLE_MCP_LAUNCH} carries the argument.
-        mcp: harness.mcpSetup(PORTABLE_MCP_LAUNCH, { command: "subshell", args: ["report"] }),
+        // (issue #57). The reporter prefix rides along so manual hook setups
+        // can print their own lines with the same portability rule.
+        mcp: harness.mcpSetup(PORTABLE_MCP_LAUNCH, PORTABLE_REPORTER),
+        subagents: harness.subagents ?? null,
       };
     },
     {

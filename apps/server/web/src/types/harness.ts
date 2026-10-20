@@ -72,6 +72,19 @@ export interface McpSetupStepInfo {
  */
 export type McpSetupInfo = { mode: "auto"; summary: string } | { mode: "manual"; steps: McpSetupStepInfo[] };
 
+/**
+ * What a harness can surface of its child agents (mirrors the API's
+ * `HarnessSubagentSupportSchema`; the server answers null when it reports none).
+ */
+export interface HarnessSubagentSupportInfo {
+  /** How subagent lifecycle events reach Subshell */
+  discovery: "hooks" | "extension";
+  /** Whether the sidebar can move the parent's own view to a child */
+  navigation: "native" | "unavailable";
+  /** One-time user action needed for reporting to work, if any */
+  setup?: string;
+}
+
 /** Reference data for one harness, backing the preset editor's suggestions. */
 export interface HarnessSchema {
   /** Settings editor schema (empty when the harness has none) */
@@ -82,4 +95,6 @@ export interface HarnessSchema {
   suggestedFlags: { flag: string; description: string }[];
   /** How this harness gets cross-subshell comms (auto vs one-time manual setup) */
   mcp: McpSetupInfo;
+  /** Subagent surfacing this harness supports; null when it reports none */
+  subagents: HarnessSubagentSupportInfo | null;
 }

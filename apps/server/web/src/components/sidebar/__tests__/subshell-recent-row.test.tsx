@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
+import { onWorkspacePaneFocusRequest } from "@/lib/workspace-focus";
 import type { SubshellView } from "@/types/subshell";
 
 /**
@@ -56,9 +57,15 @@ function makeSubshell(overrides: Partial<SubshellView> = {}): SubshellView {
   };
 }
 
-function mockFetch(withSubagents = false) {
+function mockFetch(withSubagents = false, canSelect = false) {
   const original = globalThis.fetch;
-  globalThis.fetch = ((input: unknown) => {
+  const selectPosts: unknown[] = [];
+  // The snapshot answers with whatever the LAST select chose: the row's
+  // parent-click reset branch only fires while a selection is confirmed, so a
+  // constant null would hide it (and a queued command only becomes the
+  // confirmed view on the next read, exactly like the real service).
+  let selectedId: string | null = null;
+  globalThis.fetch = ((input: unknown, init?: RequestInit) => {
     const path = new URL(String(input), "http://localhost").pathname;
     if (withSubagents && path === "/api/subshells/subagents")
       return Promise.resolve(
@@ -66,16 +73,22 @@ function mockFetch(withSubagents = false) {
           JSON.stringify({
             s1: {
               agents: [{ id: "child", name: "Review changes", status: "running" }],
-              selectedId: null,
-              canSelect: false,
+              selectedId,
+              canSelect,
             },
           }),
         ),
       );
+    if (withSubagents && canSelect && path === "/api/subshells/s1/subagents/select" && init?.method === "POST") {
+      const body = JSON.parse(String(init.body)) as { agentId: string | null };
+      selectedId = body.agentId;
+      selectPosts.push(body);
+      return Promise.resolve(new Response(JSON.stringify({ ok: true })));
+    }
     if (path === "/api/presets") return Promise.resolve(new Response(JSON.stringify([])));
     return Promise.resolve(new Response(JSON.stringify({})));
   }) as typeof fetch;
-  return () => (globalThis.fetch = original);
+  return { restore: () => (globalThis.fetch = original), selectPosts };
 }
 
 function renderRow(subshell: SubshellView, focused = false, onOpen?: () => void) {
@@ -114,7 +127,7 @@ afterEach(() => {
 
 describe("SubshellRecentRow tooltip (2026-09-24: in-page, so it zooms)", () => {
   it("opens actions from a visible button without navigating", async () => {
-    const restore = mockFetch();
+    const { restore } = mockFetch();
     try {
       renderRow(makeSubshell());
       const actions = await screen.findByRole("button", { name: "Actions for auth-refactor" });
@@ -128,7 +141,7 @@ describe("SubshellRecentRow tooltip (2026-09-24: in-page, so it zooms)", () => {
   });
 
   it("merges the tooltip trigger onto the Link itself, not a wrapper", async () => {
-    const restore = mockFetch();
+    const { restore } = mockFetch();
     try {
       renderRow(makeSubshell());
       const link = await screen.findByRole("link", { name: /auth-refactor/ });
@@ -154,7 +167,7 @@ describe("SubshellRecentRow tooltip (2026-09-24: in-page, so it zooms)", () => {
   });
 
   it("leaves the row a Link: href, draggable, and no native title", async () => {
-    const restore = mockFetch();
+    const { restore } = mockFetch();
     try {
       renderRow(makeSubshell());
       const link = await screen.findByRole("link", { name: /auth-refactor/ });
@@ -169,9 +182,39 @@ describe("SubshellRecentRow tooltip (2026-09-24: in-page, so it zooms)", () => {
   });
 });
 
+it("selects a child through the parent endpoint and returns to the parent on the row click", async () => {
+  // canSelect is the SERVER's answer (supported harness, actor may navigate);
+  // the row renders the child as an action only when it says so. The parent
+  // click must reset the shared view back to the main agent.
+  const { restore, selectPosts } = mockFetch(true, true);
+  // Stand in for the mounted dock: the child's select answers TRUE here, so
+  // the click focuses the pane on screen instead of navigating away from the
+  // rail this row lives in (the same success path the real dock takes).
+  const stopFocus = onWorkspacePaneFocusRequest((id) => id === "s1");
+  try {
+    let opened = 0;
+    renderRow(makeSubshell(), false, () => {
+      opened++;
+    });
+    const child = await screen.findByRole("button", { name: /Review changes/ });
+    fireEvent.click(child);
+    await waitFor(() => expect(selectPosts).toEqual([{ agentId: "child" }]));
+    // The reset only arms once the SELECTED child comes back confirmed from
+    // the server (a queued command is not a view change), so wait for the
+    // re-render that carries it before clicking the parent.
+    await waitFor(() => expect(child.className).toContain("bg-accent"));
+    fireEvent.click(screen.getByRole("link", { name: /auth-refactor/ }));
+    await waitFor(() => expect(selectPosts).toEqual([{ agentId: "child" }, { agentId: null }]));
+    expect(opened).toBe(1);
+  } finally {
+    stopFocus();
+    restore();
+  }
+});
+
 for (const focused of [true, false]) {
   it(`toggles child rows from the arrow without opening the ${focused ? "active" : "inactive"} parent`, async () => {
-    const restore = mockFetch(true);
+    const { restore } = mockFetch(true);
     let opened = 0;
     try {
       renderRow(makeSubshell(), focused, () => {

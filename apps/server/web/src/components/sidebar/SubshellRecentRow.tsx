@@ -196,7 +196,11 @@ export function SubshellRecentRow({
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    className="absolute top-[calc(0.25rem+var(--text-detail)*2.25)] left-[5px] size-5 -translate-y-1/2 text-muted-foreground [&_svg]:size-3"
+                    /* Centered on the row's SECOND line (py-1 plus 1.5 detail
+                       line boxes; both lines are truncate, so they never wrap).
+                       Derived from the line-height token, not a font-size
+                       multiple, so a type-scale edit moves it in step. */
+                    className="absolute top-[calc(var(--spacing)+var(--text-detail)*var(--text-detail--line-height)*1.5)] left-1 size-5 -translate-y-1/2 text-muted-foreground [&_svg]:size-3"
                     aria-label={expanded ? "Collapse subagents" : "Expand subagents"}
                     aria-expanded={expanded}
                     aria-controls={childrenId}

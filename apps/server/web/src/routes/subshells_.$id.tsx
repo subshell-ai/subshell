@@ -292,13 +292,20 @@ function SubshellPage() {
             </span>
           )
         }
-        /* Indented past the dot so the path lines up with the NAME rather
-           than with the dot, which otherwise leaves the title looking
-           accidentally nudged right. `pl-4` is the dot's own box: `w-2` (8px)
-           plus the title row's `gap-2` (8px) — keep the three in step. The
-           dot renders only once the record has loaded, and so does this: the
+        /* Indented past the leading icon so the path lines up with the NAME
+           rather than with the icon, which otherwise leaves the title looking
+           accidentally nudged right. The indent matches whichever title is on
+           screen: the subagent title's `size-4` icon (16px) plus `gap-2` is
+           `pl-6`, the dot's box (`w-2` 8px) plus `gap-2` is `pl-4`. Both
+           render only once the record has loaded, and so does this: the
            condition is the same `subshell?.workingDir`. */
-        subtitle={subshell?.workingDir ? <span className="block truncate pl-4">{subshell.workingDir}</span> : undefined}
+        subtitle={
+          subshell?.workingDir ? (
+            <span className={cn("block truncate", agentState?.selectedId ? "pl-6" : "pl-4")}>
+              {subshell.workingDir}
+            </span>
+          ) : undefined
+        }
         actions={
           <>
             {/* The status badge that used to open this row is gone — the state

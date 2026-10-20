@@ -155,7 +155,7 @@ See [Publish a plugin](/developers/publish-plugin) for archive inspection, regis
 
 ## Subagent integration
 
-Declare the `subagents` capability and a `subagents` descriptor with `discovery` (`hooks` or `extension`) and `navigation` (`native` or `unavailable`). Optional `setup` text explains manual harness configuration. Discovery and navigation are independent: don't promise view selection when only lifecycle events are available.
+Declare the `subagents` capability and a `subagents` descriptor with `discovery` (`hooks` or `extension`) and `navigation` (`native` or `unavailable`). Optional `setup` text is shown in the preset editor's harness schema, so a one-time human act (trusting hooks, installing an extension) reaches the person who has to take it. Discovery and navigation are independent: don't promise view selection when only lifecycle events are available.
 
 Manual setup can accept a second, optional `mcpSetup` argument containing the host-resolved reporter command. Omit runnable hook instructions if it is absent; don't derive a reporter from an MCP override.
 

@@ -39,14 +39,16 @@ const OPENCODE_SETTINGS_FIELDS: SettingsField[] = [
 ];
 
 const SUGGESTED_ENV: { key: string; description: string }[] = [
-  // OPENCODE_CONFIG is deliberately NOT suggested: subshell owns it — it points
-  // at each subshell's generated MCP config layer (mcpRegistration), and a
-  // preset that set it would shadow its own cross-subshell comms. Users who
-  // want their own extra layer use OPENCODE_CONFIG_CONTENT (independent merge
-  // source) or OPENCODE_CONFIG_DIR.
+  // OPENCODE_CONFIG and OPENCODE_TUI_CONFIG are deliberately NOT suggested:
+  // subshell owns both. The first points at each subshell's generated MCP
+  // config layer (mcpRegistration); the second at the generated tui.json that
+  // loads the subagent bridge. The wiring env lands LAST in the pane's env,
+  // so a preset that set either would be silently shadowed rather than
+  // honored. Users who want their own extra layer use OPENCODE_CONFIG_CONTENT
+  // (independent merge source), OPENCODE_CONFIG_DIR, or their own TUI plugin
+  // installed in the user config.
   { key: "OPENCODE_CONFIG_CONTENT", description: "Inline JSON config merged at runtime" },
   { key: "OPENCODE_CONFIG_DIR", description: "Extra config dir (agents/commands/plugins), isolation knob" },
-  { key: "OPENCODE_TUI_CONFIG", description: "Path to a custom TUI config file" },
   { key: "OPENCODE_API_KEY", description: "OpenCode Zen / OpenCode Go API key" },
 ];
 

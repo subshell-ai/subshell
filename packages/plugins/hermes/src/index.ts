@@ -8,6 +8,7 @@ import {
   type PluginHost,
   type PresetDefinition,
   type PresetValidationResult,
+  type ReporterSpec,
   type SettingsField,
   type SubshellPlugin,
   validateGenericPreset,
@@ -131,7 +132,7 @@ const createPlugin: HarnessPluginFactory = (host: PluginHost): SubshellPlugin =>
    * SUBSHELL_* env, making the single entry per-subshell-correct. The `--args`
    * flag must come last (hermes' own parser requirement).
    */
-  mcpSetup(launch: McpLaunchSpec, hookLaunch?: McpLaunchSpec): McpSetupInfo {
+  mcpSetup(launch: McpLaunchSpec, hookLaunch?: ReporterSpec): McpSetupInfo {
     const argsPart = launch.args.length ? ` --args ${launch.args.map((a) => host.shellQuote(a)).join(" ")}` : "";
     const reporter =
       hookLaunch && [hookLaunch.command, ...hookLaunch.args, "subagents"].map((arg) => host.shellQuote(arg)).join(" ");

@@ -242,7 +242,14 @@ export interface McpLaunchSpec {
 
 /** Per-subshell MCP registration rendered in the plugin's own config dialect. */
 export interface McpRegistration {
-  /** Companion integration modules, written under <configPath>.d. Basenames only. */
+  /**
+   * Companion integration modules written next to the config file, under
+   * `<configPath>.d/`. Keys are basenames only, and the host refuses a name
+   * outside `[A-Za-z0-9_-]+.(mjs|py|json)`, more than eight files, or more
+   * than 64 KiB of content — by throwing at launch, so the registration must
+   * stay inside those rules. Each file ships self-contained: on a pane's
+   * machine nothing of ours is importable (see the package doc).
+   */
   files?: Record<string, string>;
   /** File content the harness reads, written to the subshell's config path */
   fileContent: string;
@@ -466,8 +473,15 @@ export interface SubshellPlugin {
    * then surfaces one-time manual setup via {@link mcpSetup} instead.
    */
   mcpRegistration?(launch: McpLaunchSpec, configPath: string): McpRegistration;
-  /** How users obtain the subshell MCP tools here. Declare the `mcp` capability with it. */
-  mcpSetup?(launch: McpLaunchSpec, reporter?: McpLaunchSpec): McpSetupInfo;
+  /**
+   * How users obtain the subshell MCP tools here. Declare the `mcp`
+   * capability with it. `reporter` is the host-resolved command prefix that
+   * re-enters the subshell binary on a pane's machine (same shape as
+   * {@link BuildCommandInput.reporter}), present only when the host could
+   * resolve one: use it to render hook-configuration steps, and omit those
+   * steps when it is absent rather than guessing a binary name.
+   */
+  mcpSetup?(launch: McpLaunchSpec, reporter?: ReporterSpec): McpSetupInfo;
   /** Settings rendered in the PRESET editor and stored on the preset. */
   presetSettings?(): SettingsField[];
   /** Known extra env var suggestions for the preset editor. */

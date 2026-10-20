@@ -1,19 +1,43 @@
-import type { HarnessSubagent, HarnessSubagentSnapshot } from "@subshell-ai/plugin-api";
+import type { HarnessSubagent, HarnessSubagentSnapshot } from "@internal/pane-runtime";
 
+/**
+ * One parent pane's reported subagents, plus the bookkeeping the harness never
+ * sees. Lives only in this process: a control-plane restart (or a pane
+ * restart) starts from nothing, and the harness re-reports — the harness
+ * remains the authority on its children.
+ */
 interface State extends HarnessSubagentSnapshot {
+  /** The parent row's `startedAt`; any change invalidates everything (a restart is a new harness) */
   generation: string;
+  /** Counter behind "Subagent N" labels for generic names */
   nextLabel: number;
+  /** Agent id to stable number, so a generic name does not renumber between renders */
   labels: Map<string, number>;
+  /** Last report received; a stale silence flips `canSelect` off (the harness stopped answering) */
   lastSeen: number;
+  /** The one pending view-switch command, consumed when the harness acknowledges it or the 5 s lapses */
   command?: { id: string; agentId: string | null; expiresAt: number };
 }
 
 const empty = (): HarnessSubagentSnapshot => ({ agents: [], selectedId: null, canSelect: false });
 
-/** Live presentation state only. The harness remains the authority on its agents. */
+/**
+ * The in-memory view of every live pane's reported subagents, keyed by parent
+ * id. Nothing here outlives the process or the parent's current run: the
+ * numbers, labels, and pending command exist only to render what the harness
+ * last told us, and a parent whose row is no longer running (or whose
+ * `startedAt` changed) loses its state on the very next read.
+ */
 export class HarnessSubagents {
   private states = new Map<string, State>();
 
+  /**
+   * The snapshot one parent's viewers receive. Generic names ("", "default",
+   * "Subagent") come back as "Subagent N" with the N this parent's labels
+   * assigned, and `canSelect` answers false with a reason once the harness has
+   * been silent for 15 s — its hooks stopped answering, so navigation would
+   * queue into nothing.
+   */
   read(id: string, generation: string, alive: boolean): HarnessSubagentSnapshot {
     const state = this.states.get(id);
     if (!alive || state?.generation !== generation) {
@@ -37,6 +61,13 @@ export class HarnessSubagents {
     };
   }
 
+  /**
+   * Applies one lifecycle report from the parent's own hooks: `snapshot`
+   * replaces the roster, `start`/`stop` adjust it, `reset` throws the state
+   * away (a harness-side restart). Carries the parent's one pending view
+   * command back so the harness can acknowledge it, and renumbers nothing:
+   * labels are issued once per agent id and only expire with the agent.
+   */
   report(
     id: string,
     generation: string,
@@ -84,6 +115,14 @@ export class HarnessSubagents {
     return state.command ? { command: { id: state.command.id, agentId: state.command.agentId } } : {};
   }
 
+  /**
+   * Queues a view switch for the harness to pick up on its next report
+   * (null returns to the main agent). Returns false — and the caller answers
+   * 409 — unless the harness says it can select, has been heard from within
+   * 15 s, and the target is a child it actually reported. Queueing is not a
+   * promise: if the harness never acknowledges within 5 s the command
+   * expires, and the viewer's next read shows the unchanged view.
+   */
   select(id: string, generation: string, agentId: string | null): boolean {
     const state = this.states.get(id);
     if (!state || state.generation !== generation || !state.canSelect || Date.now() - state.lastSeen >= 15_000)

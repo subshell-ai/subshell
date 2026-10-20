@@ -20,7 +20,7 @@ Closing registration doesn't prevent existing accounts from signing in.
 
 ### You forgot the admin password
 
-If another administrator can sign in, ask them to open **Settings** → **Users** in the dashboard sidebar, open your account's **⋯** menu, and choose **Reset password**. This applies to accounts with a password login and signs out all of that account's existing sessions. An administrator can't use this action on their own account; changing your own password requires the current password. In the dashboard’s mini rail, choose **Account** → **Profile**, and use **Change password**.
+If another administrator can sign in, ask them to open **Settings** → **Server Settings** → **Users** in the dashboard sidebar, open your account's **⋯** menu, and choose **Reset password**. This applies to accounts with a password login and signs out all of that account's existing sessions. An administrator can't use this action on their own account; changing your own password requires the current password. In the dashboard’s mini rail, choose **Account** → **Profile**, and use **Change password**.
 
 If no administrator can sign in, follow [Account recovery](/administration/recovery). You need access to the server host's configuration and the email address of an existing administrator. Recovery doesn't create a new admin account.
 
@@ -37,7 +37,7 @@ Follow the full [Account recovery](/administration/recovery) procedure, includin
 
 A page can load while an authentication request returns **Invalid origin**. Compare the browser's scheme, hostname, and port with the effective trusted origins.
 
-If you can sign in as an administrator, open **Settings** → **Networking** in the server dashboard's sidebar. In the **Addresses** card, edit **Other addresses browsers will use** to add the intended browser origin.
+If you can sign in as an administrator, open **Settings** → **Server Settings** → **Networking** in the server dashboard's sidebar. In the **Addresses** card, edit **Other addresses browsers will use** to add the intended browser origin.
 
 If you can't sign in, run `subshell-server configure` on the server host instead. Use [Files and paths](/reference/paths) to locate its active configuration. A wildcard bind doesn't trust arbitrary names. Network plugin records contribute their own addresses live.
 

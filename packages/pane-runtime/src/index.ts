@@ -243,6 +243,8 @@ export type {
   DetectSpec,
   HarnessPlugin,
   HarnessResume,
+  HarnessSubagent,
+  HarnessSubagentSnapshot,
   InstallHint,
   McpLaunchSpec,
   McpRegistration,

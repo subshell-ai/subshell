@@ -94,6 +94,89 @@ describe("harness subagent reporting and selection", () => {
       403,
     );
   });
+  it("answers the batch collection through its own route, visible only to those who see the pane", async () => {
+    // GET /api/subshells/subagents sits where the :id detail route could
+    // shadow it (id = "subagents"), and it is the sidebar's ONE poll per tick.
+    // A route-order regression here silences the whole feature, so pin both
+    // the answer shape and the per-viewer visibility.
+    const a = await subshellWithToken();
+    const own = { authorization: `Bearer ${a.key}` };
+    expect(
+      (
+        await request(a.id, "/report", own, {
+          event: "snapshot",
+          agents: [{ id: "child", name: "Review", status: "running" }],
+        })
+      ).status,
+    ).toBe(200);
+    const ownerCookieHdr = { cookie: `better-auth.session_token=${ownerCookie}` };
+    const res = await app.fetch(new Request("http://localhost/api/subshells/subagents", { headers: ownerCookieHdr }));
+    expect(res.status).toBe(200);
+    const all = (await res.json()) as Record<string, { agents: unknown[] }>;
+    expect(all[a.id]?.agents).toEqual([{ id: "child", name: "Review", status: "running" }]);
+    const foreignEmail = `subagent-stranger-${crypto.randomUUID()}@subshell.local`;
+    const foreignId = await new UsersRepository(db).createUser({
+      email: foreignEmail,
+      name: foreignEmail,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
+    try {
+      const foreign = { cookie: `better-auth.session_token=${await signIn(foreignEmail, pw)}` };
+      const unseen = (await (
+        await app.fetch(new Request("http://localhost/api/subshells/subagents", { headers: foreign }))
+      ).json()) as Record<string, unknown>;
+      expect(a.id in unseen).toBe(false);
+    } finally {
+      void foreignId;
+      await deleteUserByEmailOrId(foreignEmail);
+    }
+  });
+
+  it("refuses oversized and malformed reports at the boundary with production errors", async () => {
+    const a = await subshellWithToken();
+    const own = { authorization: `Bearer ${a.key}` };
+    const longName = { event: "snapshot", agents: [{ id: "x", name: "n".repeat(161), status: "running" }] };
+    expect((await request(a.id, "/report", own, longName)).status).toBe(400);
+    const badEvent = { event: "explode" };
+    expect((await request(a.id, "/report", own, badEvent)).status).toBe(400);
+    const badStatus = { event: "snapshot", agents: [{ id: "x", name: "n", status: "paused" }] };
+    expect((await request(a.id, "/report", own, badStatus)).status).toBe(400);
+    const tooMany = {
+      event: "snapshot",
+      agents: Array.from({ length: 257 }, (_, i) => ({ id: `a${i}`, name: `n${i}`, status: "idle" })),
+    };
+    expect((await request(a.id, "/report", own, tooMany)).status).toBe(400);
+  });
+
+  it("refuses a finished pane and a superseded key, and normalizes pane-reported names", async () => {
+    const gone = await subshellWithToken("terminated");
+    const body = { event: "snapshot", agents: [{ id: "child", name: "Review", status: "running" }] };
+    expect((await request(gone.id, "/report", { authorization: `Bearer ${gone.key}` }, body)).status).toBe(409);
+    // A restart rotates the key on the same row; the OLD key must not keep
+    // writing into the NEW run's state. Re-issue revokes the old key, so the
+    // guard's "the row is lifecycle truth" answers 401 before the route's
+    // own-key currentness 403 can be reached (that 403 is the in-flight race).
+    const a = await subshellWithToken();
+    await issueSubshellToken(a.id, userId);
+    expect((await request(a.id, "/report", { authorization: `Bearer ${a.key}` }, body)).status).toBe(401);
+    const b = await subshellWithToken();
+    // Pane-reported text is a NAME path: control characters (ESC included)
+    // fold to spaces and format characters drop before anything is stored.
+    const raw = {
+      event: "snapshot",
+      agents: [{ id: "c", name: "Esc\u001b loop \u007f ", status: "running" }],
+      unavailableReason: "bad\u0007 chars\t here ",
+    };
+    expect((await request(b.id, "/report", { authorization: `Bearer ${b.key}` }, raw)).status).toBe(200);
+    const clean = (await (await request(b.id, "", { cookie: `better-auth.session_token=${ownerCookie}` })).json()) as {
+      agents: { name: string }[];
+      unavailableReason?: string;
+    };
+    expect(clean.agents[0]?.name).toBe("Esc loop");
+    expect(clean.unavailableReason).toBe("bad chars here");
+  });
+
   it("viewers can select the shared view but cannot send terminal input, and strangers see nothing", async () => {
     const email = `subagent-viewer-${crypto.randomUUID()}@subshell.local`;
     const viewerId = await new UsersRepository(db).createUser({

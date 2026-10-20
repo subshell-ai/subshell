@@ -30,12 +30,14 @@ If native navigation isn't available, the children remain visible as status indi
 | Codex | Subagent lifecycle hooks, added at launch. Review and trust them through `/hooks`. | Status only. |
 | OpenCode | TUI integration, using the native plugin API available in OpenCode 1.18.18. | Switches the existing TUI; changes made inside the harness also update the header. |
 | Hermes | Configure and approve `subagent_start` and `subagent_stop` shell hooks. The harness's setup instructions include the configuration. | Status only. |
-| pi | Bundled `subagent` example extension, or an extension implementing the bridge below. | Status only. |
+| pi | pi's own `subagent` example extension (installed into pi separately), or an extension implementing the bridge below. | Status only. |
 | Terminal | No harness subagents. | Not applicable. |
 
 Restart existing subshells to load a newly installed integration. Lifecycle-only integrations report events while they run; after a server restart, existing children won't reappear until the harness reports them again. OpenCode and pi send snapshots instead.
 
 ## pi extension bridge
+
+Subshell ships only the listener. Nothing reports until pi's own `subagent` example extension (or one implementing the bridge below) runs in pi, so install it in pi first if you want pi's delegated agents here.
 
 The adapter recognizes the `subagent` tool progress format from pi's bundled example. It doesn't assume that other extensions with different tools or background execution models use that format.
 

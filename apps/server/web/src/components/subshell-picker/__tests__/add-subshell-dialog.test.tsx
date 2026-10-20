@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { AddSubshellDialog } from "@/components/subshell-picker/add-subshell-dialog";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
+import type { SplitDirection } from "@/types/workspace";
 
 function makeSubshell(overrides: Partial<SubshellView> & { id: string }): SubshellView {
   return {
@@ -35,7 +36,11 @@ function makeSubshell(overrides: Partial<SubshellView> & { id: string }): Subshe
 }
 
 /** Renders the dialog open, with the subshell list already in cache. */
-function renderDialog(props: { excludeSubshellIds: string[]; initialForm?: { nodeId?: string } }) {
+function renderDialog(props: {
+  excludeSubshellIds: string[];
+  initialForm?: { nodeId?: string };
+  onAdd?: (subshellId: string, direction: SplitDirection) => Promise<unknown>;
+}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   qc.setQueryData(SUBSHELLS_QUERY_KEY, [
     makeSubshell({ id: "here", name: "here" }),
@@ -52,7 +57,7 @@ function renderDialog(props: { excludeSubshellIds: string[]; initialForm?: { nod
   }
   render(
     <QueryClientProvider client={qc}>
-      <AddSubshellDialog open onOpenChange={() => {}} onAdd={async () => {}} {...props} />
+      <AddSubshellDialog open onOpenChange={() => {}} {...props} onAdd={props.onAdd ?? (async () => {})} />
     </QueryClientProvider>,
   );
 }
@@ -64,6 +69,26 @@ describe("AddSubshellDialog", () => {
     renderDialog({ excludeSubshellIds: ["here"] });
     expect(await screen.findByText("other")).toBeTruthy();
     expect(screen.queryByText("here")).toBeNull();
+  });
+
+  it("disables the mode switch while an add is in flight", async () => {
+    // The pre-newOnly suite asserted this through the old dialog; the branch
+    // is unchanged and still needs a pin: no mode flip (or double add) while
+    // an add is running.
+    let release: () => void = () => {};
+    renderDialog({
+      excludeSubshellIds: [],
+      onAdd: () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    });
+    fireEvent.click(await screen.findByText("other"));
+    const toggle = await screen.findByRole("button", { name: "Existing subshell" });
+    expect(toggle.closest("fieldset[disabled]")).not.toBeNull();
+    await act(async () => {
+      release();
+    });
   });
 
   it("opens the launch form directly when every subshell is already included", async () => {

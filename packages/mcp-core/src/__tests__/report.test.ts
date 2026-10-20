@@ -48,6 +48,42 @@ describe("runReport", () => {
     ]);
   });
 
+  it("routes the roster report to the pane's own endpoint, and handles the reset, fallback and cap edges", async () => {
+    const { seen, fetchImpl } = recorder();
+    // SessionStart with source "clear": the children died with the old
+    // conversation, so the roster is dropped rather than re-reported.
+    await runReport(["subagents"], {
+      env: paneEnv,
+      fetch: fetchImpl,
+      readStdin: async () => JSON.stringify({ hook_event_name: "SessionStart", source: "clear" }),
+    });
+    expect(seen).toHaveLength(1);
+    // The endpoint is built from the pane's own env id, like every other verb:
+    // a report can only ever describe its own subshell.
+    expect(seen[0]?.url).toBe("http://h:3080/api/subshells/sub_42/subagents/report");
+    expect(await seen[0]?.json()).toEqual({ event: "reset" });
+    // A start payload with no usable type label still reports, under the
+    // generic name the sidebar numbers.
+    await runReport(["subagents"], {
+      env: paneEnv,
+      fetch: fetchImpl,
+      readStdin: async () => JSON.stringify({ hook_event_name: "SubagentStart", agent_id: "x" }),
+    });
+    expect(await seen[1]?.json()).toEqual({
+      event: "start",
+      agents: [{ id: "x", name: "Subagent", status: "running" }],
+    });
+    // An over-long id is refused SILENTLY: no request, nothing thrown — the
+    // hook stays invisible in the user's session.
+    await runReport(["subagents"], {
+      env: paneEnv,
+      fetch: fetchImpl,
+      readStdin: async () =>
+        JSON.stringify({ hook_event_name: "SubagentStart", agent_id: "x".repeat(257), agent_type: "A" }),
+    });
+    expect(seen).toHaveLength(2);
+  });
+
   it("posts the attention kind to the subshell's own attention endpoint", async () => {
     const { seen, fetchImpl } = recorder();
 

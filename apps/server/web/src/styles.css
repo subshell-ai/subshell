@@ -262,8 +262,10 @@ body {
   background: var(--terminal-strip);
 }
 
-/* xterm's opaque viewport extends beneath the padding and defaults to black. */
-body .xterm:not(.allow-transparency) .xterm-viewport {
+/* xterm's opaque viewport extends beneath the padding and defaults to black.
+   (The mobile terminal.html keeps its own `.allow-transparency` escape hatch
+   in its own stylesheet; nothing in the SPA sets that class.) */
+body .xterm .xterm-viewport {
   background-color: var(--terminal-strip);
 }
 

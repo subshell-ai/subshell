@@ -311,6 +311,16 @@ export function PresetFields({
               has nothing to do, and its quiet "wires itself" line read as a
               second Cross-subshell comms section (removed 2026-09-30). */}
           {schema?.mcp?.mode === "manual" && <McpSetupSection mcp={schema.mcp} />}
+          {/* The one-time act a harness needs BEFORE its subagents appear
+              (trusting Codex's monitoring hooks, installing pi's example
+              extension). Unlike the removed auto line, every sentence here
+              names an act the reader has to take. */}
+          {schema?.subagents?.setup && (
+            <div className="space-y-1">
+              <p className="text-muted-foreground text-sm">Subagents</p>
+              <p className="text-detail text-muted-foreground">{schema.subagents.setup}</p>
+            </div>
+          )}
         </>
       )}
     </div>

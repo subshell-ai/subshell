@@ -263,11 +263,11 @@ describe("ClaudeCodePlugin attention hooks", () => {
   });
 
   /** Pulls the hooks object out of a built command's --settings JSON. */
-  function hooksOf(cmd: string[]): Record<string, [{ hooks: [{ command: string }] }] | undefined> {
+  function hooksOf(cmd: string[]): Record<string, { hooks: { command: string }[] }[] | undefined> {
     const idx = cmd.indexOf("--settings");
     expect(idx).toBeGreaterThan(-1);
     const settings = JSON.parse(cmd[idx + 1]) as {
-      hooks?: Record<string, [{ hooks: [{ command: string }] }]>;
+      hooks?: Record<string, { hooks: { command: string }[] }[]>;
     };
     return settings.hooks ?? {};
   }
@@ -431,5 +431,24 @@ describe("ClaudeCodePlugin attention hooks", () => {
     // bounds on reading it, are the reporter's contract now (mcp-core's
     // `report.ts`), not something re-decided per plugin in an inlined script.
     expect(hooks.SessionStart?.[0].hooks[0].command).toBe("'/usr/local/bin/subshell-server' 'report' 'session'");
+  });
+
+  it("reports the child roster through start, stop, and every conversation transition", () => {
+    const hooks = hooksOf(
+      plugin.buildCommand({
+        binary: "/usr/bin/claude",
+        cwd: "/tmp/ws",
+        preset: emptyPreset(),
+        subshellName: "",
+        reporter,
+      }),
+    );
+    const roster = "'/usr/local/bin/subshell-server' 'report' 'subagents'";
+    expect(hooks.SubagentStart?.[0].hooks[0].command).toBe(roster);
+    expect(hooks.SubagentStop?.[0].hooks[0].command).toBe(roster);
+    // /clear and /fork keep the pane but drop the children: SessionStart
+    // carries a SECOND reporter hook so the roster re-reports (as a reset)
+    // on every transition, not just the first one.
+    expect(hooks.SessionStart?.[0].hooks[1].command).toBe(roster);
   });
 });

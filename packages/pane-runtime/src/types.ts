@@ -18,6 +18,8 @@ export {
   type DetectionResult,
   type DetectSpec,
   type HarnessResume,
+  type HarnessSubagent,
+  type HarnessSubagentSnapshot,
   MCP_SERVER_NAME,
   type McpLaunchSpec,
   type McpRegistration,
@@ -35,12 +37,14 @@ import type {
   DetectionResult,
   DetectSpec,
   HarnessResume,
+  HarnessSubagentSupport,
   McpLaunchSpec,
   McpRegistration,
   McpSetupInfo,
   PluginType,
   PresetDefinition,
   PresetValidationResult,
+  ReporterSpec,
   SettingsField,
 } from "@subshell-ai/plugin-api";
 
@@ -169,8 +173,15 @@ export interface HarnessPlugin {
    * surfaces one-time manual setup via mcpSetup() instead.
    */
   mcpRegistration?(launch: McpLaunchSpec, configPath: string): McpRegistration;
-  /** How users obtain the subshell MCP tools in this harness (drives the preset UI). */
-  mcpSetup(launch: McpLaunchSpec, reporter?: McpLaunchSpec): McpSetupInfo;
+  /**
+   * How users obtain the subshell MCP tools in this harness (drives the
+   * preset UI). `reporter` is the host-resolved command prefix re-entering
+   * the subshell binary on a pane's machine; manual setups that print hook
+   * lines need it, and omit those steps when it is absent.
+   */
+  mcpSetup(launch: McpLaunchSpec, reporter?: ReporterSpec): McpSetupInfo;
+  /** What the plugin declares about its harness's child agents, if anything. */
+  subagents?: HarnessSubagentSupport;
   /** Validates a preset definition before saving. */
   validatePreset(preset: PresetDefinition): PresetValidationResult;
   /** Settings editor schema (or null if the harness has no settings). */
