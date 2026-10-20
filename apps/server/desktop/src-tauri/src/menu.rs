@@ -82,8 +82,6 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         "View",
         true,
         &[
-            &item(DesktopAction::ToggleSidebar, "Toggle Sidebar", Some("CmdOrCtrl+B"))?,
-            &PredefinedMenuItem::separator(app)?,
             &item(DesktopAction::GoSubshells, "Subshells", Some("CmdOrCtrl+1"))?,
             &item(DesktopAction::GoWorkspaces, "Workspaces", Some("CmdOrCtrl+2"))?,
             &item(DesktopAction::GoNodes, "Nodes", Some("CmdOrCtrl+3"))?,
