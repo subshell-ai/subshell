@@ -15,7 +15,7 @@ import { desktopPlatform } from "@/lib/desktop";
  * drift, so this changes the chrome and keeps the machine.
  *
  * The footer's two rows ride `footerEnd`, which is also where "only Subshell
- * Server" comes from: `__root.tsx` renders this rail on `isServerDesktop()`, so
+ * Server" comes from: `__root.tsx` renders this panel on `isServerDesktop()`, so
  * a row mounted here cannot appear in Subshell Client's window or a browser —
  * and both rows below describe this app, which the client window has no
  * authority to speak about.

@@ -49,8 +49,9 @@ export function useDesktopBridge(): void {
         if (action === "new-subshell") quickAdd.openLaunch();
         else if (action === "new-workspace") quickAdd.openNewWorkspace();
         else if (action === "sign-out") void signOutAndRedirect();
-        // Anything else is the rail's, or from a newer shell than this build
-        // knows. Ignoring it is correct: the shell degrades, it does not break.
+        // Anything else is the sidebar's own (focus-filter), or from a newer
+        // shell than this build knows. Ignoring it is correct: the shell
+        // degrades, it does not break.
       }),
     [navigate, quickAdd],
   );
