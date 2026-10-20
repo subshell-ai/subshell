@@ -1,5 +1,13 @@
 # @internal/website
 
+## 0.2.16
+
+### Patch Changes
+
+- [#397](https://github.com/subshell-ai/subshell/pull/397) [`a21df83`](https://github.com/subshell-ai/subshell/commit/a21df83fd3db184750403e0a0fc566a87ede4d7e) Thanks [@theogravity](https://github.com/theogravity)! - Refresh navigation, workspace, launch, and account instructions for the contextual sidebar. Add a navigation guide, retain the original homepage sections with updated product screenshots, and replace screenshots with captures of the current interface. Replace the desktop and phone demo recordings, posters, and README animation.
+
+- [#398](https://github.com/subshell-ai/subshell/pull/398) [`d622470`](https://github.com/subshell-ai/subshell/commit/d622470349c12c79b2073a96fa992044e70dcf74) Thanks [@theogravity](https://github.com/theogravity)! - Refresh website videos, posters, documentation screenshots, and the README animation for the unified workspace sidebar. Show real agent work and moving a running subshell between the sidebar sections, and update navigation copy to match the current controls.
+
 ## 0.2.15
 
 ### Patch Changes

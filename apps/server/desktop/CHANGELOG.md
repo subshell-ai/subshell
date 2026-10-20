@@ -1,5 +1,12 @@
 # @internal/desktop-server
 
+## 1.5.3
+
+### Patch Changes
+
+- Updated dependencies [[`d622470`](https://github.com/subshell-ai/subshell/commit/d622470349c12c79b2073a96fa992044e70dcf74), [`a21df83`](https://github.com/subshell-ai/subshell/commit/a21df83fd3db184750403e0a0fc566a87ede4d7e), [`af7deee`](https://github.com/subshell-ai/subshell/commit/af7deeee0cfa44e010a4892ae27d9b2296987185), [`a21df83`](https://github.com/subshell-ai/subshell/commit/a21df83fd3db184750403e0a0fc566a87ede4d7e), [`d622470`](https://github.com/subshell-ai/subshell/commit/d622470349c12c79b2073a96fa992044e70dcf74), [`4844bad`](https://github.com/subshell-ai/subshell/commit/4844bad3d9a1b0aff01a338f8ca056b916829e2e), [`d622470`](https://github.com/subshell-ai/subshell/commit/d622470349c12c79b2073a96fa992044e70dcf74), [`a21df83`](https://github.com/subshell-ai/subshell/commit/a21df83fd3db184750403e0a0fc566a87ede4d7e), [`e215250`](https://github.com/subshell-ai/subshell/commit/e215250fb191b34b371ff5696e7c4e6076c238bc), [`d622470`](https://github.com/subshell-ai/subshell/commit/d622470349c12c79b2073a96fa992044e70dcf74), [`67c1d73`](https://github.com/subshell-ai/subshell/commit/67c1d738d1e2c7369eb489d54b6cf4168c07c71a)]:
+  - @internal/server@2.4.0
+
 ## 1.5.2
 
 ### Patch Changes
