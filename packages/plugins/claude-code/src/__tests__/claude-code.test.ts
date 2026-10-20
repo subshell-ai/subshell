@@ -445,6 +445,8 @@ describe("ClaudeCodePlugin attention hooks", () => {
     );
     const roster = "'/usr/local/bin/subshell-server' 'report' 'subagents'";
     expect(hooks.SubagentStart?.[0].hooks[0].command).toBe(roster);
+    expect(hooks.PostToolUse?.[0].matcher).toBe("Agent|Task");
+    expect(hooks.PostToolUse?.[0].hooks[0].command).toBe(roster);
     expect(hooks.SubagentStop?.[0].hooks[0].command).toBe(roster);
     // /clear, /fork and an in-pane /resume move the pane to a conversation
     // the children died with: SessionStart carries a SECOND reporter hook so
@@ -457,5 +459,33 @@ describe("ClaudeCodePlugin attention hooks", () => {
     // never the prompt.
     expect(hooks.PreToolUse?.[1]?.matcher).toBe("Agent|Task");
     expect(hooks.PreToolUse?.[1]?.hooks[0].command).toBe(roster);
+  });
+
+  it("wires PostToolUse exactly once, matched, and never as a second resume clear", () => {
+    // The exact-id describe frame (review probe F-V2-report): PostToolUse exists
+    // ONLY to carry the Agent tool's own result to the same roster verb, so a
+    // bare entry here would fire the `resumed` clear on every tool result of
+    // every tool, paying its POST budget per call for a fact PreToolUse already
+    // reported. Order on PreToolUse stays [resumed, Agent|Task roster]: the
+    // resumed arm never reads stdin, so the two Agent-matched hooks never race
+    // it for the payload.
+    const hooks = hooksOf(
+      plugin.buildCommand({
+        binary: "/usr/bin/claude",
+        cwd: "/tmp/ws",
+        preset: emptyPreset(),
+        subshellName: "",
+        reporter,
+      }),
+    );
+    expect(hooks.PostToolUse).toHaveLength(1);
+    expect(hooks.PostToolUse?.[0]?.matcher).toBe("Agent|Task");
+    expect(hooks.PostToolUse?.[0]?.hooks).toHaveLength(1);
+    // The same reporter command the start/stop hooks run, byte for byte: one
+    // verb owns this whole surface.
+    expect(hooks.PostToolUse?.[0]?.hooks[0]?.command).toBe(hooks.SubagentStart?.[0].hooks[0].command);
+    expect(hooks.PreToolUse).toHaveLength(2);
+    expect(hooks.PreToolUse?.[0]?.matcher).toBeUndefined();
+    expect(hooks.PreToolUse?.[1]?.matcher).toBe("Agent|Task");
   });
 });

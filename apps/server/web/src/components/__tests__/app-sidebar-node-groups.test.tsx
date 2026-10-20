@@ -921,4 +921,35 @@ describe("the Workspaces tree (spec 2026-10-17)", () => {
       restore();
     }
   });
+
+  it("keeps an open branch open across a re-order of the tree", async () => {
+    // A rename (or any touch) bumps a workspace's updatedAt, and the tree is
+    // recency-sorted — so a branch can MOVE between the chevron press and the
+    // next render. The expand state is keyed by workspace id, so the choice
+    // must ride with the branch, not with its position.
+    const a = ws("w1", "Alpha", "2026-10-02T00:00:00.000Z", [pane("p1", "alpha-pane")]);
+    const b = ws("w2", "Beta", "2026-10-01T00:00:00.000Z", [pane("p2", "beta-pane")]);
+    const spy = quickAddSpy();
+    const restore = stubFetch([], { failNodes: false }, [a, b]);
+    try {
+      const { client } = await renderRail("/");
+      await waitFor(() => expect(screen.getByText("Beta")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: "Expand Beta" }));
+      await waitFor(() => expect(screen.getByText("beta-pane")).toBeTruthy());
+      // Something touches Beta: the tree re-sorts and Beta moves to the head.
+      b.updatedAt = "2026-10-05T00:00:00.000Z";
+      await act(async () => {
+        await client.invalidateQueries({ queryKey: ["workspaces"] });
+      });
+      await waitFor(() =>
+        expect(document.body.textContent!.indexOf("Beta")).toBeLessThan(document.body.textContent!.indexOf("Alpha")),
+      );
+      // The branch's own choice survived the move; Alpha was never opened.
+      expect(screen.getByText("beta-pane")).toBeTruthy();
+      expect(screen.queryByText("alpha-pane") === null).toBe(true);
+    } finally {
+      spy.mockRestore();
+      restore();
+    }
+  });
 });

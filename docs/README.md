@@ -15,6 +15,7 @@ notes should link to them and explain only the additional engineering details.
 - [Dashboard UX review](ux-review-2026-10-17.md): October 2026 findings, corrections, verification scope, and remaining coverage limits.
 - [Documentation authoring](../apps/docs/AGENTS.md) and [style guide](../apps/docs/STYLE.md): public site structure, language, visuals, and verification.
 - [Proxmox submission research](proxmox-community-submission.md): external acceptance criteria and future integration work.
+- [Claude subagent progress](claude-subagent-progress.md): verified metadata limits and requirements for an interactive progress bridge.
 
 Each app's `AGENTS.md` routes to its own implementation notes. Preserve details
 such as failure handling, migration contracts, service-manager behavior, and

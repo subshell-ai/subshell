@@ -14,7 +14,45 @@
  * nothing throws, nothing logs, and every path is bounded.
  */
 
+import { constants } from "node:fs";
+import { open } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import { readMcpEnv } from "./env.js";
+
+/** Claude keeps labels beside the transcript, including for resumed agents.
+ * Read only the small metadata sidecar; never read conversation contents.
+ */
+async function claudeAgentMetadata(transcript: unknown, id: string): Promise<{ name?: string; activity?: string }> {
+  if (
+    typeof transcript !== "string" ||
+    !isAbsolute(transcript) ||
+    !transcript.endsWith(".jsonl") ||
+    !/^[a-zA-Z0-9_-]+$/.test(id)
+  )
+    return {};
+  let file: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    file = await open(
+      join(transcript.slice(0, -6), "subagents", `agent-${id}.meta.json`),
+      constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
+    );
+    const stat = await file.stat();
+    if (!stat.isFile() || stat.size > 16384) return {};
+    const buffer = Buffer.alloc(16385);
+    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+    if (bytesRead > 16384) return {};
+    const data = JSON.parse(buffer.subarray(0, bytesRead).toString("utf8"));
+    if (!data || typeof data !== "object") return {};
+    const activity = typeof data.description === "string" ? data.description.trim().slice(0, 160) : "";
+    const name = typeof data.name === "string" ? data.name.trim().slice(0, 160) : "";
+    return { ...(activity ? { activity } : {}), ...(name ? { name } : {}) };
+  } catch {
+    // Older versions and a still-being-written sidecar fall back to hook metadata.
+    return {};
+  } finally {
+    await file?.close().catch(() => {});
+  }
+}
 
 /**
  * The attention signals a harness hook can raise about its own subshell.
@@ -158,17 +196,31 @@ async function resolveBody(
     // PreToolUse for a spawn hands over {subagent_type, description, prompt},
     // and ONLY the two short harness-written labels are forwarded. The server
     // pairs the label with the child its SubagentStart announces next.
-    if (hook === "PreToolUse" && (payload.tool_name === "Agent" || payload.tool_name === "Task")) {
+    if (
+      (hook === "PreToolUse" || hook === "PostToolUse") &&
+      (payload.tool_name === "Agent" || payload.tool_name === "Task")
+    ) {
       const toolInput =
         payload.tool_input && typeof payload.tool_input === "object"
           ? (payload.tool_input as Record<string, unknown>)
           : {};
       const description = toolInput.description;
-      if (typeof description !== "string" || description.trim() === "") return undefined;
+      const activity = typeof description === "string" ? description.trim().slice(0, 160) : "";
+      const agentName = typeof toolInput.name === "string" ? toolInput.name.trim().slice(0, 160) : "";
+      if (!activity && !agentName) return undefined;
+      const response = payload.tool_response as Record<string, unknown> | undefined;
+      const agentId = response && typeof response.agentId === "string" ? response.agentId : undefined;
+      if (hook === "PostToolUse" && (!agentId || agentId.length > 256)) return undefined;
       const agentType = typeof toolInput.subagent_type === "string" ? toolInput.subagent_type.trim() : "";
       return {
         path: "subagents/report",
-        json: { event: "describe", agentType: agentType.slice(0, 160), activity: description.trim().slice(0, 160) },
+        json: {
+          event: "describe",
+          agentType: agentType.slice(0, 160),
+          ...(activity ? { activity } : {}),
+          ...(agentName ? { agentName } : {}),
+          ...(hook === "PostToolUse" ? { agentId } : {}),
+        },
       };
     }
     const id = hermes ? extra.child_session_id : payload.agent_id;
@@ -176,14 +228,15 @@ async function resolveBody(
     if (hook === "SubagentStop" || hook === "subagent_stop")
       return { path: "subagents/report", json: { event: "stop", agentId: id } };
     if (hook !== "SubagentStart" && hook !== "subagent_start") return undefined;
-    const label = hermes ? extra.child_role : payload.agent_type;
+    const metadata = hermes ? {} : await claudeAgentMetadata(payload.transcript_path, id);
+    const label = metadata.name ?? (hermes ? extra.child_role : payload.agent_type);
     // A whitespace-only type label is the same absence as none, and the
     // sidebar numbers the generic name the same way the pi bridge does.
     const name = typeof label === "string" && label.trim() ? label : "Subagent";
     // Hermes names the task right here (`child_goal`); Claude Code's label
     // arrives from the PreToolUse branch above. Hermes's `child_summary` is
     // the child's OUTPUT, and stays exactly as private as the prompt.
-    const goal = hermes ? extra.child_goal : undefined;
+    const goal = hermes ? extra.child_goal : metadata.activity;
     const activity = typeof goal === "string" && goal.trim() ? goal.trim().slice(0, 160) : undefined;
     return {
       path: "subagents/report",

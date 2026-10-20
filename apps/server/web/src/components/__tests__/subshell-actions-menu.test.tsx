@@ -8,8 +8,8 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { type ReactNode, useState } from "react";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import type { SubshellView } from "@/types/subshell";
 
@@ -53,6 +53,7 @@ async function renderMenu(
   children?: ReactNode,
   diagnostics?: { on: boolean; onToggle: () => void },
   copyMode?: { on: boolean; onToggle: () => void },
+  targetControl?: { set?: (subshell: SubshellView) => void },
 ) {
   // retry: 0 so the presets query settles on the first canned response.
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -62,11 +63,15 @@ async function renderMenu(
     path: "/",
     // With children the menu switches to right-click mode around the row
     // (sidebar use, spec 2026-09-03); without, today's ⋯ button.
-    component: () => (
-      <SubshellActionsMenu subshell={subshell} diagnostics={diagnostics} copyMode={copyMode}>
-        {children}
-      </SubshellActionsMenu>
-    ),
+    component: () => {
+      const [target, setTarget] = useState(subshell);
+      if (targetControl) targetControl.set = setTarget;
+      return (
+        <SubshellActionsMenu subshell={target} diagnostics={diagnostics} copyMode={copyMode}>
+          {children}
+        </SubshellActionsMenu>
+      );
+    },
   });
   const router = createRouter({
     routeTree: rootRoute.addChildren([indexRoute]),
@@ -690,4 +695,51 @@ describe("SubshellActionsMenu - Set up Subshell here (spec 2026-10-08 §7)", () 
       }
     });
   }
+});
+
+describe("subshell menu target changes", () => {
+  afterEach(cleanup);
+
+  for (const context of [false, true]) {
+    it(`closes an open ${context ? "context" : "overflow"} menu when its target changes`, async () => {
+      const { calls, restore } = mockFetch();
+      try {
+        const control: { set?: (subshell: SubshellView) => void } = {};
+        await renderMenu(
+          makeSubshell({ name: "First" }),
+          context ? <span>First row</span> : undefined,
+          undefined,
+          undefined,
+          control,
+        );
+        if (context) {
+          fireEvent.contextMenu(screen.getByText("First row"));
+          // Boolean asserts in these polls: `expect(element).toBeNull()` makes
+          // bun serialize the whole DOM graph on a failed attempt, which can
+          // wedge the state update the poll is waiting for (web AGENTS.md).
+          await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Close" }) !== null).toBe(true));
+        } else await openMenu("First");
+        act(() => control.set?.(makeSubshell({ id: "id-2", name: "Second" })));
+        await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Close" }) === null).toBe(true));
+        expect(calls.filter((call) => call.method !== "GET")).toHaveLength(0);
+      } finally {
+        restore();
+      }
+    });
+  }
+
+  it("does not transfer an open title dialog to a replacement subshell", async () => {
+    const { restore } = mockFetch();
+    try {
+      const control: { set?: (subshell: SubshellView) => void } = {};
+      await renderMenu(makeSubshell({ name: "First" }), undefined, undefined, undefined, control);
+      await openMenu("First");
+      fireEvent.click(screen.getByRole("menuitem", { name: "Edit title" }));
+      await waitFor(() => expect(screen.queryByRole("textbox", { name: "New subshell title" }) !== null).toBe(true));
+      act(() => control.set?.(makeSubshell({ id: "id-2", name: "Second" })));
+      await waitFor(() => expect(screen.queryByRole("textbox", { name: "New subshell title" }) === null).toBe(true));
+    } finally {
+      restore();
+    }
+  });
 });

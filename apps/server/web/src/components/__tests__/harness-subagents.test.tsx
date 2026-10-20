@@ -93,7 +93,8 @@ test("a blocked child row explains itself with the task label and elapsed line",
   const row = await screen.findByRole("button", { name: /code-reviewer/ });
   const described = row.getAttribute("aria-description") ?? "";
   expect(described).toContain("pi keeps agent views in the app.");
-  expect(described).toContain("Reading the diff");
+  expect(described).not.toContain("Reading the diff");
+  expect(row.textContent).toContain("Reading the diff");
   // Minute-accurate on purpose: the stamp is seeded at 125 s and the render
   // happens whenever the runner gets to it, so the seconds bucket is one
   // starved CI tick away from rolling over. The minute carries the claim.
@@ -105,13 +106,21 @@ test("a blocked child row explains itself with the task label and elapsed line",
   client.clear();
 });
 
-test("a blocked row without a reported reason still explains itself", async () => {
+test("Claude hides descriptions that don't match live progress and still explains blocked navigation", async () => {
   // The server answers canSelect:false with no reason when the harness never
   // said why; the fallback sentence must still reach the row, or the disabled
   // control has nothing to explain itself with.
   const state = {
     pane: {
-      agents: [{ id: "child", name: "worker", status: "running", startedAt: Date.now() }],
+      agents: [
+        {
+          id: "child",
+          name: "general-purpose",
+          activity: "Review the sidebar",
+          status: "running",
+          startedAt: Date.now(),
+        },
+      ],
       selectedId: null,
       canSelect: false,
     },
@@ -119,7 +128,9 @@ test("a blocked row without a reported reason still explains itself", async () =
   setFetchRouter(async () => Response.json(state));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   client.setQueryData(["harness-subagents"], state);
-  const rootRoute = createRootRoute({ component: () => <HarnessSubagentRows id="pane" alive /> });
+  const rootRoute = createRootRoute({
+    component: () => <HarnessSubagentRows id="pane" harnessId="claude-code" alive />,
+  });
   const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/" });
   const router = createRouter({
     routeTree: rootRoute.addChildren([indexRoute]),
@@ -131,8 +142,11 @@ test("a blocked row without a reported reason still explains itself", async () =
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
-  const row = await screen.findByRole("button", { name: /worker/ });
-  expect(row.getAttribute("aria-description")).toContain("doesn't support switching subagent views");
+  const row = await screen.findByRole("button", { name: /general-purpose/ });
+  expect(screen.queryByText("Review the sidebar")).toBeNull();
+  expect(screen.getByRole("img", { name: "running" })).toBeTruthy();
+  expect(row.getAttribute("aria-description")).toContain("Subshell can't switch views");
+  expect(row.getAttribute("aria-description")).not.toContain("Review the sidebar");
   client.clear();
 });
 
@@ -212,5 +226,55 @@ test("a switch in flight blocks every surface of the pane, and a refusal says so
   fireEvent.click(screen.getByRole("button", { name: /beta/ }));
   await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
   expect(screen.getByRole("alert").textContent).toContain("Couldn't switch agent views");
+  client.clear();
+});
+
+test("a dead parent keeps no child to show, even from the cached snapshot", async () => {
+  // The poll stops for a dead pane (`enabled` false), but a DISABLED query
+  // still serves whatever sits in the cache — and the batch ticker stops
+  // when nothing watches, so a cached selection can outlive the pane
+  // INDEFINITELY while its detail page is open. The docstring's promise is
+  // "a dead row keeps no child to show"; this pins it at the render, where
+  // the cache serves it, not just at the fetch.
+  const state = {
+    pane: {
+      agents: [{ id: "child", name: "Review changes", status: "running", startedAt: Date.now() }],
+      selectedId: "child",
+      canSelect: true,
+    },
+  };
+  const reads: string[] = [];
+  setFetchRouter(async (url) => {
+    if (String(url).includes("/subshells/subagents") && !String(url).endsWith("/select")) reads.push(String(url));
+    return Response.json(state);
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(["harness-subagents"], state);
+  const rootRoute = createRootRoute({
+    component: () => (
+      <>
+        <HarnessSubagentTitle id="pane" parentName="Build" alive={false} />
+        <HarnessSubagentRows id="pane" alive={false} />
+      </>
+    ),
+  });
+  const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/" });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([indexRoute]),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+    defaultPreload: false,
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 20));
+  });
+  expect(screen.queryByText("Review changes")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Back to main agent" })).toBeNull();
+  // And the dead pane starts no watch over the batch read.
+  expect(reads).toHaveLength(0);
   client.clear();
 });

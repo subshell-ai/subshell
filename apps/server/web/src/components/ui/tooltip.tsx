@@ -80,10 +80,10 @@ export function TooltipContent({
 }): JSX.Element {
   return (
     <BaseTooltip.Portal>
-      <BaseTooltip.Positioner sideOffset={sideOffset} side={side}>
+      <BaseTooltip.Positioner className="z-50" sideOffset={sideOffset} side={side}>
         <BaseTooltip.Popup
           className={cn(
-            "z-50 max-w-xs rounded-md border bg-popover px-2.5 py-1.5 text-body text-popover-foreground shadow-md",
+            "max-w-xs rounded-md border bg-popover px-2.5 py-1.5 text-body text-popover-foreground shadow-md",
             "origin-[var(--transform-origin)] transition-[transform,opacity] data-[ending-style]:opacity-0",
             "data-[starting-style]:opacity-0",
             className,

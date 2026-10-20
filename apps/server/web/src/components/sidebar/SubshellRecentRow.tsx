@@ -1,16 +1,17 @@
 import { Button, cn } from "@internal/node-admin";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ChevronDown, ChevronRight, LayoutDashboard } from "lucide-react";
+import { ChevronDown, ChevronRight, LayoutDashboard, Minus, Plus } from "lucide-react";
 import { useId, useState } from "react";
 import { toast } from "sonner";
 import { HarnessSubagentRows } from "@/components/harness-subagents";
 import { TooltipLabelledLines } from "@/components/sidebar/TooltipLabelledLines";
+import { useWorkspaceSidebarDrag } from "@/components/sidebar/workspace-sidebar-drag";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDot } from "@/components/subshell-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useHarnessSubagents, useSelectHarnessAgent } from "@/hooks/use-harness-subagents";
 import { useOpenPaneAsTab } from "@/hooks/use-open-pane-as-tab";
-import { encodeSubshellDrag } from "@/lib/subshell-dnd";
+import { encodeSubshellDrag, setSubshellDragImage } from "@/lib/subshell-dnd";
 import { subshellRowTooltip } from "@/lib/subshell-row-tooltip";
 import { armPaneFocusOnArrive, requestWorkspacePaneFocus } from "@/lib/workspace-focus";
 import type { SubshellView } from "@/types/subshell";
@@ -87,6 +88,17 @@ export function SubshellRecentRow({
   inActiveWorkspace?: boolean;
 }) {
   const openAsTab = useOpenPaneAsTab();
+  const sidebarDrag = useWorkspaceSidebarDrag();
+  const member = sidebarDrag?.workspace?.panes?.some((pane) => pane.subshellId === subshell.id);
+  const workspaceAction =
+    sidebarDrag?.workspace && (!member || sidebarDrag.workspace.subshellCount > 1)
+      ? {
+          label: member ? "Remove from workspace" : "Add to workspace",
+          icon: member ? Minus : Plus,
+          sidebar: true,
+          onSelect: () => (member ? sidebarDrag.remove(subshell.id) : sidebarDrag.add(subshell.id)),
+        }
+      : undefined;
   // RUNNING is the row's two facts; a pane parked at running/alive:0 (or
   // flipped to terminated ahead of its alive bit) must not watch or fetch.
   const { data: agentState } = useHarnessSubagents(
@@ -116,7 +128,12 @@ export function SubshellRecentRow({
               to="/subshells/$id"
               params={{ id: subshell.id }}
               draggable
-              onDragStart={(e) => encodeSubshellDrag(e.dataTransfer, subshell.id)}
+              onDragStart={(e) => {
+                encodeSubshellDrag(e.dataTransfer, subshell.id);
+                setSubshellDragImage(e.dataTransfer, e.currentTarget, e.clientX, e.clientY);
+                sidebarDrag?.start(subshell.id);
+              }}
+              onDragEnd={() => sidebarDrag?.end()}
               // A plain left-click means the tab (operator ruling, spec
               // 2026-10-17): focus it here if it is open on screen, else go
               // to where it IS a tab, else make a workspace around it.
@@ -199,7 +216,9 @@ export function SubshellRecentRow({
   return (
     <>
       <div className="relative">
-        <SubshellActionsMenu subshell={subshell}>{row}</SubshellActionsMenu>
+        <SubshellActionsMenu subshell={subshell} workspaceAction={workspaceAction}>
+          {row}
+        </SubshellActionsMenu>
         {hasSubagents && (
           <TooltipProvider>
             <Tooltip>
@@ -227,11 +246,12 @@ export function SubshellRecentRow({
           </TooltipProvider>
         )}
         <div className="absolute top-1/2 right-0 -translate-y-1/2">
-          <SubshellActionsMenu subshell={subshell} />
+          <SubshellActionsMenu subshell={subshell} workspaceAction={workspaceAction} />
         </div>
       </div>
       <div id={childrenId} hidden={!expanded || !hasSubagents}>
         <HarnessSubagentRows
+          harnessId={subshell.harnessId}
           branchWorkspaceId={branchWorkspaceId}
           id={subshell.id}
           alive={subshell.status === "running" && subshell.alive === true}

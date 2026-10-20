@@ -95,6 +95,8 @@ describe("contextual two-rail navigation", () => {
       await act(async () => {
         await router.navigate({ to: "/subshells" });
       });
+      fireEvent.click(screen.getByRole("link", { name: "Settings" }));
+      await waitFor(() => expect(router.state.location.pathname).toBe("/nodes"));
       fireEvent.click(screen.getByRole("link", { name: "Workspaces" }));
       await waitFor(() => expect(router.state.location.pathname).toBe("/workspaces"));
       expect(screen.getByRole("combobox", { name: "Switch workspace" })).toBeTruthy();
@@ -112,11 +114,11 @@ describe("contextual two-rail navigation", () => {
   });
   it("changes subsections with the mini rail and restores the last settings page", async () => {
     const router = await renderRail("/presets");
-    fireEvent.click(screen.getByRole("link", { name: "Subshells" }));
+    fireEvent.click(screen.getByRole("link", { name: "Workspaces" }));
     await screen.findByRole("region", { name: "Subshells" });
     expect(screen.queryByRole("link", { name: "Nodes" })).toBeNull();
-    expect(router.state.location.pathname).toBe("/subshells");
-    expect(screen.getByRole("textbox", { name: "Filter sidebar subshells" })).toBeTruthy();
+    expect(router.state.location.pathname).toBe("/workspaces");
+    expect(screen.queryByRole("textbox", { name: "Filter sidebar subshells" })).toBeNull();
     fireEvent.click(screen.getByRole("link", { name: "Settings" }));
     await waitFor(() => expect(router.state.location.pathname).toBe("/presets"));
     await act(async () => {
@@ -132,11 +134,10 @@ describe("contextual two-rail navigation", () => {
   });
   it("can collapse and reopen the contextual sidebar", async () => {
     await renderRail("/nodes");
-    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    fireEvent.click(screen.getByRole("link", { name: "Settings" }));
     expect(screen.queryByRole("navigation", { name: "Settings pages" })).toBeNull();
     expect(screen.getByRole("link", { name: "Settings" })).toBeTruthy();
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Expand sidebar" }));
-    fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
+    fireEvent.click(screen.getByRole("link", { name: "Settings" }));
     expect(screen.getByRole("navigation", { name: "Settings pages" })).toBeTruthy();
   });
   it("toggles the active rail panel without navigating and opens a different section", async () => {

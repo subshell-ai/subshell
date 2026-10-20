@@ -98,6 +98,10 @@ export function FeatureShowcase() {
             A subshell is a terminal session running an agent or a shell. Keep Codex, Claude Code, and a shell together
             in one workspace, with split panes so you can follow their progress and compare output.
           </p>
+          <p className="mt-3 max-w-[44ch] text-[15px] leading-[1.8] text-[var(--dim)]">
+            Browse your other subshells in the same sidebar. Drag one into the workspace to add a tab, or out to remove
+            it while its session keeps running.
+          </p>
           <div className="mt-5">
             <DocumentationLink path="/guides/workspaces">Explore workspaces</DocumentationLink>
           </div>

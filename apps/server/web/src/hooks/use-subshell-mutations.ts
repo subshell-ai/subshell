@@ -72,14 +72,16 @@ export function useSubshellMutations(
   };
 
   const restart = useMutation({
-    mutationFn: () => apiFetch<{ id: string }>(`/api/subshells/${id}/restart`, { method: "POST" }),
+    mutationFn: (targetId: string) =>
+      apiFetch<{ id: string }>(`/api/subshells/${targetId}/restart`, { method: "POST" }),
     // Revival keeps the id; the refreshed queries ARE the whole sync story —
     // pane rows included, since they copied the running/alive the flip moved.
     onSuccess: refreshWithPanes,
   });
   const remove = useMutation({
-    mutationFn: () => apiFetch<{ ok: boolean }>(`/api/subshells/${id}`, { method: "DELETE" }),
-    onSuccess: () => {
+    mutationFn: ({ targetId }: { targetId: string; afterDelete?: () => void }) =>
+      apiFetch<{ ok: boolean }>(`/api/subshells/${targetId}`, { method: "DELETE" }),
+    onSuccess: (_data, { afterDelete }) => {
       // The pane CASCADE touches every membership reader: the dock tile
       // (DETAIL), the rail's tree row (the LIST carries panes since spec
       // 2026-10-17), and the page's workspace links. The feed's gone-frame
@@ -89,33 +91,26 @@ export function useSubshellMutations(
       // wakes the caches itself instead of waiting on the round trip.
       refresh();
       void invalidateWorkspaceMembership(queryClient);
-      onDeleted?.();
+      afterDelete?.();
     },
   });
 
   // No confirmation and no workspace refresh: the bell changes no
   // pane-visible field — only the list/detail queries need to re-read it.
   const toggleNotify = useMutation({
-    mutationFn: () =>
-      apiFetch<{ ok: boolean }>(`/api/subshells/${id}/notify`, {
+    mutationFn: ({ targetId, notify }: { targetId: string; notify: boolean }) =>
+      apiFetch<{ ok: boolean }>(`/api/subshells/${targetId}/notify`, {
         method: "PATCH",
-        body: JSON.stringify({ notify: subshell?.notify !== true }),
+        body: JSON.stringify({ notify }),
       }),
     onSuccess: refresh,
   });
 
-  /** Runs the action without asking (failures land in the mutation state;
-   *  the refreshed queries surface whatever actually happened). */
-  function runNow(action: { mutate: () => void }): () => void {
-    return () => {
-      if (!subshell) return; // actions fired before load are ignored, as with asks
-      action.mutate();
-    };
-  }
-
-  async function askThen(ask: (name: string) => Promise<boolean>, action: { mutate: () => void }): Promise<void> {
+  // Mutation observers update their options when props change. Pass the target
+  // as variables so confirming an earlier action cannot use the new pane's id.
+  async function askThen(ask: (name: string) => Promise<boolean>, act: () => void): Promise<void> {
     if (!subshell || !(await ask(subshell.name))) return;
-    action.mutate();
+    act();
   }
 
   // Closing is destructive and always asks. Restarting a DEAD row asks
@@ -125,9 +120,14 @@ export function useSubshellMutations(
   // live panes too, so a pane whose MCP token died can be renewed without
   // being closed; the in-flight work there is the thing to warn about).
   return {
-    restart: subshell?.alive ? () => void askThen(confirmRestartSubshell, restart) : runNow(restart),
-    remove: () => askThen(confirmCloseSubshell, remove),
-    toggleNotify: () => toggleNotify.mutateAsync().then(() => undefined),
+    restart: () => {
+      if (!subshell) return;
+      if (subshell.alive) void askThen(confirmRestartSubshell, () => restart.mutate(id));
+      else restart.mutate(id);
+    },
+    remove: () => askThen(confirmCloseSubshell, () => remove.mutate({ targetId: id, afterDelete: onDeleted })),
+    toggleNotify: () =>
+      toggleNotify.mutateAsync({ targetId: id, notify: subshell?.notify !== true }).then(() => undefined),
     busy: restart.isPending || remove.isPending,
     restarting: restart.isPending,
     deleting: remove.isPending,

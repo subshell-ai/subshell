@@ -10,6 +10,7 @@ import { startStack, stopStack } from "./stack";
 // Requires an authenticated Codex CLI. Authentication stays off camera.
 if (PORTS.backend === 3080) throw new Error("Never record against the live server");
 const subagents = process.argv.includes("--subagents");
+const mobileOnly = process.argv.includes("--mobile-only");
 const root = mkdtempSync(path.join(tmpdir(), "demo-"));
 const out = path.resolve(import.meta.dirname, "../apps/website/public/demos");
 const cleanup: (() => void | Promise<void>)[] = [() => rmSync(root, { recursive: true, force: true }), stopStack];
@@ -33,7 +34,12 @@ try {
   });
   expect((await api.patch("/api/setup/progress", { data: { step: null } })).ok()).toBe(true);
   // Keep personal configuration, history, and MCP connections out of the demo.
-  const codexHome = mkdtempSync(path.join(homedir(), ".cache/subshell-demo-codex-"));
+  // Create ~/.cache first: mkdtempSync fails with ENOENT when its parent is
+  // absent (fresh macOS homes have no ~/.cache), which would only surface
+  // after the whole stack had been booted.
+  const cacheRoot = path.join(homedir(), ".cache");
+  mkdirSync(cacheRoot, { recursive: true });
+  const codexHome = mkdtempSync(path.join(cacheRoot, "subshell-demo-codex-"));
   cleanup.push(() => rmSync(codexHome, { recursive: true, force: true }));
   copyFileSync(path.join(homedir(), ".codex/auth.json"), path.join(codexHome, "auth.json"));
   const agentPreset = await post("/api/presets", {
@@ -58,7 +64,11 @@ try {
   });
   const browser = await chromium.launch();
   cleanup.push(() => browser.close());
-  for (const mobile of process.argv.includes("--desktop-only") || subagents ? [false] : [false, true]) {
+  for (const mobile of mobileOnly
+    ? [true]
+    : process.argv.includes("--desktop-only") || subagents
+      ? [false]
+      : [false, true]) {
     const workingDir = path.join(root, mobile ? "phone" : "desktop", "task-board");
     mkdirSync(workingDir, { recursive: true });
     writeFileSync(
@@ -151,8 +161,8 @@ export function summarize(tasks) {
       await page.waitForTimeout(500);
     }
     let frame = 0;
-    async function hold(seconds: number) {
-      await page.mouse.move(890, 550);
+    async function hold(seconds: number, keepPointer = false) {
+      if (!keepPointer) await page.mouse.move(890, 550);
       for (let i = 0; i < seconds * 15; i++) {
         const start = Date.now();
         await page.screenshot({ path: path.join(frames, `${String(frame++).padStart(4, "0")}.png`) });
@@ -217,6 +227,28 @@ export function summarize(tasks) {
     await hold(3);
     expect(readFileSync(path.join(workingDir, "tasks.js"), "utf8")).not.toContain("// TODO");
     run("bun", ["test", path.join(workingDir, "tasks.test.js")]);
+    if (subagents) {
+      // Membership changes don't stop the tests shell or leave this workspace.
+      const members = page.locator('[data-sidebar-drop="add"]');
+      const others = page.locator('[data-sidebar-drop="remove"]');
+      async function transferRow(from: typeof members, to: typeof members, label: string) {
+        const row = from.locator(`a[href="/subshells/${panes[1].id}"]`);
+        const source = await row.boundingBox();
+        const target = await to.boundingBox();
+        if (!source || !target) throw new Error("Sidebar transfer bounds unavailable");
+        await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 20 });
+        await expect(to.getByRole("status")).toHaveText(label);
+        await hold(2, true);
+        await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2);
+        await page.mouse.up();
+        await expect(to.locator(`a[href="/subshells/${panes[1].id}"]`)).toBeVisible();
+        await hold(2);
+      }
+      await transferRow(members, others, "Remove from workspace");
+      await transferRow(others, members, "Add to workspace");
+    }
     await tab("Run tests").click();
     await post(`/api/subshells/${panes[1].id}/input`, { text: "bun test", submit: false });
     await hold(1);
@@ -231,6 +263,11 @@ export function summarize(tasks) {
     await hold(2);
     expect(page.url()).toContain(`/workspaces/${workspace.id}`);
     if (mobile) await expect(page.getByRole("navigation", { name: "Main sections" })).not.toBeVisible();
+    // Every ffmpeg write lands in the scratch root first and is copied to the
+    // committed path only on success: an encode killed mid-write (Ctrl-C, OOM)
+    // would otherwise leave a corrupt binary sitting exactly where the next
+    // commit would pick it up.
+    const publish = (file: string) => copyFileSync(path.join(root, file), path.join(out, file));
     run("ffmpeg", [
       "-v",
       "error",
@@ -248,8 +285,9 @@ export function summarize(tasks) {
       "-an",
       "-movflags",
       "+faststart",
-      path.join(out, `${name}.mp4`),
+      path.join(root, `${name}.mp4`),
     ]);
+    publish(`${name}.mp4`);
     run("ffmpeg", [
       "-v",
       "error",
@@ -260,21 +298,27 @@ export function summarize(tasks) {
       "libwebp",
       "-lossless",
       "1",
-      path.join(out, `${name}.webp`),
+      path.join(root, `${name}.webp`),
     ]);
+    publish(`${name}.webp`);
     if (subagents) {
       run("ffmpeg", [
         "-v",
         "error",
         "-y",
         "-i",
-        path.join(out, `${name}.webp`),
-        path.resolve(import.meta.dirname, "../apps/docs/public/screenshots/harness-subagents.png"),
+        path.join(root, `${name}.webp`),
+        path.join(root, "harness-subagents.png"),
       ]);
+      copyFileSync(
+        path.join(root, "harness-subagents.png"),
+        path.resolve(import.meta.dirname, "../apps/docs/public/screenshots/harness-subagents.png"),
+      );
     }
     await context.close();
     console.log(`Captured ${name}: ${frame} frames`);
   }
+  // Same scratch-then-copy rule for the gif: only a finished encode reaches docs/.
   run("ffmpeg", [
     "-v",
     "error",
@@ -285,8 +329,12 @@ export function summarize(tasks) {
     "fps=10,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=3",
     "-loop",
     "0",
-    path.resolve(import.meta.dirname, "../docs/assets/subshell-demo.gif"),
+    path.join(root, "subshell-demo.gif"),
   ]);
+  copyFileSync(
+    path.join(root, "subshell-demo.gif"),
+    path.resolve(import.meta.dirname, "../docs/assets/subshell-demo.gif"),
+  );
 } finally {
   for (const stop of cleanup.reverse()) await stop();
 }

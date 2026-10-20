@@ -110,6 +110,7 @@ export function WorkspaceBranch({
   active,
   forceOpen,
   collapsible = true,
+  droppable = true,
   onToggle,
   focusedId,
   labelsFor,
@@ -120,6 +121,7 @@ export function WorkspaceBranch({
   forceOpen: boolean;
   /** The focused sidebar always shows its workspace panes. */
   collapsible?: boolean;
+  droppable?: boolean;
   onToggle: () => void;
   /** The dock's focused pane on this page, when this branch IS the page. */
   focusedId: string | null;
@@ -183,11 +185,11 @@ export function WorkspaceBranch({
     // precedent as the dock's drop overlay).
     // biome-ignore lint/a11y/noStaticElementInteractions: HTML5 drop target
     <div
-      onDragOver={onDragOver}
-      onDragEnter={onDragEnter}
-      onDragLeave={onDragLeave}
+      onDragOver={droppable ? onDragOver : undefined}
+      onDragEnter={droppable ? onDragEnter : undefined}
+      onDragLeave={droppable ? onDragLeave : undefined}
       onDrop={(e) => {
-        void onDrop(e);
+        if (droppable) void onDrop(e);
       }}
       className={cn("rounded-md transition-shadow", dropHint && "border-2 border-primary/60 border-dashed")}
     >

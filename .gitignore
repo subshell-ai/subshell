@@ -154,6 +154,7 @@ dist-rel/
 # Claude Code worktrees + subagent-driven-development scratch
 .claude/worktrees/
 .superpowers/
+.superlite/
 
 # stray SQLite file created when a `:memory:` URI is opened as a path by backend tests
 file::memory:*

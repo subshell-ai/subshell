@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium, expect, type Locator, type Page, request } from "@playwright/test";
@@ -204,19 +204,11 @@ try {
     310,
   );
   await post("/api/subshells", { harnessId: "terminal", presetId: shell.id, workingDir: project, name: "Build tools" });
-  await page
-    .getByRole("navigation", { name: "Main sections" })
-    .getByRole("link", { name: "Subshells", exact: true })
-    .click();
-  await expect(page.getByRole("img", { name: "In active workspace" })).toHaveCount(2);
+  await expect(page.locator('[data-sidebar-drop="add"] a[href^="/subshells/"]')).toHaveCount(2);
   await expect(page.locator("aside").getByText("Build tools", { exact: true })).toBeVisible();
   const sidebarMargin = await page.addStyleTag({ content: "aside { margin: 12px; height: calc(100% - 24px); }" });
   await capture(page, "workspace-browser", page.locator("aside"));
   await sidebarMargin.evaluate((element) => element.parentNode?.removeChild(element));
-  await page
-    .getByRole("navigation", { name: "Main sections" })
-    .getByRole("link", { name: "Workspaces", exact: true })
-    .click();
   await page.getByRole("button", { name: "Add a subshell to this workspace" }).click();
   await capture(page, "add-subshell", dialog);
   await close();
@@ -228,6 +220,10 @@ try {
     "node-enrollment",
     "ssh-connection",
   ]) {
+    // Encode into the temp project dir and copy only on success, so an
+    // interrupted ffmpeg never leaves a corrupt webp at the committed path
+    // (the site's install one-liners reference these by name).
+    const scratch = path.join(project, `${name}.webp`);
     const encoded = spawnSync("ffmpeg", [
       "-v",
       "error",
@@ -238,9 +234,10 @@ try {
       "libwebp",
       "-lossless",
       "1",
-      path.resolve(import.meta.dirname, `../apps/website/public/shots/${name}.webp`),
+      scratch,
     ]);
     if (encoded.status !== 0) throw new Error(`Could not encode ${name}: ${encoded.stderr}`);
+    copyFileSync(scratch, path.resolve(import.meta.dirname, `../apps/website/public/shots/${name}.webp`));
   }
   console.log(JSON.stringify(dimensions));
 } finally {

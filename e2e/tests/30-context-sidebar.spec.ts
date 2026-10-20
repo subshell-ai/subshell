@@ -3,7 +3,7 @@ import { ADMIN_STATE } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
-test("the two rails isolate workspace panes and restore each section's destination", async ({ page }) => {
+test("the unified sidebar transfers workspace membership and restores section destinations", async ({ page }) => {
   const panes: string[] = [];
   const workspaces: string[] = [];
   const suffix = Date.now();
@@ -22,6 +22,8 @@ test("the two rails isolate workspace panes and restore each section's destinati
     await page.goto(`/workspaces/${workspaces[0]}`);
     const rail = page.getByRole("navigation", { name: "Main sections" });
     const sidebar = page.locator("aside");
+    const members = sidebar.locator('[data-sidebar-drop="add"]');
+    const others = sidebar.locator('[data-sidebar-drop="remove"]');
     await page
       .getByRole("combobox", { name: "Switch workspace" })
       .locator("..")
@@ -34,20 +36,20 @@ test("the two rails isolate workspace panes and restore each section's destinati
     await expect(addDialog.getByRole("button", { name: "Split right", exact: true })).toHaveCount(0);
     await addDialog.getByRole("button", { name: "Close", exact: true }).click();
     await expect(sidebar.locator(`a[href="/subshells/${panes[0]}"]`)).toBeVisible();
-    await expect(sidebar.locator(`a[href="/subshells/${panes[1]}"]`)).toHaveCount(0);
+    await expect(members.locator(`a[href="/subshells/${panes[1]}"]`)).toHaveCount(0);
     await page.getByRole("combobox", { name: "Switch workspace" }).click();
     await page.getByRole("option", { name: `Sidebar second ${suffix}` }).click();
     await expect(page).toHaveURL(new RegExp(`/workspaces/${workspaces[1]}$`));
     await expect(sidebar.locator(`a[href="/subshells/${panes[1]}"]`)).toBeVisible();
-    await expect(sidebar.locator(`a[href="/subshells/${panes[0]}"]`)).toHaveCount(0);
+    await expect(members.locator(`a[href="/subshells/${panes[0]}"]`)).toHaveCount(0);
     await sidebar.locator(`a[href="/subshells/${panes[1]}"]`).click({ button: "right" });
     await expect(page.getByRole("menuitem", { name: "Edit title", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
 
-    await rail.getByRole("link", { name: "Subshells", exact: true }).click();
+    await expect(rail.getByRole("link", { name: "Subshells", exact: true })).toHaveCount(0);
     await expect(page).toHaveURL(new RegExp(`/workspaces/${workspaces[1]}$`));
     await expect(sidebar.getByRole("combobox", { name: "Group sidebar subshells by" })).toBeVisible();
-    await sidebar.locator(`a[href="/subshells/${panes[0]}"]`).click();
+    await others.locator(`a[href="/subshells/${panes[0]}"]`).dragTo(members);
     await expect
       .poll(async () => {
         const response = await page.request.get(`/api/workspaces/${workspaces[1]}`);
@@ -56,10 +58,15 @@ test("the two rails isolate workspace panes and restore each section's destinati
       })
       .toBe(true);
     await expect(page).toHaveURL(new RegExp(`/workspaces/${workspaces[1]}$`));
+    await members.locator(`a[href="/subshells/${panes[0]}"]`).dragTo(others);
+    await expect(others.locator(`a[href="/subshells/${panes[0]}"]`)).toBeVisible();
+    const stillRunning = await page.request.get(`/api/subshells/${panes[0]}`);
+    expect((await stillRunning.json()).alive).toBe(true);
+    await expect(members.locator(`a[href="/subshells/${panes[1]}"]`)).toBeVisible();
     await sidebar.getByRole("button", { name: "Actions for Subshells", exact: true }).click();
     await page.getByRole("menuitem", { name: "Subshell dashboard", exact: true }).click();
     await expect(page).toHaveURL(/\/subshells$/);
-    await rail.getByRole("link", { name: "Workspaces", exact: true }).click();
+    await members.locator(`a[href="/subshells/${panes[1]}"]`).click();
     await expect(page).toHaveURL(new RegExp(`/workspaces/${workspaces[1]}$`));
 
     await rail.getByRole("link", { name: "Settings", exact: true }).click();
@@ -75,7 +82,7 @@ test("the two rails isolate workspace panes and restore each section's destinati
     await expect(page).toHaveURL(/\/presets$/);
     await rail.getByRole("link", { name: "Workspaces", exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`/workspaces/${workspaces[1]}$`));
-    await page.getByRole("button", { name: "Collapse sidebar" }).click();
+    await rail.getByRole("link", { name: "Workspaces", exact: true }).click();
     await expect(page.getByRole("combobox", { name: "Switch workspace" })).toHaveCount(0);
     await rail.getByRole("link", { name: "Workspaces", exact: true }).click();
     await expect(page.getByRole("combobox", { name: "Switch workspace" })).toBeVisible();

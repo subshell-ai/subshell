@@ -14,10 +14,10 @@ export function DeskShot() {
         webm={false}
         width={900}
         height={560}
-        label="Codex delegates implementation and tests to subagents, with collapsible sidebar branches"
+        label="Codex builds a feature with subagents; move a test subshell out of and back into the workspace, then run its tests"
       />
       <p className="mt-2.5 text-center text-[12px] text-[var(--dimmer)]">
-        Follow Codex and its subagents in one workspace
+        Follow subagents and move subshells in one workspace
       </p>
     </section>
   );

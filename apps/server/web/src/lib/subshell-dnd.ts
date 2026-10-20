@@ -11,11 +11,33 @@ export const SUBSHELL_DND_TYPE = "application/x-subshell-id";
 export function encodeSubshellDrag(dt: DataTransfer, id: string): void {
   dt.setData(SUBSHELL_DND_TYPE, id);
   dt.setData("text/plain", id);
-  dt.effectAllowed = "copy";
+  dt.effectAllowed = "copyMove";
 }
 
 /** The dragged subshell's id, or null when the transfer is not one of ours. */
 export function readSubshellDrag(dt: Pick<DataTransfer, "types" | "getData">): string | null {
   if (!Array.from(dt.types).includes(SUBSHELL_DND_TYPE)) return null;
   return dt.getData(SUBSHELL_DND_TYPE) || null;
+}
+
+/** Snapshot only the row, excluding its child tree and destination overlays. */
+export function setSubshellDragImage(dt: DataTransfer, row: HTMLElement, clientX: number, clientY: number): void {
+  if (!dt.setDragImage) return;
+  const bounds = row.getBoundingClientRect();
+  const preview = row.cloneNode(true) as HTMLElement;
+  preview.removeAttribute("id");
+  preview.classList.add("bg-card");
+  Object.assign(preview.style, {
+    position: "fixed",
+    left: "-10000px",
+    top: "0",
+    width: `${bounds.width}px`,
+    height: `${bounds.height}px`,
+    margin: "0",
+  });
+  preview.setAttribute("aria-hidden", "true");
+  document.body.append(preview);
+  dt.setDragImage(preview, Math.max(0, clientX - bounds.left), Math.max(0, clientY - bounds.top));
+  // The browser captures its image after dragstart returns.
+  setTimeout(() => preview.remove(), 0);
 }
