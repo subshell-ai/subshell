@@ -38,7 +38,6 @@ export function MobileNavProvider({ children }: { children: ReactNode }) {
         >
           <SheetTitle className="sr-only">Navigation</SheetTitle>
           <AppSidebar
-            forceExpanded
             className="h-full min-h-0 w-full border-r-0"
             onSectionNavigate={() => {
               sectionNavigation.current = true;

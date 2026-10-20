@@ -10,10 +10,9 @@ import { desktopPlatform } from "@/lib/desktop";
  *
  * It is the SAME component. `AppSidebar` is not a list of links — it is the
  * drag source for `application/x-subshell-id`, the live-status surface, the
- * host of two context menus, the quick-add trigger and the only consumer of
- * the collapse preference, all riding one live socket. A second rail would lose
- * every one of those silently and then drift, so this changes the chrome and
- * keeps the machine.
+ * host of two context menus and the quick-add trigger, all riding one live
+ * socket. A second panel would lose every one of those silently and then
+ * drift, so this changes the chrome and keeps the machine.
  *
  * The footer's two rows ride `footerEnd`, which is also where "only Subshell
  * Server" comes from: `__root.tsx` renders this rail on `isServerDesktop()`, so
@@ -27,13 +26,15 @@ export function DesktopSidebar() {
   return (
     <AppSidebar
       variant="desktop"
-      // Room for the traffic lights, which now float over the rail's top strip.
+      // Room for the traffic lights, which now float over the panel's top strip.
       className={cn(macos && "[&>div:nth-child(2)]:pt-7")}
       headerAbove={macos ? <DragStrip /> : undefined}
-      footerEnd={({ collapsed }) => (
+      footerEnd={() => (
         <>
-          <DesktopServerPill collapsed={collapsed} />
-          <DesktopAppUpdateRow collapsed={collapsed} />
+          {/* The rows still take a `collapsed` flag; the panel is always
+              expanded now, so they always render in full. */}
+          <DesktopServerPill collapsed={false} />
+          <DesktopAppUpdateRow collapsed={false} />
         </>
       )}
     />

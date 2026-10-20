@@ -13,9 +13,9 @@ import { type DesktopAction, onDesktopAction } from "@/lib/desktop";
  * on each pane — the exact cost the desktop shell exists to avoid. So the menu
  * bar and tray ask the page, and the page navigates.
  *
- * Two actions are deliberately NOT here: `toggle-sidebar` and `focus-filter`
- * belong to the rail, whose collapse state and filter input are private to it.
- * `AppSidebar` subscribes to those itself rather than exporting its internals.
+ * One action is deliberately NOT here: `focus-filter` belongs to the sidebar,
+ * whose filter input is private to it. `AppSidebar` subscribes to that one
+ * itself rather than exporting its internals.
  */
 
 /** Where each navigation action lands. */

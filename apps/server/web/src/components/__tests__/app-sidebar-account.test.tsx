@@ -8,7 +8,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import * as quickAdd from "@/components/quick-add";
@@ -130,7 +130,10 @@ describe("the contextual account sidebar", () => {
       expect(screen.queryAllByRole("button", { name: /Account:/ }).length).toBe(0);
       // The bordered footer div was a direct child of the aside with
       // `border-t`; nothing supplies footerEnd on the web, so none exists.
+      // The section bar also breaks the panel, but it is the nav itself, never
+      // a div, so this query stays meaningful.
       expect(document.querySelectorAll("aside > div.border-t").length).toBe(0);
+      expect(document.querySelectorAll("aside > nav[aria-label='Main sections']").length).toBe(1);
     });
   });
 
@@ -203,14 +206,17 @@ describe("the contextual account sidebar", () => {
     });
   });
 
-  it("keeps Account reachable from the collapsed mini rail", async () => {
+  it("keeps Account on the section bar while a stale collapse pref changes nothing", async () => {
     localStorage.setItem("subshell.sidebarCollapsed", "1");
     stubFetch({ admin: false });
-    renderRail("/account");
-    const link = await screen.findByRole("link", { name: "Account" });
-    expect(screen.queryAllByRole("button", { name: "Sign out" }).length).toBe(0);
-    fireEvent.click(link);
+    renderRail("/nodes");
+    const bar = await screen.findByRole("navigation", { name: "Main sections" });
+    // The panel is always expanded now: the settings context renders beside
+    // the bar even though the retired preference still says "1" on disk.
+    expect(screen.getByRole("navigation", { name: "Settings pages" })).toBeTruthy();
+    fireEvent.click(within(bar).getByRole("link", { name: "Account" }));
     await waitFor(() => expect(signOutButton()).toBeTruthy());
-    expect(localStorage.getItem("subshell.sidebarCollapsed")).toBe("0");
+    // Nothing reads the retired key, so nothing rewrites it either.
+    expect(localStorage.getItem("subshell.sidebarCollapsed")).toBe("1");
   });
 });
