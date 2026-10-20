@@ -19,7 +19,10 @@ async function renderRail(path: string, admin = false) {
       ? { viewerIsAdmin: admin }
       : url.includes("get-session")
         ? { user: { name: "Test", email: "test@example.test" } }
-        : [];
+        : url.includes("/api/subshells/subagents")
+          ? // The batch snapshot the rail rows share; empty means "no children".
+            {}
+          : [];
     return Response.json(body);
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

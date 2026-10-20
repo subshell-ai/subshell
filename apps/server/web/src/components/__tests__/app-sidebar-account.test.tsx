@@ -41,6 +41,10 @@ function stubFetch(opts: { admin: boolean; updateTo?: string }) {
     if (url.includes("get-session")) {
       return json({ user: { id: "u1", name: "Admin", email: "admin@test" } });
     }
+    if (path === "/api/subshells/subagents") {
+      // The batch snapshot the rail rows share; empty means "no children".
+      return json({});
+    }
     return json([]);
   });
   return calls;

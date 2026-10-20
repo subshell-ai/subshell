@@ -123,18 +123,21 @@ function stubFetch(
                     .toLowerCase()
                     .includes(new URL(url, "http://localhost").searchParams.get("q")?.toLowerCase() ?? ""),
                 )
-              : url.includes("/api/subshells")
-                ? filterSubshells(subshells, new URL(url, "http://localhost").searchParams.get("q") ?? "")
-                : url.includes("/api/nodes")
-                  ? {
-                      nodes: [
-                        { id: "local", name: "Server", kind: "local" },
-                        { id: "n1", name: "mac-mini", kind: "agent" },
-                      ],
-                    }
-                  : url.includes("/api/plugins")
-                    ? { plugins: [{ id: "claude-code", name: "Claude Code" }] }
-                    : [];
+              : url.includes("/api/subshells/subagents")
+                ? // The batch snapshot the rail rows share; empty means "no children".
+                  {}
+                : url.includes("/api/subshells")
+                  ? filterSubshells(subshells, new URL(url, "http://localhost").searchParams.get("q") ?? "")
+                  : url.includes("/api/nodes")
+                    ? {
+                        nodes: [
+                          { id: "local", name: "Server", kind: "local" },
+                          { id: "n1", name: "mac-mini", kind: "agent" },
+                        ],
+                      }
+                    : url.includes("/api/plugins")
+                      ? { plugins: [{ id: "claude-code", name: "Claude Code" }] }
+                      : [];
     return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
   });
   return () => setFetchRouter(null);
