@@ -300,6 +300,56 @@ describe("LiveSubshellsFeedProvider", () => {
     }
   });
 
+  // The rename arm of the bugfix (operator report 2026-10-20): dock tab titles
+  // render from the workspace pane rows, and the dock's re-title effect fires
+  // only when `detail.panes` changes. Neither workspace read is polled, so a
+  // rename learned through the feed reached every surface except an open dock
+  // tab, which kept the old title until remount. These two tests pin the
+  // invalidation and its silence.
+  it("test_update_frame_rename_invalidates_workspace_reads", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({ type: "snapshot", subshells: [{ id: "a", name: "A", access: "owner" }] });
+    // Seeded INACTIVE entries, same assertion style as the gone/recheck tests:
+    // the rename must flag both workspace reads, detail and list.
+    client.setQueryData([...WORKSPACE_QUERY_KEY, "w1"], { panes: [{ id: "p1", subshellId: "a", subshellName: "A" }] });
+    client.setQueryData(WORKSPACES_QUERY_KEY, [{ id: "w1", panes: [{ subshellId: "a", subshellName: "A" }] }]);
+    expect(client.getQueryCache().find({ queryKey: [...WORKSPACE_QUERY_KEY, "w1"] })?.state.isInvalidated).toBe(false);
+    expect(client.getQueryCache().find({ queryKey: WORKSPACES_QUERY_KEY })?.state.isInvalidated).toBe(false);
+
+    frame({ type: "subshell", id: "a", row: { id: "a", name: "A renamed" } });
+
+    expect(client.getQueryCache().find({ queryKey: [...WORKSPACE_QUERY_KEY, "w1"] })?.state.isInvalidated).toBe(true);
+    expect(client.getQueryCache().find({ queryKey: WORKSPACES_QUERY_KEY })?.state.isInvalidated).toBe(true);
+  });
+
+  it("test_update_frame_same_name_no_workspace_invalidate", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({ type: "snapshot", subshells: [{ id: "a", name: "A", status: "running", access: "owner" }] });
+    client.setQueryData([...WORKSPACE_QUERY_KEY, "w1"], { panes: [{ id: "p1", subshellId: "a", subshellName: "A" }] });
+    client.setQueryData(WORKSPACES_QUERY_KEY, [{ id: "w1", panes: [{ subshellId: "a", subshellName: "A" }] }]);
+
+    // Activity and status move, the name does not: the dock tab still says
+    // exactly the right thing, so neither read may be flagged.
+    frame({ type: "subshell", id: "a", row: { id: "a", status: "terminated", lastOutputAt: "2026-10-20T12:00:00Z" } });
+
+    expect(client.getQueryCache().find({ queryKey: [...WORKSPACE_QUERY_KEY, "w1"] })?.state.isInvalidated).toBe(false);
+    expect(client.getQueryCache().find({ queryKey: WORKSPACES_QUERY_KEY })?.state.isInvalidated).toBe(false);
+  });
+
   /**
    * The ordering rule: the snapshot's read may have begun BEFORE an event that
    * arrived first, so applying it wholesale would replace the newer row with
