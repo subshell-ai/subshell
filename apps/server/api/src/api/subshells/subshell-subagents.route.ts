@@ -69,7 +69,7 @@ const SubagentReportBodySchema = t.Object({
   agents: t.Optional(
     t.Array(ReportAgentSchema, { maxItems: 256, description: "The roster for snapshot/start reports" }),
   ),
-  agentId: t.Optional(identifierAs("The agent a start/stop report names")),
+  agentId: t.Optional(identifierAs("The agent a start, stop, or exact describe report names")),
   agentType: t.Optional(t.String({ maxLength: 160, description: "Which kind of agent a describe label belongs to" })),
   activity: t.Optional(t.String({ maxLength: 160, description: "One-line task label from a describe report" })),
   agentName: t.Optional(t.String({ maxLength: 160, description: "The name assigned when spawning a subagent" })),

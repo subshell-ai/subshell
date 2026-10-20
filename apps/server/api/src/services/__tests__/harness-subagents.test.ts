@@ -206,6 +206,25 @@ test("spawn names survive repeat starts and exact descriptions cannot resurrect 
   expect(state.read("p", "r", true).agents).toEqual([]);
 });
 
+test("a re-listed child keeps the name its describe label gave it", () => {
+  const state = new HarnessSubagents();
+  // A bridge that re-lists periodically: the first pass pairs the parked
+  // label and renames the generic row; the comment beside the snapshot
+  // branch promises that label never vanishes on a re-list, so the second
+  // pass (same harness words, nothing new) must not undo the rename.
+  state.report("p", "r", {
+    event: "describe",
+    agentType: "general-purpose",
+    agentName: "Reviewer",
+    activity: "Review changes",
+  });
+  const agent = { id: "a", name: "general-purpose", status: "running" as const };
+  state.report("p", "r", { event: "snapshot", agents: [agent] });
+  expect(state.read("p", "r", true).agents[0]?.name).toBe("Reviewer");
+  state.report("p", "r", { event: "snapshot", agents: [agent] });
+  expect(state.read("p", "r", true).agents[0]?.name).toBe("Reviewer");
+});
+
 test("an implicit Claude type pairs with general-purpose", () => {
   const state = new HarnessSubagents();
   state.report("p", "r", { event: "describe", activity: "Inspect the routes" });

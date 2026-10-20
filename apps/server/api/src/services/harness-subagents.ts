@@ -30,10 +30,29 @@ interface State extends HarnessSubagentSnapshot {
 
 const empty = (): HarnessSubagentSnapshot => ({ agents: [], selectedId: null, canSelect: false });
 
+/**
+ * The words that mean "no name was given": the queue-key and rename decisions
+ * treat these as absence, so a parked label or stored description can replace
+ * them. One list for both decisions, because a word generic enough to share
+ * the unlabeled queue is generic enough to be renamed from it.
+ */
+function isGenericAgentName(word: string | undefined): boolean {
+  return /^(default|subagent|general-purpose)?$/i.test((word ?? "").trim());
+}
+
+/**
+ * The narrower set that stands in for the numbered fallback rendering:
+ * "general-purpose" sits OUTSIDE it on purpose, because that word is a type
+ * name the harness chose and reports back verbatim; it is renamed when a
+ * label pairs with it, but a bare report of it is still a name worth showing.
+ */
+function isNumberedAgentName(word: string): boolean {
+  return /^(default|subagent)?$/i.test(word.trim());
+}
+
 /** The queue a name or type routes to: lowercased, and generic words share the empty key. */
 function typeKey(word: string | undefined): string {
-  const key = (word ?? "").trim().toLowerCase();
-  return /^(default|subagent|general-purpose)?$/.test(key) ? "" : key;
+  return isGenericAgentName(word) ? "" : (word ?? "").trim().toLowerCase();
 }
 
 /** Takes the oldest parked label for this child's type, if one is waiting. */
@@ -72,9 +91,7 @@ export class HarnessSubagents {
     const connected = Date.now() - state.lastSeen < 15_000;
     return {
       agents: state.agents.map((agent) =>
-        /^(default|subagent)?$/i.test(agent.name.trim())
-          ? { ...agent, name: `Subagent ${state.labels.get(agent.id)}` }
-          : agent,
+        isNumberedAgentName(agent.name) ? { ...agent, name: `Subagent ${state.labels.get(agent.id)}` } : agent,
       ),
       selectedId: state.selectedId,
       canSelect: state.canSelect && connected,
@@ -183,7 +200,12 @@ export class HarnessSubagents {
           const label = was ? undefined : popActivity(state, agent.name);
           return {
             ...agent,
-            name: label?.name ?? agent.name,
+            // Same rule as `start`: a re-listed child keeps a name its label
+            // gave it (the generic word is what the harness re-lists, not the
+            // name it has), and a non-generic name is the harness's truth.
+            // Without this the rename the comment above promises vanishes on
+            // the very next re-list pass.
+            name: label?.name ?? (was && isGenericAgentName(agent.name) ? was.name : agent.name),
             startedAt: was?.startedAt ?? now,
             activity: agent.activity ?? was?.activity ?? label?.activity,
           };
@@ -198,9 +220,7 @@ export class HarnessSubagents {
           ...state.agents.filter((a) => a.id !== agent.id),
           {
             ...agent,
-            name: /^(general-purpose|default|subagent)?$/i.test(agent.name.trim())
-              ? (label?.name ?? previous?.name ?? agent.name)
-              : agent.name,
+            name: isGenericAgentName(agent.name) ? (label?.name ?? previous?.name ?? agent.name) : agent.name,
             startedAt: previous?.startedAt ?? now,
             activity: agent.activity ?? previous?.activity ?? label?.activity,
           },
@@ -218,7 +238,7 @@ export class HarnessSubagents {
       if (!activeIds.has(agentId)) state.labels.delete(agentId);
     }
     for (const agent of state.agents) {
-      if (/^(default|subagent)?$/i.test(agent.name.trim()) && !state.labels.has(agent.id)) {
+      if (isNumberedAgentName(agent.name) && !state.labels.has(agent.id)) {
         state.labels.set(agent.id, state.nextLabel++);
       }
     }

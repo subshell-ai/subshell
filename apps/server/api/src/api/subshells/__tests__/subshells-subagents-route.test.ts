@@ -169,6 +169,44 @@ describe("harness subagent reporting and selection", () => {
     expect(typeof c1?.startedAt).toBe("number");
   });
 
+  it("normalizes an exact-ID describe's agentName like every other reported name", async () => {
+    const a = await subshellWithToken();
+    const own = { authorization: `Bearer ${a.key}` };
+    expect(
+      (
+        await request(a.id, "/report", own, {
+          event: "start",
+          agents: [{ id: "c9", name: "general-purpose", status: "running" }],
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await request(a.id, "/report", own, {
+          event: "describe",
+          agentId: "c9",
+          agentName: "Fix \u001b[31mlogin",
+          activity: "Patch \u0007auth",
+        })
+      ).status,
+    ).toBe(200);
+    // The exact-ID path reaches the same NAME path as the queued pair: ESC
+    // and BEL become spacing, one line, no terminal control reaching a viewer.
+    const view = (await (await request(a.id, "", own)).json()) as {
+      agents: { id: string; name: string; activity?: string }[];
+    };
+    const c9 = view.agents.find((agent) => agent.id === "c9");
+    expect(c9?.name).toBe("Fix [31mlogin");
+    expect(c9?.activity).toBe("Patch auth");
+    // And the cap holds on the new field: over 160 is a 400 at the boundary.
+    const oversized = await request(a.id, "/report", own, {
+      event: "describe",
+      agentId: "c9",
+      agentName: "n".repeat(161),
+    });
+    expect(oversized.status).toBe(400);
+  });
+
   it("refuses oversized and malformed reports at the boundary with production errors", async () => {
     const a = await subshellWithToken();
     const own = { authorization: `Bearer ${a.key}` };
