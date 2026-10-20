@@ -94,7 +94,10 @@ test("a blocked child row explains itself with the task label and elapsed line",
   const described = row.getAttribute("aria-description") ?? "";
   expect(described).toContain("pi keeps agent views in the app.");
   expect(described).toContain("Reading the diff");
-  expect(described).toContain("running · 2m 5s");
+  // Minute-accurate on purpose: the stamp is seeded at 125 s and the render
+  // happens whenever the runner gets to it, so the seconds bucket is one
+  // starved CI tick away from rolling over. The minute carries the claim.
+  expect(described).toMatch(/running · 2m \d+s/);
   // The reason here already ends in a period; the join must not double it,
   // and the sentence must close with exactly one.
   expect(described).not.toContain("..");
@@ -129,7 +132,7 @@ test("a blocked row without a reported reason still explains itself", async () =
     </QueryClientProvider>,
   );
   const row = await screen.findByRole("button", { name: /worker/ });
-  expect(row.getAttribute("aria-description")).toContain("does not support switching views");
+  expect(row.getAttribute("aria-description")).toContain("doesn't support switching subagent views");
   client.clear();
 });
 
@@ -191,12 +194,19 @@ test("a switch in flight blocks every surface of the pane, and a refusal says so
   // router has painted.
   await screen.findByRole("button", { name: /beta/ });
   fireEvent.click(back);
-  await waitFor(() =>
-    expect(screen.getByRole("button", { name: /beta/ }).getAttribute("aria-description")).toContain(
-      "Switching agent views",
-    ),
-  );
-  await act(async () => release());
+  // The held fetch must release even if the block assertion fails: a stuck
+  // in-flight entry belongs to the module-level store, so it would render
+  // every later switch surface in this file blocked (and skip the client
+  // clear below). Same rule the add-subshell dialog's release comment pins.
+  try {
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /beta/ }).getAttribute("aria-description")).toContain(
+        "Switching agent views",
+      ),
+    );
+  } finally {
+    await act(async () => release());
+  }
   // A refused switch explains itself on the surface that failed.
   mode = "fail";
   fireEvent.click(screen.getByRole("button", { name: /beta/ }));

@@ -1016,7 +1016,7 @@ describe("removeArtifacts", () => {
 
 describe("subshellArtifacts sshPane (spec 2026-10-07 decision 4)", () => {
   const NODE_SUB = "11111111-2222-4333-8444-555555555555";
-  const triple = [
+  const baseArtifacts = [
     `/home/u/.subshell/subshells/${NODE_SUB}.log`,
     `/home/u/.subshell/mcp/${NODE_SUB}.json`,
     `/home/u/.subshell/mcp/${NODE_SUB}.json.d`,
@@ -1025,11 +1025,11 @@ describe("subshellArtifacts sshPane (spec 2026-10-07 decision 4)", () => {
 
   it("names the derived ssh config path only when the caller says the pane was an ssh pane", () => {
     const h = makeHarness();
-    expect(h.launcher.subshellArtifacts(NODE_SUB)).toEqual(triple);
+    expect(h.launcher.subshellArtifacts(NODE_SUB)).toEqual(baseArtifacts);
     // The path template is the SAME pane-runtime composition the launch-side
     // configPath used; on the node it is composed from `ready.dataDir`.
     expect(h.launcher.subshellArtifacts(NODE_SUB, true)).toEqual([
-      ...triple,
+      ...baseArtifacts,
       `/home/u/.subshell/ssh/${NODE_SUB}/config`,
     ]);
   });

@@ -122,9 +122,18 @@ describe("registerSubshellMcp companion files", () => {
     expect(() => registerSubshellMcp(filesHarness({ "big.mjs": "y".repeat(65_537) }), id)).toThrow(
       "Invalid harness integration file",
     );
+    // The order the map iterates matters here: a VALID entry ahead of a
+    // traversal name used to be written before the throw, leaving the sibling
+    // inside a half-populated `.d`. Nothing may exist after any refusal,
+    // directory included.
+    expect(() => registerSubshellMcp(filesHarness({ "good.mjs": "x", "../evil.mjs": "y" }), id)).toThrow(
+      "Invalid harness integration file",
+    );
     expect(existsSync(`${subshellMcpConfigPath(id)}.d/evil.mjs`)).toBe(false);
     expect(existsSync(`${subshellMcpConfigPath(id)}.d/big.mjs`)).toBe(false);
+    expect(existsSync(`${subshellMcpConfigPath(id)}.d/good.mjs`)).toBe(false);
     expect(existsSync(subshellMcpConfigPath(id))).toBe(false);
+    expect(existsSync(`${subshellMcpConfigPath(id)}.d`)).toBe(false);
     rmSync(`${subshellMcpConfigPath(id)}.d`, { recursive: true, force: true });
   });
 });

@@ -119,7 +119,13 @@ export function useSelectHarnessAgent(id: string) {
         selectWatchers.set(id, watchers);
       }
       watchers.add(notify);
-      return () => watchers.delete(notify);
+      return () => {
+        watchers.delete(notify);
+        // Drop the key once empty (and still the one this watcher created),
+        // so a long-lived app does not accumulate an entry per pane id that
+        // ever mounted a switch surface.
+        if (watchers.size === 0 && selectWatchers.get(id) === watchers) selectWatchers.delete(id);
+      };
     },
     [id],
   );

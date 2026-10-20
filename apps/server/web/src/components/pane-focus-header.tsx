@@ -120,7 +120,15 @@ export function PaneFocusHeader({
           <span className={cn("truncate", stacked && "font-normal")}>{fallbackName}</span>
         )
       }
-      subtitle={subshell?.workingDir ? <span className="block truncate pl-4">{subshell.workingDir}</span> : undefined}
+      /* Same indent rule the subshell page applies: the path lines up with
+         whichever title is on screen. The subagent title's `size-4` icon
+         (16px) plus `gap-2` is `pl-6`; the dot's box (`w-2` 8px) plus
+         `gap-2` is `pl-4`. */
+      subtitle={
+        subshell?.workingDir ? (
+          <span className={cn("block truncate", showingAgent ? "pl-6" : "pl-4")}>{subshell.workingDir}</span>
+        ) : undefined
+      }
       actions={
         <>
           {isPane && subshell && <SshPaneLabels subshell={subshell} nodeLabel={nodeLabel} />}

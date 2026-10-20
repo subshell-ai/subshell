@@ -1749,10 +1749,10 @@ describe("partPathOf (the shared .part derivation, spec 2026-10-01 §4)", () => 
 });
 
 describe("launch mcp companion files", () => {
-  // The node writes whatever the plane sends VERBATIM beside the config, so
-  // the wire guard is the only thing between a rogue plane frame and a
-  // traversal path: count, name shape, and per-file size all refuse the whole
-  // launch rather than sanitizing an entry.
+  // The plane builds this frame, and the agent re-checks the same rules and
+  // its own path policy before writing, so this wire guard is the FIRST line
+  // against a rogue or buggy frame, not the only one: count, name shape, and
+  // per-file size all refuse the whole launch rather than sanitizing an entry.
   const mcp = { path: "/p", fileContent: "{}" };
   const launchWith = (files: unknown) => parseNodeCommandBody({ ...launchCmd, mcp: { ...mcp, files } });
 

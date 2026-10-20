@@ -42,6 +42,13 @@ function renderDialog(props: {
   onAdd?: (subshellId: string, direction: SplitDirection) => Promise<unknown>;
 }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // The base list gets the same freshness pin as the filtered halves below:
+  // a seeded cache at the default staleTime is STALE on mount, so the dialog's
+  // observer refetches it for real. On CI that refetch hits a refused port 80,
+  // the failure flips subshellsFailed, and the mode switch the newOnly branch
+  // just hid reappears mid-assertion (laptop green only because a real server
+  // answers this machine's :80). Nothing in these tests wants a live list.
+  qc.setQueryDefaults(SUBSHELLS_QUERY_KEY, { staleTime: Infinity });
   qc.setQueryData(SUBSHELLS_QUERY_KEY, [
     makeSubshell({ id: "here", name: "here" }),
     makeSubshell({ id: "other", name: "other" }),

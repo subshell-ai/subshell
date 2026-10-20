@@ -53,10 +53,16 @@ export function registerSubshellMcp(
   mkdirSync(dirname(file), { recursive: true });
   if (reg.files) {
     if (Object.keys(reg.files).length > 8) throw new Error("Too many harness integration files");
-    mkdirSync(`${file}.d`, { recursive: true, mode: 0o700 });
+    // Validate EVERY entry before the first write. Checking names and sizes
+    // inside the write loop meant a bad entry midway left its valid siblings
+    // sitting in a half-populated `.d`, and a restart onto the same row
+    // would load them as if the registration had gone through.
     for (const [name, content] of Object.entries(reg.files)) {
       if (!/^[a-zA-Z0-9_-]+\.(mjs|py|json)$/.test(name) || content.length > 65536)
         throw new Error("Invalid harness integration file");
+    }
+    mkdirSync(`${file}.d`, { recursive: true, mode: 0o700 });
+    for (const [name, content] of Object.entries(reg.files)) {
       writeFileSync(join(`${file}.d`, name), content, { mode: 0o600 });
     }
   }

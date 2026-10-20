@@ -37,8 +37,11 @@ function selectionState(data: HarnessSubagentSnapshot, pending: boolean) {
     : data.canSelect
       ? undefined
       : // A reason that renders as nothing is no reason: fall through to the
-        // default sentence rather than tooltip an empty explanation.
-        data.unavailableReason || "This agent does not support switching views.";
+        // default sentence rather than tooltip an empty explanation. It is
+        // the server's own default wording, so one situation stays one
+        // sentence wherever either is rendered (and "harness" is the noun
+        // that lacks the navigation, not the agent).
+        data.unavailableReason || "This harness doesn't support switching subagent views.";
   return { blocked, reason };
 }
 

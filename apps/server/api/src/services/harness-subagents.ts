@@ -85,8 +85,7 @@ export class HarnessSubagents {
           ? undefined
           : state.canSelect
             ? "The harness integration isn't responding. Use its own agent selector."
-            : state.unavailableReason?.trim() ||
-              "This harness doesn't support switching subagent views from the sidebar.",
+            : state.unavailableReason?.trim() || "This harness doesn't support switching subagent views.",
     };
   }
 
