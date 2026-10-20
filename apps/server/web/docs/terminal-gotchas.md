@@ -62,6 +62,7 @@ the contract; the classification is unit-tested):
 The touch key bar uses one horizontally scrollable row with fixed minimum
 touch targets and the native horizontal scrollbar. The initial controls are Esc, arrows, Enter, newline,
 photo upload, and scroll jumps, followed by mode, Paste, and the remaining keys.
+Shift-Left sends `ESC[1;2D`, the modified left-arrow sequence, alongside Shift-Tab.
 The copy/input toggle remains available in both modes, with a confirmation toast
 shared with the action menu. Copy mode preserves the full row and its scroll
 position, disabling input buttons instead of removing them. The bar's scroller is explicitly exempt from the
