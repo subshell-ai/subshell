@@ -1,5 +1,13 @@
 # @internal/desktop-client
 
+## 1.3.3
+
+### Patch Changes
+
+- [#409](https://github.com/subshell-ai/subshell/pull/409) [`9ab6c38`](https://github.com/subshell-ai/subshell/commit/9ab6c38ec2b6701cda16420928b19c7cb5915381) Thanks [@theogravity](https://github.com/theogravity)! - Keep a failed SSH-agent request pending until its genuine reply is discarded after a forged reply is rejected, so a later connection cannot receive the earlier request’s response.
+- Updated dependencies [[`082da99`](https://github.com/subshell-ai/subshell/commit/082da99cb6518a00de0394e89953f5eb9d35dd56), [`9ab6c38`](https://github.com/subshell-ai/subshell/commit/9ab6c38ec2b6701cda16420928b19c7cb5915381)]:
+  - @internal/node@2.2.2
+
 ## 1.3.2
 
 ### Patch Changes

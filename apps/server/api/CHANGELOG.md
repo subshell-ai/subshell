@@ -1,5 +1,55 @@
 # @internal/server
 
+## 2.4.1
+
+### Patch Changes
+
+- [#408](https://github.com/subshell-ai/subshell/pull/408) [`be3c798`](https://github.com/subshell-ai/subshell/commit/be3c7983e125fa7a6eb052b2a1237633308a8898) Thanks [@theogravity](https://github.com/theogravity)! - Dialogs and drawers scroll again on the iPhone. A tap-selected option can leave iOS focus on the page body, and the terminal's scroll pin read that as an idle page and snapped an open dialog's own scroller back to the top the moment a form grew past its height cap. A scroller inside an open modal is now exempt from the pin, by surface rather than by focus.
+
+- [#405](https://github.com/subshell-ai/subshell/pull/405) [`946b662`](https://github.com/subshell-ai/subshell/commit/946b6620faa8544aef45a31633530ec668840fbf) Thanks [@theogravity](https://github.com/theogravity)! - The folder picker now pages through huge listings instead of stopping at the first thousand entries. It walks the server's cursor as you scroll, virtualizes the rows so a 30,000-folder directory stays smooth, says so when a browse hit the server's cap, and stops re-replaying a walk every time the picker reopens. Starring a folder updates the cached listing in place instead of refetching every page.
+
+- [#404](https://github.com/subshell-ai/subshell/pull/404) [`edeb198`](https://github.com/subshell-ai/subshell/commit/edeb1987f30e4731588ecdce16a0297cecf53109) Thanks [@theogravity](https://github.com/theogravity)! - The explore endpoint now checks its cursor at the boundary: a malformed or oversized one gets a clear 400 instead of a confusing listing, and a huge-but-legal one simply answers empty. A browse that hits the folder cap now carries a `truncated` flag through the API so callers can say some folders are missing.
+
+- [#401](https://github.com/subshell-ai/subshell/pull/401) [`082da99`](https://github.com/subshell-ai/subshell/commit/082da99cb6518a00de0394e89953f5eb9d35dd56) Thanks [@theogravity](https://github.com/theogravity)! - The MCP SDKs move to 2.3.1, taking the published fixes for the transport
+  advisories. The pane MCP server and its e2e client speak stdio, so nothing was
+  exposed: this is hygiene, not a patch for a live hole.
+
+- [#409](https://github.com/subshell-ai/subshell/pull/409) [`9ab6c38`](https://github.com/subshell-ai/subshell/commit/9ab6c38ec2b6701cda16420928b19c7cb5915381) Thanks [@theogravity](https://github.com/theogravity)! - Keep a failed SSH-agent request pending until its genuine reply is discarded after a forged reply is rejected, so a later connection cannot receive the earlier request’s response.
+
+- [#406](https://github.com/subshell-ai/subshell/pull/406) [`78724d0`](https://github.com/subshell-ai/subshell/commit/78724d0c43fe839a416fc19f6c7d49813de2824e) Thanks [@theogravity](https://github.com/theogravity)! - Removing a workspace's last tab now retires the workspace instead of
+  refusing, matching how closing a subshell already behaved. The pane's
+  subshell keeps running; it just no longer sits in a workspace. Tab close
+  buttons and the rail's drag-out are enabled for the final tab, and the page
+  that lost its workspace lands somewhere sensible.
+
+- [#403](https://github.com/subshell-ai/subshell/pull/403) [`2bc4db0`](https://github.com/subshell-ai/subshell/commit/2bc4db04a0cea324a325bc4ae6a7895b6927e34a) Thanks [@theogravity](https://github.com/theogravity)! - The sidebar's bottom bar sits tighter on mouse-and-keyboard setups: its cells
+  drop from 44px to 36px on a fine pointer, pulling the bar from 53px to 45px.
+  Phones and other touch setups keep the roomy 44px touch targets.
+
+- [#401](https://github.com/subshell-ai/subshell/pull/401) [`082da99`](https://github.com/subshell-ai/subshell/commit/082da99cb6518a00de0394e89953f5eb9d35dd56) Thanks [@theogravity](https://github.com/theogravity)! - The sidebar's narrow icon rail is gone, and the panel is now the whole
+  sidebar. Its section cells dock as a centered icon-button bar at the panel's
+  bottom: Workspaces and Settings are links, Subshell for Mobile opens the
+  install dialog, and Account opens the profile card, its trigger keeping the
+  amber update dot. Inside Subshell Server, "Open in
+  browser" joins as the bar's last button, and the server status rows sit on
+  their own strip below it. Clicking a section link still lands on the page you
+  last visited there.
+  
+  Panel collapse retires with the rail, so the Subshell Server menu no longer
+  offers "Toggle Sidebar" and Cmd+B is free.
+  
+  Renaming a subshell now re-titles its open dock tab right away. The live feed
+  invalidates the workspace read a rename touches, so the old title no longer
+  sticks until the pane remounts.
+  
+  The touch key bar gained a Shift-Left key, so a touch user can send the
+  modified left arrow, for example to extend a selection, without a keyboard.
+  
+  The sidebar's workspace section sits tighter now that the header and its pane
+  list give back their extra bottom padding.
+
+- [#407](https://github.com/subshell-ai/subshell/pull/407) [`bcad421`](https://github.com/subshell-ai/subshell/commit/bcad421651cea8dfe410c8edef7d0f161a8098d0) Thanks [@theogravity](https://github.com/theogravity)! - The sidebar workspace picker sits tighter. The section heading drops its extra bottom padding and the pane list closes the gap under it, matching the tightened bottom bar.
+
 ## 2.4.0
 
 ### Minor Changes
