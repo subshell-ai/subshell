@@ -66,7 +66,8 @@ Shift-Left sends `ESC[1;2D`, the modified left-arrow sequence, alongside Shift-T
 The copy/input toggle remains available in both modes, with a confirmation toast
 shared with the action menu. Copy mode preserves the full row and its scroll
 position, disabling input buttons instead of removing them. The bar's scroller is explicitly exempt from the
-terminal's iOS page-scroll guard; every other shell scroller stays pinned.
+terminal's iOS page-scroll guard, as is the phone workspace tab strip's since 2026-10-20
+(`workspace-tabs.tsx`); every other shell scroller stays pinned.
 Paste reads text
 from the clipboard during the tap and calls xterm's `paste()` for newline
 normalization and bracketed-paste framing; raw key input is a different path.

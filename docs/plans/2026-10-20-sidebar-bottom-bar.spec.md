@@ -1,5 +1,7 @@
 # Spec: replace the mini sidebar rail with a bottom section bar
 
+**Amended 2026-10-20 by operator follow-ups:** the Subshell mark returned as the Workspaces cell icon; the Subshell for Mobile and Account cells are buttons (install dialog / profile card), not links.
+
 ## §1 Behavior
 
 The narrow icon rail (logo, four section icons, desktop "Open in browser") is

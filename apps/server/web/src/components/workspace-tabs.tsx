@@ -307,8 +307,8 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
           be reachable.
           `data-terminal-controls-scroller` opts this strip out of the
           terminal's foreign-scroll pin (`shouldResetForeignScroll`,
-          `lib/app-scroll-pin.ts`): while a pane's terminal is engaged — or
-          the page is idle with focus nowhere — that pin resets every
+          `lib/app-scroll-pin.ts`): while a pane's terminal is engaged, or the
+          page is idle with focus nowhere, that pin resets every
           non-exempt scroller outside the terminal to its origin, which on a
           phone zeroed the strip's `scrollLeft` mid-pan (the snap-back under
           the finger). The key bar's horizontal scroller is exempted the same

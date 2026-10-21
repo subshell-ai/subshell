@@ -100,8 +100,8 @@ workspace" speaks exactly one payload (`lib/subshell-dnd.ts`): handlers react
 ONLY to its MIME, which is what keeps xterm's file-drop and dockview's
 tab-drag untouched. Every label that names a machine reads `node.name`, never
 the id (root AGENTS.md: nothing rendered derives from the id).
-**Working on the rail (grouping, collapse prefs, row tooltips, the Needs
-Attention spotlight): read apps/server/web/docs/sidebar.md first.**
+**Working on the sidebar (grouping, group-collapse prefs, row tooltips, the
+Needs Attention spotlight): read apps/server/web/docs/sidebar.md first.**
 
 **The live feed has no cadence, and that is load-bearing for every reader.**
 One snapshot at connect, then a frame only when something changed: a snapshot
@@ -297,16 +297,17 @@ at sign-out and after sign-in.
   Subshell Client would leave a window with no title bar and no drag strip,
   unmovable.
 - **`isDesktop()`: "am I inside EITHER shell".** Exactly two surfaces use it,
-  and both work in both apps: the rail's **Open in browser** row
+  and both work in both apps: the section bar's **Open in browser** button
   (`components/app-sidebar.tsx`, last in the `<nav>`) and the same item in
-  `components/subshell-actions-menu.tsx` (`sidebar: true`, so the rail's
+  `components/subshell-actions-menu.tsx` (`sidebar: true`, so the sidebar's
   right-click menu carries it too).
 
 **The footer's app-update row is a server-desktop surface, and it is mounted
 where that is structural** (spec 2026-09-17 §5.3):
 `components/desktop/desktop-app-update-row.tsx`, read via
 `hooks/use-desktop-app-update.ts`, rides `desktop-sidebar.tsx`'s `footerEnd`
-above `UserMenu`: the rail `__root.tsx` only renders on `isServerDesktop()`, so
+below the bar's `UserMenu` cell: the desktop sidebar `__root.tsx` only renders
+on `isServerDesktop()`, so
 neither Subshell Client nor a browser can reach it. `desktop_app_update` reports
 THAT app's version and is granted to that window alone. It shows and never
 applies: [Update] raises the assistant at `app-update`. A shell predating the
@@ -320,7 +321,7 @@ expiry logic to drift.
 "desktop_open_in_browser", { path })`, the forgiving variant, so an older
 shell that knows no such command simply does nothing. Rust joins the path onto
 the window's OWN origin (the server app's loopback origin; the client app's
-pinned plane), and refuses anything that could name a host. The rail sends
+pinned plane), and refuses anything that could name a host. The bar sends
 `location.pathname + location.searchStr`; the menu sends `/subshells/<id>`.
 
 Two things the person will notice, and neither is something this feature

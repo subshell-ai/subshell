@@ -69,7 +69,7 @@ export function ExistingSubshellList({
   /** Toggles a row's membership in `selected`. */
   onToggle?: (id: string) => void;
   /**
-   * How many subshells exist BEFORE membership filtering — the caller's
+   * How many subshells exist BEFORE membership filtering: the caller's
    * unfiltered list length, once the read has settled. An empty candidate
    * list with this at 0 means nothing exists anywhere, which is not the same
    * claim as "everything is already here" (operator finding 2026-10-20: the
