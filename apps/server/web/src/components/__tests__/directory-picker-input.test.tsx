@@ -1,10 +1,12 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import type { InfiniteData } from "@tanstack/react-query";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { deploymentView } from "@/components/__tests__/helpers/deployment-view";
 import { blockedByName, DirectoryPickerInput } from "@/components/directory-picker-input";
 import { resetDesktopShellForTests } from "@/lib/desktop";
 import { SERVER_DEPLOYMENT_QUERY_KEY } from "@/lib/query-keys";
+import type { ExploreResult } from "@/types/files";
 import type { ServerDeployment } from "@/types/server-deployment";
 
 /**
@@ -52,6 +54,9 @@ function renderField(
   const result = render(field(current));
   return {
     ...result,
+    /** The test's own QueryClient, for asserting cache state directly (the
+     *  star patch's scoping is a cache fact, not a visible one). */
+    client,
     /** Focuses the input — what opens the panel now. */
     open: () => {
       fireEvent.focus(result.getByRole("textbox"));
@@ -97,13 +102,27 @@ function exploreBody(
  * Serves explore bodies per requested `path` query param, keyed by the
  * request URL's path. Unknown paths render as empty folders. `requested`
  * records every path fetched, in order — evidence of *what* was browsed,
- * not just what the panel ended up showing. PATCH /api/files/favorite
- * answers `{ ok: true }` and lands in `favorites` (the calls), so a test can
- * assert the star's wire shape.
+ * not just what the panel ended up showing. `urls` records every full
+ * request (pathname + search) so a paging test can assert the exact cursor
+ * that rode each request. `opts.pages` maps a cursor VALUE to the body that
+ * answers it, which is how the paged tests hang their second pages;
+ * `opts.failCursors` answers those cursors with a 500 instead, which is how
+ * a test plants a failure in the MIDDLE of a walk. PATCH
+ * /api/files/favorite answers `{ ok: true }` and lands in `favoriteCalls`
+ * (the calls), so a test can assert the star's wire shape.
  */
-function mockExplore(tree: Record<string, unknown>, opts: { nodeCode?: string; nodeStatus?: number } = {}) {
+function mockExplore(
+  tree: Record<string, unknown>,
+  opts: {
+    nodeCode?: string;
+    nodeStatus?: number;
+    pages?: Record<string, unknown>;
+    failCursors?: string[];
+  } = {},
+) {
   const requested: string[] = [];
   const requestedNode: (string | null)[] = [];
+  const urls: string[] = [];
   const favoriteCalls: { url: string; init?: unknown }[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown, init?: unknown) => {
@@ -115,6 +134,7 @@ function mockExplore(tree: Record<string, unknown>, opts: { nodeCode?: string; n
     const path = url.searchParams.get("path") ?? "";
     requested.push(path);
     requestedNode.push(url.searchParams.get("node"));
+    urls.push(`${url.pathname}${url.search}`);
     // A `nodeCode` answer models the too-old-node refusal (409 NODE_OUTDATED):
     // a structured body so `ApiError.code` carries the machine code.
     if (opts.nodeCode) {
@@ -129,6 +149,17 @@ function mockExplore(tree: Record<string, unknown>, opts: { nodeCode?: string; n
           { status: opts.nodeStatus ?? 409 },
         ),
       );
+    }
+    // A `failCursors` entry: the page fetch that fails mid-walk, which the
+    // picker must stop on instead of looping the dead endpoint.
+    const cursor = url.searchParams.get("cursor");
+    if (cursor !== null && opts.failCursors?.includes(cursor)) {
+      return Promise.resolve(new Response("nope", { status: 500 }));
+    }
+    // A paged follow-up: the cursor VALUE keys its canned page, answering
+    // whatever cursor string the client carried back.
+    if (cursor !== null && opts.pages && cursor in opts.pages) {
+      return Promise.resolve(new Response(JSON.stringify(opts.pages[cursor])));
     }
     // A `null` tree entry answers like the backend's 404: structured body,
     // not_found status — what ApiError carries the status on.
@@ -147,6 +178,7 @@ function mockExplore(tree: Record<string, unknown>, opts: { nodeCode?: string; n
   return {
     requested,
     requestedNode,
+    urls,
     favoriteCalls,
     restore: () => {
       globalThis.fetch = original;
@@ -165,6 +197,30 @@ function mockFetch(impl: (input: unknown, init?: unknown) => Promise<Response> |
 
 describe("DirectoryPickerInput", () => {
   afterEach(cleanup);
+
+  // The windowed folder list sizes its window from the scroller's
+  // clientHeight, and happy-dom has no layout engine to fill it in: every
+  // element answers 0, which the virtualizer reads as an invisible viewport
+  // and renders NO rows for (a zero-height outer size short-circuits the
+  // range to empty, so every listing test would assert against a DOM with
+  // nothing in it). Give every element a laid-out size for each test and
+  // restore the prototype getters after, so no other file inherits the
+  // fiction. 224px is what `h-56` is in a real browser; the rows themselves
+  // are sized from the component's fixed row-height constant, not measured,
+  // so the scroller's viewport is the only number that matters here.
+  let restoreViewport: () => void = () => {};
+  beforeEach(() => {
+    const proto = HTMLElement.prototype;
+    const widthDesc = Object.getOwnPropertyDescriptor(proto, "clientWidth");
+    const heightDesc = Object.getOwnPropertyDescriptor(proto, "clientHeight");
+    Object.defineProperty(proto, "clientWidth", { configurable: true, get: () => 400 });
+    Object.defineProperty(proto, "clientHeight", { configurable: true, get: () => 224 });
+    restoreViewport = () => {
+      if (widthDesc) Object.defineProperty(proto, "clientWidth", widthDesc);
+      if (heightDesc) Object.defineProperty(proto, "clientHeight", heightDesc);
+    };
+  });
+  afterEach(() => restoreViewport());
 
   it("focusing the input opens the panel and shows a loading row while the explore fetch is in flight", () => {
     const restore = mockFetch(() => new Promise<Response>(() => {})); // never resolves
@@ -313,6 +369,55 @@ describe("DirectoryPickerInput", () => {
     }
   });
 
+  // Favorites are per-machine since migration 0034 and the explore key names
+  // the machine, so the in-place star patch must reach ONLY the browsed
+  // machine's cached listings. A bare `["explore"]` prefix match let a star
+  // on one machine rewrite another's cached panel.
+  it("a star on a node's listing patches that node's cache and leaves the local listing's alone", async () => {
+    const { favoriteCalls, restore } = mockExplore({ "/srv": exploreBody("/srv", ["data"]) });
+    try {
+      const h = renderField({ value: "/srv", nodeId: "node-7" });
+      h.open();
+      await screen.findByText("data");
+      // A cached LOCAL listing of the same path, as an earlier local browse left it.
+      const localListing: InfiniteData<ExploreResult> = {
+        pageParams: [""],
+        pages: [exploreBody("/srv", ["data"])],
+      };
+      h.client.setQueryData(["explore", "/srv"], localListing);
+      fireEvent.click(screen.getByRole("button", { name: "Favorite /srv/data" }));
+      await waitFor(() => expect(favoriteCalls).toHaveLength(1));
+      // The browsed machine's listing gained the favorite...
+      const remote = h.client.getQueryData<InfiniteData<ExploreResult>>(["explore", "node-7", "/srv"]);
+      expect(remote?.pages[0]?.favorites.map((f) => f.path)).toEqual(["/srv/data"]);
+      // ...and the local cache is untouched, the very same object.
+      expect(h.client.getQueryData<InfiniteData<ExploreResult>>(["explore", "/srv"])).toBe(localListing);
+    } finally {
+      restore();
+    }
+  });
+
+  it("a local star patches the local listing and leaves another node's cached listing alone", async () => {
+    const { favoriteCalls, restore } = mockExplore({ "/srv": exploreBody("/srv", ["data"]) });
+    try {
+      const h = renderField({ value: "/srv" });
+      h.open();
+      await screen.findByText("data");
+      const remoteListing: InfiniteData<ExploreResult> = {
+        pageParams: [""],
+        pages: [exploreBody("/srv", ["data"])],
+      };
+      h.client.setQueryData(["explore", "node-7", "/srv"], remoteListing);
+      fireEvent.click(screen.getByRole("button", { name: "Favorite /srv/data" }));
+      await waitFor(() => expect(favoriteCalls).toHaveLength(1));
+      const local = h.client.getQueryData<InfiniteData<ExploreResult>>(["explore", "/srv"]);
+      expect(local?.pages[0]?.favorites.map((f) => f.path)).toEqual(["/srv/data"]);
+      expect(h.client.getQueryData<InfiniteData<ExploreResult>>(["explore", "node-7", "/srv"])).toBe(remoteListing);
+    } finally {
+      restore();
+    }
+  });
+
   it("switching machines while the panel is open re-anchors it to the new machine's home", async () => {
     // The folder on screen belongs to the filesystem the user just switched
     // AWAY from; "the listing" means nothing on the new machine. The panel
@@ -364,6 +469,49 @@ describe("DirectoryPickerInput", () => {
       expect(screen.queryByText("subshell")).toBeNull();
       // "/home" is fetched once at focus; the descend fetches the others.
       expect(requested.filter((p) => p === "/home/projects")).toHaveLength(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("a huge folder renders only a bounded window of rows, and a visible row still picks", async () => {
+    // The operator's freeze: `/tmp` answered 31k directories in 86 ms, and
+    // committing every row (two buttons each) in one React pass blocked the
+    // main thread before the listing ever painted. The committed row count
+    // must stay small no matter how many entries arrive, and the far end of
+    // the listing must not be in the DOM at all.
+    const names = Array.from({ length: 5000 }, (_, i) => `dir-${i}`);
+    const picks: string[] = [];
+    const { restore } = mockExplore({ "/tmp": exploreBody("/tmp", names) });
+    try {
+      renderField({ value: "/tmp", onChange: (p) => picks.push(p) });
+      fireEvent.focus(screen.getByRole("textbox"));
+      await screen.findByTitle("Open dir-0");
+      const rows = screen.getAllByTitle(/^Open dir-/);
+      // Bounded well below the entry count, and the last directory is not
+      // there: this is what used to be 5,000 committed rows.
+      expect(rows.length).toBeLessThan(150);
+      expect(screen.queryByTitle("Open dir-4999") === null).toBe(true);
+      // A row in the window behaves exactly like the old ordinary rows:
+      // one click selects the path and the panel descends.
+      fireEvent.click(screen.getByTitle("Open dir-0"));
+      expect(picks).toEqual(["/tmp/dir-0"]);
+      expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("/tmp/dir-0");
+    } finally {
+      restore();
+    }
+  });
+
+  it("a small listing still renders every row in full", async () => {
+    // Windowing is for huge folders only: with a few directories every row
+    // must be present, exactly as before.
+    const { restore } = mockExplore({ "/tmp": exploreBody("/tmp", ["alpha", "beta", "gamma"]) });
+    try {
+      renderField({ value: "/tmp" });
+      fireEvent.focus(screen.getByRole("textbox"));
+      await screen.findByTitle("Open alpha");
+      expect(screen.getAllByTitle(/^Open /)).toHaveLength(3);
+      expect(screen.getByTitle("Open gamma")).toBeDefined();
     } finally {
       restore();
     }
@@ -457,9 +605,14 @@ describe("DirectoryPickerInput", () => {
       const init = favoriteCalls[0].init as { method: string; body: string };
       expect(init.method).toBe("PATCH");
       expect(JSON.parse(init.body)).toEqual({ path: "/tmp/cache", favorite: true });
-      // The star is not a selection: value untouched, panel still open, and
-      // the invalidation refetched the current folder.
-      await waitFor(() => expect(requested.filter((p) => p === "/tmp").length).toBeGreaterThanOrEqual(2));
+      // The star is not a selection: value untouched, panel still open. And
+      // the walk is NOT re-queried: the star patches the cached listing in
+      // place (the Favorites section gains the path) rather than
+      // invalidating, which under the cursor walk would refetch every page
+      // the walk has loaded just to flip one star.
+      await screen.findByText("/tmp/cache");
+      expect(screen.getAllByText("Favorites")).toHaveLength(1);
+      expect(requested.filter((p) => p === "/tmp")).toHaveLength(1);
       expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("/tmp");
       expect(screen.queryByText("cache")).toBeDefined();
     } finally {
@@ -748,5 +901,227 @@ describe("DirectoryPickerInput", () => {
     } finally {
       restore();
     }
+  });
+
+  // The server pages LOCAL browses (200 entries per page) and the picker
+  // walks the cursors when the listing's tail comes into view. happy-dom has
+  // no scroll, so these tests drive the trigger the same way a small folder
+  // does in a real browser: a first page whose whole loaded listing sits
+  // inside the virtualizer's window.
+  describe("paged local listings", () => {
+    it("walks the cursor: the follow-up request carries it verbatim and page 2's rows render after page 1's", async () => {
+      // The cursor is opaque and needs encoding ("c 1" travels as c%201),
+      // which is exactly what the verbatim round trip must survive.
+      const page1 = { ...exploreBody("/big", ["aa", "bb"]), nextCursor: "c 1" };
+      const page2 = exploreBody("/big", ["cc", "dd"]);
+      const { urls, restore } = mockExplore({ "/big": page1 }, { pages: { "c 1": page2 } });
+      try {
+        renderField({ value: "/big" });
+        fireEvent.focus(screen.getByRole("textbox"));
+        await screen.findByTitle("Open cc");
+        // Exactly one follow-up request, and it names the cursor verbatim:
+        // percent-encoded on the wire, decoding back to the same value.
+        const followups = urls.filter((u) => u.includes("cursor="));
+        expect(followups).toHaveLength(1);
+        const second = new URL(followups[0], "http://localhost");
+        expect(second.pathname).toBe("/api/files/explore");
+        expect(second.searchParams.get("path")).toBe("/big");
+        expect(second.searchParams.get("cursor")).toBe("c 1");
+        expect(second.search).toContain("cursor=c%201");
+        // One continuous listing: page 2's folders follow page 1's.
+        expect(screen.getAllByTitle(/^Open /).map((n) => n.getAttribute("title"))).toEqual([
+          "Open aa",
+          "Open bb",
+          "Open cc",
+          "Open dd",
+        ]);
+        // Page 2 names no cursor, so the walk stops there: two requests total.
+        expect(urls).toHaveLength(2);
+      } finally {
+        restore();
+      }
+    });
+
+    it("a page of pure files pages on anyway: the tail counts folders, not raw entries", async () => {
+      // A page carries dirs AND files (the server pages the raw sorted
+      // listing), so page 2 here adds ZERO rows to the one-folder listing:
+      // the trigger must stay true through it rather than stall waiting for
+      // rows that never arrived.
+      const page1 = { ...exploreBody("/mixed", ["docs"]), nextCursor: "n2" };
+      const filesOnly = {
+        path: "/mixed",
+        parent: "/",
+        entries: [
+          { name: "a.txt", path: "/mixed/a.txt", kind: "file" },
+          { name: "b.txt", path: "/mixed/b.txt", kind: "file" },
+        ],
+        recent: [],
+        favorites: [],
+        nextCursor: "n3",
+      };
+      const page3 = exploreBody("/mixed", ["work"]);
+      const { urls, restore } = mockExplore({ "/mixed": page1 }, { pages: { n2: filesOnly, n3: page3 } });
+      try {
+        renderField({ value: "/mixed" });
+        fireEvent.focus(screen.getByRole("textbox"));
+        await screen.findByTitle("Open work");
+        expect(urls.filter((u) => u.includes("cursor=n2"))).toHaveLength(1);
+      } finally {
+        restore();
+      }
+    });
+
+    it("a first page with no folders at all stops the walk: an empty virtualizer cannot page", async () => {
+      // The node_modules shape: a files-only directory whose every page sits
+      // "inside the margin" forever, so walking it would fire hundreds of
+      // requests to render nothing. Page 1 still arrives (the query fetches
+      // it on mount, not through the predicate); a folder sorting past this
+      // first page needs a typed path, which beats the silent full-chain walk.
+      const filesOnly = {
+        path: "/files",
+        parent: "/",
+        entries: [{ name: "a.txt", path: "/files/a.txt", kind: "file" }],
+        recent: [],
+        favorites: [],
+        nextCursor: "c2",
+      };
+      const { urls, restore } = mockExplore(
+        { "/files": filesOnly },
+        { pages: { c2: exploreBody("/files", ["late-dir"]) } },
+      );
+      try {
+        renderField({ value: "/files" });
+        fireEvent.focus(screen.getByRole("textbox"));
+        await waitFor(() => expect(urls).toHaveLength(1));
+        await new Promise((r) => setTimeout(r, 100));
+        expect(urls).toHaveLength(1);
+        expect(screen.queryByTitle("Open late-dir") === null).toBe(true);
+      } finally {
+        restore();
+      }
+    });
+
+    it("stops walking once the cursor runs out, even with every row in view", async () => {
+      const { urls, restore } = mockExplore({ "/small": exploreBody("/small", ["one", "two"]) });
+      try {
+        renderField({ value: "/small" });
+        fireEvent.focus(screen.getByRole("textbox"));
+        await screen.findByTitle("Open two");
+        // Both rows fit the window, the same state that walks a NON-exhausted
+        // listing; with no cursor to spend the walk must not ask again.
+        await new Promise((r) => setTimeout(r, 50));
+        expect(urls).toHaveLength(1);
+        expect(urls[0].includes("cursor=")).toBe(false);
+      } finally {
+        restore();
+      }
+    });
+
+    it("a capped remote listing says so once, below the rows", async () => {
+      const capped = { ...exploreBody("/capped", ["a1", "a2"]), truncated: true };
+      const { restore } = mockExplore({ "/capped": capped });
+      try {
+        renderField({ value: "/capped" });
+        fireEvent.focus(screen.getByRole("textbox"));
+        await screen.findByTitle("Open a1");
+        expect(screen.getAllByText("The listing stops at 1,000 folders, so some may be missing.")).toHaveLength(1);
+      } finally {
+        restore();
+      }
+    });
+
+    it("an uncapped listing says nothing about a cap", async () => {
+      const { restore } = mockExplore({ "/full": exploreBody("/full", ["one"]) });
+      try {
+        renderField({ value: "/full" });
+        fireEvent.focus(screen.getByRole("textbox"));
+        await screen.findByTitle("Open one");
+        expect(screen.queryByText("The listing stops at 1,000 folders, so some may be missing.") === null).toBe(true);
+      } finally {
+        restore();
+      }
+    });
+
+    it("Recent and Favorites render once across paged loads: page 1 is the only shortcut source", async () => {
+      // The server rides recent/favorites on EVERY page (each must stand as a
+      // usable answer). Pages 2 and 3 carry the same arrays, so a reader that
+      // took them per page would draw the sections again per cursor.
+      const recent = [{ path: "/srv/app", label: "app" }];
+      const favorites = [{ path: "/srv/keep", label: null }];
+      const page1 = { ...exploreBody("/deep", ["aa"], recent, favorites), nextCursor: "k2" };
+      const page2 = { ...exploreBody("/deep", ["bb"], recent, favorites), nextCursor: "k3" };
+      const page3 = exploreBody("/deep", ["cc"], recent, favorites);
+      const { urls, restore } = mockExplore({ "/deep": page1 }, { pages: { k2: page2, k3: page3 } });
+      try {
+        renderField({ value: "/deep" });
+        fireEvent.focus(screen.getByRole("textbox"));
+        // The chain walks on to exhaustion: 3 pages, one set of sections.
+        await screen.findByTitle("Open cc");
+        expect(urls).toHaveLength(3);
+        expect(screen.getAllByText("app")).toHaveLength(1);
+        expect(screen.getAllByText("/srv/keep")).toHaveLength(1);
+        expect(screen.getAllByText("Recent")).toHaveLength(1);
+        expect(screen.getAllByText("Favorites")).toHaveLength(1);
+      } finally {
+        restore();
+      }
+    });
+
+    it("one path landing in two pages (the server re-scans per request) renders one row", async () => {
+      // A file added or removed between the two page fetches shifts the raw
+      // offsets, so the same entry can arrive twice. Row keys are paths: a
+      // second copy would be a duplicate key and a doubled folder row.
+      const page1 = { ...exploreBody("/shift", ["a"]), nextCursor: "c2" };
+      const page2 = exploreBody("/shift", ["a", "b"]);
+      const { urls, restore } = mockExplore({ "/shift": page1 }, { pages: { c2: page2 } });
+      try {
+        renderField({ value: "/shift" });
+        fireEvent.focus(screen.getByRole("textbox"));
+        await screen.findByTitle("Open b");
+        expect(screen.getAllByTitle("Open a")).toHaveLength(1);
+        expect(screen.getAllByTitle(/^Open /).map((n) => n.getAttribute("title"))).toEqual(["Open a", "Open b"]);
+        expect(urls).toHaveLength(2);
+      } finally {
+        restore();
+      }
+    });
+
+    // "Data first, error second": a page-1 failure has nothing to keep and
+    // shows the error UI; a mid-walk failure has a fully usable listing in
+    // cache and must neither replace it nor keep asking.
+    it("a failed first page shows the error UI: there is no listing to keep", async () => {
+      const { restore } = mockExplore({ "/gone": null });
+      try {
+        renderField({ value: "/gone" });
+        fireEvent.focus(screen.getByRole("textbox"));
+        await screen.findByText(/doesn't exist/);
+      } finally {
+        restore();
+      }
+    });
+
+    it("a failed page keeps the walked listing on screen and stops the walk", async () => {
+      // The folder listed fine, so the browse-failure message must not cover
+      // it. And the walk STOPS on the failure: the query's error is sticky
+      // until some fetch succeeds and this panel forces none, so a predicate
+      // that ignored it would re-fire on every flag flip and hammer the dead
+      // endpoint at network speed.
+      const page1 = { ...exploreBody("/big", ["aa", "bb"]), nextCursor: "boom" };
+      const { urls, restore } = mockExplore({ "/big": page1 }, { failCursors: ["boom"] });
+      try {
+        renderField({ value: "/big" });
+        fireEvent.focus(screen.getByRole("textbox"));
+        await screen.findByTitle("Open aa");
+        await waitFor(() => expect(urls.filter((u) => u.includes("cursor=boom"))).toHaveLength(1));
+        // The listing is still the panel: no full-panel error over it.
+        expect(screen.queryByText("Couldn't browse this path.")).toBeNull();
+        expect(screen.getByTitle("Open bb")).toBeDefined();
+        // Across a settled wait: exactly page 1 plus the one failed page.
+        await new Promise((r) => setTimeout(r, 150));
+        expect(urls).toHaveLength(2);
+      } finally {
+        restore();
+      }
+    });
   });
 });
