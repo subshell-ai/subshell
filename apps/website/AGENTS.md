@@ -42,9 +42,8 @@ media refresh. Apply them to future recordings as well as this demo.
   tabs to show related work, such as implementation and tests. Don't switch
   between the Workspaces and Subshells sidebar sections or visit the dashboard
   during the clip.
-- Keep the phone sidebar closed. Keep desktop navigation unobtrusive; the
-  desktop recording normally uses the collapsed mini rail. For a clip specifically
-  demonstrating subagents, keep the workspace sidebar open and show its compact
+- Keep the phone sidebar closed. Keep the desktop workspace sidebar visible, including its bottom navigation
+  bar. For a clip demonstrating subagents, show its compact
   parent arrow and connected child branches. Preserve the tab
   strip so the relationship between the subshells stays clear.
 - Use real agent execution and real output. Trim idle waits, but preserve the
@@ -92,15 +91,14 @@ run tests, and trims idle waiting time. Never fabricate terminal output or add
 a notification that the recorded workflow doesn't produce.
 The root README uses an optimized animated GIF linked to the full-quality MP4
 because GitHub strips repository-hosted HTML video elements.
-Terminal font sizes are 20px in the desktop subagent clip (22px when the sidebar
-is collapsed) and 18px on mobile. The desktop capture
+Terminal font sizes are 20px in the desktop subagent clip and 18px on mobile. The desktop capture
 uses a compact viewport so the text stays large when embedded in the page;
 higher recording resolution alone does not make text more legible. Use
 `bun e2e/capture-product-demo.ts --subagents` to refresh only the desktop
 clip, its poster, and the README animation.
 Use `--mobile-only` to refresh the phone clip without replacing the desktop
 subagent demonstration. The sidebar has one workspace panel with a lower
-Subshells section; don't restore the removed Subshells mini-rail icon in captures.
+Subshells section and a bottom navigation bar; there is no mini rail or desktop panel collapse.
 Inspect frames for layout changes before encoding; changing viewport during a
 recording is not an acceptable device transition.
 
