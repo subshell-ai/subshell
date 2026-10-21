@@ -1,5 +1,15 @@
 # @internal/node
 
+## 2.2.2
+
+### Patch Changes
+
+- [#401](https://github.com/subshell-ai/subshell/pull/401) [`082da99`](https://github.com/subshell-ai/subshell/commit/082da99cb6518a00de0394e89953f5eb9d35dd56) Thanks [@theogravity](https://github.com/theogravity)! - The MCP SDKs move to 2.3.1, taking the published fixes for the transport
+  advisories. The pane MCP server and its e2e client speak stdio, so nothing was
+  exposed: this is hygiene, not a patch for a live hole.
+
+- [#409](https://github.com/subshell-ai/subshell/pull/409) [`9ab6c38`](https://github.com/subshell-ai/subshell/commit/9ab6c38ec2b6701cda16420928b19c7cb5915381) Thanks [@theogravity](https://github.com/theogravity)! - Keep a failed SSH-agent request pending until its genuine reply is discarded after a forged reply is rejected, so a later connection cannot receive the earlier request’s response.
+
 ## 2.2.1
 
 ### Patch Changes

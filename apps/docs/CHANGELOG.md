@@ -1,5 +1,11 @@
 # @internal/docs
 
+## 0.10.1
+
+### Patch Changes
+
+- [#409](https://github.com/subshell-ai/subshell/pull/409) [`9ab6c38`](https://github.com/subshell-ai/subshell/commit/9ab6c38ec2b6701cda16420928b19c7cb5915381) Thanks [@theogravity](https://github.com/theogravity)! - Refresh screenshots and navigation instructions for the sidebar bottom bar, and explain the walking folder picker.
+
 ## 0.10.0
 
 ### Minor Changes

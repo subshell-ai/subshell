@@ -1,5 +1,11 @@
 # @internal/website
 
+## 0.2.17
+
+### Patch Changes
+
+- [#410](https://github.com/subshell-ai/subshell/pull/410) [`42a68e3`](https://github.com/subshell-ai/subshell/commit/42a68e35b379781ba2f28093d27b4d4b55779d7a) Thanks [@theogravity](https://github.com/theogravity)! - Refresh the desktop and phone demonstrations, posters, and feature screenshots for the sidebar bottom bar and current workspace layout.
+
 ## 0.2.16
 
 ### Patch Changes
