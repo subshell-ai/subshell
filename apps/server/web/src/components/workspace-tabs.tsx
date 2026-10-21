@@ -304,8 +304,17 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
           this strip. It is the only add-a-pane path guaranteed to work on
           touch, and with enough panes to overflow, a strip it lived inside
           would require scrolling to reach the one control that must always
-          be reachable. */}
-        <div className="flex min-w-0 items-stretch gap-0 overflow-x-auto border-b">
+          be reachable.
+          `data-terminal-controls-scroller` opts this strip out of the
+          terminal's foreign-scroll pin (`shouldResetForeignScroll`,
+          `lib/app-scroll-pin.ts`): while a pane's terminal is engaged — or
+          the page is idle with focus nowhere — that pin resets every
+          non-exempt scroller outside the terminal to its origin, which on a
+          phone zeroed the strip's `scrollLeft` mid-pan (the snap-back under
+          the finger). The key bar's horizontal scroller is exempted the same
+          way; a tab strip that switches which terminal you see is a control
+          of that terminal, not foreign scroll. */}
+        <div data-terminal-controls-scroller className="flex min-w-0 items-stretch gap-0 overflow-x-auto border-b">
           {detail.panes.map((pane) => (
             <WorkspaceTab
               key={pane.id}
