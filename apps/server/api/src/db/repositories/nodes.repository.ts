@@ -1,9 +1,12 @@
+import type { NodeSystemSpecs } from "@internal/subshell-protocol";
 import { BaseRepository } from "@/db/repositories/base.repository.js";
 import type { MaintenanceSource, NewNode, NodeStatus, NodeTable } from "@/db/types/nodes.db-types.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 
 /** Fields a `ready` frame carries about the machine behind a node (spec §5.3). */
 export type NodeReadyReport = {
+  /** Last reported host capacity. */
+  systemSpecs?: NodeSystemSpecs;
   /** subshell version reported by the agent */
   agentVersion: string;
   /** node protocol version reported by the agent */
@@ -66,6 +69,23 @@ export class NodesRepository extends BaseRepository {
       })
       .returningAll()
       .executeTakeFirstOrThrow();
+  }
+
+  /** Saves advisory metadata without changing launch permissions. */
+  async setCrossAgentGuidance(
+    id: string,
+    crossCommNotes: string | null,
+    recommendedStartingDirs: string[],
+  ): Promise<void> {
+    await this.db
+      .updateTable("nodes")
+      .set({
+        crossCommNotes,
+        recommendedStartingDirs: JSON.stringify(recommendedStartingDirs),
+        updatedAt: new Date().toISOString(),
+      })
+      .where("id", "=", id)
+      .execute();
   }
 
   /** One node by id, or undefined (ids are never probed across owners — callers gate). */
@@ -172,6 +192,7 @@ export class NodesRepository extends BaseRepository {
         arch: r.arch,
         hostname: r.hostname,
         capabilities: JSON.stringify(r.capabilities),
+        ...(r.systemSpecs ? { systemSpecs: JSON.stringify(r.systemSpecs) } : {}),
         status: "online",
         lastSeenAt: now,
         updatedAt: now,

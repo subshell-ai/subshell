@@ -6,6 +6,7 @@ import {
   type DockviewReadyEvent,
   type IDockviewPanelProps,
 } from "dockview-react";
+import { useSubshellDrop } from "@/hooks/use-subshell-drop";
 import "dockview-react/dist/styles/dockview.css";
 import { apiFetch, Button, errMessage } from "@internal/node-admin";
 import { useQueryClient } from "@tanstack/react-query";
@@ -23,7 +24,7 @@ import { useDebouncedSave } from "@/hooks/use-debounced-save";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { invalidateWorkspaceMembership } from "@/hooks/use-workspaces";
 import { confirmCloseSubshell } from "@/lib/subshell-confirmations";
-import { acceptsSubshellDrag, readSubshellDrag } from "@/lib/subshell-dnd";
+import { acceptsSubshellDrag } from "@/lib/subshell-dnd";
 import { onWorkspacePaneFocusRequest, setWorkspaceFocusedId, takePaneFocusOnArrive } from "@/lib/workspace-focus";
 import {
   normalizeLegacyLayout,
@@ -93,6 +94,7 @@ export interface WorkspaceDockProps {
 export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: WorkspaceDockProps): JSX.Element {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const readSubshellDrop = useSubshellDrop();
   const apiRef = useRef<DockviewApi | null>(null);
   // Pane ids this component currently has a reason to consider already
   // tiled. The ongoing reconciliation effect below diffs against this — not
@@ -515,7 +517,7 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
       e.preventDefault();
       dragDepthRef.current = 0;
       setDropActive(false);
-      const id = readSubshellDrag(e.dataTransfer);
+      const id = readSubshellDrop(e.dataTransfer);
       if (!id) return;
       // If it is already here, just show it (regression #13). The server's
       // add is idempotent since 0058, so a stale pane list can no longer
@@ -530,7 +532,7 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
       // the active panel, exactly what "add it over there" means.
       void handleAdd(id, "right");
     },
-    [detail.panes, handleAdd],
+    [detail.panes, handleAdd, readSubshellDrop],
   );
 
   const contextValue = useMemo<WorkspaceDockContextValue>(

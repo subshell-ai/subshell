@@ -1,4 +1,9 @@
-import { type NodeSshFingerprintReport, parseNodeSshFingerprintReport } from "@internal/subshell-protocol";
+import { readSystemSpecs } from "@internal/pane-runtime";
+import {
+  type NodeSshFingerprintReport,
+  parseNodeSshFingerprintReport,
+  parseNodeSystemSpecs,
+} from "@internal/subshell-protocol";
 import { type Static, t } from "elysia";
 import { db } from "@/db/index.js";
 import { NodeAllowedDirsRepository } from "@/db/repositories/node-allowed-dirs.repository.js";
@@ -87,6 +92,18 @@ export const InventoryStaleSchema = t.Boolean({
 
 /** One node as the registry routes render it — no secrets, no machine keys. */
 export const NodeViewSchema = t.Object({
+  systemSpecs: t.Nullable(
+    t.Object({
+      osRelease: t.String({ description: "Kernel/OS release" }),
+      cpuModel: t.Nullable(t.String({ description: "CPU model when reported by the operating system" })),
+      logicalCpuCount: t.Number({ description: "Logical CPUs visible to the node process" }),
+      totalMemoryBytes: t.Number({
+        description: "Total host RAM in bytes, not current availability or a container quota",
+      }),
+      reportedAt: t.String({ description: "ISO timestamp of this capacity report; may be stale while offline" }),
+    }),
+    { description: "Last hardware report, or null when no report is available" },
+  ),
   id: t.String({ description: "Node id (the control-plane host is literally 'local')" }),
   name: t.String({ description: "Display name (unique per owner)" }),
   kind: t.Union([t.Literal("local"), t.Literal("agent")], { description: "Control-plane host vs enrolled node" }),
@@ -132,6 +149,10 @@ export const NodeViewSchema = t.Object({
   }),
   capabilities: t.Array(t.String({ description: "Capability string" }), {
     description: "Capability strings from `ready` (empty when none reported)",
+  }),
+  crossCommNotes: t.Nullable(t.String({ description: "User-authored discovery guidance for calling agents" })),
+  recommendedStartingDirs: t.Array(t.String({ description: "Suggested absolute starting directory" }), {
+    description: "Suggestions only; existing directory permissions still apply",
   }),
   allowedDirs: t.Array(t.String({ description: "Absolute directory a subshell may be launched under" }), {
     description:
@@ -423,6 +444,14 @@ function nodeViewBase(
     // Empty = unrestricted (see the schema note). Passed in rather than read
     // here so the list path can batch one query for every row.
     allowedDirs,
+    systemSpecs:
+      row.kind === "local"
+        ? readSystemSpecs()
+        : row.systemSpecs
+          ? parseNodeSystemSpecs(JSON.parse(row.systemSpecs))
+          : null,
+    crossCommNotes: row.crossCommNotes ?? null,
+    recommendedStartingDirs: row.recommendedStartingDirs ? (JSON.parse(row.recommendedStartingDirs) as string[]) : [],
     id: row.id,
     name: row.name,
     kind: row.kind,

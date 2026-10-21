@@ -1,3 +1,4 @@
+import type { NodeSystemSpecs } from "@internal/subshell-protocol";
 /**
  * Shared node view model — the hand-written mirror of the backend's
  * `node-view.ts → NodeViewSchema` (spec 2026-08-31 §9), mirroring how
@@ -70,6 +71,12 @@ export interface NodeHarness {
 
 /** One node as the registry renders it — no secrets, no machine keys. */
 export interface Node {
+  /** Last reported host capacity; older nodes may not report it. */
+  systemSpecs?: NodeSystemSpecs | null;
+  /** Discovery guidance from the node owner, when served by the control plane. */
+  crossCommNotes?: string | null;
+  /** Suggested starting directories, independent of directory permissions. */
+  recommendedStartingDirs?: string[];
   /** Node id (the control-plane host is literally "local") */
   id: string;
   /** Display name (unique per owner) */

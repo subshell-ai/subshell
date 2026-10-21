@@ -1,4 +1,4 @@
-import { Button } from "@internal/node-admin";
+import { Button, FormSectionTitle } from "@internal/node-admin";
 import { CircleAlert } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { BrowserKeyFields, type BrowserKeySelection } from "@/components/connect/browser-key-fields";
@@ -151,6 +151,7 @@ export function SshWizard({
         <SshQueryStatus query={readiness} label="connecting machines" />
         <SshMachineStep
           machines={machines}
+          loaded={!readiness.isPending && !readiness.isError}
           value={draft.nodeId}
           onChange={(nodeId) => patch({ nodeId })}
           label="Connect from"
@@ -168,9 +169,9 @@ export function SshWizard({
           ready={machine?.canConnect ?? false}
         />
         <fieldset className="flex min-w-0 flex-col gap-2">
-          <legend id="ssh-authentication-heading" className="mb-2 font-strong text-label">
+          <FormSectionTitle as="legend" id="ssh-authentication-heading" className="mb-3">
             Authentication
-          </legend>
+          </FormSectionTitle>
           <RadioGroup
             aria-labelledby="ssh-authentication-heading"
             value={draft.authentication ?? (useRemote ? "remote" : "connecting")}
@@ -238,6 +239,7 @@ export function SshWizard({
                         {!noOtherKeyNodes && (
                           <SshMachineStep
                             machines={keyMachines}
+                            loaded={!readiness.isPending && !readiness.isError}
                             value={draft.keyHome}
                             onChange={(keyHome) => {
                               patch({ keyHome, authentication: "remote" });

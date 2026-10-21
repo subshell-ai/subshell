@@ -16,6 +16,7 @@ const agent: PresetRow = {
   configIsolation: 1,
   restartOnExit: 0,
   crossCommEnabled: 1,
+  crossCommNotes: "Use for reviews.",
   nodeId: "node-one",
   workingDir: "/work",
   promptBlocks: '[{"kind":"custom","description":"Task","body":"Review this"}]',
@@ -40,6 +41,12 @@ const ssh: SshPreset = {
   updatedAt: "now",
 };
 describe("preset files v1", () => {
+  it("accepts 8,000 characters of notes and rejects 8,001 on import", () => {
+    const file = (length: number) =>
+      JSON.stringify(presetFileFromRow({ ...agent, crossCommNotes: "x".repeat(length) }));
+    expect(parsePresetFile(file(8_000)).preset).toHaveProperty("crossCommNotes", "x".repeat(8_000));
+    expect(() => parsePresetFile(file(8_001))).toThrow("crossCommNotes");
+  });
   it("round-trips every agent setting without ownership or grants", () => {
     const file = presetFileFromRow(agent);
     expect(file.version).toBe(1);
@@ -53,6 +60,7 @@ describe("preset files v1", () => {
       configIsolation: true,
       restartOnExit: false,
       crossCommEnabled: true,
+      crossCommNotes: "Use for reviews.",
     });
     for (const field of ["id", "userId", "access", "ownerName", "createdAt", "updatedAt", "shares"])
       expect(field in preset).toBe(false);

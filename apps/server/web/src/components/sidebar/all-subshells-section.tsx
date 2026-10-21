@@ -4,7 +4,8 @@ import { useState } from "react";
 import { ActionsMenu } from "@/components/actions-menu";
 import { ListLoadError } from "@/components/list-load-error";
 import { useQuickAdd } from "@/components/quick-add";
-import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
+import { SidebarGroupHeading } from "@/components/sidebar/sidebar-group-heading";
+import { SubshellTreeRow } from "@/components/sidebar/subshell-tree-row";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useNodes } from "@/hooks/use-nodes";
 import { useSubshellLabels } from "@/hooks/use-subshell-labels";
@@ -13,6 +14,7 @@ import { useWorkspaces } from "@/hooks/use-workspaces";
 import { sortByStatus } from "@/lib/subshell-indicator";
 import { groupSubshellsByNode } from "@/lib/subshell-node-groups";
 import { sectionsByNode, sectionsByStatus } from "@/lib/subshell-sections";
+import { subshellTree } from "@/lib/subshell-tree";
 import { requestWorkspacePaneFocus, useWorkspaceFocusedId } from "@/lib/workspace-focus";
 
 const GROUP_KEY = "subshell.sidebarGroupBy";
@@ -54,15 +56,16 @@ export function AllSubshellsSection({
   const labelsFor = useSubshellLabels();
   const { data: nodes } = useNodes();
   const [groupBy, setGroupBy] = useState<GroupBy>(savedGroupBy);
-  const sorted = sortByStatus((results.data ?? []).filter((row) => !excludeIds?.has(row.id)));
+  const sorted = sortByStatus((results.data ?? []).filter((row) => row.crossAgent || !excludeIds?.has(row.id)));
+  const { roots, children } = subshellTree(sorted);
   const sections =
     groupBy === "machine"
       ? sectionsByNode(
-          groupSubshellsByNode(sorted, nodes?.nodes, { unanswered: nodes === undefined, groupShared: true }),
+          groupSubshellsByNode(roots, nodes?.nodes, { unanswered: nodes === undefined, groupShared: true }),
         )
       : groupBy === "status"
-        ? sectionsByStatus(sorted)
-        : [{ key: "all", label: "", title: "", subshells: sorted }];
+        ? sectionsByStatus(roots)
+        : [{ key: "all", label: "", title: "", subshells: roots }];
   const addSubshell = () => {
     if (workspaceId) {
       void navigate({ to: "/workspaces/$id", params: { id: workspaceId }, search: { picker: true } });
@@ -124,28 +127,29 @@ export function AllSubshellsSection({
         <ListLoadError message="Couldn’t load subshells." retry={results.refetch} busy={results.isFetching} />
       ) : results.isLoading ? (
         <p className="px-3 text-detail text-muted-foreground">Loading subshells…</p>
-      ) : sorted.length ? (
+      ) : roots.length ? (
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1 pb-2">
           {sections.map((section) => (
             <div key={section.key}>
-              {section.label && (
-                <h3 className="px-3 py-1 font-strong text-detail text-muted-foreground">{section.label}</h3>
-              )}
+              {section.label && <SidebarGroupHeading>{section.label}</SidebarGroupHeading>}
               {section.subshells.map((subshell) => (
-                <SubshellRecentRow
+                <SubshellTreeRow
                   key={subshell.id}
                   subshell={subshell}
-                  focused={Boolean(workspaceId && focusedId === subshell.id)}
-                  inActiveWorkspace={memberIds.has(subshell.id)}
-                  {...labelsFor(subshell)}
+                  focusedId={workspaceId ? focusedId : null}
+                  childrenByParent={children}
+                  memberIds={memberIds}
+                  showMembership
+                  workspaceId={workspaceId}
+                  labelsFor={labelsFor}
                   onOpen={
                     workspaceId
-                      ? () => {
-                          if (requestWorkspacePaneFocus(subshell.id, workspaceId)) return;
+                      ? (selected) => {
+                          if (requestWorkspacePaneFocus(selected.id, workspaceId)) return;
                           void navigate({
                             to: "/workspaces/$id",
                             params: { id: workspaceId },
-                            search: { add: subshell.id, dir: "within" },
+                            search: { add: selected.id, dir: "within" },
                           });
                         }
                       : undefined

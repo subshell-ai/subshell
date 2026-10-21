@@ -60,11 +60,17 @@ Returns the same session view as `list_subshells`. Names match exact spelling fi
 
 Arguments: `{}`. Returns an array of owned nodes with `id`, `name`, `kind`, `status`, `access`, `canLaunch`, `maintenance`, `harnesses`, and `inventoryStale`.
 
+`os` and `arch` identify the operating system and CPU architecture. `systemSpecs` contains `osRelease`, `cpuModel`, `logicalCpuCount`, `totalMemoryBytes`, and `reportedAt`. These are host capacities, not current free resources or container quotas. Offline nodes retain their last report; a null report means the node hasn't supplied specs. `capabilities` lists node protocol features, while `harnesses` describes available agent software.
+
+`crossCommNotes` contains user-authored context about the node. `recommendedStartingDirs` lists suggested absolute paths. These suggestions don't grant or restrict directory access; launch permissions still apply. Read the guidance before choosing a node or working directory.
+
 Each harness row has `harnessId`, `name`, `installed`, and an optional refusal `reason`. `inventoryStale` identifies cached detection. Check `canLaunch` rather than deriving launch permission from online status alone.
 
 ## list_presets
 
 Arguments: `{}`. Returns agent presets and harness catalog entries with `id`, `name`, and `harnessId`; SSH presets are dashboard-only and never appear here.
+
+Real presets include `crossCommNotes` for user-authored guidance, plus `nodeId` and `workingDir` for their saved launch defaults. Notes help the calling agent choose a preset; they aren't appended to the launched subshell's prompt.
 
 Real presets include `crossCommReady`, true when communication is enabled and the preset supplies a node and directory. Harness catalog rows have `catalogOnly: true`; an agent harness catalog row is informational and needs a human to save a preset before it can launch, but a plain terminal harness can launch presetless straight from `create_subshell`.
 

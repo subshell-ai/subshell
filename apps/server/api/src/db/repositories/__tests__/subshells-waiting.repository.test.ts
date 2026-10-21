@@ -9,6 +9,7 @@ import * as nodesMigration from "@/db/migrations/0017-nodes.js";
 import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.js";
 import * as presetsMigration from "@/db/migrations/0027-presets.js";
 import * as crossAgentMigration from "@/db/migrations/0039-subshell-cross-agent.js";
+import * as subshellParentMigration from "@/db/migrations/0060-subshell-parent.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { Database } from "@/db/types/index.js";
@@ -35,6 +36,7 @@ async function freshDb(): Promise<Kysely<Database>> {
   await subshellRenameMigration.up(db as Kysely<any>); // renamed schema the code sees
   await presetsMigration.up(db as Kysely<any>); // presetId/harnessId columns
   await crossAgentMigration.up(db as Kysely<any>); // subshells.cross_agent — SubshellsRepository.create writes it (2026-09-25)
+  await subshellParentMigration.up(db as Kysely<any>);
   return db;
 }
 

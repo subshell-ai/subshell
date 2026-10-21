@@ -1,5 +1,5 @@
 import { hostname } from "node:os";
-import { TmuxRunner } from "@internal/pane-runtime";
+import { readSystemSpecs, TmuxRunner } from "@internal/pane-runtime";
 import {
   type CommandClaims,
   JtiLru,
@@ -368,6 +368,7 @@ function readyEvent(
     os: mapOs(process.platform),
     arch: process.arch,
     hostname: hostname(),
+    systemSpecs: readSystemSpecs(),
     dataDir: config.dataDir,
     // Phase 2 (Task 4): the capability set advertises the phase-2 command
     // surface. `uploads` names the terminal-upload relay pipeline; `mcp`

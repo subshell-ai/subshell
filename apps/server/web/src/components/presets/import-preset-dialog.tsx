@@ -1,4 +1,15 @@
-import { ApiError, apiPost, Button, errMessage, Input } from "@internal/node-admin";
+import {
+  ApiError,
+  apiPost,
+  Button,
+  errMessage,
+  FormSectionTitle,
+  HelperCaption,
+  Input,
+  Label,
+  Switch,
+} from "@internal/node-admin";
+import { CROSS_AGENT_NOTES_MAX } from "@internal/subshell-protocol";
 import { useStore } from "@tanstack/react-form";
 import { useEffect, useRef, useState } from "react";
 import { FactList } from "@/components/fact-list";
@@ -14,6 +25,8 @@ import {
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { ErrorNotice, WarningNotice } from "@/components/ui/notice";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { WorkingDirField } from "@/components/working-dir-field";
 import { useNodes } from "@/hooks/use-nodes";
 import { useInvalidatePresets } from "@/hooks/use-presets";
 import { type FieldProblems, makeForm, useSubmitDisabled, useSubmitDisabledReason } from "@/lib/form";
@@ -31,7 +44,7 @@ function importProblems(preset: ImportedPreset | null): FieldProblems {
   const result = PresetFileSchema.safeParse({ format: "subshell-preset", version: 1, preset });
   if (!result.success) return { preset: result.error.issues[0]?.message ?? "Check the preset settings." };
   if (preset.kind === "agent" && preset.crossCommEnabled && !preset.nodeId)
-    return { preset: "Choose a launch node for cross-subshell communication." };
+    return { preset: "Choose a launch machine, or turn off cross-agent communication to choose when launching." };
   if (preset.kind === "ssh" && !preset.nodeId) return { preset: "Choose a connecting node." };
   if (preset.kind === "ssh" && preset.authentication === "remote" && !preset.keyHome)
     return { preset: "Choose a node to supply the SSH keys." };
@@ -85,7 +98,7 @@ export function ImportPresetDialog({
           return;
         }
         setError(
-          err instanceof ApiError && err.status === 422
+          preset.kind === "ssh" && err instanceof ApiError && err.status === 422
             ? "The SSH destination couldn't be verified. Review its connection choices in a new SSH preset before saving it."
             : errMessage(err, "Couldn't import this preset. Check its settings and try again."),
         );
@@ -233,12 +246,84 @@ export function ImportPresetDialog({
                   )}
                 </Field>
                 {nodeField(preset.kind === "ssh" ? "Connect from" : "Launch node", "nodeId", preset.kind === "agent")}
+                {preset.kind === "agent" && (
+                  <Field>
+                    <FieldLabel htmlFor="import-working-dir">Working directory</FieldLabel>
+                    <fieldset disabled={busy}>
+                      <WorkingDirField
+                        id="import-working-dir"
+                        value={preset.workingDir ?? ""}
+                        onChange={(workingDir) => {
+                          if (!busy) form.setFieldValue("preset", { ...preset, workingDir: workingDir || null });
+                        }}
+                        placeholder="Choose when launching"
+                        clearOption="Choose when launching"
+                        nodeId={preset.nodeId ?? undefined}
+                        nodeName={nodes.data?.nodes.find((node) => node.id === preset.nodeId)?.name}
+                      />
+                    </fieldset>
+                  </Field>
+                )}
                 {preset.kind === "ssh" &&
                   preset.authentication === "remote" &&
                   nodeField("Use keys from", "keyHome", false)}
-                <p className="text-detail text-muted-foreground">
+                <HelperCaption>
                   Choose nodes on this instance. Access and availability are checked before the preset is saved.
-                </p>
+                </HelperCaption>
+                {preset.kind === "agent" && (
+                  <section className="flex flex-col gap-3">
+                    <FormSectionTitle>Cross-agent communication</FormSectionTitle>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="import-cross-comm"
+                        checked={preset.crossCommEnabled}
+                        disabled={busy}
+                        onCheckedChange={(crossCommEnabled) =>
+                          form.setFieldValue("preset", { ...preset, crossCommEnabled })
+                        }
+                      />
+                      <Label htmlFor="import-cross-comm">Enable agents to create subshells with this preset</Label>
+                    </div>
+                    <HelperCaption>
+                      Agents use this preset through MCP when enabled. Turn this off to import without a launch machine;
+                      you can choose one when launching and enable cross-agent communication later.
+                    </HelperCaption>
+                    {preset.crossCommEnabled && (
+                      <>
+                        {!preset.nodeId && (
+                          <p className="text-detail text-warning">
+                            Choose a launch machine above, or turn off cross-agent communication to import this preset.
+                          </p>
+                        )}
+                        {!preset.workingDir && (
+                          <p className="text-detail text-warning">
+                            Choose a working directory above, or turn off cross-agent communication to import this
+                            preset.
+                          </p>
+                        )}
+                        <Field>
+                          <FieldLabel htmlFor="import-cross-comm-notes">Notes for calling agents</FieldLabel>
+                          <Textarea
+                            id="import-cross-comm-notes"
+                            value={preset.crossCommNotes ?? ""}
+                            maxLength={CROSS_AGENT_NOTES_MAX}
+                            rows={3}
+                            disabled={busy}
+                            aria-describedby="import-cross-comm-notes-help"
+                            onChange={(event) =>
+                              form.setFieldValue("preset", { ...preset, crossCommNotes: event.target.value })
+                            }
+                          />
+                          <HelperCaption id="import-cross-comm-notes-help">
+                            Agents read these notes through MCP to decide when and how to use this preset. For example:
+                            “Use this preset for code reviews; include the branch and files to review.” These notes
+                            aren't added to the launched subshell's prompt.
+                          </HelperCaption>
+                        </Field>
+                      </>
+                    )}
+                  </section>
+                )}
                 <details className="rounded-md border p-3">
                   <summary className="cursor-pointer font-strong text-body">Review settings</summary>
                   <p className="mt-3 text-detail text-muted-foreground">Preset file format: version 1</p>

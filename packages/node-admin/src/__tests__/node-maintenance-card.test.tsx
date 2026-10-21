@@ -120,49 +120,14 @@ describe("NodeMaintenanceCard", () => {
     }
   });
 
-  /**
-   * The label names the SWITCH and never changes. The old pair put
-   * "Accepting subshells" beside an OFF switch: an affirmative label on a
-   * negated position reads as "accepting: off", the opposite of the truth.
-   * The replacement "Accepting new subshells" state line went the same way
-   * by a different road: an off switch announcing its own off-state is a
-   * tautology that says nothing anyone acts on, so the state line exists
-   * ONLY while the machine is in maintenance (since-when and which-end
-   * declared it, are facts).
-   */
-  it("labels the switch 'Maintenance mode' in BOTH positions and states only the ON position", () => {
-    const { restore } = mockFetch();
-    try {
-      renderCard(node());
-      expect(screen.getByText("Maintenance")).toBeDefined();
-      expect(screen.getByText("Maintenance mode")).toBeDefined();
-      expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("false");
-      // OFF is the ordinary state; it gets no line at all.
-      expect(screen.queryByText(/Accepting/)).toBeNull();
-      expect(screen.queryByText(/In maintenance/)).toBeNull();
-      // On: same label, plus the state line.
-      cleanup();
-      renderCard(node({ maintenance: true }));
-      expect(screen.getByText("Maintenance mode")).toBeDefined();
-      expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("true");
-      expect(screen.getByText("In maintenance")).toBeDefined();
-      expect(screen.queryByText(/Accepting/)).toBeNull();
-    } finally {
-      restore();
-    }
-  });
-
-  it("names the machine in the switch's own label, not just in the heading", () => {
-    // Several cards on this page carry a switch; a bare "Maintenance mode"
-    // would read identically on all of them to a screen reader. The visible
-    // label must stay a substring of this (label-in-name).
-    const { restore } = mockFetch();
-    try {
-      renderCard(node());
-      expect(screen.getByLabelText("Maintenance mode on mac mini")).toBeDefined();
-    } finally {
-      restore();
-    }
+  it("offers the action for the current maintenance state", () => {
+    renderCard(node());
+    expect(screen.getByRole("button", { name: "Start maintenance" })).toBeDefined();
+    expect(screen.queryByRole("switch")).toBeNull();
+    cleanup();
+    renderCard(node({ maintenance: true }));
+    expect(screen.getByRole("button", { name: "End maintenance" })).toBeDefined();
+    expect(screen.getByText("In maintenance")).toBeDefined();
   });
 
   it("keeps the CLI hint off the control-plane host", () => {
@@ -216,7 +181,7 @@ describe("NodeMaintenanceCard", () => {
     const confirm = mockConfirm(true);
     try {
       renderCard(node({ runningSubshells: 2 }));
-      fireEvent.click(screen.getByRole("switch"));
+      fireEvent.click(screen.getByRole("button"));
       await waitFor(() => expect(putBodies(fetchMock.calls)).toEqual(['{"on":true}']));
       expect(confirm.seen[0]?.title).toBe("Start maintenance?");
       expect(confirm.seen[0]?.description).toContain("Subshell will try to stop 2 subshells here");
@@ -226,12 +191,12 @@ describe("NodeMaintenanceCard", () => {
     }
   });
 
-  it("writes nothing when the confirmation is dismissed", async () => {
+  it.each([false, true])("writes nothing when confirmation is dismissed (maintenance=%s)", async (maintenance) => {
     const fetchMock = mockFetch();
     const confirm = mockConfirm(false);
     try {
-      renderCard(node({ runningSubshells: 2 }));
-      fireEvent.click(screen.getByRole("switch"));
+      renderCard(node({ maintenance, runningSubshells: 2 }));
+      fireEvent.click(screen.getByRole("button"));
       // Give a (wrongly) queued mutation a chance to fire before asserting.
       await new Promise((r) => setTimeout(r, 50));
       expect(putBodies(fetchMock.calls)).toEqual([]);
@@ -241,14 +206,14 @@ describe("NodeMaintenanceCard", () => {
     }
   });
 
-  it("ends maintenance without asking — it only widens what the machine accepts", async () => {
+  it("asks before ending maintenance", async () => {
     const fetchMock = mockFetch();
     const confirm = mockConfirm(true);
     try {
       renderCard(node({ maintenance: true, maintenanceAt: new Date().toISOString(), maintenanceSource: "plane" }));
-      fireEvent.click(screen.getByRole("switch"));
+      fireEvent.click(screen.getByRole("button"));
       await waitFor(() => expect(putBodies(fetchMock.calls)).toEqual(['{"on":false}']));
-      expect(confirm.seen).toEqual([]);
+      expect(confirm.seen[0]?.title).toBe("End maintenance?");
     } finally {
       confirm.restore();
       fetchMock.restore();
@@ -260,7 +225,7 @@ describe("NodeMaintenanceCard", () => {
     const confirm = mockConfirm(true);
     try {
       renderCard(node({ runningSubshells: 0 }));
-      fireEvent.click(screen.getByRole("switch"));
+      fireEvent.click(screen.getByRole("button"));
       expect(await screen.findByRole("alert")).toBeDefined();
       expect(screen.getByRole("alert").textContent).toContain("Only the node's owner can do that");
     } finally {
@@ -277,7 +242,7 @@ describe("NodeMaintenanceCard", () => {
     const confirm = mockConfirm(true);
     try {
       renderCard(node({ runningSubshells: 5 }));
-      fireEvent.click(screen.getByRole("switch"));
+      fireEvent.click(screen.getByRole("button"));
       const alert = await screen.findByRole("alert");
       expect(alert.textContent).toContain("2 subshells could not be stopped");
       expect(alert.textContent).toContain("mac mini is in maintenance and will launch nothing");
@@ -292,7 +257,7 @@ describe("NodeMaintenanceCard", () => {
     const confirm = mockConfirm(true);
     try {
       renderCard(node({ runningSubshells: 5 }));
-      fireEvent.click(screen.getByRole("switch"));
+      fireEvent.click(screen.getByRole("button"));
       await waitFor(() => expect(putBodies(fetchMock.calls)).toEqual(['{"on":true}']));
       expect(screen.queryByRole("alert")).toBeNull();
     } finally {

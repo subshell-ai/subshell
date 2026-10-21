@@ -367,11 +367,12 @@ asks. (`subshell mcp` also self-introduces via the MCP `initialize` briefing.)
 
 **Panes you open are yours to close.** A subshell launched through
 `create_subshell` (which arrives on a pane's own bearer token) is stamped
-cross-agent: it files under "Created by agents" in the rail, is created with
+cross-agent: it nests beneath its creating subshell in the sidebar, is created with
 the notification bell OFF (internal chatter is not news to ring a human for;
 they can still turn it on), and no later act un-stamps it. When the exchange is
-done, `terminate_subshell` (keeps the row and history) or `delete_subshell`
-(removes both). The pane will not clean itself up, and an exited one is NOT
+done, collect the results and `delete_subshell` temporary helpers (removes the
+row and history). Use `terminate_subshell` only when history needs to be retained
+(it keeps the row). The pane will not clean itself up, and an exited one is NOT
 gone: its row parks at `status: "running", alive: 0`, and a `send_to_subshell`
 into that window answers 409 with `restart_subshell` as the revive. (The
 create tool's description and the `initialize` briefing carry the same rule;

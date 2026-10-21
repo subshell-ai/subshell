@@ -78,6 +78,8 @@ export interface SubshellTable {
    * later act rewrites it. See migration 0039.
    */
   crossAgent: number;
+  /** Authenticated spawning subshell; null for human launches and older rows. */
+  parentSubshellId?: string | null;
   /**
    * an SSH-terminal pane carries its approved snapshot here; the value's
    * presence is the owner-only-input rule's trigger (spec §5.4). JSON-encoded
@@ -177,4 +179,6 @@ export type NewSubshell = Omit<
  * the restart refusal's trigger, and the delete sweep's pointer. No later
  * act may rewrite or clear it, so no update can name it.
  */
-export type SubshellUpdate = Partial<Omit<SubshellTable, "id" | "userId" | "crossAgent" | "ssh" | "keyHomeNodeId">>;
+export type SubshellUpdate = Partial<
+  Omit<SubshellTable, "id" | "userId" | "crossAgent" | "parentSubshellId" | "ssh" | "keyHomeNodeId">
+>;

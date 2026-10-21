@@ -56,6 +56,9 @@ import * as sshPresetsMigration from "@/db/migrations/0054-ssh-presets.js";
 import * as sshWideForwardsMigration from "@/db/migrations/0055-node-ssh-wide-forwards.js";
 import * as sshPresetForwardsMigration from "@/db/migrations/0056-ssh-preset-forwards.js";
 import * as workspaceFirstMigration from "@/db/migrations/0058-workspace-first.js";
+import * as crossAgentGuidanceMigration from "@/db/migrations/0059-cross-agent-guidance.js";
+import * as subshellParentMigration from "@/db/migrations/0060-subshell-parent.js";
+import * as nodeSystemSpecsMigration from "@/db/migrations/0061-node-system-specs.js";
 import * as dropSshGrantsMigration from "./migrations/0053-drop-ssh-grants.js";
 import * as presetSharingMigration from "./migrations/0057-preset-sharing.js";
 
@@ -171,6 +174,9 @@ export async function runMigrations(): Promise<void> {
           "0056-ssh-preset-forwards": sshPresetForwardsMigration,
           "0057-preset-sharing": presetSharingMigration,
           "0058-workspace-first": workspaceFirstMigration,
+          "0059-cross-agent-guidance": crossAgentGuidanceMigration,
+          "0060-subshell-parent": subshellParentMigration,
+          "0061-node-system-specs": nodeSystemSpecsMigration,
         };
       },
     },

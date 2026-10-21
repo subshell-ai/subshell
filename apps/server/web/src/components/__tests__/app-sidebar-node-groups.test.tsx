@@ -705,14 +705,14 @@ describe("the Workspaces tree (spec 2026-10-17)", () => {
     subshellNodeOffline: false,
   });
 
-  it("expands a workspace row to its member panes", async () => {
+  it("shows a neutral unavailable state for expanded members missing from the live list", async () => {
     const w = ws("w1", "Fix flaky tests", "2026-10-01T00:00:00.000Z", [pane("p1", "claude-backend")]);
     const spy = quickAddSpy();
     const restore = stubFetch([], { failNodes: false }, [w]);
     try {
       await renderRail("/workspaces/w1");
       // The ACTIVE workspace auto-expands: its branch is the one you want.
-      await waitFor(() => expect(screen.getByText("claude-backend")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Some workspace subshells are unavailable.")).toBeTruthy());
     } finally {
       spy.mockRestore();
       restore();
@@ -782,15 +782,15 @@ describe("the Workspaces tree (spec 2026-10-17)", () => {
       await renderRail("/");
       // Inactive branches start folded: Beta's pane is not on screen.
       await waitFor(() => expect(screen.getByText("Beta")).toBeTruthy());
-      expect(screen.queryByText("beta-pane")).toBeNull();
+      expect(screen.queryByText("Some workspace subshells are unavailable.")).toBeNull();
 
       fireEvent.click(screen.getByRole("button", { name: "Expand Beta" }));
-      await waitFor(() => expect(screen.getByText("beta-pane")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Some workspace subshells are unavailable.")).toBeTruthy());
       expect(JSON.parse(localStorage.getItem(WS_EXPANDED_KEY) ?? "{}")).toEqual({ w2: true });
 
       // And folding it again persists the other way.
       fireEvent.click(screen.getByRole("button", { name: "Collapse Beta" }));
-      await waitFor(() => expect(screen.queryByText("beta-pane")).toBeNull());
+      await waitFor(() => expect(screen.queryByText("Some workspace subshells are unavailable.")).toBeNull());
       expect(JSON.parse(localStorage.getItem(WS_EXPANDED_KEY) ?? "{}")).toEqual({ w2: false });
     } finally {
       spy.mockRestore();
@@ -808,15 +808,15 @@ describe("the Workspaces tree (spec 2026-10-17)", () => {
     try {
       await renderRail("/workspaces/w1");
       // Auto-opened: the pane shows.
-      await waitFor(() => expect(screen.getByText("alpha-pane")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Some workspace subshells are unavailable.")).toBeTruthy());
 
       fireEvent.click(screen.getByRole("button", { name: "Collapse Alpha" }));
-      await waitFor(() => expect(screen.queryByText("alpha-pane")).toBeNull());
+      await waitFor(() => expect(screen.queryByText("Some workspace subshells are unavailable.")).toBeNull());
       expect(JSON.parse(localStorage.getItem(WS_EXPANDED_KEY) ?? "{}")).toEqual({ w1: false });
 
       // And it opens again from the same chevron.
       fireEvent.click(screen.getByRole("button", { name: "Expand Alpha" }));
-      await waitFor(() => expect(screen.getByText("alpha-pane")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Some workspace subshells are unavailable.")).toBeTruthy());
     } finally {
       spy.mockRestore();
       restore();
@@ -920,7 +920,7 @@ describe("the Workspaces tree (spec 2026-10-17)", () => {
       // No filter yet: Alpha is not the active branch, so it rests folded.
       await waitFor(() => expect(screen.getByText("Alpha")).toBeTruthy());
       fireEvent.change(input, { target: { value: "alpha" } });
-      await waitFor(() => expect(screen.getByText("alpha-pane")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Some workspace subshells are unavailable.")).toBeTruthy());
       const chevron = screen.getByRole("button", { name: "Collapse Alpha" });
       // The rail's shared inert idiom: an explained disabled button stays
       // focusable and answers with `aria-disabled` (as the machine group's
@@ -932,7 +932,7 @@ describe("the Workspaces tree (spec 2026-10-17)", () => {
       expect(JSON.parse(localStorage.getItem(WS_EXPANDED_KEY) ?? "{}")).toEqual({});
       // Clear the filter: the branch returns to its own (folded) choice.
       fireEvent.change(input, { target: { value: "" } });
-      await waitFor(() => expect(screen.queryByText("alpha-pane") === null).toBe(true));
+      await waitFor(() => expect(screen.queryByText("Some workspace subshells are unavailable.") === null).toBe(true));
     } finally {
       localStorage.removeItem(WS_EXPANDED_KEY);
       spy.mockRestore();
@@ -953,7 +953,7 @@ describe("the Workspaces tree (spec 2026-10-17)", () => {
       const { client } = await renderRail("/");
       await waitFor(() => expect(screen.getByText("Beta")).toBeTruthy());
       fireEvent.click(screen.getByRole("button", { name: "Expand Beta" }));
-      await waitFor(() => expect(screen.getByText("beta-pane")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Some workspace subshells are unavailable.")).toBeTruthy());
       // Something touches Beta: the tree re-sorts and Beta moves to the head.
       b.updatedAt = "2026-10-05T00:00:00.000Z";
       await act(async () => {
@@ -963,8 +963,8 @@ describe("the Workspaces tree (spec 2026-10-17)", () => {
         expect(document.body.textContent!.indexOf("Beta")).toBeLessThan(document.body.textContent!.indexOf("Alpha")),
       );
       // The branch's own choice survived the move; Alpha was never opened.
-      expect(screen.getByText("beta-pane")).toBeTruthy();
-      expect(screen.queryByText("alpha-pane") === null).toBe(true);
+      expect(screen.getByText("Some workspace subshells are unavailable.")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Expand Alpha" })).toBeTruthy();
     } finally {
       spy.mockRestore();
       restore();

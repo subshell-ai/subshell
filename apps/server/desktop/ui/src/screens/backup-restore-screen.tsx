@@ -1,4 +1,4 @@
-import { Frame } from "@internal/assistant";
+import { FormSectionTitle, Frame } from "@internal/assistant";
 import {
   BACKUP_PASSWORD_GUIDANCE,
   BACKUP_RESTORE_DEFAULTS,
@@ -1240,13 +1240,13 @@ export function BackupRestoreScreen(props: {
                       </FieldSet>
                       {inspection.legacyDatabaseOnly && inspection.destination && (
                         <div className="flex flex-col gap-2">
-                          <h3 className="m-0 text-label font-strong">Destination</h3>
+                          <FormSectionTitle>Destination</FormSectionTitle>
                           <RestoreFacts rows={[["Database", inspection.destination.databasePath]]} />
                         </div>
                       )}
                       {!inspection.legacyDatabaseOnly && (
                         <>
-                          <h3 className="m-0 text-label font-strong">Destination</h3>
+                          <FormSectionTitle>Destination</FormSectionTitle>
                           {options.mode === "migration" && (
                             <p className="hint">
                               Supported identity is preserved. Network publication is disabled until you review it on

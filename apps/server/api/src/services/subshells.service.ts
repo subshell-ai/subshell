@@ -441,6 +441,7 @@ export class SubshellsService extends BaseService {
     nodeId,
     machineActor,
     crossAgent,
+    parentSubshellId,
     ssh,
     presetFlags,
     extraPaneEnv,
@@ -477,12 +478,14 @@ export class SubshellsService extends BaseService {
     machineActor: boolean;
     /**
      * True when the launch arrived on a pane's own token (an agent opening a
-     * sibling over MCP). The row is stamped cross-agent (what the rail files
-     * under "Created by agents"), and the bell defaults OFF — internal
+     * helper over MCP). The row is stamped cross-agent and linked to its
+     * creator for the sidebar, and the bell defaults OFF — internal
      * cross-agent chatter is not news to ring the human's devices for, though
      * they can still turn it on from the pane's menu.
      */
     crossAgent: boolean;
+    /** Creator identity supplied by authentication, never by the request body. */
+    parentSubshellId?: string | null;
     /**
      * The composed ssh pane (Task 7 plumbing, spec 2026-10-07 §5/decision 4),
      * forwarded to the manager untouched: the snapshot column, the LaunchPlan
@@ -659,6 +662,7 @@ export class SubshellsService extends BaseService {
         prompt: resolvedPrompt,
         nodeId: resolvedNodeId,
         crossAgent: crossAgent ? 1 : 0,
+        parentSubshellId: crossAgent ? parentSubshellId : null,
         // Notifications default ON for new subshells (spec 2026-08-31); the
         // per-user master switch still gates the actual send, and the
         // operator can mute an individual subshell with its bell. A

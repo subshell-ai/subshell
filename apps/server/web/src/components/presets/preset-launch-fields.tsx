@@ -1,8 +1,11 @@
-import { Button, Label, Switch } from "@internal/node-admin";
+import { Button, FormSectionTitle, HelperCaption, Label, Switch } from "@internal/node-admin";
+import { CROSS_AGENT_NOTES_MAX } from "@internal/subshell-protocol";
 import { X } from "lucide-react";
 import { PromptStackSection } from "@/components/prompts/prompt-stack-section";
 import type { ComboboxOption } from "@/components/ui/combobox";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { WorkingDirField } from "@/components/working-dir-field";
 import { useNodes } from "@/hooks/use-nodes";
 import { isOfflineAgent } from "@/lib/node-label";
@@ -67,9 +70,9 @@ export function PresetLaunchFields({
   const gaps = presetLaunchGaps(value);
 
   return (
-    <div className="space-y-3">
-      <p className="font-strong text-sm leading-none">Launch defaults</p>
-      <div className="space-y-2">
+    <div className="flex flex-col gap-3">
+      <FormSectionTitle>Launch defaults</FormSectionTitle>
+      <div className="flex flex-col gap-2">
         <Label htmlFor="preset-launch-node">Machine</Label>
         {/* The list holds MACHINES only (ruling 2026-09-30): no "Decide at
             launch" row - an absence is not one of the options, and a blank
@@ -116,7 +119,7 @@ export function PresetLaunchFields({
           )}
         </div>
       </div>
-      <div className="space-y-2">
+      <div className="flex flex-col gap-2">
         <Label htmlFor="preset-launch-dir">Working directory</Label>
         <WorkingDirField
           id="preset-launch-dir"
@@ -140,7 +143,8 @@ export function PresetLaunchFields({
           while requirements are missing and names what is missing; once armed
           it holds the form hostage - breaking a requirement disables Save
           until the fields or the switch are fixed (`crossCommSaveBlocked`). */}
-      <div className="space-y-1 border-t pt-3">
+      <div className="flex flex-col gap-3 pt-3">
+        <FormSectionTitle>Cross-agent communication</FormSectionTitle>
         <div className="flex items-center gap-2">
           <Switch
             id="preset-cross-comm"
@@ -150,9 +154,7 @@ export function PresetLaunchFields({
           />
           <Label htmlFor="preset-cross-comm">Enable agents to create subshells with this preset</Label>
         </div>
-        <p className="text-detail text-muted-foreground">
-          Enables agents to create subshells with this preset using MCP.
-        </p>
+        <HelperCaption>Enables agents to create subshells with this preset using MCP.</HelperCaption>
         {/* What is MISSING, named and listed (all amber - the app's warning
             colour, missingness worth acting on, not an error): the lead says
             the list's job - these hold the switch back. Met requirements are
@@ -171,6 +173,24 @@ export function PresetLaunchFields({
               ))}
             </ul>
           </>
+        )}
+        {value.crossCommEnabled && (
+          <Field>
+            <FieldLabel htmlFor="preset-cross-comm-notes">Notes for calling agents</FieldLabel>
+            <Textarea
+              id="preset-cross-comm-notes"
+              value={value.crossCommNotes ?? ""}
+              maxLength={CROSS_AGENT_NOTES_MAX}
+              rows={5}
+              aria-describedby="preset-cross-comm-notes-help"
+              onChange={(event) => onChange({ ...value, crossCommNotes: event.target.value })}
+            />
+            <HelperCaption id="preset-cross-comm-notes-help">
+              Agents read these notes through MCP to decide when and how to use this preset. For example: “Use this
+              preset for code reviews; include the branch and files to review.” These notes aren't added to the launched
+              subshell's prompt.
+            </HelperCaption>
+          </Field>
         )}
         {crossCommSaveBlocked(value) ? (
           <p className="text-destructive text-detail">Complete every item above, or switch this off, to save.</p>

@@ -17,6 +17,7 @@ import { reregisterNodeRoute } from "@/api/nodes/reregister-node.route.js";
 import { rotateNodeKeyRoute } from "@/api/nodes/rotate-node-key.route.js";
 import { serviceNodeRoute } from "@/api/nodes/service-node.route.js";
 import { setNodeAllowedDirsRoute } from "@/api/nodes/set-node-allowed-dirs.route.js";
+import { setNodeCrossAgentRoute } from "@/api/nodes/set-node-cross-agent.route.js";
 import { setNodeMaintenanceRoute } from "@/api/nodes/set-node-maintenance.route.js";
 import { setNodeServerUrlRoute } from "@/api/nodes/set-node-server-url.route.js";
 import { setNodeSharesRoute } from "@/api/nodes/set-node-shares.route.js";
@@ -37,7 +38,7 @@ import { routeDiscoveryRoute } from "./route-discovery.route.js";
  * grouping there is the TS2589 defense, so keep new endpoints as `.use()`
  * modules on this instance rather than growing a flat chain upstream.
  */
-export const nodesRoutes = new Elysia({ prefix: "/api/nodes" })
+const nodeRegistryRoutes = new Elysia()
   .use(localSshIdentityRoute)
   .use(enrollRoute)
   .use(routeDiscoveryRoute)
@@ -50,7 +51,10 @@ export const nodesRoutes = new Elysia({ prefix: "/api/nodes" })
   .use(deleteNodeRoute)
   .use(getNodeSharesRoute)
   .use(setNodeSharesRoute)
-  .use(setNodeAllowedDirsRoute)
+  .use(setNodeCrossAgentRoute)
+  .use(setNodeAllowedDirsRoute);
+
+const nodeOperationsRoutes = new Elysia()
   .use(setNodeMaintenanceRoute)
   .use(setNodeSshEnabledRoute)
   .use(repairNodeMachinePinRoute)
@@ -62,3 +66,6 @@ export const nodesRoutes = new Elysia({ prefix: "/api/nodes" })
   .use(nodeLoggingRoute)
   .use(setNodeServerUrlRoute)
   .use(updateNodeRoute);
+
+/** Group the node routes to keep the composed API type within TypeScript’s depth limit. */
+export const nodesRoutes = new Elysia({ prefix: "/api/nodes" }).use(nodeRegistryRoutes).use(nodeOperationsRoutes);

@@ -46,6 +46,7 @@ describe("emptyPresetForm", () => {
       // repeatedly, so recovering from an exit is the expected answer.
       restartOnExit: true,
       crossCommEnabled: false,
+      crossCommNotes: "",
       // The launch trio starts EMPTY (spec 2026-09-29): a preset is still
       // just settings until someone says where and with what.
       nodeId: null,
@@ -84,6 +85,7 @@ describe("presetFormFromRow", () => {
       ],
       restartOnExit: true,
       crossCommEnabled: false,
+      crossCommNotes: "",
       nodeId: null,
       workingDir: "",
       promptBlocks: [],
@@ -189,6 +191,7 @@ describe("toPresetPayload / toPresetUpdatePayload", () => {
       configIsolation: false,
       restartOnExit: true,
       crossCommEnabled: false,
+      crossCommNotes: "",
       nodeId: null,
       workingDir: null,
       promptBlocks: null,
@@ -209,6 +212,7 @@ describe("toPresetPayload / toPresetUpdatePayload", () => {
       configIsolation: false,
       restartOnExit: true,
       crossCommEnabled: false,
+      crossCommNotes: "",
       nodeId: null,
       workingDir: null,
       promptBlocks: null,
@@ -365,4 +369,11 @@ it("preserves imported settings and exact argv when cloning or editing unrelated
   expect(presetFormToCommand(form, "agent")).toBe(`agent ${flags.join(" ")}`);
   form.flagRows = [{ flag: "--model", value: "new" }];
   expect(toPresetPayload(form).flags).toEqual(["--model", "new"]);
+});
+
+it("keeps cross-agent notes through editing, cloning, disabling, and clearing", () => {
+  const form = presetFormFromRow({ ...baseRow, crossCommNotes: "Use for reviews." });
+  expect(toPresetPayload({ ...form, name: "Clone" }).crossCommNotes).toBe("Use for reviews.");
+  expect(toPresetUpdatePayload({ ...form, crossCommEnabled: false }).crossCommNotes).toBe("Use for reviews.");
+  expect(toPresetUpdatePayload({ ...form, crossCommNotes: "" }).crossCommNotes).toBe("");
 });

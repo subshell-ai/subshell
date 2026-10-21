@@ -445,6 +445,7 @@ describe("mcp tools (handler-level, real crypto)", () => {
       name: "Dev",
       harnessId: "claude-code",
       crossCommEnabled: 1,
+      crossCommNotes: "Use this preset for reviewing code.",
       nodeId: "node-1",
       workingDir: "/srv/app",
       promptBlocks: JSON.stringify([{ kind: "custom", description: "", body: "go" }]),
@@ -456,6 +457,9 @@ describe("mcp tools (handler-level, real crypto)", () => {
     });
     const rows = await listPresets({ api, own: { principalId: "sess:me", ...own } });
     expect(rows[0]?.crossCommReady).toBe(true);
+    expect(rows[0]?.crossCommNotes).toBe("Use this preset for reviewing code.");
+    expect(rows[0]?.nodeId).toBe("node-1");
+    expect(rows[0]?.workingDir).toBe("/srv/app");
     // A filled preset the operator never switched on makes no agent-facing
     // promise (migration 0043: readiness is opt-in).
     expect(rows[1]?.crossCommReady).toBe(false);
@@ -565,18 +569,49 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
     "workingDir",
   ];
 
+  it("list_nodes includes platform and last reported hardware capacity", async () => {
+    const systemSpecs = {
+      osRelease: "6.12",
+      cpuModel: "Example CPU",
+      logicalCpuCount: 16,
+      totalMemoryBytes: 32 * 1024 ** 3,
+      reportedAt: "2026-10-21T00:00:00.000Z",
+    };
+    const { deps } = await depsFor(() => ({
+      nodes: [{ ...nodeWireRow(), os: "linux", arch: "arm64", capabilities: ["mcp"], systemSpecs }],
+    }));
+    expect((await listNodes(deps))[0]).toMatchObject({
+      os: "linux",
+      arch: "arm64",
+      capabilities: ["mcp"],
+      systemSpecs,
+    });
+  });
+
+  it("list_nodes exposes advisory notes and suggested directories", async () => {
+    const { deps } = await depsFor(() => ({
+      nodes: [{ ...nodeWireRow(), crossCommNotes: "GPU available", recommendedStartingDirs: ["/srv/project"] }],
+    }));
+    const [row] = await listNodes(deps);
+    expect(row.crossCommNotes).toBe("GPU available");
+    expect(row.recommendedStartingDirs).toEqual(["/srv/project"]);
+  });
+
   it("list_nodes projects to the launch-relevant fields and drops the rest", async () => {
     const { deps } = await depsFor(() => ({ nodes: [nodeWireRow()] }));
     const [row] = await listNodes(deps);
     expect(Object.keys(row).sort()).toEqual([
       "access",
+      "arch",
       "canLaunch",
+      "capabilities",
       "harnesses",
       "id",
       "inventoryStale",
       "kind",
       "maintenance",
       "name",
+      "os",
       "status",
     ]);
     // `maintenance` is on NodeViewSchema (checked there), so it is required,

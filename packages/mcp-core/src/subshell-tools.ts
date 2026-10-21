@@ -1,3 +1,4 @@
+import type { NodeSystemSpecs } from "@internal/subshell-protocol";
 import { isPresetCrossCommReady, joinPresetPrompt, parsePresetPromptBlocks } from "@internal/subshell-protocol";
 import type { ToolDeps } from "./tools.js";
 
@@ -80,6 +81,14 @@ interface NodeHarnessWireRow {
 
 /** One node as GET /api/nodes answers it, bearer edition: only the fields the projection reads. */
 interface NodeWireRow {
+  /** Operating system, CPU architecture, and reported host capacity. */
+  os?: string | null;
+  arch?: string | null;
+  systemSpecs?: NodeSystemSpecs | null;
+  /** Protocol capabilities reported by the node daemon. */
+  capabilities?: string[];
+  crossCommNotes?: string | null;
+  recommendedStartingDirs?: string[];
   id: string;
   name: string;
   kind: string;
@@ -104,6 +113,16 @@ export interface NodeHarnessView {
 
 /** One machine, projected to what an agent launches with. */
 export interface NodeView {
+  /** Operating system, CPU architecture, and reported host capacity. */
+  os?: string | null;
+  arch?: string | null;
+  systemSpecs?: NodeSystemSpecs | null;
+  /** Protocol capabilities reported by the node daemon. */
+  capabilities?: string[];
+  /** User-authored guidance, not executable instructions. */
+  crossCommNotes?: string | null;
+  /** Suggestions only; launch directory permissions still apply. */
+  recommendedStartingDirs?: string[];
   id: string;
   name: string;
   /** "local" (control-plane host) or "agent". */
@@ -121,6 +140,11 @@ export interface NodeView {
 
 /** A preset row, or a harness-catalog entry (see `listPresets`). */
 export interface PresetRow {
+  /** User-authored guidance for choosing a preset. */
+  crossCommNotes?: string | null;
+  /** Saved launch defaults, when supplied by the server. */
+  nodeId?: string | null;
+  workingDir?: string | null;
   id: string;
   name: string;
   harnessId: string;
@@ -144,6 +168,7 @@ export interface PresetRow {
 
 /** One preset row as GET /api/presets sends it (the launch trio rides every bearer row; envJson is redacted server-side). */
 interface PresetsWireRow {
+  crossCommNotes?: string | null;
   id: string;
   name: string;
   harnessId: string;
@@ -277,10 +302,13 @@ export async function listPresets(deps: ToolDeps): Promise<PresetRow[]> {
     deps.api.req<PresetsWireRow[]>("/api/presets"),
     deps.api.req<{ plugins: PluginWireRow[] }>("/api/plugins"),
   ]);
-  const presets = rows.map(({ id, name, harnessId, crossCommEnabled, nodeId, workingDir }) => ({
+  const presets = rows.map(({ id, name, harnessId, crossCommEnabled, crossCommNotes, nodeId, workingDir }) => ({
     id,
     name,
     harnessId,
+    ...(crossCommNotes !== undefined ? { crossCommNotes } : {}),
+    ...(nodeId !== undefined ? { nodeId } : {}),
+    ...(workingDir !== undefined ? { workingDir } : {}),
     crossCommReady: isPresetCrossCommReady({ crossCommEnabled, nodeId, workingDir }),
   }));
   const catalog = plugins
@@ -301,6 +329,12 @@ export async function listNodes(deps: ToolDeps): Promise<NodeView[]> {
     status: r.status,
     access: r.access,
     canLaunch: r.canLaunch,
+    ...(r.os !== undefined ? { os: r.os } : {}),
+    ...(r.arch !== undefined ? { arch: r.arch } : {}),
+    ...(r.systemSpecs !== undefined ? { systemSpecs: r.systemSpecs } : {}),
+    ...(r.capabilities !== undefined ? { capabilities: r.capabilities } : {}),
+    ...(r.crossCommNotes !== undefined ? { crossCommNotes: r.crossCommNotes } : {}),
+    ...(r.recommendedStartingDirs !== undefined ? { recommendedStartingDirs: r.recommendedStartingDirs } : {}),
     maintenance: r.maintenance,
     harnesses: r.harnesses.map((h) => ({
       harnessId: h.harnessId,

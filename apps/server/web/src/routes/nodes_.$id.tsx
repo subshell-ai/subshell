@@ -21,6 +21,7 @@ import { useState } from "react";
 import { DirectoryPickerInput } from "@/components/directory-picker-input";
 import { EditableText } from "@/components/editable-text";
 import { DeleteNodeDialog } from "@/components/nodes/delete-node-dialog";
+import { NodeCrossAgentCard } from "@/components/nodes/node-cross-agent-card";
 import { NodeHarnessCard } from "@/components/nodes/node-harness-card";
 import { NodePageShell } from "@/components/nodes/node-page-shell";
 import { NodeReregister } from "@/components/nodes/node-reregister";
@@ -31,7 +32,9 @@ import { NodeSshCard } from "@/components/nodes/node-ssh-card";
 import { NodeUpdateCard } from "@/components/nodes/node-update-card";
 import { ServerIdentityRecovery } from "@/components/ssh/server-identity-recovery";
 import { SshTrustSection } from "@/components/ssh/trust-section";
+import { useClockTick } from "@/hooks/use-clock-tick";
 import { useRenameNode } from "@/hooks/use-nodes";
+import { formatBytes } from "@/lib/format-units";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 
 export const Route = createFileRoute("/nodes_/$id")({
@@ -57,6 +60,8 @@ export const Route = createFileRoute("/nodes_/$id")({
  * admin identity for either.
  */
 function NodeDetailPage() {
+  // An offline node can return unchanged data; its last-seen age must still advance.
+  useClockTick(30_000);
   const { id } = Route.useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -125,7 +130,11 @@ function NodeDetailPage() {
             <dl className="grid grid-cols-1 gap-x-6 gap-y-4 text-body sm:grid-cols-3">
               <Fact label="Status">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span>{n.status}</span>
+                  <span>
+                    {n.status === "offline"
+                      ? `Offline · ${n.lastSeenAt ? `last seen ${relativeElapsed(n.lastSeenAt)}${relativeElapsed(n.lastSeenAt) === "just now" ? "" : " ago"}` : "no recorded connection"}`
+                      : n.status}
+                  </span>
                   {/* Any mismatch, either direction: the protocol is matched
                       EXACTLY, so a node ahead of the server is refused just as
                       a node behind it is. Naming which way round it is turns a
@@ -152,16 +161,24 @@ function NodeDetailPage() {
                   rendered a permanent "never" and "—" that read as a broken
                   node rather than as questions this row cannot be asked. Same
                   reason `local` is excluded from the version-floor list. */}
-              {n.kind !== "local" && (
+              {n.kind !== "local" && n.status !== "offline" && (
                 <Fact label="Last seen">{n.lastSeenAt ? relativeElapsed(n.lastSeenAt) : "never"}</Fact>
               )}
-              <Fact label="OS / arch">
-                {osLabel(n.os)}
-                {n.arch ? ` · ${n.arch}` : ""}
+              <Fact label="Operating system">
+                <div className="[overflow-wrap:anywhere]">
+                  {osLabel(n.os)}
+                  {n.systemSpecs?.osRelease ? ` ${n.systemSpecs.osRelease}` : ""}
+                  {n.arch ? ` · ${n.arch}` : ""}
+                </div>
               </Fact>
               <Fact label="Hostname">
                 <div className="[overflow-wrap:anywhere]">{n.hostname ?? "—"}</div>
               </Fact>
+              <Fact label="CPU">
+                <div className="[overflow-wrap:anywhere]">{n.systemSpecs?.cpuModel ?? "—"}</div>
+              </Fact>
+              <Fact label="Logical CPUs">{n.systemSpecs?.logicalCpuCount ?? "—"}</Fact>
+              <Fact label="Total memory">{formatBytes(n.systemSpecs?.totalMemoryBytes)}</Fact>
               {n.kind !== "local" && (
                 <Fact label="Node version">
                   <div className="flex flex-wrap items-center gap-2">
@@ -204,24 +221,21 @@ function NodeDetailPage() {
                 </Fact>
               )}
             </dl>
+            {n.systemSpecs && n.status === "offline" && (
+              <p className="mt-4 text-detail text-muted-foreground">
+                This node is offline; showing its last known specs.
+              </p>
+            )}
+            {!n.systemSpecs && (
+              <p className="mt-4 text-detail text-muted-foreground">
+                Hardware specs aren’t available yet. Updated nodes share them when they connect.
+              </p>
+            )}
           </div>
 
           <NodeSshCard key={n.id} node={n}>
             <SshTrustSection node={n} embedded />
           </NodeSshCard>
-
-          {/* Whether this machine takes new work at all (spec 2026-09-14).
-              Every kind, and on the Overview: the rules of a machine live
-              where every machine shows them, and the tabs are for driving
-              the daemon. A switch that moves depending on the kind of
-              machine is one people stop finding. */}
-          {/* The flip's fallout on THIS surface: every subshell of the viewer's
-              that ran here went `terminated` the instant the PUT answered, and
-              nothing else on the page refetches the sidebar list. */}
-          <NodeMaintenanceCard
-            node={n}
-            onMaintenanceChanged={() => void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY })}
-          />
 
           {/* The same owner-or-edit-on-an-agent rule as the daemon sections and the route's gate.
               `local` updates with the server, which the page already cannot ask here. */}
@@ -253,6 +267,8 @@ function NodeDetailPage() {
               `canManage`, which is also the PUT's gate). `local` included
               the plane enforces its own allowlist on its own launches,
               so the host's page must be able to say what it holds. */}
+          <NodeCrossAgentCard key={n.id} node={n} />
+
           <NodeAllowedDirs
             node={n}
             renderEditor={(args) => (
@@ -281,6 +297,11 @@ function NodeDetailPage() {
               the node's own loopback dashboard. The plane's PATCH route
               survives this card exactly as terminate survived its button;
               the removal is the operator's call (2026-10-09). */}
+
+          <NodeMaintenanceCard
+            node={n}
+            onMaintenanceChanged={() => void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY })}
+          />
 
           {deleteOpen && (
             <DeleteNodeDialog

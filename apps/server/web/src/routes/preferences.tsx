@@ -1,3 +1,4 @@
+import { FormSectionTitle } from "@internal/node-admin";
 import { createFileRoute } from "@tanstack/react-router";
 import { DashboardPage } from "@/components/dashboard-page";
 import { DeviceNameCard } from "@/components/device-name-card";
@@ -16,9 +17,9 @@ export const Route = createFileRoute("/preferences")({ component: PreferencesPag
 function Section({ id, label, children }: { id: string; label: string; children: React.ReactNode }) {
   return (
     <section aria-labelledby={id} className="space-y-6">
-      <h2 id={id} className="font-strong text-detail text-muted-foreground uppercase tracking-wider">
+      <FormSectionTitle as="h2" id={id}>
         {label}
-      </h2>
+      </FormSectionTitle>
       {children}
     </section>
   );

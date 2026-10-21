@@ -30,7 +30,9 @@ no class at all is the one escape.
 Line-height 1.2 for `display`/`heading`, 1.5 otherwise. Code is `detail` in the
 monospace stack.
 
-**Sidebar subagent descriptions and tooltip availability explanations are a scoped exception** (operator request, 2026-10-20): they render one pixel below `detail` to keep supporting text smaller than the agent name and activity. Other quiet text keeps the `detail` floor.
+**Sidebar subagent descriptions and tooltip availability explanations are a scoped exception** (operator request, 2026-10-20): they render one pixel below `detail` to keep supporting text smaller than the agent name and activity. Optional helper captions use the same exception (operator request, 2026-10-21), rendered through `HelperCaption` from `@internal/node-admin`: node and preset cross-agent guidance, recommended-directory hints, prompt-stack helper text, and the maintenance CLI hint. Warnings, permission restrictions, errors, and status text stay at `detail`. Workspace sidebar machine/status group labels also use one pixel below `detail`, through `SidebarGroupHeading`, with no bottom padding before their rows (operator request, 2026-10-21). Other quiet text keeps the `detail` floor.
+
+**Compact form section headings** in preset launch defaults, prompt stacks, and cross-agent settings use one pixel above `label` (16px), with strong weight (operator request, 2026-10-21). They separate groups within a form without the prominence of a card title. Use the shared `FormSectionTitle` from `@internal/assistant` (also re-exported by `@internal/node-admin`): the approved A3 treatment puts a fine rule beside the title, so the hierarchy remains clear without helper text. Do not add another divider above it. Use `as="legend"` inside fieldsets to preserve their accessible names, and `as="h2"` for page-level groups. Field labels keep their existing role. Single-group forms keep their card or dialog title; they do not need a redundant section title.
 
 **There is no general-purpose 12px role.** A `caption` role at 12 was dropped (2026-09-14) as too
 small to read; `detail` absorbed it, so quiet text is separated from loud text

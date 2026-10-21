@@ -1,4 +1,4 @@
-import { Button, errMessage } from "@internal/node-admin";
+import { Button, errMessage, FormSectionTitle } from "@internal/node-admin";
 import { sshKeySelectionProblem } from "@/components/connect/ssh-session-draft";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -46,7 +46,9 @@ export function SshKeyStep({
       )}
       {roster.data && (
         <fieldset className="flex flex-col gap-3">
-          <legend className="font-strong text-label">SSH agent keys</legend>
+          <FormSectionTitle as="legend" className="mb-3">
+            SSH agent keys
+          </FormSectionTitle>
           {roster.data.identities.map((key, index) => (
             <Field key={key.fingerprint}>
               <div className="flex items-center gap-2">

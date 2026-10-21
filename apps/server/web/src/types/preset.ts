@@ -27,6 +27,8 @@ export interface AgentPreset extends PresetSharing {
   /** 1 = cross-subshell comms (MCP) enabled (migration 0043); the badge shows
    *  only when this AND a machine AND a directory are set (prompt optional). */
   crossCommEnabled: number;
+  /** User-authored guidance for agents discovering this preset. */
+  crossCommNotes?: string | null;
   /** Optional launch node hint (null = the preset names no machine) */
   nodeId: string | null;
   /** Optional absolute working directory (null = the preset names none) */

@@ -1,4 +1,4 @@
-import { Button, cn, Input, Label } from "@internal/node-admin";
+import { Button, cn, FormSectionTitle, Input, Label } from "@internal/node-admin";
 import { SSH_MAX_FORWARD_ROWS } from "@internal/subshell-protocol";
 import { Plus } from "lucide-react";
 import { useState } from "react";
@@ -106,7 +106,9 @@ export function SshForwardFields({
   const example = FORWARD_EXAMPLE[editor.kind];
   return (
     <fieldset className="flex min-w-0 flex-col gap-3" disabled={busy}>
-      <legend className="mb-2 font-strong text-label">Port forwards</legend>
+      <FormSectionTitle as="legend" className="mb-3">
+        Port forwards
+      </FormSectionTitle>
       <p className="text-detail text-muted-foreground">
         Each forward opens a listening port for as long as this connection lives, and the port closes when the subshell
         ends.

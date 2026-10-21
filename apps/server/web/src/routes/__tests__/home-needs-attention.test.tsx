@@ -181,3 +181,29 @@ describe("home Needs Attention section (spec 2026-09-24)", () => {
     }
   });
 });
+
+for (const entry of ["/subshells", "/subshells?view=list"]) {
+  it(`excludes helpers from the standalone dashboard at ${entry}`, async () => {
+    const restore = mount(
+      [
+        subshell({ id: "parent", name: "Human parent" }),
+        subshell({
+          id: "helper",
+          name: "Temporary helper",
+          crossAgent: true,
+          parentSubshellId: "parent",
+          unseenPush: true,
+        }),
+        subshell({ id: "orphan", name: "Orphan helper", crossAgent: true }),
+      ],
+      entry,
+    );
+    try {
+      await waitFor(() => expect(document.body.textContent).toContain("Human parent"));
+      expect(document.body.textContent).not.toContain("Temporary helper");
+      expect(document.body.textContent).not.toContain("Orphan helper");
+    } finally {
+      restore();
+    }
+  });
+}

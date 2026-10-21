@@ -53,7 +53,7 @@ export const createSubshellRoute = new Elysia()
   .use(apiModels)
   .post(
     "/",
-    async ({ body, user, actor, apiKeyPermissions, ctx }) => {
+    async ({ body, user, actor, principal, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "write");
       // Phase 2 (spec §6.6): `nodeId` resolves for real — the service gates
       // the requested node (404/403/409), falls back to `local` (its Everyone
@@ -93,6 +93,7 @@ export const createSubshellRoute = new Elysia()
         // automation, not an in-pane peer. Only the former files as
         // cross-agent comms and (in the service) skips the default bell.
         crossAgent: actor === "subshell-key",
+        parentSubshellId: actor === "subshell-key" ? principal.slice("sess:".length) : null,
       });
     },
     {

@@ -13,9 +13,8 @@
  * push — so the count is the headline, and it is the one number that makes
  * this prompt worth showing at all.
  *
- * ENDING maintenance is deliberately unasked: it only widens what the machine
- * will accept, and nothing is lost by clicking it (the same reasoning that
- * leaves a subshell restart unconfirmed).
+ * The Maintenance card also confirms ending maintenance before allowing new
+ * subshells again. The list menu keeps its direct end action.
  */
 
 import { confirmAction } from "./confirm";

@@ -9,6 +9,7 @@ import { type SshMachineReadiness, sshMachineRowReason } from "@/lib/ssh";
 /** Lists visible machines even when they need preparation; launch and configuration are distinct rights. */
 export function SshMachineStep({
   machines,
+  loaded = true,
   value,
   onChange,
   label,
@@ -20,6 +21,7 @@ export function SshMachineStep({
   id = "ssh-wizard-machine",
 }: {
   machines: SshMachineReadiness[];
+  loaded?: boolean;
   value: string;
   onChange: (id: string) => void;
   label: string;
@@ -57,7 +59,7 @@ export function SshMachineStep({
         {description && <p className="text-detail text-muted-foreground">{description}</p>}
         {notice && <p className="text-detail text-warning">{notice}</p>}
         {children}
-        {value && !machines.some((m) => m.node.id === value) && (
+        {loaded && value && !machines.some((m) => m.node.id === value) && (
           <p role="alert" className="text-destructive text-detail">
             The selected machine is no longer available to you. Choose another machine.
           </p>

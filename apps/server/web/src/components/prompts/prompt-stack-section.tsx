@@ -1,4 +1,4 @@
-import { Button } from "@internal/node-admin";
+import { Button, FormSectionTitle, HelperCaption } from "@internal/node-admin";
 import { Plus } from "lucide-react";
 import { type JSX, useId, useState } from "react";
 import { PromptPickerBody } from "@/components/prompts/prompt-picker-body";
@@ -37,14 +37,12 @@ export function PromptStackSection({
   const [pickerOpen, setPickerOpen] = useState(false);
   const listLabelId = useId();
   return (
-    <div className="space-y-2 border-t pt-3">
+    <div className="flex flex-col gap-3 pt-3">
       {/* The list points back at this title (the stack dialog's association,
           kept when the section was shared): the listbox should not be an
           unnamed region on either surface. */}
-      <p id={listLabelId} className="font-strong text-sm leading-none">
-        Add prompts
-      </p>
-      <p className="text-detail text-muted-foreground">Prompts to inject on subshell creation.</p>
+      <FormSectionTitle id={listLabelId}>Add prompts</FormSectionTitle>
+      <HelperCaption>Prompts to inject on subshell creation.</HelperCaption>
       {blocks.length > 0 && (
         <PromptStackList
           labelledBy={listLabelId}
@@ -67,7 +65,14 @@ export function PromptStackSection({
           />
         </div>
       ) : (
-        <Button type="button" id={addButtonId} variant="outline" size="sm" onClick={() => setPickerOpen(true)}>
+        <Button
+          className="self-start"
+          type="button"
+          id={addButtonId}
+          variant="outline"
+          size="sm"
+          onClick={() => setPickerOpen(true)}
+        >
           <Plus /> Add prompt
         </Button>
       )}

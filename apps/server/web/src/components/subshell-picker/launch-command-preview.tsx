@@ -1,4 +1,4 @@
-import { Button } from "@internal/node-admin";
+import { Button, FormSectionTitle } from "@internal/node-admin";
 import { ChevronDown } from "lucide-react";
 import { useId, useState } from "react";
 import { EditPresetDialog } from "@/components/presets/edit-preset-dialog";
@@ -53,7 +53,7 @@ export function LaunchCommandPreview({
             )}
             {preset?.settingsJson && (
               <>
-                <p className="font-strong text-detail text-muted-foreground">Agent settings</p>
+                <FormSectionTitle>Agent settings</FormSectionTitle>
                 <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md border bg-muted/40 p-3 font-mono text-detail text-muted-foreground">
                   {preset.settingsJson}
                 </pre>

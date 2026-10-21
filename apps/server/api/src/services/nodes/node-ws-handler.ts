@@ -914,6 +914,7 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
         arch: event.arch,
         hostname: event.hostname,
         capabilities: event.capabilities,
+        ...(event.systemSpecs ? { systemSpecs: event.systemSpecs } : {}),
       };
       // Record FIRST (spec §5.3/§8): even an incompatible agent gets its
       // identity persisted so the Nodes page can show "agent too old".

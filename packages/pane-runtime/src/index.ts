@@ -219,6 +219,7 @@ export {
   type SshResolutionDeps,
 } from "./ssh/ssh-resolve.js";
 export { runSshProcess, type SshProcessResult, sshChildPath } from "./ssh/ssh-spawn.js";
+export { readSystemSpecs } from "./system-specs.js";
 export { safeTransferPath } from "./tar-blocks.js";
 export { type ExtractResult, extractTarGz } from "./tar-extractor.js";
 export { extractTgz, type TarEntry, type TgzLimits } from "./tar-vendor.js";

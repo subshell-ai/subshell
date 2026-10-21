@@ -1,4 +1,4 @@
-import { Button, Input, Switch } from "@internal/node-admin";
+import { Button, FormSectionTitle, Input, Switch } from "@internal/node-admin";
 import { BACKUP_RESTORE_DEFAULTS, BACKUP_RESTORE_MODES, type RestoreMode } from "@internal/subshell-protocol";
 import { useStore } from "@tanstack/react-form";
 import { LoaderCircle } from "lucide-react";
@@ -731,9 +731,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                   {!inspection?.legacyDatabaseOnly && (
                     <ChoiceFields labelledBy="restore-overrides-title">
                       <div className="flex min-w-0 flex-col gap-1">
-                        <span id="restore-overrides-title" className="font-strong text-label">
-                          Restore overrides
-                        </span>
+                        <FormSectionTitle id="restore-overrides-title">Restore overrides</FormSectionTitle>
                         <p className="m-0 font-regular text-detail text-muted-foreground">
                           Leave a field empty to restore to the location or setting recorded in the backup.
                         </p>
