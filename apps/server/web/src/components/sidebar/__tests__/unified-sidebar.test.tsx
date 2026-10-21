@@ -513,9 +513,9 @@ test("workspace rows group by machine and spawned helpers appear once under thei
   expect(within(remove).queryByRole("link", { name: /Review helper/ })).toBeNull();
   fireEvent.click(within(parent).getByRole("link", { name: /Review helper/ }));
   await waitFor(() => expect(router.state.location.search).toMatchObject({ add: "helper", dir: "within" }));
-  // Removing a parent from the visible cache must not hide its surviving helper.
+  // Removing a parent never promotes its surviving helper to a standalone entry.
   fx.subshells = fx.subshells.filter((row) => row.id !== "s1");
   await refresh(SUBSHELLS_QUERY_KEY);
-  await within(remove).findByRole("link", { name: /Review helper/ });
-  expect(within(add).queryByRole("link", { name: /Review helper/ })).toBeNull();
+  await waitFor(() => expect(within(add).queryByRole("link", { name: /Review helper/ }) === null).toBe(true));
+  expect(within(remove).queryByRole("link", { name: /Review helper/ })).toBeNull();
 });
