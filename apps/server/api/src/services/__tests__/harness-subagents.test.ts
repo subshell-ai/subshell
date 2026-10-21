@@ -63,7 +63,7 @@ describe("harness subagents", () => {
   });
 
   test("a snapshot replaces the roster, so a child the harness stopped enumerating is gone", () => {
-    // The turn-end reconcile (2026-10-21): a background child killed with
+    // The turn-end reconcile (2026-10-20): a background child killed with
     // TaskStop fires no lifecycle hook, and only the full-set snapshot prunes
     // it. Reporting [A, B] then [B] must drop A and must NOT re-stamp B — the
     // elapsed time a viewer sees is the child's first sighting.
