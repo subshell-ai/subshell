@@ -11,7 +11,7 @@ Review the subshells on the machine and notify their owners. Maintenance blocks 
 
 ## Enter maintenance
 
-In the server dashboard's sidebar, choose **Settings** → **Nodes**, select the machine, and open **Overview**. In the **Maintenance** card, turn on **Maintenance mode** and review the subshell count and consequences before selecting **Start maintenance**.
+In the server dashboard's sidebar, choose **Settings** → **Nodes**, select the machine, and open **Overview**. At the bottom of the page, select **Start maintenance** in the **Maintenance** card. Review the subshell count and consequences, then select **Start maintenance** in the confirmation dialog.
 
 On the node itself:
 
@@ -32,7 +32,7 @@ Check the result before working on the machine. If Subshell reports that a sessi
 
 ## Return to service
 
-After completing the work:
+After completing the work, return to the **Maintenance** card, select **End maintenance**, and confirm the action. From the node's CLI:
 
 ```bash
 subshell maintenance off
