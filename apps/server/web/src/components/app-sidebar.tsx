@@ -118,8 +118,10 @@ export function AppSidebar({
       className={cn(
         "relative flex min-h-0 shrink-0 flex-col border-border border-r bg-card",
         // Both drop the 56px icon rail retired this branch. The desktop shell keeps
-        // 48px instead of 56: its bar carries a fifth button ("Open in browser"),
-        // and 5 size-11 buttons plus gaps and padding need 252px, which w-62 would clip.
+        // 48px instead of 56: its bar carries a fifth button ("Open in browser").
+        // The widths size to the worst case, the 44px touch cell: 5 cells plus gaps
+        // and padding need 252px, which w-62 would clip. A fine pointer's 36px
+        // cells need far less.
         variant === "desktop" ? "w-64" : "w-58",
         className,
       )}
@@ -161,6 +163,9 @@ export function AppSidebar({
         </div>
       </div>
       <TooltipProvider delay={200}>
+        {/* The bar's cells stay 44px on touch pointers: the phone drawer shares
+            this exact bar, and 44px is its tap target. A fine pointer gets 36px
+            cells, which pulls the bar from 53px to 45px. */}
         <nav
           aria-label="Main sections"
           className="flex shrink-0 items-center justify-center gap-1 border-border border-t px-2 py-1"
@@ -177,7 +182,7 @@ export function AppSidebar({
                         type="button"
                         aria-label={item.label}
                         onClick={() => setMobileOpen(true)}
-                        className="relative flex size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+                        className="relative flex pointer-fine:size-9 size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
                       >
                         <item.icon className="size-5" />
                       </button>
@@ -239,7 +244,7 @@ export function AppSidebar({
                         }).finally(() => onSectionNavigated?.());
                       }}
                       className={cn(
-                        "relative flex size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
+                        "relative flex pointer-fine:size-9 size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
                         active && "bg-accent text-accent-foreground",
                       )}
                     >
@@ -274,7 +279,7 @@ export function AppSidebar({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="size-11"
+                    className="pointer-fine:size-9 size-11"
                     aria-label="Open in browser"
                     onClick={() =>
                       void desktopInvoke("desktop_open_in_browser", {
