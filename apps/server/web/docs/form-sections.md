@@ -93,3 +93,28 @@ the offline rendering and last-seen text.
 The follow-up also fixed a transient unavailable-machine alert while the SSH
 preset editor was still loading its machine list. Missing-machine feedback now
 waits for a successful readiness read. No new A3 hierarchy defect was found in the inspected forms.
+
+### Cross-agent follow-up verification (2026-10-21)
+
+Cua exercised the final sidebar behavior through a fresh Vite frontend on
+`:5175` and isolated backend on `:3299`, using two disposable Docker nodes
+running the current compiled node daemon. A terminal on Container Alpha used
+its own MCP credentials to create a terminal helper on Container Beta.
+
+- The helper appeared once beneath its parent, with the other machine named
+  in its row, and never as a standalone dashboard tile or table row.
+- Selecting the helper opened and selected a second workspace tab.
+- Trusted pointer drags of the helper into either sidebar section changed
+  neither its parent relationship nor workspace membership. Dragging the
+  parent moved its sidebar tree with the helper still beneath it.
+- The helper's row menu offered no workspace-transfer actions.
+- MCP node discovery returned OS/architecture and CPU/memory specs for both
+  containers. MCP deletion removed the helper from the UI.
+- An imported agent preset with cross-agent mode enabled and no launch node
+  showed the switch, notes, and the missing-machine explanation. Turning the
+  switch off enabled Import. The saved preset retained its notes and had
+  `nodeId: null` and `crossCommEnabled: 0`.
+
+The browser ran on an isolated virtual display. Screenshots and semantic
+snapshots are local artifacts under `/tmp/cross-ui-check/`; no live instance
+was used. These checks supplement the component and API regression suites.
