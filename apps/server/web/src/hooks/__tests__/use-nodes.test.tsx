@@ -190,7 +190,7 @@ describe("node mutations", () => {
     const { calls, restore } = mockFetch({ "DELETE /api/nodes/n1": () => json({ ok: true }) });
     try {
       const { result } = renderHook(() => useDeleteNode(), { wrapper });
-      await result.current.mutateAsync("n1");
+      await result.current.mutateAsync({ id: "n1" });
       expect(calls.find((c) => c.method === "DELETE" && c.url === "/api/nodes/n1")).toBeDefined();
     } finally {
       restore();
@@ -212,7 +212,7 @@ describe("node mutations", () => {
     });
     try {
       const { result } = renderHook(() => useDeleteNode(), { wrapper });
-      const err = await result.current.mutateAsync("n1").then(
+      const err = await result.current.mutateAsync({ id: "n1" }).then(
         () => null,
         (e: unknown) => e,
       );

@@ -1,8 +1,6 @@
 import {
   Badge,
   Button,
-  confirmAction,
-  errMessage,
   Fact,
   NodeAllowedDirs,
   NodeMaintenanceCard,
@@ -22,6 +20,7 @@ import { Share2, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { DirectoryPickerInput } from "@/components/directory-picker-input";
 import { EditableText } from "@/components/editable-text";
+import { DeleteNodeDialog } from "@/components/nodes/delete-node-dialog";
 import { NodeHarnessCard } from "@/components/nodes/node-harness-card";
 import { NodePageShell } from "@/components/nodes/node-page-shell";
 import { NodeReregister } from "@/components/nodes/node-reregister";
@@ -32,7 +31,7 @@ import { NodeSshCard } from "@/components/nodes/node-ssh-card";
 import { NodeUpdateCard } from "@/components/nodes/node-update-card";
 import { ServerIdentityRecovery } from "@/components/ssh/server-identity-recovery";
 import { SshTrustSection } from "@/components/ssh/trust-section";
-import { useDeleteNode, useRenameNode } from "@/hooks/use-nodes";
+import { useRenameNode } from "@/hooks/use-nodes";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 
 export const Route = createFileRoute("/nodes_/$id")({
@@ -63,30 +62,12 @@ function NodeDetailPage() {
   const queryClient = useQueryClient();
   const node = useNode(id);
   const renameNode = useRenameNode(id);
-  const deleteNode = useDeleteNode();
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
 
   /** Owner-only rename; a 409 NODE_NAME_TAKEN (or the `local` 400) surfaces inline in the field. */
   async function saveName(name: string): Promise<void> {
     await renameNode.mutateAsync(name);
-  }
-
-  async function remove() {
-    setActionError(null);
-    const ok = await confirmAction({
-      title: "Delete this node?",
-      description: `This deletes "${node.data?.name ?? id}" and revokes its enrollment key.`,
-      confirmLabel: "Delete node",
-      danger: true,
-    });
-    if (!ok) return;
-    try {
-      await deleteNode.mutateAsync(id);
-      void navigate({ to: "/nodes" });
-    } catch (err) {
-      setActionError(errMessage(err, "Failed to delete node"));
-    }
   }
 
   return (
@@ -125,7 +106,7 @@ function NodeDetailPage() {
           </Button>
           <Button
             variant="outline"
-            onClick={() => void remove()}
+            onClick={() => setDeleteOpen(true)}
             disabled={!n.canRetire || n.kind === "local"}
             disabledReason={
               n.kind === "local"
@@ -140,12 +121,6 @@ function NodeDetailPage() {
     >
       {(n) => (
         <>
-          {actionError && (
-            <p role="alert" className="text-destructive text-detail">
-              {actionError}
-            </p>
-          )}
-
           <div className="rounded-lg border p-4">
             <dl className="grid grid-cols-1 gap-x-6 gap-y-4 text-body sm:grid-cols-3">
               <Fact label="Status">
@@ -307,6 +282,13 @@ function NodeDetailPage() {
               survives this card exactly as terminate survived its button;
               the removal is the operator's call (2026-10-09). */}
 
+          {deleteOpen && (
+            <DeleteNodeDialog
+              node={n}
+              onClose={() => setDeleteOpen(false)}
+              onDeleted={() => void navigate({ to: "/nodes" })}
+            />
+          )}
           <NodeSharingDialog nodeId={n.id} open={shareOpen} onOpenChange={setShareOpen} canManage={n.canManage} />
         </>
       )}
