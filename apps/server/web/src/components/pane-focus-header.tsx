@@ -9,6 +9,7 @@ import { SshPaneLabels } from "@/components/ssh-pane-labels";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDot } from "@/components/subshell-dot";
 import { TrustIndicators } from "@/components/trust-indicators";
+import { useCloseSubshellLanding } from "@/hooks/use-close-subshell-landing";
 import { useHarnessSubagents } from "@/hooks/use-harness-subagents";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
 import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
@@ -22,11 +23,28 @@ import { useWorkspaceFocusedId } from "@/lib/workspace-focus";
 import type { WorkspacePaneRow } from "@/types/workspace";
 
 /** Reuse the ordinary subshell actions and keep dialogs bound to this pane. */
-function FocusedPaneActions({ id }: { id: string }) {
+function FocusedPaneActions({
+  id,
+  panes,
+  workspaceId,
+}: {
+  id: string;
+  /** The workspace's panes, so a close knows what survives it (see the chooser). */
+  panes: WorkspacePaneRow[];
+  /** The workspace this bar stands on — the close's landing context. */
+  workspaceId?: string;
+}) {
   const subshell = useSubshellRow(id);
   const copyMode = usePaneCopyMode(id);
   const coarse = useIsCoarsePointer();
-  return subshell ? <SubshellActionsMenu subshell={subshell} copyMode={coarse ? copyMode : undefined} /> : null;
+  const closeLanding = useCloseSubshellLanding();
+  return subshell ? (
+    <SubshellActionsMenu
+      subshell={subshell}
+      copyMode={coarse ? copyMode : undefined}
+      onDeleted={() => closeLanding(subshell.id, workspaceId ? { id: workspaceId, panes } : null)}
+    />
+  ) : null;
 }
 
 /**
@@ -50,12 +68,15 @@ function FocusedPaneActions({ id }: { id: string }) {
 export function PaneFocusHeader({
   fallbackName,
   panes,
+  workspaceId,
   actions,
 }: {
   /** Shown only while no pane exists to be the header. */
   fallbackName: string;
   /** The workspace's panes; focus must name one of these to render as a pane header. */
   panes: WorkspacePaneRow[];
+  /** The workspace this bar stands on; the focused pane's Close lands there or on a survivor. */
+  workspaceId?: string;
   /** The presentation's add-a-pane control, right-aligned. */
   actions?: ReactNode;
 }): JSX.Element {
@@ -133,7 +154,14 @@ export function PaneFocusHeader({
         <>
           {isPane && subshell && <SshPaneLabels subshell={subshell} nodeLabel={nodeLabel} />}
           {isPane && <TrustIndicators notices={trustNotices} />}
-          {focusedPane && <FocusedPaneActions key={focusedPane.subshellId} id={focusedPane.subshellId} />}
+          {focusedPane && (
+            <FocusedPaneActions
+              key={focusedPane.subshellId}
+              id={focusedPane.subshellId}
+              panes={panes}
+              workspaceId={workspaceId}
+            />
+          )}
           {actions}
         </>
       }

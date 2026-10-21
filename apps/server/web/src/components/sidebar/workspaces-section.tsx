@@ -16,7 +16,7 @@ import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { useWorkspaces, WORKSPACES_QUERY_KEY } from "@/hooks/use-workspaces";
 import { workspaceIdFromPath } from "@/lib/route-ids";
-import { readSubshellDrag, SUBSHELL_DND_TYPE } from "@/lib/subshell-dnd";
+import { acceptsSubshellDrag, readSubshellDrag } from "@/lib/subshell-dnd";
 import { FALLBACK_NODE_ID, nodeLabelFor } from "@/lib/subshell-node-groups";
 import { useWorkspaceFocusedId } from "@/lib/workspace-focus";
 import { railWorkspaceRows } from "@/lib/workspace-rail";
@@ -141,18 +141,16 @@ export function WorkspaceBranch({
   const dragDepth = useRef(0);
   const { addPane } = useWorkspacePaneMutations(workspace.id);
 
-  const accepts = (dt: Pick<DataTransfer, "types">): boolean => Array.from(dt.types).includes(SUBSHELL_DND_TYPE);
-
   function onDragOver(e: DragEvent): void {
     // Without a preventDefault here the browser never fires `drop`, and a
     // file drag or dockview's tab drag must stay untouched (one MIME rule).
-    if (!accepts(e.dataTransfer)) return;
+    if (!acceptsSubshellDrag(e.dataTransfer)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
   }
 
   function onDragEnter(e: DragEvent): void {
-    if (!accepts(e.dataTransfer)) return;
+    if (!acceptsSubshellDrag(e.dataTransfer)) return;
     dragDepth.current += 1;
     setDropHint(true);
   }

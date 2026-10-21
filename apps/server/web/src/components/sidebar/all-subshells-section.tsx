@@ -1,4 +1,3 @@
-import { Button } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { ChartNoAxesCombined, Plus } from "lucide-react";
 import { useState } from "react";
@@ -157,17 +156,14 @@ export function AllSubshellsSection({
           ))}
         </div>
       ) : (
-        <div className="flex flex-col gap-2 rounded-md border border-dashed p-3 text-detail">
-          <p className="font-strong">{excludeIds?.size ? "No other subshells" : "No subshells yet"}</p>
-          <p className="text-muted-foreground">
-            {excludeIds?.size
-              ? "All subshells are in this workspace."
-              : "Start an agent or a terminal session to get going."}
-          </p>
-          <Button size="sm" className="mt-1 self-start" onClick={addSubshell}>
-            <Plus /> Add subshell
-          </Button>
-        </div>
+        // One quiet line, the Workspaces section's idiom: the section's header
+        // already owns the Add-subshell act, so a filled CTA here only competes
+        // with it (operator ruling 2026-10-20).
+        <p className="px-1 py-2 text-detail text-muted-foreground">
+          {excludeIds?.size
+            ? "Drag a subshell here to remove it from the workspace."
+            : "No subshells yet. Start an agent or a terminal session to get going."}
+        </p>
       )}
     </section>
   );

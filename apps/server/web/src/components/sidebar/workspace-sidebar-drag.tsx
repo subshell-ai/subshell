@@ -1,10 +1,10 @@
 import { cn, errMessage } from "@internal/node-admin";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { createContext, type DragEvent, type ReactNode, useContext, useEffect, useRef, useState } from "react";
+import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { useInvalidateWorkspaces } from "@/hooks/use-workspaces";
-import { readSubshellDrag, SUBSHELL_DND_TYPE } from "@/lib/subshell-dnd";
+import { acceptsSubshellDrag, readSubshellDrag } from "@/lib/subshell-dnd";
 import { requestWorkspacePaneFocus } from "@/lib/workspace-focus";
 import type { WorkspaceRow } from "@/types/workspace";
 
@@ -59,15 +59,18 @@ export function WorkspaceSidebarDrag({ workspace, children }: { workspace?: Work
   const remove = async (subshellId: string) => {
     const pane = workspace?.panes?.find((row) => row.subshellId === subshellId);
     if (!pane || !workspace || pending.current || adding) return;
-    if (workspace.subshellCount <= 1) {
-      toast.error("Add another subshell before removing the last tab.");
-      return;
-    }
     pending.current = true;
     setBusy(true);
     try {
-      await removePane(pane.id);
+      const { workspaceDeleted } = await removePane(pane.id);
       await invalidate();
+      // Dragging the last tab out retires the workspace (operator ruling
+      // 2026-10-20; the subshell keeps running, unfiled). If the retired row
+      // is the page on screen, the workspace route has nothing to show —
+      // land on the Subshells list, which is where this gesture pointed.
+      if (workspaceDeleted && location.pathname === `/workspaces/${workspace.id}`) {
+        void navigate({ to: "/subshells", replace: true });
+      }
     } catch (error) {
       toast.error(errMessage(error, "Couldn't remove the subshell from this workspace."));
     } finally {
@@ -98,8 +101,7 @@ export function WorkspaceSidebarDropArea({
   const [over, setOver] = useState(false);
   const member = drag?.workspace?.panes?.some((pane) => pane.subshellId === drag.id) ?? false;
   const offered = !!drag?.workspace && !!drag.id && (kind === "remove" ? member : !member);
-  const blocked = drag?.busy || (kind === "remove" && (drag?.workspace?.subshellCount ?? 0) <= 1);
-  const accepts = (event: DragEvent) => Array.from(event.dataTransfer.types).includes(SUBSHELL_DND_TYPE);
+  const blocked = drag?.busy;
   useEffect(() => {
     if (!drag?.id) setOver(false);
   }, [drag?.id]);
@@ -109,7 +111,7 @@ export function WorkspaceSidebarDropArea({
       data-sidebar-drop={kind}
       className={cn("relative min-h-16", className)}
       onDragOver={(event) => {
-        if (!accepts(event) || !offered) return;
+        if (!acceptsSubshellDrag(event.dataTransfer) || !offered) return;
         event.preventDefault();
         event.stopPropagation();
         event.dataTransfer.dropEffect = blocked ? "none" : "move";
@@ -121,7 +123,7 @@ export function WorkspaceSidebarDropArea({
         }
       }}
       onDrop={(event) => {
-        if (!accepts(event) || !offered || !drag) return;
+        if (!acceptsSubshellDrag(event.dataTransfer) || !offered || !drag) return;
         event.preventDefault();
         event.stopPropagation();
         const id = readSubshellDrag(event.dataTransfer);
@@ -140,13 +142,7 @@ export function WorkspaceSidebarDropArea({
           )}
         >
           <span role="status">
-            {drag?.busy
-              ? "Updating workspace…"
-              : blocked
-                ? "Add another subshell before removing the last tab."
-                : kind === "add"
-                  ? "Add to workspace"
-                  : "Remove from workspace"}
+            {drag?.busy ? "Updating workspace…" : kind === "add" ? "Add to workspace" : "Remove from workspace"}
           </span>
         </div>
       )}

@@ -6,7 +6,9 @@ import { TooltipLabelledLines } from "@/components/sidebar/TooltipLabelledLines"
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { BELL_TONE, bellAnnouncement, DOT_CLASS, showsBell } from "@/components/subshell-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useOpenPaneAsTab } from "@/hooks/use-open-pane-as-tab";
+import { useCloseSubshellLanding } from "@/hooks/use-close-subshell-landing";
+import { filedWorkspaceFor, useOpenPaneAsTab } from "@/hooks/use-open-pane-as-tab";
+import { useWorkspaces } from "@/hooks/use-workspaces";
 import { encodeSubshellDrag } from "@/lib/subshell-dnd";
 import {
   INDICATOR_LABEL,
@@ -226,6 +228,17 @@ export function SubshellCell({
   labels: SubshellCellLabels;
 }) {
   const openAsTab = useOpenPaneAsTab();
+  // A Close from this menu can kill the `/subshells/<id>` page the cell links
+  // to, and the rail stands beside every page: the close-landing chooser
+  // (lib/subshell-close-landing) leaves that page for the last pane of the
+  // workspace holding it — the most recently touched holder, the same one a
+  // plain click resolves. The LIST query carries each row's panes.
+  const closeLanding = useCloseSubshellLanding();
+  const { data: workspaces } = useWorkspaces();
+  const onSubshellClosed = () => {
+    const holder = workspaces ? filedWorkspaceFor(subshell, workspaces) : null;
+    closeLanding(subshell.id, holder ? { id: holder.id, panes: holder.panes ?? [] } : null);
+  };
   const indicator = subshellIndicator(subshell);
   const bell = showsBell(subshell);
   // The ACTIVE square pulses its FILL only: a `bg-success/50` tile blinking
@@ -344,7 +357,11 @@ export function SubshellCell({
       </Tooltip>
     </TooltipProvider>
   );
-  return <SubshellActionsMenu subshell={subshell}>{cell}</SubshellActionsMenu>;
+  return (
+    <SubshellActionsMenu subshell={subshell} onDeleted={onSubshellClosed}>
+      {cell}
+    </SubshellActionsMenu>
+  );
 }
 
 /**

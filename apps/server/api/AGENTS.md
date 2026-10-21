@@ -245,9 +245,12 @@ handlers) reaches the same graph via `getRequestlessContext()`
 **Workspaces are work-first, drafts are gone** (spec 2026-10-17, migration
 `0058`): every workspace row is a real, named one, names are NOT unique
 (the old partial unique index `WHERE draft = 0` is dropped; 0058's `down`
-dedupes names by rowid on rollback). Removing the final pane is refused with
-409; a conditional delete preserves that pane even across concurrent removals.
-Deleting a subshell can still retire its emptied workspaces. That delete reads the owner's
+dedupes names by rowid on rollback). Removing the final pane RETIRES the
+workspace (ruling 2026-10-20 conforms the remove side to the close side): the
+delete is one statement scoped to the workspace, so a concurrently-removed
+pane still answers 404, and the retire reuses `retireEmptyAmong` and its own
+NOT EXISTS guard against a racing add. The subshell itself keeps running,
+unfiled. Deleting a subshell can still retire its emptied workspaces. That delete reads the owner's
 workspace ids HOLDING that subshell first (`idsHoldingForUser`), then retires
 only the candidates the cascade actually left pane-less (`retireEmptyAmong`).
 An intentionally-empty workspace survives an unrelated tab closing, and other

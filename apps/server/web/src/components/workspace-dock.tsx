@@ -18,11 +18,12 @@ import { type WorkspaceDockContextValue, WorkspaceDockProvider } from "@/compone
 import { DockedPane, type DockedPaneParams } from "@/components/workspace-dock/docked-pane";
 import { GroupHeaderActions } from "@/components/workspace-dock/group-header-actions";
 import { SubshellTab } from "@/components/workspace-dock/subshell-tab";
+import { useCloseSubshellLanding } from "@/hooks/use-close-subshell-landing";
 import { useDebouncedSave } from "@/hooks/use-debounced-save";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { invalidateWorkspaceMembership } from "@/hooks/use-workspaces";
 import { confirmCloseSubshell } from "@/lib/subshell-confirmations";
-import { readSubshellDrag, SUBSHELL_DND_TYPE } from "@/lib/subshell-dnd";
+import { acceptsSubshellDrag, readSubshellDrag } from "@/lib/subshell-dnd";
 import { onWorkspacePaneFocusRequest, setWorkspaceFocusedId, takePaneFocusOnArrive } from "@/lib/workspace-focus";
 import {
   normalizeLegacyLayout,
@@ -39,7 +40,7 @@ const LAYOUT_SAVE_DEBOUNCE_MS = 800;
 
 /** True for OUR drags only — a file-upload drag or dockview's own tab drag never arms the overlay. */
 function isSubshellDrag(e: ReactDragEvent): boolean {
-  return e.dataTransfer.types.includes(SUBSHELL_DND_TYPE);
+  return acceptsSubshellDrag(e.dataTransfer);
 }
 
 /** Panel content renderers, keyed by the `component` id passed to `addPanel`. */
@@ -323,6 +324,7 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
   }, [detail.panes, addPanel, publishFocus]);
 
   const { addPane, removePane, restartSubshell } = useWorkspacePaneMutations(detail.workspace.id);
+  const closeLanding = useCloseSubshellLanding();
 
   // Restart is IN-PLACE: same id, so the workspace_panes row already points
   // at the (now-revived) subshell — there is nothing to add or remove. A clone
@@ -345,7 +347,6 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
 
   const handleRemovePane = useCallback(
     async (paneId: string) => {
-      if (detail.panes.length <= 1) return;
       let workspaceDeleted = false;
       try {
         ({ workspaceDeleted } = await removePane(paneId));
@@ -354,10 +355,11 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
         return;
       }
       // The workspace went with its last tab (spec 2026-10-17): there is no
-      // dock left to close a tile in, so leave. `workspaceDeleted` means the
-      // server held no other pane, so this answers the dashboard in practice
-      // — the find is only a fallback for a stale cached detail still naming
-      // a sibling, which lands on a real pane instead of home.
+      // dock left to close a tile in, so leave. `workspaceDeleted` is the
+      // server's word that no other pane row existed, so the find below is a
+      // cache fallback, not a promise: a stale cached detail can name a
+      // sibling that is gone too, and that case is answered by the detail
+      // page's own not-found handling, not by this branch.
       if (workspaceDeleted) {
         const other = detail.panes.find((p) => p.id !== paneId);
         if (other) void navigate({ to: "/subshells/$id", params: { id: other.subshellId }, replace: true });
@@ -390,11 +392,18 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
         // socket is a delivery, not a promise (review 2026-10-17).
         void invalidateWorkspaceMembership(queryClient);
         void onRefetch();
+        // And if this close killed the page on screen, leave it. The chooser
+        // reads the workspace route too: when this close retired the very
+        // workspace on screen it lands on the subshells list, while a tab that
+        // survives keeps the page and the dock reconciles in place. The call
+        // is here so every close path funnels through ONE rule and none can
+        // drift into stranding the viewer on a dead page.
+        closeLanding(subshellId, { id: detail.workspace.id, panes: detail.panes });
       } catch (err) {
         setError(errMessage(err, "Failed to close subshell"));
       }
     },
-    [detail.panes, onRefetch, queryClient],
+    [detail.panes, detail.workspace.id, onRefetch, queryClient, closeLanding],
   );
 
   /** Resolves true when the pane row now exists server-side; false when it does not and the banner says why. */
@@ -545,6 +554,7 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
       <PaneFocusHeader
         fallbackName={detail.workspace.name}
         panes={detail.panes}
+        workspaceId={detail.workspace.id}
         actions={<SubshellPicker workspaceId={detail.workspace.id} existing={detail.panes} onAdd={handleAdd} />}
       />
       {/* biome-ignore lint/a11y/noStaticElementInteractions: an HTML5 DROP

@@ -4,6 +4,7 @@ import type { WorkspaceTable } from "@/db/types/workspaces.db-types.js";
 import { accessAtLeast, loadSubshellAccess } from "@/lib/subshell-access.js";
 import { BaseService } from "@/services/base.service.js";
 import { isNodeOffline } from "@/services/nodes/node-registry.js";
+import { logger } from "@/utils/logger.js";
 
 /** Route error carrying an HTTP status; Elysia maps `status` to the response code. */
 class WorkspacesError extends Error {
@@ -423,16 +424,24 @@ export class WorkspacesService extends BaseService {
   }
 
   /**
-   * Removes a pane from a workspace (the subshell is untouched).
+   * Removes a pane from a workspace (the subshell itself is untouched).
    *
-   * The last tab stays in place so removing a tab cannot leave the workspace.
-   * The repository enforces that condition in the delete statement, including
-   * simultaneous removals from different clients.
+   * A workspace exists exactly as long as it holds a tab (spec 2026-10-17,
+   * conforming the remove side 2026-10-20): removing the last one RETIRES the
+   * workspace, and the subshell keeps running unfiled. The retire is the same
+   * repository call the close path uses (`retireEmptyAmong`), and its NOT
+   * EXISTS guard is the race idiom: a pane added between this delete and the
+   * retire statement keeps the workspace alive, and a racing add that lands
+   * after the retire meets `addWorkspacePane`'s FK branch and hears the
+   * plain 404.
    *
-   * @returns The legacy response shape, with workspaceDeleted always false.
-   * @throws WorkspacesError 409 when this is the final pane.
+   * @returns Whether the workspace retired along with the pane. A retire that
+   *   throws answers `false` with the pane already gone: the removal succeeded
+   *   either way, and the empty row stays for the viewer's next read to find.
    * @throws WorkspacesError 404 when the workspace is absent or not the caller's.
-   * @throws WorkspacesError 404 when the pane is not part of that workspace.
+   * @throws WorkspacesError 404 when the pane is not part of that workspace —
+   *   including a pane a concurrent client removed first, which reads the
+   *   same because it IS the same answer: it is no longer here.
    */
   async removeWorkspacePane(
     userId: string,
@@ -441,18 +450,25 @@ export class WorkspacesService extends BaseService {
   ): Promise<{ ok: true; workspaceDeleted: boolean }> {
     const workspace = await this.repos.workspaces.findByIdForUser(workspaceId, userId);
     if (!workspace) throw new WorkspacesError("not_found", "Workspace not found", 404);
-    const panesRepo = this.repos.workspacePanes;
-    const panes = await panesRepo.listByWorkspace(workspace.id);
-    if (!panes.some((p) => p.id === paneId)) {
+    // Check-and-delete in one statement: a pane of a DIFFERENT workspace and
+    // an already-gone pane both come back false, and both answer the 404 the
+    // old list-then-delete dance gave them.
+    if (!(await this.repos.workspacePanes.deleteWithin(workspace.id, paneId))) {
       throw new WorkspacesError("not_found", "Pane not found", 404);
     }
-    if (!(await panesRepo.deleteUnlessLast(workspace.id, paneId))) {
-      // A concurrent removal of this same pane is already-gone, not a last-tab refusal.
-      if (!(await panesRepo.listByWorkspace(workspace.id)).some((pane) => pane.id === paneId)) {
-        throw new WorkspacesError("not_found", "Pane not found", 404);
-      }
-      throw new WorkspacesError("last_pane", "Add another tab before removing this one.", 409);
+    // The pane row is committed: the removal succeeded whatever the retire
+    // statement answers now, so a throw here must not become a 500 — the
+    // client would report a failed removal, and its retry could only hear a
+    // 404 (the pane is gone) while an empty workspace sat orphaned. The close
+    // side swallows this same statement with a warn (subshell-manager's
+    // delete); match it, and answer as "the workspace is still there" so the
+    // viewer's next read sees the truth.
+    let retired = 0;
+    try {
+      retired = await this.repos.workspaces.retireEmptyAmong(userId, [workspace.id]);
+    } catch (err) {
+      logger.warn(`empty-workspace retire after removing a pane from ${workspace.id} failed: ${String(err)}`);
     }
-    return { ok: true, workspaceDeleted: false };
+    return { ok: true, workspaceDeleted: retired > 0 };
   }
 }

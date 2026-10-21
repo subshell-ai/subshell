@@ -57,13 +57,18 @@ async function mount(count = 2, refuse = false) {
     if (init?.method === "DELETE") {
       requests.push(`${init.method} ${url.pathname}`);
       if (refuse) return Response.json({ message: "Cannot remove pane" }, { status: 500 });
+      // The server retires a workspace when its last pane goes (ruling
+      // 2026-10-20), and the retired row leaves the LIST the same moment.
+      const retiring = panes.length === 1 && url.pathname.endsWith(panes[0].id);
       panes = panes.filter((p) => !url.pathname.endsWith(p.id));
-      return Response.json({ ok: true });
+      return Response.json({ ok: true, workspaceDeleted: retiring });
     }
     if (url.pathname === "/api/workspaces")
-      return Response.json([
-        { id: "w1", name: "Task board", panes, subshellCount: panes.length, updatedAt: "2026-10-20" },
-      ]);
+      return Response.json(
+        panes.length > 0
+          ? [{ id: "w1", name: "Task board", panes, subshellCount: panes.length, updatedAt: "2026-10-20" }]
+          : [],
+      );
     if (url.pathname === "/api/subshells/subagents") return Response.json({});
     if (url.pathname === "/api/subshells")
       return Response.json(
@@ -90,6 +95,7 @@ async function mount(count = 2, refuse = false) {
   const router = createRouter({
     routeTree: root.addChildren([
       createRoute({ getParentRoute: () => root, path: "/workspaces/$id", component: () => null }),
+      createRoute({ getParentRoute: () => root, path: "/subshells", component: () => null }),
     ]),
     history: createMemoryHistory({ initialEntries: ["/workspaces/w1"] }),
   });
@@ -141,18 +147,23 @@ test("dragging in uses the existing add-as-tab intent without leaving the worksp
   await waitFor(() => expect(router.state.location.search).toEqual({ add: "outside", dir: "within" }));
   expect(router.state.location.pathname).toBe("/workspaces/w1");
 });
-test("protects the last tab and ignores unrelated drag payloads", async () => {
-  const { add, remove, requests } = await mount(1);
-  const dt = transfer("s1");
-  fireEvent.dragStart(within(add).getByRole("link", { name: /Member 1/ }), { dataTransfer: dt });
-  expect(within(remove).getByRole("status").textContent).toContain("last tab");
-  fireEvent.drop(remove, { dataTransfer: dt });
-  expect(requests).toEqual([]);
+test("ignores unrelated drag payloads and retires the workspace on the last removal", async () => {
+  // Ruling 2026-10-20: dragging the LAST member out is no longer refused.
+  // The removal retires the workspace (the subshell keeps running, unfiled),
+  // and because the retired row is the page on screen, the drop handler
+  // leaves it for the Subshells list.
+  const { add, remove, requests, router } = await mount(1);
   fireEvent.dragOver(remove, { dataTransfer: transfer("s1", "Files") });
   fireEvent.drop(remove, { dataTransfer: transfer("s1", "Files") });
   expect(requests).toEqual([]);
+  const dt = transfer("s1");
+  fireEvent.dragStart(within(add).getByRole("link", { name: /Member 1/ }), { dataTransfer: dt });
+  expect(within(remove).getByRole("status").textContent).toBe("Remove from workspace");
+  fireEvent.drop(remove, { dataTransfer: dt });
+  await waitFor(() => expect(requests).toEqual(["DELETE /api/workspaces/w1/panes/p1"]));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/subshells"));
 });
-test("failed removal keeps the membership and last-tab safety intact", async () => {
+test("failed removal keeps the membership intact", async () => {
   const { add, remove, requests } = await mount(2, true);
   const dt = transfer("s2");
   fireEvent.dragStart(within(add).getByRole("link", { name: /Member 2/ }), { dataTransfer: dt });
