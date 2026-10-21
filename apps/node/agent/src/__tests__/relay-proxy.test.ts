@@ -351,6 +351,64 @@ test("a reply signed by the WRONG key is refused: nothing written, the pending c
   }
 });
 
+test("a forged reply keeps the dead request slot until its genuine reply arrives", async () => {
+  const f = await startFixture();
+  const evil = await evilKeysReady;
+  try {
+    const x = connectSocket(f.proxy.socketPath);
+    const spyX = spy(x);
+    await new Promise<void>((resolve) => x.on("connect", resolve));
+    x.write(agentFrame([SAMPLE_AGENT_REQUEST_A]));
+    await waitUntil(() => f.frames.length === 1, "first request sent");
+    const first = await openAndVerifyB2A(f, f.frames[0]);
+    const nA = newNonce();
+    f.proxy.deliverInboundRelayFrame(
+      await sealReply(f, {
+        seq: 0,
+        nB: first.nB,
+        nA,
+        agentBytes: [99],
+        signerPrivateJwk: evil.privateJwk,
+      }),
+    );
+    await waitUntil(() => spyX.closed(), "forgery closes the first connection");
+
+    // Connect only after the forgery. Hold the genuine reply until the new
+    // connection has requested different bytes, exposing an early slot release.
+    const y = connectSocket(f.proxy.socketPath);
+    const spyY = spy(y);
+    await new Promise<void>((resolve) => y.on("connect", resolve));
+    y.write(agentFrame([SAMPLE_AGENT_REQUEST_B]));
+    await sleep(50);
+    expect(f.frames.length).toBe(1);
+    f.proxy.deliverInboundRelayFrame(
+      await sealReply(f, {
+        seq: 0,
+        nB: first.nB,
+        nA,
+        agentBytes: [98],
+      }),
+    );
+    await waitUntil(() => f.frames.length === 2, "old reply absorbed and new request sent");
+    expect(spyX.chunks).toHaveLength(0);
+    expect(spyY.chunks).toHaveLength(0);
+
+    f.proxy.deliverInboundRelayFrame(
+      await sealReply(f, {
+        seq: 1,
+        nB: first.nB,
+        nA,
+        agentBytes: [97],
+      }),
+    );
+    await waitUntil(() => spyY.chunks.length === 1, "new connection receives its own reply");
+    expect([...Buffer.concat(spyY.chunks)]).toEqual([...agentFrame([97])]);
+    expect(spyY.closed()).toBe(false);
+  } finally {
+    f.cleanup();
+  }
+});
+
 test("PR #379 review: a forgery that lands while a request is still sealing tears down that request too", async () => {
   // The mid-seal window: poisonSession must fail the connection whose request
   // is inside `await sealRelayEnvelope` — it is neither `outstanding` (no slot
@@ -423,6 +481,18 @@ test("a reply with a mismatched relay-session id or nB nonce is refused and not 
     await waitUntil(() => spyC.closed(), "session-id mismatch fails the pending connection");
     expect(spyC.chunks.length).toBe(0);
 
+    // The dead request's genuine reply must be absorbed before another
+    // connection can send. Keep its nonce for the next reply's other bindings.
+    const nA = newNonce();
+    f.proxy.deliverInboundRelayFrame(
+      await sealReply(f, {
+        seq: 0,
+        nB: first.nB,
+        nA,
+        agentBytes: [SAMPLE_AGENT_ANSWER_A],
+      }),
+    );
+
     // Foreign nonce: this machine never minted it.
     const conn2 = connectSocket(f.proxy.socketPath);
     const spy2 = spy(conn2);
@@ -430,9 +500,9 @@ test("a reply with a mismatched relay-session id or nB nonce is refused and not 
     conn2.write(agentFrame([SAMPLE_AGENT_REQUEST_A]));
     await waitUntil(() => f.frames.length === 2, "second request frame out");
     const wrongNonce = await sealReply(f, {
-      seq: 0,
+      seq: 1,
       nB: newNonce(),
-      nA: newNonce(),
+      nA,
       agentBytes: [SAMPLE_AGENT_ANSWER_A],
     });
     f.proxy.deliverInboundRelayFrame(wrongNonce);

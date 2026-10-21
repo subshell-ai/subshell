@@ -123,10 +123,11 @@ export function summarize(tasks) {
     const page = await context.newPage();
     page.setDefaultTimeout(15000);
     await page.goto(`/workspaces/${workspace.id}`);
+    // Desktop tabs can include a waiting marker in their accessible name.
     const tab = (label: string) =>
       mobile
         ? page.getByRole("button", { name: new RegExp(`^${label}(?: waiting for you)?$`) })
-        : page.getByRole("tab", { name: label, exact: true });
+        : page.getByRole("tab").filter({ has: page.getByText(label, { exact: true }) });
     await expect(tab("Build feature")).toBeVisible();
     await tab("Build feature").click();
     const log = async (id: string) =>
@@ -258,7 +259,9 @@ export function summarize(tasks) {
       submit: true,
     });
     await hold(3);
-    await tab("Build feature").click();
+    // The harness can rename the subshell while doing the task.
+    const finishedPane = await (await api.get(`/api/subshells/${panes[0].id}`)).json();
+    await tab(finishedPane.name).click();
     await hold(2);
     expect(page.url()).toContain(`/workspaces/${workspace.id}`);
     if (mobile) await expect(page.getByRole("navigation", { name: "Main sections" })).not.toBeVisible();

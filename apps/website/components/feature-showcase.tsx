@@ -5,21 +5,21 @@ import { SelfHostedSection } from "./self-hosted-section";
 const SHOTS = {
   workspace: {
     name: "workspace-layout",
-    width: 1984,
+    width: 2096,
     height: 668,
     alt: "A project shell and test results side by side in a Subshell workspace",
     caption: "Two subshells, one workspace. On your phone, panes become tabs.",
   },
   prompts: {
     name: "prompt-stack-members",
-    width: 1736,
+    width: 1848,
     height: 714,
     alt: "A saved review checklist combining project context, review instructions, and report format in order",
     caption: "Build a prompt stack from instructions you already use.",
   },
   presets: {
     name: "preset-library",
-    width: 1736,
+    width: 1848,
     height: 984,
     alt: "Saved launch presets for a Codex repository review and a project terminal",
     caption: "Save launch settings for each agent as a preset.",

@@ -957,6 +957,12 @@ consequences are:
   selection is retained for "Set up Subshell here" and revalidated against
   the live roster. This does not prevent someone with terminal access from
   using other credentials available to that OS user.
+- **A refused relay reply cannot free an unanswered request for reuse.** A
+  forged reply fails the waiting connections, but the proxy retains an already
+  sent request's slot until its genuine reply is verified and discarded. New
+  connections wait behind that slot, so a delayed reply cannot reach a different
+  connection. If the genuine reply never arrives, the relay remains blocked
+  until teardown.
 - **Unfamiliar relay destinations require confirmation in the connection flow.**
   Existing destination trust comes from the key source's `known_hosts` or the
   viewer's saved pin. If neither exists, the connecting node retrieves the
