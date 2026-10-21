@@ -75,6 +75,21 @@ describe("ExistingSubshellList", () => {
     expect(screen.getByText(/Every subshell is already on this workspace/)).toBeDefined();
   });
 
+  it("says nothing exists yet when the universe is empty, instead of claiming everything is placed", () => {
+    // Operator finding 2026-10-20: a zero-subshell instance was told every
+    // subshell was "already on this workspace" — of a workspace that does
+    // not even exist yet.
+    render(<ExistingSubshellList {...base} totalCount={0} />);
+    expect(screen.getByText(/No subshells yet\. Launch one under “New subshell”/)).toBeDefined();
+    expect(screen.queryByText(/Every subshell is already on this workspace/)).toBeNull();
+  });
+
+  it("keeps the placed claim when candidates are empty but subshells do exist elsewhere", () => {
+    render(<ExistingSubshellList {...base} totalCount={3} />);
+    expect(screen.getByText(/Every subshell is already on this workspace/)).toBeDefined();
+    expect(screen.queryByText(/No subshells yet/)).toBeNull();
+  });
+
   it("distinguishes a failed load from an empty list", () => {
     render(<ExistingSubshellList {...base} loadFailed />);
     expect(screen.getByText("Couldn't load subshells.")).toBeDefined();

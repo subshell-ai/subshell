@@ -1,6 +1,6 @@
 import { apiPost, Button, errMessage } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
-import { type JSX, useState } from "react";
+import { type JSX, useEffect, useRef, useState } from "react";
 import { ConnectPanel } from "@/components/connect/connect-panel";
 import { sshSessionDraft } from "@/components/connect/ssh-session-draft";
 import { ExistingSubshellList } from "@/components/subshell-picker/existing-subshell-list";
@@ -79,6 +79,21 @@ export function NewWorkspaceDialog({
   // Set when the workspace exists but at least one pane failed — the footer
   // becomes Enter (the workspace is real; the missing panes are addable there).
   const [createdId, setCreatedId] = useState<string | null>(null);
+
+  // The landing segment is decided ONCE per open (operator finding
+  // 2026-10-20): an instance with no subshells at all must not open on an
+  // "Existing subshells" tab that can only hold a dead end. While the read is
+  // still loading its size is unknown, so "existing" stands, and a list that
+  // settles AFTER the dialog is open must not yank the segment out from under
+  // the person. The current read therefore rides a ref, and the effect keys
+  // on `open` alone.
+  const readAtOpen = useRef({ loading, subshells });
+  readAtOpen.current = { loading, subshells };
+  useEffect(() => {
+    if (!open) return;
+    const read = readAtOpen.current;
+    setMode(!read.loading && read.subshells !== undefined && read.subshells.length === 0 ? "new" : "existing");
+  }, [open]);
 
   function reset() {
     setSshDraft(sshSessionDraft());
@@ -191,6 +206,9 @@ export function NewWorkspaceDialog({
         ) : mode === "existing" ? (
           <ExistingSubshellList
             subshells={subshells ?? []}
+            // Nothing is a member yet (the workspace does not exist), so the
+            // unfiltered read IS the candidate list; 0 means none anywhere.
+            totalCount={subshells?.length}
             query={query}
             onQueryChange={setQuery}
             loadFailed={loadFailed}
