@@ -1,5 +1,11 @@
 # @internal/server
 
+## 2.4.2
+
+### Patch Changes
+
+- [#411](https://github.com/subshell-ai/subshell/pull/411) [`04045b7`](https://github.com/subshell-ai/subshell/commit/04045b795064f2a83255649073def1e69b934fd5) Thanks [@theogravity](https://github.com/theogravity)! - Let owners and admins confirm force deletion of offline nodes with running subshells from the removal dialog. Explain that removal revokes the node's key without stopping its processes, keep failures in the dialog, and require explicit confirmation before forcing deletion.
+
 ## 2.4.1
 
 ### Patch Changes

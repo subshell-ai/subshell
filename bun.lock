@@ -179,7 +179,7 @@
     },
     "apps/server/api": {
       "name": "@internal/server",
-      "version": "2.4.1",
+      "version": "2.4.2",
       "dependencies": {
         "@better-auth/api-key": "1.7.1",
         "@better-auth/passkey": "1.7.1",
@@ -226,7 +226,7 @@
     },
     "apps/server/desktop": {
       "name": "@internal/desktop-server",
-      "version": "1.5.4",
+      "version": "1.5.5",
       "dependencies": {
         "@base-ui/react": "1.7.0",
         "@internal/assistant": "workspace:*",
