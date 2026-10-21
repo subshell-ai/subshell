@@ -242,23 +242,23 @@ export async function startAgentProxy(args: AgentProxyArgs): Promise<AgentProxyH
     }
   };
 
-  /** Nothing outstanding anymore: let the next queued request go (if any). */
-  const releaseOutstanding = (): void => {
-    outstanding = null;
-    void pumpQueue();
-  };
-
   /** A refused-forge frame fails every request that could be waiting on it. */
   const poisonSession = (why: string): void => {
     say(`relay session ${args.ref}: ${why}; refusing the frame and failing pending agent connections`);
-    const waiting = outstanding?.conn;
-    if (waiting) failConn(waiting);
+    // The genuine reply is still owed even though this connection failed.
+    // Keep its slot until that reply is absorbed, or a later connection could
+    // receive it. failConn removes the connection before its close handler runs,
+    // so that handler cannot mark the slot for us.
+    if (outstanding) {
+      outstanding.awaitingAbsorb = true;
+      failConn(outstanding.conn);
+    }
     // The mid-seal request is in neither `outstanding` nor `queue`; fail it by
     // name so it does not complete against a live socket. Its sendRequest wakes
     // to find `conns.has(conn)` false and drops without taking the slot.
     if (sealingConn) failConn(sealingConn);
     for (const q of queue.splice(0)) failConn(q.conn);
-    releaseOutstanding();
+    void pumpQueue();
   };
 
   /** Seal one agent request and hand the frame to the pump; then open the slot. */
