@@ -115,6 +115,7 @@ describe("TerminalKeyBar", () => {
       "Paste text",
       "Send Ctrl-C",
       "Send Shift-Tab",
+      "Send Shift-Left",
       "Send Tab",
       "Send slash",
     ]);
@@ -217,6 +218,7 @@ describe("TerminalKeyBar", () => {
       "Send Escape": "\x1b",
       "Send Ctrl-C": "\x03",
       "Send Shift-Tab": "\x1b[Z",
+      "Send Shift-Left": "\x1b[1;2D",
       "Send Tab": "\t",
       "Send Enter": "\r",
       "Insert newline": "\x1b\r",
@@ -236,7 +238,8 @@ describe("TerminalKeyBar", () => {
     // "/" is a plain byte like every other key — the pane's own program
     // (shell, claude slash commands, …) decides what it means.
     fireEvent.click(screen.getByRole("button", { name: "Send slash" }));
-    expect(sent).toEqual(["\x03", "\x1b[A", "/"]);
+    fireEvent.click(screen.getByRole("button", { name: "Send Shift-Left" }));
+    expect(sent).toEqual(["\x03", "\x1b[A", "/", "\x1b[1;2D"]);
   });
 
   it("cancels pointerdown so taps never steal focus from the terminal", () => {

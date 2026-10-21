@@ -18,3 +18,6 @@ offers "Toggle Sidebar" and Cmd+B is free.
 Renaming a subshell now re-titles its open dock tab right away. The live feed
 invalidates the workspace read a rename touches, so the old title no longer
 sticks until the pane remounts.
+
+The touch key bar gained a Shift-Left key, so a touch user can send the
+modified left arrow, for example to extend a selection, without a keyboard.
