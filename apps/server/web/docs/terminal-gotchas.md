@@ -68,6 +68,10 @@ shared with the action menu. Copy mode preserves the full row and its scroll
 position, disabling input buttons instead of removing them. The bar's scroller is explicitly exempt from the
 terminal's iOS page-scroll guard, as is the phone workspace tab strip's since 2026-10-20
 (`workspace-tabs.tsx`); every other shell scroller stays pinned.
+Scrollers inside an open modal (a `Dialog` or `Sheet`, or a menu/listbox popup) are exempt by
+SURFACE since 2026-10-21, not by focus: iOS leaves focus on the body after a tap-selected option,
+which used to pin a dialog form that had grown past its scroll cap (the New subshell dialog snapping
+to the top after a preset). The rule lives in `app-scroll-pin.ts` (`MODAL_SCROLLER_SELECTOR`).
 Paste reads text
 from the clipboard during the tap and calls xterm's `paste()` for newline
 normalization and bracketed-paste framing; raw key input is a different path.

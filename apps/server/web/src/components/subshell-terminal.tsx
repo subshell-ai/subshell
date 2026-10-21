@@ -15,7 +15,7 @@ import { PaneDiagnosticsHud } from "@/components/pane-diagnostics-hud";
 import { TerminalDropOverlay } from "@/components/terminal-drop-overlay";
 import { useLiveInputQueue } from "@/hooks/use-input-queue-live";
 import { useTerminalUploads } from "@/hooks/use-terminal-uploads";
-import { shouldResetForeignScroll } from "@/lib/app-scroll-pin";
+import { MODAL_SCROLLER_SELECTOR, shouldResetForeignScroll } from "@/lib/app-scroll-pin";
 import { deadPanelActions } from "@/lib/dead-panel-actions";
 import { type InputQueue, queueBadgeView } from "@/lib/input-queue";
 import { sendInput, sendResize, sendSizing } from "@/lib/subshell-frames.js";
@@ -830,6 +830,12 @@ export function SubshellTerminal({
           engaged: container.contains(focus) || !focus || focus === document.body,
           insideTerminal: t instanceof Element && container.contains(t),
           terminalControls: t instanceof Element && t.matches("[data-terminal-controls-scroller]"),
+          // An open modal (dialog, menu, listbox popup) owns its scroller
+          // whatever iOS left focused: a tap-selected option can leave focus
+          // on the body, and the dialog form that grew past its cap must
+          // still scroll (operator report 2026-10-21, the New subshell dialog
+          // snapping to the top after a preset was chosen).
+          insideModal: t instanceof Element && t.closest(MODAL_SCROLLER_SELECTOR) !== null,
         })
       ) {
         if (t === document) {

@@ -24,6 +24,14 @@ describe("shouldResetForeignScroll", () => {
     expect(shouldResetForeignScroll({ ...typing, terminalControls: true })).toBe(false);
     expect(shouldResetForeignScroll({ ...typing, terminalControls: false })).toBe(true);
   });
+
+  it("exempts a scroller inside an open modal, wherever iOS left the focus", () => {
+    // The 2026-10-21 regression: dialog open, focus on the body (engaged),
+    // swipe the dialog's own scroller — the modal owns it.
+    expect(shouldResetForeignScroll({ ...typing, insideModal: true })).toBe(false);
+    // A scroller outside the modal is still pinned while it is open.
+    expect(shouldResetForeignScroll({ ...typing, insideModal: false })).toBe(true);
+  });
 });
 
 describe("isKeyboardUp", () => {
