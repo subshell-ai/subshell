@@ -1,5 +1,29 @@
 # @internal/server
 
+## 2.5.0
+
+### Minor Changes
+
+- [#413](https://github.com/subshell-ai/subshell/pull/413) [`b340e06`](https://github.com/subshell-ai/subshell/commit/b340e06c90ad5a639c1d23343d386b041be21c27) Thanks [@theogravity](https://github.com/theogravity)! - Group workspace subshells by machine and nest agent-created helpers beneath their creator. Include operating system, architecture, CPU model, logical CPU count, total RAM, and the hardware report timestamp in MCP node discovery.
+  
+  Keep agent-created helpers out of standalone sidebar and dashboard listings. Select a helper beneath its parent to open it as a workspace tab.
+  
+  Prevent dragging agent-created helper rows independently of their parent.
+
+- [#413](https://github.com/subshell-ai/subshell/pull/413) [`b340e06`](https://github.com/subshell-ai/subshell/commit/b340e06c90ad5a639c1d23343d386b041be21c27) Thanks [@theogravity](https://github.com/theogravity)! - Add preset and node notes to cross-agent discovery, with recommended starting directories for nodes. Agents can read this guidance and preset launch defaults through MCP before choosing where and how to start a subshell. Notes are limited to 8,000 characters in the dashboard, API, and preset imports. Directory suggestions don't change access permissions.
+  
+  Clarify MCP cleanup instructions: collect results and delete completed temporary helpers, or terminate them when their history needs to be retained.
+
+### Patch Changes
+
+- [#413](https://github.com/subshell-ai/subshell/pull/413) [`b340e06`](https://github.com/subshell-ai/subshell/commit/b340e06c90ad5a639c1d23343d386b041be21c27) Thanks [@theogravity](https://github.com/theogravity)! - Use consistent compact section headings with trailing divider lines across preset, SSH, networking, authentication, preference, and restore forms. Preserve fieldset labels for screen readers and share the same heading component with the desktop server assistant.
+  
+  Use smaller machine and status labels with tighter spacing in the workspace sidebar. Confirm both starting and ending node maintenance, and show last-seen age for offline nodes.
+  
+  Expose cross-agent settings and notes when importing presets, so users can turn cross-agent mode off and import without selecting a launch machine.
+  
+  Let imported agent presets edit their working directory when enabling cross-agent communication. Keep unclassified workspace rows behind loading or unavailable states until their parent relationships can be resolved.
+
 ## 2.4.2
 
 ### Patch Changes
