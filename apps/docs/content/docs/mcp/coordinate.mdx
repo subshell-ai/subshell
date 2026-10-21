@@ -65,7 +65,7 @@ Read replies with `read_channel`, using `nextSince` for an explicit cursor. Insp
 
 ## Finish
 
-Summarize the result and call `terminate_subshell` to retain history or `delete_subshell` to remove the helper. A helper that exits on its own still has a session record.
+Collect and summarize the result, then call `delete_subshell` to remove the temporary helper and its history. Use `terminate_subshell` instead when you need to retain history; its sidebar entry remains. A helper that exits on its own still has a session record.
 
 If creation times out, inspect `list_subshells` before retrying to avoid duplicate helpers.
 

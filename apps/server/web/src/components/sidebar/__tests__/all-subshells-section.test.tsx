@@ -7,7 +7,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import * as quickAdd from "@/components/quick-add";
 import { AllSubshellsSection } from "@/components/sidebar/all-subshells-section";
 import { setFetchRouter } from "@/test-setup";
@@ -28,7 +28,7 @@ const spy = () =>
     openNewWorkspace: () => {},
   });
 
-async function renderSection(excludeIds?: ReadonlySet<string>, withMember = false): Promise<void> {
+async function renderSection(excludeIds?: ReadonlySet<string>, withMember = false, withHelpers = false) {
   setFetchRouter(async (input: RequestInfo | URL) => {
     const url = String(typeof input === "string" || input instanceof URL ? input : input.url);
     if (url.includes("/api/plugins")) return Response.json({ plugins: [] });
@@ -45,6 +45,34 @@ async function renderSection(excludeIds?: ReadonlySet<string>, withMember = fals
               workingDir: "/tmp",
               access: "owner",
             },
+            ...(withHelpers
+              ? [
+                  {
+                    id: "child",
+                    name: "Helper",
+                    crossAgent: true,
+                    parentSubshellId: "s1",
+                    nodeId: "local",
+                    harnessId: "terminal",
+                    status: "terminated",
+                    alive: false,
+                    workingDir: "/tmp",
+                    access: "owner",
+                  },
+                  {
+                    id: "orphan",
+                    name: "Orphan",
+                    crossAgent: true,
+                    parentSubshellId: null,
+                    nodeId: "local",
+                    harnessId: "terminal",
+                    status: "terminated",
+                    alive: false,
+                    workingDir: "/tmp",
+                    access: "owner",
+                  },
+                ]
+              : []),
           ]
         : []
       : url.includes("/api/workspaces")
@@ -63,6 +91,7 @@ async function renderSection(excludeIds?: ReadonlySet<string>, withMember = fals
   const router = createRouter({
     routeTree: rootRoute.addChildren([
       createRoute({ getParentRoute: () => rootRoute, path: "/", component: () => null }),
+      createRoute({ getParentRoute: () => rootRoute, path: "/workspaces/$id", component: () => null }),
     ]),
     history: createMemoryHistory({ initialEntries: ["/"] }),
     defaultPreload: false,
@@ -77,6 +106,7 @@ async function renderSection(excludeIds?: ReadonlySet<string>, withMember = fals
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
   });
+  return router;
 }
 
 afterEach(() => {
@@ -120,6 +150,36 @@ it("keeps the active-workspace marker when rendering a member through the tree",
   try {
     await renderSection(undefined, true);
     expect(await screen.findByRole("img", { name: "In active workspace" })).toBeTruthy();
+  } finally {
+    quick.mockRestore();
+  }
+});
+
+it("renders helpers only under their parent and opens them as tabs", async () => {
+  const quick = spy();
+  try {
+    const router = await renderSection(undefined, true, true);
+    const helper = await screen.findByText("Helper");
+    expect(helper.closest('[data-subshell-tree-id="s1"]')).not.toBeNull();
+    expect(screen.queryByText("Orphan")).toBeNull();
+    expect(screen.getAllByText("Helper")).toHaveLength(1);
+    await act(async () => {
+      fireEvent.click(helper);
+    });
+    expect(router.state.location.pathname).toBe("/workspaces/w1");
+    expect(router.state.location.search).toMatchObject({ add: "child", dir: "within" });
+  } finally {
+    quick.mockRestore();
+  }
+});
+
+it("does not promote a helper when its parent is in the workspace section", async () => {
+  const quick = spy();
+  try {
+    await renderSection(new Set(["s1"]), true, true);
+    expect(screen.queryByText("Helper")).toBeNull();
+    expect(screen.queryByText("Orphan")).toBeNull();
+    expect(await screen.findByText(/Drag a subshell here/)).toBeTruthy();
   } finally {
     quick.mockRestore();
   }

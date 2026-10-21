@@ -1,6 +1,6 @@
 import type { SubshellView } from "@/types/subshell";
 
-/** Build only relationships between visible rows; old or orphaned helpers stay reachable as roots. */
+/** Helpers appear only beneath visible parents, never as standalone list entries. */
 export function subshellTree(rows: readonly SubshellView[]) {
   const byId = new Map(rows.map((row) => [row.id, row]));
   const children = new Map<string, SubshellView[]>();
@@ -13,8 +13,8 @@ export function subshellTree(rows: readonly SubshellView[]) {
       seen.add(ancestor.id);
       ancestor = ancestor.crossAgent && ancestor.parentSubshellId ? byId.get(ancestor.parentSubshellId) : undefined;
     }
-    if (!parent || ancestor) roots.push(row);
-    else children.set(parent.id, [...(children.get(parent.id) ?? []), row]);
+    if (!row.crossAgent) roots.push(row);
+    else if (parent && !ancestor) children.set(parent.id, [...(children.get(parent.id) ?? []), row]);
   }
   return { roots, children };
 }

@@ -47,7 +47,7 @@ export const Route = createFileRoute("/subshells")({
 });
 
 /**
- * Subshells: every subshell, as tiles or as a list.
+ * Subshells: human-created subshells, as tiles or as a list. Helpers stay beneath their parents in the sidebar.
  *
  * These were two pages — a card grid at `/` and a "Manager" table at
  * `/subshells` — showing the same subshells with different affordances, which
@@ -63,7 +63,8 @@ function SubshellsPage() {
   // the sidebar, the phone drawer and `/new` all share.
   const { openLaunch } = useQuickAdd();
   const { view = "tiled" } = Route.useSearch();
-  const { subshells, isLoading, isError, refetch } = useLiveSubshells();
+  const { subshells: allSubshells, isLoading, isError, refetch } = useLiveSubshells();
+  const subshells = allSubshells.filter((row) => !row.crossAgent);
   const [query, setQuery] = useState("");
   // The machine filter is page-level: it narrows BOTH views. It lives in
   // component state (not the URL) for the same reason the search box does —
@@ -82,7 +83,7 @@ function SubshellsPage() {
   // regression: e2e spec 01).
 
   const results = useFilteredSubshells(query, machine === "all" ? undefined : machine);
-  const filtered = results.data ?? [];
+  const filtered = (results.data ?? []).filter((row) => !row.crossAgent);
   // The cards are the only surface that renders a screen, so they are what
   // asks for one (spec 2026-09-19 §4.4).
   useCardPreviews(filtered.map((s) => s.id));

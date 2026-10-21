@@ -56,7 +56,7 @@ export function AllSubshellsSection({
   const labelsFor = useSubshellLabels();
   const { data: nodes } = useNodes();
   const [groupBy, setGroupBy] = useState<GroupBy>(savedGroupBy);
-  const sorted = sortByStatus((results.data ?? []).filter((row) => !excludeIds?.has(row.id)));
+  const sorted = sortByStatus((results.data ?? []).filter((row) => row.crossAgent || !excludeIds?.has(row.id)));
   const { roots, children } = subshellTree(sorted);
   const sections =
     groupBy === "machine"
@@ -127,7 +127,7 @@ export function AllSubshellsSection({
         <ListLoadError message="Couldn’t load subshells." retry={results.refetch} busy={results.isFetching} />
       ) : results.isLoading ? (
         <p className="px-3 text-detail text-muted-foreground">Loading subshells…</p>
-      ) : sorted.length ? (
+      ) : roots.length ? (
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1 pb-2">
           {sections.map((section) => (
             <div key={section.key}>

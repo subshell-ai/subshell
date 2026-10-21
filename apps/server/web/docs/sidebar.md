@@ -19,7 +19,7 @@ stays a no-op. Modifier and middle clicks pass through to the real Link.
 `ActiveWorkspaceSection` combines the workspace picker and its member rows
 with other subshells below a **Subshells** divider and no collapse button. The latter retains
 grouping, status and actions, filtering out members of the selected workspace.
-Workspace members are grouped by machine. Cross-agent helpers nest beneath their creator, including helpers that haven't been added as tabs; selecting one adds it as a tab. A helper on another machine names that machine in its row. The lower list excludes those descendants so each helper appears once. Old helpers and helpers without a visible parent stay standalone. The two lists scroll independently. No workspace heading or dedicated collapse
+Workspace members are grouped by machine. Cross-agent helpers nest beneath their creator, including helpers that haven't been added as tabs; selecting one adds it as a tab. A helper on another machine names that machine in its row. The lower list excludes those descendants so each helper appears once. Helpers never appear as standalone entries, including when their parent is missing. The subshell dashboard excludes helpers; MCP still lists them for cleanup. The two lists scroll independently. No workspace heading or dedicated collapse
 button sits above the picker. The mobile drawer's close control stays beside
 it. With no selected workspace, the bottom section shows all subshells.
 

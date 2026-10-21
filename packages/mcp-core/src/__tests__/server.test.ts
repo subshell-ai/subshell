@@ -62,6 +62,8 @@ describe("subshell mcp instructions", () => {
 
   it("the briefing owns the spawned-pane cleanup rule (2026-09-25: comms panes the human never hears about)", () => {
     expect(SUBSHELL_MCP_INSTRUCTIONS).toContain("yours to close");
+    expect(SUBSHELL_MCP_INSTRUCTIONS).toContain("delete_subshell temporary helpers and their history");
+    expect(SUBSHELL_MCP_INSTRUCTIONS).toContain("it leaves a sidebar entry");
     expect(SUBSHELL_MCP_INSTRUCTIONS).toContain("beneath its creator");
     // The create tool REPEATS the rule for harnesses that read descriptions
     // without the briefing; that half is asserted on the wire in the
@@ -164,6 +166,10 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
     expect(byName.create_subshell.description).toContain("Create an agent session from a saved preset");
     expect(byName.create_subshell.description).toContain("list_subshells before retrying");
     expect(byName.create_subshell.description).toContain("You're responsible for cleanup");
+    expect(byName.create_subshell.description).toContain(
+      "delete_subshell to remove completed temporary helpers and their history",
+    );
+    expect(byName.create_subshell.description).toContain("it leaves a sidebar entry");
     expect(byName.send_to_subshell.description).toContain("SUBSHELL_NOT_RUNNING");
     // The exec tool's shell-contract honesty rides its OWN description, not
     // the briefing (spec 2026-10-02: SUBSHELL_MCP_INSTRUCTIONS stays untouched).

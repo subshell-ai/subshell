@@ -9,7 +9,7 @@ Clean up helper sessions created during agent coordination.
 
 A subshell created with a pane's own token is marked as cross-agent communication. It appears beneath the subshell that created it in the sidebar and starts with its notification bell off. Workspace subshells are grouped by machine; a helper stays beneath its creator even when it runs on another machine. Selecting the helper opens it as a workspace tab.
 
-Older helpers without a recorded creator, and helpers whose creator is no longer visible, remain standalone entries. Removing or closing a parent doesn't close its helpers.
+Helpers appear only beneath their parent, never as standalone entries in the sidebar or subshell dashboard. Older helpers without a recorded creator, and helpers whose creator is no longer visible, remain available through MCP for cleanup. Removing or closing a parent doesn't close its helpers.
 
 That classification remains even if the owner changes its notification preference later. It records how the helper was created.
 
@@ -17,8 +17,8 @@ That classification remains even if the owner changes its notification preferenc
 
 1. Confirm the helper's result has been collected.
 2. Record any output you need to keep.
-3. Call `terminate_subshell` to stop it while keeping its session record and history.
-4. Use `delete_subshell` instead if the owner intends permanent removal.
+3. Call `delete_subshell` to remove the completed temporary helper and its captured history.
+4. If you need to retain its history, use `terminate_subshell` instead. This stops the process but leaves the session record and sidebar entry.
 
 The agent that opens a helper is responsible for cleaning it up. Don't assume an idle prompt or completed task removes the session.
 
