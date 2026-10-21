@@ -12,10 +12,11 @@ import { useFilteredList } from "@/hooks/use-filtered-list";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useNodes } from "@/hooks/use-nodes";
 import { usePresets } from "@/hooks/use-presets";
+import { useSubshellDrop } from "@/hooks/use-subshell-drop";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { useWorkspaces, WORKSPACES_QUERY_KEY } from "@/hooks/use-workspaces";
 import { workspaceIdFromPath } from "@/lib/route-ids";
-import { acceptsSubshellDrag, readSubshellDrag } from "@/lib/subshell-dnd";
+import { acceptsSubshellDrag } from "@/lib/subshell-dnd";
 import { FALLBACK_NODE_ID, nodeLabelFor } from "@/lib/subshell-node-groups";
 import { useWorkspaceFocusedId } from "@/lib/workspace-focus";
 import { railWorkspaceRows } from "@/lib/workspace-rail";
@@ -76,6 +77,7 @@ export function WorkspaceBranch({
   labelsFor: (sub: SubshellView) => RowLabels;
 }): JSX.Element {
   const open = expanded || forceOpen;
+  const readSubshellDrop = useSubshellDrop();
   // The branch is a DROP TARGET: dragging a session from the subshells list
   // onto its row files it here — the same idempotent pane-add the dock's
   // drop and the add-dialog use, so every "put this pane in that workspace"
@@ -108,11 +110,12 @@ export function WorkspaceBranch({
   }
 
   async function onDrop(e: DragEvent): Promise<void> {
-    const subshellId = readSubshellDrag(e.dataTransfer);
-    if (subshellId === null) return;
+    if (!acceptsSubshellDrag(e.dataTransfer)) return;
     e.preventDefault();
     dragDepth.current = 0;
     setDropHint(false);
+    const subshellId = readSubshellDrop(e.dataTransfer);
+    if (subshellId === null) return;
     // `addPane` belongs to the pane-mutation seam, which wakes every
     // membership reader (tree LIST, open dock, subshell page) on success —
     // this handler only reports the failure.

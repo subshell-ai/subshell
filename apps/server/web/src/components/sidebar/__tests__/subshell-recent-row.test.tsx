@@ -262,3 +262,29 @@ it("a parked row (running at alive:0) draws no child roster and issues no batch 
     restore();
   }
 });
+
+it("keeps cross-agent leaf rows clickable but prevents dragging", async () => {
+  const { restore } = mockFetch();
+  let opened = 0;
+  try {
+    renderRow(makeSubshell({ crossAgent: true, parentSubshellId: "parent" }), false, () => {
+      opened += 1;
+    });
+    const link = await screen.findByRole("link", { name: /auth-refactor/ });
+    expect(link.getAttribute("draggable")).toBe("false");
+    let writes = 0;
+    const accepted = fireEvent.dragStart(link, {
+      dataTransfer: {
+        setData: () => {
+          writes += 1;
+        },
+      },
+    });
+    expect(accepted).toBe(false);
+    expect(writes).toBe(0);
+    fireEvent.click(link);
+    expect(opened).toBe(1);
+  } finally {
+    restore();
+  }
+});

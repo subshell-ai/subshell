@@ -117,14 +117,15 @@ export function SubshellRecentRow({
   // last tab out already retires the workspace (ruling 2026-10-20), and
   // docs/sidebar.md promises the row menu is the non-drag equivalent, so
   // removing through the menu lands on the same path and the same landing.
-  const workspaceAction = sidebarDrag?.workspace
-    ? {
-        label: member ? "Remove from workspace" : "Add to workspace",
-        icon: member ? Minus : Plus,
-        sidebar: true,
-        onSelect: () => (member ? sidebarDrag.remove(subshell.id) : sidebarDrag.add(subshell.id)),
-      }
-    : undefined;
+  const workspaceAction =
+    !subshell.crossAgent && sidebarDrag?.workspace
+      ? {
+          label: member ? "Remove from workspace" : "Add to workspace",
+          icon: member ? Minus : Plus,
+          sidebar: true,
+          onSelect: () => (member ? sidebarDrag.remove(subshell.id) : sidebarDrag.add(subshell.id)),
+        }
+      : undefined;
   // RUNNING is the row's two facts; a pane parked at running/alive:0 (or
   // flipped to terminated ahead of its alive bit) must not watch or fetch.
   const { data: agentState } = useHarnessSubagents(
@@ -154,8 +155,13 @@ export function SubshellRecentRow({
             <Link
               to="/subshells/$id"
               params={{ id: subshell.id }}
-              draggable
+              draggable={!subshell.crossAgent}
               onDragStart={(e) => {
+                if (subshell.crossAgent) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  return;
+                }
                 encodeSubshellDrag(e.dataTransfer, subshell.id);
                 setSubshellDragImage(e.dataTransfer, e.currentTarget, e.clientX, e.clientY);
                 sidebarDrag?.start(subshell.id);

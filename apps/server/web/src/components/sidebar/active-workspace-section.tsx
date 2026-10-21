@@ -10,6 +10,7 @@ import { WorkspaceSidebarDrag, WorkspaceSidebarDropArea } from "@/components/sid
 import { WorkspaceBranch } from "@/components/sidebar/workspaces-section";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
+import { useSubshellDrop } from "@/hooks/use-subshell-drop";
 import { useSubshellLabels } from "@/hooks/use-subshell-labels";
 import { useSubshellsList } from "@/hooks/use-subshells";
 import { useInvalidateWorkspaces, useWorkspaces } from "@/hooks/use-workspaces";
@@ -17,7 +18,7 @@ import { lastWorkspaceId } from "@/lib/current-workspace";
 import { subshellIdFromPath, workspaceIdFromPath } from "@/lib/route-ids";
 import { sidebarWorkspace } from "@/lib/sidebar-context";
 import { splitCreateFailureMessage, splitWorkspaceRefusal } from "@/lib/split-workspace-refusal";
-import { acceptsSubshellDrag, readSubshellDrag } from "@/lib/subshell-dnd";
+import { acceptsSubshellDrag } from "@/lib/subshell-dnd";
 import { workspaceSubshellIds } from "@/lib/subshell-tree";
 import { armPaneFocusOnArrive, useWorkspaceFocusedId } from "@/lib/workspace-focus";
 import { defaultWorkspaceName } from "@/lib/workspace-name";
@@ -39,6 +40,7 @@ const NEW_WORKSPACE = "__new_workspace__";
  */
 export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: ReactNode; onQuickAdd?: () => void }) {
   const location = useLocation();
+  const readSubshellDrop = useSubshellDrop();
   const navigate = useNavigate();
   const quickAdd = useQuickAdd();
   const workspaces = useWorkspaces();
@@ -170,10 +172,11 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
   }
 
   function onZoneDrop(e: DragEvent): void {
-    const subshellId = readSubshellDrag(e.dataTransfer);
-    if (subshellId === null) return;
+    if (!acceptsSubshellDrag(e.dataTransfer)) return;
     e.preventDefault();
     setDropHint(false);
+    const subshellId = readSubshellDrop(e.dataTransfer);
+    if (subshellId === null) return;
     // A second release while one create is in flight is inert, not a
     // duplicate window: the in-flight guard, not a toast, makes it so.
     if (createInFlight.current) return;

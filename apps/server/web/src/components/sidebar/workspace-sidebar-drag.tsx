@@ -2,9 +2,10 @@ import { cn, errMessage } from "@internal/node-admin";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useSubshellDrop } from "@/hooks/use-subshell-drop";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { useInvalidateWorkspaces } from "@/hooks/use-workspaces";
-import { acceptsSubshellDrag, readSubshellDrag } from "@/lib/subshell-dnd";
+import { acceptsSubshellDrag } from "@/lib/subshell-dnd";
 import { requestWorkspacePaneFocus } from "@/lib/workspace-focus";
 import type { WorkspaceRow } from "@/types/workspace";
 
@@ -98,6 +99,7 @@ export function WorkspaceSidebarDropArea({
   className?: string;
 }) {
   const drag = useWorkspaceSidebarDrag();
+  const readSubshellDrop = useSubshellDrop();
   const [over, setOver] = useState(false);
   const member = drag?.workspace?.panes?.some((pane) => pane.subshellId === drag.id) ?? false;
   const offered = !!drag?.workspace && !!drag.id && (kind === "remove" ? member : !member);
@@ -126,7 +128,7 @@ export function WorkspaceSidebarDropArea({
         if (!acceptsSubshellDrag(event.dataTransfer) || !offered || !drag) return;
         event.preventDefault();
         event.stopPropagation();
-        const id = readSubshellDrag(event.dataTransfer);
+        const id = readSubshellDrop(event.dataTransfer);
         if (id && id === drag.id && !blocked) (kind === "add" ? drag.add : drag.remove)(id);
         drag.end();
         setOver(false);
