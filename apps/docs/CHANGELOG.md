@@ -1,5 +1,11 @@
 # @internal/docs
 
+## 0.10.3
+
+### Patch Changes
+
+- [#415](https://github.com/subshell-ai/subshell/pull/415) [`adba07c`](https://github.com/subshell-ai/subshell/commit/adba07c66554ec39fa89a2767fac83cf5e810386) Thanks [@theogravity](https://github.com/theogravity)! - Complete cross-agent guidance for preset imports, notes limits, directory suggestions, node system specs, maintenance confirmations, and helper drag behavior.
+
 ## 0.10.2
 
 ### Patch Changes
