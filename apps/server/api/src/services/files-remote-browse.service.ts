@@ -105,6 +105,17 @@ export interface RemoteExploreResult {
   recent: { path: string; label: string | null }[];
   /** The NODE's starred directories (plane-side rows, node-scoped since 0034) */
   favorites: { path: string; label: string | null }[];
+  /**
+   * The agent's own `fs_ls` flag, passed through rather than dropped: true
+   * when its listing stopped at `FS_LS_MAX_ENTRIES` (1,000), so the picker can
+   * say "The listing stops at 1,000 folders, so some may be missing." instead
+   * of silently pretending that is the whole directory. Omitted, never sent
+   * stays byte-identical. No protocol change rides here: the flag has been on
+   * the wire all along, this service just used to discard it. The roots
+   * fallback below never sets it (those entries are the plane's rules, not an
+   * agent listing that could have been capped).
+   */
+  truncated?: boolean;
 }
 
 /**
@@ -211,11 +222,15 @@ export async function exploreNodeDirectory(
       favorites,
     };
   }
-  return {
+  const result: RemoteExploreResult = {
     path: listing.path,
     parent: listing.parent,
     entries,
     recent,
     favorites,
   };
+  // Set, never cleared-to-false: only a genuinely capped agent listing earns
+  // the key (see the field's doc).
+  if (listing.truncated === true) result.truncated = true;
+  return result;
 }

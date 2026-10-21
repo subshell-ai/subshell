@@ -165,13 +165,45 @@ describe("files explore ?node (remote folder picker)", () => {
       // test's job; these two assertions pin the negatives.
       expect(body.recent).toEqual([]);
       expect(body.favorites).toEqual([]);
-      // The `truncated` flag is wire-side future-proofing, not part of the
-      // explore response — the serializer must not leak it to the browser.
+      // An UNcapped agent answer carries no `truncated` at all: only a listing
+      // that hit the agent's 1,000-entry cap surfaces the flag (next test), so
+      // unaffected responses stay byte-identical to the pre-flag shape.
       expect(body.truncated).toBeUndefined();
 
       const cmds = scripted.cmdsOf("fs_ls");
       expect(cmds).toHaveLength(1);
       expect(cmds[0]?.path).toBe("/home/nodeuser/projects");
+    } finally {
+      scripted.detach();
+    }
+  });
+
+  it("a capped agent listing surfaces truncated: true (the flag is no longer discarded)", async () => {
+    // The agent stops `fs_ls` at FS_LS_MAX_ENTRIES (1,000) and flags it; until
+    // now the service dropped the flag, so a 32k-entry node directory read as
+    // 1,000 complete entries. The picker renders the honesty from this.
+    const scripted = agent({ ...LISTING, truncated: true });
+    try {
+      const res = await explore({ node: nodeV3, path: "/home/nodeuser/projects" });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { truncated?: boolean; entries: unknown[] };
+      expect(body.truncated).toBe(true);
+      // A capped remote browse carries no cursor: the agent caps the listing
+      // where a local browse would page (the nextCursor schema line).
+      expect("nextCursor" in body).toBe(false);
+      expect(body.entries).toEqual(LISTING.entries);
+    } finally {
+      scripted.detach();
+    }
+  });
+
+  it("truncated:false on the wire omits the key entirely (never sent false)", async () => {
+    const scripted = agent({ ...LISTING, truncated: false });
+    try {
+      const res = await explore({ node: nodeV3, path: "/home/nodeuser/projects" });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect("truncated" in body).toBe(false);
     } finally {
       scripted.detach();
     }
