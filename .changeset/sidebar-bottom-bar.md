@@ -21,3 +21,6 @@ sticks until the pane remounts.
 
 The touch key bar gained a Shift-Left key, so a touch user can send the
 modified left arrow, for example to extend a selection, without a keyboard.
+
+The sidebar's workspace section sits tighter now that the header and its pane
+list give back their extra bottom padding.

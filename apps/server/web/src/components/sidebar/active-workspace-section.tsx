@@ -38,7 +38,7 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
   return (
     <WorkspaceSidebarDrag workspace={active}>
       <div className="flex min-h-0 flex-1 flex-col gap-1">
-        <div className="flex shrink-0 items-center gap-2 pb-2 text-detail text-muted-foreground">
+        <div className="flex shrink-0 items-center gap-2 text-detail text-muted-foreground">
           <span aria-hidden="true" className="w-3 border-t" />
           <span>Workspace</span>
           <span aria-hidden="true" className="flex-1 border-t" />
@@ -92,7 +92,7 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
           {headerEnd}
         </div>
         <WorkspaceSidebarDropArea kind="add" className="flex max-h-[45%] shrink-0 flex-col">
-          <div className="min-h-0 overflow-y-auto px-1 py-1">
+          <div className="min-h-0 overflow-y-auto px-1 pb-1">
             {active && (
               <WorkspaceActionsMenu workspace={active}>
                 <WorkspaceBranch
