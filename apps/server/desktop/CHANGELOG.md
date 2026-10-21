@@ -1,5 +1,19 @@
 # @internal/desktop-server
 
+## 1.5.6
+
+### Patch Changes
+
+- [#413](https://github.com/subshell-ai/subshell/pull/413) [`b340e06`](https://github.com/subshell-ai/subshell/commit/b340e06c90ad5a639c1d23343d386b041be21c27) Thanks [@theogravity](https://github.com/theogravity)! - Use consistent compact section headings with trailing divider lines across preset, SSH, networking, authentication, preference, and restore forms. Preserve fieldset labels for screen readers and share the same heading component with the desktop server assistant.
+  
+  Use smaller machine and status labels with tighter spacing in the workspace sidebar. Confirm both starting and ending node maintenance, and show last-seen age for offline nodes.
+  
+  Expose cross-agent settings and notes when importing presets, so users can turn cross-agent mode off and import without selecting a launch machine.
+  
+  Let imported agent presets edit their working directory when enabling cross-agent communication. Keep unclassified workspace rows behind loading or unavailable states until their parent relationships can be resolved.
+- Updated dependencies [[`b340e06`](https://github.com/subshell-ai/subshell/commit/b340e06c90ad5a639c1d23343d386b041be21c27), [`b340e06`](https://github.com/subshell-ai/subshell/commit/b340e06c90ad5a639c1d23343d386b041be21c27), [`b340e06`](https://github.com/subshell-ai/subshell/commit/b340e06c90ad5a639c1d23343d386b041be21c27)]:
+  - @internal/server@2.5.0
+
 ## 1.5.5
 
 ### Patch Changes

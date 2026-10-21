@@ -1,5 +1,21 @@
 # @internal/node
 
+## 2.3.0
+
+### Minor Changes
+
+- [#413](https://github.com/subshell-ai/subshell/pull/413) [`b340e06`](https://github.com/subshell-ai/subshell/commit/b340e06c90ad5a639c1d23343d386b041be21c27) Thanks [@theogravity](https://github.com/theogravity)! - Group workspace subshells by machine and nest agent-created helpers beneath their creator. Include operating system, architecture, CPU model, logical CPU count, total RAM, and the hardware report timestamp in MCP node discovery.
+  
+  Keep agent-created helpers out of standalone sidebar and dashboard listings. Select a helper beneath its parent to open it as a workspace tab.
+  
+  Prevent dragging agent-created helper rows independently of their parent.
+
+### Patch Changes
+
+- [#413](https://github.com/subshell-ai/subshell/pull/413) [`b340e06`](https://github.com/subshell-ai/subshell/commit/b340e06c90ad5a639c1d23343d386b041be21c27) Thanks [@theogravity](https://github.com/theogravity)! - Add preset and node notes to cross-agent discovery, with recommended starting directories for nodes. Agents can read this guidance and preset launch defaults through MCP before choosing where and how to start a subshell. Notes are limited to 8,000 characters in the dashboard, API, and preset imports. Directory suggestions don't change access permissions.
+  
+  Clarify MCP cleanup instructions: collect results and delete completed temporary helpers, or terminate them when their history needs to be retained.
+
 ## 2.2.2
 
 ### Patch Changes
