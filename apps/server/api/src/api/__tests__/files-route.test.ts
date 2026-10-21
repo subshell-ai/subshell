@@ -3,15 +3,18 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { hashPassword } from "better-auth/crypto";
+import { Elysia } from "elysia";
 import { filesRoutes, setFilesReaddirForTests } from "@/api/files.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
+import { FavoritesRepository } from "@/db/repositories/favorites.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { setFilesRealpathForTests } from "@/services/files-path-rules.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
@@ -280,6 +283,228 @@ describe("files route (folder explorer)", () => {
         else process.env.SUBSHELL_FS_READ_TIMEOUT_MS = saved;
         if (savedRoot === undefined) delete process.env.SUBSHELL_FS_ROOT;
         else process.env.SUBSHELL_FS_ROOT = savedRoot;
+      }
+    });
+  });
+
+  // A real user's /tmp held 32,091 entries: one JSON body of 2.8 MB that
+  // froze the picker. The route now pages; these pin the seam. The honest
+  // split (the payload is bounded, the scan is not) is documented at the
+  // pagination site in `files.route.ts`.
+  describe("explore pagination", () => {
+    afterEach(() => setFilesReaddirForTests(null));
+
+    type Page = {
+      path: string;
+      parent: string | null;
+      entries: { name: string }[];
+      nextCursor?: string;
+      truncated?: boolean;
+      recent: { path: string }[];
+      favorites: { path: string }[];
+      blocked?: string;
+    };
+
+    /** Builds one /explore request. `limit` accepts a string so a test can
+     *  send exactly the value the `t.Numeric` schema parse is meant to refuse. */
+    function pagedRequest(opts: { path: string; cursor?: string; limit?: number | string }): Request {
+      const url = new URL("http://localhost:3080/api/files/explore");
+      url.searchParams.set("path", opts.path);
+      if (opts.cursor !== undefined) url.searchParams.set("cursor", opts.cursor);
+      if (opts.limit !== undefined) url.searchParams.set("limit", String(opts.limit));
+      return new Request(url.toString(), { headers: new Headers({ cookie: `better-auth.session_token=${cookie}` }) });
+    }
+
+    async function paged(opts: { path: string; cursor?: string; limit?: number | string }): Promise<Response> {
+      return filesRoutes.fetch(pagedRequest(opts));
+    }
+
+    /** A temp dir with `count` REAL child dirs: the route stats every name
+     *  `readdir` returns, so a faked listing alone would sort down to nothing. */
+    function dirWithChildren(count: number): string {
+      const dir = mkdtempSync(join(tmpdir(), "subshell-paging-"));
+      for (let i = 1; i <= count; i++) mkdirSync(join(dir, `folder-${String(i).padStart(3, "0")}`));
+      return dir;
+    }
+
+    it("limit=10 pages a 50-entry listing, and the cursor walk covers the sorted whole", async () => {
+      const dir = dirWithChildren(50);
+      try {
+        const seen: string[] = [];
+        let cursor: string | undefined;
+        let pages = 0;
+        for (;;) {
+          const res = await paged({ path: dir, limit: 10, cursor });
+          expect(res.status).toBe(200);
+          const body = (await res.json()) as Page;
+          expect(body.entries).toHaveLength(10);
+          seen.push(...body.entries.map((e) => e.name));
+          pages++;
+          if (body.nextCursor === undefined) break;
+          cursor = body.nextCursor;
+          expect(pages).toBeLessThan(10); // a cursor loop that never ends fails, not hangs
+        }
+        expect(pages).toBe(5);
+        // Disjoint AND complete: the walk equals one unpaginated read.
+        expect(new Set(seen).size).toBe(50);
+        const whole = (await (await paged({ path: dir, limit: 1000 })).json()) as Page;
+        expect(seen).toEqual(whole.entries.map((e) => e.name));
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("the default limit pages at 200, and supplied limits clamp to 1..1000", async () => {
+      const dir = dirWithChildren(250);
+      try {
+        const body = (await (await paged({ path: dir })).json()) as Page;
+        expect(body.entries).toHaveLength(200);
+        expect(body.nextCursor).toBe("200");
+        // `truncated` is the remote-only flag: a local page never carries it.
+        expect(body.truncated).toBeUndefined();
+        const rest = (await (await paged({ path: dir, cursor: "200" })).json()) as Page;
+        expect(rest.entries).toHaveLength(50);
+        expect(rest.nextCursor).toBeUndefined();
+        const one = (await (await paged({ path: dir, limit: 0 })).json()) as Page;
+        expect(one.entries).toHaveLength(1);
+        expect(one.nextCursor).toBe("1");
+        const huge = (await (await paged({ path: dir, limit: 99_999 })).json()) as Page;
+        expect(huge.entries).toHaveLength(250);
+        expect(huge.nextCursor).toBeUndefined();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("a non-numeric limit answers 400 from the schema parse, symmetric with the cursor syntax gate", async () => {
+      // `limit=abc` dies in the `t.Numeric` parse before the handler runs, so
+      // the assertion rides the GLOBAL error handler mounted the way
+      // createApp() does (the uploads-route precedent): the bare `filesRoutes`
+      // instance answers Elysia's raw 422 with a string body, while the
+      // production contract is the structured 400 INPUT_VALIDATION_ERROR.
+      const app = new Elysia().use(errorHandlerPlugin).use(filesRoutes);
+      const res = await app.fetch(pagedRequest({ path: "/tmp", limit: "abc" }));
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { code: string }).code).toBe("INPUT_VALIDATION_ERROR");
+    });
+
+    it("a 1,001-entry listing proves the upper clamp: 99,999 answers exactly 1,000 and the next cursor", async () => {
+      // The 250-entry dir above can't see the ceiling: only a listing that
+      // actually overruns 1,000 fails if the clamp itself is deleted. The
+      // route stats every name, so the children have to be real.
+      const dir = dirWithChildren(1001);
+      try {
+        const res = await paged({ path: dir, limit: 99_999 });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as Page;
+        expect(body.entries).toHaveLength(1000);
+        expect(body.nextCursor).toBe("1000");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("a cursor past the end self-heals: empty page, no cursor, 200 (the directory shrank since the last mint)", async () => {
+      const dir = dirWithChildren(5);
+      try {
+        const res = await paged({ path: dir, cursor: "999999999999" });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as Page;
+        expect(body.entries).toEqual([]);
+        expect(body.nextCursor).toBeUndefined();
+        expect(body.path).toBe(dir);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("a malformed cursor is the route's 400 (a syntax gate: valid-but-never-minted cursors are fine)", async () => {
+      const dir = dirWithChildren(3);
+      try {
+        for (const cursor of ["abc", "-1", "1.5", " 1"]) {
+          expect((await paged({ path: dir, cursor })).status).toBe(400);
+        }
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("a cursor over the 20-char bound answers 400 from the schema parse, and exactly 20 stays a legal huge cursor", async () => {
+      // The loop above only exercises sub-20-char cursors, so nothing there
+      // sees the `maxLength: 20` guard: a 21-digit cursor passes the handler's
+      // all-digit syntax gate, so only the schema refuses it. A schema refusal
+      // must read the structured 400 the production contract promises, so the
+      // app is mounted the way createApp() does (the non-numeric-limit
+      // precedent), not the bare `filesRoutes` that answers Elysia's raw 422.
+      const app = new Elysia().use(errorHandlerPlugin).use(filesRoutes);
+      const over = await app.fetch(pagedRequest({ path: "/tmp", cursor: "9".repeat(21) }));
+      expect(over.status).toBe(400);
+      expect(((await over.json()) as { code: string }).code).toBe("INPUT_VALIDATION_ERROR");
+      // Exactly 20 passes both gates: still a legitimate past-the-end request,
+      // so it self-heals to an empty page like the shorter huge cursor above.
+      const dir = dirWithChildren(3);
+      try {
+        const res = await paged({ path: dir, cursor: "9".repeat(20) });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as Page;
+        expect(body.entries).toEqual([]);
+        expect(body.nextCursor).toBeUndefined();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("the malformed-cursor 400 is paid before the scan, so the directory is never read", async () => {
+      // The shape check sits ABOVE the walk in the handler so a bogus cursor on
+      // a 32k-entry folder costs nothing. The statuses loop above cannot see a
+      // regression that moves the check below the scan, because the 400 looks
+      // identical either way; the empty recorder here can.
+      const seen: string[] = [];
+      setFilesReaddirForTests((path) => {
+        seen.push(path);
+        return Promise.resolve([]);
+      });
+      const res = await paged({ path: "/tmp", cursor: "abc" });
+      expect(res.status).toBe(400);
+      expect(seen).toEqual([]);
+    });
+
+    it("pages carry parent, recent and favorites intact", async () => {
+      const dir = dirWithChildren(7);
+      const favorites = new FavoritesRepository(db);
+      await new RecentPathsRepository(db).touch(userId, "/tmp/paging-recent", null);
+      await favorites.setFavorite(userId, "directory", "/tmp/paging-star", true);
+      try {
+        const body = (await (await paged({ path: dir, limit: 2, cursor: "4" })).json()) as Page;
+        // The page is the slice of the SORTED whole, not of readdir order.
+        expect(body.entries.map((e) => e.name)).toEqual(["folder-005", "folder-006"]);
+        expect(body.nextCursor).toBe("6");
+        expect(body.parent).not.toBeNull();
+        expect(body.recent.map((r) => r.path)).toContain("/tmp/paging-recent");
+        expect(body.favorites.map((f) => f.path)).toContain("/tmp/paging-star");
+      } finally {
+        await db.deleteFrom("recentPaths").where("userId", "=", userId).execute();
+        await favorites.setFavorite(userId, "directory", "/tmp/paging-star", false);
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("a blocked listing keeps its shape under pagination: empty entries, no cursor, path intact", async () => {
+      setFilesReaddirForTests(() => {
+        const err = new Error("EPERM: permission denied") as NodeJS.ErrnoException;
+        err.code = "EPERM";
+        return Promise.reject(err);
+      });
+      try {
+        const res = await paged({ path: "/tmp", limit: 5, cursor: "0" });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as Page;
+        expect(body.blocked).toBe("permission");
+        expect(body.entries).toEqual([]);
+        expect(body.nextCursor).toBeUndefined();
+        expect(body.path).toBe("/tmp");
+      } finally {
+        setFilesReaddirForTests(null);
       }
     });
   });

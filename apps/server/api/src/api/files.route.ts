@@ -53,6 +53,11 @@ export function setFilesReaddirForTests(fn: ReaddirFn | null): void {
   readdir = fn ?? ((path) => readdirAsync(path));
 }
 
+/** Default page size of a LOCAL `/explore` listing, and its cap. A node's own
+ *  listing cap is the agent's `FS_LS_MAX_ENTRIES`, not these numbers. */
+const EXPLORE_DEFAULT_LIMIT = 200;
+const EXPLORE_MAX_LIMIT = 1000;
+
 /** One saved-directory row shared by the Recent and Favorites sections. */
 const SavedPathSchema = t.Object({
   path: t.String({ description: "Absolute directory path" }),
@@ -69,6 +74,21 @@ const ExploreResponseSchema = t.Object({
       kind: t.Union([t.Literal("dir"), t.Literal("file")]),
     }),
     { description: "Direct children" },
+  ),
+  nextCursor: t.Optional(
+    t.String({
+      description:
+        "Opaque cursor naming the next page; pass it back as cursor. Absent once the listing is exhausted: the final page, a blocked listing, or a remote browse (the agent caps that one instead)",
+    }),
+  ),
+  // Plain optional (the union quirk above is about `t.Optional(t.Union)`): a
+  // remote listing that stopped at the agent's 1,000-entry cap carries true;
+  // every other response omits the key entirely.
+  truncated: t.Optional(
+    t.Boolean({
+      description:
+        "Set on a remote browse when the node's listing hit its 1,000-entry cap, so the picker can say so instead of passing 1,000 off as everything. Absent on a complete listing and on every local browse",
+    }),
   ),
   recent: t.Array(SavedPathSchema, { description: "Three most recently used paths, favorites excluded" }),
   favorites: t.Array(SavedPathSchema, { description: "Starred paths, newest first" }),
@@ -144,7 +164,10 @@ const RecentResponseSchema = t.Object({
  *   path confinement anywhere. There is no secret allowlist.
  * - One level per request, dotfiles hidden, absolute paths only (on a node,
  *   an omitted/`~` path means the AGENT's home — the server cannot expand
- *   `~` against a filesystem it cannot see).
+ *   `~` against a filesystem it cannot see). A LOCAL listing arrives in pages
+ *   of 200 by default (`limit` up to 1,000; follow `nextCursor` until it goes
+ *   missing). A remote listing is not paginated: the agent caps it at 1,000
+ *   entries, and when it does the response carries `truncated: true`.
  * - **Feature gate**: browsing a node needs `fs_ls`, i.e. the agent's
  *   the exact node protocol (any mismatch is refused at `ready`). An agent
  *   that answers `unsupported` anyway surfaces as 409 `NODE_OUTDATED`.
@@ -177,6 +200,13 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
       const nodeId = query.node?.trim() || LOCAL_NODE_ID;
       if (nodeId !== LOCAL_NODE_ID) {
         return await exploreNodeDirectory(user.id, nodeId, query.path);
+      }
+
+      // Shape-check the cursor BEFORE the scan below, so `?cursor=abc` on a
+      // 32k-entry directory pays for the 400, not for the walk. A remote browse
+      // has already returned: the agent caps its own listing, no cursor there.
+      if (query.cursor !== undefined && !/^\d+$/.test(query.cursor)) {
+        throw new FilesError("invalid", "Invalid pagination cursor", 400);
       }
 
       // `?? ""`, not `|| homedir()`: the empty case has to stay distinguishable
@@ -334,6 +364,31 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
           : sortDirEntries(
               allowedDirs.length === 0 ? entries : entries.filter((e) => dirNavigable(e.path, allowedDirs)),
             );
+      // Pagination slices AFTER the full scan, the allowlist filter and the
+      // sort. A page boundary must land at the same place every request
+      // recomputes it, and the per-child stat that sets `kind` also feeds the
+      // `dirNavigable` filter, so classification cannot trail pagination.
+      // This bounds the PAYLOAD, not the scan: on a live filesystem the tree
+      // may change between two pages anyway, so the honest split is one fresh
+      // filtered+sorted listing per request, with only its slice crossing the
+      // wire. An offset past the end answers an empty final page rather than
+      // a 400 (the directory may have shrunk since `nextCursor` was minted,
+      // and self-healing beats an error the user cannot act on); a malformed
+      // cursor is a 400, answered up front before this scan even starts.
+      let start = 0;
+      if (query.cursor !== undefined) {
+        // The shape was checked before the scan, so this parse always lands.
+        start = Number.parseInt(query.cursor, 10);
+      }
+      // Elysia's registered `numeric` parse already refuses a non-number; this
+      // is belt-and-braces so a passthrough in a foreign `numeric` format
+      // registration can't NaN the clamp.
+      const limit =
+        query.limit === undefined || !Number.isFinite(query.limit)
+          ? EXPLORE_DEFAULT_LIMIT
+          : Math.min(EXPLORE_MAX_LIMIT, Math.max(1, Math.trunc(query.limit)));
+      const page = visible.slice(start, start + limit);
+      const nextCursor = start + page.length < visible.length ? String(start + page.length) : undefined;
       // Both sections in one response so the picker needs one request per
       // folder. A path is listed once — favorites win over recents. Both
       // sections are scoped to the browsed machine on EITHER transport
@@ -349,7 +404,7 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
         .filter((r) => !starred.has(r.path))
         .slice(0, 3)
         .map(({ path: p, label }) => ({ path: p, label }));
-      return { path: resolved, parent, entries: visible, recent, favorites, blocked } as const;
+      return { path: resolved, parent, entries: page, recent, favorites, blocked, nextCursor } as const;
     },
     {
       query: t.Object({
@@ -358,6 +413,24 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
           t.String({
             description:
               "Node id to browse; omitted or 'local' = the control-plane host. A remote browse relays the node's own refusals: 409 NODE_OUTDATED, NODE_OFFLINE or NODE_UNREACHABLE",
+          }),
+        ),
+        // A minted cursor is `String(start + page.length)` at the pagination
+        // site above, so 20 digits bound it with room to spare. Over 20 is
+        // refused HERE, at the schema, the same way `limit=abc` is refused by
+        // the `t.Numeric` parse; a huge-but-short cursor ("999999999") stays
+        // a legitimate past-the-end request that answers empty.
+        cursor: t.Optional(
+          t.String({
+            maxLength: 20,
+            description:
+              "Opaque continuation from the previous page's nextCursor on a LOCAL browse, at most 20 characters. Ignored on a node browse, which answers whole. Omitted starts at the top; a huge-but-legal cursor is a legitimate request whose pages have simply run out (the directory may have shrunk), so it answers empty rather than failing",
+          }),
+        ),
+        limit: t.Optional(
+          t.Numeric({
+            description:
+              "Entries per page on a LOCAL browse (default 200, clamped to 1..1000). Ignored on a node browse, whose cap is the agent's 1,000",
           }),
         ),
       }),
