@@ -75,10 +75,10 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
                 ))}
               </SelectGroup>
               {/* With rows, the divider separates the groups. With none, the row
-                  stands alone and py-1 mirrors the List's p-1 edge padding on
-                  both sides, so it sits with equal space above and below (the
-                  item's own py-1.5 is symmetric; only the container edges differ). */}
-              <SelectGroup className={cn(rows.length > 0 ? "mt-1 border-t pt-1" : "py-1")}>
+                  stands alone and takes no extra class: the List's own p-1 then
+                  insets it 4px from every popup edge, uniform. Any py here would
+                  stack on top and the vertical gap would outrun the sides. */}
+              <SelectGroup className={cn(rows.length > 0 ? "mt-1 border-t pt-1" : null)}>
                 <SelectItem value={NEW_WORKSPACE}>
                   <span className="flex items-center gap-2">
                     <Plus className="size-4" />

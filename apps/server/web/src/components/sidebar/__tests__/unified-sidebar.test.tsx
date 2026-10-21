@@ -476,12 +476,13 @@ test("the picker separates New workspace only when there are workspaces above it
   expect(newWorkspaceGroup().className).toContain("border-t");
   cleanup();
 
-  // With none, the row stands alone: no divider over an empty group, and
-  // py-1 mirrors the List's p-1 edge padding so the space above equals below.
+  // With none, the row stands alone and the group carries none of the
+  // separator classes: the List's p-1 insets it evenly on all four sides.
   await mountRig({ workspaces: [], subshells: [] });
   openWorkspacePicker();
   await screen.findByText("New workspace");
-  expect(newWorkspaceGroup().className).not.toContain("border-t");
-  expect(newWorkspaceGroup().className).not.toContain("mt-1");
-  expect(newWorkspaceGroup().className).toContain("py-1");
+  const group = newWorkspaceGroup().className;
+  expect(group).not.toContain("border-t");
+  expect(group).not.toContain("mt-1");
+  expect(group).not.toContain("py-1");
 });
