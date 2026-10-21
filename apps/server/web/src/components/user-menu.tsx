@@ -14,10 +14,10 @@ import {
  * The signed-in user menu (spec 2026-09-02 settings-split §3) — replaces the
  * bare Logout button: identity on the trigger, Account settings + Sign out in
  * the menu. Props-only: the sidebar owns the queries and what the actions
- * mean. Collapsed rails get an initials avatar; expanded rails get the full
- * identity row. The card now sits in the rail header (spec 2026-10-07), and
- * the version/instance line folds in what the browser footer's version row
- * used to say.
+ * mean. The section bar mounts it as an avatar-only cell; anywhere else it is
+ * the full identity row. The card sits in the bar (moved 2026-10-20 from the
+ * rail header, spec 2026-10-07), and the version/instance line folds in what
+ * the browser footer's version row used to say.
  */
 
 /** One-letter avatar: name initial, else email initial, "?" while neither.
@@ -34,8 +34,11 @@ export interface UserMenuProps {
    * loading placeholder ("Signed in") is THIS component's decision, not the
    * caller's, so the string never masquerades as an address in the header. */
   email: string;
-  /** Icon-only trigger for the collapsed rail */
-  collapsed: boolean;
+  /** The sidebar's bottom section bar mounts the menu as one of its cells:
+   * a size-11 square like the neighbours, avatar only, and no native title -
+   * the bar's cells carry no tooltips, and the card names the person when it
+   * opens. */
+  barCell?: boolean;
   /** The server's version from public settings; "" until the read lands, and
    * the version line renders only when something can fill it. */
   serverVersion?: string;
@@ -63,7 +66,7 @@ export interface UserMenuProps {
 export function UserMenu({
   name,
   email,
-  collapsed,
+  barCell = false,
   serverVersion = "",
   instanceName = "",
   updateNotice = null,
@@ -89,8 +92,8 @@ export function UserMenu({
       {initialsOf(name, email)}
       {/* The version row's marker keeps its status-light life (spec
           2026-10-07 §B): on the face of the trigger, no menu to open, no
-          off switch - and collapsed rails included, since the dot is part
-          of the avatar. `bg-warning`: the same amber the whole app marks
+          off switch - and the bar cell included, since the dot is part of
+          the avatar. `bg-warning`: the same amber the whole app marks
           "newer exists" with. This span is `aria-hidden`, so the light
           reaches assistive tech through the trigger's accessible name: the
           label below carries the notice whenever the dot shows. */}
@@ -108,16 +111,15 @@ export function UserMenu({
             aria-label={
               updateNotice === null ? `Account: ${display}` : `Account: ${display}. Update available: v${updateNotice}.`
             }
-            title={collapsed ? `Account: ${display}` : undefined}
             className={cn(
               "flex items-center rounded-md text-muted-foreground text-sm transition-colors hover:bg-accent/50 hover:text-foreground",
-              collapsed ? "justify-center p-2" : "w-full justify-start gap-2 p-2",
+              barCell ? "size-11 justify-center" : "w-full justify-start gap-2 p-2",
             )}
           />
         }
       >
         {avatar}
-        {!collapsed && (
+        {!barCell && (
           <>
             <span className="min-w-0 flex-1 truncate text-left">{display}</span>
             <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />

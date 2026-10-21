@@ -4,8 +4,9 @@ Deep dive for `apps/server/web`, moved verbatim out of `AGENTS.md`.
 This file carries the full history behind the summary; the routing line in
 `AGENTS.md` names when to read it.
 
-`components/mobile-install-dialog.tsx`, opened from a row of the rail's
-`<nav>`, above "Open in browser". Ungated, desktop shells included; it was
+`components/mobile-install-dialog.tsx`, opened from the section bar's Subshell
+for Mobile cell, between Workspaces and Settings. Ungated, desktop shells
+included; it was
 `!isDesktop()` for half a day on the reasoning that a Tauri webview cannot
 install a PWA, which is true and beside the point: the dialog's payload is a
 QR code, read by a DIFFERENT device, and somebody at Subshell Server on their

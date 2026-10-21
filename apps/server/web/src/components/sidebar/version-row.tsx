@@ -6,7 +6,7 @@ import { ArrowUpCircle } from "lucide-react";
  * something newer exists (operator's call, 2026-09-18).
  *
  * **One shape, one audience since spec 2026-10-07.** The only consumer is
- * `DesktopAppUpdateRow` on the Server desktop rail: the line names the APP's
+ * `DesktopAppUpdateRow` on the Server desktop sidebar: the line names the APP's
  * own build, read over IPC from a check that runs once a day. It served two
  * audiences before the move. In a browser, and in Subshell Client's window
  * (a browser for this purpose), it named the SERVER this page is talking to,
@@ -47,7 +47,6 @@ export function VersionRow({
   notice,
   onActivate,
   actionLabel,
-  collapsed,
 }: {
   /** The full line, e.g. `Subshell Server 0.10.1` — already assembled. */
   label: string;
@@ -69,8 +68,6 @@ export function VersionRow({
    * to describe.
    */
   actionLabel?: string;
-  /** The 56px rail: there is no room for text, so only the icon survives. */
-  collapsed: boolean;
 }) {
   // The VISIBLE line is the label alone. `title` is the longer sentence, and it
   // reaches the reader through the tooltip and the accessible name — the two
@@ -78,20 +75,13 @@ export function VersionRow({
   const title = notice === null ? label : `${label}: v${notice} available`;
   const behind = notice !== null;
 
-  // Collapsed with nothing to say is nothing at all: a version the rail cannot
-  // print is not worth a row, and an icon with no news is decoration.
-  if (collapsed && !behind) return null;
-
-  const shared = cn(
-    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-detail text-muted-foreground",
-    collapsed && "justify-center px-0",
-  );
+  const shared = "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-detail text-muted-foreground";
 
   const body = (
     <>
       {/* The slot is ALWAYS rendered and is a FIXED `size-3.5`, so the text
           keeps one indent whether or not there is news, and lines up with
-          `DesktopServerPill` directly above it (operator's report, 2026-09-18 —
+          `DesktopServerPill` directly above it (operator's report, 2026-09-18:
           with the marker conditionally absent, a row with no news started flush
           left and the two footer lines did not agree). That pill centres its
           own `size-2` status dot in a slot of this same width, which is what
@@ -105,10 +95,10 @@ export function VersionRow({
       <span aria-hidden className={cn("flex size-3.5 shrink-0 items-center justify-center", !behind && "invisible")}>
         <ArrowUpCircle className="size-3.5 text-warning" />
       </span>
-      {/* Kept in the DOM when collapsed rather than dropped: it is the
-          accessible name of the whole row, button or not. The VISIBLE text is
-          `label`; the newer version rides in `title`/`aria-label` above. */}
-      <span className={cn("truncate", collapsed && "sr-only")}>{label}</span>
+      {/* The visible text is `label` alone; the newer version rides in
+          `title`/`aria-label` above. The line is also the accessible name of
+          the whole row, button or not. */}
+      <span className="truncate">{label}</span>
     </>
   );
 

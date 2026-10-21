@@ -188,6 +188,12 @@ export class HarnessSubagents {
       }
     }
     if (input.event === "snapshot") {
+      // One accepted race: every hook POSTs from its own process, so a stop
+      // edge can land BEFORE a turn-end snapshot whose payload the harness
+      // built while the child was still alive. Reports apply in arrival order
+      // with no sequencing token, so that stale replace re-adds the dead row.
+      // The turn-end reconcile is what bounds the window: the next turn's
+      // snapshot enumerates the truth again, and the child is gone.
       const now = Date.now();
       const previous = new Map(state.agents.map((agent) => [agent.id, agent]));
       state.agents = [...new Map((input.agents ?? []).map((agent) => [agent.id, agent])).values()]

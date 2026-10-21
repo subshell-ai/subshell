@@ -223,6 +223,43 @@ async function resolveBody(
         },
       };
     }
+    // The parent's own turn-end payload enumerates the harness's live
+    // background work, and it is the ONLY enumeration that can be trusted.
+    // Edge events alone leak: a background child killed with `TaskStop` fires
+    // no lifecycle hook at all (measured against Claude Code 2.1.296 — neither
+    // SubagentStop nor PostToolUse runs on that path), so a row its
+    // SubagentStart added would otherwise sit "running" forever, and a resume
+    // re-fires SubagentStart, re-adding the child each time (operator report,
+    // 2026-10-20: a killed fixer pinned the rail for hours). This snapshot is
+    // the FULL current set — the server replaces its roster with it, and the
+    // children it omits are genuinely gone. Only `subagent` entries belong on
+    // the rail; the same array also carries background bash, crons and
+    // monitors. An older harness without the field reports nothing, keeping
+    // the edge-event behaviour that works there. SubagentStop is deliberately
+    // NOT a snapshot source: measured on the same build, its own payload still
+    // lists the finishing child as "running", so a snapshot from it would
+    // re-add the very child it announces dead.
+    if (hook === "Stop" && Array.isArray(payload.background_tasks)) {
+      const agents = payload.background_tasks
+        .flatMap((task) => {
+          if (!task || typeof task !== "object") return [];
+          const entry = task as Record<string, unknown>;
+          if (entry.type !== "subagent" || typeof entry.id !== "string" || !entry.id || entry.id.length > 256)
+            return [];
+          const type = typeof entry.agent_type === "string" ? entry.agent_type.trim() : "";
+          const description = typeof entry.description === "string" ? entry.description.trim() : "";
+          return [
+            {
+              id: entry.id,
+              name: (type || "Subagent").slice(0, 160),
+              status: entry.status === "running" ? "running" : entry.status === "pending" ? "waiting" : "idle",
+              ...(description ? { activity: description.slice(0, 160) } : {}),
+            },
+          ];
+        })
+        .slice(0, 256);
+      return { path: "subagents/report", json: { event: "snapshot", agents } };
+    }
     const id = hermes ? extra.child_session_id : payload.agent_id;
     if (typeof id !== "string" || !id || id.length > 256) return undefined;
     if (hook === "SubagentStop" || hook === "subagent_stop")

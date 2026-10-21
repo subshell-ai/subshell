@@ -115,11 +115,10 @@ export function summarize(tasks) {
       colorScheme: "dark",
     });
     await context.addInitScript(
-      ({ size, sidebarOpen }) => {
+      ({ size }) => {
         localStorage.setItem("subshell.termFontSize", String(size));
-        localStorage.setItem("subshell.sidebarCollapsed", sidebarOpen ? "0" : "1");
       },
-      { size: mobile ? 18 : subagents ? 20 : 22, sidebarOpen: subagents },
+      { size: mobile ? 18 : subagents ? 20 : 22 },
     );
     const page = await context.newPage();
     page.setDefaultTimeout(15000);

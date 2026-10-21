@@ -32,6 +32,7 @@ export function ExistingSubshellList({
   busyId,
   selected,
   onToggle,
+  totalCount,
 }: {
   /** Subshells not already on this workspace. */
   subshells: SubshellView[];
@@ -67,6 +68,16 @@ export function ExistingSubshellList({
   selected?: Set<string>;
   /** Toggles a row's membership in `selected`. */
   onToggle?: (id: string) => void;
+  /**
+   * How many subshells exist BEFORE membership filtering: the caller's
+   * unfiltered list length, once the read has settled. An empty candidate
+   * list with this at 0 means nothing exists anywhere, which is not the same
+   * claim as "everything is already here" (operator finding 2026-10-20: the
+   * new-workspace dialog told a zero-subshell instance that every subshell
+   * was already on a workspace that does not exist yet). Absent means
+   * unknown, and the caller keeps today's wording.
+   */
+  totalCount?: number;
 }): JSX.Element {
   useClockTick(ACTIVITY_TICK_MS);
   const multi = selected !== undefined && onToggle !== undefined;
@@ -86,9 +97,15 @@ export function ExistingSubshellList({
         ) : loading || results.isLoading ? (
           <p className="p-3 text-muted-foreground text-sm">Loading subshells…</p>
         ) : subshells.length === 0 ? (
-          <p className="p-3 text-muted-foreground text-sm">
-            Every subshell is already on this workspace. Create a new one instead.
-          </p>
+          totalCount === 0 ? (
+            <p className="p-3 text-muted-foreground text-sm">
+              No subshells yet. Launch one under “New subshell”, or create the workspace empty.
+            </p>
+          ) : (
+            <p className="p-3 text-muted-foreground text-sm">
+              Every subshell is already on this workspace. Create a new one instead.
+            </p>
+          )
         ) : filtered.length === 0 && !query.trim() ? (
           <p className="p-3 text-muted-foreground text-sm">
             No subshells on this node. Use “New subshell” to launch one there, or pick a different node there to list

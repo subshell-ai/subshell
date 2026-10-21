@@ -99,10 +99,12 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
   expect(presets).toEqual([]);
 
   // Sign out through Account, verifying cancellation before confirming.
+  // The bar's Account cell opens the profile card; its item lands on /account.
   await page
     .getByRole("navigation", { name: "Main sections" })
-    .getByRole("link", { name: "Account", exact: true })
+    .getByRole("button", { name: /^Account: / })
     .click();
+  await page.getByRole("menuitem", { name: "Account settings", exact: true }).click();
   const signOut = page
     .getByRole("navigation", { name: "Account pages" })
     .getByRole("button", { name: "Sign out", exact: true });

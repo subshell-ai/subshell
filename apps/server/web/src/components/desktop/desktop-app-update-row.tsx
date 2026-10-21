@@ -46,7 +46,7 @@ import { appUpdateNotice } from "@/lib/desktop-app-update";
  * and a `null` notice renders the version with no dot. Neither is a claim
  * about what the next check will find.
  */
-export function DesktopAppUpdateRow({ collapsed }: { collapsed: boolean }) {
+export function DesktopAppUpdateRow() {
   const { data } = useDesktopAppUpdate();
   const { data: settings } = usePublicSettings();
   const navigate = useNavigate();
@@ -75,7 +75,6 @@ export function DesktopAppUpdateRow({ collapsed }: { collapsed: boolean }) {
           : () => void desktopInvoke("desktop_open_assistant", { screen: "update" })
       }
       actionLabel={isAdmin ? "Open updates" : "Check for updates"}
-      collapsed={collapsed}
     />
   );
 }

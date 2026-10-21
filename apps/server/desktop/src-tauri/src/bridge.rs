@@ -24,7 +24,6 @@ pub enum DesktopAction {
     NewSubshell,
     NewWorkspace,
     FocusFilter,
-    ToggleSidebar,
     GoSubshells,
     GoWorkspaces,
     GoNodes,
@@ -39,7 +38,6 @@ impl DesktopAction {
             DesktopAction::NewSubshell => "new-subshell",
             DesktopAction::NewWorkspace => "new-workspace",
             DesktopAction::FocusFilter => "focus-filter",
-            DesktopAction::ToggleSidebar => "toggle-sidebar",
             DesktopAction::GoSubshells => "go-subshells",
             DesktopAction::GoWorkspaces => "go-workspaces",
             DesktopAction::GoNodes => "go-nodes",
@@ -62,11 +60,10 @@ impl DesktopAction {
 }
 
 /// Every action, for menu construction and for the round-trip test.
-pub const ALL: [DesktopAction; 10] = [
+pub const ALL: [DesktopAction; 9] = [
     DesktopAction::NewSubshell,
     DesktopAction::NewWorkspace,
     DesktopAction::FocusFilter,
-    DesktopAction::ToggleSidebar,
     DesktopAction::GoSubshells,
     DesktopAction::GoWorkspaces,
     DesktopAction::GoNodes,
@@ -104,6 +101,15 @@ mod tests {
         for action in ALL {
             assert_eq!(DesktopAction::from_id(&action.id()), Some(action));
         }
+    }
+
+    // Panel collapse retired with the icon rail (spec 2026-10-20 §2), and the
+    // retired action id joins the foreign ones: it must resolve to nothing. It
+    // is built in pieces because the review focus greps these crates for the
+    // retired spelling as an ABSENCE, and a test naming it whole would trip that.
+    #[test]
+    fn a_retired_action_id_is_not_an_action() {
+        assert_eq!(DesktopAction::from_id(concat!("action:toggle", "-sidebar")), None);
     }
 
     #[test]

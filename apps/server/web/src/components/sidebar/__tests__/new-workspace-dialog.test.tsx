@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { NewWorkspaceDialog } from "@/components/sidebar/new-workspace-dialog";
+import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
 
 const subshell = (id: string, name: string): SubshellView =>
@@ -37,7 +38,14 @@ interface Call {
  * `failPaneAdds`: how many POST …/panes calls answer 500 (the partial-pane
  * failure branch). Serves two subshells so checkbox clicks are real.
  */
-function mockFetch(opts: { failPaneAdds?: number; takenWorkspaces?: { id: string; name: string }[] } = {}) {
+function mockFetch(
+  opts: {
+    failPaneAdds?: number;
+    takenWorkspaces?: { id: string; name: string }[];
+    /** What `GET /api/subshells` answers; defaults to the two-row roster. */
+    subshells?: SubshellView[];
+  } = {},
+) {
   const calls: Call[] = [];
   let paneFailsLeft = opts.failPaneAdds ?? 0;
   const original = globalThis.fetch;
@@ -46,7 +54,23 @@ function mockFetch(opts: { failPaneAdds?: number; takenWorkspaces?: { id: string
     const method = init?.method ?? "GET";
     calls.push({ method, url: url.pathname, body: init?.body as string | undefined });
     if (method === "GET" && url.pathname === "/api/subshells") {
-      return new Response(JSON.stringify([subshell("s1", "One"), subshell("s2", "Two")]), { status: 200 });
+      return new Response(JSON.stringify(opts.subshells ?? [subshell("s1", "One"), subshell("s2", "Two")]), {
+        status: 200,
+      });
+    }
+    // Landing on the New half (zero subshells) mounts the launch form, which
+    // reads these for its pickers; the `{}` catch-all below crashes them.
+    if (method === "GET" && url.pathname === "/api/presets") {
+      return new Response(JSON.stringify([]), { status: 200 });
+    }
+    if (method === "GET" && url.pathname === "/api/plugins") {
+      return new Response(JSON.stringify({ plugins: [] }), { status: 200 });
+    }
+    if (method === "GET" && url.pathname === "/api/nodes") {
+      return new Response(JSON.stringify({ nodes: [] }), { status: 200 });
+    }
+    if (method === "GET" && url.pathname === "/api/files/recent") {
+      return new Response(JSON.stringify({ paths: [], home: null }), { status: 200 });
     }
     if (method === "GET" && url.pathname === "/api/workspaces") {
       // The dialog reads this to de-dupe its default name; the tests drive it
@@ -69,8 +93,18 @@ function mockFetch(opts: { failPaneAdds?: number; takenWorkspaces?: { id: string
   return { calls, restore: () => (globalThis.fetch = original) };
 }
 
-async function renderDialog(onOpenChange: (open: boolean) => void = () => {}) {
+/**
+ * `seedSubshells` caches the list under `SUBSHELLS_QUERY_KEY` before mount,
+ * so the read has SETTLED when the dialog opens — the state the root-mounted
+ * live feed leaves behind in the app, and what the landing segment is decided
+ * from. Omit it for the cold-start path: loading at open, list arriving after.
+ */
+async function renderDialog(onOpenChange: (open: boolean) => void = () => {}, seedSubshells?: SubshellView[]) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  if (seedSubshells !== undefined) {
+    client.setQueryDefaults(SUBSHELLS_QUERY_KEY, { staleTime: Infinity });
+    client.setQueryData(SUBSHELLS_QUERY_KEY, seedSubshells);
+  }
   const rootRoute = createRootRoute();
   // Route-component mount (not RouterProvider children — those only render
   // while the router loads; the launch-dialog test carries the same note).
@@ -164,6 +198,36 @@ describe("NewWorkspaceDialog", () => {
       expect(JSON.parse(post?.body ?? "{}").name).toBe(`${stamp} (2)`);
     } finally {
       timeSpy.mockRestore();
+      restore();
+    }
+  });
+
+  it("lands on the New segment when the instance has no subshells yet", async () => {
+    // Operator finding 2026-10-20: with zero subshells the dialog opened on
+    // "Existing subshells", a tab whose empty state could only be a lie.
+    const { restore } = mockFetch({ subshells: [] });
+    try {
+      await renderDialog(() => {}, []);
+      expect(screen.getByRole("button", { name: "New subshell" }).getAttribute("aria-pressed")).toBe("true");
+      expect(screen.getByRole("button", { name: "Existing subshells" }).getAttribute("aria-pressed")).toBe("false");
+      // Not just a pressed button: the New half is what's on screen.
+      expect(screen.getByRole("button", { name: /Launch & add/ })).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("a zero list arriving after open does not yank the segment off Existing", async () => {
+    // The landing is decided at open; a cold read ("unknown" then) keeps
+    // "existing", and what settles afterwards must not flip it. The empty
+    // state still tells the truth about WHY the tab is empty.
+    const { restore } = mockFetch({ subshells: [] });
+    try {
+      await renderDialog();
+      expect(await screen.findByText(/No subshells yet/)).toBeDefined();
+      expect(screen.getByRole("button", { name: "Existing subshells" }).getAttribute("aria-pressed")).toBe("true");
+      expect(screen.getByRole("button", { name: "New subshell" }).getAttribute("aria-pressed")).toBe("false");
+    } finally {
       restore();
     }
   });

@@ -40,6 +40,7 @@ export const KEY_BAR_ROWS: KeyBarButton[][] = [
   [
     { label: "^C", aria: "Send Ctrl-C", bytes: "\x03" },
     { label: "⇧Tab", aria: "Send Shift-Tab", bytes: "\x1b[Z" },
+    { label: "⇧←", aria: "Send Shift-Left", bytes: "\x1b[1;2D" },
     { label: "Tab", aria: "Send Tab", bytes: "\t" },
     { label: "/", aria: "Send slash", bytes: "/" },
   ],

@@ -100,8 +100,8 @@ workspace" speaks exactly one payload (`lib/subshell-dnd.ts`): handlers react
 ONLY to its MIME, which is what keeps xterm's file-drop and dockview's
 tab-drag untouched. Every label that names a machine reads `node.name`, never
 the id (root AGENTS.md: nothing rendered derives from the id).
-**Working on the rail (grouping, collapse prefs, row tooltips, the Needs
-Attention spotlight): read apps/server/web/docs/sidebar.md first.**
+**Working on the sidebar (grouping, group-collapse prefs, row tooltips, the
+Needs Attention spotlight): read apps/server/web/docs/sidebar.md first.**
 
 **The live feed has no cadence, and that is load-bearing for every reader.**
 One snapshot at connect, then a frame only when something changed: a snapshot
@@ -111,7 +111,9 @@ surfaces that draw them. The feed writes exactly `SUBSHELLS_QUERY_KEY`, plus
 the per-id `["subshell", id]` entry only when it already exists; removals and
 access changes INVALIDATE it instead, and a removal also INVALIDATES the
 `["workspace"]` detail (a close cascades the pane rows; the dock tiles render
-from that read and nothing else wakes it). Pages must follow the CACHE, not the
+from that read and nothing else wakes it), and a rename invalidates the same
+detail read, so an open dock tab re-titles itself instead of holding the old
+name until remount. Pages must follow the CACHE, not the
 feed's own copy; activity derives from `lastOutputAt` against a clock
 (`hooks/use-clock-tick.ts`), and any NEW surface rendering `subshellIndicator`
 needs its own tick.
@@ -129,16 +131,22 @@ re-submitted ON is INERT, and `components/lockdown-banner.tsx` tells everyone
 signed-in, mounted in `__root`.
 **Working on the subshells list, the landing `/`, the launch pickers, or these gates: read apps/server/web/docs/home-launch-guidance.md and apps/server/web/docs/workspace-first.md first.**
 
-**The sidebar has a mini rail and a contextual panel.** The route selects
-Workspaces, Settings, Mobile, or Account. Workspaces combines the selected
+**The sidebar is one panel with its section bar docked at the bottom.** The
+route selects Workspaces, Settings, Subshell for Mobile, or Account, and the
+panel's section cells ride a centered icon-button row at its bottom: Workspaces
+and Settings are links, Subshell for Mobile opens the PWA install dialog, and
+Account is the profile card's trigger (plus "Open in browser" as the bar's last
+button, desktop shells only). There is no icon rail, no logo button, and no
+panel collapse. Workspaces combines the selected
 workspace's panes with a grouped **Subshells** section;
 members are excluded from that lower list. Clicking another subshell adds it
 as a tab. Dragging between the lists adds or removes membership, with centered
 labels and no success toast. Removing the last pane is refused; subshell
 processes stay running. Row menus provide the same membership actions.
 Subshell dashboard remains in the grouping dropdown’s actions menu and uses this same
-sidebar. The active mini-rail icon collapses/expands the panel; no header or
-collapse arrow takes space above the workspace selector. Settings shows personal pages and all eleven
+sidebar. Each bar button navigates to its section's remembered page, the
+active one too, except a Workspaces click inside `/workspaces/$id`, which
+stays a no-op. Settings shows personal pages and all eleven
 Server Settings pages, with the whole admin group gated by server-derived
 `viewerIsAdmin === true`. Account contains Profile, Preferences, Feedback, About, and Sign out as direct
 sidebar items, with identity, server details, and admin update notices in a plain footer. `/mobile?platform=apple|android|browser` shares its
@@ -257,7 +265,8 @@ keys WITH their text (owner-scoped, cookie-only) and offers `Setup` on the
 
 ## Subshell for Mobile (the PWA install dialog)
 
-`components/mobile-install-dialog.tsx` is UNGATED, desktop shells included:
+`components/mobile-install-dialog.tsx` is UNGATED, desktop shells included,
+and the section bar's Subshell for Mobile cell opens it (it is not a route):
 its payload is a QR code, read by a DIFFERENT device. Its first control is an
 address picker built from `lib/install-addresses.ts`; loopback rows are
 DROPPED in `installAddresses`, not labelled here. `trustedOrigins` on
@@ -288,16 +297,17 @@ at sign-out and after sign-in.
   Subshell Client would leave a window with no title bar and no drag strip,
   unmovable.
 - **`isDesktop()`: "am I inside EITHER shell".** Exactly two surfaces use it,
-  and both work in both apps: the rail's **Open in browser** row
+  and both work in both apps: the section bar's **Open in browser** button
   (`components/app-sidebar.tsx`, last in the `<nav>`) and the same item in
-  `components/subshell-actions-menu.tsx` (`sidebar: true`, so the rail's
+  `components/subshell-actions-menu.tsx` (`sidebar: true`, so the sidebar's
   right-click menu carries it too).
 
 **The footer's app-update row is a server-desktop surface, and it is mounted
 where that is structural** (spec 2026-09-17 §5.3):
 `components/desktop/desktop-app-update-row.tsx`, read via
 `hooks/use-desktop-app-update.ts`, rides `desktop-sidebar.tsx`'s `footerEnd`
-above `UserMenu`: the rail `__root.tsx` only renders on `isServerDesktop()`, so
+below the bar's `UserMenu` cell: the desktop sidebar `__root.tsx` only renders
+on `isServerDesktop()`, so
 neither Subshell Client nor a browser can reach it. `desktop_app_update` reports
 THAT app's version and is granted to that window alone. It shows and never
 applies: [Update] raises the assistant at `app-update`. A shell predating the
@@ -311,7 +321,7 @@ expiry logic to drift.
 "desktop_open_in_browser", { path })`, the forgiving variant, so an older
 shell that knows no such command simply does nothing. Rust joins the path onto
 the window's OWN origin (the server app's loopback origin; the client app's
-pinned plane), and refuses anything that could name a host. The rail sends
+pinned plane), and refuses anything that could name a host. The bar sends
 `location.pathname + location.searchStr`; the menu sends `/subshells/<id>`.
 
 Two things the person will notice, and neither is something this feature

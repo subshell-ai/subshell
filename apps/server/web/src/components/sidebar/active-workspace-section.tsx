@@ -1,3 +1,4 @@
+import { cn } from "@internal/node-admin";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import type { ReactNode } from "react";
@@ -37,7 +38,7 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
   return (
     <WorkspaceSidebarDrag workspace={active}>
       <div className="flex min-h-0 flex-1 flex-col gap-1">
-        <div className="flex shrink-0 items-center gap-2 pb-2 text-detail text-muted-foreground">
+        <div className="flex shrink-0 items-center gap-2 text-detail text-muted-foreground">
           <span aria-hidden="true" className="w-3 border-t" />
           <span>Workspace</span>
           <span aria-hidden="true" className="flex-1 border-t" />
@@ -73,7 +74,11 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
                   </SelectItem>
                 ))}
               </SelectGroup>
-              <SelectGroup className="mt-1 border-t pt-1">
+              {/* With rows, the divider separates the groups. With none, the row
+                  stands alone and takes no extra class: the List's own p-1 then
+                  insets it 4px from every popup edge, uniform. Any py here would
+                  stack on top and the vertical gap would outrun the sides. */}
+              <SelectGroup className={cn(rows.length > 0 ? "mt-1 border-t pt-1" : null)}>
                 <SelectItem value={NEW_WORKSPACE}>
                   <span className="flex items-center gap-2">
                     <Plus className="size-4" />
@@ -87,7 +92,7 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
           {headerEnd}
         </div>
         <WorkspaceSidebarDropArea kind="add" className="flex max-h-[45%] shrink-0 flex-col">
-          <div className="min-h-0 overflow-y-auto px-1 py-1">
+          <div className="min-h-0 overflow-y-auto px-1 pb-1">
             {active && (
               <WorkspaceActionsMenu workspace={active}>
                 <WorkspaceBranch

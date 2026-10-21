@@ -123,8 +123,8 @@ export function desktopShell(): DesktopShell | null {
  * The narrow question — "is this the shell that manages my server" — is
  * {@link isServerDesktop}, and it is the one nearly every caller wants. This
  * one is for chrome that is true of any shell and of no browser: today that is
- * "Open in browser", in the rail and in a subshell's actions menu. Reach for
- * it only when the surface would work in Subshell Client too.
+ * "Open in browser", on the sidebar's bottom bar and in a subshell's actions
+ * menu. Reach for it only when the surface would work in Subshell Client too.
  */
 export function isDesktop(): boolean {
   return desktopShell() !== null;
@@ -165,7 +165,6 @@ export type DesktopAction =
   | "new-subshell"
   | "new-workspace"
   | "focus-filter"
-  | "toggle-sidebar"
   | "go-subshells"
   | "go-workspaces"
   | "go-nodes"
