@@ -35,7 +35,8 @@ export interface UserMenuProps {
    * caller's, so the string never masquerades as an address in the header. */
   email: string;
   /** The sidebar's bottom section bar mounts the menu as one of its cells:
-   * a size-11 square like the neighbours, avatar only, and no native title -
+   * a size-11 square like the neighbours (36px on a fine pointer), avatar
+   * only, and no native title -
    * the bar's cells carry no tooltips, and the card names the person when it
    * opens. */
   barCell?: boolean;
@@ -113,7 +114,7 @@ export function UserMenu({
             }
             className={cn(
               "flex items-center rounded-md text-muted-foreground text-sm transition-colors hover:bg-accent/50 hover:text-foreground",
-              barCell ? "size-11 justify-center" : "w-full justify-start gap-2 p-2",
+              barCell ? "pointer-fine:size-9 size-11 justify-center" : "w-full justify-start gap-2 p-2",
             )}
           />
         }
