@@ -29,7 +29,6 @@ describe("UserMenu", () => {
       <UserMenu
         name="Thea"
         email="thea@example.com"
-        collapsed={false}
         onPreferences={() => prefs.push("p")}
         onAccountSettings={() => account.push("a")}
         onAbout={() => about.push("i")}
@@ -57,7 +56,6 @@ describe("UserMenu", () => {
       <UserMenu
         name="Thea"
         email="thea@example.com"
-        collapsed={false}
         onPreferences={() => {}}
         onAccountSettings={() => {}}
         onAbout={() => {}}
@@ -87,7 +85,6 @@ describe("UserMenu version + update additions", () => {
   const base = {
     name: "Thea",
     email: "thea@example.com",
-    collapsed: false,
     onPreferences: () => {},
     onAccountSettings: () => {},
     onAbout: () => {},

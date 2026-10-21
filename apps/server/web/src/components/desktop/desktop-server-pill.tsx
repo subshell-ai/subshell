@@ -22,7 +22,7 @@ import { desktopInvoke } from "@/lib/desktop";
  * used to offer now lives. Reachable and NOT an admin: nowhere — so the row
  * renders as a plain status line rather than a button that refuses.
  */
-export function DesktopServerPill({ collapsed }: { collapsed: boolean }) {
+export function DesktopServerPill() {
   const offline = useServerOffline();
   const navigate = useNavigate();
   const { data: settings } = usePublicSettings();
@@ -40,16 +40,11 @@ export function DesktopServerPill({ collapsed }: { collapsed: boolean }) {
       <span aria-hidden className="flex size-3.5 shrink-0 items-center justify-center">
         <Circle className={cn("size-2 fill-current", offline ? "text-destructive" : "text-success")} />
       </span>
-      {/* Kept in the DOM when collapsed rather than dropped: it is the
-          accessible name of the whole row, button or not. */}
-      <span className={cn("truncate text-muted-foreground", collapsed && "sr-only")}>{label}</span>
+      <span className="truncate text-muted-foreground">{label}</span>
     </>
   );
 
-  const shared = cn(
-    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-detail",
-    collapsed && "justify-center px-0",
-  );
+  const shared = "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-detail";
 
   if (!offline && !isAdmin) {
     return (

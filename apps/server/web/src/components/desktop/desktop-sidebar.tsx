@@ -6,7 +6,7 @@ import { DragStrip } from "@/components/desktop/drag-strip";
 import { desktopPlatform } from "@/lib/desktop";
 
 /**
- * The rail the desktop shell renders instead of the web one.
+ * The sidebar the desktop shell renders instead of the web one.
  *
  * It is the SAME component. `AppSidebar` is not a list of links — it is the
  * drag source for `application/x-subshell-id`, the live-status surface, the
@@ -31,10 +31,8 @@ export function DesktopSidebar() {
       headerAbove={macos ? <DragStrip /> : undefined}
       footerEnd={() => (
         <>
-          {/* The rows still take a `collapsed` flag; the panel is always
-              expanded now, so they always render in full. */}
-          <DesktopServerPill collapsed={false} />
-          <DesktopAppUpdateRow collapsed={false} />
+          <DesktopServerPill />
+          <DesktopAppUpdateRow />
         </>
       )}
     />

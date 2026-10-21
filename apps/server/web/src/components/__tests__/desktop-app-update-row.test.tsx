@@ -98,7 +98,7 @@ function fakeSettings(admin: boolean) {
 /** Where the row navigated, or null — the assertion the IPC one replaced. */
 let landedOn: string | null = null;
 
-function renderRow(collapsed = false, admin = true) {
+function renderRow(admin = true) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   restoreFetch?.();
   restoreFetch = fakeSettings(admin);
@@ -107,7 +107,7 @@ function renderRow(collapsed = false, admin = true) {
   const homeRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/",
-    component: () => <DesktopAppUpdateRow collapsed={collapsed} />,
+    component: () => <DesktopAppUpdateRow />,
   });
   const updatesRoute = createRoute({
     getParentRoute: () => rootRoute,
@@ -160,6 +160,9 @@ describe("DesktopAppUpdateRow", () => {
       screen.getByRole("button", { name: "Subshell Server App 0.7.2: v0.8.0 available. Open updates." }),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Update" })).toBeNull();
+    // The row always renders in full: with the icon-rail retirement there is no
+    // collapsed mode left, so the label is never hidden down to `sr-only`.
+    expect(screen.getByText(/Subshell Server App 0\.7\.2/).className).not.toContain("sr-only");
   });
 
   it("asks the shell exactly once per load, and nothing else to start", async () => {
@@ -304,7 +307,7 @@ describe("DesktopAppUpdateRow", () => {
   it("sends a member to the assistant instead of an admin route", async () => {
     setUA(SERVER_UA);
     const invocations = fakeTauri({ currentVersion: "0.7.2", availableVersion: "0.8.0" });
-    renderRow(false, false);
+    renderRow(false);
     const row = await screen.findByRole("button", {
       name: "Subshell Server App 0.7.2: v0.8.0 available. Check for updates.",
     });
@@ -342,32 +345,5 @@ describe("DesktopAppUpdateRow", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(invocations).toHaveLength(0);
     expect(screen.queryByText(/Subshell/)).toBeNull();
-  });
-
-  it("collapses to one icon button that still says which version", async () => {
-    setUA(SERVER_UA);
-    const invocations = fakeTauri({ currentVersion: "0.7.2", availableVersion: "0.8.0" });
-    renderRow(true);
-    // The label names the offer, not an act the row never performs —
-    // clicking opens the update screen, it does not update.
-    const button = await screen.findByRole("button", {
-      name: "Subshell Server App 0.7.2: v0.8.0 available. Open updates.",
-    });
-    // The text is `sr-only` in the rail: readable to a screen reader, and not
-    // laid out in 56px.
-    expect(button.querySelector(".sr-only")).not.toBeNull();
-    fireEvent.click(button);
-    await waitFor(() => expect(landedOn).toBe("/settings/updates"));
-    expect(invocations.filter((i) => i.command === "desktop_open_assistant")).toEqual([]);
-  });
-
-  it("collapses to nothing when there is no update to offer", async () => {
-    setUA(SERVER_UA);
-    const invocations = fakeTauri({ currentVersion: "0.7.2", availableVersion: null });
-    renderRow(true);
-    await waitFor(() => expect(invocations.some((i) => i.command === "desktop_app_update")).toBe(true));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(screen.queryByRole("button")).toBeNull();
-    expect(screen.queryByText(/Subshell Server/)).toBeNull();
   });
 });

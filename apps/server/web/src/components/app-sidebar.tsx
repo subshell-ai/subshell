@@ -21,7 +21,7 @@ import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
  * The bar's cells, in order. Only Workspaces and Settings are links: Subshell
  * for Mobile opens the install dialog and Account opens the profile card, so
  * those carry no `to`, no active state, and no remembered destination. The
- * header still reads the labels from here for the two panel sections.
+ * header still reads the labels from here for the other panel sections.
  * Workspaces renders the Subshell mark rather than a lucide glyph, the way
  * the old collapsed rail's logo cell did; its link entry carries no icon.
  */
@@ -194,7 +194,6 @@ export function AppSidebar({
                   key={item.id}
                   name={user?.name ?? ""}
                   email={user?.email ?? ""}
-                  collapsed={false}
                   barCell
                   serverVersion={publicSettings?.serverVersion ?? ""}
                   instanceName={publicSettings?.instanceName ?? ""}

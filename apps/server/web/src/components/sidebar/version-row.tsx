@@ -47,7 +47,6 @@ export function VersionRow({
   notice,
   onActivate,
   actionLabel,
-  collapsed,
 }: {
   /** The full line, e.g. `Subshell Server 0.10.1` — already assembled. */
   label: string;
@@ -69,8 +68,6 @@ export function VersionRow({
    * to describe.
    */
   actionLabel?: string;
-  /** The 56px rail: there is no room for text, so only the icon survives. */
-  collapsed: boolean;
 }) {
   // The VISIBLE line is the label alone. `title` is the longer sentence, and it
   // reaches the reader through the tooltip and the accessible name — the two
@@ -78,14 +75,7 @@ export function VersionRow({
   const title = notice === null ? label : `${label}: v${notice} available`;
   const behind = notice !== null;
 
-  // Collapsed with nothing to say is nothing at all: a version the rail cannot
-  // print is not worth a row, and an icon with no news is decoration.
-  if (collapsed && !behind) return null;
-
-  const shared = cn(
-    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-detail text-muted-foreground",
-    collapsed && "justify-center px-0",
-  );
+  const shared = "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-detail text-muted-foreground";
 
   const body = (
     <>
@@ -105,10 +95,10 @@ export function VersionRow({
       <span aria-hidden className={cn("flex size-3.5 shrink-0 items-center justify-center", !behind && "invisible")}>
         <ArrowUpCircle className="size-3.5 text-warning" />
       </span>
-      {/* Kept in the DOM when collapsed rather than dropped: it is the
-          accessible name of the whole row, button or not. The VISIBLE text is
-          `label`; the newer version rides in `title`/`aria-label` above. */}
-      <span className={cn("truncate", collapsed && "sr-only")}>{label}</span>
+      {/* The visible text is `label` alone; the newer version rides in
+          `title`/`aria-label` above. The line is also the accessible name of
+          the whole row, button or not. */}
+      <span className="truncate">{label}</span>
     </>
   );
 
