@@ -16,7 +16,7 @@
  * sentence under it rather than leaving the reader to work out which button
  * carries it.
  */
-import { type AssistantStrings, Frame } from "@internal/assistant";
+import { type AssistantStrings, FormSectionTitle, Frame } from "@internal/assistant";
 import type { ReactElement } from "react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -250,7 +250,7 @@ export function SupervisionScreen(props: {
           choice IS, which a switch cannot do. It sits under its own heading
           because it answers a different question from the modes above, and it
           saves on the press rather than at Apply. */}
-      <p className="group-heading">Open on launch</p>
+      <FormSectionTitle className="mt-6 mb-3">Open on launch</FormSectionTitle>
       {option({
         name: "launch-window",
         id: "launch-dashboard",

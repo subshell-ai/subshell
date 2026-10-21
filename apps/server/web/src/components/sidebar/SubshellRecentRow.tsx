@@ -1,7 +1,7 @@
 import { Button, cn } from "@internal/node-admin";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight, LayoutDashboard, Minus, Plus } from "lucide-react";
-import { useId, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { toast } from "sonner";
 import { HarnessSubagentRows } from "@/components/harness-subagents";
 import { TooltipLabelledLines } from "@/components/sidebar/TooltipLabelledLines";
@@ -47,7 +47,10 @@ export function SubshellRecentRow({
   branchWorkspaceId,
   onOpen,
   inActiveWorkspace = false,
+  children,
 }: {
+  /** Agent-created subshell rows shown under their creator. */
+  children?: ReactNode;
   subshell: SubshellView;
   /** The CURRENT pane: the dock's focused one, or the viewed `/subshells/:id`.
    * The one row that takes the accent fill and the ring. Membership in an
@@ -133,6 +136,7 @@ export function SubshellRecentRow({
   const [expanded, setExpanded] = useState(true);
   const childrenId = useId();
   const hasSubagents = subshell.status === "running" && subshell.alive === true && !!agentState?.agents.length;
+  const hasChildren = hasSubagents || !!children;
   // `render`, not a wrapper: the Link below is simultaneously the nav, the
   // drag source and the context-menu subject, and the tooltip had to attach
   // to that element without becoming the thing that quietly kills one of
@@ -165,7 +169,7 @@ export function SubshellRecentRow({
               onClick={(e) => {
                 if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
                 e.preventDefault();
-                if (focused && hasSubagents) {
+                if (focused && hasChildren) {
                   setExpanded((value) => !value);
                   return;
                 }
@@ -242,7 +246,7 @@ export function SubshellRecentRow({
         <SubshellActionsMenu subshell={subshell} workspaceAction={workspaceAction} onDeleted={onSubshellClosed}>
           {row}
         </SubshellActionsMenu>
-        {hasSubagents && (
+        {hasChildren && (
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger
@@ -272,7 +276,8 @@ export function SubshellRecentRow({
           <SubshellActionsMenu subshell={subshell} workspaceAction={workspaceAction} onDeleted={onSubshellClosed} />
         </div>
       </div>
-      <div id={childrenId} hidden={!expanded || !hasSubagents}>
+      <div id={childrenId} hidden={!expanded || !hasChildren}>
+        {children}
         <HarnessSubagentRows
           harnessId={subshell.harnessId}
           branchWorkspaceId={branchWorkspaceId}

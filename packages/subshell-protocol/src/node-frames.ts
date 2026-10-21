@@ -1,5 +1,6 @@
 import { BASE64_RE, isBool, isInt, isNum, isRecord, isStr, isStrArray, isStringMap } from "./guards.js";
 import type { JsonValue } from "./json.js";
+import { type NodeSystemSpecs, parseNodeSystemSpecs } from "./node-system-specs.js";
 import { isSshFingerprint, parseSshNodeCommandBody, type SshNodeCommandBody } from "./ssh-frames.js";
 import { SSH_CONFIG_FILE_MAX_BYTES, SSH_PATH_MAX_CHARS, SSH_RELAY_FRAME_MAX_BYTES } from "./ssh-limits.js";
 
@@ -1539,6 +1540,8 @@ export function relayFrameOverCap(value: unknown): boolean {
 export type NodeEvent =
   | {
       type: "ready";
+      /** Optional capacity report; older nodes omit it. */
+      systemSpecs?: NodeSystemSpecs;
       agentVersion: string;
       protocolVersion: number;
       os: "linux" | "darwin" | "unknown";
@@ -2077,16 +2080,19 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
       // that says on pushes down), so a malformed field cannot strand a
       // machine on the wrong side of the gate.
       const {
+        systemSpecs: rawSystemSpecs,
         runtime: rawRuntime,
         maintenance: rawMaintenance,
         sshEnabled: rawSshEnabled,
         ...rest
       } = value as Record<string, unknown> & { runtime?: unknown; maintenance?: unknown; sshEnabled?: unknown };
+      const systemSpecs = parseNodeSystemSpecs(rawSystemSpecs);
       const runtime = rawRuntime === undefined ? null : parseNodeRuntimeReport(rawRuntime);
       const maintenance = rawMaintenance === undefined ? null : parseNodeMaintenance(rawMaintenance);
       const sshEnabled = rawSshEnabled === undefined ? null : parseNodeSshEnabled(rawSshEnabled);
       return {
         ...(rest as unknown as Extract<NodeEvent, { type: "ready" }>),
+        ...(systemSpecs ? { systemSpecs } : {}),
         ...(runtime ? { runtime } : {}),
         ...(maintenance ? { maintenance } : {}),
         ...(sshEnabled ? { sshEnabled } : {}),

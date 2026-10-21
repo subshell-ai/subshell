@@ -5,14 +5,13 @@ import { ChevronDown } from "lucide-react";
 import { type DragEvent, type JSX, useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ListLoadError } from "@/components/list-load-error";
-import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
+import { WorkspacePaneGroups } from "@/components/sidebar/workspace-pane-groups";
 import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useFilteredList } from "@/hooks/use-filtered-list";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useNodes } from "@/hooks/use-nodes";
 import { usePresets } from "@/hooks/use-presets";
-import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { useWorkspaces, WORKSPACES_QUERY_KEY } from "@/hooks/use-workspaces";
 import { workspaceIdFromPath } from "@/lib/route-ids";
@@ -21,7 +20,7 @@ import { FALLBACK_NODE_ID, nodeLabelFor } from "@/lib/subshell-node-groups";
 import { useWorkspaceFocusedId } from "@/lib/workspace-focus";
 import { railWorkspaceRows } from "@/lib/workspace-rail";
 import type { SubshellView } from "@/types/subshell";
-import type { WorkspacePaneRow, WorkspaceRow } from "@/types/workspace";
+import type { WorkspaceRow } from "@/types/workspace";
 
 /**
  * The sidebar's Workspaces tree (spec 2026-10-17): each workspace row expands
@@ -49,58 +48,6 @@ interface RowLabels {
   nodeLabel: string;
   agentLabel: string;
   presetLabel?: string;
-}
-
-/**
- * One pane row inside a workspace branch: THE rail's `SubshellRecentRow`, the
- * same component the subshells section draws (operator ruling, 2026-10-17:
- * two components rendering "a subshell in the sidebar" is how they drift).
- * The branch adds its semantics through props: `branchWorkspaceId` aims the
- * click at THIS workspace's tab, and the one row marked is the dock's
- * focused pane while this branch is the page on screen.
- */
-function PaneBranchRow({
-  pane,
-  workspaceId,
-  focused,
-  labelsFor,
-}: {
-  pane: WorkspacePaneRow;
-  workspaceId: string;
-  /** The pane the dock has focused, while this branch is the page on screen
-   * (the CALLER gates this on the branch being active). */
-  focused: boolean;
-  /** The caller-resolved tooltip labels, same ladder the machine rows use. */
-  labelsFor: (sub: SubshellView) => RowLabels;
-}): JSX.Element {
-  // The full entity comes from the live list cache — the shared dot, the menu
-  // and the tooltip all need the fields the pane row (id/name/dir) lacks. No
-  // row yet (the list is still loading) paints the pane facts the workspace
-  // LIST carries, in the same shape and at the same position, so the real
-  // row lands without a jump.
-  const subshell = useSubshellRow(pane.subshellId);
-  if (!subshell) {
-    return (
-      <div className="my-1.5 flex items-start gap-2 rounded-md py-1 pr-3 pl-3 text-detail text-muted-foreground opacity-70">
-        <span aria-hidden className="mt-[7px] h-1.5 w-1.5 shrink-0" />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate">{pane.subshellName}</span>
-          <span className="block truncate text-detail opacity-70">{pane.workingDir}</span>
-        </span>
-      </div>
-    );
-  }
-  const labels = labelsFor(subshell);
-  return (
-    <SubshellRecentRow
-      subshell={subshell}
-      focused={focused}
-      branchWorkspaceId={workspaceId}
-      nodeLabel={labels.nodeLabel}
-      agentLabel={labels.agentLabel}
-      presetLabel={labels.presetLabel}
-    />
-  );
 }
 
 /** A collapsible branch header for one workspace, with its expand chevron. */
@@ -244,15 +191,7 @@ export function WorkspaceBranch({
       )}
       {open && (
         <div>
-          {(workspace.panes ?? []).map((pane) => (
-            <PaneBranchRow
-              key={pane.id}
-              pane={pane}
-              workspaceId={workspace.id}
-              focused={active && focusedId === pane.subshellId}
-              labelsFor={labelsFor}
-            />
-          ))}
+          <WorkspacePaneGroups workspace={workspace} focusedId={active ? focusedId : null} labelsFor={labelsFor} />
           {workspace.subshellCount === 0 && (
             <p className="ml-6 py-0.5 text-detail text-muted-foreground opacity-70">No subshells yet</p>
           )}

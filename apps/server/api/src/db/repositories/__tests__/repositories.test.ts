@@ -16,6 +16,7 @@ import * as crossAgentMigration from "@/db/migrations/0039-subshell-cross-agent.
 import * as presetLaunchFieldsMigration from "@/db/migrations/0042-preset-launch-fields.js";
 import * as presetCrossCommOptInMigration from "@/db/migrations/0043-preset-cross-comm-opt-in.js";
 import * as subshellKeyHomeMigration from "@/db/migrations/0052-subshell-key-home.js";
+import * as subshellParentMigration from "@/db/migrations/0060-subshell-parent.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
@@ -52,6 +53,7 @@ beforeAll(async () => {
   await subshellRenameMigration.up(db); // renamed schema the code sees
   await presetsMigration.up(db); // profiles → presets (spec 2026-09-13 §6)
   await crossAgentMigration.up(db); // subshells.cross_agent — SubshellsRepository.create writes it (2026-09-25)
+  await subshellParentMigration.up(db);
   await presetLaunchFieldsMigration.up(db); // presets launch trio (0042) - the repository create enumerates it
   await presetCrossCommOptInMigration.up(db); // presets.cross_comm_enabled (0043) - same reason
   await subshellKeyHomeMigration.up(db); // 0052 subshells.key_home_node_id - SubshellsRepository.create mirrors it on every insert (Task 14)

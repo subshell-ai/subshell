@@ -5,6 +5,7 @@ export {
   BACKUP_RESTORE_MODES,
   backupEncryptionPasswordProblem,
 } from "./backup.js";
+export { CROSS_AGENT_DIR_MAX, CROSS_AGENT_DIRS_MAX, CROSS_AGENT_NOTES_MAX } from "./cross-agent-guidance.js";
 export {
   type DeviceReport,
   type DeviceRole,
@@ -184,6 +185,7 @@ export {
   type VerifyOutcome,
   verifyCommand,
 } from "./node-signing.js";
+export { type NodeSystemSpecs, parseNodeSystemSpecs } from "./node-system-specs.js";
 export {
   CLI_SUFFIX,
   DEFAULT_DATABASE_PATH,

@@ -91,6 +91,10 @@ sequenceDiagram
   S-->>A: Subshell ID and promptDelivered
 ```
 
+After enabling **Enable agents to create subshells with this preset**, fill in **Notes for calling agents** to explain when to use it or what a caller should know. The notes appear in `list_presets` and stay saved if you turn cross-agent use off.
+
+For node-specific guidance, open the node's configuration page and find **Cross-agent communication**. Add notes and recommended starting directories, one absolute path per line, then select **Save guidance**. `list_nodes` returns both fields. Directory suggestions don't change the node's directory restrictions. Only the node owner can edit this guidance; a server admin manages guidance for the server's own node.
+
 Choose an ID from `list_presets`; don't guess one from the display name. An agent's task can append to the preset's saved prompt or replace it using `prompt_mode`. Check `promptDelivered` when an initial task was requested; a created session doesn't prove that task arrived.
 
 The agent that creates a helper must clean it up when the work is done. Follow [Coordinate agents](/mcp/coordinate).

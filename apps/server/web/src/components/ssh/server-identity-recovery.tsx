@@ -8,6 +8,7 @@ import {
   CardTitle,
   CopyableValue,
   errMessage,
+  FormSectionTitle,
   NODE_QUERY_KEY,
   NODES_QUERY_KEY,
 } from "@internal/node-admin";
@@ -163,7 +164,7 @@ export function ServerIdentityRecovery() {
 function IdentityFacts({ label, pair }: { label: string; pair: IdentityPair | null }) {
   return (
     <div className="flex flex-col gap-2">
-      <h3 className="font-strong text-label">{label}</h3>
+      <FormSectionTitle>{label}</FormSectionTitle>
       {pair ? (
         <>
           <CopyableValue value={pair.signing} label={`${label} signing fingerprint`} />

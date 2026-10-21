@@ -55,6 +55,7 @@ export const PresetSchema = t.Object({
   settingsJson: t.Union([t.String({ description: "JSON settings object" }), t.Null()]),
   configIsolation: t.Number({ description: "1 = isolated config sources" }),
   restartOnExit: t.Number({ description: "1 = new subshells auto-restart on exit" }),
+  crossCommNotes: t.Optional(t.Nullable(t.String({ description: "User-authored guidance for calling agents" }))),
   crossCommEnabled: t.Number({ description: "1 = cross-subshell comms (MCP) enabled for this preset" }),
   nodeId: t.Nullable(
     t.String({ description: "Default node for launches; null leaves the choice to the caller or server" }),
@@ -88,6 +89,9 @@ export const SubshellSchema = t.Object({
   nextRestartAt: t.Union([t.String({ description: "Backoff restart due (ISO)" }), t.Null()]),
   nameLocked: t.Boolean({ description: "True = operator-named; false = pane-title auto-naming owns the name" }),
   notify: t.Boolean({ description: "True = pushes and waiting-for-you priority enabled (bell on)" }),
+  parentSubshellId: t.Nullable(
+    t.String({ description: "Subshell that created this helper; null for human launches or unavailable parents" }),
+  ),
   crossAgent: t.Boolean({
     description:
       "True = the pane was launched by an agent over MCP (create_subshell), not a human at the UI: internal cross-agent comms, filed as such in the rail and created with the bell off",

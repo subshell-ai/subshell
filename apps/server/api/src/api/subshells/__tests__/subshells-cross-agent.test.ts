@@ -79,7 +79,7 @@ describe("POST /api/subshells: cross-agent provenance (2026-09-25)", () => {
   async function viewFacts(id: string) {
     const res = await app.fetch(new Request(`http://localhost:3080/api/subshells/${id}`, { headers: cookieHeaders() }));
     expect(res.status).toBe(200);
-    return (await res.json()) as { crossAgent: boolean; notify: boolean };
+    return (await res.json()) as { crossAgent: boolean; notify: boolean; parentSubshellId: string | null };
   }
 
   beforeAll(async () => {
@@ -143,7 +143,14 @@ describe("POST /api/subshells: cross-agent provenance (2026-09-25)", () => {
       // The stamp AND the silent default, in one read: this is the pair the
       // operator asked for (internal comms a human should not be rung for).
       expect(await rowFacts(id)).toEqual({ crossAgent: 1, notify: 0 });
-      expect(await viewFacts(id)).toMatchObject({ crossAgent: true, notify: false });
+      expect(await viewFacts(id)).toMatchObject({ crossAgent: true, notify: false, parentSubshellId: parentId });
+      expect((await subshells.findById(id))?.parentSubshellId).toBe(parentId);
+      const removed = await app.fetch(
+        new Request(`http://localhost:3080/api/subshells/${parentId}`, { method: "DELETE", headers: cookieHeaders() }),
+      );
+      expect(removed.status).toBe(200);
+      expect((await subshells.findById(id))?.parentSubshellId).toBeNull();
+      expect((await subshells.findById(id))?.crossAgent).toBe(1);
     } finally {
       sim.detach();
     }

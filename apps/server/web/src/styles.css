@@ -15,6 +15,7 @@
  * stylesheet.
  */
 @source "../../../../packages/node-admin/src";
+@source "../../../../packages/assistant/src";
 
 @custom-variant dark (&:is(.dark *));
 

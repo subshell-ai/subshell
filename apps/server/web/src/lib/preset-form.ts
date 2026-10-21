@@ -44,6 +44,8 @@ export interface PresetFormValue {
   /** The "Cross-subshell comms" switch (migration 0043): a turned-on preset
    *  with unmet launch requirements is unsavable - see {@link crossCommSaveBlocked}. */
   crossCommEnabled: boolean;
+  /** Notes exposed to calling agents through discovery. */
+  crossCommNotes?: string;
   /**
    * Optional launch node hint (spec 2026-09-29): null = the preset names no
    * machine and the launch-time ladder decides, exactly the old behavior.
@@ -76,6 +78,7 @@ export function emptyPresetForm(): PresetFormValue {
     flagRows: [{ flag: "", value: "" }],
     restartOnExit: true,
     crossCommEnabled: false,
+    crossCommNotes: "",
     nodeId: null,
     workingDir: "",
     promptBlocks: [],
@@ -122,6 +125,7 @@ export function presetFormFromRow(row: PresetRow): PresetFormValue {
     flagRows: flagTokensToRows(tokens),
     restartOnExit: row.restartOnExit === 1,
     crossCommEnabled: row.crossCommEnabled === 1,
+    crossCommNotes: row.crossCommNotes ?? "",
     nodeId: row.nodeId,
     workingDir: row.workingDir ?? "",
     promptBlocks,
@@ -214,6 +218,8 @@ export interface PresetPayload {
   restartOnExit: boolean;
   /** "Cross-subshell comms" switch state (0043). */
   crossCommEnabled: boolean;
+  /** Notes exposed to calling agents through discovery. */
+  crossCommNotes?: string;
   /** Launch node hint; null = names no machine */
   nodeId: string | null;
   /** Absolute working directory; null = names none */
@@ -240,6 +246,7 @@ export function toPresetPayload(form: PresetFormValue): PresetPayload {
     configIsolation: form.source?.configIsolation ?? false,
     restartOnExit: form.restartOnExit,
     crossCommEnabled: form.crossCommEnabled,
+    crossCommNotes: form.crossCommNotes ?? "",
     nodeId: form.nodeId,
     workingDir: form.workingDir.trim() || null,
     promptBlocks: presetBlocksToWire(form.promptBlocks),
@@ -260,6 +267,8 @@ export interface PresetUpdatePayload {
   restartOnExit: boolean;
   /** "Cross-subshell comms" switch state (0043). */
   crossCommEnabled: boolean;
+  /** Notes exposed to calling agents through discovery. */
+  crossCommNotes?: string;
   /** Launch node hint; the editor ALWAYS sends the trio so clearing works */
   nodeId: string | null;
   /** Absolute working directory; null clears */
@@ -287,6 +296,7 @@ export function toPresetUpdatePayload(form: PresetFormValue): PresetUpdatePayloa
     configIsolation: form.source?.configIsolation ?? false,
     restartOnExit: form.restartOnExit,
     crossCommEnabled: form.crossCommEnabled,
+    crossCommNotes: form.crossCommNotes ?? "",
     // The trio rides EVERY update (explicit nulls): the editor is the whole
     // truth about the preset, and "absent means untouched" would make a
     // cleared field impossible to save away.

@@ -62,7 +62,7 @@ describe("subshell mcp instructions", () => {
 
   it("the briefing owns the spawned-pane cleanup rule (2026-09-25: comms panes the human never hears about)", () => {
     expect(SUBSHELL_MCP_INSTRUCTIONS).toContain("yours to close");
-    expect(SUBSHELL_MCP_INSTRUCTIONS).toContain("Created by agents");
+    expect(SUBSHELL_MCP_INSTRUCTIONS).toContain("beneath its creator");
     // The create tool REPEATS the rule for harnesses that read descriptions
     // without the briefing; that half is asserted on the wire in the
     // tools/list case below.

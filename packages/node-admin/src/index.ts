@@ -99,6 +99,8 @@ export { Badge, badgeVariants } from "./ui/badge";
 export { Button, ExplainedButton } from "./ui/button";
 export { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "./ui/card";
 export { CopyableValue } from "./ui/copyable-value";
+export { FormSectionTitle } from "./ui/form-section-title";
+export { HelperCaption } from "./ui/helper-caption";
 export { Input } from "./ui/input";
 export { Label } from "./ui/label";
 export { Switch } from "./ui/switch";

@@ -1,4 +1,4 @@
-import { CopyableValue, Label } from "@internal/node-admin";
+import { CopyableValue, FormSectionTitle, Label } from "@internal/node-admin";
 import { callbackUrlFor } from "@/types/auth-provider";
 
 /**
@@ -31,11 +31,10 @@ export function RegistrationPanel({ entries, providerId }: { entries: readonly s
   if (entries.length === 0) return null;
   const named = providerId !== "";
   return (
-    // `pt-0`: a LEGEND straddles the fieldset's border, so half its line
-    // already hangs inside the box — a full top padding stacked on that is
-    // the gap the operator flagged (2026-09-25). The other sides keep p-3.
-    <fieldset className="space-y-3 rounded-md border px-3 pt-0 pb-3">
-      <legend className="font-strong text-label">Finish the setup at your provider</legend>
+    <fieldset className="space-y-3">
+      <FormSectionTitle as="legend" className="mb-3">
+        Finish the setup at your provider
+      </FormSectionTitle>
       <p className="text-detail text-muted-foreground">
         Create one web-application OIDC client with your provider and register every value below. The client ID and
         secret it gives you are the two fields underneath.

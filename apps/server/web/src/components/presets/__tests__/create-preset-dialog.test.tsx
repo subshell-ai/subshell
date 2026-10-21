@@ -184,6 +184,7 @@ describe("CreatePresetDialog — clone (initialForm)", () => {
             configIsolation: false,
             restartOnExit: true,
             crossCommEnabled: false,
+            crossCommNotes: "",
             nodeId: null,
             workingDir: null,
             promptBlocks: null,

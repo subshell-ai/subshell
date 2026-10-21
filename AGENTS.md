@@ -367,7 +367,7 @@ asks. (`subshell mcp` also self-introduces via the MCP `initialize` briefing.)
 
 **Panes you open are yours to close.** A subshell launched through
 `create_subshell` (which arrives on a pane's own bearer token) is stamped
-cross-agent: it files under "Created by agents" in the rail, is created with
+cross-agent: it nests beneath its creating subshell in the sidebar, is created with
 the notification bell OFF (internal chatter is not news to ring a human for;
 they can still turn it on), and no later act un-stamps it. When the exchange is
 done, `terminate_subshell` (keeps the row and history) or `delete_subshell`

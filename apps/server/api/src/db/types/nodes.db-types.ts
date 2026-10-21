@@ -32,6 +32,12 @@ export const LOCAL_NODE_ID = "local";
  * Database table schema for nodes (spec 2026-08-31 §6.1).
  */
 export interface NodeTable {
+  /** JSON hardware report from the last ready frame; null on older nodes. */
+  systemSpecs?: string | null;
+  /** User-authored guidance for calling agents. */
+  crossCommNotes?: string | null;
+  /** JSON array of suggested directories; never an access policy. */
+  recommendedStartingDirs?: string | null;
   /** Node id (uuid); the seeded control-plane host is literally 'local' */
   id: string;
   /** Owning user (system user for 'local') */

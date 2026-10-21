@@ -833,6 +833,10 @@ test("sends a ready frame the real parseNodeEvent accepts, with protocol identit
     // no manifests to know the names (inversion §6).
     homeDir: homedir(),
   });
+  const report = (ready as Extract<NodeEvent, { type: "ready" }>).systemSpecs;
+  expect(report?.logicalCpuCount).toBeGreaterThan(0);
+  expect(report?.totalMemoryBytes).toBeGreaterThan(0);
+  expect(report?.reportedAt).toEqual(expect.any(String));
   const os = (ready as Extract<NodeEvent, { type: "ready" }>).os;
   expect(["linux", "darwin", "unknown"]).toContain(os);
   expect(ready as Record<string, unknown>).not.toHaveProperty("env");

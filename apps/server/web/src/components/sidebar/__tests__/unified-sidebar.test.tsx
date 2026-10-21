@@ -497,3 +497,25 @@ test("the picker separates New workspace only when there are workspaces above it
   expect(group).not.toContain("mt-1");
   expect(group).not.toContain("py-1");
 });
+
+test("workspace rows group by machine and spawned helpers appear once under their creator", async () => {
+  const fx = standardRig();
+  fx.subshells = fx.subshells.map((row) => (row.id === "s2" ? { ...row, nodeId: "remote" } : row));
+  fx.subshells.push(
+    rigSubshell("helper", "Review helper", { crossAgent: true, parentSubshellId: "s1", nodeId: "remote" }),
+  );
+  const { add, remove, router, refresh } = await mountRig(fx);
+  await within(add).findByRole("link", { name: /Review helper/ });
+  expect(within(add).getByRole("heading", { name: "Server" })).toBeTruthy();
+  expect(within(add).getByRole("heading", { name: "node you can't see" })).toBeTruthy();
+  const parent = add.querySelector('[data-subshell-tree-id="s1"]') as HTMLElement;
+  expect(within(parent).getByRole("link", { name: /Review helper/ })).toBeTruthy();
+  expect(within(remove).queryByRole("link", { name: /Review helper/ })).toBeNull();
+  fireEvent.click(within(parent).getByRole("link", { name: /Review helper/ }));
+  await waitFor(() => expect(router.state.location.search).toMatchObject({ add: "helper", dir: "within" }));
+  // Removing a parent from the visible cache must not hide its surviving helper.
+  fx.subshells = fx.subshells.filter((row) => row.id !== "s1");
+  await refresh(SUBSHELLS_QUERY_KEY);
+  await within(remove).findByRole("link", { name: /Review helper/ });
+  expect(within(add).queryByRole("link", { name: /Review helper/ })).toBeNull();
+});

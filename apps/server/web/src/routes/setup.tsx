@@ -666,7 +666,7 @@ function SetupPage() {
     <SetupAssistant
       key={step}
       title="Start Your First Subshell"
-      subtitle="Everything below is already filled in. Change anything you like."
+      subtitle="Choose an agent, a machine, and a working directory to get started."
       dots={dotsFor(step)}
       // Disabled while the launch is in flight, exactly as Skip is: the
       // subshell is already being created and leaving would orphan the report.

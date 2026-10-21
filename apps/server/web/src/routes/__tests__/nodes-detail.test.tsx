@@ -192,7 +192,7 @@ describe("NodeDetailPage re-check gating", () => {
       expect(screen.queryByText("Node version")).toBeNull();
       // The facts that ARE true of this machine stay.
       expect(screen.getByText("Hostname")).toBeDefined();
-      expect(screen.getByText("OS / arch")).toBeDefined();
+      expect(screen.getByText("Operating system")).toBeDefined();
     } finally {
       local.restore();
     }

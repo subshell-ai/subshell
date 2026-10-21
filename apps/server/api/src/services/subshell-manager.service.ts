@@ -371,6 +371,7 @@ export class SubshellManagerService {
     notify,
     nodeId,
     crossAgent,
+    parentSubshellId,
     ssh,
     presetFlags,
     extraPaneEnv,
@@ -411,11 +412,12 @@ export class SubshellManagerService {
     nodeId?: string;
     /**
      * 1 = an agent opened this pane over MCP (`create_subshell`), not a human
-     * at the UI: the row is stamped cross-agent, which is what files it under
-     * "Created by agents" and (through the caller's `notify` choice) keeps it
-     * silent. Only creation writes it; a restart reuses the row.
+     * at the UI: the row is stamped cross-agent, which lets the sidebar nest it beneath its creator and
+     * (through the caller's `notify` choice) keeps it silent. Only creation writes it; a restart reuses the row.
      */
     crossAgent?: number;
+    /** Creator identity supplied by authentication, never by the request body. */
+    parentSubshellId?: string | null;
     /**
      * The composed ssh pane (Task 7 plumbing): the row gets
      * `ssh = JSON.stringify(snapshot)`, the LaunchPlan gets the config member,
@@ -538,6 +540,7 @@ export class SubshellManagerService {
       // How the pane was OPENED, recorded once; the rail's category and the
       // caller's bell default both read this. 0 = the DB default, human.
       crossAgent: crossAgent === 1 ? 1 : 0,
+      parentSubshellId: crossAgent === 1 ? parentSubshellId : null,
       // The ssh snapshot column IS the pane's kind fact (migration 0048): the
       // owner-only input rule, the restart refusal and the delete sweep all
       // read its presence. NULL for every pane this call did not compose from
@@ -2342,6 +2345,7 @@ export function toSubshellView(
     waitingSince: string | null;
     lastPushUrgency: number | null;
     crossAgent: number;
+    parentSubshellId?: string | null;
     /** The ssh snapshot column (migration 0048); parsed for the bounded summary only (see {@link sshPaneSummary}). */
     ssh: string | null;
   },
@@ -2394,8 +2398,9 @@ export function toSubshellView(
     nameLocked: row.nameLocked === 1,
     notify: row.notify === 1,
     // How this pane was OPENED: an agent over MCP, not a human at the UI. The
-    // rail files these under "Created by agents" and their bell defaults off.
+    // sidebar nests these beneath their creator and their bell defaults off.
     crossAgent: row.crossAgent === 1,
+    parentSubshellId: row.parentSubshellId ?? null,
     // ISO ts of the attention event that put this subshell in waiting-for-you
     // state (null = not waiting); cleared by the watcher on output-resume/death.
     waitingSince: row.waitingSince,

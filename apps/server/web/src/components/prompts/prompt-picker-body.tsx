@@ -1,4 +1,4 @@
-import { Button, errMessage, Input, Label, Switch } from "@internal/node-admin";
+import { Button, errMessage, FormSectionTitle, Input, Label, Switch } from "@internal/node-admin";
 import { LIST_SEARCH_MAX } from "@internal/subshell-protocol";
 import { useStore } from "@tanstack/react-form";
 import { Layers, PenLine } from "lucide-react";
@@ -375,7 +375,7 @@ export function PromptPickerBody({
         </DialogHeader>
       ) : (
         <div className="space-y-0.5">
-          <p className="font-strong text-label">{heading}</p>
+          <FormSectionTitle>{heading}</FormSectionTitle>
           {mode === "multi" && <p className="text-detail text-muted-foreground">{blurb}</p>}
         </div>
       )}

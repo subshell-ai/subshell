@@ -69,6 +69,7 @@ export class SubshellsRepository extends BaseRepository {
         keyHomeNodeId: subshell.keyHomeNodeId ?? null,
         // Cross-agent provenance defaults to "human" (migration 0039); mirror it.
         crossAgent: subshell.crossAgent ?? 0,
+        parentSubshellId: subshell.parentSubshellId ?? null,
         createdAt: new Date().toISOString(),
       })
       .returningAll()

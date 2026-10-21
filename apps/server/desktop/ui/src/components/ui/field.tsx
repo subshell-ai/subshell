@@ -1,3 +1,4 @@
+import { FormSectionTitle } from "@internal/assistant";
 // shadcn Field composition, scoped to the assistant's current form needs and type roles.
 import { cva, type VariantProps } from "class-variance-authority";
 import type { ComponentProps } from "react";
@@ -9,7 +10,7 @@ export function FieldSet({ className, ...props }: ComponentProps<"fieldset">) {
 }
 
 export function FieldLegend({ className, ...props }: ComponentProps<"legend">) {
-  return <legend data-slot="field-legend" className={cn("mb-2 font-strong text-label", className)} {...props} />;
+  return <FormSectionTitle as="legend" data-slot="field-legend" className={cn("mb-3", className)} {...props} />;
 }
 
 const fieldVariants = cva("group/field flex w-full gap-2 data-[invalid=true]:text-warning", {

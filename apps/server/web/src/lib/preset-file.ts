@@ -1,4 +1,5 @@
 import {
+  CROSS_AGENT_NOTES_MAX,
   joinPresetPrompt,
   parseSshForwardRows,
   SSH_FINGERPRINT_PATTERN,
@@ -37,6 +38,7 @@ const agent = z
     configIsolation: z.boolean(),
     restartOnExit: z.boolean(),
     crossCommEnabled: z.boolean(),
+    crossCommNotes: z.string().max(CROSS_AGENT_NOTES_MAX).nullable().optional(),
     nodeId: node,
     workingDir: z.string().max(4096).startsWith("/").nullable(),
     promptBlocks: z.array(prompt).max(50).nullable(),
@@ -165,6 +167,7 @@ export function presetFileFromRow(row: PresetRow | SshPreset): PresetFile {
           configIsolation: row.configIsolation === 1,
           restartOnExit: row.restartOnExit === 1,
           crossCommEnabled: row.crossCommEnabled === 1,
+          crossCommNotes: row.crossCommNotes ?? null,
           nodeId: row.nodeId,
           workingDir: row.workingDir,
           promptBlocks: row.promptBlocks ? JSON.parse(row.promptBlocks) : null,

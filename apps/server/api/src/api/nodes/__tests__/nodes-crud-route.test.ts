@@ -214,6 +214,83 @@ describe("/api/nodes registry CRUD", () => {
     );
   }
 
+  it("persists advisory guidance without changing directory permissions and gates writes", async () => {
+    const { id } = await mkNode(aliceId, "Guidance node");
+    const body = {
+      crossCommNotes: "x".repeat(8_000),
+      recommendedStartingDirs: ["/srv/project", "/srv/project"],
+    };
+    expect((await req("PUT", `/${id}/cross-agent`, { cookie: aliceCookie, body })).status).toBe(200);
+    const detail = (await (await req("GET", `/${id}`, { cookie: aliceCookie })).json()) as {
+      crossCommNotes: string | null;
+      recommendedStartingDirs: string[];
+      allowedDirs: string[];
+    };
+    expect(detail.crossCommNotes).toBe(body.crossCommNotes);
+    expect(detail.recommendedStartingDirs).toEqual(["/srv/project"]);
+    expect(detail.allowedDirs).toEqual([]);
+    expect((await req("PUT", `/${id}/cross-agent`, { cookie: adminCookie, body })).status).toBe(403);
+    expect((await req("PUT", `/${id}/cross-agent`, { bearer: subshellKey, body })).status).toBe(403);
+    expect((await req("PUT", `/${id}/cross-agent`, { cookie: bobCookie, body })).status).toBe(404);
+    expect(
+      (
+        await req("PUT", `/${id}/cross-agent`, {
+          cookie: aliceCookie,
+          body: { ...body, recommendedStartingDirs: ["relative"] },
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await req("PUT", `/${id}/cross-agent`, {
+          cookie: aliceCookie,
+          body: { ...body, crossCommNotes: "x".repeat(8_001) },
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await req("PUT", `/${id}/cross-agent`, {
+          cookie: aliceCookie,
+          body: { crossCommNotes: null, recommendedStartingDirs: [] },
+        })
+      ).status,
+    ).toBe(200);
+    const cleared = (await (await req("GET", `/${id}`, { cookie: aliceCookie })).json()) as {
+      crossCommNotes: string | null;
+      recommendedStartingDirs: string[];
+    };
+    expect(cleared.crossCommNotes).toBeNull();
+    expect(cleared.recommendedStartingDirs).toEqual([]);
+  });
+
+  it("exposes last reported hardware for offline nodes and live specs for the server", async () => {
+    const { id } = await mkNode(aliceId, "Hardware node");
+    const systemSpecs = {
+      osRelease: "6.12",
+      cpuModel: "Example CPU",
+      logicalCpuCount: 8,
+      totalMemoryBytes: 16 * 1024 ** 3,
+      reportedAt: "2026-10-21T00:00:00.000Z",
+    };
+    await nodes.applyReady(id, {
+      agentVersion: "1.0.0",
+      protocolVersion: 14,
+      os: "linux",
+      arch: "arm64",
+      hostname: "box",
+      capabilities: ["mcp"],
+      systemSpecs,
+    });
+    const detail = (await (await req("GET", `/${id}`, { cookie: aliceCookie })).json()) as Record<string, unknown>;
+    expect(detail).toMatchObject({ os: "linux", arch: "arm64", systemSpecs });
+    const local = (await (await req("GET", "/local", { cookie: adminCookie })).json()) as {
+      systemSpecs: { logicalCpuCount: number; totalMemoryBytes: number };
+    };
+    expect(local.systemSpecs.logicalCpuCount).toBeGreaterThan(0);
+    expect(local.systemSpecs.totalMemoryBytes).toBeGreaterThan(0);
+  });
+
   async function list(cookie: string): Promise<View[]> {
     const res = await req("GET", "", { cookie });
     expect(res.status).toBe(200);

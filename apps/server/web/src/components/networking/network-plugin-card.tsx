@@ -9,6 +9,7 @@ import {
   confirmAction,
   errMessage,
   Fact,
+  FormSectionTitle,
   Input,
   Label,
 } from "@internal/node-admin";
@@ -743,7 +744,7 @@ export function NetworkPluginCard({
                   component that failed. */}
               {status.addresses.length > 0 && (
                 <div className="space-y-2">
-                  <h3 className="font-strong text-label">Addresses</h3>
+                  <FormSectionTitle>Addresses</FormSectionTitle>
                   <NetworkAddresses addresses={status.addresses} />
                 </div>
               )}
@@ -804,7 +805,7 @@ export function NetworkPluginCard({
               )}
               {state === "joined" && !row.publishImplicit && (
                 <div className="space-y-3 rounded-md border p-4">
-                  <h3 className="font-strong text-label">Publish</h3>
+                  <FormSectionTitle>Publish</FormSectionTitle>
                   <p className="text-detail text-muted-foreground">
                     Subshell is not published on {row.name} yet. “{publishLabel}” is what lets your other devices open
                     this dashboard over the network.

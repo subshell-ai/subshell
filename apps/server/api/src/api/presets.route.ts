@@ -1,5 +1,10 @@
 import { getHarness, type SettingsField } from "@internal/pane-runtime";
-import { joinPresetPrompt, type PresetPromptBlock, presetLaunchRequirementsMet } from "@internal/subshell-protocol";
+import {
+  CROSS_AGENT_NOTES_MAX,
+  joinPresetPrompt,
+  type PresetPromptBlock,
+  presetLaunchRequirementsMet,
+} from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { getAllHarnessIds } from "@/api/harness-utils.js";
@@ -180,6 +185,14 @@ const CreatePresetBodySchema = t.Object({
   settings: t.Optional(t.Record(t.String(), t.Any(), { description: "Settings JSON object" })),
   configIsolation: t.Optional(t.Boolean({ description: "Config source isolation" })),
   restartOnExit: t.Optional(t.Boolean({ description: "New subshells auto-restart on exit" })),
+  crossCommNotes: t.Optional(
+    t.Nullable(
+      t.String({
+        maxLength: CROSS_AGENT_NOTES_MAX,
+        description: "Notes for agents discovering this preset; null clears them",
+      }),
+    ),
+  ),
   crossCommEnabled: t.Optional(t.Boolean({ description: "Enable cross-subshell communication (MCP) for this preset" })),
   nodeId: t.Optional(t.Nullable(t.String({ description: "Optional launch node hint" }))),
   workingDir: t.Optional(t.Nullable(t.String({ maxLength: 4096, description: "Optional absolute working directory" }))),
@@ -213,6 +226,14 @@ const UpdatePresetBodySchema = t.Object(
     settings: t.Optional(t.Record(t.String(), t.Any(), { description: "Settings JSON object" })),
     configIsolation: t.Optional(t.Boolean({ description: "Config source isolation" })),
     restartOnExit: t.Optional(t.Boolean({ description: "New subshells auto-restart on exit" })),
+    crossCommNotes: t.Optional(
+      t.Nullable(
+        t.String({
+          maxLength: CROSS_AGENT_NOTES_MAX,
+          description: "Notes for agents discovering this preset; null clears them",
+        }),
+      ),
+    ),
     crossCommEnabled: t.Optional(t.Boolean({ description: "Cross-subshell communication (MCP) toggle" })),
     nodeId: t.Optional(t.Nullable(t.String({ description: "Launch node hint (null clears it)" }))),
     workingDir: t.Optional(
@@ -237,6 +258,7 @@ const UPDATE_PRESET_KEYS = new Set([
   "configIsolation",
   "restartOnExit",
   "crossCommEnabled",
+  "crossCommNotes",
   "nodeId",
   "workingDir",
   "promptBlocks",
@@ -362,6 +384,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
             configIsolation: body.configIsolation ? 1 : 0,
             restartOnExit: body.restartOnExit ? 1 : 0,
             crossCommEnabled: body.crossCommEnabled ? 1 : 0,
+            crossCommNotes: body.crossCommNotes ?? null,
             ...launch,
           })),
           kind: "agent" as const,
@@ -574,6 +597,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
             body.configIsolation !== undefined ? (body.configIsolation ? 1 : 0) : existing.configIsolation,
           restartOnExit: body.restartOnExit !== undefined ? (body.restartOnExit ? 1 : 0) : existing.restartOnExit,
           crossCommEnabled,
+          ...(body.crossCommNotes !== undefined ? { crossCommNotes: body.crossCommNotes } : {}),
           // The launch fields merge by KEY PRESENCE (explicit null clears),
           // unlike `description`'s `??` line above: these carry a real null
           // meaning - "this preset names no node" - that the row can hold.

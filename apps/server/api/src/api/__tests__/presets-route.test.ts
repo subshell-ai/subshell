@@ -73,6 +73,51 @@ describe("preset write routes (cookie only) + env name validation", () => {
     return id;
   }
 
+  it("round-trips guidance through create, partial update, bearer discovery, and clearing", async () => {
+    const created = await app.fetch(
+      authedRequest("/api/presets", cookie, {
+        method: "POST",
+        body: JSON.stringify({ ...validBody, name: "Guidance preset", crossCommNotes: "x".repeat(8_000) }),
+      }),
+    );
+    expect(created.status).toBe(200);
+    const row = (await created.json()) as { id: string; crossCommNotes: string | null };
+    createdPresetIds.push(row.id);
+    expect(row.crossCommNotes).toBe("x".repeat(8_000));
+    const update = (body: unknown) =>
+      app.fetch(authedRequest(`/api/presets/${row.id}`, cookie, { method: "PUT", body: JSON.stringify(body) }));
+    expect(
+      ((await (await update({ name: "Guidance renamed" })).json()) as { crossCommNotes: string | null }).crossCommNotes,
+    ).toBe("x".repeat(8_000));
+    expect(
+      (
+        (await (await update({ crossCommNotes: "Review only; explain findings." })).json()) as {
+          crossCommNotes: string | null;
+        }
+      ).crossCommNotes,
+    ).toBe("Review only; explain findings.");
+    const discovered = (await (await app.fetch(bearerRequest("/api/presets", subshellKey))).json()) as {
+      id: string;
+      crossCommNotes: string | null;
+    }[];
+    expect(discovered.find((preset) => preset.id === row.id)?.crossCommNotes).toBe("Review only; explain findings.");
+    expect((await update({ crossCommNotes: "x".repeat(8_000) })).status).toBe(200);
+    expect((await update({ crossCommNotes: "x".repeat(8_001) })).status).toBe(400);
+    expect(
+      (
+        await app.fetch(
+          authedRequest("/api/presets", cookie, {
+            method: "POST",
+            body: JSON.stringify({ ...validBody, crossCommNotes: "x".repeat(8_001) }),
+          }),
+        )
+      ).status,
+    ).toBe(400);
+    expect(
+      ((await (await update({ crossCommNotes: null })).json()) as { crossCommNotes: string | null }).crossCommNotes,
+    ).toBeNull();
+  });
+
   let ownedId: string;
 
   beforeAll(async () => {
@@ -376,6 +421,7 @@ describe("preset writes carry the launch fields (spec 2026-09-29)", () => {
         "configIsolation",
         "createdAt",
         "crossCommEnabled",
+        "crossCommNotes",
         "description",
         "envJson",
         "flagsJson",

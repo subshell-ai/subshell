@@ -2,13 +2,14 @@ import type { JSX } from "react";
 import { useState } from "react";
 import { useSetNodeMaintenance } from "../hooks/use-node-detail";
 import { errMessage } from "../lib/api";
+import { confirmAction } from "../lib/confirm";
 import { confirmStartMaintenance } from "../lib/node-confirmations";
 import { maintenanceRefusalNotice } from "../lib/node-maintenance";
 import { relativeElapsed } from "../lib/relative-elapsed";
 import type { NodeDetail } from "../types/node";
+import { Button } from "../ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
-import { Label } from "../ui/label";
-import { Switch } from "../ui/switch";
+import { HelperCaption } from "../ui/helper-caption";
 
 /**
  * Whether this machine takes new work (spec 2026-09-14 §6) — on the Overview
@@ -71,20 +72,18 @@ export function NodeMaintenanceCard({
     setError(null);
     setRefusals(null);
     void (async () => {
-      // Only the ON direction asks. Ending maintenance widens what the machine
-      // accepts and loses nothing; starting it stops every subshell here —
-      // other people's included, since any share on a node lets the grantee
-      // launch there and what they launched is invisible to this owner.
-      if (
-        checked &&
-        !(await confirmStartMaintenance({
-          name: node.name,
-          isLocal: node.kind === "local",
-          runningSubshells: node.runningSubshells,
-        }))
-      ) {
-        return;
-      }
+      const confirmed = checked
+        ? await confirmStartMaintenance({
+            name: node.name,
+            isLocal: node.kind === "local",
+            runningSubshells: node.runningSubshells,
+          })
+        : await confirmAction({
+            title: "End maintenance?",
+            description: `Allow new subshells on "${node.name}" again. Stopped subshells won't restart automatically.`,
+            confirmLabel: "End maintenance",
+          });
+      if (!confirmed) return;
       setMaintenance.mutate(checked, {
         onSuccess: (result) => {
           setRefusals(maintenanceRefusalNotice(node.name, result.failed));
@@ -104,26 +103,15 @@ export function NodeMaintenanceCard({
           running if they can't be stopped. Subshells that stop won't restart automatically when maintenance ends.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex items-center gap-4">
-          <Switch
-            checked={node.maintenance}
-            onCheckedChange={toggle}
-            disabled={setMaintenance.isPending}
-            // Named, because a node's page carries several switches and a bare
-            // "Maintenance mode" reads identically on all of them. The visible
-            // words stay a substring of this, per the label-in-name rule.
-            aria-label={`Maintenance mode on ${node.name}`}
-          />
-          {/* The label names WHICH SWITCH this is and never changes; it used
-              to flip to "Accepting subshells" exactly when the switch was
-              OFF, which reads as "accepting: off", the opposite of the
-              truth. The state line below appears ONLY in maintenance: an
-              off switch describing its own off-state ("Accepting new
-              subshells") is a tautology, while how long it has been ON and
-              who said so is a fact someone acts on. */}
-          <Label>Maintenance mode</Label>
-        </div>
+      <CardContent className="flex flex-col items-start gap-3">
+        <Button
+          variant="outline"
+          onClick={() => toggle(!node.maintenance)}
+          disabled={setMaintenance.isPending}
+          disabledReason="The maintenance change is still in progress."
+        >
+          {node.maintenance ? "End maintenance" : "Start maintenance"}
+        </Button>
         {node.maintenance && <p className="text-detail text-muted-foreground">{maintenanceSinceLabel(node)}</p>}
         {/* The CLI equivalence is a one-line detail, not a third sentence of
             explanation: the CardDescription stays within the two-sentence
@@ -131,9 +119,9 @@ export function NodeMaintenanceCard({
             `subshell maintenance on|off` is the agent's own command, and the
             control-plane host runs no agent to type it into. */}
         {node.kind === "agent" && (
-          <p className="text-detail text-muted-foreground">
+          <HelperCaption>
             Same flag from this machine's command line: <code>subshell maintenance on|off</code>.
-          </p>
+          </HelperCaption>
         )}
         {error && (
           <p role="alert" className="text-destructive text-detail">

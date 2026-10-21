@@ -364,3 +364,22 @@ describe("PresetFields entry modes", () => {
     }
   });
 });
+
+it("shows calling-agent notes when cross-agent use is enabled and keeps them when toggled off", async () => {
+  const restore = mockFetch([CLAUDE]);
+  try {
+    const seen: PresetFormValue[] = [];
+    renderEditor(
+      { ...emptyPresetForm(), harnessId: CLAUDE.id, nodeId: "local", workingDir: "/work", crossCommEnabled: true },
+      seen,
+    );
+    const notes = await screen.findByLabelText("Notes for calling agents");
+    fireEvent.change(notes, { target: { value: "Use this preset for reviews." } });
+    expect(seen.at(-1)?.crossCommNotes).toBe("Use this preset for reviews.");
+    fireEvent.click(screen.getByRole("switch", { name: "Enable agents to create subshells with this preset" }));
+    expect(screen.queryByLabelText("Notes for calling agents")).toBeNull();
+    expect(seen.at(-1)?.crossCommNotes).toBe("Use this preset for reviews.");
+  } finally {
+    restore();
+  }
+});

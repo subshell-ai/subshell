@@ -28,20 +28,38 @@ const spy = () =>
     openNewWorkspace: () => {},
   });
 
-async function renderSection(excludeIds?: ReadonlySet<string>): Promise<void> {
+async function renderSection(excludeIds?: ReadonlySet<string>, withMember = false): Promise<void> {
   setFetchRouter(async (input: RequestInfo | URL) => {
     const url = String(typeof input === "string" || input instanceof URL ? input : input.url);
+    if (url.includes("/api/plugins")) return Response.json({ plugins: [] });
     const body = url.includes("/api/subshells")
-      ? []
+      ? withMember && !url.includes("subagents")
+        ? [
+            {
+              id: "s1",
+              name: "Member",
+              nodeId: "local",
+              harnessId: "terminal",
+              status: "terminated",
+              alive: false,
+              workingDir: "/tmp",
+              access: "owner",
+            },
+          ]
+        : []
       : url.includes("/api/workspaces")
-        ? []
+        ? withMember
+          ? [{ id: "w1", name: "Workspace", panes: [{ subshellId: "s1" }] }]
+          : []
         : url.includes("/api/nodes")
           ? { nodes: [] }
           : [];
     return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const rootRoute = createRootRoute({ component: () => <AllSubshellsSection excludeIds={excludeIds} /> });
+  const rootRoute = createRootRoute({
+    component: () => <AllSubshellsSection excludeIds={excludeIds} workspaceId={withMember ? "w1" : undefined} />,
+  });
   const router = createRouter({
     routeTree: rootRoute.addChildren([
       createRoute({ getParentRoute: () => rootRoute, path: "/", component: () => null }),
@@ -95,4 +113,14 @@ describe("the Subshells section's empty state", () => {
       quick.mockRestore();
     }
   });
+});
+
+it("keeps the active-workspace marker when rendering a member through the tree", async () => {
+  const quick = spy();
+  try {
+    await renderSection(undefined, true);
+    expect(await screen.findByRole("img", { name: "In active workspace" })).toBeTruthy();
+  } finally {
+    quick.mockRestore();
+  }
 });

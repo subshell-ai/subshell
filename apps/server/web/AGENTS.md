@@ -10,6 +10,11 @@ small bundled pages under `<app>/ui/` and share nothing with this one.
 shadcn colour names), and `bun run lint:design` fails on a literal size,
 weight or colour outside the token file. Pick a role, never a number.
 
+**Form sections use the shared `FormSectionTitle`**, with the approved A3
+trailing rule. Preserve fieldset legends and field labels as distinct roles.
+See [the form hierarchy and audit](docs/form-sections.md) before changing form
+section styling.
+
 **Topic deep dives live in `apps/server/web/docs/`, one file per area.** This
 file keeps what constrains an edit anywhere in the app; each moved section
 leaves a routing line naming the file to read first. The moved text is

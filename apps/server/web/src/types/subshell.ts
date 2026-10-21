@@ -80,6 +80,8 @@ export interface SubshellView {
    * which is what every pre-flag pane actually was.
    */
   crossAgent?: boolean;
+  /** The authenticated creator of this cross-agent helper. */
+  parentSubshellId?: string | null;
   /** ISO 8601 ts of the attention event that put the subshell in waiting-for-you state; null = not waiting */
   waitingSince: string | null;
   /** True = a delivered push the owner has not answered by opening the pane or typing into it (spec 2026-09-23, typing added 2026-09-25). */

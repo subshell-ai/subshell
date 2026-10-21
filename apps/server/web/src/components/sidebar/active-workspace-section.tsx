@@ -18,6 +18,7 @@ import { subshellIdFromPath, workspaceIdFromPath } from "@/lib/route-ids";
 import { sidebarWorkspace } from "@/lib/sidebar-context";
 import { splitCreateFailureMessage, splitWorkspaceRefusal } from "@/lib/split-workspace-refusal";
 import { acceptsSubshellDrag, readSubshellDrag } from "@/lib/subshell-dnd";
+import { workspaceSubshellIds } from "@/lib/subshell-tree";
 import { armPaneFocusOnArrive, useWorkspaceFocusedId } from "@/lib/workspace-focus";
 import { defaultWorkspaceName } from "@/lib/workspace-name";
 import type { WorkspaceRow } from "@/types/workspace";
@@ -333,7 +334,11 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
             <span aria-hidden="true" className="flex-1 border-t" />
           </div>
           <div className="flex min-h-0 flex-1 flex-col">
-            <AllSubshellsSection workspaceId={active?.id} excludeIds={memberIds} onAction={onQuickAdd} />
+            <AllSubshellsSection
+              workspaceId={active?.id}
+              excludeIds={workspaceSubshellIds(subshells.data ?? [], memberIds)}
+              onAction={onQuickAdd}
+            />
           </div>
         </WorkspaceSidebarDropArea>
       </div>

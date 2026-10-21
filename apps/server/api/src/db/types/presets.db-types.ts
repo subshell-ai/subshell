@@ -44,6 +44,8 @@ export interface PresetTable {
    *  Readiness for agents is this flag AND a machine AND a directory (the
    *  prompt is optional launch data, not a requirement). */
   crossCommEnabled: number;
+  /** User-authored guidance for agents discovering this preset. */
+  crossCommNotes?: string | null;
   /**
    * Optional launch node hint (spec 2026-09-29 preset-launch-fields): a launch
    * with this preset and no explicit node runs here. An EXPLICIT request node
