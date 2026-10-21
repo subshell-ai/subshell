@@ -18,7 +18,11 @@
  * and those invisible pans are exactly the ones a swipe can never undo — and
  * they SURVIVE the keyboard closing, which is why "engaged" covers the idle
  * state too. Inside-the-terminal scroll (swipe-to-read scrollback, our own
- * scrollToBottom) is always allowed.
+ * scrollToBottom) is always allowed. An open modal surface (dialog, menu,
+ * listbox) is exempt by SURFACE, not by focus: on iOS Safari a tap-selected
+ * option leaves focus on the body, so the old "a control elsewhere holds
+ * focus" assumption pinned the dialog's own scroller the moment a form grew
+ * past its cap and the user swiped (operator report 2026-10-21).
  */
 export function shouldResetForeignScroll(args: {
   /** Coarse-pointer (touch) UI — desktop scrolling is always the user's. */
@@ -32,9 +36,21 @@ export function shouldResetForeignScroll(args: {
   insideTerminal: boolean;
   /** The key bar deliberately scrolls horizontally while terminal focus stays put. */
   terminalControls?: boolean;
+  /** The scrolled thing lives inside an open modal surface (dialog, menu,
+   * listbox popup). The terminal cannot be mid-typing behind one, and iOS may
+   * hold focus on the body there — the swipe belongs to the modal. */
+  insideModal?: boolean;
 }): boolean {
-  return args.touchUi && args.engaged && !args.insideTerminal && !args.terminalControls;
+  return args.touchUi && args.engaged && !args.insideTerminal && !args.terminalControls && !args.insideModal;
 }
+
+/** The roles whose popups make a scroller a MODAL scroller: while one is
+ * open the terminal behind it is inert, so a swipe inside is the user's.
+ * Base UI renders its dialog/menu/listbox popups with these roles, which is
+ * what lets the pin key off the SURFACE the scroller sits in rather than on
+ * wherever the keyboard left focus. The wiring in `subshell-terminal.tsx` and
+ * the dialog regression test both read this one constant. */
+export const MODAL_SCROLLER_SELECTOR = '[role="dialog"], [role="menu"], [role="listbox"]';
 
 /** How far the keyboard may cover before it counts as up (px of slack for
  * browser chrome jitter and the iOS accessory bar). */
