@@ -1,5 +1,5 @@
 import type { Node } from "@internal/node-admin";
-import { Button, confirmAction, errMessage, Input, NODES_QUERY_KEY } from "@internal/node-admin";
+import { Button, Input, NODES_QUERY_KEY } from "@internal/node-admin";
 import { LIST_SEARCH_MAX } from "@internal/subshell-protocol";
 import { createFileRoute } from "@tanstack/react-router";
 import { KeyRound, List, Plus, Server } from "lucide-react";
@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/empty-state";
 import { ErrorBanner } from "@/components/error-banner";
 import { LoadingCard } from "@/components/loading-card";
 import { AddNodeDialog } from "@/components/nodes/add-node-dialog";
+import { DeleteNodeDialog } from "@/components/nodes/delete-node-dialog";
 import { NodeSharingDialog } from "@/components/nodes/node-sharing-dialog";
 import { NodeTable } from "@/components/nodes/node-table";
 import { SetupKeysSection } from "@/components/nodes/setup-keys-section";
@@ -17,7 +18,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useFilteredList } from "@/hooks/use-filtered-list";
-import { useDeleteNode, useNodes } from "@/hooks/use-nodes";
+import { useNodes } from "@/hooks/use-nodes";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { canAddNode, NODE_ENROLLMENT_OFF_COPY } from "@/lib/node-enrollment";
 import { NODE_FILTERS_OFF, type NodeFilters } from "@/lib/node-filter";
@@ -41,7 +42,7 @@ function NodesPage() {
   const navigate = Route.useNavigate();
   const { tab } = Route.useSearch();
   const active: NodesTab = tab ?? "list";
-  const deleteNode = useDeleteNode();
+  const [deletingNode, setDeletingNode] = useState<Node | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [sharingId, setSharingId] = useState<string | null>(null);
   // Whether to OFFER adding a node — `lib/node-enrollment.ts` carries the
@@ -75,24 +76,6 @@ function NodesPage() {
 
   function goTab(next: NodesTab) {
     void navigate({ search: next === "list" ? {} : { tab: next } });
-  }
-
-  async function remove(node: Node) {
-    setActionError(null);
-    const ok = await confirmAction({
-      title: "Delete this node?",
-      description: `This deletes "${node.name}" and revokes its enrollment key.`,
-      confirmLabel: "Delete node",
-      danger: true,
-    });
-    if (!ok) return;
-    try {
-      await deleteNode.mutateAsync(node.id);
-    } catch (err) {
-      // 409 NODE_RUNNING_SUBSHELLS: the backend message names the count and
-      // the ?force=true path — surface it verbatim rather than re-wording it.
-      setActionError(errMessage(err, "Failed to delete node"));
-    }
   }
 
   return (
@@ -262,7 +245,7 @@ function NodesPage() {
               nodes={visible}
               onOpenConfig={goDetail}
               onShare={setSharingId}
-              onDelete={(node) => void remove(node)}
+              onDelete={setDeletingNode}
               onError={setActionError}
             />
           )}
@@ -280,6 +263,7 @@ function NodesPage() {
           }}
         />
       )}
+      {deletingNode && <DeleteNodeDialog node={deletingNode} onClose={() => setDeletingNode(null)} />}
       <AddNodeDialog open={dialogOpen} onOpenChange={setDialogOpen} nodeCount={nodes.length} />
     </DashboardPage>
   );

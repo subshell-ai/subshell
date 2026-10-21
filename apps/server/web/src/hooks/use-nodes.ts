@@ -49,8 +49,9 @@ export function useNodes({ polling = false }: { polling?: boolean } = {}) {
 export function useDeleteNode() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => apiFetch<{ ok: boolean }>(`/api/nodes/${id}`, { method: "DELETE" }),
-    onSuccess: (_data, id) => {
+    mutationFn: ({ id, force = false }: { id: string; force?: boolean }) =>
+      apiFetch<{ ok: boolean }>(`/api/nodes/${id}${force ? "?force=true" : ""}`, { method: "DELETE" }),
+    onSuccess: (_data, { id }) => {
       void queryClient.invalidateQueries({ queryKey: NODES_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, id] });
     },
