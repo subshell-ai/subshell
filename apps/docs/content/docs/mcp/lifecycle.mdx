@@ -7,7 +7,7 @@ Clean up helper sessions created during agent coordination.
 
 ## Creation and visibility
 
-A subshell created with a pane's own token is marked as cross-agent communication. It appears beneath the subshell that created it in the sidebar and starts with its notification bell off. Workspace subshells are grouped by machine; a helper stays beneath its creator even when it runs on another machine. Selecting the helper opens it as a workspace tab.
+A subshell created with a pane's own token is marked as cross-agent communication. It appears beneath the subshell that created it in the sidebar and starts with its notification bell off. Workspace subshells are grouped by machine; a helper stays beneath its creator even when it runs on another machine. Selecting the helper opens it as a workspace tab. Helper rows can't be dragged independently or moved to another workspace; they stay with their parent.
 
 Helpers appear only beneath their parent, never as standalone entries in the sidebar or subshell dashboard. Older helpers without a recorded creator, and helpers whose creator is no longer visible, remain available through MCP for cleanup. Removing or closing a parent doesn't close its helpers.
 

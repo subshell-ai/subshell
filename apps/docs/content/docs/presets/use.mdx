@@ -48,7 +48,7 @@ To export an agent or SSH preset you can view, open **Settings** → **Presets**
 Exports include all saved settings. An agent preset can include environment secrets and prompt text, so treat its exported file accordingly. Ownership, sharing grants, and timestamps aren't exported. SSH exports include connection choices and public key fingerprints, never private keys, passwords, or destination approvals.
 
 If an exported preset refers to a deleted node, you can still export it. Choose
-replacement nodes in the import dialog before importing; SSH key selections and
+replacement nodes in the import dialog, or leave an agent preset's launch node unset with cross-agent communication off. SSH key selections and
 node permissions are checked again when you connect.
 
 To import a file:
@@ -56,7 +56,8 @@ To import a file:
 1. In the server dashboard's sidebar, open **Settings** → **Presets**, select **New preset**, and choose **Import preset**.
 2. Use **Preset file** to choose the file through your browser.
 3. Review its name and settings. Choose nodes on the current instance if the original nodes aren't available. Use a new name if you already own a preset with that name.
-4. Select **Import preset**.
+4. For an agent preset, review **Cross-agent communication**. Leave **Enable agents to create subshells with this preset** off to import without a launch node or working directory. If you enable it, choose both above and review **Notes for calling agents**.
+5. Select **Import preset**.
 
 Import creates a new private preset without starting a subshell. The dialog validates the file before enabling Import, and the server checks permissions, agent availability, name conflicts, and applicable SSH destination settings before saving. A rejected import stays open so you can correct it.
 
@@ -91,9 +92,9 @@ sequenceDiagram
   S-->>A: Subshell ID and promptDelivered
 ```
 
-After enabling **Enable agents to create subshells with this preset**, fill in **Notes for calling agents** to explain when to use it or what a caller should know. The notes appear in `list_presets` and stay saved if you turn cross-agent use off.
+After enabling **Enable agents to create subshells with this preset**, fill in **Notes for calling agents** to explain when to use it or what a caller should know. The notes appear in `list_presets` and stay saved if you turn cross-agent use off. They give the calling agent context; they aren't added to the launched subshell's prompt. For example: “Use this preset for code reviews; include the branch and files to review.” Notes accept up to 8,000 characters, with the same limit enforced by the API and preset importer.
 
-For node-specific guidance, open the node's configuration page and find **Cross-agent communication**. Add notes and recommended starting directories, one absolute path per line, then select **Save guidance**. `list_nodes` returns both fields. Directory suggestions don't change the node's directory restrictions. Only the node owner can edit this guidance; a server admin manages guidance for the server's own node.
+For node-specific notes and recommended starting directories, follow [Manage a node](/nodes/manage#cross-agent-guidance). `list_nodes` returns this guidance alongside the machine's system specs so a calling agent can choose where to work.
 
 Choose an ID from `list_presets`; don't guess one from the display name. An agent's task can append to the preset's saved prompt or replace it using `prompt_mode`. Check `promptDelivered` when an initial task was requested; a created session doesn't prove that task arrived.
 

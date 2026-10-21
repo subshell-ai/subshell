@@ -7,9 +7,21 @@ Inspect a node's runtime and execution settings.
 
 ## Open the node
 
-Select a machine in **Nodes** and review its overview. Check its online state, maintenance state, runtime, and installed harnesses before launching work.
+In the server dashboard sidebar, open **Settings** → **Nodes**, select a machine, and open **Overview**. Check its online state, maintenance state, runtime, and installed harnesses before launching work.
 
 The harness list on a node's page is cached from its last detection, so it may describe an older state. Use **Re-check** to request fresh detection.
+
+The overview shows the operating system, release, architecture, hostname, CPU model, logical CPU count, and total memory when available. These describe host capacity, not current free resources or container limits. Offline nodes show how long ago they were last seen, or that no connection has been recorded, and retain their last known specs. MCP exposes the same hardware report through `list_nodes`; see [MCP tool reference](/mcp/tools#list_nodes).
+
+## Cross-agent guidance
+
+On the node's **Overview** page, find **Cross-agent communication**. Only the node owner can edit this guidance; a server admin manages it for the server's own node.
+
+1. Fill in **Notes for calling agents** with context that helps an agent choose and use this machine. For example: “Use this node for Linux builds; run tests with Bun.” Notes accept up to 8,000 characters.
+2. Select **Save guidance** to save the notes.
+3. Under **Recommended starting directories**, select **Add directory**, enter or browse to an absolute path, then select **Add directory** again to save it. Repeat for other suggestions. Use the remove button beside an entry to remove it.
+
+Adding or removing a directory also saves any pending notes. Agents read both fields through MCP discovery. Directory suggestions don't grant or restrict access; the node's [Directory restrictions](/nodes/directories) still apply.
 
 ## Names and ownership
 
