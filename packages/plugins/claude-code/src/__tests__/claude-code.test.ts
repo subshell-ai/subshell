@@ -286,6 +286,11 @@ describe("ClaudeCodePlugin attention hooks", () => {
     expect(hooks.Stop?.[0].hooks[0].command).toBe(
       "'/usr/local/bin/subshell-server' 'report' 'attention' 'turn_complete'",
     );
+    // The same turn-end payload carries the harness's live-agent enumeration,
+    // so Stop also reconciles the server's roster: a background child killed
+    // with TaskStop fires no other hook, and without this second command its
+    // row would pin the rail "running" forever (measured on 2.1.296).
+    expect(hooks.Stop?.[0].hooks[1]?.command).toBe("'/usr/local/bin/subshell-server' 'report' 'subagents'");
     expect(hooks.Notification?.[0].hooks[0].command).toBe(
       "'/usr/local/bin/subshell-server' 'report' 'attention' 'needs_attention'",
     );

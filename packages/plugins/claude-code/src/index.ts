@@ -134,6 +134,12 @@ const reporterHook = (host: PluginHost, reporter: ReporterSpec, ...verb: string[
  *   answered (spec 2026-09-23). `Stop` reports `turn_complete` blind here:
  *   the reporter reads the hook payload and stays silent for a session
  *   parked on background work (`packages/mcp-core/src/report.ts`).
+ *   `Stop` carries a second command, `report subagents`: the turn-end payload
+ *   enumerates the harness's live background agents, and the server replaces
+ *   its roster with that set. Edge events cannot reconcile it alone — a
+ *   background child killed with `TaskStop` fires no lifecycle hook at all,
+ *   so its row would pin the rail "running" forever (measured on Claude Code
+ *   2.1.296; the rail then only self-heals at the next turn boundary).
  * - `UserPromptSubmit` / `PreToolUse` (the matcher-less entry) — the waiting
  *   CLEAR (`resumed`). The plane's idle-watcher can only clear what it can
  *   stat, so an agent-node pane — log on the node's disk — stayed "waiting
@@ -161,7 +167,14 @@ const reporterHook = (host: PluginHost, reporter: ReporterSpec, ...verb: string[
 const paneHooks = (host: PluginHost, reporter: ReporterSpec) => ({
   SubagentStart: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "subagents") }] }],
   SubagentStop: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "subagents") }] }],
-  Stop: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "attention", "turn_complete") }] }],
+  Stop: [
+    {
+      hooks: [
+        { type: "command", command: reporterHook(host, reporter, "attention", "turn_complete") },
+        { type: "command", command: reporterHook(host, reporter, "subagents") },
+      ],
+    },
+  ],
   Notification: [
     {
       matcher: "permission_prompt|agent_needs_input|elicitation_dialog|elicitation_url_dialog",

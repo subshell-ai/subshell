@@ -61,6 +61,47 @@ describe("harness subagents", () => {
     expect(state.select("pane", "run", "child")).toBe(false);
     expect(state.read("pane", "run", false).agents).toEqual([]);
   });
+
+  test("a snapshot replaces the roster, so a child the harness stopped enumerating is gone", () => {
+    // The turn-end reconcile (2026-10-21): a background child killed with
+    // TaskStop fires no lifecycle hook, and only the full-set snapshot prunes
+    // it. Reporting [A, B] then [B] must drop A and must NOT re-stamp B — the
+    // elapsed time a viewer sees is the child's first sighting.
+    const state = new HarnessSubagents();
+    const a = { id: "a", name: "Fixer", status: "running" as const };
+    const b = { id: "b", name: "Reviewer", status: "running" as const };
+    state.report("pane", "run", { event: "snapshot", agents: [a, b] });
+    const startedBefore = state.read("pane", "run", true).agents.find((row) => row.id === "b")?.startedAt;
+    expect(startedBefore).toBeNumber();
+    state.report("pane", "run", { event: "snapshot", agents: [b] });
+    const after = state.read("pane", "run", true).agents;
+    expect(after.map((row) => row.id)).toEqual(["b"]);
+    expect(after.find((row) => row.id === "b")?.startedAt).toEqual(startedBefore);
+    // The empty set clears everything: a pane whose work is done shows nothing.
+    state.report("pane", "run", { event: "snapshot", agents: [] });
+    expect(state.read("pane", "run", true).agents).toEqual([]);
+  });
+
+  test("a resumed child (same id) survives the reconcile with its labels intact", () => {
+    // Claude Code re-fires SubagentStart with the SAME agent id when
+    // SendMessage resumes a finished background agent (measured 2026-10-20,
+    // the server-side startedAt moving to the resume second). The next
+    // snapshot lists it again as running, and the replace must keep the row's
+    // first sighting and its describe-paired label, never renumber or re-stamp
+    // a live child that merely outlived a turn boundary.
+    const state = new HarnessSubagents();
+    const a = { id: "a", name: "Fixer", status: "running" as const, activity: "Mobile dialog" };
+    state.report("pane", "run", { event: "start", agents: [a] });
+    const startedAt = state.read("pane", "run", true).agents[0]?.startedAt;
+    state.report("pane", "run", {
+      event: "snapshot",
+      agents: [{ id: "a", name: "Fixer", status: "running" }], // no activity on the enumerated row
+    });
+    const after = state.read("pane", "run", true).agents;
+    expect(after).toHaveLength(1);
+    expect(after[0]?.startedAt).toEqual(startedAt);
+    expect(after[0]?.activity).toBe("Mobile dialog");
+  });
 });
 
 test("describe labels pair with the next child of their type", () => {

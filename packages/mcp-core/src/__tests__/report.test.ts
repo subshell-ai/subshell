@@ -630,6 +630,96 @@ describe("subagent report: frame pairing and unknown-id edges (review probe F-V2
   });
 });
 
+describe("the parent's Stop reconciles the roster to the harness's live set", () => {
+  // The regression this pins: a background child killed with TaskStop fires
+  // NO lifecycle hook (measured on Claude Code 2.1.296), so a roster built
+  // only from start/stop edges pinned a dead fixer as "running" for hours
+  // (operator report 2026-10-20). The turn-end Stop payload is the harness's
+  // own enumeration of live work, so it ships as a replace-semantics snapshot.
+  const paneEnv = {
+    SUBSHELL_API_KEY: "subshell_key123",
+    SUBSHELL_BASE_URL: "http://h:3080",
+    SUBSHELL_ID: "sub_42",
+  } as NodeJS.ProcessEnv;
+
+  function recorder() {
+    const seen: { url: string; json: Record<string, unknown> }[] = [];
+    const fetchImpl = (async (input: string | URL, init?: { body?: string }) => {
+      seen.push({ url: String(input), json: JSON.parse(String(init?.body)) as Record<string, unknown> });
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    return { seen, fetchImpl };
+  }
+
+  const feed = (fetchImpl: typeof fetch, payload: unknown) =>
+    runReport(["subagents"], { env: paneEnv, fetch: fetchImpl, readStdin: async () => JSON.stringify(payload) });
+
+  it("maps the turn-end enumeration to a snapshot of subagent rows only", async () => {
+    const { seen, fetchImpl } = recorder();
+    // Entry shapes measured live on 2.1.296: a running fixer with a spawn
+    // description, a pending one that has not started, a background bash (not
+    // an agent), and a junk entry. Status words beyond running/pending land on
+    // `idle`, never a false `running`.
+    await feed(fetchImpl, {
+      hook_event_name: "Stop",
+      background_tasks: [
+        {
+          id: "a1",
+          type: "subagent",
+          status: "running",
+          description: "Fix the bar mark",
+          agent_type: "superlite:fixer",
+        },
+        { id: "a2", type: "subagent", status: "pending" },
+        { id: "t1", type: "bash", status: "running", command: "sleep 400" },
+        null,
+      ],
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.url).toBe("http://h:3080/api/subshells/sub_42/subagents/report");
+    expect(seen[0]?.json).toEqual({
+      event: "snapshot",
+      agents: [
+        { id: "a1", name: "superlite:fixer", status: "running", activity: "Fix the bar mark" },
+        { id: "a2", name: "Subagent", status: "waiting" },
+      ],
+    });
+  });
+
+  it("ships the empty snapshot that clears a stale roster when nothing is live", async () => {
+    // The killed child is absent here by construction — this is the frame that
+    // prunes it. Suppressing the empty set instead would keep the rail lying
+    // until the next turn with live work, which may never come.
+    const { seen, fetchImpl } = recorder();
+    await feed(fetchImpl, { hook_event_name: "Stop", background_tasks: [] });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.json).toEqual({ event: "snapshot", agents: [] });
+  });
+
+  it("reports nothing when an older harness has no background_tasks field", async () => {
+    const { seen, fetchImpl } = recorder();
+    await feed(fetchImpl, { hook_event_name: "Stop", stop_hook_active: true });
+    await feed(fetchImpl, { hook_event_name: "Stop", background_tasks: "not-an-array" });
+    expect(seen).toHaveLength(0);
+  });
+
+  it("keeps SubagentStop an id removal: its own payload still lists the finishing child as running", async () => {
+    // Measured live: the SubagentStop payload's background_tasks contains the
+    // child it is announcing dead, still "running". Snapshotting from it would
+    // re-add exactly what the stop removes, so SubagentStop stays an edge event.
+    const { seen, fetchImpl } = recorder();
+    await feed(fetchImpl, {
+      hook_event_name: "SubagentStop",
+      agent_id: "a1",
+      background_tasks: [
+        { id: "a1", type: "subagent", status: "running", description: "Wrapping up", agent_type: "reviewer" },
+      ],
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.json).toEqual({ event: "stop", agentId: "a1" });
+  });
+});
+
 describe("turn_complete gating on the Stop payload (spec 2026-09-23)", () => {
   const paneEnv = {
     SUBSHELL_API_KEY: "subshell_key123",
