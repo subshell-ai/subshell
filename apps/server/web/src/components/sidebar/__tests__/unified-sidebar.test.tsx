@@ -246,7 +246,10 @@ function standardRig(): { workspaces: RigWs[]; subshells: Record<string, unknown
   };
 }
 
-async function mountRig(fx: { workspaces: RigWs[]; subshells: Record<string, unknown>[] }) {
+async function mountRig(
+  fx: { workspaces: RigWs[]; subshells: Record<string, unknown>[] },
+  listState?: "loading" | "error",
+) {
   const requests: string[] = [];
   setFetchRouter(async (input, init) => {
     const url = new URL(String(input), "http://localhost");
@@ -268,6 +271,9 @@ async function mountRig(fx: { workspaces: RigWs[]; subshells: Record<string, unk
         })),
       );
     if (url.pathname === "/api/subshells/subagents") return Response.json({});
+    if (url.pathname === "/api/subshells" && listState === "loading") return new Promise<Response>(() => {});
+    if (url.pathname === "/api/subshells" && listState === "error")
+      return Response.json({ message: "Unavailable" }, { status: 503 });
     if (url.pathname === "/api/subshells")
       return Response.json(
         fx.subshells.filter(
@@ -519,3 +525,15 @@ test("workspace rows group by machine and spawned helpers appear once under thei
   await waitFor(() => expect(within(add).queryByRole("link", { name: /Review helper/ }) === null).toBe(true));
   expect(within(remove).queryByRole("link", { name: /Review helper/ })).toBeNull();
 });
+
+for (const listState of ["loading", "error"] as const) {
+  test(`never renders unclassified helper placeholders while the list is ${listState}`, async () => {
+    const fx = standardRig();
+    fx.workspaces[0]!.panes.push({ id: "helper-pane", subshellId: "helper", subshellName: "Hidden helper" });
+    const { add } = await mountRig(fx, listState);
+    await within(add).findByText(
+      listState === "loading" ? "Loading workspace subshells…" : "Couldn’t load workspace subshells.",
+    );
+    expect(within(add).queryByText("Hidden helper")).toBeNull();
+  });
+}

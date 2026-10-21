@@ -310,6 +310,20 @@ describe("the panel and its bottom section bar", () => {
       const router = await renderRail("/nodes");
       let fail = true;
       setFetchRouter(async (input) => {
+        if (String(input).includes("/api/plugins")) return Response.json({ plugins: [] });
+        if (String(input).includes("/api/subshells/subagents")) return Response.json({});
+        if (String(input).includes("/api/subshells"))
+          return Response.json([
+            {
+              id: "s1",
+              name: "Current pane",
+              workingDir: "/tmp/current",
+              nodeId: "local",
+              harnessId: "terminal",
+              status: "terminated",
+              alive: false,
+            },
+          ]);
         if (String(input).includes("/api/workspaces"))
           return fail
             ? Response.json({ error: "Unavailable" }, { status: 500 })

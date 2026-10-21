@@ -155,3 +155,23 @@ it("lets an imported cross-agent preset opt out and import without a machine", a
   await waitFor(() => expect(completed).toEqual(["agent"]));
   expect(posts[0]).toMatchObject({ nodeId: null, crossCommEnabled: false, crossCommNotes: "Review branch changes" });
 });
+
+it("lets cross-agent import requirements be completed after enabling the option", async () => {
+  const { posts, completed } = mount();
+  choose(JSON.stringify({ ...fileData, preset: { ...fileData.preset, nodeId: "local" } }));
+  const toggle = await screen.findByRole("switch", { name: "Enable agents to create subshells with this preset" });
+  fireEvent.click(toggle);
+  expect(screen.getByRole("button", { name: "Import preset" }).matches(":disabled, [aria-disabled=true]")).toBe(true);
+  expect(
+    screen.getByText("Choose a working directory above, or turn off cross-agent communication to import this preset."),
+  ).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Working directory"), { target: { value: "/work/review" } });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Import preset" }).matches(":disabled, [aria-disabled=true]")).toBe(
+      false,
+    ),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Import preset" }));
+  await waitFor(() => expect(completed).toEqual(["agent"]));
+  expect(posts[0]).toMatchObject({ nodeId: "local", crossCommEnabled: true, workingDir: "/work/review" });
+});

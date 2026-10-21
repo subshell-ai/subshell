@@ -26,6 +26,7 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { ErrorNotice, WarningNotice } from "@/components/ui/notice";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { WorkingDirField } from "@/components/working-dir-field";
 import { useNodes } from "@/hooks/use-nodes";
 import { useInvalidatePresets } from "@/hooks/use-presets";
 import { type FieldProblems, makeForm, useSubmitDisabled, useSubmitDisabledReason } from "@/lib/form";
@@ -245,6 +246,24 @@ export function ImportPresetDialog({
                   )}
                 </Field>
                 {nodeField(preset.kind === "ssh" ? "Connect from" : "Launch node", "nodeId", preset.kind === "agent")}
+                {preset.kind === "agent" && (
+                  <Field>
+                    <FieldLabel htmlFor="import-working-dir">Working directory</FieldLabel>
+                    <fieldset disabled={busy}>
+                      <WorkingDirField
+                        id="import-working-dir"
+                        value={preset.workingDir ?? ""}
+                        onChange={(workingDir) => {
+                          if (!busy) form.setFieldValue("preset", { ...preset, workingDir: workingDir || null });
+                        }}
+                        placeholder="Choose when launching"
+                        clearOption="Choose when launching"
+                        nodeId={preset.nodeId ?? undefined}
+                        nodeName={nodes.data?.nodes.find((node) => node.id === preset.nodeId)?.name}
+                      />
+                    </fieldset>
+                  </Field>
+                )}
                 {preset.kind === "ssh" &&
                   preset.authentication === "remote" &&
                   nodeField("Use keys from", "keyHome", false)}
@@ -274,6 +293,12 @@ export function ImportPresetDialog({
                         {!preset.nodeId && (
                           <p className="text-detail text-warning">
                             Choose a launch machine above, or turn off cross-agent communication to import this preset.
+                          </p>
+                        )}
+                        {!preset.workingDir && (
+                          <p className="text-detail text-warning">
+                            Choose a working directory above, or turn off cross-agent communication to import this
+                            preset.
                           </p>
                         )}
                         <Field>

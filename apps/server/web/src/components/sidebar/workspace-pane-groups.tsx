@@ -1,4 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
+import { ListLoadError } from "@/components/list-load-error";
 import { SidebarGroupHeading } from "@/components/sidebar/sidebar-group-heading";
 import { SubshellTreeRow } from "@/components/sidebar/subshell-tree-row";
 import { useNodes } from "@/hooks/use-nodes";
@@ -19,7 +20,8 @@ export function WorkspacePaneGroups({
   focusedId: string | null;
   labelsFor: (subshell: SubshellView) => { nodeLabel: string; agentLabel: string; presetLabel?: string };
 }) {
-  const { data: subshells = [] } = useSubshellsList();
+  const results = useSubshellsList();
+  const subshells = results.data ?? [];
   const { data: nodes } = useNodes();
   const navigate = useNavigate();
   const members = new Set(workspace.panes?.map((pane) => pane.subshellId));
@@ -61,14 +63,13 @@ export function WorkspacePaneGroups({
           ))}
         </section>
       ))}
-      {(workspace.panes ?? [])
-        .filter((pane) => !subshells.some((row) => row.id === pane.subshellId))
-        .map((pane) => (
-          <div key={pane.id} className="my-1.5 px-3 py-1 text-detail text-muted-foreground">
-            <span className="block truncate">{pane.subshellName}</span>
-            <span className="block truncate opacity-70">{pane.workingDir}</span>
-          </div>
-        ))}
+      {results.isError ? (
+        <ListLoadError message="Couldn’t load workspace subshells." retry={results.refetch} busy={results.isFetching} />
+      ) : results.isLoading ? (
+        <p className="px-3 py-1 text-detail text-muted-foreground">Loading workspace subshells…</p>
+      ) : (workspace.panes ?? []).some((pane) => !subshells.some((row) => row.id === pane.subshellId)) ? (
+        <p className="px-3 py-1 text-detail text-muted-foreground">Some workspace subshells are unavailable.</p>
+      ) : null}
     </>
   );
 }
