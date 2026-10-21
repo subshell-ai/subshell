@@ -291,6 +291,7 @@ function NodeDetailPage() {
             )}
             // The folder picker's listings are scoped by these rules, so a
             // change makes every cached explore response stale.
+            // These listings are infinite, so the invalidation replays each cached walk on next mount: a rule change re-filters every listing.
             onDirsSaved={() => {
               void queryClient.invalidateQueries({ queryKey: ["explore"] });
               void queryClient.invalidateQueries({ queryKey: ["recent-paths"] });

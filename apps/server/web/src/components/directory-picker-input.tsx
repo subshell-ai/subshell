@@ -1,14 +1,16 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { ApiError, apiFetch, Input } from "@internal/node-admin";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type InfiniteData, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowUp, ChevronRight, FolderOpen, Star } from "lucide-react";
 import type { JSX } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PermissionNotice } from "@/components/desktop/permission-notice";
 import { desktopPlatform, isServerDesktop } from "@/lib/desktop";
+import { patchExploreFavorite, shouldFetchNextPage } from "@/lib/explore-pagination";
 import { SERVER_DEPLOYMENT_QUERY_KEY } from "@/lib/query-keys";
 import { currentMode } from "@/lib/supervision";
-import type { ExploreResult } from "@/types/files";
+import type { DirEntry, ExploreResult } from "@/types/files";
 import type { ServerDeployment } from "@/types/server-deployment";
 
 /**
@@ -91,6 +93,13 @@ export function DirectoryPickerInput({
   const [pickerPath, setPickerPath] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  // The `h-56` listing body, held as state rather than a ref, and it has to
+  // be that way: the virtualizer inside `DirRows` can only attach its scroll
+  // listeners once the element actually exists, and on the mount commit the
+  // parent's refs land after the child's layout effects have already run. A
+  // callback ref feeding state is what hands the element over as soon as it
+  // does exist. Only the listing state attaches it.
+  const [listingEl, setListingEl] = useState<HTMLDivElement | null>(null);
   const queryClient = useQueryClient();
 
   // Typing in the input moves the open panel to the typed folder. The sync
@@ -148,16 +157,77 @@ export function DirectoryPickerInput({
 
   // The node rides the query key too: the same path on a different machine
   // is a different listing, and switching nodes mid-open must refetch.
-  const { data: explore, error } = useQuery({
+  //
+  // Infinite, because a local browse now arrives in pages of 200: a folder
+  // with 31k entries is not ONE response anymore, and a panel that only ever
+  // showed the first page would pass a third of a directory off as the whole
+  // thing. `pageParam` is the opaque cursor the previous page named (empty on
+  // the first, where the param is omitted); the walk stops when a page answers
+  // without `nextCursor`. `limit` is deliberately unsent: the server's default
+  // is its tuned page size. Remote browses ignore both params and answer whole
+  // in one page, so `hasNextPage` is simply false there.
+  const {
+    data: exploreListing,
+    error,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
     queryKey: remoteNode ? (["explore", remoteNode, pickerPath] as const) : (["explore", pickerPath] as const),
-    queryFn: () =>
+    queryFn: ({ pageParam }) =>
       apiFetch<ExploreResult>(
         `/api/files/explore?path=${encodeURIComponent(pickerPath)}${
           remoteNode ? `&node=${encodeURIComponent(remoteNode)}` : ""
-        }`,
+        }${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ""}`,
       ),
+    initialPageParam: "",
+    // `|| undefined` rather than `??`: a cursor the server would echo as "" is
+    // indistinguishable from none, and treating it as "more" loops forever.
+    getNextPageParam: (lastPage) => lastPage.nextCursor || undefined,
     enabled: pickerOpen,
+    // Remounting with the cache present must NOT refetch an infinite query's
+    // every page: the default would replay a walked listing's whole cursor
+    // chain on every remount of the picker. Freshness comes from navigation
+    // (each browse is a fresh key, a machine switch re-keys), so a
+    // stale-but-instant listing beats a silent full re-walk. Only an
+    // explicit invalidation refetches on mount: the node page's dirs-rule
+    // change, where the cached listing is genuinely filtered by a rule that
+    // no longer holds. A stale re-enable is a different door and stays open:
+    // closing and reopening the picker flips `enabled`, and TanStack refetches
+    // a stale infinite query on enable, replaying the walk once. Not replaying
+    // that would mean changing the semantics of `enabled`, deliberately not
+    // taken on. (staleTime stays at its default; that is the point of gating
+    // on `isInvalidated` rather than on staleness.)
+    refetchOnMount: (query) => query.state.isInvalidated,
   });
+  // PAGE 1 is the source for everything except the entries. The server rides
+  // parent/recent/favorites/blocked on every page (each must stand as a usable
+  // answer), but reading them per page would render the shortcut sections once
+  // per walked cursor.
+  const explore = exploreListing?.pages[0];
+  // Every page's entries in wire order, deduped by path keeping the first
+  // occurrence: the server re-scans per request, so a file added or removed
+  // between two pages shifts the offsets and the same entry can land in two
+  // pages, and a repeated path is a duplicate virtualizer row key. Dirs only
+  // after the merge: the server pages the raw sorted listing, so files sit
+  // INSIDE pages, and filtering late keeps the folder order identical to an
+  // unpaginated answer.
+  const allEntries = useMemo(() => {
+    const seen = new Set<string>();
+    const merged: DirEntry[] = [];
+    for (const page of exploreListing?.pages ?? []) {
+      for (const entry of page.entries) {
+        if (seen.has(entry.path)) continue;
+        seen.add(entry.path);
+        merged.push(entry);
+      }
+    }
+    return merged;
+  }, [exploreListing]);
+  // Directory rows are the only unbounded content the panel renders, and the
+  // only rows virtualized. Deriving the array once per response keeps the
+  // virtualizer's count and row keys stable across unrelated re-renders.
+  const dirEntries = useMemo(() => allEntries.filter((e) => e.kind === "dir"), [allEntries]);
   // A typed path that does not exist (404) is a different message from a
   // browse failure (500/forbidden/network): one invites a correction, the
   // other only explains. A too-old node (409 NODE_OUTDATED) is neither —
@@ -195,8 +265,25 @@ export function DirectoryPickerInput({
         method: "PATCH",
         body: JSON.stringify(remoteNode ? { path, favorite: on, node: remoteNode } : { path, favorite: on }),
       }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["explore"] });
+    onSuccess: (_data, { path, on }) => {
+      // A targeted cache patch, NOT an invalidation: this query is infinite
+      // now, and invalidating refetches EVERY page the cursor walk has loaded:
+      // a walked 32k listing would fire 160+ requests to change one star.
+      // The star moves exactly two cached facts (the path in `favorites` and
+      // in `recent`), so `patchExploreFavorite` flips them in place; the next
+      // navigation re-reads the truth from the server anyway. And the patch is
+      // scoped to the machine the star was planted ON: favorites are
+      // per-machine since 0034, the explore key names the machine
+      // (`["explore", node, path]` remote, the two-element `["explore", path]`
+      // local), and a bare `["explore"]` prefix-match would prepend this path
+      // into every OTHER machine's cached listing too.
+      queryClient.setQueriesData<InfiniteData<ExploreResult>>(
+        {
+          queryKey: ["explore"],
+          predicate: (query) => (remoteNode ? query.queryKey[1] === remoteNode : query.queryKey.length === 2),
+        },
+        (old) => patchExploreFavorite(old, path, on),
+      );
       void queryClient.invalidateQueries({ queryKey: ["recent-paths"] });
     },
   });
@@ -282,7 +369,12 @@ export function DirectoryPickerInput({
               error — with Recent and Favorites folded into the scroll area.
               A content-sized body grew and shrank as you moved between
               folders, so the panel jumped height on every navigation. */}
-          {error ? (
+          {/* Data first, error second: a FAILED cursor walk leaves a fully
+              usable listing in cache, and `error` alone would replace it with
+              the browse-failure message for a folder that listed fine. The
+              error UI renders only when page 1 itself never arrived, which is
+              exactly what its copy describes. */}
+          {error && !explore ? (
             notFound ? (
               <div className="flex h-56 flex-col items-start justify-center gap-2 px-2 text-sm">
                 <p className="text-destructive">
@@ -384,7 +476,7 @@ export function DirectoryPickerInput({
               )}
             </div>
           ) : explore ? (
-            <div className="h-56 overflow-y-auto">
+            <div ref={setListingEl} className="h-56 overflow-y-auto">
               {clearOption !== undefined && value.trim() !== "" && (
                 <button
                   type="button"
@@ -402,7 +494,7 @@ export function DirectoryPickerInput({
                   scroll. */}
               <ShortcutSections explore={explore} onPick={pick} onToggleFavorite={toggleFavorite} />
 
-              {(explore.parent !== null || explore.entries.length > 0) && (
+              {(explore.parent !== null || allEntries.length > 0) && (
                 <div className="mt-2 border-t pt-2">
                   {/* One click per folder: it becomes the input's value and
                       the panel descends into it. */}
@@ -419,28 +511,29 @@ export function DirectoryPickerInput({
                       </button>
                     </div>
                   )}
-                  {explore.entries
-                    .filter((e) => e.kind === "dir")
-                    .map((e) => (
-                      <div key={e.path} className="group flex items-center">
-                        <button
-                          type="button"
-                          title={`Open ${e.name}`}
-                          onClick={() => pick(e.path)}
-                          className="flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-accent"
-                        >
-                          <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
-                          <span className="truncate">{e.name}</span>
-                        </button>
-                        {/* Favorites carry the browsed machine since 0034
-                            (the PATCH rides `node`, the listing ships that
-                            node's rows), so a star HERE means "this path on
-                            THIS machine" and can never be a dead click in
-                            another machine's panel — the defect the star used
-                            to be hidden for. It is offered everywhere. */}
-                        <StarButton path={e.path} starred={false} onToggle={(on) => toggleFavorite(e.path, on)} />
-                      </div>
-                    ))}
+                  <DirRows
+                    dirs={dirEntries}
+                    scrollerEl={listingEl}
+                    onPick={pick}
+                    onToggleFavorite={toggleFavorite}
+                    hasNextPage={hasNextPage}
+                    isFetchingNextPage={isFetchingNextPage}
+                    lastFetchFailed={error !== null}
+                    onLoadNextPage={fetchNextPage}
+                  />
+                  {/* The agent caps a REMOTE listing at 1,000 entries and no
+                      cursor recovers the rest (remote browses answer whole),
+                      so say it once instead of passing the partial list off
+                      as everything. The cap counts only the dirs it lists:
+                      `fs_ls` skips dotfiles and non-directories before the
+                      check, and the panel renders dirs anyway, so the
+                      sentence can honestly count folders. A local browse
+                      never carries the flag. */}
+                  {explore.truncated && (
+                    <p className="px-2 py-1 text-detail text-muted-foreground">
+                      The listing stops at 1,000 folders, so some may be missing.
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -451,6 +544,155 @@ export function DirectoryPickerInput({
       )}
 
       {helper && <p className="text-detail text-muted-foreground">{helper}</p>}
+    </div>
+  );
+}
+
+/**
+ * The height of one folder row in px: a `text-sm` line (14px at 1.5 leading,
+ * src/styles.css) inside a `py-1` button, so 21 + 8. Rows are one truncated
+ * line by construction, which is why the virtualizer sizes them from this
+ * constant rather than measuring each row: a per-row measure would add a
+ * layout read to answer what the CSS already fixes, and a constant is what
+ * keeps the window jump-free. Change the row's padding or its type role and
+ * this number must change with it.
+ */
+const DIR_ROW_HEIGHT = 29;
+
+/**
+ * The folder rows of the listing state, windowed.
+ *
+ * A huge directory used to freeze the whole page: the server answers `/tmp`'s
+ * 31k folders in about 86 ms, but committing the two buttons per row (roughly
+ * 62k DOM nodes) in one React pass blocked the main thread so long that the
+ * panel never even painted its "Loading…". Only the rows that fit the `h-56`
+ * viewport, plus a small overscan, are in the DOM; the rest is scroll
+ * arithmetic over the fixed row height.
+ *
+ * The rows above this block (the clear row, Recent/Favorites, the `..` row)
+ * stay ordinary DOM. They are never the unbounded part, and replacing only
+ * the folder rows keeps small directories pixel-identical. `scrollMargin`
+ * tells the virtualizer how tall that pre-list content is: its window is
+ * computed against the scroller's scroll position, and the content above
+ * changes as you navigate.
+ */
+function DirRows({
+  dirs,
+  scrollerEl,
+  onPick,
+  onToggleFavorite,
+  hasNextPage,
+  isFetchingNextPage,
+  lastFetchFailed,
+  onLoadNextPage,
+}: {
+  /** Directory entries loaded so far, in listing order: across every page
+   *  already walked, files already filtered out. */
+  dirs: DirEntry[];
+  /** The `h-56` panel body: the element that scrolls this list, handed over
+   *  as a value (null until the listing state has committed it, since the panel
+   *  renders this component and the scroller in the same commit). */
+  scrollerEl: HTMLDivElement | null;
+  /** Selects and browses into a folder, exactly as a row click does. */
+  onPick: (path: string) => void;
+  /** Stars or unstars a folder row's path. */
+  onToggleFavorite: (path: string, on: boolean) => void;
+  /** The listing query still has a cursor to spend. */
+  hasNextPage: boolean;
+  /** Its next page is in flight right now. */
+  isFetchingNextPage: boolean;
+  /** The listing query's last fetch failed: a failed page stops the walk
+   *  rather than re-firing the tail effect at network speed. */
+  lastFetchFailed: boolean;
+  /** Asks the listing query for the next page. */
+  onLoadNextPage: () => unknown;
+}): JSX.Element {
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
+  // Measured after every commit (the content above the list is conditional),
+  // re-set only when it actually moved, so the scroll listener and scroll
+  // re-renders see a stable value between navigations. `offsetTop` cannot be
+  // used here: it counts from the nearest positioned ancestor, which is the
+  // dialog or the page, not this scroller's content.
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list || !scrollerEl) return;
+    const next = list.getBoundingClientRect().top - scrollerEl.getBoundingClientRect().top + scrollerEl.scrollTop;
+    setScrollMargin((prev) => (prev === next ? prev : next));
+  });
+
+  const virtualizer = useVirtualizer({
+    count: dirs.length,
+    getScrollElement: () => scrollerEl,
+    estimateSize: () => DIR_ROW_HEIGHT,
+    overscan: 10,
+    scrollMargin,
+    // A row's identity is its path, not its index: scrolling reuses the DOM
+    // row that shows the same folder, exactly like the keyed `.map` did.
+    getItemKey: (index) => dirs[index]?.path ?? index,
+  });
+
+  // Scroll-to-load: when the window reaches the end of the folders loaded so
+  // far (or starts within the margin of it) and the walk still has a cursor,
+  // ask for the next page. The predicate lives in `lib/explore-pagination.ts`
+  // because what makes it correct is arithmetic a browser cannot show: a page
+  // can carry ZERO new dirs (files fill it), leaving both the count and the
+  // window unchanged, and the answer must stay true through that so the walk
+  // keeps going until the cursor runs out. `lastFetchFailed` is the stop
+  // valve: the query's error state stays until some fetch succeeds and this
+  // panel offers no gesture that forces one, so a failed page would otherwise
+  // re-fire this effect on every flag flip and loop a dead endpoint at
+  // network speed; the walk stops, the cached listing stays on screen, and
+  // the next navigation starts fresh. `range` is null until the
+  // virtualizer's first update pass, which reads as -1: "nothing visible".
+  // Re-checking on every render is safe: while a page is in flight the
+  // predicate is false, and TanStack dedupes calls that race the flag flip.
+  // `lastVisibleIndex` is hoisted out of the effect as a primitive so the
+  // dependency list says exactly what re-runs it: the window's tail row.
+  const lastVisibleIndex = virtualizer.range ? virtualizer.range.endIndex : -1;
+  useEffect(() => {
+    if (
+      shouldFetchNextPage({
+        lastVisibleIndex,
+        totalLoadedDirs: dirs.length,
+        hasNextPage,
+        isFetchingNextPage,
+        lastFetchFailed,
+      })
+    ) {
+      onLoadNextPage();
+    }
+  }, [lastVisibleIndex, dirs.length, hasNextPage, isFetchingNextPage, lastFetchFailed, onLoadNextPage]);
+
+  return (
+    <div ref={listRef} style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
+      {virtualizer.getVirtualItems().map((vi) => {
+        const e = dirs[vi.index];
+        if (!e) return null;
+        return (
+          <div
+            key={vi.key}
+            className="group absolute left-0 flex w-full items-center"
+            style={{ height: vi.size, top: 0, transform: `translateY(${vi.start - scrollMargin}px)` }}
+          >
+            <button
+              type="button"
+              title={`Open ${e.name}`}
+              onClick={() => onPick(e.path)}
+              className="flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-accent"
+            >
+              <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <span className="truncate">{e.name}</span>
+            </button>
+            {/* Favorites carry the browsed machine since 0034 (the PATCH
+                rides `node`, the listing ships that node's rows), so a star
+                HERE means "this path on THIS machine" and can never be a dead
+                click in another machine's panel, the defect the star used to
+                be hidden for. It is offered everywhere. */}
+            <StarButton path={e.path} starred={false} onToggle={(on) => onToggleFavorite(e.path, on)} />
+          </div>
+        );
+      })}
     </div>
   );
 }
