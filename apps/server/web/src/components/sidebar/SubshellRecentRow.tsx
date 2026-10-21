@@ -9,8 +9,10 @@ import { useWorkspaceSidebarDrag } from "@/components/sidebar/workspace-sidebar-
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDot } from "@/components/subshell-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useCloseSubshellLanding } from "@/hooks/use-close-subshell-landing";
 import { useHarnessSubagents, useSelectHarnessAgent } from "@/hooks/use-harness-subagents";
-import { useOpenPaneAsTab } from "@/hooks/use-open-pane-as-tab";
+import { filedWorkspaceFor, useOpenPaneAsTab } from "@/hooks/use-open-pane-as-tab";
+import { useWorkspaces } from "@/hooks/use-workspaces";
 import { encodeSubshellDrag, setSubshellDragImage } from "@/lib/subshell-dnd";
 import { subshellRowTooltip } from "@/lib/subshell-row-tooltip";
 import { armPaneFocusOnArrive, requestWorkspacePaneFocus } from "@/lib/workspace-focus";
@@ -88,17 +90,38 @@ export function SubshellRecentRow({
   inActiveWorkspace?: boolean;
 }) {
   const openAsTab = useOpenPaneAsTab();
+  const closeLanding = useCloseSubshellLanding();
+  const { data: workspaces } = useWorkspaces();
+  // The rail sits beside EVERY page, so a Close from this row's menu can kill
+  // the `/subshells/<id>` page on screen (the row's real href, reached by
+  // middle-click or a direct link). The close-landing chooser (see
+  // `lib/subshell-close-landing`) takes the workspace it was open in: a
+  // branch row NAMES its workspace, so that row's panes are the survivors;
+  // elsewhere the generic rule applies — the most recently touched holder
+  // (what a plain click resolves). The LIST carries every row's panes, so
+  // this adds no request to the rail that does not already run it.
+  function onSubshellClosed(): void {
+    const holder = branchWorkspaceId
+      ? (workspaces?.find((row) => row.id === branchWorkspaceId) ?? null)
+      : workspaces
+        ? filedWorkspaceFor(subshell, workspaces)
+        : null;
+    closeLanding(subshell.id, holder ? { id: holder.id, panes: holder.panes ?? [] } : null);
+  }
   const sidebarDrag = useWorkspaceSidebarDrag();
   const member = sidebarDrag?.workspace?.panes?.some((pane) => pane.subshellId === subshell.id);
-  const workspaceAction =
-    sidebarDrag?.workspace && (!member || sidebarDrag.workspace.subshellCount > 1)
-      ? {
-          label: member ? "Remove from workspace" : "Add to workspace",
-          icon: member ? Minus : Plus,
-          sidebar: true,
-          onSelect: () => (member ? sidebarDrag.remove(subshell.id) : sidebarDrag.add(subshell.id)),
-        }
-      : undefined;
+  // The last member keeps its "Remove from workspace" entry: dragging the
+  // last tab out already retires the workspace (ruling 2026-10-20), and
+  // docs/sidebar.md promises the row menu is the non-drag equivalent, so
+  // removing through the menu lands on the same path and the same landing.
+  const workspaceAction = sidebarDrag?.workspace
+    ? {
+        label: member ? "Remove from workspace" : "Add to workspace",
+        icon: member ? Minus : Plus,
+        sidebar: true,
+        onSelect: () => (member ? sidebarDrag.remove(subshell.id) : sidebarDrag.add(subshell.id)),
+      }
+    : undefined;
   // RUNNING is the row's two facts; a pane parked at running/alive:0 (or
   // flipped to terminated ahead of its alive bit) must not watch or fetch.
   const { data: agentState } = useHarnessSubagents(
@@ -216,7 +239,7 @@ export function SubshellRecentRow({
   return (
     <>
       <div className="relative">
-        <SubshellActionsMenu subshell={subshell} workspaceAction={workspaceAction}>
+        <SubshellActionsMenu subshell={subshell} workspaceAction={workspaceAction} onDeleted={onSubshellClosed}>
           {row}
         </SubshellActionsMenu>
         {hasSubagents && (
@@ -246,7 +269,7 @@ export function SubshellRecentRow({
           </TooltipProvider>
         )}
         <div className="absolute top-1/2 right-0 -translate-y-1/2">
-          <SubshellActionsMenu subshell={subshell} workspaceAction={workspaceAction} />
+          <SubshellActionsMenu subshell={subshell} workspaceAction={workspaceAction} onDeleted={onSubshellClosed} />
         </div>
       </div>
       <div id={childrenId} hidden={!expanded || !hasSubagents}>

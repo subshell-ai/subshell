@@ -31,21 +31,18 @@ export interface WorkspaceUserPaneRow {
  * so ownership is checked one level up before any of these run.
  */
 export class WorkspacePanesRepository extends BaseRepository {
-  /** Keep the final tab even when two clients remove different panes together. */
-  async deleteUnlessLast(workspaceId: string, paneId: string): Promise<boolean> {
+  /**
+   * Removes one pane FROM THE NAMED WORKSPACE, reporting whether a row went.
+   * The workspace scoping is what makes one statement answer both refusals
+   * the service gives as 404: a pane belonging to a different workspace and
+   * a pane a concurrent client already removed both delete nothing, and both
+   * really do mean "that pane is not here".
+   */
+  async deleteWithin(workspaceId: string, paneId: string): Promise<boolean> {
     const result = await this.db
       .deleteFrom("workspacePanes")
       .where("id", "=", paneId)
       .where("workspaceId", "=", workspaceId)
-      .where((eb) =>
-        eb.exists(
-          eb
-            .selectFrom("workspacePanes as other")
-            .select("other.id")
-            .where("other.workspaceId", "=", workspaceId)
-            .where("other.id", "!=", paneId),
-        ),
-      )
       .executeTakeFirst();
     return result.numDeletedRows > 0n;
   }

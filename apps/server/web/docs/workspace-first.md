@@ -6,7 +6,9 @@ summary; the routing line in `AGENTS.md` names when to read it.
 
 A workspace is a window of tabs holding REFERENCES to live subshells, and the
 pane world hangs off it: a launch lands as a tab in the workspace you're
-viewing, launching a first subshell creates one, and removing a tab must keep the final pane in place. The server model (migration 0058, spec
+viewing, launching a first subshell creates one, and removing the final tab
+retires the workspace (ruling 2026-10-20; the subshell itself keeps running,
+unfiled). The server model (migration 0058, spec
 `docs/superpowers/specs/2026-10-17-workspace-first-design.md`) is what the
 client reads, so each rule below has both halves.
 
@@ -60,9 +62,10 @@ server-behind message, not as a name complaint.)
 - Adding a pane is IDEMPOTENT: `workspace_panes` is UNIQUE on
   `(workspace_id, subshell_id)`, and the second add returns the existing row
   with `alreadyPresent: true` rather than failing. Removing the final tab
-  is refused with 409, including concurrent removals. The mobile and desktop
-  close controls explain that another tab must be added first. Closing a
-  subshell itself remains a separate action.
+  retires the workspace (ruling 2026-10-20, the same empty-retire the close
+  path uses): the subshell keeps running unfiled, and the surface that
+  removed the tab leaves the retired page. Closing a subshell itself remains
+  a separate action.
   `POST /api/subshells` can file the launch (`workspaceId`), and deleting a
   subshell retires any of ITS owner's workspaces the delete emptied.
 

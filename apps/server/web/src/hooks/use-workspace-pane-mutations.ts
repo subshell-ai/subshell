@@ -55,9 +55,10 @@ export function useWorkspacePaneMutations(workspaceId: string) {
    * re-selects its pane either way. A genuine failure (5xx, network) throws
    * so the caller can surface it instead of pretending the pane is gone.
    *
-   * Current servers refuse to remove the last pane (409). Keep reading the
-   * legacy workspaceDeleted field for older servers that retire the workspace.
-   * An already-gone pane answers false because there is no body to read.
+   * A server retires a workspace when its last pane goes (operator ruling
+   * 2026-10-20): read workspaceDeleted and navigate away from the retired
+   * page. An already-gone pane answers false because there is no body to
+   * read — whoever moved the row owes the navigation, not this caller.
    * @param paneId - The pane row to remove
    * @returns Whether the workspace itself was deleted along with the pane
    */

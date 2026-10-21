@@ -14,9 +14,19 @@ export function encodeSubshellDrag(dt: DataTransfer, id: string): void {
   dt.effectAllowed = "copyMove";
 }
 
+/**
+ * True when a transfer carries our MIME. The one gate every drop surface
+ * checks, so xterm's file uploads and dockview's tab drags stay untouched.
+ * `Array.from` because the real `types` is a readonly array-like, and the
+ * tests' transfer stubs hand over a plain array; either way it reads.
+ */
+export function acceptsSubshellDrag(dt: Pick<DataTransfer, "types">): boolean {
+  return Array.from(dt.types).includes(SUBSHELL_DND_TYPE);
+}
+
 /** The dragged subshell's id, or null when the transfer is not one of ours. */
 export function readSubshellDrag(dt: Pick<DataTransfer, "types" | "getData">): string | null {
-  if (!Array.from(dt.types).includes(SUBSHELL_DND_TYPE)) return null;
+  if (!acceptsSubshellDrag(dt)) return null;
   return dt.getData(SUBSHELL_DND_TYPE) || null;
 }
 

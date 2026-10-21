@@ -385,6 +385,27 @@ describe("workspaces route", () => {
     expect(redelete.status).toBe(404);
   });
 
+  it("a pane of the caller's OTHER workspace 404s and leaves that workspace's row intact", async () => {
+    // deleteWithin is scoped to the route's workspace on purpose: A's route
+    // must not be able to unfile a tab of B, even for the owner of both.
+    const token = await signIn(ownerEmail, password);
+    const a = await createWorkspace(token, `cross-a-${crypto.randomUUID().slice(0, 8)}`);
+    const b = await createWorkspace(token, `cross-b-${crypto.randomUUID().slice(0, 8)}`);
+    const aPane = await addPane(token, a, await makeSubshell(ownerId));
+    const bPane = await addPane(token, b, await makeSubshell(ownerId));
+
+    const del = await workspaceRoutes.fetch(
+      authedRequest(`/api/workspaces/${a}/panes/${bPane}`, token, { method: "DELETE" }),
+    );
+    expect(del.status).toBe(404);
+
+    // Neither side lost a tab: A kept its own, B kept the one the route named.
+    const aAfter = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${a}`, token));
+    expect(((await aAfter.json()) as { panes: { id: string }[] }).panes.map((p) => p.id)).toEqual([aPane]);
+    const bAfter = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${b}`, token));
+    expect(((await bAfter.json()) as { panes: { id: string }[] }).panes.map((p) => p.id)).toEqual([bPane]);
+  });
+
   it("reports an already-removed pane accurately when clients remove the same tab", async () => {
     const token = await signIn(ownerEmail, password);
     const id = await createWorkspace(token, `same-tab-${crypto.randomUUID().slice(0, 8)}`);
@@ -396,7 +417,7 @@ describe("workspaces route", () => {
     expect(responses.map((response) => response.status).sort()).toEqual([200, 404]);
   });
 
-  it("keeps one tab when clients remove two panes concurrently", async () => {
+  it("retires the workspace when clients remove every tab together", async () => {
     const token = await signIn(ownerEmail, password);
     const id = await createWorkspace(token, `concurrent-tabs-${crypto.randomUUID().slice(0, 8)}`);
     const first = await addPane(token, id, await makeSubshell(ownerId));
@@ -406,24 +427,45 @@ describe("workspaces route", () => {
         workspaceRoutes.fetch(authedRequest(`/api/workspaces/${id}/panes/${paneId}`, token, { method: "DELETE" })),
       ),
     );
-    expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
-    const detail = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${id}`, token));
-    expect(((await detail.json()) as { panes: unknown[] }).panes).toHaveLength(1);
+    // Both rows went (they are different panes), and the empty-retire fires
+    // exactly once — the retire statement sees the other pane still there
+    // unless the other delete landed first, so the pair always splits.
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 200]);
+    const retired = await Promise.all(responses.map((r) => r.json() as Promise<{ workspaceDeleted: boolean }>));
+    expect(retired.map((r) => r.workspaceDeleted).sort()).toEqual([false, true]);
+    const after = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${id}`, token));
+    expect(after.status).toBe(404);
   });
 
-  it("refuses to remove the last pane and preserves its workspace", async () => {
+  it("retires the workspace when its last pane is removed, keeping the subshell", async () => {
     const token = await signIn(ownerEmail, password);
     const id = await createWorkspace(token, `last-tab-${crypto.randomUUID().slice(0, 8)}`);
-    const paneId = await addPane(token, id, await makeSubshell(ownerId));
+    const subshellId = await makeSubshell(ownerId);
+    const paneId = await addPane(token, id, subshellId);
 
     const del = await workspaceRoutes.fetch(
       authedRequest(`/api/workspaces/${id}/panes/${paneId}`, token, { method: "DELETE" }),
     );
-    expect(del.status).toBe(409);
+    expect(del.status).toBe(200);
+    expect(await del.json()).toEqual({ ok: true, workspaceDeleted: true });
 
-    expect(await stillThere(token, id)).toBe(true);
+    expect(await stillThere(token, id)).toBe(false);
     const list = await workspaceRoutes.fetch(authedRequest("/api/workspaces", token));
-    expect(((await list.json()) as { id: string }[]).map((w) => w.id)).toContain(id);
+    expect(((await list.json()) as { id: string }[]).map((w) => w.id)).not.toContain(id);
+    // The subshell survives its workspace — removal files it, it does not close it.
+    const held = await db.selectFrom("subshells").where("id", "=", subshellId).selectAll().executeTakeFirst();
+    expect(held).toBeDefined();
+  });
+
+  it("answers the same-pane race as one removal and one gone, retiring once", async () => {
+    const token = await signIn(ownerEmail, password);
+    const id = await createWorkspace(token, `same-last-${crypto.randomUUID().slice(0, 8)}`);
+    const paneId = await addPane(token, id, await makeSubshell(ownerId));
+    const remove = () =>
+      workspaceRoutes.fetch(authedRequest(`/api/workspaces/${id}/panes/${paneId}`, token, { method: "DELETE" }));
+    const responses = await Promise.all([remove(), remove()]);
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 404]);
+    expect(await stillThere(token, id)).toBe(false);
   });
 
   it("pane rows carry the subshell's exit code (null while running, the code once dead)", async () => {

@@ -128,15 +128,19 @@ describe("SubshellTab", () => {
     expect(screen.queryByRole("img", { name: "waiting for you" })).toBeNull();
   });
 
-  it("keeps the last tab on click and middle-click", () => {
+  it("removes the last tab on click and middle-click (removal retires the workspace)", () => {
+    // Operator ruling 2026-10-20: the last tab's × is no longer refused —
+    // the dock's own handler leaves the page when the server reports the
+    // workspace retired with it, so the tab control itself must be live.
     const removed: string[] = [];
     renderTab([pane()], removed);
-    fireEvent.click(screen.getByLabelText("Close tab"));
+    const close = screen.getByLabelText("Close tab");
+    expect(close.getAttribute("aria-disabled")).toBeNull();
+    fireEvent.click(close);
     const tab = screen.getByText("Alpha");
     fireEvent.pointerDown(tab, { button: 1 });
     fireEvent.pointerUp(tab, { button: 1 });
-    expect(removed).toEqual([]);
-    expect(screen.getByLabelText("Close tab").getAttribute("aria-disabled")).toBe("true");
+    expect(removed).toEqual(["pane-1", "pane-1"]);
   });
 
   it("the × rewires to onRemovePane with the panel id (closeActionOverride semantics)", () => {

@@ -9,7 +9,7 @@ A workspace is the window of panes you work in. Launches land as tabs in one, an
 
 A subshell is the session; a workspace is how you arrange sessions. The same subshell can sit in several workspaces at once, because a workspace holds a reference, not a copy. Closing a pane in a workspace removes that reference and leaves the session running; closing the subshell itself ends it everywhere (see [Session lifecycle](/guides/lifecycle)).
 
-Launch your first subshell and you're in a workspace, named after it, with nothing to save. You can't remove its final tab: add another tab first so you stay in the workspace. Closing the subshell itself is a separate action and can remove a workspace when no panes remain.
+Launch your first subshell and you're in a workspace, named after it, with nothing to save. Removing its final tab retires the workspace, and the session keeps running unfiled. Closing the subshell itself is a separate action and can remove a workspace when no panes remain.
 
 ## Open and land
 
@@ -30,7 +30,7 @@ Active subagents appear beneath their parent subshell. Use the arrow beneath the
 
 ## Arrange the panes
 
-In the sidebar, drag a subshell between the workspace area and **Subshells** to add or remove its tab. The centered drop zone says **Add to workspace** or **Remove from workspace**. Removing a tab keeps the session running. The row’s **⋯** menu offers the same actions; removal is available when the workspace has another tab.
+In the sidebar, drag a subshell between the workspace area and **Subshells** to add or remove its tab. The centered drop zone says **Add to workspace** or **Remove from workspace**. Removing a tab keeps the session running. The row’s **⋯** menu offers the same actions; removing the last tab retires the workspace, and the session keeps running unfiled.
 
 New subshells join as tabs. On a wide screen, arrange panes side by side: drag a pane's tab toward an edge of another pane and release it when the split preview appears. Each tile group has its own tab row, so tabs sit where you arranged them, not always across the top.
 

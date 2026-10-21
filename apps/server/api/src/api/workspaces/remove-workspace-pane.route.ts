@@ -7,7 +7,7 @@ import { apiModels } from "@/schema/index.js";
 const RemovePaneResponseSchema = t.Object({
   ok: t.Boolean({ description: "Always true" }),
   workspaceDeleted: t.Boolean({
-    description: "False: removing a workspace’s final tab is refused",
+    description: "True when removing this pane retired the workspace with it",
   }),
 });
 
@@ -27,12 +27,12 @@ export const removeWorkspacePaneRoute = new Elysia()
         200: RemovePaneResponseSchema,
         401: "ApiErrorResponse",
         404: "ApiErrorResponse",
-        409: "ApiErrorResponse",
       },
       detail: {
         operationId: "removeWorkspacePane",
         tags: ["workspaces"],
-        description: "Removes a pane from a workspace (the subshell is untouched)",
+        description:
+          "Removes a pane from a workspace (the subshell is untouched); removing the last pane retires the workspace",
       },
     },
   );

@@ -400,11 +400,13 @@ test("workspace navigation survives the landing redirect and pane actions stay i
     await expect(sidebar).toBeVisible();
     await row.click();
     await expect(sidebar).not.toBeVisible();
+    // The last tab's remove retires the workspace (operator ruling
+    // 2026-10-20): the control is enabled, and the retired page gives way.
     const close = page.getByRole("button", { name: /Remove .* from workspace/ });
-    await expect(close).toHaveAttribute("aria-disabled", "true");
-    await close.click({ force: true });
-    await expect(page).toHaveURL(new RegExp(`/workspaces/${workspace.id}$`));
-    await expect(page.getByText("Add another tab before removing this one.", { exact: true })).toBeVisible();
+    await expect(close).toBeEnabled();
+    await close.click();
+    await expect(page).not.toHaveURL(new RegExp(`/workspaces/${workspace.id}`), { timeout: 30_000 });
+    expect((await page.request.get(`/api/workspaces/${workspace.id}`)).status()).toBe(404);
   } finally {
     await page.request.delete(`/api/subshells/${subshell.id}`);
   }

@@ -33,9 +33,15 @@ exposes a centered Add to workspace or Remove from workspace overlay, without
 moving the lists. Its preview clones just the row, never the subagent tree.
 Addition uses the workspace route's existing add intent; removal uses
 `useWorkspacePaneMutations` and invalidates membership readers. Neither act
-shows a success toast. Removing the final tab is guarded in the UI and by the
-server; failures remain visible. Row action menus provide non-drag equivalents.
+shows a success toast. Removing the final tab retires the workspace (ruling
+2026-10-20): when the retired row is the page on screen, the drop handler
+leaves it for the Subshells list. Failures remain visible. Row action menus
+provide non-drag equivalents.
 Only membership changes: removing a row never closes its subshell.
+While no workspace exists, the whole Workspace area doubles as a third
+MIME-scoped drop surface: releasing a subshell row there creates a workspace
+around it and enters it (ruling 2026-10-20), and the armed ring rides the
+whole gesture, not just the hover.
 
 The picker still shows every workspace and New workspace. A missing workspace
 URL never substitutes another workspace. A direct subshell link uses a workspace

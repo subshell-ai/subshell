@@ -1,7 +1,7 @@
 import { Button, cn, ExplainedButton, errMessage } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { X } from "lucide-react";
-import { type JSX, useEffect, useState } from "react";
+import { type JSX, useEffect, useRef, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
 import { PaneFocusHeader } from "@/components/pane-focus-header";
 import { SubshellDot } from "@/components/subshell-dot";
@@ -25,7 +25,6 @@ export interface WorkspaceTabProps {
   onSelect: () => void;
   /** Removes this pane from the workspace (the tab's × — same action as `<SubshellPane>`'s "Remove pane" button) */
   onRemove: () => void;
-  removeDisabled?: boolean;
   /** The pane's subshell is waiting for the operator — show the amber bell marker (see `<TabWaitingMarker>`) */
   waiting: boolean;
 }
@@ -43,17 +42,13 @@ export interface WorkspaceTabProps {
  * No row cached yet (list still loading) draws no dot — a missing dot is
  * honest, a wrong one is not.
  */
-export function WorkspaceTab({
-  pane,
-  active,
-  onSelect,
-  onRemove,
-  waiting,
-  removeDisabled = false,
-}: WorkspaceTabProps): JSX.Element {
+export function WorkspaceTab({ pane, active, onSelect, onRemove, waiting }: WorkspaceTabProps): JSX.Element {
   const subshell = useSubshellRow(pane.subshellId);
   return (
     <div
+      // The strip finds its active tab by pane id and scrolls it into view
+      // (see the effect in `<WorkspaceTabs>`).
+      data-pane-id={pane.id}
       className={cn(
         "flex shrink-0 items-stretch border-b-2",
         active
@@ -73,8 +68,6 @@ export function WorkspaceTab({
       </button>
       <ExplainedButton
         type="button"
-        disabled={removeDisabled}
-        disabledReason="Add another tab before removing this one."
         onClick={onRemove}
         aria-label={`Remove ${pane.subshellName} from workspace`}
         className="flex h-9 w-11 shrink-0 items-center justify-center hover:bg-accent/50"
@@ -178,6 +171,24 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
     [detail.panes, detail.workspace.id],
   );
 
+  // The dock scrolls its own active tab into view on desktop; this strip is
+  // the phone's, and a rail focus request switches the tab the eye never saw
+  // move (operator report 2026-10-21: the header and terminal changed panes
+  // while the strip still showed the old tabs). So when the active pane
+  // changes, scroll its tab into view. `nearest` on both axes keeps a visible
+  // tab from bouncing to the edge and stops the page taking a vertical jump,
+  // and there is no smooth option: on a phone the move wants to be instant.
+  // Pane ids are uuids, so the quoted attribute selector needs no escaping.
+  // The strip is already exempt from the terminal's foreign-scroll pin
+  // (`data-terminal-controls-scroller`), so this scroll survives its resets.
+  const stripRef = useRef<HTMLDivElement>(null);
+  const selectedPaneId = selected?.id;
+  useEffect(() => {
+    if (!selectedPaneId) return;
+    const tab = stripRef.current?.querySelector<HTMLElement>(`[data-pane-id="${selectedPaneId}"]`);
+    tab?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [selectedPaneId]);
+
   /**
    * Adds `subshellId` to the workspace and selects it. `direction` comes from
    * `SubshellPicker`'s placement control, which this flat tab list has no use
@@ -218,7 +229,6 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
 
   /** Removes a pane from the workspace, leaving its subshell running (or gone) untouched. */
   async function handleRemovePane(paneId: string) {
-    if (detail.panes.length <= 1) return;
     let workspaceDeleted = false;
     try {
       ({ workspaceDeleted } = await removePane(paneId));
@@ -275,6 +285,7 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
       <PaneFocusHeader
         fallbackName={detail.workspace.name}
         panes={detail.panes}
+        workspaceId={detail.workspace.id}
         actions={<SubshellPicker workspaceId={detail.workspace.id} existing={detail.panes} onAdd={handleAdd} />}
       />
       {/* This view owns the page's bottom edge (the shell skips its own
@@ -314,14 +325,17 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
           the finger). The key bar's horizontal scroller is exempted the same
           way; a tab strip that switches which terminal you see is a control
           of that terminal, not foreign scroll. */}
-        <div data-terminal-controls-scroller className="flex min-w-0 items-stretch gap-0 overflow-x-auto border-b">
+        <div
+          ref={stripRef}
+          data-terminal-controls-scroller
+          className="flex min-w-0 items-stretch gap-0 overflow-x-auto border-b"
+        >
           {detail.panes.map((pane) => (
             <WorkspaceTab
               key={pane.id}
               pane={pane}
               active={pane.id === selected?.id}
               onSelect={() => setSelectedId(pane.id)}
-              removeDisabled={detail.panes.length <= 1}
               onRemove={() => void handleRemovePane(pane.id)}
               waiting={isPaneWaiting(pane)}
             />
@@ -345,7 +359,6 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
                 // any more than in the dock.
                 showKeyBar={pane.id === selected?.id}
                 onRestart={(subshellId) => void handleRestart(subshellId)}
-                removeDisabled={detail.panes.length <= 1}
                 onRemovePane={(paneId) => void handleRemovePane(paneId)}
               />
             </div>

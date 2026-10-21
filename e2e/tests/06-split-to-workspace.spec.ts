@@ -223,7 +223,7 @@ test("split a subshell into a real, named workspace", async ({ page }) => {
   expect(retiredLaunch.status()).toBe(404);
 });
 
-test("removing a pane preserves the workspace and its final tab", async ({ page }) => {
+test("removing panes keeps the workspace until the last tab goes", async ({ page }) => {
   test.setTimeout(180_000);
   const attempt = test.info().retry;
   const rootName = `e2e-split-close-root-${attempt}`;
@@ -270,15 +270,19 @@ test("removing a pane preserves the workspace and its final tab", async ({ page 
   };
   expect(survivors.panes).toHaveLength(1);
 
-  // The final tab cannot be detached: the workspace remains the working surface.
+  // The final tab detaches (operator ruling 2026-10-20): removing a
+  // workspace's last pane retires the workspace, and the subshell keeps
+  // running unfiled. The page leaves the dead workspace route.
   const finalClose = page.getByRole("button", { name: "Close tab" });
-  await expect(finalClose).toHaveAttribute("aria-disabled", "true");
-  await finalClose.click({ force: true });
-  await expect(page.getByText("Add another tab before removing this one.", { exact: true })).toBeVisible();
-  await expect(page).toHaveURL(new RegExp(`/workspaces/${workspaceId}`));
-  expect((await page.request.get(`/api/workspaces/${workspaceId}`)).ok()).toBe(true);
+  await expect(finalClose).toBeEnabled();
+  await finalClose.click();
+  await expect(page).not.toHaveURL(new RegExp(`/workspaces/${workspaceId}`), { timeout: SPAWN_TIMEOUT });
+  expect((await page.request.get(`/api/workspaces/${workspaceId}`)).status()).toBe(404);
 
-  // Closing the subshells retires those too (the delete-side self-retire).
+  // Hygiene, not a retire proof: the final close above already retired the
+  // one workspace this test made (the delete-side self-retire is pinned by
+  // the 404s earlier in the file). These lines only confirm nothing this
+  // test launched is still filed anywhere.
   await closeSubshells(page, [rootSubshellId, otherSubshellId]);
   expect(await workspacesHolding(page, rootSubshellId)).toEqual([]);
   expect(await workspacesHolding(page, otherSubshellId)).toEqual([]);

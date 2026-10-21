@@ -141,8 +141,9 @@ panel collapse. Workspaces combines the selected
 workspace's panes with a grouped **Subshells** section;
 members are excluded from that lower list. Clicking another subshell adds it
 as a tab. Dragging between the lists adds or removes membership, with centered
-labels and no success toast. Removing the last pane is refused; subshell
-processes stay running. Row menus provide the same membership actions.
+labels and no success toast. Removing the last pane retires the workspace;
+subshell processes stay running, unfiled. Row menus provide the same
+membership actions.
 Subshell dashboard remains in the grouping dropdown’s actions menu and uses this same
 sidebar. Each bar button navigates to its section's remembered page, the
 active one too, except a Workspaces click inside `/workspaces/$id`, which
@@ -428,8 +429,10 @@ query. The tree shows ONLY workspaces: an unfiled pane lives in the subshells
 list's machine groups, never in an "Ungrouped" branch (operator ruling
 2026-10-17, which deleted that section). Adding a pane is IDEMPOTENT (UNIQUE `(workspace_id, subshell_id)`; the
 second add returns the same row with `alreadyPresent`). Removing the LAST
-tab is refused: add another tab first, so tab removal cannot take someone
-out of their workspace. Closing a subshell itself remains a separate action. The user is ALWAYS in a workspace: a launch raised
+tab retires the workspace (operator ruling 2026-10-20): the subshell keeps
+running unfiled, and the surface that removed it navigates to a sane landing
+(`/` resumes the next workspace; a rail drag-out lands on `/subshells`).
+Closing a subshell itself remains a separate action. The user is ALWAYS in a workspace: a launch raised
 with none on screen JOINS an existing one (the remembered-then-recency
 workspace, via the idempotent pane-add; only an instance with none opens
 one around the pane - `autoFile` in

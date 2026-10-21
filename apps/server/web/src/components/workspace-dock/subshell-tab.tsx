@@ -89,16 +89,19 @@ export function SubshellTab(props: IDockviewPanelHeaderProps) {
   const close = useCallback(
     (event: { preventDefault(): void }) => {
       event.preventDefault();
-      if (detail.panes.length > 1) onRemovePane(props.api.id);
+      // Removing the last tab retires the workspace (operator ruling
+      // 2026-10-20): the dock's onRemovePane handles the leave-the-page
+      // navigation when the server reports the workspace went with it.
+      onRemovePane(props.api.id);
     },
-    [onRemovePane, props.api.id, detail.panes.length],
+    [onRemovePane, props.api.id],
   );
 
   // Middle-click closes the tab exactly like the stock default tab.
   const middleDown = useRef(false);
 
   return (
-    <ContextMenuRoot open={detail.panes.length <= 1 ? false : undefined}>
+    <ContextMenuRoot>
       <ContextMenuTrigger
         render={
           <div
@@ -121,8 +124,6 @@ export function SubshellTab(props: IDockviewPanelHeaderProps) {
             <span className="dv-default-tab-content">{title}</span>
             {waiting && <TabWaitingMarker />}
             <ExplainedButton
-              disabled={detail.panes.length <= 1}
-              disabledReason="Add another tab before removing this one."
               type="button"
               className="dv-default-tab-action"
               aria-label="Close tab"
@@ -135,12 +136,10 @@ export function SubshellTab(props: IDockviewPanelHeaderProps) {
         }
       />
       <DropdownMenuContent anchor={anchorRef} side="bottom" align="start" onClick={(e) => e.stopPropagation()}>
-        {detail.panes.length > 1 && (
-          <DropdownMenuItem onSelect={() => onRemovePane(props.api.id)}>
-            <X className="h-4 w-4" aria-hidden />
-            Close pane
-          </DropdownMenuItem>
-        )}
+        <DropdownMenuItem onSelect={() => onRemovePane(props.api.id)}>
+          <X className="h-4 w-4" aria-hidden />
+          Close pane
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </ContextMenuRoot>
   );
