@@ -1,5 +1,17 @@
 # @internal/server
 
+## 2.6.0
+
+### Minor Changes
+
+- [#421](https://github.com/subshell-ai/subshell/pull/421) [`59f3a6e`](https://github.com/subshell-ai/subshell/commit/59f3a6eed285d55b2d915158a91f432ddfdb8790) Thanks [@theogravity](https://github.com/theogravity)! - Add categorized API key permissions with individual, category-wide, and global selection. New keys default to no permissions and require an explicit grant for each endpoint, including node enrollment and configuration. Preserve permission ceilings on child credentials and expose required grants through local OpenAPI JSON at `/openapi.json`.
+
+### Patch Changes
+
+- [#419](https://github.com/subshell-ai/subshell/pull/419) [`03398ba`](https://github.com/subshell-ai/subshell/commit/03398ba28b63960961f1486bed1f8a11d2989ca3) Thanks [@theogravity](https://github.com/theogravity)! - Keep node and sharing indicators and connected-device controls in the focused subshell's header on desktop and mobile. Remove the terminal overlays, and keep device sizing actions bound to the selected subshell when switching panes.
+
+- [#421](https://github.com/subshell-ai/subshell/pull/421) [`59f3a6e`](https://github.com/subshell-ai/subshell/commit/59f3a6eed285d55b2d915158a91f432ddfdb8790) Thanks [@theogravity](https://github.com/theogravity)! - Show existing subshells across all nodes when adding to a workspace. Persist sidebar drops directly to their target workspace, and launch the configured subshell when creating a workspace from the New subshell tab.
+
 ## 2.5.1
 
 ### Patch Changes
