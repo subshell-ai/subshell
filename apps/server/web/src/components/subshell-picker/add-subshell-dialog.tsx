@@ -89,7 +89,7 @@ export function AddSubshellDialog({
   const [error, setError] = useState<string | null>(null);
 
   const excluded = new Set(excludeSubshellIds);
-  const available = (subshells ?? []).filter((s) => !excluded.has(s.id));
+  const available = (subshells ?? []).filter((s) => s.crossAgent !== true && !excluded.has(s.id));
   const newOnly = !subshellsLoading && !subshellsFailed && subshells !== undefined && available.length === 0;
   const visibleMode = newOnly ? "new" : mode;
   // Keep a draft open if a refetch discovers another subshell while typing.

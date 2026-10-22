@@ -7,15 +7,13 @@ import { isDetailPath } from "@/lib/route-ids";
  * last row must clear it. But these pages never scroll, and they pad that
  * strip themselves, in the colour of their own bottom surface:
  *
- * - `/subshells/$id` — the touch key bar pads HALF the inset inside its own
- *   bg-card strip: it is chrome, and its 44 pt buttons clear the
- *   indicator's ~15 pt visual at half (see `terminal-key-bar.tsx`).
+ * - `/subshells/$id` — the touch key bar owns a compact 4px bottom gutter
+ *   inside its own bg-card strip (see `terminal-key-bar.tsx`).
  * - `/workspaces/$id` — the dock's active pane shows that same
- *   half-pad key bar (it is gated on `coarse`); the phone's tabs presentation
- *   (`useIsPhoneLayout`) carries no key bar and pads its
- *   terminal column with the FULL inset, in `bg-terminal-canvas` — that
- *   pad is canvas clearance for the last output row, not chrome, so it
- *   does not halve.
+ *   key bar (it is gated on `coarse`); the phone's tabs presentation
+ *   (`useIsPhoneLayout`) also shows the selected pane's key bar.
+ *   Only an empty phone workspace pads its terminal column with the full
+ *   inset, since it has no pane to provide that clearance.
  *
  * Stacking the shell's pad on top of either owner used to render a
  * background band (34 pt on a notched iPhone — half of the short-height

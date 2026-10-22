@@ -1,9 +1,9 @@
 import { useLocation } from "@tanstack/react-router";
-import { X } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
-import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useHasSidebar } from "@/hooks/use-has-sidebar";
+import { useVisualViewportInsets } from "@/hooks/use-visual-viewport-insets";
 
 /** Keep the drawer mounted as navigation moves between page-owned headers. */
 export function MobileNavProvider({ children }: { children: ReactNode }) {
@@ -11,6 +11,7 @@ export function MobileNavProvider({ children }: { children: ReactNode }) {
   const sectionNavigation = useRef(false);
   const location = useLocation();
   const hasSidebar = useHasSidebar();
+  const insets = useVisualViewportInsets();
   // biome-ignore lint/correctness/useExhaustiveDependencies: a URL change dismisses a page selection, but keeps section navigation visible
   useEffect(() => {
     if (sectionNavigation.current) {
@@ -28,7 +29,8 @@ export function MobileNavProvider({ children }: { children: ReactNode }) {
         <SheetContent
           side="left"
           showClose={false}
-          className="w-80 max-w-[90vw]"
+          className="w-66 max-w-[74.25vw] pb-0"
+          style={insets ? { height: insets.heightPx, top: insets.offsetYpx, bottom: "auto" } : undefined}
           onClick={(event) => {
             const target = event.target instanceof Element ? event.target.closest("a") : null;
             // Focusing an already-open pane does not change the URL, but still
@@ -46,14 +48,6 @@ export function MobileNavProvider({ children }: { children: ReactNode }) {
               sectionNavigation.current = false;
             }}
             onQuickAdd={() => setOpen(false)}
-            headerEnd={
-              <SheetClose
-                aria-label="Close"
-                className="flex size-11 shrink-0 touch-manipulation items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-              >
-                <X className="size-4" />
-              </SheetClose>
-            }
           />
         </SheetContent>
       )}

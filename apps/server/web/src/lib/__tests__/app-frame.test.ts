@@ -3,8 +3,8 @@ import { routeOwnsBottomEdge } from "@/lib/app-frame";
 
 describe("routeOwnsBottomEdge", () => {
   it("is true on the two full-height pages, each of which pads its own bottom edge", () => {
-    // Key bar (half inset) on /subshells/$id and the wide dock; terminal
-    // column (full inset) on the narrow tabs view — see lib/app-frame.ts.
+    // The active pane's key bar owns the inset in both workspace layouts
+    // and on /subshells/$id — see lib/app-frame.ts.
     expect(routeOwnsBottomEdge("/subshells/sess_123")).toBe(true);
     expect(routeOwnsBottomEdge("/workspaces/ws_9")).toBe(true);
     // No nested routes exist under either today; anything below a detail

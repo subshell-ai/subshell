@@ -171,13 +171,9 @@ function KeyBarControl({
  * View access renders only reading controls. Copy mode keeps the full row
  * and its scroll position, disabling input controls until input resumes.
  *
- * The bottom padding is HALF the home-indicator inset, not all of it. The
- * indicator's VISUAL sits in roughly the bottom 15 pt (the ~21 pt below
- * that is the system's swipe zone, which claims swipes, never taps), so
- * half of a 34 pt inset still leaves the 44 pt buttons' bottom edge above
- * it — and the full inset read as a dead card band below the keys
- * (operator: "huge bottom padding"). The shell adds no bottom padding
- * under this bar — see `routeOwnsBottomEdge`.
+ * Keep a small 4px bottom gutter. The fullscreen frame already reaches
+ * the screen edge; an extra safe-area band made the controls look detached.
+ * The shell adds no bottom padding under this bar — see `routeOwnsBottomEdge`.
  */
 export function TerminalKeyBar({
   disabled,
@@ -281,7 +277,7 @@ export function TerminalKeyBar({
     <div
       role="toolbar"
       aria-label={readOnly ? "Terminal scrolling" : "Terminal special keys"}
-      className="flex min-w-0 shrink-0 flex-col gap-px border-border border-t bg-card pb-[calc(env(safe-area-inset-bottom)/2)]"
+      className="flex min-w-0 shrink-0 flex-col gap-px border-border border-t bg-card pb-1"
     >
       <div className="flex min-w-0 items-stretch">
         <div data-terminal-controls-scroller className="flex min-w-0 flex-1 items-stretch gap-px overflow-x-auto">

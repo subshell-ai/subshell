@@ -19,9 +19,10 @@ stays a no-op. Modifier and middle clicks pass through to the real Link.
 `ActiveWorkspaceSection` combines the workspace picker and its member rows
 with other subshells below a **Subshells** divider and no collapse button. The latter retains
 grouping, status and actions, filtering out members of the selected workspace.
-Workspace members are grouped by machine. Cross-agent helpers nest beneath their creator, including helpers that haven't been added as tabs; selecting one adds it as a tab. Helper rows cannot be dragged or transferred through the row menu; they remain beneath their parent. A helper on another machine names that machine in its row. The lower list excludes those descendants so each helper appears once. Helpers never appear as standalone entries, including when their parent is missing. The subshell dashboard excludes helpers; MCP still lists them for cleanup. The two lists scroll independently. No workspace heading or dedicated collapse
-button sits above the picker. The mobile drawer's close control stays beside
-it. With no selected workspace, the bottom section shows all subshells.
+Workspace members are grouped by machine. Cross-agent helpers nest beneath their creator, with a horizontal connector from the tree line to each child. Branches start collapsed unless the parent or one of its descendants is selected; the arrow still toggles them manually. Helpers remain beneath their creator, including helpers that haven't been added as tabs; selecting one adds it as a tab. Helper rows cannot be dragged or transferred through the row menu; they remain beneath their parent. A helper on another machine names that machine in its row. The lower list excludes those descendants so each helper appears once. Helpers never appear as standalone entries, including when their parent is missing. The subshell dashboard excludes helpers; MCP still lists them for cleanup. The two lists scroll independently. No workspace heading or dedicated collapse
+button sits above the picker. The mobile drawer is 264px wide, capped at 74.25vw,
+and closes when you tap its backdrop; it has no close button. Its bottom navigation
+uses a 4px gutter. With no selected workspace, the bottom section shows all subshells.
 
 Plain clicks in the lower Subshells section add a tab to the selected workspace and focus
 it; modified clicks retain the real subshell link. The actions menu beside grouping

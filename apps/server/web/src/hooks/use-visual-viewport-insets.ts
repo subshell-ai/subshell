@@ -31,13 +31,15 @@ export function computeInsets(vv: { height: number; offsetTop: number }): Visual
  * Otherwise it depends on the display mode, and the two answers exist
  * because the two failure modes are opposite:
  *
- * - **Standalone home-screen install:** pin to `window.innerHeight`. iOS
+ * - **Standalone home-screen install:** pin to the full window height. iOS
  *   computes `dvh`/`svh`/`lvh` in a standalone web app as if Safari's
  *   collapsed bottom toolbar still existed, so the CSS fallback frame ends
  *   ~64 px short on cold start and only corrects itself after a rotation —
  *   the dead band under the key bar in the PWA-height report. `innerHeight`
- *   is not derived from that computation: on the WKWebView it IS the window.
- *   It also sidesteps the older cut of the same bug, where pinning to
+ *   avoids that CSS computation on affected releases.
+ *   On newer iOS, innerHeight itself subtracts the status bar (793 on an
+ *   852px screen, measured in the iOS simulator), so fullscreen iOS installs
+ *   use screen.height. This also sidesteps the older cut of the bug, where pinning to
  *   `visualViewport.height` with the keyboard down reproduced the band
  *   because that reading is chrome-reduced too.
  * - **Browser tab:** null, so the CSS `h-dvh` answers. There the toolbar
@@ -48,6 +50,8 @@ export function decideFramePin(args: {
   vv: { height: number; offsetTop: number } | null;
   innerHeight: number;
   standalone: boolean;
+  /** iOS fullscreen screen height; some releases subtract the status bar from innerHeight. */
+  iosScreenHeight?: number;
 }): VisualViewportInsets | null {
   if (!args.vv) return null;
   const raw = computeInsets(args.vv);
@@ -59,7 +63,8 @@ export function decideFramePin(args: {
   // pan nothing at all: offsetTop 0, height shrunk), so the coupling is
   // accepted and measured, not ignored.
   if (isKeyboardUp(args.vv.height, args.innerHeight) || raw.offsetYpx > 0) return raw;
-  if (args.standalone) return { heightPx: Math.max(0, Math.round(args.innerHeight)), offsetYpx: 0 };
+  if (args.standalone)
+    return { heightPx: Math.max(0, Math.round(Math.max(args.innerHeight, args.iosScreenHeight ?? 0))), offsetYpx: 0 };
   return null;
 }
 
@@ -85,7 +90,16 @@ export function useVisualViewportInsets(): VisualViewportInsets | null {
       window.matchMedia("(display-mode: standalone)").matches ||
       (navigator as unknown as { standalone?: boolean }).standalone === true;
     const update = () => {
-      const next = decideFramePin({ vv, innerHeight: window.innerHeight, standalone });
+      const next = decideFramePin({
+        vv,
+        innerHeight: window.innerHeight,
+        standalone,
+        iosScreenHeight:
+          (navigator as unknown as { standalone?: boolean }).standalone === true &&
+          window.screen.width === window.innerWidth
+            ? window.screen.height
+            : undefined,
+      });
       // Structural sharing: with the standalone pin always non-null, every
       // pan and resize would otherwise re-render the whole frame even when
       // no number changed.
