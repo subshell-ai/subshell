@@ -41,7 +41,7 @@ One lane mechanism, three consumers. The plane pairs each session by an opaque r
 
 ## 4. Protocol: bump 22 → 23, shipped together
 
-Doctrine copied from the bump history (`node-frames.ts:80-187`): additive in shape, breaking anyway because the gate is exact-match; server first; `MIN_NODE_VERSION` and `apps/node/agent/package.json` rise in the same commit (`docs/node-gates.md`). There is no feature flag and there will not be one: a lagging agent is held (update-only) until the desktop update path crosses it, the same doctrine `ssh_enabled` (16) and the agent relay (18) used, because a capability gate cannot live with "old agent ignored the frame" reading the same as "new agent answered no."
+Doctrine copied from the bump history (`node-frames.ts:80-187`): additive in shape, breaking anyway because the gate is exact-match; server first; `MIN_NODE_VERSION` and `apps/node/agent/package.json` rise in the same commit). There is no feature flag and there will not be one: a lagging agent is held (update-only) until the desktop update path crosses it, the same doctrine `ssh_enabled` (16) and the agent relay (18) used, because a capability gate cannot live with "old agent ignored the frame" reading the same as "new agent answered no."
 
 Bump-history entry to land with the code:
 
@@ -99,7 +99,7 @@ Executor arms live beside the relay arms (`commands/ssh-relay-exec.ts` is the sh
 
 Pane detail (`routes/subshells_.$id.tsx`, the same terminal-wrapper column) gains a **Preview** section under the terminal:
 
-- Port list from `GET /preview`, refreshed on pane focus and after any pane-output burst with visible throttling (the polling-routes exclusion keeps it out of request logs). Each row: port, detected kind (server / browser-debug / screen), **Open** (tooltip-disabled with the real reason when `access === "view"` or the node switch is off), **Watch** on the browser row.
+- Port list from `GET /preview`, refreshed on pane focus and after any pane-output burst, throttled to one request per five-second window. Each row: port, detected kind (server / browser-debug / screen), **Open** (tooltip-disabled with the real reason when `access === "view"` or the node switch is off), **Watch** on the browser row.
 - Open renders a collapsible side panel holding the `/pv/` iframe with an "open in new tab" affordance; Watch renders a canvas fed by `preview-stream` frames with an fps/age badge and an explicit "still there?" staleness rule (no frame for 5 s reads stale, matching the feed's posture rather than showing a frozen page as live).
 - Screen opens the noVNC canvas over a forward session (`edit`-gated) pointed at the pane's `screen.rfbPort`, RFB bytes riding `/pv/:session/` upgrades.
 - Gating reuses the existing trio: disabled control + `disabledReason` tooltip per the design system; `view` vs `edit` read from the row's resolved `access` exactly as `subshell-terminal.tsx` does for stdin. Disclosure: the foreign-node icon and banner machinery (`use-trust-notices`, `TrustIndicators`) is unchanged, but the Preview section raises the **shared-pane** banner variant once per device when first opened, because this surface shows more than the terminal does.
