@@ -28,6 +28,8 @@ export interface SubshellPaneProps {
    * pointers, where the real keyboard wins.
    */
   showKeyBar?: boolean;
+  /** Disable when the single-pane phone layout shows these notices in its header. */
+  showTrustIndicators?: boolean;
   /** Restarts the pane's subshell (exited/terminated only) */
   onRestart: (subshellId: string) => void;
   /** Removes the pane from the workspace, leaving the subshell alone */
@@ -60,6 +62,7 @@ export function SubshellPane({
   pane,
   active,
   showKeyBar = false,
+  showTrustIndicators = true,
   onRestart,
   onRemovePane,
   onReady,
@@ -211,7 +214,7 @@ export function SubshellPane({
           typing on. The banner is deliberately NOT here (a transient strip
           over a tiled pane covers the output it warns about); the detail page
           carries that, and these icons carry the fact permanently. */}
-      {trustNotices.length > 0 && (
+      {showTrustIndicators && trustNotices.length > 0 && (
         <div className="pointer-events-auto rounded-md bg-terminal-strip/85 px-1.5 py-1 backdrop-blur-sm">
           <TrustIndicators notices={trustNotices} />
         </div>

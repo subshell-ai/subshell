@@ -136,6 +136,29 @@ async function renderDialog(onOpenChange: (open: boolean) => void = () => {}, se
 afterEach(cleanup);
 
 describe("NewWorkspaceDialog", () => {
+  it("excludes agent-created helpers from existing subshells", async () => {
+    const rows = [subshell("human", "Human pane"), { ...subshell("helper", "Agent helper"), crossAgent: true }];
+    const { restore } = mockFetch({ subshells: rows });
+    try {
+      await renderDialog(() => {}, rows);
+      expect(await screen.findByRole("checkbox", { name: /Human pane/ })).toBeDefined();
+      expect(screen.queryByRole("checkbox", { name: /Agent helper/ }) === null).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
+  it("lands on New when only agent-created helpers exist", async () => {
+    const rows = [{ ...subshell("helper", "Agent helper"), crossAgent: true }];
+    const { restore } = mockFetch({ subshells: rows });
+    try {
+      await renderDialog(() => {}, rows);
+      expect(screen.getByRole("button", { name: "New subshell" }).getAttribute("aria-pressed")).toBe("true");
+    } finally {
+      restore();
+    }
+  });
+
   it("zero selected: creates the workspace alone and closes", async () => {
     const { calls, restore } = mockFetch();
     const openChanges: boolean[] = [];

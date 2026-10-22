@@ -504,6 +504,19 @@ test("the picker separates New workspace only when there are workspaces above it
   expect(group).not.toContain("py-1");
 });
 
+test("reveals the ancestors of a selected child without expanding unrelated parents", async () => {
+  const fx = standardRig();
+  fx.subshells.push(
+    rigSubshell("helper", "Selected helper", { crossAgent: true, parentSubshellId: "s1" }),
+    rigSubshell("other-helper", "Unselected helper", { crossAgent: true, parentSubshellId: "s2" }),
+  );
+  fx.workspaces[0]?.panes.push({ id: "helper-pane", subshellId: "helper", subshellName: "Selected helper" });
+  setWorkspaceFocusedId("helper");
+  const { add } = await mountRig(fx);
+  expect(await within(add).findByRole("link", { name: /Selected helper/ })).toBeTruthy();
+  expect(within(add).queryByRole("link", { name: /Unselected helper/ }) === null).toBe(true);
+});
+
 test("workspace rows group by machine and spawned helpers appear once under their creator", async () => {
   const fx = standardRig();
   fx.subshells = fx.subshells.map((row) => (row.id === "s2" ? { ...row, nodeId: "remote" } : row));
@@ -511,6 +524,8 @@ test("workspace rows group by machine and spawned helpers appear once under thei
     rigSubshell("helper", "Review helper", { crossAgent: true, parentSubshellId: "s1", nodeId: "remote" }),
   );
   const { add, remove, router, refresh } = await mountRig(fx);
+  const parentBranch = add.querySelector('[data-subshell-tree-id="s1"]') as HTMLElement;
+  fireEvent.click(await within(parentBranch).findByRole("button", { name: "Expand subagents" }));
   await within(add).findByRole("link", { name: /Review helper/ });
   expect(within(add).getByRole("heading", { name: "Server" })).toBeTruthy();
   expect(within(add).getByRole("heading", { name: "node you can't see" })).toBeTruthy();

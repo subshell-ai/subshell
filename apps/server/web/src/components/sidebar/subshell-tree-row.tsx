@@ -25,11 +25,22 @@ export function SubshellTreeRow({
 }) {
   const children = childrenByParent.get(subshell.id) ?? [];
   const labels = labelsFor(subshell);
+  function containsFocus(id: string): boolean {
+    return id === focusedId || (childrenByParent.get(id) ?? []).some((child) => containsFocus(child.id));
+  }
   return (
-    <div data-subshell-tree-id={subshell.id}>
+    <div
+      data-subshell-tree-id={subshell.id}
+      className={
+        parentNodeId
+          ? "relative before:pointer-events-none before:absolute before:top-4 before:-left-2 before:w-2 before:border-border before:border-t"
+          : undefined
+      }
+    >
       <SubshellRecentRow
         subshell={subshell}
         focused={focusedId === subshell.id}
+        expandChildren={containsFocus(subshell.id)}
         inActiveWorkspace={showMembership && memberIds?.has(subshell.id)}
         {...labels}
         branchWorkspaceId={memberIds?.has(subshell.id) ? workspaceId : undefined}

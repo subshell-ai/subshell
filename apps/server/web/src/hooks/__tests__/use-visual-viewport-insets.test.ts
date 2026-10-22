@@ -17,6 +17,18 @@ describe("computeInsets", () => {
 });
 
 describe("decideFramePin", () => {
+  it("fills fullscreen iOS when innerHeight omits the status bar, but still clears the keyboard", () => {
+    const frame = { innerHeight: 793, standalone: true, iosScreenHeight: 852 };
+    expect(decideFramePin({ ...frame, vv: { height: 793, offsetTop: 0 } })).toEqual({
+      heightPx: 852,
+      offsetYpx: 0,
+    });
+    expect(decideFramePin({ ...frame, vv: { height: 440, offsetTop: 0 } })).toEqual({
+      heightPx: 440,
+      offsetYpx: 0,
+    });
+  });
+
   it("is null with no visualViewport (desktop: CSS h-dvh answers)", () => {
     expect(decideFramePin({ vv: null, innerHeight: 900, standalone: false })).toBeNull();
     expect(decideFramePin({ vv: null, innerHeight: 900, standalone: true })).toBeNull();

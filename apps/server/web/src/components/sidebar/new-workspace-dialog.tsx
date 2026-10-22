@@ -55,7 +55,9 @@ export function NewWorkspaceDialog({
 }): JSX.Element {
   const navigate = useNavigate();
   const invalidate = useInvalidateWorkspaces();
-  const { data: subshells, isError: loadFailed, isLoading: loading } = useSubshellsList();
+  const { data: roster, isError: loadFailed, isLoading: loading } = useSubshellsList();
+  // Agent-created helpers aren't candidates for a human's workspace.
+  const subshells = roster?.filter((subshell) => subshell.crossAgent !== true);
   // Names already taken, so a same-minute second create does not send the
   // identical default: two tree branches reading the same is confusion, not
   // a server rule — the unique `(user, name)` index left with migration 0058,
@@ -207,7 +209,7 @@ export function NewWorkspaceDialog({
           <ExistingSubshellList
             subshells={subshells ?? []}
             // Nothing is a member yet (the workspace does not exist), so the
-            // unfiltered read IS the candidate list; 0 means none anywhere.
+            // eligible roster is the candidate list; 0 means none to add.
             totalCount={subshells?.length}
             query={query}
             onQueryChange={setQuery}

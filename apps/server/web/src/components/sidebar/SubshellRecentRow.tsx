@@ -1,7 +1,7 @@
 import { Button, cn } from "@internal/node-admin";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight, LayoutDashboard, Minus, Plus } from "lucide-react";
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 import { HarnessSubagentRows } from "@/components/harness-subagents";
 import { TooltipLabelledLines } from "@/components/sidebar/TooltipLabelledLines";
@@ -48,7 +48,10 @@ export function SubshellRecentRow({
   onOpen,
   inActiveWorkspace = false,
   children,
+  expandChildren = focused,
 }: {
+  /** Reveal the selected subshell's branch, including ancestors of a selected helper. */
+  expandChildren?: boolean;
   /** Agent-created subshell rows shown under their creator. */
   children?: ReactNode;
   subshell: SubshellView;
@@ -134,7 +137,8 @@ export function SubshellRecentRow({
   );
   const selectAgent = useSelectHarnessAgent(subshell.id);
   const navigate = useNavigate();
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(expandChildren);
+  useEffect(() => setExpanded(expandChildren), [expandChildren]);
   const childrenId = useId();
   const hasSubagents = subshell.status === "running" && subshell.alive === true && !!agentState?.agents.length;
   const hasChildren = hasSubagents || !!children;
