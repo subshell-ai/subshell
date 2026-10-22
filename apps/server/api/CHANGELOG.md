@@ -1,5 +1,11 @@
 # @internal/server
 
+## 2.6.1
+
+### Patch Changes
+
+- [#422](https://github.com/subshell-ai/subshell/pull/422) [`4fe5e98`](https://github.com/subshell-ai/subshell/commit/4fe5e984341baef9ea825b4b69806568df105d74) Thanks [@theogravity](https://github.com/theogravity)! - Keep long dropdown lists scrollable and within the available screen height, including the searchable node picker when launching a subshell.
+
 ## 2.6.0
 
 ### Minor Changes
