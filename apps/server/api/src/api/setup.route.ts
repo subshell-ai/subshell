@@ -9,6 +9,7 @@ import { db } from "@/db/index.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { asSetupStep, SETUP_STEPS } from "@/db/types/setup-step.js";
 import { apiErrorBody } from "@/lib/api-error.js";
+import { browserOriginAllowed } from "@/lib/browser-origin.js";
 import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
 import { apiModels } from "@/schema/index.js";
 import { backupPasswordChangeRequired } from "@/services/backup-admin-recovery.js";
@@ -113,6 +114,7 @@ async function classifySetupCredential(
 ): Promise<{ actor: "cookie" | "admin" | "machine"; userId?: string }> {
   const cookieHeader = request.headers.get("cookie") ?? "";
   if (extractSessionToken(cookieHeader)) {
+    if (!browserOriginAllowed(request)) throw new HttpError(403, "This request came from an untrusted origin.");
     const session = await resolveCookieSession(cookieHeader);
     if (!session) throw new UnauthorizedError();
     if (await backupPasswordChangeRequired(db, session.user.id)) {

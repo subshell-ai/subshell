@@ -1,0 +1,10 @@
+{
+  "component": "desktop-server",
+  "version": "9.9.9",
+  "commit": "f00dfeedbeefcafe0000000000000000000000ff",
+  "assets": {
+    "subshell-server-desktop_9.9.9_amd64.deb": "6ffe3f4e4963c466be9f10febe161453871b694ad47df7950a1e72226dfd377c",
+    "Subshell-Server-Desktop-9.9.9-darwin-arm64.app.tar.gz": "6ffe3f4e4963c466be9f10febe161453871b694ad47df7950a1e72226dfd377c",
+    "Subshell-Server-Desktop-9.9.9-darwin-x64.app.tar.gz": "6ffe3f4e4963c466be9f10febe161453871b694ad47df7950a1e72226dfd377c"
+  }
+}

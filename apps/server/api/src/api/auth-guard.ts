@@ -7,6 +7,7 @@ import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
+import { browserOriginAllowed } from "@/lib/browser-origin.js";
 import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
 import { accountDisabled } from "@/services/account-status.js";
 import { backupPasswordChangeRequired } from "@/services/backup-admin-recovery.js";
@@ -134,6 +135,7 @@ async function resolvePrincipal(request: Request) {
   // bearer path is never tried underneath it (credential precedence the
   // security audit pinned).
   if (extractSessionToken(cookieHeader)) {
+    if (!browserOriginAllowed(request)) throw new HttpError(403, "This request came from an untrusted origin.");
     const result = await resolveCookieSession(cookieHeader);
     if (!result) throw new UnauthorizedError();
     return {

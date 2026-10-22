@@ -131,7 +131,12 @@ apps/server/desktop/docs/supervision.md first.**
 One press updates the app AND the server that app ships, as **two phases
 separated by the relaunch** (the app first, because the new app carries the
 newer server). The app's own half is `tauri-plugin-updater`, which verifies
-minisign over the BUNDLE bytes against the compiled-in pubkey. Replacing a
+minisign over the BUNDLE bytes against the compiled-in pubkey. Before offering
+an update, the app also verifies the signed release manifest's component,
+version and platform entry. Before installation, it hashes the downloaded
+buffer against that entry through `desktop-core::release_verification`.
+Unsigned `latest.json` must never determine the identity of installed bytes.
+Replacing a
 managed copy runs `<installed> update --from <sidecar> --yes --no-restart
 --json`: a TRANSACTION the new binary completes or reverts at boot (backup,
 `pending.json`, `.previous`), while a first install stays a plain copy, and a

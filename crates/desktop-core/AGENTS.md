@@ -35,3 +35,11 @@ backslash, no whitespace/control), and the validator lives once here, shared
 by both apps. What the validated path is joined onto is each app's own
 decision: the client names it `PlanePin`, and the server app names the
 trusted origin its dashboard sits on; those rules are in the app files.
+
+## Desktop update verification
+
+`release_verification` verifies the publisher signature over the exact manifest
+bytes, then binds the component, selected version and locally derived platform
+filename. The resulting `VerifiedArtifact` must check the exact downloaded
+buffer before either app passes it to Tauri's installer. Tauri still verifies
+the bundle signature as well. Network reads and Tauri types stay in each app.

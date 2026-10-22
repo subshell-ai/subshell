@@ -331,6 +331,11 @@ drawn on this desktop at all.)
 
 ## Installing the bundled node, and updating the app: ONE act, in two phases
 
+App updates verify both the bundle signature and the signed release manifest.
+`desktop-core::release_verification` binds the component, version and platform
+digest; the exact downloaded buffer must match before installation. The
+unsigned `latest.json` only selects a download, never its trusted identity.
+
 Spec `docs/superpowers/specs/2026-09-18-one-update-act-design.md`. Updating
 this app and updating the node CLI are ONE act whose phases are separated by
 the relaunch: `node_install_app_update` writes the `pending_bundled_install`

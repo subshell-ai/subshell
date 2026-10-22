@@ -24,19 +24,17 @@
 //! an EMPTY value turns the whole thing off, the same seam and the same
 //! air-gapped answer the server has.
 //!
-//! **What is trusted.** The plugin verifies a minisign signature against
-//! `plugins.updater.pubkey`, compiled into this binary — so the release host
-//! decides only WHETHER this app is offered an update, never WHAT it is. That
-//! is strictly stronger than the CLI path, where the digest and the bytes come
-//! from the same source (`docs/security.md`; spec § 11). Losing the private
-//! key means no installed app can ever auto-update again, which is why the
-//! `.key` belongs in the password manager beside the `.p12`.
+//! **What is trusted.** The signed release manifest binds the component,
+//! version and platform digest to the compiled-in publisher key. The updater
+//! also verifies its bundle signature; the downloaded buffer must pass both
+//! checks before installation. Unsigned latest.json only locates the download.
 //!
 //! **On Linux the plugin installs the `.deb` through `dpkg`, behind a polkit
 //! prompt**, so the screen says so before the press: a system password sheet
 //! nobody was told about reads as malware.
 
 use serde::Serialize;
+use subshell_desktop_core::release_verification::{artifact_name, VerifiedArtifact, MANIFEST_LIMIT, SIGNATURE_LIMIT};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
 
@@ -174,10 +172,8 @@ pub async fn check_app_update(app: &AppHandle) -> Result<AppUpdateCheck, String>
             ..Default::default()
         });
     }
-    // Only NOW does the plugin get involved, and only with one URL. Its own
-    // `check()` is what verifies the manifest's signature against this build's
-    // public key, so a release host that lied about which version exists still
-    // cannot hand this app bytes it did not sign.
+    // latest.json selects a download but is unsigned. Bind its selection to
+    // the separately signed release manifest before advertising an update.
     let manifest = latest_manifest_url(&pick.tag);
     let updater = app
         .updater_builder()
@@ -196,12 +192,19 @@ pub async fn check_app_update(app: &AppHandle) -> Result<AppUpdateCheck, String>
             reason: Some(format!("{} publishes no update for this platform", pick.tag)),
             ..Default::default()
         }),
-        Ok(Some(update)) => Ok(AppUpdateCheck {
-            current,
-            latest: Some(update.version.clone()),
-            notes: Some(release_page_url(&pick.tag)),
-            reason: None,
-        }),
+        Ok(Some(update)) => match verified_artifact(app, &pick, &update).await {
+            Ok(_) => Ok(AppUpdateCheck {
+                current,
+                latest: Some(update.version.clone()),
+                notes: Some(release_page_url(&pick.tag)),
+                reason: None,
+            }),
+            Err(reason) => Ok(AppUpdateCheck {
+                current,
+                reason: Some(reason),
+                ..Default::default()
+            }),
+        },
         Err(e) => Ok(AppUpdateCheck {
             current,
             reason: Some(e.to_string()),
@@ -255,10 +258,11 @@ pub async fn install_app_update(app: &AppHandle, forced: bool, install_server: b
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("{} publishes no update for this platform", pick.tag))?;
 
+    let expected = verified_artifact(app, &pick, &update).await?;
     let handle = app.clone();
     let mut received: u64 = 0;
-    update
-        .download_and_install(
+    let bytes = update
+        .download(
             move |chunk, total| {
                 received += chunk as u64;
                 let _ = handle.emit("desktop-app-update-progress", ProgressEvent { received, total });
@@ -267,6 +271,10 @@ pub async fn install_app_update(app: &AppHandle, forced: bool, install_server: b
         )
         .await
         .map_err(|e| e.to_string())?;
+    // download() verifies the bundle signature. The additional digest binds
+    // those bytes to this app, version and platform before install() acts.
+    expected.verify_bytes(&bytes)?;
+    update.install(&bytes).map_err(|e| e.to_string())?;
     // The pane-safety answer is consented to HERE, at the press, for the same
     // reason the screen renders the Force box here: this is the moment the
     // person answers. Phase 2 runs in another process, on a machine whose
@@ -332,6 +340,64 @@ fn ensure_crypto_provider() {
     if rustls::crypto::CryptoProvider::get_default().is_none() {
         let _ = rustls::crypto::ring::default_provider().install_default();
     }
+}
+
+/// Verify the selected release before advertising or downloading its bundle.
+async fn verified_artifact(
+    app: &AppHandle,
+    pick: &release_feed::ReleasePick,
+    update: &tauri_plugin_updater::Update,
+) -> Result<VerifiedArtifact, String> {
+    if update.version != pick.version || !version_lt(&app.package_info().version.to_string(), &pick.version) {
+        return Err("The update metadata does not name the newer release selected for this app.".into());
+    }
+    let publisher = app
+        .config()
+        .plugins
+        .0
+        .get("updater")
+        .and_then(|config| config.get("pubkey"))
+        .and_then(|key| key.as_str())
+        .ok_or("This app has no publisher public key for update verification.")?;
+    let component = TAG_PREFIX.trim_end_matches("-v");
+    let artifact = artifact_name(component, &pick.version, std::env::consts::OS, std::env::consts::ARCH)?;
+    ensure_crypto_provider();
+    let client = reqwest::Client::builder()
+        .timeout(FEED_TIMEOUT)
+        .user_agent(concat!("SubshellDesktop/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let base = latest_manifest_url(&pick.tag);
+    let base = base
+        .strip_suffix("latest.json")
+        .ok_or("Invalid release manifest URL.")?;
+    let manifest =
+        fetch_verification_metadata(&client, &format!("{base}release-manifest.json"), MANIFEST_LIMIT).await?;
+    let signature =
+        fetch_verification_metadata(&client, &format!("{base}release-manifest.json.sig"), SIGNATURE_LIMIT).await?;
+    let signature = std::str::from_utf8(&signature).map_err(|e| format!("Invalid release signature text: {e}"))?;
+    VerifiedArtifact::from_manifest(&manifest, signature, publisher, component, &pick.version, &artifact)
+}
+
+async fn fetch_verification_metadata(client: &reqwest::Client, url: &str, limit: usize) -> Result<Vec<u8>, String> {
+    let mut response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?;
+    if response.content_length().is_some_and(|length| length > limit as u64) {
+        return Err("Release verification metadata exceeds its size limit.".into());
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+        if chunk.len() > limit - bytes.len() {
+            return Err("Release verification metadata exceeds its size limit.".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
 }
 
 /// GET the release list and parse it.

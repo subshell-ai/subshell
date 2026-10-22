@@ -1,4 +1,143 @@
-# Security actionable items: 2026-09-23 documentation sweep
+# Security follow-ups and audit history
+
+## Targeted code audit: 2026-10-21
+
+This pass reviewed authentication and scoped credentials, node enrollment and
+command transport, SSH relay authorization, terminal attachment, filesystem
+uploads and transfers, and channel routing against the existing threat model.
+It reproduced and patched two authorization defects:
+
+1. **High: cookie requests lacked an origin gate outside better-auth.** A
+   form-encoded POST from an untrusted origin reached a protected mutation
+   with the victim's cookie. The CORS middleware hid its response but allowed
+   the write. The terminal's cookie fallback also accepted a WebSocket upgrade
+   from that origin. An attacker needs a page on the same site as the instance
+   for the browser to send its SameSite cookie; terminal access additionally
+   needs a known subshell id. `authGuard` and the separate setup/network
+   credential gate now check cookie requests against the live trusted-origin
+   registry, and `/ws` and `/ws/live` check origins before upgrading.
+   Missing Origin remains supported for native clients;
+   explicitly supplied bearer credentials retain their existing REST policy.
+   `api/__tests__/browser-origin.test.ts` exercises real session cookies,
+   form submissions and database effects, live origin changes, bearer
+   precedence, and real WebSocket handshakes on an ephemeral loopback port.
+   The form mutation and foreign-origin upgrades succeeded before the fix.
+   The tmux installer regression also proves that an untrusted origin cannot
+   reach installer selection with an admin cookie; it reached that step
+   before the fix. Network management uses the same setup credential gate.
+
+2. **Medium: a node could tear down another pair's SSH relay.** Normal frames
+   checked the authenticated sender against the pairing, but oversized frames
+   lost that identity and called `closeRelay(ref)`. A node knowing a relay's
+   routing id could close it without belonging to either side. Routing ids
+   are diagnostic identifiers, not credentials. The rejection path now passes
+   the authenticated node id into the broker and checks membership before any
+   state, timer, peer-command or audit effect. The regression reproduced the
+   unauthorized teardown; it now verifies that an unrelated sender changes
+   nothing and either legitimate participant can still trigger the refusal.
+
+`bun run audit:deps` reported eight advisories across seven packages, all
+covered by existing entries in `scripts/dep-audit.ignore.json`. Those
+exceptions remain unresolved dependencies, not a clean vulnerability scan.
+This was a targeted source audit and regression exercise, not exhaustive
+coverage of the native desktop/mobile apps, all deployment configurations,
+the release supply chain, or a live-instance penetration test. The accepted
+OS-user, administrator and control-plane trust boundaries remain as documented.
+
+The browser distinction matters here: SameSite is weaker than same-origin,
+and cross-origin writes need server-side protection. See
+[MDN's CSRF guidance](https://developer.mozilla.org/en-US/docs/Web/Security/Attacks/CSRF).
+
+## API surface follow-up: 2026-10-21
+
+The main API router mounts 190 method/path pairs: 166 inherit `authGuard`,
+including its scoped-key permission check, and 24 use an explicit public,
+conditional, or capability-based boundary. The follow-up also examined the
+auth passthrough outside that router, administrator and node gates, ownership
+checks on resource handlers, and the setup/network exceptions.
+
+**Low: GET requests bypassed the self-service API-key block.** Elysia selected
+`GET /api/auth/*` before the more specific `ALL /api/auth/api-key/*`, so a
+signed-in user could reach better-auth's key listing and lookup. Listing
+returned 200 where the application's policy required 403. The upstream reads
+remain caller-owned and omit the key itself; no privilege escalation or
+plaintext-key disclosure was demonstrated. The block now runs inside the
+passthrough before any session lookup or vendor handler, regardless of method.
+Regression tests cover create, list, and lookup; both GET cases failed before
+the patch and pass afterwards.
+
+`api/__tests__/api-surface-auth.test.ts` now checks the composed route table:
+
+- Every route either carries the shared authentication and permission hooks
+  or appears in a named exception inventory. A newly unguarded endpoint fails.
+- All 166 ordinary routes reject anonymous requests and verified node keys.
+- Administrative route families retain the cookie-admin guard. Their reads
+  reject ordinary users and system keys.
+- Setup and network exceptions reject missing credentials after first setup.
+
+The exception inventory records the actual boundaries: public sign-in metadata
+and setup status; cookie-authenticated setup progress and installers;
+conditionally public built-in plugin setup; cookie-admin network operations;
+downloads authenticated by a cookie, setup key, or update ticket; setup-key
+enrollment; encrypted paired-node discovery; and expiring restore-status
+capabilities. Existing tests separately exercise those credentials and
+resource ownership. This inventory is a regression control, not a substitute
+for reviewing a route's business logic, fuzzing every payload, or testing
+deployment-specific proxies and authentication providers.
+
+## Authentication, content, restore, native and update follow-up: 2026-10-22
+
+This pass traced five additional areas through the current implementation:
+
+| Area | Boundaries reviewed | Result |
+| --- | --- | --- |
+| Authentication and recovery | Provider enablement and linking policy, OAuth state/PKCE and configured callbacks, passkey challenge/session/RP binding, disabled/pending accounts, emergency login and restore password recovery | No additional exploitable bypass confirmed. Provider configuration remains an administrator trust decision. |
+| Browser rendering | Terminal byte sinks, ordinary and OSC 8 links, OSC 52 clipboard requests, stored text and URL rendering | No HTML injection sink found for pane output. Terminal links restrict schemes; clipboard reads are refused and writes require a click. |
+| Backup and restore | Tar path/type/duplicate checks, expanded-byte limits, authenticated decryption before parsing, SQLite schema checks, stage ownership/expiry and recovery-session revocation | No additional bypass confirmed in the reviewed paths. Restoring plugins remains an explicit administrator code-trust decision. |
+| Native permissions | Both apps' capability manifests, committed-page trust, chosen-origin binding, local key picker/unlock separation, signer ownership, host/session binding and expiry | No additional privilege bypass confirmed. Native platform behavior was reviewed from source and tested through the Rust suites, without driving installed apps. |
+| Release and update delivery | CLI manifest verification, node re-verification, release signing/merge pipeline and both desktop installers | One desktop artifact-substitution gap patched, below. |
+
+**Medium: desktop bundle signatures did not bind the advertised app/version.**
+Both desktop apps trusted a publisher signature over the downloaded bundle,
+while the version and URL came from unsigned `latest.json`. A compromised
+release host could advertise a newer version while serving an older signed
+bundle or the other desktop app. This requires control over release delivery
+and a user initiating installation; it does not permit arbitrary unsigned code.
+The new check verifies the existing signed release manifest's component,
+selected newer version and platform filename, then hashes the exact downloaded
+buffer before installation. Tauri's bundle-signature check remains in place.
+Check and install both refuse missing or invalid manifests. CI already publishes
+these signed manifests, so the patch needs no new signing key or release format.
+
+`crates/desktop-core/tests/release_verification.rs` uses real Tauri-generated
+signatures from a throwaway key. Its regression demonstrates that an older
+payload passes the bundle signature check and fails the new manifest digest
+check. It also rejects another component/version, an absent platform asset,
+altered manifest bytes and wrong/missing signatures. No test installs a bundle.
+Tauri documents the distinction between signed installer artifacts and the
+JSON update feed in its [updater guide](https://v2.tauri.app/plugin/updater/).
+
+This remains a source audit with regression tests, not a certification. It does
+not exercise every live identity provider, browser/WebView platform or release
+installation, inspect CI secret custody, or retest the mobile application.
+Dependency follow-up (2026-10-22): five of the eight advisories are resolved.
+Root overrides select glob 11.1.0 for hash-runner, uuid 11.1.1 for xcode,
+decode-uri-component 0.5.0 and image-size 2.0.4. Versioned Bun patches adapt
+query-string's decoder import and Metro's file input to those fixed APIs.
+Remove each override and its matching compatibility patch when the consumer
+accepts the fixed API upstream; rerun the consumer regressions and dependency
+audit before doing so. The patches are install-time Bun patches, recorded in
+the lockfile, and were verified in a fresh frozen install.
+Consumer regressions exercise Node interoperability, malformed URL decoding,
+zero-length ICNS entries, image and non-image asset loading, UUID generation
+and glob matching. The Android JS export also builds successfully.
+
+Three exceptions remain: node-forge, braces and sprintf-js have no published
+fix. Their exposure and removal conditions remain in
+`scripts/dep-audit.ignore.json`. No exception remains for the five fixed
+advisories.
+
+## Earlier documentation sweep: 2026-09-23
 
 **STATUS: Rounds 1–3 CLOSED. Round 3 (14 items from four adversarial sweeps:
 credentials/WS, injection/labels, races/TOCTOU, updates/deps) was implemented

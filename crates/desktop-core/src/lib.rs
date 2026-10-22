@@ -77,6 +77,7 @@ pub mod pending_install;
 pub mod permissions;
 pub mod proc;
 pub mod release_feed;
+pub mod release_verification;
 pub mod reset_guards;
 pub mod settings;
 pub mod shell_env;

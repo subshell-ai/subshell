@@ -11,11 +11,10 @@
  * allowlisted entry whose package has been fixed (or dropped) warns, so the
  * file records what is true rather than what was once true.
  *
- * The allowlist is the whole design: an in-range `bun audit fix` runs are
- * always applied, and what remains is blocked by a dependent's pin
- * (query-string→decode-uri-component, metro→image-size, xcode→uuid,
- * hash-runner→glob). Each entry carries the reason it is tolerated, so
- * "ignore this" is never the reason.
+ * Take published fixes where consumer compatibility can be verified. Root
+ * overrides and patches bridge upstream pins; their regression tests live in
+ * scripts/__tests__/dependency-security.test.ts. Each remaining exception
+ * explains its exposure and why it cannot currently be removed.
  *
  *   bun scripts/dep-audit.ts          # what CI runs (root: `bun run audit:deps`)
  */

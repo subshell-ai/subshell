@@ -21,6 +21,11 @@ import { backupPasswordChangeRequired } from "@/services/backup-admin-recovery.j
  */
 async function handleAuth(request: Request): Promise<Response> {
   const path = new URL(request.url).pathname;
+  // Enforce this inside the passthrough: Elysia's GET /api/auth/* wins
+  // over a more specific ALL /api/auth/api-key/* for GET requests.
+  if (path === "/api/auth/api-key" || path.startsWith("/api/auth/api-key/")) {
+    return Response.json({ message: "API keys are managed via /api/system-keys" }, { status: 403 });
+  }
   const cookieHeader = request.headers.get("cookie") ?? "";
   const session = await resolveCookieSession(cookieHeader);
   if (!session && cookieHeader.includes("better-auth.session_data")) {
@@ -48,9 +53,6 @@ async function handleAuth(request: Request): Promise<Response> {
 }
 
 export const authPlugin = new Elysia({ name: "auth" })
-  .all("/api/auth/api-key/*", () =>
-    Response.json({ message: "API keys are managed via /api/system-keys" }, { status: 403 }),
-  )
   // Registered as .get() in ADDITION to .all(): the static plugin's SPA
   // fallback (a `.get("*")`) outranks `.all()` wildcards in Elysia's router,
   // so GET /api/auth/get-session would otherwise 404 (or get index.html).

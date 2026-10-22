@@ -14,6 +14,7 @@ import {
 } from "@internal/subshell-protocol";
 import type { NodeSocket } from "@/services/nodes/node-registry.js";
 import { attachConnection, getLive, resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
+import { onRelayFrameOverCap } from "@/services/nodes/relay-frames.js";
 import {
   closeRelayForPaneExit,
   createRelayBroker,
@@ -569,16 +570,32 @@ describe("teardown (spec §5.6, Task 8 (f))", () => {
     }
   });
 
-  it("an over-cap frame closes the session it names, by name, and the blob never comes along", async () => {
+  it("an unrelated node cannot close a relay by sending an over-cap frame with its ref", async () => {
     const h = makeHarness({ relaySend: () => {} });
     const r = await h.open();
-    expect(await h.broker.refuseOverCap(r.ref)).toBe(true);
+    setRelayBrokerForTests(h.broker);
+    try {
+      onRelayFrameOverCap("unrelated-node", r.ref);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(h.broker.sessionInfo(r.ref)).not.toBeNull();
+      expect(h.commands.filter((c) => c.cmd.type === "ssh_relay_close")).toHaveLength(0);
+      expect(h.audits.filter((a) => a.action === "node.ssh_relay.close")).toHaveLength(0);
+      expect(h.timers.filter((timer) => !timer.cancelled)).toHaveLength(1);
+    } finally {
+      setRelayBrokerForTests(null);
+    }
+  });
+
+  it.each(["a", "b"])("an over-cap frame from participant %s closes its relay", async (sender) => {
+    const h = makeHarness({ relaySend: () => {} });
+    const r = await h.open();
+    expect(await h.broker.refuseOverCap(sender, r.ref)).toBe(true);
     expect(
       h.commands.some((c) => c.cmd.type === "ssh_relay_close" && (c.cmd as { reason: string }).reason === "over-cap"),
     ).toBe(true);
     expect(h.broker.sessionInfo(r.ref)).toBeNull();
     expect(JSON.stringify(h.audits)).not.toContain("over-cap-blob-bytes");
-    expect(await h.broker.refuseOverCap("r-unknown")).toBe(false);
+    expect(await h.broker.refuseOverCap(sender, "r-unknown")).toBe(false);
   });
 
   it("closeRelay is idempotent: the second cut answers false and fires no second audit", async () => {

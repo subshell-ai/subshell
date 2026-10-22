@@ -94,8 +94,8 @@ export function onRelayFrame(nodeId: string, frame: RelayFrame): void {
 
 /**
  * Refuse an over-cap relay frame BY NAME (spec 2026-10-08 §5.1): the broker
- * closes the session named by `ref` with reason `over-cap`, to both sides,
- * audited. An unbrokered ref has no session to close and costs a log line.
+ * closes the sender's session named by `ref` with reason `over-cap`, to both
+ * sides, audited. An unknown ref or a sender outside the pairing closes nothing.
  * @param nodeId - the node whose authenticated socket produced the frame
  * @param ref - the routing ref the well-formed candidate carried
  */
@@ -108,7 +108,7 @@ export function onRelayFrameOverCap(nodeId: string, ref: string): void {
     overCapByNode.set(nodeId, { overCaps: 1, lastRef: ref });
   }
   void getRelayBroker()
-    .refuseOverCap(ref)
+    .refuseOverCap(nodeId, ref)
     .catch((err: unknown) => logger.withError(err).warn(`relay over-cap close for ${ref} threw: ${String(err)}`));
 }
 

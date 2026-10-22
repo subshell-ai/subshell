@@ -1,4 +1,6 @@
 import { Elysia } from "elysia";
+import { HttpError } from "@/api/auth-guard.js";
+import { browserOriginAllowed } from "@/lib/browser-origin.js";
 import {
   authenticateNodeUpgrade,
   getNodeWsDeps,
@@ -33,9 +35,12 @@ export const wsPlugin = new Elysia({ name: "ws" }).ws("/ws", {
    * node identity.
    */
   upgrade(context) {
-    const request = (context as { request?: Request }).request;
+    const { request } = context;
+    if (!browserOriginAllowed(request)) {
+      throw new HttpError(403, "This request came from an untrusted origin.");
+    }
     Object.assign(context as Record<string, unknown>, {
-      attachUa: request?.headers.get("user-agent") ?? "unknown",
+      attachUa: request.headers.get("user-agent") ?? "unknown",
     });
   },
   open(ws) {
@@ -119,13 +124,16 @@ wsPlugin.ws("/ws/node", {
  * Replaces the `/api/events` SSE stream, which held one of the browser's six
  * per-origin HTTP/1.1 connections for the life of every tab. Auth is the same
  * single-use `?token=` the attach path uses, redeemed in `open`; there is no
- * upgrade hook because nothing here needs the request — unlike `/ws`, which
- * stashes the User-Agent, and `/ws/node`, which authenticates a bearer key.
+ * upgrade-time identity lookup. Its upgrade hook enforces the browser origin
+ * boundary before the token is redeemed in `open`.
  *
  * The client sends nothing on this socket yet, so there is no `message`
  * handler to write; `watch-previews` arrives with the preview work.
  */
 wsPlugin.ws("/ws/live", {
+  upgrade({ request }) {
+    if (!browserOriginAllowed(request)) throw new HttpError(403, "This request came from an untrusted origin.");
+  },
   open(ws) {
     // Fire-and-forget: the handler owns its own refusal (close 4001) and its
     // own failures, and awaiting here would hold Elysia's open callback for a
