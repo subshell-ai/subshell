@@ -7,6 +7,7 @@ import { EditableText } from "@/components/editable-text";
 import { HarnessSubagentTitle } from "@/components/harness-subagents";
 import { SshPaneLabels } from "@/components/ssh-pane-labels";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
+import { SubshellDevices } from "@/components/subshell-devices";
 import { SubshellDot } from "@/components/subshell-dot";
 import { TrustIndicators } from "@/components/trust-indicators";
 import { useCloseSubshellLanding } from "@/hooks/use-close-subshell-landing";
@@ -15,6 +16,7 @@ import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
 import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
 import { useNodes } from "@/hooks/use-nodes";
 import { usePaneCopyMode } from "@/hooks/use-pane-copy-mode";
+import { usePaneDevices } from "@/hooks/use-pane-devices";
 import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { useTrustNotices } from "@/hooks/use-trust-notices";
 import { invalidateAfterRename } from "@/hooks/use-workspaces";
@@ -83,6 +85,7 @@ export function PaneFocusHeader({
   const focusedId = useWorkspaceFocusedId();
   const focusedPane = panes.find((pane) => pane.subshellId === focusedId);
   const subshell = useSubshellRow(focusedPane?.subshellId ?? "");
+  const devices = usePaneDevices(focusedPane?.id);
   const trustNotices = useTrustNotices(focusedPane ? subshell : undefined);
   const stacked = useIsStackedHeader();
   const { data: nodesData } = useNodes();
@@ -154,6 +157,7 @@ export function PaneFocusHeader({
         <>
           {isPane && subshell && <SshPaneLabels subshell={subshell} nodeLabel={nodeLabel} />}
           {isPane && <TrustIndicators notices={trustNotices} />}
+          {devices && <SubshellDevices key={focusedPane?.id} state={devices.state} onSizing={devices.onSizing} />}
           {focusedPane && (
             <FocusedPaneActions
               key={focusedPane.subshellId}

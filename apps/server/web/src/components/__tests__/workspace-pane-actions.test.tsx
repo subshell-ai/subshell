@@ -1,4 +1,5 @@
 import { afterEach, expect, it } from "bun:test";
+import type { ViewersState } from "@internal/subshell-protocol";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
@@ -7,8 +8,9 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { PaneFocusHeader } from "@/components/pane-focus-header";
+import { usePublishPaneDevices } from "@/hooks/use-pane-devices";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import { resetWorkspaceFocusForTests, setWorkspaceFocusedId } from "@/lib/workspace-focus";
 import type { SubshellView } from "@/types/subshell";
@@ -120,4 +122,43 @@ it("shows the workspace's plain name only while no pane has focus", async () => 
   expect(await screen.findByText("My workspace")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Rename subshell" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Rename workspace" })).toBeNull();
+});
+
+it("keeps device controls in the header and targets the newly focused pane", async () => {
+  const state: ViewersState = {
+    you: "me",
+    viewers: ["me", "phone"].map((id) => ({
+      id,
+      label: id,
+      capacity: { cols: 80, rows: 24 },
+      since: "2026-10-21",
+      canInput: true,
+      hidden: false,
+    })),
+    sizing: { mode: "auto", pinnedViewerId: null },
+  };
+  const calls: string[] = [];
+  const first = () => {
+    calls.push("first");
+  };
+  const second = () => {
+    calls.push("second");
+  };
+  const publisher = renderHook(() => {
+    usePublishPaneDevices("pane-first", state, first);
+    usePublishPaneDevices("pane-second", state, second);
+  });
+  setWorkspaceFocusedId("first");
+  await header([row("first"), row("second")]);
+  const trigger = await screen.findByRole("button", { name: /devices watching/i });
+  expect(trigger.closest("header")).not.toBeNull();
+  fireEvent.keyDown(trigger, { key: "ArrowDown" });
+  await screen.findAllByRole("menuitem");
+  act(() => setWorkspaceFocusedId("second"));
+  await waitFor(() => expect(screen.queryByRole("menu") === null).toBe(true));
+  fireEvent.keyDown(screen.getByRole("button", { name: /devices watching/i }), { key: "ArrowDown" });
+  fireEvent.click(await screen.findByRole("menuitem", { name: /me.*this device/i }));
+  expect(calls).toEqual(["second"]);
+  publisher.unmount();
+  expect(screen.queryByRole("button", { name: /devices watching/i }) === null).toBe(true);
 });

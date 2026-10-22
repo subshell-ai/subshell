@@ -360,7 +360,6 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
                 // pointer itself, so a narrow desktop window gets no bar here
                 // any more than in the dock.
                 showKeyBar={pane.id === selected?.id}
-                showTrustIndicators={false}
                 onRestart={(subshellId) => void handleRestart(subshellId)}
                 onRemovePane={(paneId) => void handleRemovePane(paneId)}
               />
