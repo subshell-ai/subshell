@@ -187,8 +187,8 @@ export interface RelayBroker {
   closeUnauthorizedForNode(nodeId: string): Promise<number>;
   /** Pane-death hook (the §5.6 child-exit cut; wired at the sweep sites). Returns sessions closed. */
   closeForPane(paneId: string, reason: SshRelayCloseReason): Promise<number>;
-  /** §5.1's over-cap refusal: close the named ref with reason `over-cap`. */
-  refuseOverCap(ref: string): Promise<boolean>;
+  /** Close an over-cap sender's own relay; the authenticated node must belong to the pairing. */
+  refuseOverCap(nodeId: string, ref: string): Promise<boolean>;
   /** The `a-dropped` cut, witnessed by the node socket's death. Returns sessions closed. */
   onNodeSocketClosed(nodeId: string): Promise<number>;
   /** Live sessions touching this node in EITHER role (the quota's count). */
@@ -578,7 +578,13 @@ export function createRelayBroker(deps: RelayBrokerDeps): RelayBroker {
       for (const s of forEach((x) => x.paneId === paneId)) if (await closeRelay(s.ref, reason)) n += 1;
       return n;
     },
-    refuseOverCap: (ref) => closeRelay(ref, "over-cap"),
+    async refuseOverCap(nodeId, ref) {
+      const s = byRef.get(ref);
+      // A routing ref is not a credential. Rejection must enforce the same
+      // node boundary as forwarding, before sending teardown to either peer.
+      if (!s || (s.aNode !== nodeId && s.bNode !== nodeId)) return false;
+      return closeRelay(ref, "over-cap");
+    },
     async onNodeSocketClosed(nodeId) {
       // ONLY the A-side cut (§5.6: "A-drop ... as earlier cuts"). B's link
       // may redial with its registry intact; B's real end is the child-exit

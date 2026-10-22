@@ -192,9 +192,13 @@ Four more things carry the weight of the app half specifically:
   `endpoints([<that release>/latest.json])`. `SUBSHELL_RELEASE_URL` repoints
   the list; an EMPTY value turns the whole thing off, the same air-gapped
   answer the server has.
-- **The trust is a compiled-in public key**, so a compromised release host can
-  WITHHOLD an update and cannot supply one. That is strictly stronger than the
-  CLI path, where the digest and the bytes come from the same source.
+- **The trust is a compiled-in public key.** Both desktop apps verify the
+  signed release manifest's component, selected version and platform digest,
+  alongside the updater's bundle signature. The downloaded buffer must match
+  that digest before `install` receives it. This prevents unsigned
+  `latest.json` metadata from relabeling an older signed bundle or substituting
+  another app. A release host can still withhold releases. Both CLI update
+  paths also use signed manifests.
 - **The launch check is once a day and opens nothing.** `settings.json`'s
   `lastUpdateCheckAt` / `lastUpdateVersion` are the whole mechanism
   (`release_feed::due_for_check`); the only output is the tray item's label.

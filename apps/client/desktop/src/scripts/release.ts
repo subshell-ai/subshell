@@ -730,12 +730,9 @@ async function main(): Promise<void> {
 
   const dest = resolveReleaseDir();
   await publishArtifacts(artifacts, dest);
-  // The fifth asset (spec 2026-09-15 §3.2), after a complete publish: the
-  // Updates page reads it to say which desktop version is available. The
-  // `assets` map (spec 2026-09-17 D2) is assembled from the digests already
-  // computed for the sidecars; the desktop app's own update path stays on
-  // `tauri-plugin-updater`'s per-bundle signature — this manifest is not
-  // what the installed app checks.
+  // CI merges and signs this map across platforms. Installed desktop apps
+  // bind their downloaded bundle to its component, version and digest before
+  // installation, in addition to checking the bundle's own signature.
   const assets: Record<string, string> = {};
   for (const [, a] of artifacts) assets[basename(a.path)] = a.digest;
   const manifest = await writeReleaseManifest(dest, {

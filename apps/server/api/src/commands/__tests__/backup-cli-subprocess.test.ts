@@ -589,7 +589,13 @@ for (const container of [false, true])
         transactionId: stage.id,
         outcome: "completed",
       });
-      expect((await fetch(`${restoredOrigin}/api/admin/backups/saved`, { headers })).status).toBe(401);
+      expect((await fetch(`${restoredOrigin}/api/admin/backups/saved`, { headers })).status).toBe(403);
+      // The old origin is no longer trusted after the port changes. Use the
+      // restored origin to also prove that restore revoked the old session.
+      expect(
+        (await fetch(`${restoredOrigin}/api/admin/backups/saved`, { headers: { ...headers, Origin: restoredOrigin } }))
+          .status,
+      ).toBe(401);
       expect((await fetch(`${restoredOrigin}/api/restore-status/${crypto.randomUUID()}`)).status).toBe(404);
     } finally {
       rmSync(directory, { recursive: true, force: true });

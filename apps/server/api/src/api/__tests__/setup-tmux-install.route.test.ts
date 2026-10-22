@@ -140,6 +140,25 @@ describe("POST /api/setup/tmux/install", () => {
     expect(res.status).toBe(403);
   });
 
+  it("rejects an untrusted browser origin before an admin cookie reaches the installer", async () => {
+    let installerChecks = 0;
+    setTmuxInstallDepsForTests({
+      chooseInstaller: () => {
+        installerChecks += 1;
+        return null;
+      },
+      which: () => null,
+      timeoutMs: 5_000,
+      extraPath: async () => [],
+    });
+    const installFrom = (origin: string) =>
+      app.fetch(authedRequest("/api/setup/tmux/install", adminCookie, { method: "POST", headers: { origin } }));
+    expect((await installFrom("http://localhost:61987")).status).toBe(403);
+    expect(installerChecks).toBe(0);
+    expect((await installFrom("http://localhost:5174")).status).toBe(409);
+    expect(installerChecks).toBe(1);
+  });
+
   it("403s any bearer key, including a valid subshell key", async () => {
     const res = await app.fetch(bearerRequest("/api/setup/tmux/install", subshellKey, { method: "POST" }));
     expect(res.status).toBe(403);

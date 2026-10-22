@@ -30,7 +30,7 @@ const frame: RelayFrame = {
 
 /** A recording broker: the seam's three verbs, counted, with an optional throw. */
 function spyBroker(overrides: Partial<RelayBroker> = {}) {
-  const calls: { route: [string, RelayFrame][]; overCap: string[]; socketClosed: string[] } = {
+  const calls: { route: [string, RelayFrame][]; overCap: [string, string][]; socketClosed: string[] } = {
     route: [],
     overCap: [],
     socketClosed: [],
@@ -46,8 +46,8 @@ function spyBroker(overrides: Partial<RelayBroker> = {}) {
     closeRelay: noop(),
     closeUnauthorizedForNode: async () => 0,
     closeForPane: async () => 0,
-    refuseOverCap: async (ref) => {
-      calls.overCap.push(ref);
+    refuseOverCap: async (nodeId, ref) => {
+      calls.overCap.push([nodeId, ref]);
       return false;
     },
     onNodeSocketClosed: async (nodeId) => {
@@ -122,7 +122,10 @@ describe("onRelayFrameOverCap (the named refusal, §5.1)", () => {
     onRelayFrameOverCap("n-d", "r-1");
     onRelayFrameOverCap("n-d", "r-2");
     await Promise.resolve();
-    expect(calls.overCap).toEqual(["r-1", "r-2"]);
+    expect(calls.overCap).toEqual([
+      ["n-d", "r-1"],
+      ["n-d", "r-2"],
+    ]);
     expect(relayOverCapsSeenFor("n-d")).toEqual({ overCaps: 2, lastRef: "r-2" });
     // Per-node isolation, same posture as the routed summary.
     expect(relayOverCapsSeenFor("n-e")).toBeUndefined();

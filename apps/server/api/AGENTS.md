@@ -66,6 +66,12 @@ surfaces), and defines the `status`-carrying error classes Elysia maps to HTTP
 codes. `src/server.ts` composes the app; `src/index.ts` boots it (runs
 migrations, then listens).
 
+`api/__tests__/api-surface-auth.test.ts` checks the composed main router:
+every route must inherit the shared authentication and scoped-key permission
+hooks or appear in its explicit exception inventory. It also pins the admin
+route families and probes anonymous and node-key requests. Keep a new public
+or conditionally authenticated route's credential boundary in that inventory.
+
 **Sign-in providers (spec 2026-09-24).** Provider config lives in the
 `auth_providers` table; the E-mail provider is row `email`, and its
 `registration_enabled` IS the old global registration switch. The
@@ -421,7 +427,7 @@ Four credential kinds; `apps/server/api/src/api/auth-guard.ts` is the only place
 - **Subshell token**: 7-day TTL, self-extending while its MCP child runs; revoked **instantly** on terminate/delete; rotated on restart on the same row. Permissions `{channels:[read,write], subshells:[read,write], prompts:[read,write]}`: a scope gate, not a row fence (§4); a map minted before prompts lacks the key and passes only that resource's check (§4). Mints a WS attach token only for its **own** pane.
 - **Node key**: `/ws/node` and the encrypted, pinned-identity discovery envelope at `/api/nodes/route` only; **no plaintext bearer access on REST** (permanent guard rejection, §5.5); refused at the upgrade chain's final tier while its owner's account is disabled (HTTP-403-shaped close `4403` pre-socket, the check landing after `apiKeyId`; `local`/system-owned rows unaffected); blast radius = impersonating that one node.
 
-**Forgery defense**: the guard never trusts api-key metadata: a key is a subshell principal only when the subshell row's `api_key_id` (written only by `issueSubshellToken`) equals the presenting key's id; `/api/auth/api-key/*` self-service endpoints are blocked at the mount; a key whose `referenceId` is not the `system` service user is not a system key; a valid key whose subshell row is gone returns 401 (**the row is lifecycle truth**); raw SQL against `apikey` lives only in `src/auth/apikey-store.ts`, scoped with `json_extract`, never `LIKE`.
+**Forgery defense**: the guard never trusts api-key metadata: a key is a subshell principal only when the subshell row's `api_key_id` (written only by `issueSubshellToken`) equals the presenting key's id; `/api/auth/api-key/*` self-service endpoints are blocked inside the auth passthrough on every method (Elysia's broader GET route can outrank an ALL wildcard); a key whose `referenceId` is not the `system` service user is not a system key; a valid key whose subshell row is gone returns 401 (**the row is lifecycle truth**); raw SQL against `apikey` lives only in `src/auth/apikey-store.ts`, scoped with `json_extract`, never `LIKE`.
 
 **Registration**: the first registered user becomes admin. The email gate is the **E-mail provider row's** `registration_enabled` (Settings → Auth is the sole surface; a legacy PATCH of the old `allow_registrations` key translates to the row, audited under the old name). NULL on the row = the legacy dynamic window, open **only while the instance has no users at all**; a stored value fails closed unless exactly 1. Every OIDC provider answers its own `registration_enabled` (explicit 0/1, NULL reads closed). One function decides the email answer (`services/registration-gate.ts`) for all three surfaces.
 
@@ -437,7 +443,7 @@ Four credential kinds; `apps/server/api/src/api/auth-guard.ts` is the only place
 
 **The one anonymous read** (§2): `GET /api/settings/instance` → `{ instanceName, providers, emailSignIn }`: ONE route, the sole pre-auth route outside first-run; it names the open sign-in providers (id, name, kind only; never issuer, client id, or any secret). Load-bearing guards: own route module (`authGuard` is scoped to the whole settings group, so nothing of `GET /api/settings/public` is anonymous); a test asserts the **entire response key set and the nested providers shape** (`GET /api/admin/server` carries the same rule); `instanceName` normalized on read as well as write (provider names are served as stored, trimmed only at write). Never fold it into `GET /api/setup/status` (infinite stale cache).
 
-**WS attach** (§8): 30 s single-use token from `POST /api/auth/ws-token`; a cookie mints unbound; a **system key** binds it to any named pane; a **subshell's own key** only its own, by `sess:` equality checked **before** the row lookup (a bad id cannot enumerate subshells). Redemption CONSUMES the token, then checks the bind; a wrong-pane attempt burns it and gets the same `4001` a bad token gets. `/ws/live` refuses scoped tokens outright; BOTH redemption sites (`attach-resolve`, the feed's `handleLiveOpen`) re-ask `accountDisabled` after consuming: the flag cannot be beaten; the feed fails CLOSED on a throwing re-ask (a feed socket is never re-checked once open). With **no token parameter** the upgrade resolves the session cookie directly (same-host WebSockets run on this; `SameSite=Lax` suppresses cross-site upgrades); that fallback applies the same `accountDisabled` refusal the REST guard makes. A WS authenticates at connect and is never re-checked (§11.5). Outstanding tokens are capped (`MAX_PENDING_WS_TOKENS` = 10 000: sweep-then-refuse).
+**WS attach** (§8): 30 s single-use token from `POST /api/auth/ws-token`; a cookie mints unbound; a **system key** binds it to any named pane; a **subshell's own key** only its own, by `sess:` equality checked **before** the row lookup (a bad id cannot enumerate subshells). Redemption CONSUMES the token, then checks the bind; a wrong-pane attempt burns it and gets the same `4001` a bad token gets. `/ws/live` refuses scoped tokens outright; BOTH redemption sites (`attach-resolve`, the feed's `handleLiveOpen`) re-ask `accountDisabled` after consuming: the flag cannot be beaten; the feed fails CLOSED on a throwing re-ask (a feed socket is never re-checked once open). With **no token parameter** the upgrade resolves the session cookie directly (same-host WebSockets run on this; the upgrade rejects a present Origin outside the live trusted-origin registry); that fallback applies the same `accountDisabled` refusal the REST guard makes. A WS authenticates at connect and is never re-checked (§11.5). Outstanding tokens are capped (`MAX_PENDING_WS_TOKENS` = 10 000: sweep-then-refuse).
 
 **Login rate limit**: per email only, `2^n` s capped at 30, emails lowercased and trimmed. Nothing else is rate-limited.
 
@@ -477,6 +483,14 @@ file's "First-connection SSH destination confirmation" section below. The rules
 **Local key signing** (`/api/ssh/local-key*`, cookie-session only) feeds signatures through a session-scoped, sequence-checked, one-use bridge: one key, ≤8 requests, 90 s. The browser worker's disposal is a lifetime boundary, NOT a defense against the page it runs in (that path's trust-the-site checkbox is load-bearing); the native path keeps private material outside the remote page and approves the destination natively.
 
 ## CORS & rate limiting
+
+Cookie authentication in `authGuard` and the separate setup/network credential
+gate, plus browser upgrades at `/ws` and `/ws/live`, reject a present Origin
+outside the live trusted-origin registry.
+CORS alone does not reject form writes, and SameSite cookies still accompany
+same-site requests from other origins. Native clients may omit Origin; empty
+and opaque origins are refused. Explicit bearer REST requests keep their
+credential and scope checks.
 
 The origin allowlist and the one rate limit, moved here from the security
 summary ("§8" points into `docs/security.md`). The config.env section under

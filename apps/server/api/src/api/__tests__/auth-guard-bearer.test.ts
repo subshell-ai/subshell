@@ -183,9 +183,16 @@ describe("authGuard bearer path", () => {
     expect(body.message).toMatch(/node keys/i);
   });
 
-  it("the plugin's self-service api-key endpoints are blocked", async () => {
+  it.each([
+    ["POST", "/api/auth/api-key/create"],
+    ["GET", "/api/auth/api-key/list"],
+    ["GET", "/api/auth/api-key/get?id=missing"],
+  ])("blocks self-service API key requests: %s %s", async (method, path) => {
     const res = await authPlugin.fetch(
-      authedRequest("/api/auth/api-key/create", plainToken, { method: "POST", body: JSON.stringify({ name: "x" }) }),
+      authedRequest(path, plainToken, {
+        method,
+        ...(method === "POST" ? { body: JSON.stringify({ name: "x" }) } : {}),
+      }),
     );
     expect(res.status).toBe(403);
   });

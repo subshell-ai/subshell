@@ -77,6 +77,12 @@ DOM render. Everything with no `tauri` type in it (the endpoint, the tag
 parse, the semver pick, the manifest URL, the 24-hour schedule) is
 `desktop-core`'s `release_feed`, shared.
 
+The shared `release_verification` module verifies the signed release manifest
+and the downloaded buffer's digest before installation, in addition to Tauri's
+bundle signature. An older signed bundle or another app cannot be substituted
+by changing unsigned `latest.json`. Both the check and install paths require
+the manifest; missing or invalid verification metadata refuses the update.
+
 Two facts specific to this app:
 
 - **The node CLI is NOT touched by the app install itself**, which is why

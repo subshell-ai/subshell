@@ -152,8 +152,17 @@ than assume an upgrade narrowed their access.
 
 ### The anonymous surface
 
-Authentication is required on every `/api/*` route except the auth endpoints,
-`GET /api/setup/status`, and one read added in spec 2026-09-08:
+Two API reads deliberately require no credential: `GET /api/setup/status`
+and the instance read below. The auth endpoints have their own sign-in and
+session rules. Other routes outside `authGuard` use explicit boundaries:
+setup harness/plugin routes are public only before the first account exists;
+setup progress needs its owner's cookie, installers and network management
+need an admin cookie, downloads accept a cookie or a setup/update credential,
+node enrollment spends a setup key, node discovery authenticates inside an
+encrypted envelope, and restore status uses an expiring read-only capability.
+`api/__tests__/api-surface-auth.test.ts` inventories these exceptions and
+checks the composed router, so adding a route without a guard requires an
+explicit policy decision.
 
 `GET /api/settings/instance` → `{ instanceName, providers, emailSignIn }`. The
 operator-chosen display name for this control plane, or this host's own name
@@ -226,7 +235,10 @@ metadata, including `kind: "subshell"`. So the guard does **not** trust that
 metadata. A key is a subshell principal only if the subshell row's `api_key_id`
 column, written exclusively by the server's `issueSubshellToken`, equals the
 presenting key's id. As a second layer, the plugin's self-service
-`/api/auth/api-key/*` endpoints are blocked at the mount.
+`/api/auth/api-key/*` endpoints are blocked inside the auth passthrough, before
+session resolution or the vendor handler. This must not rely on an Elysia
+`ALL` route outranking the broader `GET /api/auth/*`: GET listing and lookup
+bypassed that earlier block, reproduced and fixed in the 2026-10-21 API audit.
 
 Three related rules, each tested:
 
@@ -1378,6 +1390,11 @@ cookie API also accepts an omitted fingerprint selection, which selects the
 current agent roster subject to its bounds. The resulting set is retained for
 the connection and subsequent setup; it is not permission to widen that set later.
 
+The relay broker checks the authenticated sending node against both participants
+before forwarding frames or closing a relay for an oversized frame. A routing
+reference identifies a pairing; it does not authorize a node outside that pairing
+to affect it. The over-cap path acquired this check in the 2026-10-21 audit.
+
 The form can enable SSH as part of **Start SSH subshell**, with a notice before
 submission, only when the viewer may configure that node and the disabled flag
 is its sole readiness blocker. It uses the same owner-only API as the node
@@ -2279,6 +2296,18 @@ Six properties of that surface are load-bearing:
 which is where a mismatched origin surfaces as `403 Invalid origin` on
 sign-in, not in dev.
 
+**Cookie requests also enforce the origin list outside better-auth.**
+`authGuard` and the separate setup/network credential gate reject a present,
+untrusted `Origin` before resolving a session cookie. CORS only controls
+whether a browser can read the response: a simple
+form POST can still reach a mutation. SameSite cookies also accompany requests
+from a different origin on the same site. `/ws` and `/ws/live` enforce the same
+live list before upgrading because WebSocket handshakes do not use CORS as an
+access gate. An absent Origin remains supported for native clients; empty and
+opaque (`null`) origins are refused. Explicit bearer authentication on REST
+keeps its credential and scope checks. This closes the form-write and terminal
+upgrade gaps reproduced by the 2026-10-21 audit.
+
 **Instance-level plugin secrets: designed, NOT yet built** (inversion spec
 §9.2). Once plugins run in the control-plane process (§11.9), a credential a
 plugin needs while building argv must be readable here. The mechanism was
@@ -2325,9 +2354,9 @@ re-checked again. **The
 fallback, stated because this file long described a stricter provider than
 exists:** with no token parameter, the upgrade resolves the SESSION COOKIE
 directly, exactly as a REST request does (`attach-resolve.ts:85-91`),
-which is what same-host WebSockets run on; `SameSite=Lax` suppresses the
-cross-site upgrade, so it widens nothing, but the rule is the cookie gate,
-not the token.
+which is what same-host WebSockets run on. `SameSite=Lax` suppresses cross-site
+upgrades but permits same-site requests from different origins, so the upgrade
+also checks the live trusted-origin list before accepting a browser connection.
 
 **Rate limiting.** Login only, per email: no delay on a clean record, then
 `2^n` seconds capped at 30 s. Emails are attributed lowercased and trimmed.
@@ -3437,7 +3466,7 @@ ran over it. What follows is what closing that costs.
 carries a `release-manifest.json` and a `release-manifest.json.sig`: a
 detached minisign signature over the manifest's EXACT published bytes, made
 with the same publisher keypair that signs the desktop apps' updater
-manifests (`TAURI_SIGNING_PRIVATE_KEY`; one key, all four components). The
+bundles (`TAURI_SIGNING_PRIVATE_KEY`; one key, all four components). The
 manifest's `assets` map is the digest source: the sha256 every install
 compares the downloaded bytes against now comes from that SIGNED payload,
 never from the release source's `.sha256` sidecar. So a compromised release
@@ -3483,12 +3512,22 @@ through the authenticated downloads route and never crossed a network nobody
 controls), while every plane's release SELECTION refuses an unsigned release,
 so the closing is done by the selector, not by the publisher's discretion.
 
-**The desktop apps verify one link shorter, on the same key.**
-`tauri-plugin-updater` checks a minisign signature over the BUNDLE bytes
-against a public key compiled into the app (`plugins.updater.pubkey`); the CLI
-paths check a signature over the MANIFEST bytes and then match each downloaded
-file against a digest read from that verified payload. Both rest on the same
-keypair since spec 2026-09-17, which is also what RAISED the stakes on it:
+**The desktop apps bind updates to the signed release manifest too.**
+`tauri-plugin-updater` checks a minisign signature over the bundle bytes against
+`plugins.updater.pubkey`. Since the 2026-10-22 audit, both desktop apps also
+verify the release manifest against that same compiled-in key, require its
+component and version to match the selected newer release, and look up the
+locally derived platform filename. Before installation, the downloaded buffer
+must hash to that signed entry. The check path verifies the manifest before
+advertising an update, and the install path repeats verification independently.
+Missing, invalid or mismatched metadata refuses the update.
+
+The bundle signature alone did not bind a version or component: a compromised
+release host could relabel an older signed bundle, or the other desktop app,
+through unsigned `latest.json`. The added manifest/digest checks close that
+substitution path. They do not prove that the publisher's code is safe, prevent
+withholding newer releases, or protect a compromised publisher private key.
+Both desktop and CLI updates rest on the same keypair:
 losing `TAURI_SIGNING_PRIVATE_KEY` now means every installed component of all
 four kinds can never auto-update again, not just the two GUIs. The private key
 lives in two repo secrets and a password manager, never in the tree; a release
