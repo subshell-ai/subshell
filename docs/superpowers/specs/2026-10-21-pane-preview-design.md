@@ -45,7 +45,7 @@ Doctrine copied from the bump history (`node-frames.ts:80-187`): additive in sha
 
 Bump-history entry to land with the code:
 
-> **22 -> 23:** the preview surface. `preview_open` / `preview_close` signed commands and the `preview_data` link frame carry a gated byte lane between a dashboard viewer and a pane's loopback port (forward and CDP bridge kinds); the `preview_stream` event carries read-only screencast frames; `preview_ports_get` reports a pane's listening ports and CDP/screen hints; `set_preview_enabled` mirrors a per-machine owner switch; a launch may carry a `screen` request. An agent below 23 understands none of it, and the exact-match gate is what refuses pairing before any of it is sent.
+> **22 -> 23:** the preview surface. `preview_open` / `preview_close` signed commands and the `preview_data` link frame carry a gated byte lane between a dashboard viewer and a pane's loopback port (forward and CDP bridge kinds); the `preview_stream` event carries read-only screencast frames; `preview_ports_get` reports a pane's listening ports and CDP/screen hints; `set_preview_enabled` mirrors a per-machine owner switch, and the `preview_enabled` event reports a mirror that moved underneath the connection (ssh's `ssh_enabled` twin); a launch may carry a `screen` request. An agent below 23 understands none of it, and the exact-match gate is what refuses pairing before any of it is sent.
 
 New **signed commands** (`node-frames.ts` grammar + census test, `node-results.ts` validators for each answer):
 
