@@ -1,5 +1,11 @@
 # @internal/docs
 
+## 0.10.4
+
+### Patch Changes
+
+- [#421](https://github.com/subshell-ai/subshell/pull/421) [`59f3a6e`](https://github.com/subshell-ai/subshell/commit/59f3a6eed285d55b2d915158a91f432ddfdb8790) Thanks [@theogravity](https://github.com/theogravity)! - Document categorized API key permissions, least-privilege selection, automated enrollment, the local OpenAPI schema, legacy-key migration, and credential revocation limits.
+
 ## 0.10.3
 
 ### Patch Changes
