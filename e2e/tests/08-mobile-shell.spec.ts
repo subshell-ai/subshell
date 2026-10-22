@@ -13,7 +13,7 @@ test.beforeEach(async ({ page }, info) => {
   if (
     !isPhone() ||
     ![
-      "drawer quick-add: inline ✕, dialog opens, drawer dismissed",
+      "drawer quick-add opens its dialog and dismisses the drawer",
       "launch dialog survives the agent dropdown's scroll shift",
     ].includes(info.title)
   )
@@ -117,7 +117,7 @@ test("shell chrome follows the 1024px rule", async ({ page }) => {
   }
 });
 
-test("drawer closes by backdrop or a close button below the phone safe area", async ({ page, context }) => {
+test("mobile drawer leaves a backdrop to close it without a close button", async ({ page, context }) => {
   test.skip(!isPhone(), "phone-only drawer flow");
   const cdp = await context.newCDPSession(page);
   // Device descriptors don't emulate the PWA's camera/status-bar inset.
@@ -129,18 +129,11 @@ test("drawer closes by backdrop or a close button below the phone safe area", as
   const open = page.getByRole("button", { name: "Open navigation" });
   const drawer = page.getByRole("dialog", { name: "Navigation" });
   await open.tap();
-  const close = drawer.getByRole("button", { name: "Close", exact: true });
-  await expect(close).toBeVisible();
-  const box = await close.boundingBox();
-  if (!box) throw new Error("The sidebar close button has no bounding box");
-  expect(box.y).toBeGreaterThanOrEqual(59);
-  expect(box.width).toBeGreaterThanOrEqual(44);
-  expect(box.height).toBeGreaterThanOrEqual(44);
-  await close.tap();
-  await expect(drawer).toHaveCount(0);
-
-  await open.tap();
   await expect(drawer).toBeVisible();
+  await expect(drawer.getByRole("button", { name: "Close", exact: true })).toHaveCount(0);
+  const box = await drawer.boundingBox();
+  if (!box) throw new Error("The sidebar has no bounding box");
+  expect(box.width).toBeCloseTo(264, 0);
   // An ordinary tap inside the drawer must not dismiss it.
   // Locator taps wait for the opening slide animation to finish.
   await drawer.tap({ position: { x: 4, y: 200 } });
@@ -151,11 +144,10 @@ test("drawer closes by backdrop or a close button below the phone safe area", as
   await cdp.detach();
 });
 
-test("drawer quick-add: inline ✕, dialog opens, drawer dismissed", async ({ page }) => {
+test("drawer quick-add opens its dialog and dismisses the drawer", async ({ page }) => {
   // The 2026-09-04 phone reports: the drawer's floating ✕ landed on the
   // quick-add + row (taps hit the X instead), and the quick-add dialog was
-  // mounted INSIDE the drawer — a second stacked modal. Now: the close lives
-  // in the sheet's header row, and a quick-add opens the root-mounted dialog
+  // mounted INSIDE the drawer. Quick-add now opens the root-mounted dialog
   // while the drawer dismisses. (The scroller-restore rule the same report
   // drove is pinned by the desktop variant below + combobox unit tests;
   // combining both into this one flow races the drawer's exit animation.)
@@ -165,9 +157,7 @@ test("drawer quick-add: inline ✕, dialog opens, drawer dismissed", async ({ pa
   await page.getByRole("button", { name: "Open navigation" }).tap();
   const drawer = page.getByRole("dialog");
   await expect(drawer).toBeVisible();
-  // The close control is in the sheet's header row, beside the wordmark —
-  // no floating button over the nav rows.
-  await expect(drawer.getByLabel("Close")).toBeVisible();
+  await expect(drawer.getByLabel("Close")).toHaveCount(0);
 
   await drawer
     .getByRole("combobox", { name: "Switch workspace" })
