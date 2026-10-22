@@ -1,6 +1,6 @@
 # Pane Preview: watching and opening what a pane's process shows
 
-Date: 2026-10-21. Status: draft for review. Branch: `feat/pane-preview`.
+Date: 2026-10-21. Status: approved; §12 settled in review. Branch: `feat/pane-preview`.
 Implements one user ruling set: watch follows `view`, use follows `edit`; the full ladder (forward, CDP view, virtual display) ships in this arc; ports are auto-detected with an explicit pin beside them.
 
 ## 1. Why
@@ -135,9 +135,9 @@ Node offline / held / too-old: panel reads the reason (the gates doc's refusals 
 
 Non-loopback forwarding (never, per §8.1); any TLS or mesh assumption (transport is the operator's, §0); macOS/*BSD virtual display (the refusal is the answer); VNC to machines Subshell does not own; previewing *another* user's app over the mesh outside this feature's authz; E2EE preview (future, if the model ever changes); per-app URL path config, auth injection, cookies beyond the jar; renaming the existing screen-preview.
 
-## 12. Open choices for review
+## 12. Decisions from review (2026-10-21)
 
-1. Surface names in UI copy: "Open", "Watch", "Screen" - or keep "Preview" alone for all three?
-2. Watch fps/quality defaults (proposal: 5 fps, q60, clamped) - fine as constants, but they set the wire cost: 5 fps × ~80 KiB ≈ 400 KiB/s per watched browser per *subscriber* (fan-out is per socket).
-3. `/pv/` vs `/api/preview/...` proxy path prefix (short wins for iframe HMR noise, but the api prefix inherits route-mount habits).
-4. The noVNC vendoring decision (this is the one dependency-shaped call the arc makes outside npm pinning; MPL-2.0, pinned tag, lazy chunk).
+1. UI surfaces are three named verbs: **Open**, **Watch**, **Screen**, in a Preview section; tooltips carry the grant reason.
+2. Watch defaults: **5 fps, JPEG q60**, node-clamped. Accepted wire cost: ~400 KiB/s per watched browser per subscriber (fan-out is per socket).
+3. Proxy path: **`/pv/:session/`**, mounted beside the SPA routes.
+4. RFB client: **vendored noVNC `core/` at a pinned tag** with its MPL-2.0 license files beside it, lazy-loaded chunk. This is the arc's only dependency-shaped call outside npm pinning.
