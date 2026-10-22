@@ -1,7 +1,8 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
-import { authGuard, ForbiddenError, requireCookieActor } from "@/api/auth-guard.js";
+import { ForbiddenError } from "@/api/auth-guard.js";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
+import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { nodeCanConfigure } from "@/lib/node-access.js";
 import { apiModels } from "@/schema/index.js";
@@ -19,8 +20,7 @@ const RecheckResponseSchema = t.Object({
 /**
  * `POST /api/nodes/:id/recheck` — refresh one agent node's harness inventory
  * on demand (spec 2026-08-31 §6.2/§9; detection-shaped by the inversion spec
- * 2026-09-10 §4). Gate: `nodeCanConfigure`, cookie-only like the rest of the
- * registry.
+ * 2026-09-10 §4). Gate: `nodeCanConfigure`, with a browser session or explicitly enabled system key.
  *
  * Sends the plane's `detect` command (spec §4) AWAITED: the node probes with
  * the shipped rules and answers RAW version text, the raw text is parsed HERE
@@ -52,13 +52,12 @@ const RecheckResponseSchema = t.Object({
  * live on every read (a re-check is just another GET).
  */
 export const recheckNodeRoute = new Elysia()
-  .use(authGuard)
+  .use(nodeManagementGuard)
   .use(apiModels)
   .post(
     "/:id/recheck",
     async ({ params, user, actor, status }) => {
-      requireCookieActor(actor, "Node re-checks are restricted to browser sessions");
-      const gate = await loadNodeGate(user.id, params.id);
+      const gate = await loadNodeGate(user.id, params.id, actor);
       if (!gate) {
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));
       }
@@ -101,6 +100,7 @@ export const recheckNodeRoute = new Elysia()
         404: "ApiErrorResponse",
         409: "ApiErrorResponse",
       },
+      systemPermission: "nodes:configure",
       detail: {
         operationId: "recheckNode",
         tags: ["nodes"],

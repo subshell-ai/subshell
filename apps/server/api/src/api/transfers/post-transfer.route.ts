@@ -198,6 +198,7 @@ export const postTransferRoute = new Elysia()
         404: "ApiErrorResponse",
         409: "ApiErrorResponse",
       },
+      systemPermission: "transfers:write",
       detail: {
         operationId: "createTransfer",
         tags: ["transfers"],

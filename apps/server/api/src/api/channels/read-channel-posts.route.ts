@@ -55,6 +55,7 @@ export const readChannelPostsRoute = new Elysia()
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
       },
+      systemPermission: "channels:read",
       detail: {
         operationId: "readChannelPosts",
         tags: ["channels"],

@@ -60,6 +60,8 @@ export default defineConfig(({ mode }) => {
       // Dev: proxy API + WS to the Elysia backend so the browser talks to
       // one origin (cookies + WS auth just work).
       proxy: {
+        "/docs": { target: backendOrigin, changeOrigin: true },
+        "/openapi.json": { target: backendOrigin, changeOrigin: true },
         "/api": {
           target: backendOrigin,
           changeOrigin: true,

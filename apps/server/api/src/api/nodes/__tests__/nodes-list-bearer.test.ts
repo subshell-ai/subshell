@@ -227,7 +227,10 @@ describe("GET /api/nodes bearer visibility (enumerate-ok / act-denied)", () => {
   // No human's agent node rides a listByOwner under the system id.
   it("a system key sees exactly the system-owned `local` row", async () => {
     const created = await systemKeysRoutes.fetch(
-      authedRequest("/api/system-keys", adminCookie, { method: "POST", body: JSON.stringify({ name: "nb-pin" }) }),
+      authedRequest("/api/system-keys", adminCookie, {
+        method: "POST",
+        body: JSON.stringify({ name: "nb-pin", permissions: ["nodes:read"] }),
+      }),
     );
     expect(created.status).toBe(200);
     const { key, id } = (await created.json()) as { key: string; id: string };

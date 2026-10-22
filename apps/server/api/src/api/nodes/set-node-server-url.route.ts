@@ -89,7 +89,7 @@ export function validateNodeServerUrl(value: string): { url: string } | { error:
  * **No SPA page calls this since 2026-10-09**, when the node page's
  * Control-plane card left the server dashboard (a server that cannot see the
  * address had nothing honest to pre-fill); the route keeps serving owner
- * cookie callers the way `terminate` outlived its button. The node's own
+ * browser and explicitly enabled system-key callers the way `terminate` outlived its button. The node's own
  * dashboard writes through the agent's local route, and the CLI never used
  * this endpoint at all.
  */
@@ -99,8 +99,8 @@ export const setNodeServerUrlRoute = new Elysia()
   .patch(
     "/:id/config",
     async ({ params, body, user, actor, status }) => {
-      requireCookieActor(actor, "Node configuration is restricted to browser sessions");
-      const gate = await loadNodeGate(user.id, params.id);
+      requireCookieActor(actor, "Changing a node server address requires a browser session.");
+      const gate = await loadNodeGate(user.id, params.id, actor);
       if (!gate) {
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));
       }
@@ -169,6 +169,7 @@ export const setNodeServerUrlRoute = new Elysia()
         409: "ApiErrorResponse",
       },
       detail: {
+        security: [{ sessionCookie: [] }],
         operationId: "setNodeServerUrl",
         tags: ["nodes"],
         description:

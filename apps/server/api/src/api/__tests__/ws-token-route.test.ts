@@ -103,6 +103,43 @@ describe("ws-token route (unscoped cookie mints, scoped bearer mints)", () => {
     await deleteUserByEmailOrId(email);
   });
 
+  it("scoped system keys need execute permission and cannot attach to another owner's pane", async () => {
+    const systemId = await ensureSystemUser();
+    const ownedId = crypto.randomUUID();
+    await new SubshellsRepository(db).create({
+      id: ownedId,
+      userId: systemId,
+      presetId: "p",
+      harnessId: "terminal",
+      name: "owned",
+      workingDir: "/tmp",
+      tmuxSocket: null,
+    });
+    try {
+      for (const permission of ["subshells:read", "subshells:execute"]) {
+        const created = (await getAuth().api.createApiKey({
+          body: {
+            name: "scoped",
+            userId: systemId,
+            metadata: { kind: "system", permissionVersion: 1, systemPermissions: [permission] },
+          },
+        })) as unknown as { id: string; key: string };
+        createdKeyIds.push(created.id);
+        const foreign = await app.handle(bearerRequest("/api/auth/ws-token", created.key, { subshellId }));
+        expect(foreign.status).toBe(permission === "subshells:read" ? 403 : 404);
+        const own = await app.handle(bearerRequest("/api/auth/ws-token", created.key, { subshellId: ownedId }));
+        expect(own.status).toBe(permission === "subshells:read" ? 403 : 200);
+        if (own.ok)
+          expect(consumeWsToken(((await own.json()) as { token: string }).token)).toEqual({
+            userId: systemId,
+            subshellId: ownedId,
+          });
+      }
+    } finally {
+      await db.deleteFrom("subshells").where("id", "=", ownedId).execute();
+    }
+  });
+
   it("anonymous -> 401", async () => {
     const res = await app.fetch(new Request("http://localhost:3080/api/auth/ws-token", { method: "POST" }));
     expect(res.status).toBe(401);

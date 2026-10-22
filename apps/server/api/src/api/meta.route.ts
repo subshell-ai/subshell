@@ -16,6 +16,7 @@ export const metaRoutes = new Elysia({ prefix: "/api/meta" }).use(authGuard).get
   },
   {
     response: MetaStatusSchema,
+    systemPermission: "instance:read",
     detail: {
       operationId: "getMetaStatus",
       tags: ["meta"],

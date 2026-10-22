@@ -155,6 +155,7 @@ export const promptsRoutes = new Elysia({ prefix: "/api/prompts" })
     {
       query: ListPromptsQuerySchema,
       response: PromptsListSchema,
+      systemPermission: "prompts:read",
       detail: {
         operationId: "listPrompts",
         tags: ["prompts"],
@@ -184,6 +185,7 @@ export const promptsRoutes = new Elysia({ prefix: "/api/prompts" })
     {
       params: t.Object({ id: t.String({ description: "Prompt id" }) }),
       response: PromptDetailViewSchema,
+      systemPermission: "prompts:read",
       detail: {
         operationId: "getPrompt",
         tags: ["prompts"],
@@ -208,6 +210,7 @@ export const promptsRoutes = new Elysia({ prefix: "/api/prompts" })
     {
       body: CreatePromptBodySchema,
       response: PromptViewSchema,
+      systemPermission: "prompts:write",
       detail: {
         operationId: "createPrompt",
         tags: ["prompts"],
@@ -253,6 +256,7 @@ export const promptsRoutes = new Elysia({ prefix: "/api/prompts" })
       },
       body: UpdatePromptBodySchema,
       response: PromptViewSchema,
+      systemPermission: "prompts:write",
       detail: {
         operationId: "updatePrompt",
         tags: ["prompts"],
@@ -274,6 +278,7 @@ export const promptsRoutes = new Elysia({ prefix: "/api/prompts" })
     {
       params: t.Object({ id: t.String({ description: "Prompt id" }) }),
       response: t.Object({ ok: t.Boolean({ description: "True when the prompt was deleted" }) }),
+      systemPermission: "prompts:write",
       detail: {
         operationId: "deletePrompt",
         tags: ["prompts"],

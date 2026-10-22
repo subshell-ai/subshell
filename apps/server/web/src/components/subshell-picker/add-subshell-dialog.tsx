@@ -204,12 +204,6 @@ export function AddSubshellDialog({
         {visibleMode === "existing" ? (
           <ExistingSubshellList
             subshells={available}
-            // Keep the two halves coherent: the list shows subshells on the
-            // node the New-subshell half would launch onto ("local" until a
-            // remote pick is made; an unmade pick — "" — is the local default).
-            // Display filtering only: the list is already visibility-filtered
-            // server-side and this never substitutes for authz.
-            nodeId={kind === "ssh" ? undefined : form.nodeId || "local"}
             query={query}
             onQueryChange={setQuery}
             loadFailed={subshellsFailed}

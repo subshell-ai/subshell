@@ -1,5 +1,4 @@
 import { cors } from "@elysiajs/cors";
-import { openapi } from "@elysiajs/openapi";
 import { Elysia } from "elysia";
 import { authRateLimitRoutes } from "@/api/auth-rate-limit.route.js";
 import { installScriptRoute } from "@/api/install-script.js";
@@ -8,6 +7,7 @@ import { EMBEDDED } from "@/generated/embedded-web.js";
 import { accessGuardPlugin } from "@/plugins/access-guard.plugin.js";
 import { authPlugin } from "@/plugins/auth.plugin.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
+import { openApiPlugin } from "@/plugins/openapi.plugin.js";
 import { selectStaticPlugin } from "@/plugins/static.plugin.js";
 import { apiModels } from "@/schema/index.js";
 import { originRegistry } from "@/services/trusted-origins.js";
@@ -52,7 +52,7 @@ export function createApp() {
     // `.use(apiModels)` calls (test-isolated instances) dedupe to this one.
     .use(apiModels)
     .use(cors({ origin: corsOriginAllowed }))
-    .use(openapi({ path: "/docs" }))
+    .use(openApiPlugin)
     // Rate limiter must mount BEFORE the auth passthrough so its explicit
     // POST /api/auth/sign-in/email route wins over the .all("/api/auth/*").
     .use(authRateLimitRoutes)

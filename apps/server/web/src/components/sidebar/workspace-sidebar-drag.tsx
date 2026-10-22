@@ -30,7 +30,7 @@ export function WorkspaceSidebarDrag({ workspace, children }: { workspace?: Work
   const location = useLocation();
   const adding = Boolean((location.search as { add?: string }).add);
   const invalidate = useInvalidateWorkspaces();
-  const { removePane } = useWorkspacePaneMutations(workspace?.id ?? "");
+  const { addPane, removePane } = useWorkspacePaneMutations(workspace?.id ?? "");
   useEffect(() => {
     const end = () => setId(null);
     window.addEventListener("dragend", end);
@@ -44,18 +44,29 @@ export function WorkspaceSidebarDrag({ workspace, children }: { workspace?: Work
   // biome-ignore lint/correctness/useExhaustiveDependencies: clear the gesture when its destination changes
   useEffect(() => setId(null), [workspace?.id]);
 
-  const add = (subshellId: string) => {
+  const currentPath = useRef(location.pathname);
+  currentPath.current = location.pathname;
+  const destination = useRef(workspace?.id);
+  destination.current = workspace?.id;
+
+  const add = async (subshellId: string) => {
     if (!workspace || pending.current || adding) return;
     if (requestWorkspacePaneFocus(subshellId, workspace.id)) return;
-    // The route's existing add-intent path creates and focuses the dock tab.
+    const targetId = workspace.id;
     pending.current = true;
     setBusy(true);
-    void navigate({ to: "/workspaces/$id", params: { id: workspace.id }, search: { add: subshellId, dir: "within" } })
-      .catch((error) => toast.error(errMessage(error, "Couldn't open the workspace.")))
-      .finally(() => {
-        pending.current = false;
-        setBusy(false);
-      });
+    try {
+      // Persist against the drop target before any navigation. A URL intent
+      // can outlive the workspace it was meant to change.
+      await addPane(subshellId);
+      await invalidate();
+      if (destination.current === targetId) requestWorkspacePaneFocus(subshellId, targetId);
+    } catch (error) {
+      toast.error(errMessage(error, "Couldn't add the subshell to this workspace."));
+    } finally {
+      pending.current = false;
+      setBusy(false);
+    }
   };
   const remove = async (subshellId: string) => {
     const pane = workspace?.panes?.find((row) => row.subshellId === subshellId);
@@ -69,7 +80,7 @@ export function WorkspaceSidebarDrag({ workspace, children }: { workspace?: Work
       // 2026-10-20; the subshell keeps running, unfiled). If the retired row
       // is the page on screen, the workspace route has nothing to show —
       // land on the Subshells list, which is where this gesture pointed.
-      if (workspaceDeleted && location.pathname === `/workspaces/${workspace.id}`) {
+      if (workspaceDeleted && currentPath.current === `/workspaces/${workspace.id}`) {
         void navigate({ to: "/subshells", replace: true });
       }
     } catch (error) {

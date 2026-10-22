@@ -39,6 +39,7 @@ export const updateSubshellNotifyRoute = new Elysia()
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
       },
+      systemPermission: "subshells:update",
       detail: {
         operationId: "setSubshellNotify",
         tags: ["subshells"],

@@ -67,7 +67,7 @@ export const wsTokenRoutes = new Elysia({ prefix: "/api/auth" })
   .use(apiModels)
   .post(
     "/ws-token",
-    async ({ user, actor, principal, body, ctx }) => {
+    async ({ user, actor, principal, body, ctx, systemKeyPermissions }) => {
       if (actor === "cookie") {
         // The human path ignores subshellId: scoping only narrows, and the
         // cookie identity can already attach (with its own access) to
@@ -82,7 +82,9 @@ export const wsTokenRoutes = new Elysia({ prefix: "/api/auth" })
         throw new ForbiddenError();
       }
       const row = await ctx.repos.subshells.findById(body.subshellId);
-      if (!row) throw new HttpError(404, "subshell not found");
+      if (!row || (actor === "system-key" && systemKeyPermissions !== null && row.userId !== user.id)) {
+        throw new HttpError(404, "subshell not found");
+      }
       // The token carries the OWNER, not the actor: a scoped token's access
       // resolves as the owner's (see ws-token.ts on why the system user
       // would resolve to `none`). The binding, not the identity, is the
@@ -99,6 +101,7 @@ export const wsTokenRoutes = new Elysia({ prefix: "/api/auth" })
         404: "ApiErrorResponse",
         503: "ApiErrorResponse",
       },
+      systemPermission: "subshells:execute",
       detail: {
         operationId: "issueWsToken",
         tags: ["auth"],

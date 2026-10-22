@@ -32,6 +32,7 @@ export const listChannelMembersRoute = new Elysia()
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
       },
+      systemPermission: "channels:read",
       detail: {
         operationId: "listChannelMembers",
         tags: ["channels"],

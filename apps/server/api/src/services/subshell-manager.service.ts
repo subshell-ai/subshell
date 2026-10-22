@@ -11,6 +11,7 @@ import {
   TmuxTimeoutError,
   tmuxSocketFor,
 } from "@internal/pane-runtime";
+import type { ApiKeyPermission } from "@internal/subshell-protocol";
 import {
   dirAllowed,
   type NodeEvent,
@@ -22,6 +23,7 @@ import {
   type SshForwardWire,
 } from "@internal/subshell-protocol";
 import { harnessUsable } from "@/api/harness-utils.js";
+import { intersectSystemPermissions } from "@/auth/system-key-permissions.js";
 import type { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import type { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { WorkspacePanesRepository } from "@/db/repositories/workspace-panes.repository.js";
@@ -67,14 +69,16 @@ import { serverSubshellsEnabled } from "@/services/server-as-node.js";
 import { sshCanonicalDestination } from "@/services/ssh-destination.js";
 import { sweepLocalSshDir } from "@/services/ssh-launch.service.js";
 import { closeRelayForPaneExit, sweepRelayForPane } from "@/services/ssh-relay.service.js";
-import { issueSubshellToken, revokeSubshellToken } from "@/services/subshell-tokens.js";
+import { issueSubshellToken, revokeSubshellToken, subshellSystemPermissions } from "@/services/subshell-tokens.js";
 import { logger } from "@/utils/logger.js";
 
 /** The subshell-token lifecycle operations the manager triggers. Injectable
  * for test isolation; defaults to the real better-auth-backed functions. */
 export interface SubshellTokenProvider {
   /** Mints the subshell's MCP API key; returns the plaintext (once). */
-  issue(subshellId: string, userId: string): Promise<string>;
+  issue(subshellId: string, userId: string, ceiling?: ApiKeyPermission[] | null): Promise<string>;
+  /** Reads the previous ceiling before rotation, when the provider persists credentials. */
+  permissions?(subshellId: string, userId: string): Promise<ApiKeyPermission[] | null>;
   /** Disables the subshell's token (no-op when absent). */
   revoke(subshellId: string): Promise<void>;
 }
@@ -101,6 +105,7 @@ const RECONCILE_PROBE_TIMEOUT_MS = 30_000;
 
 const defaultTokens: SubshellTokenProvider = {
   issue: issueSubshellToken,
+  permissions: subshellSystemPermissions,
   revoke: revokeSubshellToken,
 };
 
@@ -358,6 +363,7 @@ export class SubshellManagerService {
    *         same contract under a plain Error for every other caller.
    */
   async createSubshell({
+    systemKeyPermissions = null,
     userId,
     harnessId,
     presetId,
@@ -378,6 +384,8 @@ export class SubshellManagerService {
     subshellId,
     workspaceId,
   }: {
+    /** Explicit permission ceiling of the creating credential. */
+    systemKeyPermissions?: ApiKeyPermission[] | null;
     userId: string;
     /** Harness plugin to launch — required, with or without a preset. */
     harnessId: string;
@@ -587,7 +595,10 @@ export class SubshellManagerService {
     // The token is minted AFTER the row exists (issueSubshellToken writes the
     // api-key id back onto it) but BEFORE tmux starts, so the plaintext key is
     // baked into the harness env.
-    const apiKey = await this.#tokens.issue(id, userId);
+    const apiKey =
+      systemKeyPermissions === null
+        ? await this.#tokens.issue(id, userId)
+        : await this.#tokens.issue(id, userId, systemKeyPermissions);
 
     let promptDelivered = false;
     try {
@@ -934,6 +945,7 @@ export class SubshellManagerService {
     sourceId: string,
     swapPresetTo?: string | null,
     actorUserId?: string,
+    systemKeyPermissions: ApiKeyPermission[] | null = null,
   ): Promise<{ id: string; tmuxSocket: string } | null> {
     // The audit subject of BOTH rows of this act: the acting viewer when the
     // caller knows one, the owner as the legacy/sweep fallback. They move
@@ -1017,7 +1029,7 @@ export class SubshellManagerService {
       if (!parked) return null; // deleted between park and re-read
       let revived: boolean;
       try {
-        revived = await this.#reviveRow(parked, { backoffCount: 0 });
+        revived = await this.#reviveRow(parked, { backoffCount: 0, systemKeyPermissions });
       } catch (err) {
         // Roll the parked `running` row back to a truthful dead state and
         // retire any token #reviveRow minted before failing, so the sweep
@@ -1396,7 +1408,13 @@ export class SubshellManagerService {
    *         from the facts guard) so the restart boundary can answer the
    *         structured 409 NODE_OFFLINE of spec §5.6.
    */
-  async #reviveRow(row: SubshellTable, { backoffCount }: { backoffCount: number }): Promise<boolean> {
+  async #reviveRow(
+    row: SubshellTable,
+    {
+      backoffCount,
+      systemKeyPermissions = null,
+    }: { backoffCount: number; systemKeyPermissions?: ApiKeyPermission[] | null },
+  ): Promise<boolean> {
     // A NULL `presetId` is not a missing preset — it is a presetless launch
     // (spec 2026-09-13 §4), and it revives as exactly what it was created
     // as: EMPTY_PRESET. Only a NON-NULL reference whose row vanished throws.
@@ -1426,8 +1444,13 @@ export class SubshellManagerService {
     // die with it; the new pane bakes the freshly issued one. A failed
     // revoke must NOT abort the restart — `issue` below rewrites the row's
     // apiKeyId, and the guard's link check then 401s the orphaned old key.
+    const previousPermissions = (await this.#tokens.permissions?.(row.id, row.userId)) ?? null;
+    const ceiling = intersectSystemPermissions(previousPermissions, systemKeyPermissions);
     await this.#revokeTokenOrUnlink(row.id);
-    const apiKey = await this.#tokens.issue(row.id, row.userId);
+    const apiKey =
+      ceiling === null
+        ? await this.#tokens.issue(row.id, row.userId)
+        : await this.#tokens.issue(row.id, row.userId, ceiling);
     const { mcp, mcpConfigPath, facts } = this.#planMcp(harness, row.id, row.nodeId);
     const reporter = this.#planReporter(row.nodeId, facts);
     const subshellEnv = subshellMcpEnv(apiKey, row.id, row.name);

@@ -26,7 +26,7 @@ form system.
 | Preset create/edit and launch forms | Shared section titles for launch defaults, prompts, cross-agent communication, and expanded agent settings. Static agent value uses label size. |
 | Prompt library and stacks | Shared title for inline picker sections; prompt description, body, and sharing remain field labels. Dialog titles stay dialog titles. |
 | SSH connect and SSH presets | Shared legends for authentication, agent keys, and port forwards; destination and machine inputs remain labelled fields. |
-| Sign-in, account, passwords, passkeys, users and API keys | Single-group forms keep their card/dialog titles and field labels. |
+| Sign-in, account, passwords, passkeys, users and API keys | Single-group forms keep their card/dialog titles and field labels. API-key permission categories use shared legends. |
 | Authentication providers | Provider registration instructions use the shared legend. Provider fields and permission switches remain labels. |
 | Node settings, setup keys, enrollment and directory editors | Card headings already define groups; individual fields keep labels. Identity subsections use shared headings. The node dashboard inherits the shared cards. |
 | Networking | Addresses and Publish subsections use shared headings; plugin/card titles and action disclosures retain their roles. |

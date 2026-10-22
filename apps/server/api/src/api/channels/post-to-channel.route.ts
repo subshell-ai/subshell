@@ -48,6 +48,7 @@ export const postToChannelRoute = new Elysia()
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
       },
+      systemPermission: "channels:write",
       detail: {
         operationId: "postToChannel",
         tags: ["channels"],

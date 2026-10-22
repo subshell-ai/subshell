@@ -1,3 +1,9 @@
+export {
+  API_KEY_PERMISSION_GROUPS,
+  API_KEY_PERMISSIONS,
+  type ApiKeyPermission,
+  isApiKeyPermission,
+} from "./api-key-permissions.js";
 export type { BackupRestoreChoices, RestoreAddressOverrides, RestoreMode } from "./backup.js";
 export {
   BACKUP_PASSWORD_GUIDANCE,

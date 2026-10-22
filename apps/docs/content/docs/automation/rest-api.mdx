@@ -13,6 +13,12 @@ Use the server's reachable address and an appropriate credential. Review [API ke
 
 Open `/docs` on the running server to inspect the generated OpenAPI documentation. Route schemas describe current request bodies and response shapes; prefer them over guessing from a browser screenshot.
 
+For an agent or local tool, fetch `/openapi.json` from the same server. It returns the live schema without requiring a login or an external documentation service. The previous `/docs/json` URL redirects there. The schema defines bearer authentication, request bodies, response shapes, and the `x-api-key-permission` grant required by each operation available to scoped keys.
+
+```bash
+curl --fail-with-body "$SUBSHELL_URL/openapi.json" -o subshell-openapi.json
+```
+
 Resource families include subshells, workspaces, presets, prompts, nodes, channels, and devices. Administrative families have additional cookie-only gates.
 
 ## Send a bearer request
@@ -25,7 +31,43 @@ curl --fail-with-body \
   "$SUBSHELL_URL/api/subshells"
 ```
 
-The list is scoped to the authenticated identity. Empty results don't prove the instance contains no sessions.
+This example needs `subshells:read`. The list is scoped to the authenticated identity. Empty results don't prove the instance contains no sessions.
+
+## Automate node enrollment
+
+Ask an administrator to create a system API key with `nodes:enroll`, `nodes:read`, and `nodes:directories` selected under **Settings** → **Server Settings** → **API keys**. Set the environment variables described above, then:
+
+1. Request a setup key. No request body is needed:
+
+   ```bash
+   curl --fail-with-body -X POST \
+     -H "Authorization: Bearer $SUBSHELL_API_KEY" \
+     "$SUBSHELL_URL/api/nodes/setup-keys"
+   ```
+
+   The response contains `id`, `key`, and `expiresAt`. Treat `key` as a secret. Each setup key expires after 24 hours and can enroll one node; request a separate key for each machine.
+
+2. On the target machine, use the returned `key` with [node setup](/nodes/enroll):
+
+   ```bash
+   subshell setup --server https://server.example.com --key nsk_REPLACE_ME --name worker-01
+   ```
+
+   The node exchanges the setup key through `POST /api/nodes/enroll`. That endpoint takes a setup key and the machine's public identity, not your system API key as an enrollment credential. Let the CLI generate and store that identity.
+
+3. Find the node through `GET /api/nodes`. Alternatively, `GET /api/nodes/setup-keys` returns `consumedNodeId` for the redeemed key. Configure it using the returned node ID:
+
+   ```bash
+   curl --fail-with-body -X PUT \
+     -H "Authorization: Bearer $SUBSHELL_API_KEY" \
+     -H "Content-Type: application/json" \
+     --data '{"dirs":["/srv/work"]}' \
+     "$SUBSHELL_URL/api/nodes/NODE_ID/allowed-dirs"
+   ```
+
+   Directory rules replace the entire list. An empty list removes the restriction. Read the node back with `GET /api/nodes/NODE_ID` to check the saved configuration.
+
+Use the live schema for the remaining configuration endpoints. Revoke an unused setup key with `DELETE /api/nodes/setup-keys/KEY_ID`. After a timeout, inspect the setup-key list before creating another key.
 
 ## Terminal and channel operations
 

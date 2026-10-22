@@ -41,6 +41,8 @@ interface Call {
 function mockFetch(
   opts: {
     failPaneAdds?: number;
+    launchable?: boolean;
+    failLaunch?: boolean;
     takenWorkspaces?: { id: string; name: string }[];
     /** What `GET /api/subshells` answers; defaults to the two-row roster. */
     subshells?: SubshellView[];
@@ -64,19 +66,49 @@ function mockFetch(
       return new Response(JSON.stringify([]), { status: 200 });
     }
     if (method === "GET" && url.pathname === "/api/plugins") {
-      return new Response(JSON.stringify({ plugins: [] }), { status: 200 });
+      return new Response(
+        JSON.stringify({
+          plugins: opts.launchable
+            ? [{ id: "terminal", name: "Terminal", type: "terminal", installed: true, enabled: true, builtIn: true }]
+            : [],
+        }),
+        { status: 200 },
+      );
     }
     if (method === "GET" && url.pathname === "/api/nodes") {
-      return new Response(JSON.stringify({ nodes: [] }), { status: 200 });
+      return new Response(
+        JSON.stringify({
+          nodes: opts.launchable
+            ? [
+                {
+                  id: "local",
+                  name: "Server",
+                  kind: "local",
+                  status: "online",
+                  canLaunch: true,
+                  harnesses: [{ harnessId: "terminal", name: "Terminal", installed: true }],
+                  capabilities: [],
+                  inventoryStale: false,
+                },
+              ]
+            : [],
+        }),
+        { status: 200 },
+      );
     }
     if (method === "GET" && url.pathname === "/api/files/recent") {
-      return new Response(JSON.stringify({ paths: [], home: null }), { status: 200 });
+      return new Response(JSON.stringify({ paths: [], home: opts.launchable ? "/tmp" : null }), { status: 200 });
     }
     if (method === "GET" && url.pathname === "/api/workspaces") {
       // The dialog reads this to de-dupe its default name; the tests drive it
       // with the `takenWorkspaces` list so a same-minute second create is
       // provably disambiguated rather than 409-ing.
       return new Response(JSON.stringify(opts.takenWorkspaces ?? []), { status: 200 });
+    }
+    if (method === "POST" && url.pathname === "/api/subshells") {
+      return opts.failLaunch
+        ? Response.json({ message: "Launch failed" }, { status: 500 })
+        : Response.json({ id: "launched" });
     }
     if (method === "POST" && url.pathname === "/api/workspaces") {
       return new Response(JSON.stringify({ id: "ws-new" }), { status: 200 });
@@ -159,6 +191,42 @@ describe("NewWorkspaceDialog", () => {
     }
   });
 
+  it("Create workspace launches the New subshell draft and attaches it before closing", async () => {
+    const { calls, restore } = mockFetch({ subshells: [], launchable: true });
+    let closed = false;
+    try {
+      await renderDialog((open) => {
+        closed = !open;
+      }, []);
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Create workspace" }).getAttribute("aria-disabled")).not.toBe("true"),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Create workspace" }));
+      await waitFor(() => expect(closed).toBe(true));
+      const posts = calls.filter((c) => c.method === "POST");
+      expect(posts.map((c) => c.url)).toEqual(["/api/subshells", "/api/workspaces", "/api/workspaces/ws-new/panes"]);
+      expect(JSON.parse(posts[0].body ?? "{}")).toMatchObject({ harnessId: "terminal", workingDir: "/tmp" });
+      expect(JSON.parse(posts[2].body ?? "{}")).toEqual({ subshellId: "launched" });
+    } finally {
+      restore();
+    }
+  });
+
+  it("a failed launch does not create an empty workspace", async () => {
+    const { calls, restore } = mockFetch({ subshells: [], launchable: true, failLaunch: true });
+    try {
+      await renderDialog(() => {}, []);
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Create workspace" }).getAttribute("aria-disabled")).not.toBe("true"),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Create workspace" }));
+      await screen.findByText(/Launch failed/);
+      expect(calls.filter((c) => c.method === "POST").map((c) => c.url)).toEqual(["/api/subshells"]);
+    } finally {
+      restore();
+    }
+  });
+
   it("zero selected: creates the workspace alone and closes", async () => {
     const { calls, restore } = mockFetch();
     const openChanges: boolean[] = [];
@@ -234,7 +302,7 @@ describe("NewWorkspaceDialog", () => {
       expect(screen.getByRole("button", { name: "New subshell" }).getAttribute("aria-pressed")).toBe("true");
       expect(screen.getByRole("button", { name: "Existing subshells" }).getAttribute("aria-pressed")).toBe("false");
       // Not just a pressed button: the New half is what's on screen.
-      expect(screen.getByRole("button", { name: /Launch & add/ })).toBeDefined();
+      expect(screen.getByRole("button", { name: /Create workspace/ }).getAttribute("aria-disabled")).toBe("true");
     } finally {
       restore();
     }

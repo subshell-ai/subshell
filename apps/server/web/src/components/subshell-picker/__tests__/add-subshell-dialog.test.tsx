@@ -76,6 +76,7 @@ describe("AddSubshellDialog", () => {
     renderDialog({ excludeSubshellIds: ["here"] });
     expect(await screen.findByText("other")).toBeTruthy();
     expect(screen.queryByText("here")).toBeNull();
+    expect(screen.getByText("remote")).toBeTruthy();
   });
 
   it("disables the mode switch while an add is in flight", async () => {
@@ -117,9 +118,9 @@ describe("AddSubshellDialog", () => {
     expect(screen.queryByText(/Every subshell is already/)).toBeNull();
   });
 
-  it("seeds the node from initialForm, so the existing half lists that machine", async () => {
+  it("lists available subshells across nodes even when the launch draft names one", async () => {
     renderDialog({ excludeSubshellIds: [], initialForm: { nodeId: "box" } });
     expect(await screen.findByText("remote")).toBeTruthy();
-    expect(screen.queryByText("other")).toBeNull();
+    expect(screen.getByText("other")).toBeTruthy();
   });
 });

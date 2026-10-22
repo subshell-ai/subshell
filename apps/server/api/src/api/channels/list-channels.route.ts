@@ -29,6 +29,7 @@ export const listChannelsRoute = new Elysia()
         401: "ApiErrorResponse",
         403: "ApiErrorResponse",
       },
+      systemPermission: "channels:read",
       detail: { operationId: "listChannels", tags: ["channels"], description: "Lists channels with counters" },
     },
   );

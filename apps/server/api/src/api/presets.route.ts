@@ -489,6 +489,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
         401: "ApiErrorResponse",
         403: "ApiErrorResponse",
       },
+      systemPermission: "presets:read",
       detail: {
         operationId: "listPresets",
         tags: ["presets"],
@@ -504,6 +505,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
     },
     {
       response: t.Object({ ids: t.Array(t.String({ description: "Harness plugin id the instance offers" })) }),
+      systemPermission: "presets:read",
       detail: {
         operationId: "listHarnessIds",
         tags: ["presets"],
@@ -541,6 +543,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
     {
       params: t.Object({ id: t.String({ description: "Harness plugin id" }) }),
       response: HarnessSchemaResponseSchema,
+      systemPermission: "presets:read",
       detail: {
         operationId: "getHarnessSchema",
         tags: ["presets"],

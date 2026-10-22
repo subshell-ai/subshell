@@ -129,7 +129,7 @@ async function classifySetupCredential(
     // Same accept-set as authGuard (subshell keys must match their row's
     // apiKeyId; non-subshell keys must be system-owned) — a self-minted or
     // unlinked key that 401s everywhere else must not 200 here.
-    const issued = await isIssuedCredential(bearer).catch(() => false);
+    const issued = await isIssuedCredential(bearer, "instance:read");
     if (issued) return { actor: "machine" };
   }
   throw new UnauthorizedError();
@@ -289,6 +289,7 @@ export const setupRoutes = new Elysia({ prefix: "/api/setup" })
       response: t.Array(HarnessInfoSchema, { description: "All harness plugins" }),
       detail: {
         operationId: "listHarnesses",
+        "x-api-key-permission": "instance:read",
         tags: ["setup"],
         description:
           "Lists all harness plugins and whether each is installed (public only while no user exists; authenticated afterwards)",

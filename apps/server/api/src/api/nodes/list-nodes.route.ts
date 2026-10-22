@@ -38,9 +38,9 @@ const ListNodesQuerySchema = t.Object({
  * grant buys their machine nothing; `local` belongs to the system user, so a
  * human owner's token never sees it). The rows carry `harnesses` and
  * `canLaunch` honest for this actor class, which is the payload the agent
- * needs to pick a machine. DISCLOSURE-ONLY, like the pinned subshell-list
- * rule it mirrors: node WRITES and the detail route `GET /api/nodes/:id`
- * stay cookie-only.
+ * needs to pick a machine. Listing grants no configuration permission:
+ * detail and configuration require a browser session or the explicit
+ * system-key node-management opt-in.
  */
 export const listNodesRoute = new Elysia()
   .use(authGuard)
@@ -113,6 +113,7 @@ export const listNodesRoute = new Elysia()
         }),
         401: "ApiErrorResponse",
       },
+      systemPermission: "nodes:read",
       detail: {
         operationId: "listNodes",
         tags: ["nodes"],

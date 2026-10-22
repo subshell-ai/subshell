@@ -1,7 +1,8 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
-import { authGuard, ForbiddenError, requireCookieActor } from "@/api/auth-guard.js";
+import { ForbiddenError } from "@/api/auth-guard.js";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
+import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
 import { MaintenanceResponseSchema, toNodeView } from "@/api/nodes/node-view.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
@@ -18,7 +19,7 @@ const MaintenanceBodySchema = t.Object({
 
 /**
  * `PUT /api/nodes/:id/maintenance` `{on}` — take one machine out of service,
- * or put it back (spec 2026-09-14 §5.4). Cookie-only.
+ * or put it back (spec 2026-09-14 §5.4). Browser session or explicitly enabled system API key.
  *
  * **OWNER-only** (`gate.canManage`, with the seeded-`local` admin exception),
  * deliberately NOT the `nodeCanConfigure` gate the service verbs use. The act
@@ -40,13 +41,12 @@ const MaintenanceBodySchema = t.Object({
  * settable only while the machine is up.
  */
 export const setNodeMaintenanceRoute = new Elysia()
-  .use(authGuard)
+  .use(nodeManagementGuard)
   .use(apiModels)
   .put(
     "/:id/maintenance",
     async ({ params, body, user, actor, status }) => {
-      requireCookieActor(actor, "Node maintenance is restricted to browser sessions");
-      const gate = await loadNodeGate(user.id, params.id);
+      const gate = await loadNodeGate(user.id, params.id, actor);
       if (!gate) {
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));
       }
@@ -76,6 +76,7 @@ export const setNodeMaintenanceRoute = new Elysia()
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
       },
+      systemPermission: "nodes:maintenance",
       detail: {
         operationId: "setNodeMaintenance",
         tags: ["nodes"],

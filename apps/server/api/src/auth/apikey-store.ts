@@ -1,3 +1,4 @@
+import type { ApiKeyPermission } from "@internal/subshell-protocol";
 import { authDatabase } from "@/auth/database.js";
 
 /**
@@ -24,11 +25,19 @@ export interface SubshellKeyMetadata {
   kind: "subshell";
   /** The subshell this token authenticates as. */
   subshellId: string;
+  /** Permission ceiling inherited from a scoped automation key. */
+  permissionVersion?: 1;
+  /** Explicit inherited grants. */
+  systemPermissions?: ApiKeyPermission[];
 }
 
 /** metadata payload for an admin-managed system key. */
 export interface SystemKeyMetadata {
   kind: "system";
+  /** Versioned permissions. Absent on legacy keys. */
+  permissionVersion?: 1;
+  /** Explicit grants, with no wildcard. */
+  systemPermissions?: ApiKeyPermission[];
 }
 
 /**
@@ -53,6 +62,8 @@ export interface CreatedApiKey {
 
 /** Row shape the apikey table yields for the admin list (never the hash). */
 export interface ApiKeyListRow {
+  /** Serialized metadata for the permission summary. Never contains the key secret. */
+  metadata: string | null;
   id: string;
   name: string;
   /** Non-secret start of the key, for identification. */
@@ -99,7 +110,8 @@ export function deleteApiKey(id: string): void {
 export function listSystemKeys(systemUserId: string): ApiKeyListRow[] {
   return authDatabase()
     .prepare<ApiKeyListRow, [string]>(
-      `SELECT id, name, start, enabled, "createdAt", "expiresAt"
+      `SELECT id, name, start, enabled, "createdAt", "expiresAt",
+              metadata
        FROM apikey
        WHERE "referenceId" = ? AND ${SYSTEM_KIND_SQL}
        ORDER BY "createdAt" DESC`,
@@ -115,4 +127,13 @@ export function isSystemKey(id: string, systemUserId: string): boolean {
     )
     .get(id, systemUserId);
   return row !== null;
+}
+
+/** Read persisted metadata even after revocation so token rotation preserves its ceiling. */
+export function getApiKeyMetadata(id: string): Record<string, unknown> | null | undefined {
+  const row = authDatabase()
+    .prepare<{ metadata: string | null }, [string]>("SELECT metadata FROM apikey WHERE id = ?")
+    .get(id);
+  if (!row) return undefined;
+  return row.metadata ? JSON.parse(row.metadata) : null;
 }

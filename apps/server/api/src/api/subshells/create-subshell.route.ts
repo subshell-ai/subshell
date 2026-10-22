@@ -53,7 +53,7 @@ export const createSubshellRoute = new Elysia()
   .use(apiModels)
   .post(
     "/",
-    async ({ body, user, actor, principal, apiKeyPermissions, ctx }) => {
+    async ({ body, user, actor, principal, apiKeyPermissions, systemKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "write");
       // Phase 2 (spec §6.6): `nodeId` resolves for real — the service gates
       // the requested node (404/403/409), falls back to `local` (its Everyone
@@ -79,6 +79,7 @@ export const createSubshellRoute = new Elysia()
         if (!workspace) throw new HttpError(404, "Workspace not found");
       }
       return await ctx.services.subshells.createSubshell({
+        systemKeyPermissions,
         userId: user.id,
         harnessId: body.harnessId,
         presetId: body.presetId,
@@ -106,6 +107,7 @@ export const createSubshellRoute = new Elysia()
         404: "ApiErrorResponse",
         409: "ApiErrorResponse",
       },
+      systemPermission: "subshells:execute",
       detail: {
         operationId: "createSubshell",
         tags: ["subshells"],

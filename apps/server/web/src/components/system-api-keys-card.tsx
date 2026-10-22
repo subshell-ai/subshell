@@ -8,6 +8,7 @@ import {
   confirmAction,
   Switch,
 } from "@internal/node-admin";
+import { API_KEY_PERMISSION_GROUPS } from "@internal/subshell-protocol";
 import { useState } from "react";
 import { keyErrorMessage, useDeleteSystemKey, useSetSystemKeyEnabled, useSystemKeys } from "@/hooks/use-system-keys";
 
@@ -44,7 +45,9 @@ export function SystemApiKeysCard() {
     <Card>
       <CardHeader>
         <CardTitle>System API keys</CardTitle>
-        <CardDescription>API keys currently allow admin access to the Subshell Server API.</CardDescription>
+        <CardDescription>
+          API keys authenticate as the shared system account. Instance administration requires an admin sign-in.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {error && <p className="text-destructive text-detail">{keyErrorMessage(error)}</p>}
@@ -55,6 +58,28 @@ export function SystemApiKeysCard() {
             <div className="flex items-center gap-3">
               <div className="flex-1">
                 <p className="font-strong">{k.name}</p>
+                {k.legacy ? (
+                  <p className="text-detail text-warning">
+                    Legacy broad access. Replace this key to choose specific permissions.
+                  </p>
+                ) : (
+                  <details className="text-detail text-muted-foreground">
+                    <summary>
+                      {k.permissions.length} {k.permissions.length === 1 ? "permission" : "permissions"}
+                    </summary>
+                    <ul>
+                      {API_KEY_PERMISSION_GROUPS.flatMap((group) =>
+                        group.permissions
+                          .filter((permission) => k.permissions.includes(permission.id))
+                          .map((permission) => (
+                            <li key={permission.id}>
+                              {group.label}: {permission.label}
+                            </li>
+                          )),
+                      )}
+                    </ul>
+                  </details>
+                )}
                 <p className="font-mono text-detail text-muted-foreground">
                   {k.preview ?? "—"}
                   {k.expiresAt ? ` · expires ${new Date(k.expiresAt).toLocaleDateString()}` : " · never expires"}
@@ -67,6 +92,7 @@ export function SystemApiKeysCard() {
                   setEnabled.mutate(
                     { id: k.id, enabled: checked },
                     {
+                      onSuccess: () => setRowErrors((prev) => ({ ...prev, [k.id]: "" })),
                       onError: (err) => setRowErrors((prev) => ({ ...prev, [k.id]: keyErrorMessage(err) })),
                     },
                   )

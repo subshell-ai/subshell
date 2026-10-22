@@ -128,6 +128,7 @@ export const subshellSubagentsRoute = new Elysia()
         401: "ApiErrorResponse",
         403: "ApiErrorResponse",
       },
+      systemPermission: "subshells:read",
       detail: {
         operationId: "getHarnessSubagentStates",
         tags: ["subshells"],
@@ -149,6 +150,7 @@ export const subshellSubagentsRoute = new Elysia()
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
       },
+      systemPermission: "subshells:read",
       detail: {
         operationId: "getSubshellHarnessSubagents",
         tags: ["subshells"],
@@ -183,6 +185,7 @@ export const subshellSubagentsRoute = new Elysia()
         404: "ApiErrorResponse",
         409: "ApiErrorResponse",
       },
+      systemPermission: "subshells:execute",
       detail: {
         operationId: "selectHarnessSubagent",
         tags: ["subshells"],
@@ -234,6 +237,7 @@ export const subshellSubagentsRoute = new Elysia()
         403: "ApiErrorResponse",
         409: "ApiErrorResponse",
       },
+      systemPermission: "subshells:execute",
       detail: {
         operationId: "reportHarnessSubagents",
         tags: ["subshells"],

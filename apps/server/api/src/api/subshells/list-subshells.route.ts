@@ -74,6 +74,7 @@ export const listSubshellsRoute = new Elysia()
         401: "ApiErrorResponse",
         403: "ApiErrorResponse",
       },
+      systemPermission: "subshells:read",
       detail: {
         operationId: "listSubshells",
         tags: ["subshells"],

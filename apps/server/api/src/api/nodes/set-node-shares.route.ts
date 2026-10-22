@@ -1,7 +1,8 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia } from "elysia";
-import { authGuard, ForbiddenError, requireCookieActor } from "@/api/auth-guard.js";
+import { ForbiddenError } from "@/api/auth-guard.js";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
+import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
 import { NodeSharesResponseSchema, SetNodeSharesBodySchema, toNodeShareViews } from "@/api/nodes/node-view.js";
 import { db } from "@/db/index.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
@@ -15,7 +16,7 @@ import { getRelayBroker } from "@/services/ssh-relay.service.js";
 /**
  * `PUT /api/nodes/:id/shares` `{shares:[{granteeUserId, permission}]}` —
  * replace the whole grant set (same contract as subshell-shares; null grantee
- * is the Everyone grant, unknown grantee → 400). Manager-only cookie: owner,
+ * is the Everyone grant, unknown grantee → 400). Manager-only: owner,
  * or ADMIN for `local` — where the route accepts any valid list (the UI only
  * ever toggles Everyone/edit, but the API stays the honest superset).
  *
@@ -23,13 +24,12 @@ import { getRelayBroker } from "@/services/ssh-relay.service.js";
  * close relay sessions whose users no longer have launch access to both ends.
  */
 export const setNodeSharesRoute = new Elysia()
-  .use(authGuard)
+  .use(nodeManagementGuard)
   .use(apiModels)
   .put(
     "/:id/shares",
     async ({ params, body, user, actor, status }) => {
-      requireCookieActor(actor, "Node sharing is restricted to browser sessions");
-      const gate = await loadNodeGate(user.id, params.id);
+      const gate = await loadNodeGate(user.id, params.id, actor);
       if (!gate) {
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));
       }
@@ -71,6 +71,7 @@ export const setNodeSharesRoute = new Elysia()
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
       },
+      systemPermission: "nodes:share",
       detail: {
         operationId: "setNodeShares",
         tags: ["nodes"],

@@ -1,3 +1,4 @@
+import type { GuardActor } from "@/api/auth-guard.js";
 import type { NodeViewableAccess } from "@/api/nodes/node-view.js";
 import { db } from "@/db/index.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
@@ -55,13 +56,20 @@ export interface NodeGate {
  * Load the row + grants, resolve access, and compute the manage and retire
  * gates in one step. Absent node AND invisible node collapse to `undefined` — the caller
  * renders both as the same 404 so ids cannot be probed (never a 403 leak).
- * @param viewerId - The authenticated (cookie) user
+ * @param viewerId - The authenticated user or system identity
  * @param nodeId - Node id from the route params
+ * @param actor - Credential kind; machine credentials cannot use shares or admin privileges
  */
-export async function loadNodeGate(viewerId: string, nodeId: string): Promise<NodeGate | undefined> {
+export async function loadNodeGate(
+  viewerId: string,
+  nodeId: string,
+  actor: GuardActor = "cookie",
+): Promise<NodeGate | undefined> {
   const row = await new NodesRepository(db).findById(nodeId);
   if (!row) return undefined;
-  const isAdmin = (await new UserMetaRepository(db).getRole(viewerId)) === "admin";
+  // Machine credentials never inherit shares, admin privileges, or control of the server host.
+  if (actor !== "cookie" && (row.kind !== "agent" || row.ownerUserId !== viewerId)) return undefined;
+  const isAdmin = actor === "cookie" && (await new UserMetaRepository(db).getRole(viewerId)) === "admin";
   const shares = await new NodeSharesRepository(db).listForNode(nodeId);
   const access = resolveNodeAccess(viewerId, isAdmin, row, shares);
   if (access === "none") return undefined;

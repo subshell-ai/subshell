@@ -1,7 +1,8 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
-import { authGuard, ForbiddenError, requireCookieActor } from "@/api/auth-guard.js";
+import { ForbiddenError } from "@/api/auth-guard.js";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
+import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { nodeCanConfigure } from "@/lib/node-access.js";
 import { apiModels } from "@/schema/index.js";
@@ -33,7 +34,7 @@ const LoggingResponseSchema = t.Object({
  * controllable from the browser that is the only way to read a headless node's
  * log at all.
  *
- * Gate: cookie only, owner or `edit` (`nodeCanConfigure`, like the rest of the
+ * Gate: browser owner or `edit`, or an enabled system key on its own agent node (`nodeCanConfigure`, like the rest of the
  * service surface). NOT owner-only: this changes what a machine writes to its
  * own disk — a bounded, self-replacing 200 KB file — and reverses with the
  * same call. Nothing here can strand a node, which is what makes `stop` and
@@ -43,13 +44,12 @@ const LoggingResponseSchema = t.Object({
  * host has its own switch under Server Settings, with its own gate.
  */
 export const nodeLoggingRoute = new Elysia()
-  .use(authGuard)
+  .use(nodeManagementGuard)
   .use(apiModels)
   .put(
     "/:id/logging",
     async ({ params, body, user, actor, status }) => {
-      requireCookieActor(actor, "Node logging control is restricted to browser sessions");
-      const gate = await loadNodeGate(user.id, params.id);
+      const gate = await loadNodeGate(user.id, params.id, actor);
       if (!gate) {
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));
       }
@@ -96,11 +96,12 @@ export const nodeLoggingRoute = new Elysia()
         404: "ApiErrorResponse",
         409: "ApiErrorResponse",
       },
+      systemPermission: "nodes:diagnostics",
       detail: {
         operationId: "setNodeLogging",
         tags: ["nodes"],
         description:
-          "Turn debug-level logging on or off in an enrolled node. Applied live and persisted on that machine; cookie-only, owner or edit; 409 when the node is offline or its environment forces the setting.",
+          "Turn debug-level logging on or off in an enrolled node. Applied live and persisted on that machine; browser owner or edit, or an enabled system key on its own agent node; 409 when the node is offline or its environment forces the setting.",
       },
     },
   );

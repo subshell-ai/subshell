@@ -1,8 +1,9 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { MAX_ALLOWED_DIRS, normalizeAllowedDir, normalizeAllowedDirs } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { authGuard, ForbiddenError, requireCookieActor } from "@/api/auth-guard.js";
+import { ForbiddenError } from "@/api/auth-guard.js";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
+import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
 import { NodeViewSchema, toNodeView } from "@/api/nodes/node-view.js";
 import { db } from "@/db/index.js";
 import { NodeAllowedDirsRepository } from "@/db/repositories/node-allowed-dirs.repository.js";
@@ -26,7 +27,7 @@ const AllowedDirsBodySchema = t.Object({
 
 /**
  * `PUT /api/nodes/:id/allowed-dirs` `{dirs}` — replace a node's directory
- * allowlist (spec 2026-09-05). Cookie-only.
+ * allowlist (spec 2026-09-05). Browser session or explicitly enabled system API key.
  *
  * **OWNER-only** (`gate.canManage`), deliberately NOT the `nodeCanConfigure`
  * gate that harness toggles use. Any node share — even `view` — lets the
@@ -44,13 +45,12 @@ const AllowedDirsBodySchema = t.Object({
  * back, so the UI always renders what is actually in force.
  */
 export const setNodeAllowedDirsRoute = new Elysia()
-  .use(authGuard)
+  .use(nodeManagementGuard)
   .use(apiModels)
   .put(
     "/:id/allowed-dirs",
     async ({ params, body, user, actor, status }) => {
-      requireCookieActor(actor, "Directory rules are restricted to browser sessions");
-      const gate = await loadNodeGate(user.id, params.id);
+      const gate = await loadNodeGate(user.id, params.id, actor);
       if (!gate) {
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));
       }
@@ -123,11 +123,12 @@ export const setNodeAllowedDirsRoute = new Elysia()
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
       },
+      systemPermission: "nodes:directories",
       detail: {
         operationId: "setNodeAllowedDirs",
         tags: ["nodes"],
         description:
-          "Replace the directories subshells may be created under on this node (owner-only, cookie-only). An empty array clears the rules; the node becomes unrestricted. The set is pushed to the node, which enforces it independently",
+          "Replace the directories subshells may be created under on this node (owner-only, enabled system key or browser session). An empty array clears the rules; the node becomes unrestricted. The set is pushed to the node, which enforces it independently",
       },
     },
   );

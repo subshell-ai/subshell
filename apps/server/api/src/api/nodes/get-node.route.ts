@@ -1,7 +1,7 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia } from "elysia";
-import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
+import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
 import { GetNodeResponseSchema, sshTrustView, toNodeShareViews, toNodeView } from "@/api/nodes/node-view.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
@@ -20,19 +20,15 @@ import { localSshTrustReport } from "@/services/ssh-local-participant.js";
  * otherwise the key is ABSENT, not null — a view grantee learns nothing
  * about the grant set.
  *
- * COOKIE-ONLY for phase 1 (see the list route's note).
+ * Enabled system keys can read their own agent nodes; shares do not widen access.
  */
 export const getNodeRoute = new Elysia()
-  .use(authGuard)
+  .use(nodeManagementGuard)
   .use(apiModels)
   .get(
     "/:id",
     async ({ params, user, actor, status }) => {
-      requireCookieActor(
-        actor,
-        "Node reads are restricted to browser sessions (bearer read deferred until a machine consumer exists)",
-      );
-      const gate = await loadNodeGate(user.id, params.id);
+      const gate = await loadNodeGate(user.id, params.id, actor);
       if (!gate) {
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));
       }
@@ -85,6 +81,7 @@ export const getNodeRoute = new Elysia()
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
       },
+      systemPermission: "nodes:read",
       detail: {
         operationId: "getNode",
         tags: ["nodes"],

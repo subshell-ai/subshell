@@ -1,8 +1,9 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { NODE_NAME_MAX_UNITS, normalizeNodeName } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { authGuard, ForbiddenError, requireCookieActor } from "@/api/auth-guard.js";
+import { ForbiddenError } from "@/api/auth-guard.js";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
+import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
 import { NodeViewSchema, toNodeView } from "@/api/nodes/node-view.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
@@ -42,16 +43,15 @@ const RenameBodySchema = t.Object({
  * The name is normalized before it is stored — a node name reaches log lines
  * and menu labels, and length was previously the only thing enforced.
  * Per-owner collision rides `idx_nodes_owner_name` → 409 `NODE_NAME_TAKEN`
- * (the index is the authority; no pre-check race). Cookie-only.
+ * (the index is the authority; no pre-check race). Browser session or explicitly enabled system API key.
  */
 export const renameNodeRoute = new Elysia()
-  .use(authGuard)
+  .use(nodeManagementGuard)
   .use(apiModels)
   .patch(
     "/:id",
     async ({ params, body, user, actor, status }) => {
-      requireCookieActor(actor, "Node renaming is restricted to browser sessions");
-      const gate = await loadNodeGate(user.id, params.id);
+      const gate = await loadNodeGate(user.id, params.id, actor);
       if (!gate) {
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));
       }
@@ -104,6 +104,7 @@ export const renameNodeRoute = new Elysia()
         404: "ApiErrorResponse",
         409: "ApiErrorResponse",
       },
+      systemPermission: "nodes:configure",
       detail: {
         operationId: "renameNode",
         tags: ["nodes"],

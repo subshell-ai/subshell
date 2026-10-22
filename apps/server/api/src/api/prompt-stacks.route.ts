@@ -318,6 +318,7 @@ export const promptStackRoutes = new Elysia()
     {
       query: ListPromptStacksQuerySchema,
       response: PromptStacksListSchema,
+      systemPermission: "prompts:read",
       detail: {
         operationId: "listPromptStacks",
         tags: ["prompts"],
@@ -356,6 +357,7 @@ export const promptStackRoutes = new Elysia()
     {
       params: t.Object({ id: t.String({ description: "Stack id" }) }),
       response: PromptStackDetailViewSchema,
+      systemPermission: "prompts:read",
       detail: {
         operationId: "getPromptStack",
         tags: ["prompts"],
@@ -400,6 +402,7 @@ export const promptStackRoutes = new Elysia()
     {
       body: CreateStackBodySchema,
       response: StackViewSchema,
+      systemPermission: "prompts:write",
       detail: {
         operationId: "createPromptStack",
         tags: ["prompts"],
@@ -490,6 +493,7 @@ export const promptStackRoutes = new Elysia()
       },
       body: UpdateStackBodySchema,
       response: StackViewSchema,
+      systemPermission: "prompts:write",
       detail: {
         operationId: "updatePromptStack",
         tags: ["prompts"],
@@ -511,6 +515,7 @@ export const promptStackRoutes = new Elysia()
     {
       params: t.Object({ id: t.String({ description: "Stack id" }) }),
       response: t.Object({ ok: t.Boolean({ description: "True when the stack was deleted" }) }),
+      systemPermission: "prompts:write",
       detail: {
         operationId: "deletePromptStack",
         tags: ["prompts"],

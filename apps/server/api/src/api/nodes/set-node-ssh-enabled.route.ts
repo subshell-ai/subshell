@@ -1,7 +1,8 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
-import { authGuard, ForbiddenError, requireCookieActor } from "@/api/auth-guard.js";
+import { ForbiddenError } from "@/api/auth-guard.js";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
+import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
 import { NodeViewSchema, toNodeView } from "@/api/nodes/node-view.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
@@ -25,7 +26,7 @@ const SshEnabledBodySchema = t.Object({
 
 /**
  * `PUT /api/nodes/:id/ssh-enabled` `{on}` — open or close Subshell SSH on one
- * machine (spec 4.3). Cookie-only.
+ * machine (spec 4.3). Browser session or explicitly enabled system API key.
  *
  * **OWNER-only** (`gate.canManage`, with the seeded-`local` admin exception),
  * the same gate as maintenance, delete and re-share — deliberately NOT the
@@ -45,13 +46,12 @@ const SshEnabledBodySchema = t.Object({
  * reachable, which is backwards for a gate that exists to be closed.
  */
 export const setNodeSshEnabledRoute = new Elysia()
-  .use(authGuard)
+  .use(nodeManagementGuard)
   .use(apiModels)
   .put(
     "/:id/ssh-enabled",
     async ({ params, body, user, actor, status }) => {
-      requireCookieActor(actor, "Node SSH enablement is restricted to browser sessions");
-      const gate = await loadNodeGate(user.id, params.id);
+      const gate = await loadNodeGate(user.id, params.id, actor);
       if (!gate) {
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));
       }
@@ -79,6 +79,7 @@ export const setNodeSshEnabledRoute = new Elysia()
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
       },
+      systemPermission: "nodes:ssh",
       detail: {
         operationId: "setNodeSshEnabled",
         tags: ["nodes"],
@@ -96,8 +97,7 @@ export const setNodeSshEnabledRoute = new Elysia()
   .put(
     "/:id/ssh-wide-forwards",
     async ({ params, body, user, actor, status }) => {
-      requireCookieActor(actor, "Node SSH wide-forwards settings are restricted to browser sessions");
-      const gate = await loadNodeGate(user.id, params.id);
+      const gate = await loadNodeGate(user.id, params.id, actor);
       if (!gate) {
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));
       }
@@ -118,6 +118,7 @@ export const setNodeSshEnabledRoute = new Elysia()
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
       },
+      systemPermission: "nodes:ssh-wide-forwards",
       detail: {
         operationId: "setNodeSshWideForwards",
         tags: ["nodes"],

@@ -1,15 +1,25 @@
+import { API_KEY_PERMISSIONS, type ApiKeyPermission } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { HttpError, requireAdmin } from "@/api/auth-guard.js";
 import type { ApiKeyListRow, CreatedApiKey } from "@/auth/apikey-store.js";
 import { deleteApiKey, isSystemKey, listSystemKeys, setApiKeyEnabled } from "@/auth/apikey-store.js";
+import { systemKeyPermissions } from "@/auth/system-key-permissions.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { getAuth } from "@/auth.js";
 import { audit } from "@/services/audit.js";
+
+const PermissionSchema = t.UnionEnum(API_KEY_PERMISSIONS as readonly [ApiKeyPermission, ...ApiKeyPermission[]], {
+  description: "An explicit API key permission",
+});
 
 const KeyRowSchema = t.Object({
   id: t.String({ description: "API key id" }),
   name: t.String({ description: "Human-readable key name" }),
   enabled: t.Boolean({ description: "Whether the key currently authenticates" }),
+  permissions: t.Array(PermissionSchema, { description: "Explicit API permissions; empty for legacy keys" }),
+  legacy: t.Boolean({
+    description: "True for an older key with broad non-node API access; replace it with a scoped key",
+  }),
   preview: t.Nullable(t.String({ description: "Non-secret start of the key (for identification)" })),
   createdAt: t.String({ description: "ISO 8601 creation timestamp" }),
   expiresAt: t.Nullable(t.String({ description: "ISO 8601 expiry, null when the key never expires" })),
@@ -20,6 +30,13 @@ const ListResponseSchema = t.Object({
 });
 
 const CreateBodySchema = t.Object({
+  permissions: t.Array(PermissionSchema, {
+    minItems: 1,
+    maxItems: API_KEY_PERMISSIONS.length,
+    uniqueItems: true,
+    description:
+      "Select at least one explicit permission. All permissions are off by default; unknown grants are rejected.",
+  }),
   name: t.String({ minLength: 1, maxLength: 64, description: "Key name shown in listings" }),
 });
 
@@ -38,10 +55,13 @@ const OkResponseSchema = t.Object({
 
 /** Maps a raw apikey row to the admin-listing shape (hash never leaves the DB). */
 function toKeyRow(row: ApiKeyListRow) {
+  const permissions = systemKeyPermissions(row.metadata ? JSON.parse(row.metadata) : null);
   return {
     id: row.id,
     name: row.name,
     enabled: row.enabled === 1,
+    permissions: permissions ?? [],
+    legacy: permissions === null,
     preview: row.start,
     createdAt: row.createdAt,
     expiresAt: row.expiresAt,
@@ -50,7 +70,7 @@ function toKeyRow(row: ApiKeyListRow) {
 
 /**
  * Admin CRUD for system-wide API keys (spec §8). These are long-lived bearer
- * credentials owned by the `system` service user with no permission ceiling —
+ * credentials owned by the `system` service user with explicit permission grants
  * for LAN tooling and admin scripts, distinct from the ephemeral per-subshell
  * tokens. Management is cookie-admin only (requireAdmin rejects machine
  * actors), and the plaintext key is returned exactly once at creation; the
@@ -68,6 +88,7 @@ export const systemKeysRoutes = new Elysia({ prefix: "/api/system-keys" })
     {
       response: ListResponseSchema,
       detail: {
+        security: [{ sessionCookie: [] }],
         operationId: "listSystemKeys",
         tags: ["system-keys"],
         description: "Lists admin-managed system API keys (never the secret)",
@@ -82,7 +103,7 @@ export const systemKeysRoutes = new Elysia({ prefix: "/api/system-keys" })
         body: {
           name: body.name,
           userId: systemUserId,
-          metadata: { kind: "system" },
+          metadata: { kind: "system", permissionVersion: 1, systemPermissions: body.permissions },
         },
       })) as unknown as CreatedApiKey;
       await audit({
@@ -90,7 +111,7 @@ export const systemKeysRoutes = new Elysia({ prefix: "/api/system-keys" })
         action: "system-key.create",
         targetType: "api-key",
         targetId: created.id,
-        metadataJson: JSON.stringify({ name: body.name }),
+        metadataJson: JSON.stringify({ name: body.name, permissions: body.permissions }),
       });
       return { id: created.id, key: created.key };
     },
@@ -98,6 +119,7 @@ export const systemKeysRoutes = new Elysia({ prefix: "/api/system-keys" })
       body: CreateBodySchema,
       response: CreateResponseSchema,
       detail: {
+        security: [{ sessionCookie: [] }],
         operationId: "createSystemKey",
         tags: ["system-keys"],
         description: "Mints a system API key; the plaintext is returned only here",
@@ -124,6 +146,7 @@ export const systemKeysRoutes = new Elysia({ prefix: "/api/system-keys" })
       body: PatchBodySchema,
       response: OkResponseSchema,
       detail: {
+        security: [{ sessionCookie: [] }],
         operationId: "updateSystemKey",
         tags: ["system-keys"],
         description: "Enables or disables a system key; disable revokes immediately",
@@ -149,6 +172,7 @@ export const systemKeysRoutes = new Elysia({ prefix: "/api/system-keys" })
       params: t.Object({ id: t.String({ description: "API key id" }) }),
       response: OkResponseSchema,
       detail: {
+        security: [{ sessionCookie: [] }],
         operationId: "deleteSystemKey",
         tags: ["system-keys"],
         description: "Deletes a system key and its row",

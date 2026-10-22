@@ -20,6 +20,7 @@ export const terminateSubshellRoute = new Elysia()
         401: "ApiErrorResponse",
         403: "ApiErrorResponse",
       },
+      systemPermission: "subshells:stop",
       detail: {
         operationId: "terminateSubshell",
         tags: ["subshells"],
