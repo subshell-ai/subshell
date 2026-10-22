@@ -205,9 +205,9 @@ export function SearchableSelect({
             // stretching the popup past the field and the dialog around it
             // (report 2026-10-16). Rows truncate inside that width;
             // the full sentence lives below the picker once a row is chosen.
-            className="max-h-96 min-w-[var(--anchor-width)] max-w-[var(--anchor-width)] overflow-hidden rounded-md border bg-popover text-popover-foreground opacity-100 shadow-md transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0"
+            className="flex max-h-[min(24rem,var(--available-height))] min-w-[var(--anchor-width)] max-w-[var(--anchor-width)] flex-col overflow-hidden rounded-md border bg-popover text-popover-foreground opacity-100 shadow-md transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0"
           >
-            <ComboboxPrimitive.List className="p-1">
+            <ComboboxPrimitive.List className="min-h-0 overflow-y-auto overscroll-contain p-1">
               {(option: ComboboxOption, index: number) => {
                 // Index 0 restarts the per-pass header detection, so a
                 // re-filter cannot carry stale state across the boundary.
