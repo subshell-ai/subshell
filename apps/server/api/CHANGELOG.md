@@ -1,5 +1,13 @@
 # @internal/server
 
+## 2.6.2
+
+### Patch Changes
+
+- [#424](https://github.com/subshell-ai/subshell/pull/424) [`482be76`](https://github.com/subshell-ai/subshell/commit/482be76ea5490b60892b4f53a363f087e8981de8) Thanks [@theogravity](https://github.com/theogravity)! - Reject untrusted browser origins on cookie-authenticated API requests and terminal WebSocket connections. Prevent an unrelated node from closing an SSH relay by sending an oversized frame with its routing id.
+  
+  Block self-service API-key reads as well as writes in the auth handler, closing a routing bypass for GET requests.
+
 ## 2.6.1
 
 ### Patch Changes

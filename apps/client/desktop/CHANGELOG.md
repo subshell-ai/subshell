@@ -1,5 +1,11 @@
 # @internal/desktop-client
 
+## 1.3.5
+
+### Patch Changes
+
+- [#424](https://github.com/subshell-ai/subshell/pull/424) [`482be76`](https://github.com/subshell-ai/subshell/commit/482be76ea5490b60892b4f53a363f087e8981de8) Thanks [@theogravity](https://github.com/theogravity)! - Verify desktop updates against the signed release manifest as well as the bundle signature. Refuse older or different-app bundles relabeled through update metadata, and check the selected platform's digest before installation.
+
 ## 1.3.4
 
 ### Patch Changes
