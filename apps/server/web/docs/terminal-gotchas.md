@@ -130,9 +130,8 @@ server can APPLY it and the browser can EXPLAIN it from one definition:
 smallest visible viewer wins, hidden viewers drop out, a pin overrides both.
 `decideSharedGrid` returns the grid plus the viewer ids holding each axis;
 `describeDevices` (also in the protocol package, beside the rule it explains; the phone needs it too) turns that into the rows `<SubshellDevices>` renders:
-in the subshell header, and floated over a workspace pane's top-right corner
-(dockview owns that panel's frame, and a row of our own would cost every pane
-vertical space for a control that is absent whenever one device is attached).
+in the subshell header, including the focused-pane header above desktop and
+phone workspaces. It never overlays terminal output.
 
 Whether the viewer may CHANGE the sizing is read off the presence frame's own
 `canInput`, never passed in: a workspace pane has no access field to hand, and
@@ -189,3 +188,11 @@ HTTPS failures show guidance instead of claiming success.
 The live pipe-pane log carries these sequences for both server-hosted and
 remote-node panes. Copying solely through a remote OS clipboard tool does not
 emit terminal output; that program must use OSC 52 for this bridge to work.
+
+### Workspace indicators and device controls
+
+Node/sharing indicators and the connected-device sizing menu belong in
+`PaneFocusHeader`, never over terminal output, in both dock and phone layouts.
+`usePublishPaneDevices` forwards presence from each pane's existing socket to
+that header by pane ID. Focus chooses the entry; disconnect and unmount clear
+it. Do not attach another viewer just to populate the header.

@@ -4,15 +4,13 @@ import { RotateCcw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LogTail } from "@/components/log-tail";
 import { InjectPromptDialog } from "@/components/prompts/inject-prompt-dialog";
-import { SubshellDevices } from "@/components/subshell-devices";
 import { SubshellTerminal, type SubshellTerminalHandles } from "@/components/subshell-terminal";
 import { TerminalKeyBar } from "@/components/terminal-key-bar";
-import { TrustIndicators } from "@/components/trust-indicators";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
 import { usePaneCopyMode } from "@/hooks/use-pane-copy-mode";
+import { usePublishPaneDevices } from "@/hooks/use-pane-devices";
 import { useSubshellLog } from "@/hooks/use-subshell-log";
 import { useSubshellRow } from "@/hooks/use-subshell-row";
-import { useTrustNotices } from "@/hooks/use-trust-notices";
 import type { WorkspacePaneRow } from "@/types/workspace";
 
 /** Props for {@link SubshellPane}. */
@@ -28,8 +26,6 @@ export interface SubshellPaneProps {
    * pointers, where the real keyboard wins.
    */
   showKeyBar?: boolean;
-  /** Disable when the single-pane phone layout shows these notices in its header. */
-  showTrustIndicators?: boolean;
   /** Restarts the pane's subshell (exited/terminated only) */
   onRestart: (subshellId: string) => void;
   /** Removes the pane from the workspace, leaving the subshell alone */
@@ -62,7 +58,6 @@ export function SubshellPane({
   pane,
   active,
   showKeyBar = false,
-  showTrustIndicators = true,
   onRestart,
   onRemovePane,
   onReady,
@@ -91,21 +86,14 @@ export function SubshellPane({
   const [connected, setConnected] = useState(false);
   const [injectTarget, setInjectTarget] = useState<string | null>(null);
   useEffect(() => setInjectTarget((target) => (target === pane.subshellId ? target : null)), [pane.subshellId]);
-  /**
-   * Who else is watching this pane's subshell. A pane is exactly where the
-   * question bites — the terminal is already small, so "is this the layout or
-   * is a phone holding it down?" has no other answer — and dockview owns the
-   * tab strip, so the control rides the pane's own corner instead of a
-   * header. It renders itself away below two devices, which is almost always.
-   */
   const [viewers, setViewers] = useState<ViewersState | null>(null);
-  // The pane row carries only a summary join, not the sharing/node fields the
-  // disclosure needs — so read this subshell's row out of the app-wide live
-  // list (already cached; no extra request). The SELECTOR matters: the whole
-  // list re-renders its subscribers whenever the feed writes, and a pane that
-  // subscribes to all of it repaints because some OTHER subshell printed.
+  // Read access from the cached live row for the touch-bar input controls.
+  // Selecting this row avoids repainting when another subshell changes.
   const subshellRow = useSubshellRow(pane.subshellId);
-  const trustNotices = useTrustNotices(subshellRow);
+  const handleSizing = useCallback((mode: "auto" | "pinned", viewerId?: string | null) => {
+    handlesRef.current?.setSizing(mode, viewerId);
+  }, []);
+  usePublishPaneDevices(pane.id, viewers, handleSizing);
   const handleReady = useCallback(
     (handles: SubshellTerminalHandles) => {
       handlesRef.current = handles;
@@ -194,44 +182,8 @@ export function SubshellPane({
     />
   );
 
-  /**
-   * The Devices control, floated over the pane's top-right corner.
-   *
-   * An overlay rather than chrome because dockview owns this panel's frame
-   * and tab, and a row of our own would cost every pane vertical space for a
-   * control that is absent whenever one device is attached — which is the
-   * normal case. `pointer-events-none` on the wrapper keeps the terminal
-   * clickable through the empty area around the button.
-   */
-  const devices = (
-    // Inset past xterm's scrollbar track (14px, `scrollbarReserve`): the
-    // overlay is only present with two devices attached, but while it is, a
-    // button sitting on the track would eat drags meant for the scrollbar.
-    <div className="pointer-events-none absolute top-1 right-4 z-10 flex items-center gap-1.5">
-      {/* Beside Devices, in the same overlay: dockview owns this panel's
-          frame, so there is no header of ours to put them in — and a pane in
-          a workspace is exactly where someone forgets whose machine they are
-          typing on. The banner is deliberately NOT here (a transient strip
-          over a tiled pane covers the output it warns about); the detail page
-          carries that, and these icons carry the fact permanently. */}
-      {showTrustIndicators && trustNotices.length > 0 && (
-        <div className="pointer-events-auto rounded-md bg-terminal-strip/85 px-1.5 py-1 backdrop-blur-sm">
-          <TrustIndicators notices={trustNotices} />
-        </div>
-      )}
-      <div className="pointer-events-auto rounded-md bg-terminal-strip/85 backdrop-blur-sm">
-        <SubshellDevices state={viewers} onSizing={(mode, viewerId) => handlesRef.current?.setSizing(mode, viewerId)} />
-      </div>
-    </div>
-  );
-
   if (!showKeyBar || !coarse) {
-    return (
-      <div className="relative h-full w-full bg-terminal-strip">
-        {terminal}
-        {devices}
-      </div>
-    );
+    return <div className="relative h-full w-full bg-terminal-strip">{terminal}</div>;
   }
   // The active pane's touch chrome: the terminal keeps the space the bar
   // takes (its ResizeObserver refits), and the bar sits under THIS pane —
@@ -239,10 +191,7 @@ export function SubshellPane({
   // attaches; the scroll jumps drive the local scrollback and never do.
   return (
     <div className="flex h-full w-full flex-col bg-terminal-strip">
-      <div className="relative min-h-0 flex-1">
-        {terminal}
-        {devices}
-      </div>
+      <div className="relative min-h-0 flex-1">{terminal}</div>
       <TerminalKeyBar
         key={pane.subshellId}
         disabled={!connected}
