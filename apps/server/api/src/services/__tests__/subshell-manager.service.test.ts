@@ -515,6 +515,36 @@ describe("SubshellManagerService restart", () => {
   // preset switch are the grantee's acts. They move together (the two rows of
   // one act naming different actors would read worse than uniform owner
   // attribution ever did).
+  it("restart preserves the old token ceiling and intersects the caller's permissions", async () => {
+    const presetId = await seedPresetFor("u1");
+    const id = await seedSubshell("u1", presetId);
+    const issued: unknown[] = [];
+    const mgr = new SubshellManagerService({
+      subshells: subshellsRepo,
+      presets: presetsRepo,
+      tmux: new TmuxRunner(),
+      tokens: {
+        permissions: async () => ["subshells:execute", "channels:read"],
+        issue: async (_id, _user, ceiling) => {
+          issued.push(ceiling);
+          return "subshell_stub";
+        },
+        revoke: async () => {},
+      },
+    });
+    try {
+      const first = await mgr.restartSubshell("u1", id, undefined, "u1", ["subshells:execute", "nodes:enroll"]);
+      expect(first).not.toBeNull();
+      if (first) trackTmuxSocket(first.tmuxSocket);
+      expect(issued[0]).toEqual(["subshells:execute"]);
+      const second = await mgr.restartSubshell("u1", id);
+      if (second) trackTmuxSocket(second.tmuxSocket);
+      expect(issued[1]).toEqual(["subshells:execute", "channels:read"]);
+    } finally {
+      await mgr.terminateSubshell("u1", id);
+    }
+  });
+
   it("restartSubshell attributes BOTH audit rows of the act to the passed actor", async () => {
     const presetId = await seedPresetFor("u1");
     const id = await seedSubshell("u1", presetId);

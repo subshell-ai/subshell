@@ -75,6 +75,7 @@ export const inputSubshellRoute = new Elysia()
         // live connection). Nothing was typed.
         409: "ApiErrorResponse",
       },
+      systemPermission: "subshells:execute",
       detail: {
         operationId: "sendSubshellInput",
         tags: ["subshells"],

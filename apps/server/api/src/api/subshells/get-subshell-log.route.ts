@@ -55,6 +55,7 @@ export const getSubshellLogRoute = new Elysia()
         // NODE_OFFLINE, the create/restart mapping).
         409: "ApiErrorResponse",
       },
+      systemPermission: "subshells:read",
       detail: {
         operationId: "getSubshellLogTail",
         tags: ["subshells"],

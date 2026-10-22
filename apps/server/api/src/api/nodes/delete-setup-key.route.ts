@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia";
-import { authGuard, HttpError, requireCookieActor } from "@/api/auth-guard.js";
+import { HttpError } from "@/api/auth-guard.js";
+import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
 import { isCookieAdmin } from "@/api/user-utils.js";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
@@ -18,8 +19,8 @@ const OkResponseSchema = t.Object({
  * affected nothing may delete any row (audit 2026-09 item 4): the admin's
  * instance-wide view (`?all=1`) exists precisely so an outstanding foreign
  * key is a door they can close before its 24 h expiry. A consumed row is
- * still deletable by either caller (housekeeping of spent keys). Cookie-only,
- * like the siblings.
+ * still deletable by either caller (housekeeping of spent keys). Browser sessions
+ * and explicitly enabled system keys may revoke their own keys.
  *
  * The audit reuses the one action name — `setup_key.revoke` — and says which
  * kind it was in metadata: `{ foreign: true, ownerUserId }` on the admin's
@@ -28,14 +29,13 @@ const OkResponseSchema = t.Object({
  * is what gets screenshotted into an issue).
  */
 export const deleteSetupKeyRoute = new Elysia()
-  .use(authGuard)
+  .use(nodeManagementGuard)
   .use(apiModels)
   .delete(
     "/setup-keys/:id",
     async ({ params, user, actor }) => {
-      requireCookieActor(actor, "Node setup keys are managed from the browser");
       const keys = new NodeSetupKeysRepository(db);
-      let deleted = await keys.deleteById(params.id, user.id);
+      let deleted = await keys.deleteById(params.id, user.id, actor !== "cookie");
       let metadataJson: string | null = null;
       if (deleted === 0 && (await isCookieAdmin(user, actor))) {
         // The owner-filtered miss is what separates the two paths: a key owner
@@ -67,6 +67,7 @@ export const deleteSetupKeyRoute = new Elysia()
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
       },
+      systemPermission: "nodes:enroll",
       detail: {
         operationId: "deleteNodeSetupKey",
         tags: ["nodes"],

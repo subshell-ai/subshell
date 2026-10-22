@@ -26,6 +26,7 @@ export const getChannelCursorRoute = new Elysia()
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
       },
+      systemPermission: "channels:read",
       detail: {
         operationId: "getChannelCursor",
         tags: ["channels"],

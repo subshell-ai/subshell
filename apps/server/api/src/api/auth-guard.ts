@@ -1,5 +1,7 @@
+import type { ApiKeyPermission } from "@internal/subshell-protocol";
 import type { Session, User } from "better-auth";
 import { Elysia } from "elysia";
+import { systemKeyPermissions } from "@/auth/system-key-permissions.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
@@ -32,7 +34,7 @@ interface VerifiedKeyRow {
  * `user` is the subshell's OWNER so existing owner-scoped routes keep working.
  * A subshell token whose subshell row is gone is 401 even if the key itself is
  * valid — the row is the lifecycle truth. System keys authenticate as their
- * owning user with no permission ceiling (plan decision: admins manage them).
+ * owning user with the explicit permission ceiling selected by an admin.
  * Node-kind keys are rejected outright here — they are `/ws/node` credentials
  * only (spec 2026-08-31 §5.5).
  */
@@ -66,6 +68,7 @@ async function deriveFromApiKey(bearer: string) {
       session: undefined,
       principal: `sess:${subshellRow.id}`,
       actor: "subshell-key" as const,
+      systemKeyPermissions: systemKeyPermissions(meta),
       apiKeyId: row.id,
       apiKeyPermissions: row.permissions ?? {},
     };
@@ -87,6 +90,7 @@ async function deriveFromApiKey(bearer: string) {
     session: undefined,
     principal: `user:${row.referenceId}`,
     actor: "system-key" as const,
+    systemKeyPermissions: systemKeyPermissions(meta),
     apiKeyId: row.id,
     apiKeyPermissions: null,
   };
@@ -103,12 +107,14 @@ async function deriveFromApiKey(bearer: string) {
  * review M-1). Non-401 failures (store errors) propagate like they do in the
  * guard.
  */
-export async function isIssuedCredential(bearer: string): Promise<boolean> {
+export async function isIssuedCredential(bearer: string, permission?: ApiKeyPermission): Promise<boolean> {
   try {
     const derived = await deriveFromApiKey(bearer);
-    // The guard rejects a disabled account's credentials, so this must too —
-    // the whole point of the function is that its accept-set IS the guard's.
-    return !(await accountDisabled(db, derived.user.id));
+    if (await accountDisabled(db, derived.user.id)) return false;
+    if (permission && derived.systemKeyPermissions !== null && !derived.systemKeyPermissions.includes(permission)) {
+      throw new HttpError(403, `This API key needs the ${permission} permission.`);
+    }
+    return true;
   } catch (err) {
     if (err instanceof UnauthorizedError) return false;
     throw err;
@@ -135,6 +141,7 @@ async function resolvePrincipal(request: Request) {
       session: result.session as Session,
       principal: `user:${result.user.id}`,
       actor: "cookie" as const,
+      systemKeyPermissions: null,
       apiKeyId: null,
       apiKeyPermissions: null,
     };
@@ -164,6 +171,7 @@ async function resolvePrincipal(request: Request) {
  * context. `session` exists only on the cookie path.
  */
 export const authGuard = new Elysia({ name: "auth-guard" })
+  .decorate("requiredSystemPermission", null as ApiKeyPermission | null)
   // The handler throws UnauthorizedError when not authenticated; Elysia turns
   // it into a 401. Route context then always has { user, ... }.
   .derive({ as: "scoped" }, async ({ request }) => {
@@ -179,6 +187,27 @@ export const authGuard = new Elysia({ name: "auth-guard" })
       }
     }
     return resolved;
+  })
+  .macro({
+    systemPermission: (permission: ApiKeyPermission) => ({
+      transform(context) {
+        context.requiredSystemPermission = permission;
+      },
+      detail: { "x-api-key-permission": permission, security: [{ sessionCookie: [] }, { bearerAuth: [] }] },
+    }),
+  })
+  .onBeforeHandle({ as: "scoped" }, ({ actor, systemKeyPermissions, requiredSystemPermission }) => {
+    // Legacy keys retain their existing non-node access. Versioned keys and their
+    // derived pane credentials must have an explicit grant on every route.
+    if (actor === "cookie" || systemKeyPermissions === null) return;
+    if (!requiredSystemPermission || !systemKeyPermissions.includes(requiredSystemPermission)) {
+      throw new HttpError(
+        403,
+        requiredSystemPermission
+          ? `This API key needs the ${requiredSystemPermission} permission.`
+          : "This endpoint isn't available to scoped API keys.",
+      );
+    }
   })
   .as("scoped");
 

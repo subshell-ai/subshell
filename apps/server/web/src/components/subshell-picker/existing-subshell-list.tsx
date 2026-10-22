@@ -37,9 +37,9 @@ export function ExistingSubshellList({
   /** Subshells not already on this workspace. */
   subshells: SubshellView[];
   /**
-   * When set, only subshells running on this node are listed — the dialog
-   * keeps the EXISTING half coherent with the node the NEW half would
-   * launch onto. The server applies this filter after checking visibility.
+   * When set, only subshells running on this node are listed. The server
+   * applies this explicit filter after checking visibility. Workspace
+   * pickers omit it so existing subshells from every node are available.
    * Older payloads without `nodeId` are treated as `local`.
    */
   nodeId?: string;

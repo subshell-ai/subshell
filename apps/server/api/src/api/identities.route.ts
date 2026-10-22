@@ -55,6 +55,7 @@ export const identityRoutes = new Elysia({ prefix: "/api/identities" })
     {
       body: RegisterIdentityBodySchema,
       response: IdentityResponseSchema,
+      systemPermission: "channels:write",
       detail: {
         operationId: "registerIdentity",
         tags: ["identities"],
@@ -72,6 +73,7 @@ export const identityRoutes = new Elysia({ prefix: "/api/identities" })
     },
     {
       response: IdentityResponseSchema,
+      systemPermission: "channels:read",
       detail: {
         operationId: "getIdentity",
         tags: ["identities"],

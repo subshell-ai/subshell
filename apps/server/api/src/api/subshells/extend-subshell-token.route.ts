@@ -31,6 +31,7 @@ export const extendSubshellTokenRoute = new Elysia()
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
       },
+      systemPermission: "subshells:execute",
       detail: {
         operationId: "extendSubshellToken",
         tags: ["subshells"],

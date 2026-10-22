@@ -54,6 +54,12 @@ async function mount(count = 2, refuse = false) {
   }));
   setFetchRouter(async (input, init) => {
     const url = new URL(String(input), "http://localhost");
+    if (init?.method === "POST" && url.pathname === "/api/workspaces/w1/panes") {
+      requests.push(`POST ${url.pathname}`);
+      const { subshellId } = JSON.parse(String(init.body));
+      panes.push({ id: "added", subshellId, subshellName: "Other agent", workingDir: "/project" });
+      return Response.json({ id: "added" });
+    }
     if (init?.method === "DELETE") {
       requests.push(`${init.method} ${url.pathname}`);
       if (refuse) return Response.json({ message: "Cannot remove pane" }, { status: 500 });
@@ -138,14 +144,16 @@ test("dragging out removes membership only and moves the row to Other subshells"
   expect(within(add).queryByRole("link", { name: /Member 2/ })).toBeNull();
   expect(screen.queryByRole("status")).toBeNull();
 });
-test("dragging in uses the existing add-as-tab intent without leaving the workspace", async () => {
-  const { add, remove, router } = await mount();
+test("dragging in persists membership without a navigation intent", async () => {
+  const { add, remove, router, requests } = await mount();
   const dt = transfer("outside");
   fireEvent.dragStart(within(remove).getByRole("link", { name: /Other agent/ }), { dataTransfer: dt });
   expect(within(add).getByRole("status").textContent).toBe("Add to workspace");
   fireEvent.drop(add, { dataTransfer: dt });
-  await waitFor(() => expect(router.state.location.search).toEqual({ add: "outside", dir: "within" }));
+  await waitFor(() => expect(within(add).getByRole("link", { name: /Other agent|Renamed outside/ })).toBeTruthy());
+  expect(router.state.location.search).toEqual({});
   expect(router.state.location.pathname).toBe("/workspaces/w1");
+  expect(requests).toEqual(["POST /api/workspaces/w1/panes"]);
 });
 test("ignores unrelated drag payloads and retires the workspace on the last removal", async () => {
   // Ruling 2026-10-20: dragging the LAST member out is no longer refused.
@@ -249,16 +257,33 @@ function standardRig(): { workspaces: RigWs[]; subshells: Record<string, unknown
 async function mountRig(
   fx: { workspaces: RigWs[]; subshells: Record<string, unknown>[] },
   listState?: "loading" | "error",
+  addGate?: Promise<void>,
+  removeGate?: Promise<void>,
 ) {
   const requests: string[] = [];
   setFetchRouter(async (input, init) => {
     const url = new URL(String(input), "http://localhost");
+    if (init?.method === "POST" && url.pathname.endsWith("/panes")) {
+      requests.push(`POST ${url.pathname}`);
+      const target = fx.workspaces.find((w) => w.id === url.pathname.split("/")[3]);
+      const { subshellId } = JSON.parse(String(init.body));
+      await addGate;
+      target?.panes.push({
+        id: "added",
+        subshellId,
+        subshellName: String(fx.subshells.find((s) => s.id === subshellId)?.name),
+      });
+      return Response.json({ id: "added" });
+    }
     if (init?.method === "DELETE") {
       requests.push(`${init.method} ${url.pathname}`);
+      await removeGate;
       const parts = url.pathname.split("/"); // ["", "api", "workspaces", ws, "panes", pane]
       const ws = fx.workspaces.find((w) => w.id === parts[3]);
       if (ws) ws.panes = ws.panes.filter((p) => p.id !== parts[5]);
-      return Response.json({ ok: true });
+      const workspaceDeleted = ws?.panes.length === 0;
+      if (workspaceDeleted) fx.workspaces = fx.workspaces.filter((w) => w !== ws);
+      return Response.json({ ok: true, workspaceDeleted });
     }
     if (url.pathname === "/api/workspaces")
       return Response.json(
@@ -302,6 +327,7 @@ async function mountRig(
     routeTree: root.addChildren([
       createRoute({ getParentRoute: () => root, path: "/workspaces/$id", component: () => null }),
       createRoute({ getParentRoute: () => root, path: "/subshells/$id", component: () => null }),
+      createRoute({ getParentRoute: () => root, path: "/subshells", component: () => null }),
     ]),
     history: createMemoryHistory({ initialEntries: ["/workspaces/w1"] }),
   });
@@ -392,9 +418,10 @@ test("a rename and a re-order after render do not change what the drag carries",
   const dt = transfer("outside");
   fireEvent.dragStart(row, { dataTransfer: dt });
   fireEvent.drop(add, { dataTransfer: dt });
-  // The add intent speaks the id, and the id survives both the rename and
+  // The pane mutation speaks the id, and the id survives both the rename and
   // the reorder.
-  await waitFor(() => expect(router.state.location.search).toEqual({ add: "outside", dir: "within" }));
+  await waitFor(() => expect(rig.requests).toEqual(["POST /api/workspaces/w1/panes"]));
+  expect(router.state.location.search).toEqual({});
 });
 
 test("a replaced pane row keeps the focused mark: focus is a subshell id, not a row", async () => {
@@ -552,3 +579,70 @@ for (const listState of ["loading", "error"] as const) {
     expect(within(add).queryByText("Hidden helper")).toBeNull();
   });
 }
+
+test("a drop stays in its target when switching workspaces before the save completes", async () => {
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { router, add, remove, fx, requests } = await mountRig(standardRig(), undefined, gate);
+  const dt = transfer("outside");
+  fireEvent.dragStart(await within(remove).findByRole("link", { name: /Other agent/ }), { dataTransfer: dt });
+  fireEvent.drop(add, { dataTransfer: dt });
+  await waitFor(() => expect(requests).toEqual(["POST /api/workspaces/w1/panes"]));
+  try {
+    await act(async () => {
+      await router.navigate({ to: "/workspaces/$id", params: { id: "w2" }, search: {} });
+    });
+  } finally {
+    await act(async () => {
+      release();
+      await gate;
+    });
+  }
+  await waitFor(() => expect(fx.workspaces[0].panes.some((p) => p.subshellId === "outside")).toBe(true));
+  expect(fx.workspaces[1].panes.some((p) => p.subshellId === "outside")).toBe(false);
+  expect(router.state.location.pathname).toBe("/workspaces/w2");
+  expect(router.state.location.search).toEqual({});
+  await act(async () => {
+    await router.navigate({ to: "/workspaces/$id", params: { id: "w1" }, search: {} });
+  });
+  await waitFor(() => expect(within(add).getByRole("link", { name: /Other agent/ })).toBeTruthy());
+});
+
+test("finishing a last-pane removal does not navigate away from a different workspace", async () => {
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const fx = standardRig();
+  fx.workspaces[0].panes = [fx.workspaces[0].panes[0]];
+  const { router, add, remove, requests } = await mountRig(fx, undefined, undefined, gate);
+  const dt = transfer("s1");
+  fireEvent.dragStart(await within(add).findByRole("link", { name: /Member 1/ }), { dataTransfer: dt });
+  fireEvent.drop(remove, { dataTransfer: dt });
+  await waitFor(() => expect(requests).toEqual(["DELETE /api/workspaces/w1/panes/p1"]));
+  try {
+    await act(async () => {
+      await router.navigate({ to: "/workspaces/$id", params: { id: "w2" }, search: {} });
+    });
+  } finally {
+    await act(async () => {
+      release();
+      await gate;
+    });
+  }
+  await waitFor(() => expect(fx.workspaces.some((w) => w.id === "w1")).toBe(false));
+  expect(router.state.location.pathname).toBe("/workspaces/w2");
+});
+
+test("removing the last pane leaves the retired workspace after its list row disappears", async () => {
+  const fx = standardRig();
+  fx.workspaces[0].panes = [fx.workspaces[0].panes[0]];
+  const { router, add, remove } = await mountRig(fx);
+  const dt = transfer("s1");
+  fireEvent.dragStart(await within(add).findByRole("link", { name: /Member 1/ }), { dataTransfer: dt });
+  fireEvent.drop(remove, { dataTransfer: dt });
+  await waitFor(() => expect(fx.workspaces.some((w) => w.id === "w1")).toBe(false));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/subshells"));
+});

@@ -1,26 +1,26 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia } from "elysia";
-import { authGuard, ForbiddenError, requireCookieActor } from "@/api/auth-guard.js";
+import { ForbiddenError } from "@/api/auth-guard.js";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
+import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
 import { NodeSharesResponseSchema, toNodeShareViews } from "@/api/nodes/node-view.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
 
 /**
  * `GET /api/nodes/:id/shares` — the current grant set. Manager-only
- * (cookie): the real owner of an agent node, or an ADMIN for the seeded
+ * (browser or explicitly enabled system key): the real owner of an agent node, or an ADMIN for the seeded
  * `local` node (T3 ruling). An edit grantee — admins included, on foreign
  * agent nodes — cannot read the grant list: managing who can see a node is
  * the owner's act (subshell-shares parity).
  */
 export const getNodeSharesRoute = new Elysia()
-  .use(authGuard)
+  .use(nodeManagementGuard)
   .use(apiModels)
   .get(
     "/:id/shares",
     async ({ params, user, actor, status }) => {
-      requireCookieActor(actor, "Node sharing is restricted to browser sessions");
-      const gate = await loadNodeGate(user.id, params.id);
+      const gate = await loadNodeGate(user.id, params.id, actor);
       if (!gate) {
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));
       }
@@ -34,6 +34,7 @@ export const getNodeSharesRoute = new Elysia()
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
       },
+      systemPermission: "nodes:read",
       detail: {
         operationId: "getNodeShares",
         tags: ["nodes"],

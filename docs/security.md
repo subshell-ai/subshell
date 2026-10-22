@@ -68,7 +68,7 @@ Everything below assumes that perimeter holds.
 | **Network-level attackers** | No TLS enforcement, no certificate pinning: transport security is the operator's deployment (a VPN, or TLS terminated in front). The node ↔ control-plane link is the exception since protocol 14: it encrypts at the application layer whatever the deployment (§6). What still rides the network in the clear: the browser ↔ server HTTP and WebSockets (the server must read those bytes to serve them; TLS is that leg's job, §12), the downloads and the install one-liners (publisher-signed: integrity, not secrecy, §11.12), and the node's loopback dashboard (a local socket, never a wire, §6) |
 | **Channel metadata analysis** | Channel names, membership, post timing, ordering, message sizes and principals are all plaintext on the server |
 | **Control-plane compromise** | The node signing keypair lives on the backend host and rules every enrolled node. Compromise there is compromise of the whole fleet |
-| **A malicious admin** | Admins run the whole instance: users, settings, plugins, nodes, and full-access system keys, and a password reset turns any account into theirs. They no longer see anyone's panes by right (2026-10-09), but impersonation reaches everything. There is no separation of duties |
+| **A malicious admin** | Admins run the whole instance: users, settings, plugins, nodes, and system keys with every available grant, and a password reset turns any account into theirs. They no longer see anyone's panes by right (2026-10-09), but impersonation reaches everything. There is no separation of duties |
 | **Denial of service** | Only login is rate-limited |
 | **Supply chain of the harnesses themselves** | Subshell launches whatever `claude`/`opencode`/`codex` binary is on the host's PATH and does not verify it |
 
@@ -84,7 +84,7 @@ principals; the fourth is a websocket credential and nothing else.
 | `actor` | `cookie` | `system-key` | `subshell-key` | none (rejected on REST) |
 | `principal` | `user:<id>` | `user:<systemUserId>` | `sess:<subshellId>` | none |
 | Minted by | sign-up / sign-in / passkey | admin, Server Settings → API keys | the server at subshell start | `POST /api/nodes/enroll` |
-| Scope | the user's own data; **the only actor admin surfaces accept**; the only actor that may mint an UNBOUND WS attach token | full access, no permission map; may mint a WS attach token bound to ANY single subshell | permission grant map (`channels`, `subshells` × `read`/`write`); may mint a WS attach token only for its OWN subshell | open `/ws/node` as that node |
+| Scope | the user's own data; **the only actor admin surfaces accept**; the only actor that may mint an UNBOUND WS attach token | explicit versioned grants on new keys; legacy keys retain their previous non-node access. Scoped keys need `subshells:execute` to mint a WS attach token, restricted to a system-owned subshell; legacy keys may bind to any single subshell | pane permission map plus any inherited system-key ceiling; may mint a WS attach token only for its OWN subshell | open `/ws/node` as that node |
 | Lifetime | better-auth session | until disabled or deleted | 7 days, self-extending while the MCP child runs | long-lived |
 | Revocation | sign-out / password change / account disable (see "Disabling an account" below) | instant | **instant** on terminate/delete; rotated on auto-restart | delete the node |
 | Stored as | session row | hash only | hash only | hash only |
@@ -99,6 +99,56 @@ attempt burns it), and `/ws/live`, the whole-user feed, refuses scoped
 tokens outright. A subshell's own key may mint only for its own pane; the
 sibling-injection this route was cookie-only to prevent is still refused, and
 it is refused by an equality check now, not by the whole door being shut.
+
+### Scoped system-key permissions
+
+New system keys require a nonempty list of explicit grants. Every checkbox starts
+off, category selection chooses only that category, and selecting everything
+stores today's grants rather than a wildcard. The UI warns before creating a
+key with every grant. The backend rejects empty, duplicate, and unknown grants;
+the browser is not the enforcement boundary. Permissions cannot be edited in
+place: an admin creates a replacement key and revokes the old one.
+
+The permission catalog lives in
+`packages/subshell-protocol/src/api-key-permissions.ts`. Each supported route
+declares `systemPermission`; `authGuard` enforces it and exposes it as
+`x-api-key-permission` in OpenAPI. Scoped keys are denied on authenticated routes
+without a declared grant. Public endpoints remain public, and cookie-only and
+resource-ownership checks still apply after the permission check.
+
+Node enrollment, ordinary configuration, directory rules, sharing, SSH access,
+wide forwarding, maintenance, and logging have separate grants. Subshell reads,
+command execution, detail edits, and stopping/deleting are separate too. Library,
+channel, transfer, and instance-information grants cover the remaining supported
+surfaces. The [API-key guide](../apps/docs/content/docs/automation/api-keys.mdx)
+lists the categories and selection guidance.
+
+These grants limit API operations, not the authority of code running on a host.
+`subshells:execute` permits commands with the execution account's OS privileges,
+and terminal attachment can expose output even without `subshells:read`.
+`transfers:write` can read source files and write destination files. Directory,
+sharing, and SSH grants can widen access; maintenance and stop grants can
+interrupt running work. A read-only API grant is not equivalent to granting
+command execution and asking the caller to behave as a reader.
+
+Pane credentials inherit a scoped creator's ceiling. Restart intersects the
+existing ceiling with the caller's grants, including when a browser initiates
+the restart, so rotation does not broaden it. A missing token for a system-owned
+pane fails closed. Inherited grants supplement the pane's own permission map
+and actor restrictions; they do not turn a pane credential into a system key
+that can provision nodes.
+
+Disabling or deleting a system key blocks subsequent authentication with that
+key. It does not stop running commands, revoke separately minted pane or setup
+credentials, disconnect enrolled nodes, or close already-established terminal
+connections. An already-issued WS attach ticket keeps its short expiry and
+one-use binding. Revoke unused setup keys and stop affected subshells separately
+when containment requires it.
+
+Keys without versioned permission metadata retain their legacy behavior and are
+labelled as legacy in the UI. Unknown permission versions fail closed; unknown
+grant names confer no authority. Operators should replace legacy keys rather
+than assume an upgrade narrowed their access.
 
 ### The anonymous surface
 
@@ -503,9 +553,10 @@ section's posture depends on):
   therefore act only on its owner's OWN subshells, never a foreign one,
   never one merely shared with its owner. A **system key is not switched
   off**: it resolves through the full human gate, exactly as a signed-in
-  caller does, as the `system` service user it authenticates as, which in
-  practice resolves nowhere, because that user owns no subshells and is
-  shared with nothing, but a deliberate grant WOULD reach it. The
+  caller does, as the `system` service user it authenticates as. That account
+  can own subshells created through automation and receive deliberate sharing
+  grants. Scoped keys still need the route permission; their WS
+  attach mint is restricted to system-owned subshells. The
   grants switch-off was therefore never what kept system keys off
   other people's rows (and since 2026-10-09 there is no boost to switch off
   anywhere on this axis). What keeps machine credentials off the instance
@@ -539,9 +590,20 @@ section's posture depends on):
   owns, no shares, no admin boost, rendered by the same mapper with the
   unboosted access (`list-nodes.route.ts`). `local` appears only to its owner,
   which for the seeded row is the system user, so a system key sees it and a
-  human's pane token never does. The rest of the plane is untouched: the detail
-  route and every nodes write still 403 a bearer, so learning a machine's name
-  grants no way to drive it. This is the same ruling the subshell-list bullet
+  human's pane token never does. Ordinary keys and pane tokens still cannot
+  configure nodes. Scoped system keys need the permission declared by each route to manage
+  system-owned new-node setup keys or configure system-owned agent nodes.
+  All new grants default off; unannotated authenticated routes deny scoped keys.
+  Child pane tokens inherit the ceiling and rotation cannot broaden it.
+  Enrollment grants cannot read or revoke recovery keys.
+  The node gate refuses foreign nodes (including shared ones) and the local host;
+  the key gains no admin role. Legacy keys retain non-node access but cannot configure nodes. All enabled system
+  keys share the system account's fleet; this is not per-key ownership.
+  Setup-key creation still obeys `allow_node_enrollment`. Disabling an API key
+  does not revoke setup keys already minted or the credentials of enrolled nodes.
+  Node deletion, re-registration, rotation, server-address changes, and machine trust repair remain
+  cookie-only. The live schema at `/openapi.json` and `/docs` is public route
+  documentation, with no keys or instance records. This is the same ruling the subshell-list bullet
   above made on 2026-09-23, and it is pinned the same way, by real tokens:
   `enumerate-ok`, invisibility and `act-denied` in
   `apps/server/api/src/api/nodes/__tests__/nodes-list-bearer.test.ts`.
@@ -1651,8 +1713,8 @@ the digest bought, and what was traded against it:
   redeems ONCE (`used_at` flips in the redemption transaction, which is the
   single-winner gate), and stops working entirely at `expires_at` (24 h). A used or
   expired row's key is inert on sight, and the card says which state each row is in.
-  The list is owner-scoped and cookie-only: a bearer credential cannot enumerate
-  enrollment doors (`GET /api/nodes/setup-keys` answers 403 to a machine token), and
+  The list is owner-scoped for browser sessions and explicitly enabled system keys; other bearer credentials cannot enumerate
+  enrollment doors (`GET /api/nodes/setup-keys` answers 403 without the opt-in), and
   one caller sees its own rows and nobody else's. The one widening is the admin
   view (audit 2026-09 item 4): `?all=1` is cookie-ADMIN only and lists every
   row with its key owner's label: the same plaintext, gated like every other
@@ -1837,7 +1899,8 @@ Three properties of that pair are worth stating rather than inferring:
   it keeps answering every other command, so it was never a containment control
   and must not be described as one. What actually contains a suspect machine
   (deleting the node, rotating or disabling its key, clearing its shares) is
-  cookie-gated, and a node key reaches none of it.
+  cookie-gated except that a system key with `nodes:share` can clear the system
+  account's agent-node shares. A node key reaches none of it.
 
 The node ALSO enforces the flag from its own mirror file, fail-closed, on every
 launch. That is defence in depth against a plane that has not learned yet, not
@@ -2914,8 +2977,11 @@ Recorded so they are decisions rather than surprises:
    and `dropUserTokensFor` destroys the single-use tokens that could
    otherwise walk an attach back in inside their 30 s (§2, "Disabling an
    account")), and a reset keeping neither is the asymmetry, kept on purpose.
-6. **System keys are bearer-equals-full-access** and long-lived. Every holder is
-   effectively an operator.
+6. **System keys are long-lived bearer credentials.** New keys have explicit API
+   grants, but legacy keys keep broad non-node access. Command-execution holders
+   can run code with the execution account's OS privileges. Revoking a key does
+   not undo its actions or revoke credentials it already caused to be minted
+   (§2, "Scoped system-key permissions").
 7. **No DoS protection** beyond login backoff.
 8. **The post bus is in-process**, so a multi-process deployment would silently
    lose cross-process wakeups.
@@ -3056,7 +3122,7 @@ so existing passkeys stop working at the old address; the page says so under
 the field, because that consequence is invisible from the form.
 
 **What it is measured against.** An admin already runs everything this
-instance manages (§11.5): they can mint a full-access system key and reset any
+instance manages (§11.5): they can mint a system key with every available grant and reset any
 other user's password, which is total reach by way of the account that owns
 it. Editing four addresses is not a step up from that, and the values are
 addresses rather than secrets. `BETTER_AUTH_SECRET` is not among the keys this route can touch,
@@ -3951,7 +4017,9 @@ holds and the following are prerequisites, not improvements:
 - [ ] **Re-examine the E2EE threat model.** It protects neither metadata nor a
       host-compromising local user; if either matters, the current design does not
       deliver it.
-- [ ] **Rotate and review system API keys.** Treat every holder as an operator.
+- [ ] **Rotate and review system API keys.** Replace legacy keys, select only
+      required grants, and treat command-execution holders as operators of the
+      machines their credentials can reach.
 - [ ] **Reconsider node enrollment entirely.** Delegating command execution
       across a hostile network is a different problem from delegating it across a
       VPN, and command signing plus the encrypted link (below) does not close

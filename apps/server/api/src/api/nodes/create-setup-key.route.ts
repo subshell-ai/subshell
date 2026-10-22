@@ -1,6 +1,6 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
-import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
+import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
 import { isCookieAdmin } from "@/api/user-utils.js";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
@@ -21,8 +21,8 @@ const CreateResponseSchema = t.Object({
  * (spec 2026-08-31 §5.1/§9). **No body**: the key names nothing, because a
  * node is named by the machine that becomes it (`subshell setup` asks there,
  * `--name` answers for a script) rather than by whoever minted the credential.
- * Cookie-only: managing enrollment credentials is a human act, so machine
- * actors are refused with 403.
+ * Browser sessions and explicitly enabled system keys may mint setup keys.
+ * A system key enrolls nodes under the shared system account.
  *
  * The key is the row's own `key` column, so this response is a convenience
  * copy — the Setup keys page can render the same text afterwards. Minting and
@@ -44,12 +44,11 @@ const CreateResponseSchema = t.Object({
  * which is the act that revokes, and is audited as such.
  */
 export const createSetupKeyRoute = new Elysia()
-  .use(authGuard)
+  .use(nodeManagementGuard)
   .use(apiModels)
   .post(
     "/setup-keys",
     async ({ user, actor, set, status }) => {
-      requireCookieActor(actor, "Node setup keys are managed from the browser");
       // Absent row = allowed, so an instance that never set this is unchanged.
       const allowed = await new SettingsRepository(db).get(ALLOW_NODE_ENROLLMENT_KEY, true);
       if (!allowed && !(await isCookieAdmin(user, actor))) {
@@ -82,6 +81,7 @@ export const createSetupKeyRoute = new Elysia()
         401: "ApiErrorResponse",
         403: "ApiErrorResponse",
       },
+      systemPermission: "nodes:enroll",
       detail: {
         operationId: "createNodeSetupKey",
         tags: ["nodes"],

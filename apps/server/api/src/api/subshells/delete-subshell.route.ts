@@ -21,6 +21,7 @@ export const deleteSubshellRoute = new Elysia()
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
       },
+      systemPermission: "subshells:stop",
       detail: {
         operationId: "deleteSubshell",
         tags: ["subshells"],

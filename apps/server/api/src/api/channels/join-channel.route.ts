@@ -22,6 +22,7 @@ export const joinChannelRoute = new Elysia()
         404: "ApiErrorResponse",
         409: "ApiErrorResponse",
       },
+      systemPermission: "channels:write",
       detail: {
         operationId: "joinChannel",
         tags: ["channels"],

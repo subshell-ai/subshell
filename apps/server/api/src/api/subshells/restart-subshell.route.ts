@@ -55,9 +55,16 @@ export const restartSubshellRoute = new Elysia()
   .use(apiModels)
   .post(
     "/:id/restart",
-    async ({ params, body, user, actor, apiKeyPermissions, ctx }) => {
+    async ({ params, body, user, actor, apiKeyPermissions, systemKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "write");
-      return await ctx.services.subshells.restartSubshell(user.id, params.id, actor, body?.presetId, body?.prompt);
+      return await ctx.services.subshells.restartSubshell(
+        user.id,
+        params.id,
+        actor,
+        body?.presetId,
+        body?.prompt,
+        systemKeyPermissions,
+      );
     },
     {
       body: t.Optional(RestartBodySchema),
@@ -75,6 +82,7 @@ export const restartSubshellRoute = new Elysia()
         // rolled back before the 409.
         409: "ApiErrorResponse",
       },
+      systemPermission: "subshells:execute",
       detail: {
         operationId: "restartSubshell",
         tags: ["subshells"],

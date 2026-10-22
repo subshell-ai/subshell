@@ -1,8 +1,13 @@
 import { ApiError, apiFetch } from "@internal/node-admin";
+import type { ApiKeyPermission } from "@internal/subshell-protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 /** One admin-managed system API key (never the secret — only its preview). */
 export interface SystemKeyRow {
+  /** Explicit permissions on a scoped key. */
+  permissions: ApiKeyPermission[];
+  /** Older key with broad non-node access. */
+  legacy: boolean;
   /** Key id used for enable/disable/delete. */
   id: string;
   /** Human-readable name shown in the list. */
@@ -40,8 +45,11 @@ export function useSystemKeys() {
 export function useCreateSystemKey() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (name: string) =>
-      apiFetch<CreatedSystemKey>("/api/system-keys", { method: "POST", body: JSON.stringify({ name }) }),
+    mutationFn: ({ name, permissions }: { name: string; permissions: ApiKeyPermission[] }) =>
+      apiFetch<CreatedSystemKey>("/api/system-keys", {
+        method: "POST",
+        body: JSON.stringify({ name, permissions }),
+      }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: SYSTEM_KEYS_QUERY_KEY });
     },
@@ -74,5 +82,5 @@ export function useDeleteSystemKey() {
 /** Turns an apiFetch failure on a system-key surface into short user copy. */
 export function keyErrorMessage(err: unknown): string {
   if (err instanceof ApiError && err.status === 403) return "Admin sign-in required to manage API keys.";
-  return "Something went wrong. The change was not saved.";
+  return "Couldn't confirm the result. Refresh the key list before making another change.";
 }

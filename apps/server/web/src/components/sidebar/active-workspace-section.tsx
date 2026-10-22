@@ -201,7 +201,7 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
             onQuickAdd?.();
             return;
           }
-          if (id) void navigate({ to: "/workspaces/$id", params: { id } });
+          if (id) void navigate({ to: "/workspaces/$id", params: { id }, search: {} });
         }}
       >
         <SelectTrigger aria-label="Switch workspace" className="h-7 min-w-0 flex-1 px-2 py-0.5 text-detail">

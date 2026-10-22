@@ -1,8 +1,9 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { CROSS_AGENT_DIR_MAX, CROSS_AGENT_DIRS_MAX, CROSS_AGENT_NOTES_MAX } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { authGuard, ForbiddenError, requireCookieActor } from "@/api/auth-guard.js";
+import { ForbiddenError } from "@/api/auth-guard.js";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
+import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { apiErrorBody } from "@/lib/api-error.js";
@@ -30,13 +31,12 @@ const GuidanceResponseSchema = t.Object({ ok: t.Literal(true, { description: "Gu
 
 /** Owner-managed discovery metadata; no node RPC or launch-policy changes. */
 export const setNodeCrossAgentRoute = new Elysia()
-  .use(authGuard)
+  .use(nodeManagementGuard)
   .use(apiModels)
   .put(
     "/:id/cross-agent",
     async ({ params, body, user, actor, status }) => {
-      requireCookieActor(actor, "Sign in through the dashboard to edit cross-agent guidance.");
-      const gate = await loadNodeGate(user.id, params.id);
+      const gate = await loadNodeGate(user.id, params.id, actor);
       if (!gate)
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));
       if (!gate.canManage) throw new ForbiddenError();
@@ -63,6 +63,7 @@ export const setNodeCrossAgentRoute = new Elysia()
         404: "ApiErrorResponse",
         422: "ApiErrorResponse",
       },
+      systemPermission: "nodes:configure",
       detail: {
         operationId: "setNodeCrossAgentGuidance",
         tags: ["nodes"],

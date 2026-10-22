@@ -1,6 +1,7 @@
 import { apiPost, Button, errMessage } from "@internal/node-admin";
+import { useStore } from "@tanstack/react-form";
 import { useNavigate } from "@tanstack/react-router";
-import { type JSX, useEffect, useRef, useState } from "react";
+import { type JSX, useCallback, useEffect, useRef, useState } from "react";
 import { ConnectPanel } from "@/components/connect/connect-panel";
 import { sshSessionDraft } from "@/components/connect/ssh-session-draft";
 import { ExistingSubshellList } from "@/components/subshell-picker/existing-subshell-list";
@@ -26,6 +27,7 @@ import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { useSubshellsList } from "@/hooks/use-subshells";
 import { useInvalidateWorkspaces, useWorkspaces } from "@/hooks/use-workspaces";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
+import { makeForm, useSubmitDisabled } from "@/lib/form";
 import { defaultWorkspaceName, uniqueWorkspaceName } from "@/lib/workspace-name";
 
 /** Which half of the dialog is showing (same shape as the add-subshell dialog). */
@@ -69,15 +71,30 @@ export function NewWorkspaceDialog({
   const create = useCreateSubshell({ autoFile: false });
 
   const [sshDraft, setSshDraft] = useState(() => sshSessionDraft());
-  const [kind, setKind] = useState<SubshellKind>("agent");
-  const [mode, setMode] = useState<Mode>("existing");
+  const draft = makeForm({
+    defaultValues: { kind: "agent" as SubshellKind, mode: "existing" as Mode, form: emptyNewSubshellForm() },
+    validator: ({ mode, kind, form }): Record<string, string> =>
+      mode !== "new" || (kind === "agent" && canSubmit(form))
+        ? {}
+        : {
+            form:
+              kind === "ssh"
+                ? "Connect the SSH subshell first."
+                : (launchDisabledReason(form) ?? "Complete the launch form."),
+          },
+    onSubmit: () => submit(),
+  });
+  const { kind, mode, form } = useStore(draft.store, (state) => state.values);
+  const setKind = useCallback((value: SubshellKind) => draft.setFieldValue("kind", value), [draft]);
+  const setMode = useCallback((value: Mode) => draft.setFieldValue("mode", value), [draft]);
+  const setForm = useCallback((value: NewSubshellFormValue) => draft.setFieldValue("form", value), [draft]);
   const [query, setQuery] = useState("");
-  const [form, setForm] = useState<NewSubshellFormValue>(emptyNewSubshellForm());
   /** Ordered ids to attach; checkbox toggles and successful launches append here. */
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [launching, setLaunching] = useState(false);
   const [creating, setCreating] = useState(false);
+  const submitDisabled = useSubmitDisabled(draft, creating || launching);
   // Set when the workspace exists but at least one pane failed — the footer
   // becomes Enter (the workspace is real; the missing panes are addable there).
   const [createdId, setCreatedId] = useState<string | null>(null);
@@ -95,7 +112,7 @@ export function NewWorkspaceDialog({
     if (!open) return;
     const read = readAtOpen.current;
     setMode(!read.loading && read.subshells !== undefined && read.subshells.length === 0 ? "new" : "existing");
-  }, [open]);
+  }, [open, setMode]);
 
   function reset() {
     setSshDraft(sshSessionDraft());
@@ -111,35 +128,36 @@ export function NewWorkspaceDialog({
   }
 
   function toggle(id: string) {
+    if (creating || launching) return;
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
 
   function enter(id: string) {
     onOpenChange(false);
     reset();
-    void navigate({ to: "/workspaces/$id", params: { id } });
-  }
-
-  /** Launches from the New half and checks the result into the selection. */
-  async function launchAndAdd() {
-    setError(null);
-    setLaunching(true);
-    try {
-      const created = await create.mutateAsync(form);
-      setSelected((prev) => [...prev, created.id]);
-      setForm(emptyNewSubshellForm());
-      // The launched row is now in the (invalidated) list — show it checked.
-      setMode("existing");
-    } catch (err) {
-      setError(createSubshellErrorMessage(err, "Failed to launch subshell"));
-    } finally {
-      setLaunching(false);
-    }
+    void navigate({ to: "/workspaces/$id", params: { id }, search: {} });
   }
 
   async function submit() {
+    if (creating || launching || (mode === "new" && (kind !== "agent" || !canSubmit(form)))) return;
     setError(null);
     setCreating(true);
+    let toAdd = selected;
+    if (mode === "new") {
+      try {
+        const launched = await create.mutateAsync(form);
+        toAdd = [...selected, launched.id];
+        // Keep the successful launch selected if workspace creation fails;
+        // retrying must not start another process.
+        setSelected(toAdd);
+        setMode("existing");
+        setForm(emptyNewSubshellForm());
+      } catch (err) {
+        setError(createSubshellErrorMessage(err, "Failed to launch subshell"));
+        setCreating(false);
+        return;
+      }
+    }
     let id: string;
     try {
       const taken = Array.isArray(workspaces) ? workspaces.map((w) => w.name) : [];
@@ -153,7 +171,7 @@ export function NewWorkspaceDialog({
       return;
     }
     let failed = 0;
-    for (const subshellId of selected) {
+    for (const subshellId of toAdd) {
       try {
         await apiPost(`/api/workspaces/${id}/panes`, { subshellId });
       } catch {
@@ -220,7 +238,7 @@ export function NewWorkspaceDialog({
           />
         ) : (
           <div className="flex flex-col gap-4">
-            <SubshellKindPicker value={kind} onChange={setKind} disabled={launching} />
+            <SubshellKindPicker value={kind} onChange={setKind} disabled={launching || creating} />
             {kind === "ssh" && open ? (
               <ConnectPanel
                 draft={sshDraft}
@@ -258,19 +276,16 @@ export function NewWorkspaceDialog({
               >
                 Cancel
               </Button>
-              {mode === "new" && kind === "agent" && (
-                <Button
-                  onClick={() => void launchAndAdd()}
-                  disabled={launching || !canSubmit(form)}
-                  disabledReason={launching ? "Wait for the subshell to start." : launchDisabledReason(form)}
-                >
-                  {launching ? "Launching…" : "Launch & add"}
-                </Button>
-              )}
               <Button
-                onClick={() => void submit()}
-                disabled={creating || launching}
-                disabledReason={"Wait for the workspace action to finish."}
+                onClick={() => void draft.handleSubmit()}
+                disabled={submitDisabled}
+                disabledReason={
+                  creating || launching
+                    ? "Wait for the workspace action to finish."
+                    : kind === "ssh"
+                      ? "Connect the SSH subshell first."
+                      : launchDisabledReason(form)
+                }
               >
                 {creating ? "Creating…" : "Create workspace"}
               </Button>

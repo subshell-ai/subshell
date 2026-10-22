@@ -327,6 +327,7 @@ const readRoutes = new Elysia()
     },
     {
       response: ListResponseSchema,
+      systemPermission: "instance:read",
       detail: {
         operationId: "listInstancePlugins",
         tags: ["plugins"],
@@ -357,6 +358,7 @@ const readRoutes = new Elysia()
     },
     {
       params: t.Object({ pluginId: t.String({ description: "Plugin id" }) }),
+      systemPermission: "instance:read",
       detail: {
         operationId: "getPluginIcon",
         tags: ["plugins"],

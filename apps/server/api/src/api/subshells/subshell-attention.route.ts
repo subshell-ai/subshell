@@ -46,6 +46,7 @@ export const subshellAttentionRoute = new Elysia()
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
       },
+      systemPermission: "subshells:execute",
       detail: {
         operationId: "reportSubshellAttention",
         tags: ["subshells"],

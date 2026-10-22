@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia";
-import { authGuard, HttpError, requireCookieActor } from "@/api/auth-guard.js";
+import { HttpError } from "@/api/auth-guard.js";
+import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
 import { isCookieAdmin } from "@/api/user-utils.js";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
@@ -32,7 +33,7 @@ const ListQuerySchema = t.Object({
   all: t.Optional(
     t.Literal("1", {
       description:
-        "Admin-only: list EVERY setup key in the instance rather than the caller's own. Non-admins get 403; a machine token gets 403 before the parameter is even read",
+        "Admin-only: list EVERY setup key in the instance rather than the caller's own. Non-admins get 403; a machine token gets 403",
     }),
   ),
 });
@@ -85,9 +86,7 @@ function toKeyRow(
  * `GET /api/nodes/setup-keys` — setup keys, newest first (spec 2026-08-31
  * §9). Carries usage state (usedAt/consumedNodeId) and the key text, because
  * the Setup keys card is now the durable place a key is read from.
- * Cookie-only, mirroring the create route: a bearer credential has no
- * business enumerating enrollment doors, and this is a human reviewing what
- * they handed out.
+ * Browser sessions and explicitly enabled system keys may list their own keys.
  *
  * Two answers, one route. Without `all=1`: the caller's own keys, as always.
  * With `all=1` (audit 2026-09 item 4, operator-approved): every key in the
@@ -95,19 +94,18 @@ function toKeyRow(
  * doors outstanding on their machine. That is a real widening (an admin reads
  * keys they did not mint, in the plaintext the plaintext-storage decision
  * already describes) and it is gated exactly like every other admin surface:
- * cookie-admin, machine token 403 before the parameter is read, plain
+ * cookie-admin, machine token 403, plain
  * non-admin 403 rather than a silently-narrowed list (an ignored `all=1`
  * would tell a caller they were looking at everything when they were not).
  * The read is NOT audited, mirroring the owner-scoped read: nothing changes
  * state, and `docs/security.md` keeps reads off the trail.
  */
 export const listSetupKeyRoute = new Elysia()
-  .use(authGuard)
+  .use(nodeManagementGuard)
   .use(apiModels)
   .get(
     "/setup-keys",
     async ({ user, actor, query }) => {
-      requireCookieActor(actor, "Node setup keys are managed from the browser");
       const keys = new NodeSetupKeysRepository(db);
       if (query.all === "1") {
         if (!(await isCookieAdmin(user, actor))) {
@@ -123,7 +121,12 @@ export const listSetupKeyRoute = new Elysia()
           ),
         };
       }
-      return { keys: (await keys.listByUser(user.id)).map((row) => toKeyRow(row)) };
+      const rows = await keys.listByUser(user.id);
+      // Recovery credentials can replace an existing machine's identity. Enrollment
+      // automation must never acquire them through a supposedly ordinary list.
+      return {
+        keys: rows.filter((row) => actor === "cookie" || row.targetNodeId === null).map((row) => toKeyRow(row)),
+      };
     },
     {
       query: ListQuerySchema,
@@ -132,6 +135,7 @@ export const listSetupKeyRoute = new Elysia()
         401: "ApiErrorResponse",
         403: "ApiErrorResponse",
       },
+      systemPermission: "nodes:enroll",
       detail: {
         operationId: "listNodeSetupKeys",
         tags: ["nodes"],

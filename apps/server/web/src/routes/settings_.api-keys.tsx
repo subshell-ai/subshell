@@ -57,6 +57,16 @@ function ApiKeysPage() {
           .
         </p>
       )}
+      <p className="text-detail text-muted-foreground">
+        API reference:{" "}
+        <a href="/docs" target="_blank" rel="noreferrer" className="underline">
+          Browse docs
+        </a>
+        {" · "}
+        <a href="/openapi.json" target="_blank" rel="noreferrer" className="underline">
+          OpenAPI JSON for agents
+        </a>
+      </p>
       <SystemKeyCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
     </DashboardPage>
   );

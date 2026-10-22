@@ -1,5 +1,8 @@
+import type { ApiKeyPermission } from "@internal/subshell-protocol";
 import type { CreatedApiKey, SubshellKeyMetadata } from "@/auth/apikey-store.js";
-import { setApiKeyEnabled, setApiKeyExpiry } from "@/auth/apikey-store.js";
+import { getApiKeyMetadata, setApiKeyEnabled, setApiKeyExpiry } from "@/auth/apikey-store.js";
+import { systemKeyPermissions } from "@/auth/system-key-permissions.js";
+import { findSystemUserId } from "@/auth/system-user.js";
 import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -18,8 +21,16 @@ const SUBSHELL_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days (plugin min is 1 
  * @param subshellId - the subshell this token authenticates
  * @param userId - owning user (the api-key reference)
  */
-export async function issueSubshellToken(subshellId: string, userId: string): Promise<string> {
-  const metadata: SubshellKeyMetadata = { kind: "subshell", subshellId };
+export async function issueSubshellToken(
+  subshellId: string,
+  userId: string,
+  ceiling: ApiKeyPermission[] | null = null,
+): Promise<string> {
+  const metadata: SubshellKeyMetadata = {
+    kind: "subshell",
+    subshellId,
+    ...(ceiling === null ? {} : { permissionVersion: 1, systemPermissions: ceiling }),
+  };
   const created = (await getAuth().api.createApiKey({
     body: {
       name: `sess:${subshellId}`,
@@ -77,3 +88,16 @@ export async function extendSubshellToken(subshellId: string): Promise<boolean> 
 
 /** The TTL the service stamps on new/extended tokens (for the route's response). */
 export const subshellTokenTtlSeconds = (): number => SUBSHELL_TOKEN_TTL_SECONDS;
+
+/** Read the previous ceiling before rotation, including disabled tokens. A lost system token fails closed. */
+export async function subshellSystemPermissions(
+  subshellId: string,
+  userId: string,
+): Promise<ApiKeyPermission[] | null> {
+  const row = await new SubshellsRepository(db).findById(subshellId);
+  if (row?.apiKeyId) {
+    const metadata = getApiKeyMetadata(row.apiKeyId);
+    if (metadata !== undefined) return systemKeyPermissions(metadata);
+  }
+  return userId === findSystemUserId() ? [] : null;
+}

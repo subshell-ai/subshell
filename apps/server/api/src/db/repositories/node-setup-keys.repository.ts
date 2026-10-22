@@ -103,12 +103,13 @@ export class NodeSetupKeysRepository extends BaseRepository {
    * Revokes a key. Only the owner's row is touched.
    * @returns rows deleted (0 = wrong id or wrong owner)
    */
-  async deleteById(id: string, ownerUserId: string): Promise<number> {
+  async deleteById(id: string, ownerUserId: string, newNodesOnly = false): Promise<number> {
     return countDeleted(
       await this.db
         .deleteFrom("nodeSetupKeys")
         .where("id", "=", id)
         .where("ownerUserId", "=", ownerUserId)
+        .$if(newNodesOnly, (query) => query.where("targetNodeId", "is", null))
         .executeTakeFirst(),
     );
   }

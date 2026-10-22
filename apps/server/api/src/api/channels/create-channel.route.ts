@@ -36,6 +36,7 @@ export const createChannelRoute = new Elysia()
         403: "ApiErrorResponse",
         409: "ApiErrorResponse",
       },
+      systemPermission: "channels:write",
       detail: {
         operationId: "createChannel",
         tags: ["channels"],

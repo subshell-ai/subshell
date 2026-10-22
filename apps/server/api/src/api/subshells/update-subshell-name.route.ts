@@ -59,6 +59,7 @@ export const updateSubshellNameRoute = new Elysia()
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
       },
+      systemPermission: "subshells:update",
       detail: {
         operationId: "updateSubshellName",
         tags: ["subshells"],

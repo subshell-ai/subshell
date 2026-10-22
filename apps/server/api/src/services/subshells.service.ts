@@ -8,6 +8,7 @@ import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 // is a state change, nothing rings for it.
 import type { AttentionKind } from "@internal/mcp-core";
 import { allHarnesses, getHarness, tmuxSocketFor } from "@internal/pane-runtime";
+import type { ApiKeyPermission } from "@internal/subshell-protocol";
 import { joinPresetPrompt, NODE_RESULT_MAINTENANCE, parsePresetPromptBlocks } from "@internal/subshell-protocol";
 import type { GuardActor } from "@/api/auth-guard.js";
 import { HttpError } from "@/api/auth-guard.js";
@@ -432,6 +433,7 @@ export class SubshellsService extends BaseService {
    *         disabled/unusable ON THE RESOLVED NODE.
    */
   async createSubshell({
+    systemKeyPermissions,
     userId,
     harnessId,
     presetId,
@@ -448,6 +450,8 @@ export class SubshellsService extends BaseService {
     subshellId,
     workspaceId,
   }: {
+    /** Permission ceiling passed to the new pane credential. */
+    systemKeyPermissions?: ApiKeyPermission[] | null;
     /** Owner of the new subshell (never taken from the body). */
     userId: string;
     /** Harness plugin to launch — the ONE required thing this call needs. */
@@ -653,6 +657,7 @@ export class SubshellsService extends BaseService {
     // 409 the restart boundary gives (§5.6) — everything else rethrows.
     const created = await this.#manager
       .createSubshell({
+        systemKeyPermissions,
         userId,
         harnessId,
         presetId: presetId ?? null,
@@ -1345,6 +1350,7 @@ export class SubshellsService extends BaseService {
     actor: GuardActor,
     swapPresetTo?: string | null,
     prompt?: string,
+    systemKeyPermissions: ApiKeyPermission[] | null = null,
   ): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
     const { row } = await this.#gate(viewerId, id, "edit", actor);
     // An ssh pane refuses restart (spec 2026-10-07 decision 7): its session
@@ -1453,7 +1459,7 @@ export class SubshellsService extends BaseService {
       });
     }
     const revived = await this.#manager
-      .restartSubshell(row.userId, id, swapPresetTo, viewerId)
+      .restartSubshell(row.userId, id, swapPresetTo, viewerId, systemKeyPermissions)
       .catch((err) => {
         // A swap that arrived mid-restart is REFUSED, not joined: the running
         // revival composes someone else's preset, and a 200 for this swap

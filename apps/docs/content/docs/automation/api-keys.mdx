@@ -7,17 +7,70 @@ Manage system integration keys and understand pane credentials.
 
 ## System keys
 
-Sign in as an administrator. In the server dashboard's sidebar, open **Settings** → **Server Settings** → **API keys** to create a system key. The plaintext is returned once when created; store it in the integration's secret manager.
+To create a key, sign in as an administrator:
+
+1. In the server dashboard's sidebar, open **Settings** → **Server Settings** → **API keys**, then choose **Create key**.
+2. Enter a name and select the permissions your integration needs. **Create key** stays unavailable until you enter a name and select at least one permission.
+3. Choose **Create key**, then copy the key into your integration's secret manager before closing the dialog.
+
+The full key is shown only once. If copying fails, select and copy the displayed text manually. If you close the dialog without keeping the key, delete that key and create a replacement.
 
 System keys belong to the `system` service identity. They don't become your human account and don't automatically own your sessions. A deliberate grant can permit a resource where supported, but instance administration still requires an admin cookie.
 
 Disable a key to stop it authenticating immediately, or delete it when it is no longer needed. Keep separate keys for integrations you may need to revoke independently.
 
+## Choose permissions
+
+Every permission starts off. Select at least one before creating the key. Permissions are grouped into node provisioning, node access and operations, subshells, presets and prompts, communication, transfers, and instance information. Select individual permissions or use a category's **Select all** checkbox.
+
+**Select all permissions** enables every current permission and shows a warning before creation. This includes running commands, reading output, transferring files, changing node access, and stopping subshells. It doesn't grant browser-only operations such as workspace management, preset editing, or administration. It doesn't automatically add permissions introduced in a future release. Command execution grants the authority of the process on its host; API permissions aren't an operating-system sandbox.
+
+Each API operation available to scoped keys declares its required permission in the local OpenAPI schema as `x-api-key-permission`. Scoped keys receive HTTP 403 for missing permissions or authenticated endpoints that haven't been made available to them. Public endpoints remain public.
+
+| Category | Available grants |
+| --- | --- |
+| Node provisioning | `nodes:read`, `nodes:enroll`, `nodes:configure`, `nodes:diagnostics` |
+| Node access and operations | `nodes:directories`, `nodes:share`, `nodes:ssh`, `nodes:ssh-wide-forwards`, `nodes:maintenance` |
+| Subshells | `subshells:read`, `subshells:execute`, `subshells:update`, `subshells:stop` |
+| Presets and prompts | `presets:read`, `prompts:read`, `prompts:write` |
+| Communication | `channels:read`, `channels:write` |
+| File transfers | `transfers:write` |
+| Instance information | `instance:read` |
+
+For enrollment alone, select `nodes:enroll`. Add `nodes:read` to inspect node details and `nodes:configure` to rename nodes or change their calling-agent guidance. Monitoring subshell lists and saved output needs `subshells:read`; it doesn't need command execution.
+
+> [!warning] Permissions with broader effects
+> **Run commands** includes interactive terminal attachment, which can reveal output, and runs code with the machine user's privileges. **Transfer files** reads source files and writes destination files. Directory, sharing, and SSH permissions can widen access; maintenance and stop permissions can interrupt running work.
+
+Keys created before permission selection retain their existing non-node access and appear as legacy keys. Replace them with scoped keys to reduce that access. Permissions are fixed when a key is created; create a replacement to change them.
+
+## Node setup and configuration
+
+For enrollment, select **Enroll nodes** (`nodes:enroll`). Add **Read nodes** (`nodes:read`) to inspect the fleet and **Configure nodes** (`nodes:configure`) to change names and calling-agent guidance or recheck installed harnesses. Directory access, sharing, SSH access, wide SSH forwarding, maintenance, and diagnostics each have separate permissions.
+
+These nodes belong to the shared `system` account. Keys with the relevant permissions can manage that account's fleet, regardless of which key enrolled a node. They don't gain access to another user's nodes or configuration of the server host. The instance's **Allow node enrollment** setting still applies to setup-key creation.
+
+Enrollment permission allows creating, listing, and revoking new-node setup keys. It doesn't expose recovery keys for existing nodes. Node deletion, re-registration, credential rotation, server address changes, and machine trust repair require a browser session.
+
+Disabling or deleting an API key revokes its REST access. It doesn't stop running subshells, revoke their separate pane credentials or previously generated setup keys, disconnect enrolled nodes, or close existing terminal connections. Revoke unused setup keys and stop affected subshells separately when you need to contain their activity.
+
+Follow [Automate node enrollment](/automation/rest-api#automate-node-enrollment) for the request sequence.
+
 ## Pane credentials
 
 Subshell creates a scoped key for each launched pane. The MCP process receives it through `SUBSHELL_API_KEY`; you don't create it by hand in the system-key page.
 
-The token resolves to the pane's human owner for permitted resource operations, without administrator privileges or another user's sharing grants for session details and changes. It is revoked when the pane stops and rotated on restart.
+The token acts as the pane's owner, which is the system account for subshells created by automation. It doesn't carry administrator privileges or another user's sharing grants for session details and changes. It is revoked when the pane stops and rotated on restart. A pane launched by a scoped API key inherits its permission ceiling; token rotation and child launches cannot expand that ceiling.
+
+## Troubleshoot access
+
+| Response | What to check |
+| --- | --- |
+| `401 Unauthorized` | Confirm you're sending the system API key as `Authorization: Bearer …` and that it hasn't been disabled or deleted. Setup keys and node credentials aren't REST API keys. |
+| `403 Forbidden` | Check the operation's `x-api-key-permission`, the key's selected grants, and any browser-only restriction. Node setup-key creation also requires instance enrollment to be allowed. |
+| `404 Not found` | Confirm the resource ID and ownership. A node belonging to another user stays unavailable even if shared with the system account; this response doesn't prove it doesn't exist. |
+
+If key creation fails after submission, refresh the key list before retrying. The request may have created a key even if its response didn't arrive. If a new key appears but you never received its secret, delete it and create a replacement.
 
 ## Handle secrets
 

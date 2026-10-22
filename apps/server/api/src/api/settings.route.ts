@@ -256,6 +256,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
     },
     {
       response: PublicSettingsSchema,
+      systemPermission: "instance:read",
       detail: {
         operationId: "getPublicSettings",
         tags: ["settings"],

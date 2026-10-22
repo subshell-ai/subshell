@@ -14,6 +14,17 @@ client reads, so each rule below has both halves.
 
 ## Adding subshells
 
+The existing-subshell picker lists eligible subshells across nodes. The new
+launch form's node choice never filters that list. Sidebar drops persist a pane
+against the workspace that received the drop, then refresh membership; they
+never defer the write through a navigation parameter. Switching workspaces
+while the request finishes cannot file the pane into the new destination.
+
+In the new-workspace dialog, **Create workspace** on the **New subshell** tab
+launches the configured subshell and adds it before entering the workspace.
+A failed launch creates no empty workspace; a failed workspace creation keeps
+the successful launch selected so retrying doesn't launch another process.
+
 A workspace can begin on a subshell page: **Add a subshell to a workspace**
 (`components/split-subshell-button.tsx`) opens the same add-subshell dialog the
 dock uses, creates a NAMED workspace around the current subshell
