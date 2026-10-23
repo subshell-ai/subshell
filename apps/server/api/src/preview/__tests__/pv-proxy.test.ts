@@ -169,7 +169,16 @@ beforeAll(async () => {
     async fetch(req, server) {
       const url = new URL(req.url);
       if (url.pathname === "/hmr" || url.pathname.startsWith("/hmr")) {
-        if (server.upgrade(req, { data: { path: url.pathname } })) return undefined;
+        // The /hmr-cookie path answers the 101 with a Set-Cookie: the
+        // upgrade-answer jar leg needs a target that sets one.
+        const upgraded =
+          url.pathname === "/hmr-cookie"
+            ? server.upgrade(req, {
+                data: { path: url.pathname },
+                headers: { "set-cookie": "hsid=upgraded; Path=/deep; HttpOnly" },
+              })
+            : server.upgrade(req, { data: { path: url.pathname } });
+        if (upgraded) return undefined;
         return new Response("upgrade refused", { status: 400 });
       }
       lastSeen = {
@@ -608,9 +617,82 @@ describe("pv-ws: the tunnels", () => {
     expect(fake.piped).toBeGreaterThan(before);
   });
 
+  it("carries Elysia-coerced text frames as text: primitives ride their string form, JSON re-stringifies", async () => {
+    const ref = await openSession(targetPort);
+    const frames = [
+      '{ plain: "text" }',
+      'spaced {"a": 1} json',
+      "123",
+      "true",
+      "null",
+      '{ "type": "update", "updates": [] }',
+    ];
+    const got = await new Promise<string[]>((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${proxyPort}/pv/${ref}/hmr`);
+      const back: string[] = [];
+      ws.onopen = () => {
+        for (const f of frames) ws.send(f);
+      };
+      ws.onmessage = (e) => {
+        back.push(String(e.data));
+        if (back.length === frames.length) {
+          ws.close();
+          resolve(back);
+        }
+      };
+      ws.onerror = (e) => reject(new Error(`coerced-frame tunnel failed: ${String(e)}`));
+      setTimeout(() => reject(new Error(`coerced-frame tunnel stalled; got ${JSON.stringify(back)}`)), 5_000);
+    });
+    // Text that merely LOOKS JSONed but is not valid JSON stays a string at
+    // the handler and rides byte-exact, whitespace and all: the brace-object
+    // with unquoted keys and the word-wrapped JSON fragment both arrive
+    // exactly as written.
+    expect(got[0]).toBe('{ plain: "text" }');
+    expect(got[1]).toBe('spaced {"a": 1} json');
+    // Elysia's parser hands "123"/"true"/"null" over as the number/boolean/
+    // null the JSON coercion made them. They must still arrive as the TEXT
+    // the browser wrote: the target sees bare digits and words.
+    expect(got[2]).toBe("123");
+    expect(got[3]).toBe("true");
+    expect(got[4]).toBe("null");
+    // A frame that parses as real JSON arrives re-parsed; the promise is
+    // semantics, so pin the compact re-stringification. A parser change
+    // that starts delivering raw text still passes; one that eats the
+    // frame does not.
+    expect(got[5]).toBe(JSON.stringify({ type: "update", updates: [] }));
+  });
+
+  it("rides an upgrade-response Set-Cookie into the jar and onto the next HTTP request", async () => {
+    const ref = await openSession(targetPort);
+    await new Promise<void>((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${proxyPort}/pv/${ref}/hmr-cookie`);
+      // The browser `onopen` is the PLANE's answer, not the lane's: the
+      // redial handshake is still in flight. Closing here would tear the
+      // duplex down before the 101 (and its cookie) lands. One echoed
+      // frame proves the redial completed, which is also the moment the
+      // jar took the cookie.
+      ws.onopen = () => ws.send("ping");
+      ws.onmessage = () => {
+        ws.onclose = () => resolve();
+        ws.close();
+      };
+      ws.onerror = (e) => reject(new Error(`cookie upgrade failed: ${String(e)}`));
+      setTimeout(() => reject(new Error("cookie upgrade stalled")), 5_000);
+    });
+    // Spec §6's jar sentence is unqualified about WHICH lane sets a cookie:
+    // the WS redial's upgrade answer rides the session like an HTTP answer's.
+    const seen = (await (await proxyFetch(`/pv/${ref}/echo`)).json()) as TargetSeen;
+    expect(seen.cookie).toContain("hsid=upgraded");
+    // A different session's proxy path carries nothing.
+    const ref2 = await openSession(targetPort);
+    const other = (await (await proxyFetch(`/pv/${ref2}/echo`)).json()) as TargetSeen;
+    expect(other.cookie).toBeNull();
+  });
+
   it("pumps raw mode verbatim, answers as binary frames, and carries target-gone to the close event", async () => {
     fake.reportScreenRfbPort = rfbPort;
     const ref = await openSession(rfbPort); // the registered screen port => raw
+    const pipedBefore = fake.piped;
     expect(getPreviewBroker().sessionFor(ref)?.mode).toBe("raw");
     const hello = Buffer.from([0x52, 0x46, 0x42, 0x00]); // "RFB\x00"
     const closed = await new Promise<{ code: number; reason: string }>((resolve, reject) => {
@@ -636,6 +718,10 @@ describe("pv-ws: the tunnels", () => {
     const seen = Buffer.concat(rfbLog).toString("latin1");
     expect(seen.startsWith("GET ")).toBe(false);
     expect(seen).toContain("RFB");
+    // The bypass guard, same doctrine as the http-mode leg: the rfb target
+    // answers on plane loopback, so only the pump counter proves the bytes
+    // rode the fake node rather than a direct dial.
+    expect(fake.piped).toBeGreaterThan(pipedBefore);
   });
 
   it("closes the lane viewer-left when the viewer's socket goes first", async () => {
