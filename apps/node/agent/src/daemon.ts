@@ -9,6 +9,7 @@ import {
   NODE_PROTOCOL_VERSION,
   type NodeEvent,
   type NodeMaintenanceWire,
+  type NodePreviewEnabledWire,
   type NodeRuntimeReport,
   type NodeSshEnabledWire,
   parseRelayFrame,
@@ -22,8 +23,10 @@ import { dispatchCommand } from "./commands/index.js";
 import {
   buildSubshellsReport,
   maybeReportMaintenance,
+  maybeReportPreviewEnabled,
   maybeReportSshEnabled,
   seedMaintenanceMemo,
+  seedPreviewEnabledMemo,
   seedSshEnabledMemo,
 } from "./commands/report.js";
 import { RelaySessions } from "./commands/ssh-relay.js";
@@ -360,6 +363,7 @@ function readyEvent(
   runtime: NodeRuntimeReport | null,
   maintenance: NodeMaintenanceWire | undefined,
   sshEnabled: NodeSshEnabledWire | undefined,
+  previewEnabled: NodePreviewEnabledWire | undefined,
 ): Extract<NodeEvent, { type: "ready" }> {
   return {
     type: "ready",
@@ -414,6 +418,12 @@ function readyEvent(
     // its own mtime, so the plane can repair the file instead of holding a
     // silent disagreement until the next reconnect.
     ...(sshEnabled ? { sshEnabled } : {}),
+    // This machine's preview-switch mirror (pane-preview spec Task 3),
+    // carried exactly as the SSH one is: OMITTED when absent, and an
+    // UNREADABLE file carried as the refusal it acts on under its own mtime,
+    // so the plane can repair the file instead of holding a silent
+    // disagreement until the next reconnect.
+    ...(previewEnabled ? { previewEnabled } : {}),
   };
 }
 
@@ -1235,7 +1245,16 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
         // The SSH mirror rides the same synchronous read + seed as the
         // maintenance one (spec 2026-10-07 §4.3): the value `ready` carries and
         // the memo that stops the first heartbeat repeating it are one read.
-        send(ws, readyEvent(config, sshRuntime, seedMaintenanceMemo(ctx), seedSshEnabledMemo(ctx)));
+        send(
+          ws,
+          readyEvent(
+            config,
+            sshRuntime,
+            seedMaintenanceMemo(ctx),
+            seedSshEnabledMemo(ctx),
+            seedPreviewEnabledMemo(ctx),
+          ),
+        );
         // Connect-time `subshells_report` (spec §3.3): re-projects the panes
         // that survived an agent restart so the control plane heals its rows.
         // Fire-and-forget with catch-log — a scan failure (junk meta, tmux
@@ -1315,6 +1334,11 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
           // and this tick is its ONLY mid-session path — there are no deaths
           // for it to ride ahead of, because an SSH flip kills no panes.
           maybeReportSshEnabled(ctx);
+          // The preview switch's belt (pane-preview spec Task 3): the same
+          // quiet shape, the same single mid-session path — a preview flip
+          // closes no panes here, so this tick is the only way the plane
+          // learns the mirror moved before the next reconnect.
+          maybeReportPreviewEnabled(ctx);
         }, heartbeatMs);
         // Periodic `inventory` push — the "every 5 min" leg of spec §7
         // (P3-T8c). The timer's lifecycle mirrors the heartbeat's — armed
