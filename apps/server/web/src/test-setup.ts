@@ -8,7 +8,18 @@ import { afterEach } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 
 const WINDOW_URL = "http://localhost/";
-GlobalRegistrator.register({ url: WINDOW_URL });
+GlobalRegistrator.register({
+  url: WINDOW_URL,
+  // Never fetch an iframe's document. The preview panel's iframe carries a real
+  // `src` (/pv/<ref>/), and happy-dom would load it as a page: a request to the
+  // window URL's :80, refused, retried with backoff inside the window's own
+  // machinery - which starves every timer after it in the same process. Measured
+  // 2026-10-23: the serial CI run took 1.7 s locally just for the NEXT test's
+  // 430 ms fade timers and blew its budget outright on the hosted runner
+  // (banner test 29 s, twice). Element and `src` assertions are untouched:
+  // they read the attribute, not the loaded document.
+  settings: { disableIframePageLoading: true },
+});
 
 /**
  * Park the shared window's location back after EVERY test.
