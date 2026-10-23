@@ -40,7 +40,7 @@ against a booted stack, so this driver did not re-run it.
 The RFB client is a hand-rolled state machine in the driver, and two of its
 early FAILs were the client's own bugs (RFB servers speak the version first,
 and the version string is 12 bytes, not 16). A raw TCP probe beside the lane
-agreed with it on the wire, and the browser leg below crossed-checked the
+agreed with it on the wire, and the browser leg below checked the
 viewer through noVNC itself.
 
 ## What the Watch leg actually proved, and one real finding
