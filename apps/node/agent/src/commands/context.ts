@@ -141,11 +141,14 @@ export interface CommandContext {
    */
   previewForward?: PreviewForward;
   /**
-   * Hand one preview lane event to the CURRENT established link.
+   * Hand one preview event to the CURRENT established link: a lane's byte
+   * frame, a bridge's screencast frame, or either one's death notice.
    * DELIVER-OR-THROW, and the SAME sender the relay frames ride
    * (`relay-send.ts`): the lane's slow-link accounting reads the throw — an
-   * event that silently returned would be a byte the plane believes left.
-   * Optional for the same fake-compiling reason as {@link previewForward}.
+   * event that silently returned would be a byte the plane believes left —
+   * and both registries must flow through the one path so that accounting and
+   * the link-drop sweep stay true for each. Optional for the same
+   * fake-compiling reason as {@link previewForward}.
    */
   sendPreviewEvent?: (ev: PreviewLaneEvent) => void;
   /**

@@ -44,7 +44,8 @@ import { binaryPayload, createLinkNegotiator, type LinkNegotiator, type LinkNego
 import { clearLock, writeLock } from "./lock.js";
 import { log } from "./log.js";
 import { createRetentionPass, PANE_LOG_RETENTION_PASS_MS, resolveLogRetention } from "./pane-log-retention.js";
-import { PreviewForward } from "./preview/forward.js";
+import { bridgeCloseAll } from "./preview/cdp-bridge.js";
+import { PreviewForward, setActivePreviewForward } from "./preview/forward.js";
 import { createDaemonRelaySend } from "./relay-send.js";
 import { noteSweepScheduled } from "./retention-settings.js";
 import { type NodeRoute, NodeRouteSelector } from "./route-selection.js";
@@ -520,6 +521,12 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   // design; a raw TCP lane's peer is the proxy, which died with the socket).
   // Production mechanics are the defaults: real net, unref'd real timers.
   const previewForward = new PreviewForward();
+  // Publish it as the node-wide count source the SHARED preview budget reads
+  // (`forwardCount()`), the same way `relaySessions` is this loop's registry:
+  // the bridge branch of `preview_open` counts lanes through the module handle
+  // because the sum is one number, not two habits. Cleared in the finally
+  // below, like the dashboard's restart hook.
+  setActivePreviewForward(previewForward);
 
   // PER-PROCESS executor context (spec §3.4/§7): built once, survives every
   // reconnect. `ws` is a STABLE wrapper routing to the CURRENT socket —
@@ -1206,6 +1213,13 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
         // gone) and `forward.ts` keeps the log record. The plane learns of the
         // lanes' deaths from the dropped link itself.
         previewForward.closeAll("node-dropped");
+        // The same rule for screencast bridges (pane-preview Task 6): the
+        // frames a bridge emits ride THIS link, and a continuous-repaint page
+        // would otherwise keep capturing and emitting forever on a machine
+        // whose plane link is gone. One `preview_closed` each, exactly as the
+        // lane sweep above; the pump throws for those too, and the bridge
+        // keeps the log record.
+        bridgeCloseAll("node-dropped");
         resolve(close);
       };
       // The per-socket link negotiator (spec 2026-09-24). It owns the wire
@@ -1523,6 +1537,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
     clearInterval(sshDirSweepTimer);
     if (retentionTimer !== undefined) clearInterval(retentionTimer);
     registerRestart(null);
+    setActivePreviewForward(undefined);
     setDaemonState({ connected: false });
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);

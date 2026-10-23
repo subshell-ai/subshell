@@ -27,12 +27,19 @@ import { log } from "../log.js";
  * command's gate ladder owns all three, so nothing here re-decides them:
  * there is no host on the wire (the grammar bounds the port, the dials are
  * loopback literals only), pane liveness is a command-time check, and the
- * node-side budget (Task 6 will widen it to a shared lane+bridge counter) is
- * read through {@link PreviewForward.laneCount}.
+ * node-side budget is the SHARED lane+bridge counter (Task 6): the lane half
+ * is read through {@link PreviewForward.laneCount} (or {@link forwardCount}
+ * from the other branch's side), and a sum check at the open executor keeps
+ * the node to {@link PREVIEW_SESSIONS_PER_NODE} of any mix.
  */
 
-/** The lane events this registry emits: the byte leg and the death notice. */
-export type PreviewLaneEvent = Extract<NodeEvent, { type: "preview_data" | "preview_closed" }>;
+/**
+ * The preview events the daemon's single sender carries: the lane's byte leg,
+ * the bridge's screencast leg (widened here for Task 6 — the sender is one
+ * deliver-or-throw path, so slow-link accounting and link-drop behavior stay
+ * true for both registries), and the death notice both share.
+ */
+export type PreviewLaneEvent = Extract<NodeEvent, { type: "preview_data" | "preview_closed" | "preview_stream" }>;
 
 /**
  * The dial target's socket, narrowed to what a lane uses — the seam lets a
@@ -112,8 +119,12 @@ interface Lane {
 /** The real dial: net's own connect, which the retry posture below wraps. */
 const realConnect: NonNullable<LaneDeps["connect"]> = (options) => netConnect(options);
 
-/** Real timers, unref'd: the watch-tick doctrine — a 15-minute idle arm must not hold the process open. */
-const realTimers: LaneTimers = {
+/**
+ * Real timers, unref'd: the watch-tick doctrine — a 15-minute idle arm must
+ * not hold the process open. Exported because the CDP bridge (`cdp-bridge.ts`)
+ * arms its handshake and lifetime budgets under the same rule.
+ */
+export const realTimers: LaneTimers = {
   setTimeout: (cb, ms) => {
     const t = setTimeout(cb, ms);
     t.unref();
@@ -405,4 +416,23 @@ export class PreviewForward {
       /* already gone */
     }
   }
+}
+
+/**
+ * The daemon's live registry, published so the SHARED node budget (spec §6's
+ * "16 per node" over lanes AND bridges, Task 6) can be read from anywhere
+ * without threading the instance. `daemon.ts` owns this lifecycle like
+ * `relaySessions`: set at boot, cleared when the loop unwinds; no active
+ * registry answers 0, which is the honest "nothing is open here".
+ */
+let activeForward: PreviewForward | undefined;
+
+/** Publish (or clear) the daemon's registry as the node-wide count source. @internal test seams may set it. */
+export function setActivePreviewForward(registry: PreviewForward | undefined): void {
+  activeForward = registry;
+}
+
+/** Open lanes node-wide, from the active registry: one half of the shared budget the other half reads as {@link bridgeCount}. */
+export function forwardCount(): number {
+  return activeForward?.laneCount() ?? 0;
 }
