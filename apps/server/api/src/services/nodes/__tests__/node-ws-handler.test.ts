@@ -6,6 +6,7 @@ import {
   NODE_CLOSE_UPDATE_REQUIRED,
   NODE_MAX_FRAME_BYTES,
   NODE_PROTOCOL_VERSION,
+  type NodeCommandBody,
   type NodeEvent,
   type RelayFrame,
   SSH_RELAY_FRAME_MAX_BYTES,
@@ -22,6 +23,7 @@ import { type NodeReadyReport, NodesRepository } from "@/db/repositories/nodes.r
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { NodeKind, NodeTable } from "@/db/types/nodes.db-types.js";
 import { subscribeLive } from "@/services/live-bus.js";
+import { getPreviewBroker, resetForTests as resetPreviewBrokerForTests } from "@/services/preview-broker.js";
 import { type RelayBroker, setRelayBrokerForTests } from "@/services/ssh-relay.service.js";
 import { resetInputHoldsForTests } from "@/ws/input-hold.js";
 import { resetInputWindowsForTests } from "@/ws/input-window.js";
@@ -51,7 +53,15 @@ import {
   type NodeWsDeps,
   type NodeWsSocket,
 } from "../node-ws-handler.js";
-import { relayFramesSeenFor, relayOverCapsSeenFor, resetRelayFramesForTests } from "../relay-frames.js";
+import {
+  previewClosesSeenFor,
+  previewFramesSeenFor,
+  previewStreamEventsSeenFor,
+  relayFramesSeenFor,
+  relayOverCapsSeenFor,
+  resetPreviewFramesForTests,
+  resetRelayFramesForTests,
+} from "../relay-frames.js";
 import { beginUpdate, readView, resetForTests, updateSwapped } from "../update-tracker.js";
 
 /* ---------------------------- fakes ----------------------------- */
@@ -2278,5 +2288,104 @@ describe("handleNodeMessage + handleNodeClose → the update tracker", () => {
     await handleNodeMessage(h.deps, fakeSocket("n1"), JSON.stringify(readyFrame()));
     expect(seen).toEqual([["n1", MIN_NODE_VERSION]]);
     expect(readView().nodes.n1?.phase).toBe("working"); // the real one was never told
+  });
+});
+
+/* Preview intake and the link-drop cut (pane-preview Task 8). The event
+   switch has NO default branch, so these rows are the only evidence the
+   three preview events reach the broker at all: a broker test that calls
+   the verbs directly cannot see a missing `case`, and a seam test that
+   calls relay-frames directly cannot see a switch that never routes. */
+describe("preview intake through the event switch", () => {
+  const LANE_REF = "ab".repeat(16);
+
+  beforeEach(() => {
+    resetPreviewFramesForTests();
+  });
+
+  it("preview_data reaches the lane-pump seam, keyed by the socket's nodeId", async () => {
+    const h = makeHarness();
+    await handleNodeMessage(
+      h.deps,
+      fakeSocket("n1"),
+      JSON.stringify({ type: "preview_data", ref: LANE_REF, dir: "out", blob: "QUJD" }),
+    );
+    expect(previewFramesSeenFor("n1")).toEqual({ frames: 1, lastRef: LANE_REF, lastDir: "out" });
+    // The summary records counts, never byte content.
+    expect(JSON.stringify(previewFramesSeenFor("n1"))).not.toContain("QUJD");
+  });
+
+  it("preview_stream reaches the fan-out seam", async () => {
+    const h = makeHarness();
+    await handleNodeMessage(
+      h.deps,
+      fakeSocket("n1"),
+      JSON.stringify({ type: "preview_stream", ref: LANE_REF, seq: 3, w: 80, h: 24, ts: 1, blob: "QUJD" }),
+    );
+    expect(previewStreamEventsSeenFor("n1")).toEqual({ events: 1, lastRef: LANE_REF, lastSeq: 3 });
+  });
+
+  it("preview_closed reaches the close-report seam with its reason", async () => {
+    const h = makeHarness();
+    await handleNodeMessage(
+      h.deps,
+      fakeSocket("n1"),
+      JSON.stringify({ type: "preview_closed", ref: LANE_REF, reason: "target-gone" }),
+    );
+    expect(previewClosesSeenFor("n1")).toEqual({ reports: 1, lastRef: LANE_REF, lastReason: "target-gone" });
+  });
+
+  it("an unknown preview reason is refused by the grammar and reaches no seam", async () => {
+    // The reason set is closed (plan decision 3); a half-sent refusal is
+    // dropped whole, like every other grammar refusal this file pins.
+    const h = makeHarness();
+    await handleNodeMessage(
+      h.deps,
+      fakeSocket("n1"),
+      JSON.stringify({ type: "preview_closed", ref: LANE_REF, reason: "someone-liked-it" }),
+    );
+    expect(previewClosesSeenFor("n1")).toBeUndefined();
+  });
+
+  it("handleNodeClose cuts the node's preview sessions with node-dropped", async () => {
+    // The relay's `a-dropped` witness already lives in this hook; the broker
+    // needs the same one, or a link flap leaves sessions and lanes
+    // plane-side against refs the node has already forgotten.
+    const sent: NodeCommandBody[] = [];
+    resetPreviewBrokerForTests({
+      send: async (_nodeId, cmd) => {
+        sent.push(cmd);
+        if (cmd.type === "preview_ports_get") return { ports: [], cdpPort: null, screen: null };
+        if (cmd.type === "preview_open") return { ref: cmd.ref, pending: true };
+        if (cmd.type === "preview_close") return { ref: cmd.ref, closed: true };
+        throw new Error(`unexpected command ${cmd.type}`);
+      },
+    });
+    try {
+      const { ref } = await getPreviewBroker().openForward({
+        viewerUserId: "u-prev",
+        paneId: "p-prev",
+        nodeId: "n1",
+        port: 3000,
+      });
+      const lane = await getPreviewBroker().openLaneForConnection(ref);
+
+      const h = makeHarness();
+      const ws = fakeSocket("n1");
+      handleNodeOpen(OPEN_DEPS, ws);
+      await handleNodeMessage(h.deps, ws, readyFrame());
+      expect(getLive("n1")).toBeDefined();
+
+      await handleNodeClose(h.deps, ws);
+      // The hook is fire-and-forget (a link-drop must not block the close
+      // path), so let its sweep land before reading.
+      await new Promise((r) => setTimeout(r, 20));
+      expect(getPreviewBroker().sessionFor(ref)).toBeNull();
+      expect(
+        sent.some((c) => c.type === "preview_close" && c.ref === lane.laneRef && c.reason === "node-dropped"),
+      ).toBe(true);
+    } finally {
+      resetPreviewBrokerForTests();
+    }
   });
 });

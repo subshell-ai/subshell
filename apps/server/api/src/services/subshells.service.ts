@@ -40,6 +40,7 @@ import {
 } from "@/services/nodes/pane-exec.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { getNotifyService } from "@/services/notify.service.js";
+import { getPreviewBroker } from "@/services/preview-broker.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
 import { sweepLocalSshDir } from "@/services/ssh-launch.service.js";
 import { closeRelayForPaneExit, sweepRelayForPane } from "@/services/ssh-relay.service.js";
@@ -1243,6 +1244,14 @@ export class SubshellsService extends BaseService {
     // thing that can tell a revoked grantee (spec §4.2). Deriving which topics
     // that means stays in the publisher — the service carries domain facts.
     publishLive({ kind: "subshell.shares-changed", id, before: { ownerUserId: row.userId, shares: before } });
+    // A preview session is broker state, not a socket: the shares-changed
+    // publish tells /ws/live viewers the row moved, but it cannot touch a
+    // forward lane's node connection or a watch count. Recomputed against
+    // the POST-write grant set, every lane below `edit` and every viewer
+    // below `view` on THIS pane dies now (pane-preview spec §7; the relay
+    // twin is `closeUnauthorizedForNode` in the set-node-shares route).
+    // Awaited so the answer does not race the cut it describes.
+    await getPreviewBroker().closeUnauthorizedForPane(id);
     return { shares: await this.#shareViews(id) };
   }
 

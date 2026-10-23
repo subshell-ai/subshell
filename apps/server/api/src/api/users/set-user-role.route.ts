@@ -6,6 +6,7 @@ import { db } from "@/db/index.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { DEFAULT_USER_ROLE, USER_ROLES } from "@/db/types/user-role.js";
 import { audit } from "@/services/audit.js";
+import { getPreviewBroker } from "@/services/preview-broker.js";
 import { dropLiveSocketsFor } from "@/ws/live-registry.js";
 
 const RoleSchema = t.Union(
@@ -62,6 +63,15 @@ export const setUserRoleRoute = new Elysia().use(requireAdmin).patch(
     // authenticates at connect and is never re-checked. Dropping them makes
     // the client reconnect and re-derive what it may subscribe to.
     const droppedSockets = dropLiveSocketsFor(target.id);
+    // The preview broker's revoke cut, riding the same edge (pane-preview
+    // spec §7: a user write stops that person's preview access NOW). A
+    // preview session is broker state, not a socket: dropping the feed
+    // cannot touch a forward lane's node connection or a watch count, and
+    // without this a just-re-roled account's lane keeps proxying to its
+    // target port until the 15-minute idle sweep. Awaited like the
+    // `set-node-shares` relay twin: the answer must not race the cut it
+    // describes.
+    await getPreviewBroker().closeAllForUser(target.id, "revoked");
     await audit({
       actorUserId: user.id,
       action: "user.role_change",
