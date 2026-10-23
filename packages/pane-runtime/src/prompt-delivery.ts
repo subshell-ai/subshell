@@ -15,9 +15,9 @@ import { stripAnsi } from "@internal/backend-errors";
  * for the screen to be non-blank cannot catch this: the screen is fully
  * painted while the pane still swallows input. What DOES prove the harness is
  * reading is the typed text coming back on the screen, so this waits for
- * exactly that between the type and the Enter — and only text that was NOT on
- * screen before typing counts, because a short prompt hides inside ordinary
- * banner text and a resumed pane may already show the old transcript.
+ * exactly that between the type and the Enter — counted, not merely present,
+ * because a short prompt hides inside ordinary banner text and a resumed pane
+ * may already show the old transcript.
  */
 
 /** The pane operations delivery needs; `TmuxRunner` is the production filler. */
@@ -28,7 +28,8 @@ export interface PromptDeliveryPane {
 }
 
 /** Timing knobs, all on the caller's clock: the server owns the one policy
- * and sends the same numbers to a node over the `prompt_deliver` wire. */
+ * and sends its settle budget to a node over the `prompt_deliver` wire; the
+ * gate budget is the shared default unless the caller names one. */
 export interface PromptDeliveryOptions {
   /** Budget for the settle wait: the pane showing its first output. */
   settleTimeoutMs: number;
@@ -51,8 +52,9 @@ const RENDER_NEEDLE_MAX_CHARS = 48;
 
 /**
  * The gate's budget when the caller names none. Kept inside the shared module
- * rather than split across the two callers, so a node running an older server
- * (the wire frame carries no gate field) and the control plane gate alike.
+ * rather than split across the two callers, so a node running under an older
+ * server (the wire frame carries no gate field) and the control plane share
+ * one gate budget.
  */
 const RENDER_GATE_TIMEOUT_MS = 10_000;
 
@@ -60,6 +62,15 @@ const RENDER_GATE_TIMEOUT_MS = 10_000;
  * Claude Code eats raw LFs out of a burst. Both sides normalize identically. */
 function normalizeScreen(text: string): string {
   return stripAnsi(text).replace(/\s+/g, "");
+}
+
+/** Non-overlapping count of `needle` in `haystack`, for the delta rule. */
+function countOccurrences(haystack: string, needle: string): number {
+  let count = 0;
+  for (let at = haystack.indexOf(needle); at !== -1; at = haystack.indexOf(needle, at + needle.length)) {
+    count += 1;
+  }
+  return count;
 }
 
 /**
@@ -113,16 +124,20 @@ export async function deliverPromptInto(
     return false;
   }
 
-  // Render gate: the text coming back on the screen is the proof the harness
-  // is reading its input, so Enter only enters the same queue the keystrokes
-  // are living in. Text that was ALREADY on screen before typing (a banner a
-  // short prompt hides inside, a resumed transcript) proves nothing on its
-  // own — then, and only then, a changed screen must accompany it. On timeout
-  // the Enter goes anyway.
+  // Render gate: an OCCURRENCE of the prompt appearing since the settle frame
+  // is the proof the harness is reading its input, so Enter only enters the
+  // same queue the keystrokes are living in. Counting occurrences beats mere
+  // presence or screen-change: a spinner repainting every poll keeps the count
+  // constant while the banner a short prompt hides inside keeps riding along,
+  // and only the harness's own echo into the input box adds one. The known
+  // limit: a pane whose first partial paint lacks the prompt's head and
+  // finishes painting it (untriggered by the typing) after the baseline frame
+  // matches the count for the wrong reason; the gate then behaves like the
+  // pre-gate code did — Enter goes a bit early. No cheaper screen test tells
+  // those pixels apart. On timeout the Enter goes anyway.
   const needle = normalizeScreen(text).slice(0, RENDER_NEEDLE_MAX_CHARS);
   if (needle !== "") {
-    const baseline = normalizeScreen(settled);
-    const baselineHasNeedle = baseline.includes(needle);
+    const baselineCount = countOccurrences(normalizeScreen(settled), needle);
     await waitFor(
       pane,
       socket,
@@ -130,11 +145,7 @@ export async function deliverPromptInto(
       now,
       now() + (opts.renderTimeoutMs ?? RENDER_GATE_TIMEOUT_MS),
       opts.pollMs,
-      (screen) => {
-        const normalized = normalizeScreen(screen);
-        if (!normalized.includes(needle)) return false;
-        return !baselineHasNeedle || normalized !== baseline;
-      },
+      (screen) => countOccurrences(normalizeScreen(screen), needle) > baselineCount,
     );
   }
 

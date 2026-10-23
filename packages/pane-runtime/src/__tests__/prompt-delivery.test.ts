@@ -116,11 +116,11 @@ describe("deliverPrompt (shared policy)", () => {
     expect(calls.some((c) => c.kind === "pressEnter")).toBe(true);
   });
 
-  it("a banner a short prompt hides inside is no proof until the screen changes", async () => {
+  it("a banner a short prompt hides inside is no proof until an occurrence is added", async () => {
     // "hi" sits inside "This is…" from the very first painted frame, so its
     // bare presence proves nothing. The gate must hold Enter through the
-    // captures that merely repeat the baseline and release only once the
-    // pane's own echo changes the screen.
+    // captures whose needle count matches the baseline and release only once
+    // the pane's own echo adds one.
     const banner = "This is the boot banner";
     const { pane, calls } = fakePane(["", banner, banner, `${banner}\n❯ hi`]);
     const delivered = await deliverPromptInto(pane, "sock", "s1", "hi", {
@@ -140,9 +140,9 @@ describe("deliverPrompt (shared policy)", () => {
   });
 
   it("text already on a static screen burns the gate budget, Enter still goes", async () => {
-    // A resumed transcript that already shows the prompt on a pane that never
-    // repaints: presence + no change is not evidence, so the gate times out
-    // rather than fast-forwarding Enter into the mount window.
+    // A resumed transcript that already shows the prompt: no NEW occurrence
+    // ever appears, so the gate times out rather than fast-forwarding Enter
+    // into the mount window.
     const { pane, calls } = fakePane(["", "welcome hi panel"]);
     const delivered = await deliverPromptInto(pane, "sock", "s1", "hi", {
       settleTimeoutMs: 100,
@@ -153,6 +153,33 @@ describe("deliverPrompt (shared policy)", () => {
     expect(delivered).toBe(true);
     expect(calls.filter((c) => c.kind === "capture").length).toBeGreaterThan(3);
     expect(calls.some((c) => c.kind === "pressEnter")).toBe(true);
+  });
+
+  it("spinner repaints next to a needle-bearing banner hold the gate; the echo releases it", async () => {
+    // The shape the count rule exists for: the banner already contains "hi",
+    // the pane ANIMATES (spinner glyph swaps every frame, screen changes each
+    // poll), and only the harness's own echo adds an occurrence. A rule
+    // trusting screen-change would fire Enter on the first spinner tick,
+    // reader still unmounted.
+    const b = "This is the boot banner";
+    const { pane, calls } = fakePane([
+      "",
+      `${b} ✋`,
+      `${b} ✊`, // animated repaint: screen differs from baseline, count does not
+      `${b} ✋`,
+      `${b} ✋\n❯ hi`, // the echo: a second "hi" appears
+    ]);
+    const delivered = await deliverPromptInto(pane, "sock", "s1", "hi", {
+      settleTimeoutMs: 10_000,
+      renderTimeoutMs: 10_000,
+      pollMs: 1,
+      nowMs: steppingClock(1),
+    });
+    expect(delivered).toBe(true);
+    const kinds = calls.map((c) => c.kind);
+    const enterAt = kinds.indexOf("pressEnter");
+    expect(enterAt).toBe(kinds.length - 1); // released by the echo, not a spinner tick
+    expect(calls.filter((c) => c.kind === "capture").length).toBe(5);
   });
 
   it("pressEnter failure ⇒ false", async () => {
