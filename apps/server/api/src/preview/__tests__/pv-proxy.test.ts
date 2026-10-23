@@ -626,6 +626,7 @@ describe("pv-ws: the tunnels", () => {
       "true",
       "null",
       '{ "type": "update", "updates": [] }',
+      '{ "buffer": 1, "byteOffset": 0 }',
     ];
     const got = await new Promise<string[]>((resolve, reject) => {
       const ws = new WebSocket(`ws://127.0.0.1:${proxyPort}/pv/${ref}/hmr`);
@@ -660,6 +661,11 @@ describe("pv-ws: the tunnels", () => {
     // that starts delivering raw text still passes; one that eats the
     // frame does not.
     expect(got[5]).toBe(JSON.stringify({ type: "update", updates: [] }));
+    // A JSON object whose content happens to pair the key names `buffer` and
+    // `byteOffset` is still a plain object, not a buffer view: it rides
+    // re-stringified text. A duck-check of those key names would read the
+    // JSON values as view offsets, throw, and destroy the frame.
+    expect(got[6]).toBe(JSON.stringify({ buffer: 1, byteOffset: 0 }));
   });
 
   it("rides an upgrade-response Set-Cookie into the jar and onto the next HTTP request", async () => {
