@@ -19,7 +19,14 @@ import { join } from "node:path";
 /** One listening socket of the pane's tree, as the wire row names it. */
 export type PreviewPortRow = { proto: "tcp" | "tcp6"; port: number; pid: number };
 
-/** The display the node allocated for this pane, when it has one (Task 7 owns the registry; today every caller passes null). */
+/**
+ * The display the node allocated for this pane, when it has one:
+ * `PreviewDisplays.getFor` / `openFor` hand these out, and a scan carries one
+ * through to the `screen` half of the ports answer. A type alias on purpose,
+ * not the protocol's interface: command results serialize through
+ * `Record<string, JsonValue>`, which an alias satisfies and an interface (no
+ * implicit index signature) refuses.
+ */
 export type PreviewScreenHandle = { display: string; rfbPort: number };
 
 /** Everything `scanPanePorts` takes; `procRoot` and `probe` are test seams. */
@@ -77,8 +84,11 @@ export async function scanPanePorts(opts: ScanPanePortsOptions): Promise<PanePor
   for (const row of listeners) {
     const owner = owners.get(row.inode);
     if (owner === undefined || seenInodes.has(row.inode)) continue;
-    // A socket bound to two addresses (127.0.0.1 and 0.0.0.0) is two rows
-    // beside one inode: the wire lists one row per listening SOCKET.
+    // The SAME socket can appear on two rows - a dual-stack IPv6 socket
+    // bound to `::` is listed in both the v4 and v6 tables, one inode read
+    // twice - and the wire lists one row per listening SOCKET, so the inode
+    // dedups it. (Two real binds on two addresses are two sockets with two
+    // inodes and stay two rows, as they should.)
     seenInodes.add(row.inode);
     ports.push({ proto: row.proto, port: row.port, pid: owner });
   }

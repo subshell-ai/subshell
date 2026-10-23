@@ -500,6 +500,19 @@ async function reportDeath(ctx: CommandContext, socket: string, subshellId: stri
         log(`ssh config sweep failed for ${subshellId}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+    // Close the pane's virtual display (pane-preview spec §5: "the sweep and
+    // the death report close displays"). Same re-check, same best-effort
+    // posture: the pane was the display's only reader, so a death without
+    // this leaves an Xvfb + x11vnc pair and a locked `:90..:199` number
+    // running forever. `closeFor` deregisters before it signals, so the
+    // child-exit watch reads our own kill as teardown, never as a loss;
+    // a throwing reap costs nothing here. A pane that never asked for a
+    // screen pays an entry miss and one absent-dir check.
+    try {
+      ctx.previewDisplays?.closeFor(subshellId);
+    } catch (err) {
+      log(`display close failed for ${subshellId}: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 }
 

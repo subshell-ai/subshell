@@ -52,7 +52,10 @@ export function buildHarnessCommand(
  * @param argv the complete, already-resolved command line (no placeholder left)
  * @param preset the wire preset (its `env` layer rides above `subshellEnv`)
  * @param subshellEnv SUBSHELL_* credentials from the control plane
- * @param mcpEnv the MCP registration's wiring env (highest layer; see below)
+ * @param mcpEnv the MCP registration's wiring env (above the preset; see below)
+ * @param extraEnv the node-allocated layer (a virtual display's DISPLAY/XAUTHORITY) —
+ *   appended LAST so an env the machine allocated FOR this pane cannot lose to
+ *   a preset that happens to name the same keys
  * @throws Error when a merged env key is not a valid shell variable name
  */
 export function assembleHarnessCommand(
@@ -60,8 +63,9 @@ export function assembleHarnessCommand(
   preset: PresetDefinition,
   subshellEnv: Record<string, string> = {},
   mcpEnv?: Record<string, string>,
+  extraEnv?: Record<string, string>,
 ): string {
-  const env = paneEnvFor(subshellEnv, preset, mcpEnv);
+  const env = paneEnvFor(subshellEnv, preset, mcpEnv, extraEnv);
   // Defense-in-depth at the last chokepoint before the shell string exists:
   // this catches legacy DB rows and any other env source merged above,
   // regardless of what the entry-point (preset-save) validation allowed.
@@ -84,11 +88,16 @@ export function assembleHarnessCommand(
 /**
  * THE pane's environment, in precedence order: the curated host env <
  * `SUBSHELL_*` credentials (a preset may deliberately override
- * `SUBSHELL_BASE_URL`) < the preset's own env < the registration's wiring env.
- * Wiring env goes LAST on purpose: a key like `OPENCODE_CONFIG` is transport
- * plumbing, not a user knob — a preset setting it would otherwise silently
- * drop the subshell's subshell tools while the UI still promised automatic
- * registration.
+ * `SUBSHELL_BASE_URL`) < the preset's own env < the registration's wiring env
+ * < the node-allocated layer (`extraEnv`). Wiring env goes above the preset on
+ * purpose: a key like `OPENCODE_CONFIG` is transport plumbing, not a user knob
+ * — a preset setting it would otherwise silently drop the subshell's subshell
+ * tools while the UI still promised automatic registration. `extraEnv` rides
+ * above everything because its keys describe a resource this machine created
+ * FOR this pane: a virtual display's `DISPLAY`/`XAUTHORITY` allocated by the
+ * node is truth, and a preset (or stray host env) naming the same key is
+ * describing a screen that is not this pane's. Omitted, the chain is exactly
+ * the four-layer map it was before Task 7.
  *
  * **Exported because the pane is not the only thing built from these layers.**
  * A pane's `pane-died` hook must report to the same control plane the pane
@@ -113,8 +122,9 @@ export function paneEnvFor(
   subshellEnv: Record<string, string>,
   preset: PresetDefinition,
   mcpEnv?: Record<string, string>,
+  extraEnv?: Record<string, string>,
 ): Record<string, string> {
-  return { ...curatedEnv(), ...subshellEnv, ...preset.env, ...(mcpEnv ?? {}) };
+  return { ...curatedEnv(), ...subshellEnv, ...preset.env, ...(mcpEnv ?? {}), ...(extraEnv ?? {}) };
 }
 
 /** The minimal host env we pass through to harness processes. */
