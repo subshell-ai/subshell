@@ -85,6 +85,9 @@ export async function execPreviewOpen(
   });
   // The seam cast is the JSON-safety posture the sibling executors use
   // (`node-results.ts` owns the answer contract; a forward ack is a plain
-  // object by the plan's interface note).
+  // object by the plan's interface note). One edge worth naming: if the ref
+  // is already registered, `openLane` keeps the live lane and returns, so
+  // this ack then describes the already-live lane (a dial that started at an
+  // earlier open), not a dial that started here (forward.ts:142-144).
   return { ok: true, data: { ref: cmd.ref, pending: true } as unknown as JsonValue };
 }

@@ -267,10 +267,19 @@ export class PreviewForward {
       if (this.lanes.get(lane.ref) !== lane) return;
       this.onSocketData(lane, chunk);
     });
-    // A real target EOF arrives as `end` then `close`; the lane-presence
-    // guard in `die` collapses the pair into the single event spec §6 owes.
-    socket.on("end", () => this.die(lane, "target-gone"));
-    socket.on("close", () => this.die(lane, "target-gone"));
+    // A failed connect's `error` is followed on a nextTick by a guaranteed
+    // `close`, which can land after the retry has already taken `lane.socket`;
+    // without the SOCKET-identity guard that late close reads as the lane
+    // dying and kills the in-flight ::1 dial (Task 5 review, MAJOR-1). On a
+    // live lane the real EOF pair (`end` then `close`) still collapses to one
+    // event: `remove` destroys without clearing `lane.socket`, so the second
+    // handler passes identity and dies inside `die`'s lane-presence guard.
+    socket.on("end", () => {
+      if (lane.socket === socket) this.die(lane, "target-gone");
+    });
+    socket.on("close", () => {
+      if (lane.socket === socket) this.die(lane, "target-gone");
+    });
     socket.on("error", (err) => {
       if (this.lanes.get(lane.ref) !== lane) return;
       if (!up) this.dialFailed(lane, v6, err);
@@ -286,6 +295,15 @@ export class PreviewForward {
       // v4 and v6 are the same host, and a server bound to only one family is
       // routine. The lane's budget timers, not a dial timeout, bound the total.
       lane.say(`preview lane ${lane.ref}: 127.0.0.1:${lane.port} refused (${String(err)}), retrying ::1`);
+      // Release the refused socket before the retry overwrites `lane.socket`:
+      // its guaranteed `close` would otherwise find the lane live (the retry
+      // is in flight) and `remove` would destroy the ::1 dial through the
+      // stale reference (Task 5 review, MAJOR-1).
+      try {
+        lane.socket?.destroy();
+      } catch {
+        /* already gone */
+      }
       this.dial(lane, true);
       return;
     }
