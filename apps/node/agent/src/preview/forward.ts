@@ -27,15 +27,15 @@ import { log } from "../log.js";
  * command's gate ladder owns all three, so nothing here re-decides them:
  * there is no host on the wire (the grammar bounds the port, the dials are
  * loopback literals only), pane liveness is a command-time check, and the
- * node-side budget is the SHARED lane+bridge counter (Task 6): the lane half
- * is read through {@link PreviewForward.laneCount} (or {@link forwardCount}
- * from the other branch's side), and a sum check at the open executor keeps
- * the node to {@link PREVIEW_SESSIONS_PER_NODE} of any mix.
+ * node-side budget is the SHARED lane+bridge counter (Task 6): the open
+ * executor sums the node-wide {@link PreviewForward.laneCount} with the
+ * bridge registry's count before either mechanism starts, keeping the node to
+ * {@link PREVIEW_SESSIONS_PER_NODE} of any mix.
  */
 
 /**
  * The preview events the daemon's single sender carries: the lane's byte leg,
- * the bridge's screencast leg (widened here for Task 6 — the sender is one
+ * the bridge's screencast leg (widened here for Task 6: the sender is one
  * deliver-or-throw path, so slow-link accounting and link-drop behavior stay
  * true for both registries), and the death notice both share.
  */
@@ -432,7 +432,11 @@ export function setActivePreviewForward(registry: PreviewForward | undefined): v
   activeForward = registry;
 }
 
-/** Open lanes node-wide, from the active registry: one half of the shared budget the other half reads as {@link bridgeCount}. */
+/**
+ * Open lanes node-wide, through the active registry. The open executor reads
+ * the lane half straight off its own context registry; this is the same
+ * number for callers that hold no instance.
+ */
 export function forwardCount(): number {
   return activeForward?.laneCount() ?? 0;
 }
