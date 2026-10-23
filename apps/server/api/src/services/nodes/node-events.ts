@@ -118,7 +118,7 @@ export interface NodeLifecycleHooks {
    */
   onSshEnabled(nodeId: string, reported: NodeSshEnabledWire | undefined): Promise<void> | void;
   /**
-   * The machine's own copy of its preview switch (pane-preview spec Task 3) —
+   * The machine's own copy of its preview switch (pane-preview spec Task 3):
    * from `ready.previewEnabled` at connect, or from the `preview_enabled`
    * event when the mirror moved underneath the connection (in practice:
    * corruption).
@@ -130,7 +130,7 @@ export interface NodeLifecycleHooks {
    * @param nodeId - the SOCKET's authenticated identity, never a frame's claim
    * @param reported - the machine's mirror answer, or undefined when it
    *   reported none (no file, a file that says off, or a malformed `ready`
-   *   field the lenient parser dropped — all of which mean REFUSED there)
+   *   field the lenient parser dropped, all of which mean REFUSED there)
    */
   onPreviewEnabled(nodeId: string, reported: NodePreviewEnabledWire | undefined): Promise<void> | void;
 }

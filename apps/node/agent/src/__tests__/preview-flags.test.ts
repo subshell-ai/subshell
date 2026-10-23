@@ -31,7 +31,7 @@ import { captureLogs } from "./helpers/capture-logs.js";
  * twin in mechanics and in default. Persistence and the file-mode doctrine
  * clone `ssh-enabled.ts` exactly (0600, temp+rename, its own file beside it);
  * so does the FAIL-CLOSED read with the allowing default inverted the same way
- * — the plane is the only writer, and "never told" is not "allowed" for a gate
+ * because the plane is the only writer, and "never told" is not "allowed" for a gate
  * that stands over watching panes.
  *
  * The wiring half goes through `dispatchCommand`, so the frame parser and the
@@ -102,7 +102,7 @@ describe("persistence", () => {
     expect(readPreviewEnabled(dataDir)).toEqual({ kind: "on", changedAt: STAMP });
   });
 
-  it("stores the whole wire verbatim — `ready.previewEnabled` is buildable from what was written", () => {
+  it("stores the whole wire verbatim: `ready.previewEnabled` is buildable from what was written", () => {
     const dataDir = freshDataDir();
     setPreviewEnabled(dataDir, { on: true, changedAt: STAMP });
     expect(JSON.parse(readFileSync(previewEnabledPath(dataDir), "utf8"))).toEqual({ on: true, changedAt: STAMP });
@@ -131,7 +131,7 @@ describe("persistence", () => {
 
   it("leaves no temp file behind, and the file it leaves is whole", () => {
     // Atomic because a half-written file parses as corrupt, and corrupt means
-    // REFUSED here — a torn write would cut preview for the duration.
+    // REFUSED here, and a torn write would cut preview for the duration.
     const dataDir = freshDataDir();
     setPreviewEnabled(dataDir, { on: true, changedAt: STAMP });
     setPreviewEnabled(dataDir, { on: false, changedAt: "2026-10-21T12:00:00.000Z" });
@@ -225,7 +225,7 @@ describe("what a read is worth announcing", () => {
 });
 
 describe("set_preview_enabled (the plane's half)", () => {
-  it("persists the plane's exact bytes and memoizes them — no echo, no re-stamp", async () => {
+  it("persists the plane's exact bytes and memoizes them, with no echo and no re-stamp", async () => {
     const dataDir = freshDataDir();
     const events: NodeEvent[] = [];
     const ctx = makeCtx(dataDir, events);
@@ -283,7 +283,7 @@ describe("the heartbeat belt", () => {
     expect(readPreviewEnabled(dataDir).kind).toBe("unreadable");
   });
 
-  it("a mirror deleted under a live connection is NOT restored — the plane is the only writer", () => {
+  it("a mirror deleted under a live connection is NOT restored: the plane is the only writer", () => {
     // Maintenance re-writes a vanished mirror from its memo because a CLI at
     // the keyboard can delete it legitimately. There is no such writer here:
     // hand-deleting this file is not an interface, and the next `ready` makes

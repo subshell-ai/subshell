@@ -218,7 +218,7 @@ export function seedSshEnabledMemo(ctx: CommandContext): NodeSshEnabledWire | un
  * Announce one preview-switch mirror state to the plane and remember having
  * done so (pane-preview spec Task 3). The SSH twin's rule, cloned: the memo
  * update is what keeps the next heartbeat tick silent about a value the plane
- * already holds — and what keeps a `set_preview_enabled` the plane just
+ * already holds, and what keeps a `set_preview_enabled` the plane just
  * pushed from coming back as an event.
  *
  * @param ctx - the daemon's command context (owns the socket seam and the memo)
@@ -231,14 +231,14 @@ export function reportPreviewEnabled(ctx: CommandContext, state: NodePreviewEnab
 
 /**
  * Report the preview mirror IF it has moved since this connection last spoke
- * about it — the heartbeat belt, the SSH twin's posture in full.
+ * about it: the heartbeat belt, the SSH twin's posture in full.
  *
  * With no node-side writer, the common steady state says nothing: an
  * off-or-absent mirror has nothing to announce (the plane's own row is
  * authoritative, and silence reads as refusal on both ends), and an on mirror
  * only speaks up once. What this loop exists to catch is the file changing
- * UNDER the connection — corruption flipping a machine from allowed to
- * refused mid-session, or a hand-edit — so the plane learns it now and pushes
+ * UNDER the connection (corruption flipping a machine from allowed to
+ * refused mid-session, or a hand-edit), so the plane learns it now and pushes
  * its row (the repair) rather than discovering the disagreement at the next
  * reconnect. There is no absent-restore half: the plane is the only writer,
  * so a deleted mirror is silence, and the next `ready` reconciles it.
@@ -256,8 +256,8 @@ export function maybeReportPreviewEnabled(ctx: CommandContext): void {
 /**
  * Seed this connection's preview memo from the mirror on disk.
  *
- * Called once per connect, immediately before `ready` — which carries the same
- * value, so the first heartbeat must not repeat it — and again on every
+ * Called once per connect, immediately before `ready` (which carries the same
+ * value, so the first heartbeat must not repeat it), and again on every
  * reconnect, because a new socket has told the plane nothing. The one read of
  * the file builds both, so the frame and the memo cannot disagree.
  *

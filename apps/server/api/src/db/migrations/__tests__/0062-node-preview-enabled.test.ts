@@ -17,7 +17,7 @@ interface MigrationDatabase {
  * The per-node preview switch columns (pane-preview spec Task 3). Default 0 is
  * the whole upgrade story, cloned from 0047's doctrine: a node enrolled before
  * this migration (and the seeded local row) reads OFF, because watching panes
- * is opt-in per machine — preview exposes terminal content, so an upgrade must
+ * is opt-in per machine: preview exposes terminal content, so an upgrade must
  * never turn it on anywhere.
  */
 describe("migration 0062-node-preview-enabled", () => {

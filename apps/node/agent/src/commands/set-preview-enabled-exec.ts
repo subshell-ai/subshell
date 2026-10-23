@@ -4,7 +4,7 @@ import type { Cmd, CommandContext, CommandResult } from "./context.js";
 /**
  * `set_preview_enabled` (pane-preview spec Task 3): the plane's half of the
  * preview switch, reached only through `dispatchCommand`'s already-verified
- * frame — an unsigned or misauthenticated command never gets this far.
+ * frame: an unsigned or misauthenticated command never gets this far.
  *
  * It writes the file and NOTHING else. In particular it opens no lane and
  * revokes nothing: the gate is checked when a preview act is asked for, so
@@ -25,7 +25,7 @@ import type { Cmd, CommandContext, CommandResult } from "./context.js";
  */
 export function execSetPreviewEnabled(ctx: CommandContext, cmd: Cmd<"set_preview_enabled">): CommandResult {
   // Memoized as REPORTED, not merely written: the plane is the source of this
-  // value — the ONLY source it will ever have — so sending it back on the next
+  // value, the ONLY source it will ever have, so sending it back on the next
   // heartbeat tick would be an echo the plane then reconciles against itself.
   ctx.lastReportedPreviewEnabled = setPreviewEnabled(ctx.config.dataDir, { on: cmd.on, changedAt: cmd.changedAt });
   return { ok: true };

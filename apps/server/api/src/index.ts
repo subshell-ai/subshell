@@ -330,7 +330,7 @@ async function bootServer(): Promise<void> {
     // direction — the row is the record, so this reconcile only pushes.
     onSshEnabled: (nodeId, reported) => reconcileSshEnabled(nodeId, reported),
     // The preview switch's sibling (pane-preview spec Task 3): same door, same
-    // direction rule — the row is the record, so this reconcile only pushes.
+    // direction rule: the row is the record, so this reconcile only pushes.
     onPreviewEnabled: (nodeId, reported) => reconcilePreviewEnabled(nodeId, reported),
   });
   // Restore alive/exit state at boot: a backend restart mid-subshell must not
