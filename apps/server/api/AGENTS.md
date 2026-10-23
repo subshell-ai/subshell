@@ -493,10 +493,12 @@ capture child's own account is in Architecture above.
   subscriber rather than buffering them.
 - The per-node switch is the gate in front of all of it (`node.preview-enabled`,
   audited `node.preview_enabled.update`); every preview route answers the node
-  state itself with its named refusal (`preview-node-disabled`,
-  `preview-node-offline`, `preview-ports-unsupported`,
-  `preview-display-unsupported`, `watch-port-missing`, `watch-port-conflict`)
-  rather than inventing one.
+  state itself with its named refusal rather than inventing one: the plane's own
+  state words (`preview-disabled`, `node-held`, `node-too-old`, `node-offline`,
+  `node-timeout`), the node's refusal words passed through verbatim
+  (`preview-ports-unsupported`, `preview-ports-pane-gone`, the `preview-display-*`
+  family, `preview-pane-gone`), and the bridge's `watch-port-conflict` 409. The
+  watch route's missing-port case is a 400 sentence, not a code.
 
 ## SSH
 

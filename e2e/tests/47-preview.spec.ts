@@ -14,7 +14,7 @@ test.use({ storageState: ADMIN_STATE });
  * enrolled node (the `local` row answers preview RPCs `offline`, so nothing
  * here works without one), a terminal pane whose `bun -e` script is both the
  * dev server and the fake CDP endpoint, and the whole proxy round trip
- * through `/pv/<ref>/` — body bytes and the cookie jar's path rewrite — over
+ * through `/pv/<ref>/` (body bytes and the cookie jar's path rewrite) over
  * REST + the lane. No browser page is involved: this spec is the `request`
  * fixture end to end.
  *
@@ -56,7 +56,7 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
  * The pane's one command, typed verbatim through `POST /:id/exec`. Two
  * loopback `Bun.serve`s: the HTTP server (body `ok` plus a `set-cookie` so
  * the jar rewrite is observable on the proxied response) and the CDP fake
- * the watch bridge can actually shake hands with — `/json/version` answers
+ * the watch bridge can actually shake hands with: `/json/version` answers
  * the `Browser` field that makes the ports scan call it CDP, `/json/list`
  * carries a `page` target whose `webSocketDebuggerUrl` is loopback, and the
  * websocket handler accepts the upgrade and lets the bridge's `Page.enable`
@@ -66,7 +66,7 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
  * Shell-posture notes: the script carries ONLY double quotes (the -e
  * argument is single-quoted, and `!` would history-expand even inside single
  * quotes, so it appears nowhere), and the trailing `&` keeps the pane at its
- * prompt — the servers run as the shell's background job, still under the
+ * prompt: the servers run as the shell's background job, still under the
  * pane's shell and therefore inside the pane's process tree, which is
  * exactly what the node's /proc walk scans.
  */
@@ -230,11 +230,11 @@ test("preview: real node + terminal pane serve the proxy round trip and the watc
     });
 
     // ── 4. Type the servers into the pane over the REST input seam (the
-    // edit act, and a plain "the bytes were sent" success — no receipt
+    // edit act, and a plain "the bytes were sent" success, no receipt
     // claimed). INPUT rather than exec on purpose: this box's interactive
     // bash carries a line editor that redraws BEFORE the exec sentinel line
     // (`[ble: EOF]` rides the line), so exec's anchored scan answers
-    // timed_out even when the command ran and the rc printed — observed on
+    // timed_out even when the command ran and the rc printed; observed on
     // this spec's first run, sentinel bytes in the output, status timed_out.
     // The sentinel protocol's line-shape problem belongs to pane-exec, not
     // here; what proves this step is section 5's ports poll, the receipt
@@ -279,7 +279,7 @@ test("preview: real node + terminal pane serve the proxy round trip and the watc
       PORTS_DEADLINE_MS,
     );
     // The screen half of the shape: this pane has no display, and the answer
-    // is a null, not a guess (and not `screenLost` — nothing died).
+    // is a null, not a guess (and not `screenLost`: nothing died).
     expect(info?.screen).toBeNull();
     expect(info?.screenLost).toBeUndefined();
 
@@ -337,7 +337,7 @@ test("preview: real node + terminal pane serve the proxy round trip and the watc
     // Stop is pane-keyed and idempotent: the first DELETE closes the bridge
     // (audited once, with its reason); the second changes nothing and still
     // answers ok. Frame delivery through `/ws/live` is deliberately NOT
-    // asserted here — see the file header for who owns that half.
+    // asserted here: see the file header for who owns that half.
     const stopped = await request.delete(`/api/subshells/${paneId}/preview/watch`);
     expect(stopped.ok(), await stopped.text()).toBe(true);
     const stoppedAgain = await request.delete(`/api/subshells/${paneId}/preview/watch`);
@@ -373,7 +373,7 @@ test("preview: real node + terminal pane serve the proxy round trip and the watc
     }
     await sweepTmuxServers(tmuxBase);
     if (nodeId) {
-      // The registry's offline flip rides the socket close — retry the delete
+      // The registry's offline flip rides the socket close: retry the delete
       // through a stale-409 window rather than racing it.
       for (let i = 0; i < 10; i++) {
         try {
