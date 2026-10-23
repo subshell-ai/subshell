@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import {
   deploymentView,
   linuxDeploymentView,
@@ -244,7 +244,7 @@ describe("SupervisionCard", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("stays dismissible while the switch is in flight", () => {
+  it("stays dismissible while the switch is in flight", async () => {
     asShell(DESKTOP);
     render(
       <SupervisionCard
@@ -258,7 +258,12 @@ describe("SupervisionCard", () => {
     // and the switch deliberately takes the server away — so a modal that
     // refuses to close is a page with no way back to itself.
     act(() => screen.getByRole("button", { name: "Continue in the background" }).click());
-    expect(screen.queryByRole("dialog")).toBeNull();
+    // Base UI holds the popup through its exit animation, and happy-dom 21
+    // drives transitions, so the unmount lands a tick after the click
+    // (20 ran no transitions and unmounted synchronously). Polled as a
+    // boolean, because `toBeNull()` on a failed wait serializes the whole
+    // happy-dom node graph into the error.
+    await waitFor(() => expect(screen.queryByRole("dialog") === null).toBe(true), { timeout: 5000 });
   });
 
   it("shows a spinner and the target while the switch is landing", () => {

@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
 describe("Sheet", () => {
   afterEach(cleanup);
 
-  it("opens from the trigger and closes from the built-in close button", () => {
+  it("opens from the trigger and closes from the built-in close button", async () => {
     render(
       <Sheet>
         <SheetTrigger aria-label="Open navigation">☰</SheetTrigger>
@@ -22,8 +22,11 @@ describe("Sheet", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     // Base UI keeps the popup mounted through the exit animation — it must
     // end up unmounted, matching the Radix behavior consumers rely on.
-    // happy-dom runs no CSS transitions, so the unmount is synchronous.
-    expect(screen.queryByRole("dialog")).toBeNull();
+    // happy-dom 21 drives CSS transitions, so that unmount now lands a tick
+    // after the close instead of synchronously (it ran no transitions under
+    // 20). Poll as a boolean: `toBeNull()` on a failed wait serializes the
+    // whole happy-dom node graph into the error.
+    await waitFor(() => expect(screen.queryByRole("dialog") === null).toBe(true), { timeout: 5000 });
   });
 
   it("omits the floating close button when showClose is false", () => {
