@@ -228,6 +228,28 @@ describe("pane navigation", () => {
       h.restore();
     }
   });
+
+  it("a refused watch's named error does not ride into the next pane", async () => {
+    const h = wire({
+      watchStatus: 409,
+      watchMessage: "watch-port-conflict: the bridge is already streaming port 9333",
+    });
+    try {
+      await act(async () => {
+        await h.result.current.startWatch(9444);
+      });
+      expect(h.result.current.watchError).toContain("watch-port-conflict");
+      // The refusal left no live watch to release, so the [id] cleanup's
+      // release guard is false here; clearing the error must not sit behind
+      // it, or pane B's section renders pane A's red alert.
+      await act(async () => {
+        h.setPane("pane2");
+      });
+      expect(h.result.current.watchError).toBeNull();
+    } finally {
+      h.restore();
+    }
+  });
 });
 
 describe("reconnect re-registers", () => {
