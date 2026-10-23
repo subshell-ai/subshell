@@ -1,9 +1,9 @@
 import { chmodSync, existsSync, type FSWatcher, mkdirSync, unlinkSync, watch, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname } from "node:path";
-import { stripAnsi } from "@internal/backend-errors";
 import {
   buildHarnessCommand,
+  deliverPromptInto,
   enforceMode,
   exitHookFor,
   type HarnessPlugin,
@@ -235,10 +235,12 @@ export class LocalLauncher implements NodeLauncher {
 
   /**
    * Types `text` into a freshly-spawned pane once it shows output, then
-   * submits with Enter — the verbatim pre-seam `#deliverPrompt` sequence:
-   * poll `capture-pane` (a blank pane = harness still booting) up to the
-   * settle window; never settled, or an input failure, reports delivery as
-   * false rather than typing blind. No throws, no side effects on timeout.
+   * submits with Enter — held until the pane proves it rendered the typed
+   * text, so a harness whose stdin reader mounts late never swallows the
+   * Enter (see `deliverPrompt` in `@internal/pane-runtime`, which owns the
+   * policy for both delivery sites). Never settled, or an input failure,
+   * reports delivery as false rather than typing blind. No throws, no side
+   * effects on timeout.
    */
   async deliverPrompt(
     socket: string,
@@ -247,27 +249,7 @@ export class LocalLauncher implements NodeLauncher {
     settleTimeoutMs: number,
     pollMs: number,
   ): Promise<boolean> {
-    const deadline = Date.now() + settleTimeoutMs;
-    let settled = false;
-    while (Date.now() < deadline) {
-      try {
-        if (stripAnsi(await this.capture(socket, id)).trim()) {
-          settled = true;
-          break;
-        }
-      } catch {
-        // pane not queryable yet; keep polling
-      }
-      await Bun.sleep(pollMs);
-    }
-    if (!settled) return false;
-    try {
-      await this.sendInput(socket, id, text);
-      await this.pressEnter(socket, id);
-      return true;
-    } catch {
-      return false;
-    }
+    return deliverPromptInto(this.#tmux, socket, id, text, { settleTimeoutMs, pollMs });
   }
 
   logPath(id: string): string {

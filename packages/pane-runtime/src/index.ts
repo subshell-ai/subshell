@@ -114,6 +114,11 @@ export {
 } from "./plugins-dir.js";
 export { prepareInstalledPlugins, seedBuiltIns } from "./plugins-seed.js";
 export {
+  deliverPromptInto,
+  type PromptDeliveryOptions,
+  type PromptDeliveryPane,
+} from "./prompt-delivery.js";
+export {
   allHarnesses,
   allNetworkPlugins,
   type BrokenBuiltIn,

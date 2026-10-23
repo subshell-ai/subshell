@@ -211,8 +211,11 @@ describe("execPromptDeliver (spec §6.5)", () => {
     });
   }
 
-  it('settles after two blank captures ("", "", "ready") ⇒ input + enter run, {promptDelivered:true}', async () => {
-    const script = scriptedCaptures(["", "", "ready"]);
+  it("settles after two blank captures, Enter waits for the text on screen ⇒ input + enter run, {promptDelivered:true}", async () => {
+    // The render gate: after the input lands, the Enter only goes once a
+    // capture shows the typed text ("❯ hi") — proof the harness is reading
+    // its input and the Enter won't be eaten by a mount-time paste.
+    const script = scriptedCaptures(["", "", "ready", "ready\n❯ hi"]);
     const ft = fakeTmux({ capturePane: () => script.capture(), sendInput: () => {}, pressEnter: () => {} });
     const { ctx: c } = makeCtx(freshDataDir("prompt-settle"), ft.tmux);
     await recordSocket(c);
@@ -227,10 +230,30 @@ describe("execPromptDeliver (spec §6.5)", () => {
     if (!result.ok) return;
     // The result shape is the Task-1 contract, validated by the REAL parser.
     expect(parseNodePromptDeliver(result.data)).toEqual({ promptDelivered: true });
-    expect(script.reads()).toBe(3); // "" → sleep → "" → sleep → "ready" (ctx.nowMs stays FIXED; the settle break bounds the loop)
-    expect(ft.count("capturePane")).toBe(3);
+    expect(script.reads()).toBe(4); // "" → "" → "ready" (settle) → "❯ hi" (render gate)
+    expect(ft.count("capturePane")).toBe(4);
     expect(ft.argsOf("sendInput")).toEqual([["p-sock", S1, "hi"]]); // recorded socket, byte-for-byte text
     expect(ft.argsOf("pressEnter")).toEqual([["p-sock", S1]]);
+  });
+
+  it("a pane that never echoes the text still gets its Enter when the budget runs out", async () => {
+    // Masked input / a harness that swallows keystrokes: the gate waits its
+    // budget on ctx.nowMs() (advance per clock read) and Enter goes anyway —
+    // the pre-gate behavior beats no submit at all.
+    let t = 0;
+    const ft = fakeTmux({ capturePane: () => "ready", sendInput: () => {}, pressEnter: () => {} });
+    const { ctx } = makeCtx(freshDataDir("prompt-gate-timeout"), ft.tmux, { nowMs: () => (t += 10) });
+    const result = await execPromptDeliver(ctx, {
+      type: "prompt_deliver",
+      subshellId: S1,
+      text: "hi",
+      settleTimeoutMs: 100,
+      pollMs: 5,
+    });
+    expect(result).toEqual({ ok: true, data: { promptDelivered: true } });
+    expect(ft.count("sendInput")).toBe(1);
+    expect(ft.count("pressEnter")).toBe(1);
+    expect(ft.count("capturePane")).toBeGreaterThanOrEqual(2); // settle once, then the gate polled
   });
 
   it("never settles (ANSI-escape-only screen) ⇒ {promptDelivered:false}, NO input, NO enter", async () => {
@@ -256,7 +279,13 @@ describe("execPromptDeliver (spec §6.5)", () => {
   });
 
   it("capturePane throws early (pane not queryable yet) ⇒ keeps polling, still settles", async () => {
-    const script = scriptedCaptures([new Error("can't find pane"), new Error("can't find pane"), "ready"]);
+    // The last entry echoes the prompt so the render gate passes too.
+    const script = scriptedCaptures([
+      new Error("can't find pane"),
+      new Error("can't find pane"),
+      "ready",
+      "ready\n❯ go",
+    ]);
     const ft = fakeTmux({
       capturePane: () => script.capture(),
       sendInput: () => {},
