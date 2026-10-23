@@ -285,7 +285,11 @@ export function previewWsRoute(options: { preAckMaxBytes?: number } = {}) {
       } else if (Buffer.isBuffer(message)) {
         bytes = Buffer.from(message.buffer, message.byteOffset, message.byteLength);
         text = false;
-      } else if ("buffer" in message && "byteOffset" in message) {
+      } else if (ArrayBuffer.isView(message)) {
+        // isView, not a duck-check of the key names: a text frame whose whole
+        // JSON content happens to pair `buffer` and `byteOffset` parses to a
+        // plain object, and the duck would read the JSON values as view
+        // offsets and destroy the frame.
         const view = message as ArrayBufferView;
         bytes = Buffer.from(view.buffer, view.byteOffset, view.byteLength);
         text = false;
