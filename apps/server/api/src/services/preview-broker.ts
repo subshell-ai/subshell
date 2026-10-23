@@ -230,19 +230,21 @@ interface PreviewBrokerDeps {
   log: (line: string) => void;
 }
 
+/** The access resolver's repos, built on first ask (never at import) and reused. */
+let accessRepos: { subshells: SubshellsRepository; shares: SubshellSharesRepository } | undefined;
+
 function productionDeps(): PreviewBrokerDeps {
   return {
     nowMs: () => Date.now(),
     send: (nodeId, cmd) => sendCommand(nodeId, cmd),
     linkSend: (nodeId, frame) => sendPreviewFrameOverNodeSocket(nodeId, frame),
     // The repos are built directly (not through getRequestlessContext) so
-    // this module never sits in the context <-> services import circle.
+    // this module never sits in the context <-> services import circle, and
+    // once — they are stateless over `db`, and building them per ask was
+    // pure allocation.
     accessFor: async (userId, paneId) => {
-      const { access } = await loadSubshellAccess(
-        { subshells: new SubshellsRepository(db), shares: new SubshellSharesRepository(db) },
-        userId,
-        paneId,
-      );
+      accessRepos ??= { subshells: new SubshellsRepository(db), shares: new SubshellSharesRepository(db) };
+      const { access } = await loadSubshellAccess(accessRepos, userId, paneId);
       return access;
     },
     audit,
@@ -332,6 +334,15 @@ function mintRef(): string {
 interface LaneRecord {
   lane: PreviewLane;
   session: PreviewSession;
+  /**
+   * True from the synchronous reservation until the node's ack: the cap and
+   * the queue see the lane from before its `preview_open` is even sent
+   * (review 2026-10-23). Nothing can address a pending lane externally —
+   * its ref reaches callers only after the ack, and the node cannot name a
+   * ref it has not acked — so `pending` guards no read path; it exists to
+   * make the registration honest.
+   */
+  pending: boolean;
 }
 
 interface StreamEntry {
@@ -359,6 +370,14 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
   const portsCache = new Map<string, { at: number; answer: NodePreviewPortsResult }>();
   /** paneId -> queued lane requests beyond the per-pane cap (decision 2). */
   const laneWaitersByPane = new Map<string, LaneWaiter[]>();
+  /**
+   * paneId -> the flying zero->one bridge open (review 2026-10-23). One cold
+   * open per pane may ever be in flight: concurrent startWatch callers await
+   * the winner instead of each minting a bridge the last-set-wins map would
+   * strand (an orphan no verb can reach and sweepIdle never walks). Cleared
+   * when the chain settles either way, so a failed open is not sticky.
+   */
+  const watchOpeningByPane = new Map<string, Promise<PreviewSession>>();
 
   const sweepTimer = setInterval(() => {
     void broker.sweepIdle().catch((err: unknown) => deps.log(`preview idle sweep failed: ${String(err)}`));
@@ -442,23 +461,49 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
     }
   }
 
-  /** Mints a fresh lane ref, opens it on the node (a refusal propagates and records nothing), and registers it. */
+  /**
+   * Mints a fresh lane ref, OPENS it on the node, and flips the registration
+   * live. The reservation is the load-bearing part (review 2026-10-23): the
+   * placeholder lands in the very structures `laneCountForPane` counts BEFORE
+   * the first await, so two concurrent callers can never both pass the cap
+   * check and both spend a node slot; the second one queues instead. A
+   * refusal releases through the same close path a real lane uses, so the
+   * freed slot still promotes the pane's first waiter. The close reason on
+   * the release is invisible (a placeholder has no subscribers yet); it says
+   * `viewer-left` because the caller's promise rejecting IS the leaving.
+   */
   async function mintLane(session: PreviewSession): Promise<{ laneRef: string }> {
     const laneRef = mintRef();
-    const data = await deps.send(session.nodeId, {
-      type: "preview_open",
-      ref: laneRef,
-      kind: "forward",
-      paneId: session.paneId,
-      port: session.port,
-      lifetimeMs: PREVIEW_LIFETIME_MAX_MS,
-    });
-    if (parseNodePreviewOpenResult(data) === null) {
-      throw new Error("preview_open answered a shape the grammar refuses");
-    }
     const lane: PreviewLane = { ref: laneRef, sessionRef: session.ref, subscribers: new Set() };
     session.lanes.set(laneRef, lane);
-    lanesByRef.set(laneRef, { lane, session });
+    lanesByRef.set(laneRef, { lane, session, pending: true });
+    try {
+      const data = await deps.send(session.nodeId, {
+        type: "preview_open",
+        ref: laneRef,
+        kind: "forward",
+        paneId: session.paneId,
+        port: session.port,
+        lifetimeMs: PREVIEW_LIFETIME_MAX_MS,
+      });
+      if (parseNodePreviewOpenResult(data) === null) {
+        throw new Error("preview_open answered a shape the grammar refuses");
+      }
+    } catch (err) {
+      // No wire close on the release: the node never acked this ref, so the
+      // only thing the plane owns is the reservation itself.
+      const rec = lanesByRef.get(laneRef);
+      if (rec) await removeLane(rec, "viewer-left", false);
+      throw err;
+    }
+    const rec = lanesByRef.get(laneRef);
+    if (!rec) {
+      // The session died under the in-flight open (closeForwardSession walked
+      // the placeholder away). Reject honestly; a node-side lane that the ack
+      // still races expires with its own lifetime.
+      throw new Error(`preview session ${session.ref.slice(0, 8)}… closed while its lane was opening`);
+    }
+    rec.pending = false;
     session.lastActivity = deps.nowMs();
     return { laneRef };
   }
@@ -479,7 +524,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
     // lane's close is the wire work (and lane closes audit nothing; the
     // SESSION pair is the one row).
     const laneCloses = [...session.lanes.values()].map((lane) =>
-      removeLane({ lane, session }, reason, true).catch((err: unknown) =>
+      removeLane({ lane, session, pending: false }, reason, true).catch((err: unknown) =>
         deps.log(`preview lane close during sweep threw: ${String(err)}`),
       ),
     );
@@ -517,6 +562,83 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
       kind: "screencast",
       reason,
     });
+  }
+
+  /** The live bridge's join path: true when the caller joined, refusal thrown by name. */
+  function joinBridge({ viewerUserId, paneId, port }: { viewerUserId: string; paneId: string; port: number }): boolean {
+    const bridgeRef = bridgeRefByPane.get(paneId);
+    const bridge = bridgeRef ? sessionsByRef.get(bridgeRef) : undefined;
+    if (!bridge) return false;
+    if (bridge.port !== port) {
+      // Two bridges on one pane would interleave on a channel with no
+      // discriminator, and the pane-keyed stopWatch could not name the
+      // right one. A matching port just joins.
+      throw new PreviewRefusal(
+        "watch-port-conflict",
+        `this pane's screencast bridge is already watching port ${bridge.port}`,
+      );
+    }
+    const sum = [...bridge.viewers.values()].reduce((a, b) => a + b, 0);
+    if (sum + 1 > PREVIEW_WATCH_SUBSCRIBERS_MAX) {
+      // PER BRIDGE (decision 7): a per-viewer cap would let one
+      // account's 40 tabs sail past the limit the spec named.
+      throw new PreviewRefusal(
+        "preview-watch-over-cap",
+        `this pane's screencast bridge already has ${PREVIEW_WATCH_SUBSCRIBERS_MAX} subscribers`,
+      );
+    }
+    bridge.viewers.set(viewerUserId, (bridge.viewers.get(viewerUserId) ?? 0) + 1);
+    bridge.lastActivity = deps.nowMs();
+    return true;
+  }
+
+  /** The serialized zero->one edge: ask the node, register the bridge, audit the pair. */
+  async function openBridge({
+    viewerUserId,
+    paneId,
+    nodeId,
+    port,
+  }: {
+    viewerUserId: string;
+    paneId: string;
+    nodeId: string;
+    port: number;
+  }): Promise<PreviewSession> {
+    if (1 > PREVIEW_WATCH_SUBSCRIBERS_MAX) {
+      throw new PreviewRefusal("preview-watch-over-cap", "screencast subscribers cap below one");
+    }
+    const ref = mintRef();
+    const data = await deps.send(nodeId, {
+      type: "preview_open",
+      ref,
+      kind: "screencast",
+      paneId,
+      port,
+      lifetimeMs: PREVIEW_LIFETIME_MAX_MS,
+    });
+    if (parseNodePreviewOpenResult(data) === null) {
+      throw new Error("preview_open answered a shape the grammar refuses");
+    }
+    // The ack's `subscribers` count is IGNORED: the bridge counts itself
+    // (this broker owns the refcount; the node's number is advisory at best).
+    const session: PreviewSession = {
+      ref,
+      kind: "screencast",
+      mode: "http", // bridges have no leg; the member exists for the proxy's discriminator
+      paneId,
+      nodeId,
+      port,
+      createdBy: viewerUserId,
+      createdAt: deps.nowMs(),
+      lanes: new Map(),
+      viewers: new Map([[viewerUserId, 1]]),
+      lastActivity: deps.nowMs(),
+      cookieJar: new Map(),
+    };
+    sessionsByRef.set(ref, session);
+    bridgeRefByPane.set(paneId, ref);
+    await auditPreview("node.preview_watch.open", nodeId, { paneId, nodeId, port, kind: "screencast" });
+    return session;
   }
 
   function rejectWaitersFor(paneId: string, which: (w: LaneWaiter) => boolean, err: Error): void {
@@ -669,66 +791,28 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
     },
 
     async startWatch({ viewerUserId, paneId, nodeId, port }) {
-      const bridgeRef = bridgeRefByPane.get(paneId);
-      if (bridgeRef) {
-        const bridge = sessionsByRef.get(bridgeRef);
-        if (bridge) {
-          if (bridge.port !== port) {
-            // Two bridges on one pane would interleave on a channel with no
-            // discriminator, and the pane-keyed stopWatch could not name the
-            // right one. A matching port just joins.
-            throw new PreviewRefusal(
-              "watch-port-conflict",
-              `this pane's screencast bridge is already watching port ${bridge.port}`,
-            );
-          }
-          const sum = [...bridge.viewers.values()].reduce((a, b) => a + b, 0);
-          if (sum + 1 > PREVIEW_WATCH_SUBSCRIBERS_MAX) {
-            // PER BRIDGE (decision 7): a per-viewer cap would let one
-            // account's 40 tabs sail past the limit the spec named.
-            throw new PreviewRefusal(
-              "preview-watch-over-cap",
-              `this pane's screencast bridge already has ${PREVIEW_WATCH_SUBSCRIBERS_MAX} subscribers`,
-            );
-          }
-          bridge.viewers.set(viewerUserId, (bridge.viewers.get(viewerUserId) ?? 0) + 1);
-          bridge.lastActivity = deps.nowMs();
-          return { ok: true };
-        }
+      if (joinBridge({ viewerUserId, paneId, port })) return { ok: true };
+      const flying = watchOpeningByPane.get(paneId);
+      if (flying) {
+        // The pane's one cold open is already flying (two tabs POSTed at
+        // once): await the winner's ack, then take the join path against the
+        // now-live bridge — port-conflict and the per-bridge cap apply to
+        // the joiner exactly as to a late caller. If the open FAILED, the
+        // rejection is this caller's honest answer too; the map entry is
+        // already cleared, so the NEXT startWatch flies fresh.
+        await flying;
+        return broker.startWatch({ viewerUserId, paneId, nodeId, port });
       }
-      if (1 > PREVIEW_WATCH_SUBSCRIBERS_MAX) {
-        throw new PreviewRefusal("preview-watch-over-cap", "screencast subscribers cap below one");
+      // Cold: this caller owns the open, and registering the bridge happens
+      // inside the serialized chain — the race is gone because only one open
+      // per pane ever flies (review 2026-10-23).
+      const opening = openBridge({ viewerUserId, paneId, nodeId, port });
+      watchOpeningByPane.set(paneId, opening);
+      try {
+        await opening;
+      } finally {
+        watchOpeningByPane.delete(paneId);
       }
-      const ref = mintRef();
-      const data = await deps.send(nodeId, {
-        type: "preview_open",
-        ref,
-        kind: "screencast",
-        paneId,
-        port,
-        lifetimeMs: PREVIEW_LIFETIME_MAX_MS,
-      });
-      const open = parseNodePreviewOpenResult(data);
-      if (open === null) throw new Error("preview_open answered a shape the grammar refuses");
-      // The ack's `subscribers` count is IGNORED: the bridge counts itself
-      // (this broker owns the refcount; the node's number is advisory at best).
-      const session: PreviewSession = {
-        ref,
-        kind: "screencast",
-        mode: "http", // bridges have no leg; the member exists for the proxy's discriminator
-        paneId,
-        nodeId,
-        port,
-        createdBy: viewerUserId,
-        createdAt: deps.nowMs(),
-        lanes: new Map(),
-        viewers: new Map([[viewerUserId, 1]]),
-        lastActivity: deps.nowMs(),
-        cookieJar: new Map(),
-      };
-      sessionsByRef.set(ref, session);
-      bridgeRefByPane.set(paneId, ref);
-      await auditPreview("node.preview_watch.open", nodeId, { paneId, nodeId, port, kind: "screencast" });
       return { ok: true };
     },
 
@@ -910,12 +994,15 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
         for (const viewer of [...session.viewers.keys()]) {
           if (!accessAtLeast(await access(viewer), "view")) session.viewers.delete(viewer);
         }
-        if (session.viewers.size === 0) {
-          await closeWatchBridge(session, "revoked", true);
-          continue;
-        }
-        const map = streamsByPane.get(paneId);
-        if (!map) continue;
+        if (session.viewers.size === 0) await closeWatchBridge(session, "revoked", true);
+      }
+      // Stream sockets are PANE-keyed, not session-keyed: a pane can hold
+      // attached sockets with no bridge alive (the node reported the bridge
+      // closed; the sockets ride until something feeds them again). So this
+      // walk runs for EVERY shares write on the pane, forward-only included —
+      // pane-complete by construction, harmless when empty.
+      const map = streamsByPane.get(paneId);
+      if (map) {
         for (const [socketKey, entry] of [...map]) {
           if (!accessAtLeast(await access(entry.holderUserId), "view")) map.delete(socketKey);
         }
@@ -946,8 +1033,14 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
         const debt = entry.socket.getBufferedAmount?.() ?? 0;
         if (debt > PREVIEW_STREAM_DEBT_MAX) {
           map.delete(socketKey);
-          void auditPreview("node.preview_watch.viewer_drop", null, {
+          // The row explains a dark canvas: which node, which port, which
+          // kind, why. (The attach-cap row above keeps what it has — at that
+          // point no session has even been consulted.)
+          void auditPreview("node.preview_watch.viewer_drop", session.nodeId, {
             paneId: session.paneId,
+            nodeId: session.nodeId,
+            port: session.port,
+            kind: "screencast",
             reason: "slow-link",
           }).catch((err: unknown) => deps.log(`preview slow-link drop audit threw: ${String(err)}`));
           continue;
@@ -1029,6 +1122,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
       clearInterval(sweepTimer);
       sessionsByRef.clear();
       bridgeRefByPane.clear();
+      watchOpeningByPane.clear(); // the chains die with the instance they were flying on
       lanesByRef.clear();
       streamsByPane.clear();
       displaysByPane.clear();

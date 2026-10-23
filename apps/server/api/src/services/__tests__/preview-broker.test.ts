@@ -52,10 +52,14 @@ interface Harness {
   linked: { nodeId: string; frame: PreviewDataFrame }[];
   delivered: { socket: unknown; frame: Parameters<PreviewStreamSender>[1] }[];
   accessCalls: { userId: string; paneId: string }[];
+  /** Held acks: one entry per command whose ack is parked (what "in flight" counts). */
+  held: { cmd: NodeCommandBody; release: () => void; refuse: (err: Error) => void }[];
 }
 
 interface FakeSeams {
   ack?: (cmd: NodeCommandBody) => unknown;
+  /** Name the commands whose ack parks until the test releases/refuses it. */
+  hold?: (cmd: NodeCommandBody) => boolean;
   accessFor?: (userId: string, paneId: string) => Promise<Access>;
   /** Pass `null` to build a broker with NO fan-out sender at all. */
   sendToSockets?: PreviewStreamSender | null;
@@ -70,7 +74,7 @@ interface FakeSeams {
  */
 function makeHarness(over: FakeSeams = {}): Harness {
   const clock = { now: 1_780_000_000_000 };
-  const h: Harness = { clock, sent: [], linked: [], delivered: [], accessCalls: [] };
+  const h: Harness = { clock, sent: [], linked: [], delivered: [], accessCalls: [], held: [] };
   const defaultSendToSockets: PreviewStreamSender = (socket, frame) => {
     h.delivered.push({ socket, frame });
   };
@@ -78,17 +82,25 @@ function makeHarness(over: FakeSeams = {}): Harness {
     now: () => clock.now,
     send: async (nodeId: string, cmd: NodeCommandBody): Promise<unknown> => {
       h.sent.push({ nodeId, cmd });
-      if (over.ack) return over.ack(cmd);
-      switch (cmd.type) {
-        case "preview_open":
-          return cmd.kind === "forward" ? { ref: cmd.ref, pending: true } : { ref: cmd.ref, subscribers: 1 };
-        case "preview_close":
-          return { ref: cmd.ref, closed: true };
-        case "preview_ports_get":
-          return { ports: [], cdpPort: null, screen: null };
-        default:
-          throw new Error(`preview broker test: unexpected command ${cmd.type}`);
+      const ackFor = (): unknown => {
+        if (over.ack) return over.ack(cmd);
+        switch (cmd.type) {
+          case "preview_open":
+            return cmd.kind === "forward" ? { ref: cmd.ref, pending: true } : { ref: cmd.ref, subscribers: 1 };
+          case "preview_close":
+            return { ref: cmd.ref, closed: true };
+          case "preview_ports_get":
+            return { ports: [], cdpPort: null, screen: null };
+          default:
+            throw new Error(`preview broker test: unexpected command ${cmd.type}`);
+        }
+      };
+      if (over.hold?.(cmd)) {
+        return new Promise<unknown>((resolve, reject) => {
+          h.held.push({ cmd, release: () => resolve(ackFor()), refuse: (err) => reject(err) });
+        });
       }
+      return ackFor();
     },
     linkSend: (nodeId: string, frame: PreviewDataFrame): void => {
       h.linked.push({ nodeId, frame });
@@ -104,6 +116,15 @@ function makeHarness(over: FakeSeams = {}): Harness {
     ...(over.sendToSockets === null ? {} : { sendToSockets: over.sendToSockets ?? defaultSendToSockets }),
   });
   return h;
+}
+
+/** Parked-ack helpers for the concurrency discriminators (no non-null assertions). */
+function releaseHeld(h: Harness): void {
+  h.held.shift()?.release();
+}
+
+function refuseHeld(h: Harness, err: Error): void {
+  h.held.shift()?.refuse(err);
 }
 
 function cmds<T extends NodeCommandBody["type"]>(h: Harness, type: T): Extract<NodeCommandBody, { type: T }>[] {
@@ -747,7 +768,7 @@ describe("stream sockets: the attach cap, the keying, the byte debt", () => {
     await settle();
     const drops = await metadataOf("node.preview_watch.viewer_drop");
     expect(drops).toHaveLength(1);
-    expect(drops[0]).toMatchObject({ paneId: PANE, reason: "slow-link" });
+    expect(drops[0]).toMatchObject({ paneId: PANE, nodeId: NODE, port: 9222, kind: "screencast", reason: "slow-link" });
     h.delivered.length = 0;
     broker().onStreamEvent(NODE, streamEvent(bridge, 2));
     expect(h.delivered).toHaveLength(1);
@@ -1166,5 +1187,115 @@ describe("the shares write performs the cut (real SubshellsService.setShares)", 
     expect(rows[0]).toMatchObject({ paneId, reason: "revoked" });
     expect(h.sent.some((c) => c.cmd.type === "preview_close" && c.cmd.reason === "revoked")).toBe(true);
     await ctx.repos.subshells.delete(paneId).catch(() => {});
+  });
+});
+
+describe("concurrency: synchronous reservations and the one-bridge-per-pane edge (review 2026-10-23)", () => {
+  it("pane at three lanes: two concurrent opens send the node ONE lane open; the second queues and a close promotes it", async () => {
+    let probeRef = "";
+    let holdLanes = false;
+    const h = makeHarness({
+      hold: (cmd) => holdLanes && cmd.type === "preview_open" && cmd.kind === "forward" && cmd.ref !== probeRef,
+    });
+    const { ref } = await broker().openForward({ viewerUserId: "u-open", paneId: PANE, nodeId: NODE, port: 8080 });
+    probeRef = ref;
+    const lanes: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      const lane = await broker().openLaneForConnection(ref);
+      lanes.push(lane.laneRef);
+    }
+    holdLanes = true;
+
+    const pA = broker().openLaneForConnection(ref);
+    const pB = broker().openLaneForConnection(ref);
+    await settle();
+    // Exactly ONE open in flight (A's, held). B reserved its slot
+    // synchronously and queued without ever reaching the node: two opens in
+    // `held` would mean both calls passed the check before either registered.
+    expect(h.held).toHaveLength(1);
+
+    releaseHeld(h); // A's ack lands; A owns the fourth slot
+    await expect(pA).resolves.toMatchObject({ laneRef: expect.stringMatching(/^[0-9a-f]{32}$/) });
+    expect(h.held).toHaveLength(0); // B is queued, not flying
+
+    // Closing one lane frees the slot AND promotes B: its open is now the
+    // one in flight. The close itself awaits the promoted open (dequeue runs
+    // inside the release), so the release comes before awaiting the close.
+    const closing = broker().closeLaneForConnection(lanes[0], "viewer-left");
+    await settle();
+    expect(h.held).toHaveLength(1);
+    releaseHeld(h);
+    await closing;
+    await expect(pB).resolves.toMatchObject({ laneRef: expect.stringMatching(/^[0-9a-f]{32}$/) });
+    // Exactly four live lanes and an empty queue: six lane-shaped opens ever
+    // reached the node (probe + three + A + B), and a seventh caller cannot
+    // sneak one past: it queues without touching the wire.
+    const extra = broker().openLaneForConnection(ref);
+    extra.catch(() => {}); // the reset shutdown will reject it; that is this test's own teardown
+    await settle();
+    expect(h.held).toHaveLength(0);
+    expect(cmds(h, "preview_open").filter((c) => c.kind === "forward")).toHaveLength(6);
+  });
+
+  it("two concurrent startWatch on a cold pane: ONE preview_open reaches the node, both callers resolve ok, ONE close follows two stops", async () => {
+    const h = makeHarness({ hold: (cmd) => cmd.type === "preview_open" && cmd.kind === "screencast" });
+    const p1 = broker().startWatch({ viewerUserId: "u-a", paneId: PANE, nodeId: NODE, port: 9222 });
+    const p2 = broker().startWatch({ viewerUserId: "u-a", paneId: PANE, nodeId: NODE, port: 9222 });
+    await settle();
+    // One cold open per pane, ever: the second caller awaits the winner. Two
+    // held opens here is the orphan bridge (loser registered nowhere
+    // reachable, uncounted by sweepIdle) the review named.
+    expect(h.held).toHaveLength(1);
+    expect(cmds(h, "preview_open").filter((c) => c.kind === "screencast")).toHaveLength(1);
+    releaseHeld(h);
+    await expect(p1).resolves.toEqual({ ok: true });
+    await expect(p2).resolves.toEqual({ ok: true });
+    const bridge = String(bridgeFor(PANE)?.ref);
+    expect(bridge).toMatch(/^[0-9a-f]{32}$/);
+    expect(bridgeFor(PANE)?.viewers.get("u-a")).toBe(2); // the joiner incremented the SAME bridge
+    expect(await metadataOf("node.preview_watch.open")).toHaveLength(1); // not one row per caller
+
+    await broker().stopWatch("u-a", PANE);
+    await broker().stopWatch("u-a", PANE);
+    const closes = cmds(h, "preview_close").filter((c) => c.ref === bridge);
+    expect(closes).toHaveLength(1);
+    expect(closes[0]).toMatchObject({ reason: "viewer-left" });
+  });
+
+  it("a refused lane open releases its reservation, and the freed slot still promotes the queued waiter", async () => {
+    let probeRef = "";
+    let holdLanes = false;
+    const h = makeHarness({
+      hold: (cmd) => holdLanes && cmd.type === "preview_open" && cmd.kind === "forward" && cmd.ref !== probeRef,
+    });
+    const { ref } = await broker().openForward({ viewerUserId: "u-open", paneId: PANE, nodeId: NODE, port: 8080 });
+    probeRef = ref;
+    for (let i = 0; i < 3; i += 1) await broker().openLaneForConnection(ref);
+    holdLanes = true;
+
+    const pA = broker().openLaneForConnection(ref);
+    const pB = broker().openLaneForConnection(ref);
+    await settle();
+    expect(h.held).toHaveLength(1); // B is queued behind A's reservation
+
+    // A's node-side refusal must release the reservation through the lane
+    // close path: the slot frees and B is promoted at once. A's rejection
+    // waits on B's open behind it (the release chain runs the promotion), so
+    // both held acks are answered before awaiting either caller.
+    refuseHeld(h, new NodeRpcError("failed", "refused", NODE, "preview-sessions-exhausted"));
+    await settle();
+    expect(h.held).toHaveLength(1); // B's promoted open, in flight
+    releaseHeld(h);
+    await expect(pA).rejects.toBeInstanceOf(NodeRpcError);
+    await expect(pB).resolves.toMatchObject({ laneRef: expect.stringMatching(/^[0-9a-f]{32}$/) });
+    // No phantom lane holds a slot: A's refused reservation left nothing
+    // behind (probe + three + A's refusal + B's promotion = six forward opens
+    // ever sent, four of them live), so the next caller simply queues with
+    // no wire activity.
+    expect(cmds(h, "preview_open").filter((c) => c.kind === "forward")).toHaveLength(6);
+    const extra = broker().openLaneForConnection(ref);
+    extra.catch(() => {}); // the reset shutdown will reject it; that is this test's own teardown
+    await settle();
+    expect(h.held).toHaveLength(0);
   });
 });
