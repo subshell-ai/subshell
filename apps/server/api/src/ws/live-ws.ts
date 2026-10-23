@@ -1,12 +1,25 @@
 import { type LiveServerFrame, parseLiveClientFrame } from "@internal/subshell-protocol";
 import { getRequestlessContext } from "@/lib/context.js";
+import { type Access, accessAtLeast, loadSubshellAccess } from "@/lib/subshell-access.js";
 import { accountDisabled } from "@/services/account-status.js";
 import { backupPasswordChangeRequired } from "@/services/backup-admin-recovery.js";
+import { configurePreviewStreamSender, getPreviewBroker } from "@/services/preview-broker.js";
 import type { SubshellsService } from "@/services/subshells.service.js";
 import { logger } from "@/utils/logger.js";
-import { registerLiveSocket, unregisterLiveSocket } from "@/ws/live-registry.js";
+import { registerLiveSocket, sendPreviewStreamSocket, unregisterLiveSocket } from "@/ws/live-registry.js";
 import { topicsForViewer } from "@/ws/live-topics.js";
 import { consumeWsToken, type WsTokenIdentity } from "@/ws/ws-token.js";
+
+/**
+ * The broker's ONE crossing into the socket layer, installed at module load
+ * so no `watch` can attach a stream before its serializer exists.
+ *
+ * The assignment is pure: it constructs nothing, so import stays cheap and
+ * the compiled binary's non-boot subcommands are unaffected; the broker
+ * itself remains lazy behind `getPreviewBroker()`, called only from the
+ * handlers below.
+ */
+configurePreviewStreamSender(sendPreviewStreamSocket);
 
 /**
  * Exactly what the sharing-aware list answers with, derived from the method
@@ -49,7 +62,25 @@ export interface LiveWsSocket {
     liveViewerId?: string;
     /** True while a previews request is being served — see {@link handleLiveMessage}. */
     liveCapturing?: boolean;
+    /**
+     * The socket-lifetime key the preview stream set holds this socket
+     * under. `liveViewerId` answers WHO (a user, shared by all their tabs);
+     * this answers WHICH SOCKET, because a `watch` subscription belongs to
+     * one connection: a reconnect is legitimately a new viewer (the same
+     * reasoning `subshell-ws.ts` carries for its viewer id). It rides
+     * `data` rather than being the socket object because the object is
+     * swapped per callback, see this interface's header.
+     */
+    streamViewerId?: string;
   };
+  /**
+   * The underlying socket. Elysia keeps backpressure (`getBufferedAmount`)
+   * on the RAW side only, measured in `remote-subshell-ws.ts`; the preview
+   * adapter reads the method off this exactly as that file's
+   * `RawWithBackpressure` does. Optional so hand-rolled doubles may omit
+   * it, which the adapter reads as zero debt.
+   */
+  raw?: unknown;
   send(data: string): unknown;
   /**
    * Joins a pub/sub topic (Bun's own, forwarded by Elysia). Optional so a
@@ -89,6 +120,15 @@ export interface LiveWsDeps {
   accountDisabled(userId: string): Promise<boolean>;
   /** Human viewers must finish temporary-password recovery before receiving the feed. */
   passwordChangeRequired(userId: string): Promise<boolean>;
+  /**
+   * The viewer's access to ONE pane, the whole question a `watch` or
+   * `unwatch` asks before touching the preview stream set. A seam because
+   * the answer needs the database, and it is the SAME question the REST
+   * preview gate asks (`preview-gate` → `loadSubshellAccess`), not a second
+   * reading of it: one resolver keeps the two doors of one pane answering
+   * identically, which is the whole point of the §11.14 control.
+   */
+  accessFor(userId: string, paneId: string): Promise<Access>;
 }
 
 /**
@@ -145,6 +185,11 @@ export async function handleLiveOpen(ws: LiveWsSocket, deps: LiveWsDeps): Promis
   // Who this socket belongs to, for the messages it may send later. Stashed
   // rather than re-derived: the token is single-use and already spent.
   ws.data.liveViewerId = userId;
+  // And WHICH socket this is, for the preview stream set a later `watch`
+  // joins. Minted here, before any await: the message handler can arrive on
+  // a fresh socket immediately, and a key that appears only after some check
+  // would silently make the first watch unrevocable by close.
+  ws.data.streamViewerId = crypto.randomUUID();
   // Findable so a revocation can reach it: the disable drop is the
   // load-bearing one (a disabled account must not keep streaming, and cannot
   // re-mint), and a role change still closes the socket so the reconnect
@@ -225,6 +270,15 @@ export async function handleLiveOpen(ws: LiveWsSocket, deps: LiveWsDeps): Promis
  */
 export function handleLiveClose(ws: LiveWsSocket): void {
   ws.data?.liveStop?.();
+  // Stream subscriptions die with the connection, keyed by the
+  // socket-lifetime id that `open` minted. The key is read from `data` for
+  // the same reason the stopper is: the wrapper `close` receives is not the
+  // one that attached. Detaching through the broker rather than a local set
+  // is the point: the broker owns the pane-side bookkeeping (per-pane
+  // counts, idle-bridge closing) and a close that only edited a local list
+  // would strand those. Safe when this socket watched nothing.
+  const streamKey = ws.data?.streamViewerId;
+  if (streamKey) getPreviewBroker().detachSocketsFor(streamKey);
 }
 
 /**
@@ -246,6 +300,19 @@ export function liveWsDeps(): LiveWsDeps {
     previewsFor: (userId, ids) => getRequestlessContext().services.subshells.previewsFor(userId, ids),
     accountDisabled: (userId) => accountDisabled(getRequestlessContext().db, userId),
     passwordChangeRequired: (userId) => backupPasswordChangeRequired(getRequestlessContext().db, userId),
+    // The ordinary gate, exactly as `attach-resolve` and the REST preview
+    // gate call it: shares count (a pane's own key never reaches this
+    // socket anyway - a scoped token is refused at redemption), roles carry
+    // no arm here since 2026-10-09.
+    accessFor: async (userId, paneId) => {
+      const { repos } = getRequestlessContext();
+      const { access } = await loadSubshellAccess(
+        { subshells: repos.subshells, shares: repos.subshellShares },
+        userId,
+        paneId,
+      );
+      return access;
+    },
   };
 }
 
@@ -261,15 +328,19 @@ export function liveWsDeps(): LiveWsDeps {
 export const MAX_PREVIEW_REQUEST = 60;
 
 /**
- * Handles a client frame. Today the only thing this handler acts on is a
- * screens ask; `watch`/`unwatch` are grammar ahead of wiring, parsed by the
- * shared parser and ignored here until the screencast fan-out lands.
+ * Handles a client frame: a screens ask is answered here (pulled), and a
+ * `watch`/`unwatch` joins or leaves the broker's pushed screencast fan-out
+ * (see {@link handlePreviewSubscription}). Both paths resolve the pane
+ * through the ordinary access gate, so the socket can never carry a row or a
+ * stream its owner could not fetch over REST.
  *
  * Previews are PULLED rather than pushed (spec 2026-09-19 §4.4): the cards are
  * the one surface that renders them, so a page showing none costs nothing, and
- * a card that wants a fresher screen after a change asks again. That keeps the
- * fan-out free of per-socket state — the server holds no watch list, it just
- * answers.
+ * a card that wants a fresher screen after a change asks again. That answer
+ * path keeps no per-socket state: the server holds no screens list, it just
+ * answers. The STREAM path is where subscription state lives, and it lives
+ * in the preview broker rather than here: this handler is the broker's one
+ * door.
  *
  * The ids are filtered to what this viewer may see by the ordinary visible-set
  * read; an id they cannot see is simply absent from the answer, never refused,
@@ -299,9 +370,13 @@ export async function handleLiveMessage(ws: LiveWsSocket, raw: unknown, deps: Li
     return;
   }
 
-  // `watch`/`unwatch` parse (the feed's grammar is shared, and Task 8 will
-  // fan screencasts out from here), but nothing is wired to them yet: a
-  // subscription asks for a stream this handler cannot send, so it is a no-op.
+  // The screencast subscription verbs. Both gate on the same access question
+  // and both answer a refusal with silence: no frame back, no close, no
+  // signal a stranger can read as "this pane exists".
+  if (frame.type === "watch" || frame.type === "unwatch") {
+    await handlePreviewSubscription(ws, userId, frame.type, frame.id, deps);
+    return;
+  }
   if (frame.type !== "previews") return;
 
   const wanted = frame.ids.slice(0, MAX_PREVIEW_REQUEST);
@@ -331,6 +406,70 @@ export async function handleLiveMessage(ws: LiveWsSocket, raw: unknown, deps: Li
   } finally {
     ws.data.liveCapturing = false;
   }
+}
+
+/**
+ * The raw-socket backpressure shape, restated narrow exactly as
+ * `remote-subshell-ws.ts` does: the wrapper carries neither the property nor
+ * a method, so the byte-debt the broker checks before every send has to come
+ * off `raw`.
+ */
+type RawWithBackpressure = { getBufferedAmount?: () => number };
+
+/**
+ * Joins or leaves one pane's screencast fan-out on behalf of this socket.
+ *
+ * The gate is the ordinary one (`view` or better through the shared
+ * resolver, shares on, roles carrying no arm since 2026-10-09), and every
+ * refusal path is silence: the caller's socket keeps streaming its feed, and
+ * nothing written here ever closes it. `unwatch` runs the same gate for the
+ * same grammar, though its refusal is meaningless to enforce (detaching what
+ * is not attached is a no-op); the check just keeps the pair uniform.
+ *
+ * After the gate, the broker owns everything: the per-pane subscriber cap
+ * (its refusal is a RETURNED VALUE plus its own audit row; the socket's
+ * experience is a dark canvas, so the value is swallowed here), the
+ * slow-viewer byte-debt drop, and the revocation sweep. What crosses to the
+ * broker is the narrowest socket it accepts (a send-through plus the raw
+ * debt read), keyed by the socket-lifetime id so a close can always find
+ * this entry even after its wrapper was swapped.
+ */
+async function handlePreviewSubscription(
+  ws: LiveWsSocket,
+  userId: string,
+  verb: "watch" | "unwatch",
+  paneId: string,
+  deps: LiveWsDeps,
+): Promise<void> {
+  let access: Access;
+  try {
+    access = await deps.accessFor(userId, paneId);
+  } catch (err) {
+    // Fail CLOSED: an unanswered access question is no access. The socket
+    // stays open on its feed; the next frame will ask again on its own.
+    logger.withError(err).warn("live ws: could not resolve pane access for a watch; treating as none");
+    return;
+  }
+  if (!accessAtLeast(access, "view")) return;
+  // The gate suspends, and a close may land in the window: `liveStop` is
+  // cleared by `handleLiveClose`, so its absence means this socket is dead
+  // and must not join (or leave) a set it can no longer be detached from.
+  // Same marker the previews loop below leans on.
+  if (!ws.data.liveStop) return;
+  const streamKey = ws.data.streamViewerId;
+  if (!streamKey) return;
+  const broker = getPreviewBroker();
+  if (verb === "unwatch") {
+    broker.detachStream(paneId, streamKey);
+    return;
+  }
+  broker.attachStream(paneId, streamKey, userId, {
+    send: (data) => ws.send(data),
+    getBufferedAmount: () => (ws.raw as RawWithBackpressure | undefined)?.getBufferedAmount?.() ?? 0,
+  });
+  // The return value is the cap's refusal or acceptance, and both end this
+  // handler's work identically; the audit trail a refusal writes belongs to
+  // the broker, which owns the cap.
 }
 
 /** One send, typed against the shared envelope so a frame the browser cannot parse is a type error. */

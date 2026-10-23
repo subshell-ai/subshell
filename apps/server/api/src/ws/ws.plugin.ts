@@ -127,8 +127,10 @@ wsPlugin.ws("/ws/node", {
  * upgrade-time identity lookup. Its upgrade hook enforces the browser origin
  * boundary before the token is redeemed in `open`.
  *
- * The client sends nothing on this socket yet, so there is no `message`
- * handler to write; `watch-previews` arrives with the preview work.
+ * The client sends `previews` (pulled screens), `watch`/`unwatch` (the pushed
+ * screencast fan-out, wired through the preview broker), and `resync` when a
+ * broadcast carries a row it has never seen; `handleLiveMessage` owns all
+ * three, and every pane it touches passes the ordinary access gate first.
  */
 wsPlugin.ws("/ws/live", {
   upgrade({ request }) {
@@ -143,7 +145,8 @@ wsPlugin.ws("/ws/live", {
     });
   },
   message(ws, message) {
-    // The one thing a client may ask for is screens (spec 2026-09-19 §4.4).
+    // Screens, stream subscriptions, and resync (spec 2026-09-19 §4.4 for the
+    // first and last; the watch pair is the §11.14 fan-out).
     // Elysia JSON-parses frames beginning with `{`, so this arrives as either
     // a string or an object; the handler accepts both and ignores the rest.
     void handleLiveMessage(ws as unknown as LiveWsSocket, message, liveWsDeps()).catch((err: unknown) => {
