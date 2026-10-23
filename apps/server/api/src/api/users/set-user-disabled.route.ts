@@ -97,7 +97,9 @@ export const setUserDisabledRoute = new Elysia().use(requireAdmin).patch(
           .catch((err: unknown) => {
             // Degraded-and-honest, the node-sweep rule below: the disable
             // has committed, and a swept-so-far broker is strictly better
-            // than an unswept one. The count names what was reached.
+            // than an unswept one. The row reports ZERO on this path whatever
+            // was swept before the throw — the count under-claims rather than
+            // promising a number the catch cannot know.
             logger.withError(err).warn(`users: disable of ${target.id} committed, but its preview sweep failed`);
             return 0;
           })
