@@ -793,8 +793,12 @@ describe("stream sockets: the attach cap, the keying, the byte debt", () => {
 
   it("configurePreviewStreamSender fills the fan-out slot for a broker built without a fake sender", async () => {
     const seen: unknown[] = [];
-    // Boot order, as Task 11 will call it: the slot is filled first, and the
-    // broker built after it inherits the sender.
+    // Boot order, as Task 11 calls it: the slot is filled first, and the
+    // broker built after it inherits the sender. The slot is first-call-wins:
+    // in a serial run the winner is decided by module-load order (this file's
+    // spy fills it before live-ws.ts's module init can), and a directory move
+    // would flip it. Under the parallel regime every file gets its own
+    // process, so there is no contest there.
     configurePreviewStreamSender((_socket, frame) => {
       seen.push(frame);
     });

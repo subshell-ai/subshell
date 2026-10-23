@@ -561,7 +561,10 @@ describe("/ws/live watch subscriptions", () => {
     expect(streamFrames(fast.sent)).toHaveLength(1);
 
     getPreviewBroker().onStreamEvent("n-fake", streamEvent(ref, 2));
-    expect(streamFrames(slow.sent)).toEqual([]); // detached, not merely skipped
+    // Still silent. This row cannot tell "detached" from "skipped again"
+    // while the debt stays over cap; the deletion itself is pinned by the
+    // broker's viewer_drop row in preview-broker.test.ts.
+    expect(streamFrames(slow.sent)).toEqual([]);
     expect(streamFrames(fast.sent)).toHaveLength(2);
 
     // The drop is viewer-side only: the bridge still stands and the wire saw
