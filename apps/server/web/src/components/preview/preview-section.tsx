@@ -92,11 +92,20 @@ export function PreviewSection({
   const info = preview.info;
   const notice = useMemo(() => previewSharedNotice(subshell), [subshell]);
 
-  // Navigating to another pane must close this pane's screen viewer: it holds
-  // a live socket, and Section props change in place with no remount here.
+  // Repointing this page at another pane must drop everything that belongs
+  // to the pane the user was looking at: the route holds no key on this
+  // Section, so swipe navigation changes `paneId` on the SAME instance (the
+  // route's own `[id]` effects exist for exactly that). Carrying pane A's
+  // screen session into B would render A's live VNC under B's name, and RFB's
+  // pump keeps pv-ws from ever idling the lane (idle expiry needs a silent
+  // side), so A's forward slot would stay pinned indefinitely. The Open panel
+  // and its error are the same pane-scoped state.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the paneId dependency IS the reset, the React prop-change pattern. The body never reads paneId (its setters are stable), which is what the exhaustive-deps autofix would strip and what shipped the bug this pins.
   useEffect(() => {
     setScreenSession(null);
-  }, []);
+    setOpen(null);
+    setOpenError(null);
+  }, [paneId]);
 
   async function handleOpen(port: number): Promise<void> {
     setOpenError(null);

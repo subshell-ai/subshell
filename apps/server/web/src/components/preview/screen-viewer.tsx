@@ -1,5 +1,5 @@
 import { Button } from "@internal/node-admin";
-import { PREVIEW_CLOSE_REASONS, type PreviewCloseReason } from "@internal/subshell-protocol";
+import type { PreviewCloseReason } from "@internal/subshell-protocol";
 import RFB from "@novnc/novnc";
 import { type JSX, useEffect, useRef, useState } from "react";
 
@@ -29,13 +29,20 @@ function tunnelUrl(proxyBase: string): string {
   return `${wsProto}//${window.location.host}${proxyBase}`;
 }
 
-/** The human line per close word (spec §9): each cause reads as itself. */
-export const SCREEN_CLOSE_LINES: Record<PreviewCloseReason, string> = {
+/**
+ * The human line per close word (spec §9): each cause reads as itself.
+ *
+ * `over-cap` is deliberately absent. pv-ws refuses an over-cap lane at the
+ * UPGRADE (HTTP 503), and a refused upgrade closes the socket with nothing on
+ * it, so the word never reaches a listener this live. The honest line for
+ * that refusal is the lost-link fallback below, not a cause this surface
+ * cannot actually observe.
+ */
+export const SCREEN_CLOSE_LINES: Record<Exclude<PreviewCloseReason, "over-cap">, string> = {
   "viewer-left": "You closed this preview.",
   "pane-gone": "The subshell ended, so its screen went with it.",
   "node-dropped": "The node dropped its link to the server, so this preview ended.",
   "slow-link": "This preview couldn't keep up with the pane's screen, so it closed.",
-  "over-cap": "This pane reached its preview lane limit, so this screen closed.",
   idle: "This preview sat unused, so it closed.",
   revoked: "Your access to this subshell changed, so the preview closed.",
   "not-cdp": "That port doesn't speak the protocol this preview needs.",
@@ -57,21 +64,37 @@ export interface ScreenViewerProps {
 export function ScreenViewer({ display, proxyBase, onClose }: ScreenViewerProps): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  // True the moment this component starts a close. pv-ws never rides a
-  // reason word on the viewer's own leave, so this flag is what separates
-  // `viewer-left` from a link that died unattributed (a refused upgrade, a
-  // dropped connection): the cause, not the absence of a word, decides.
+  // True only when the USER chose to leave (the Disconnect path). pv-ws never
+  // rides a reason word on the viewer's own leave, so this flag is what
+  // separates `viewer-left` from a link that died unattributed (a refused
+  // upgrade, a dropped connection): the cause, not the absence of a word,
+  // decides. The effect's cleanup must NOT set it: main.tsx wraps the app in
+  // StrictMode, whose dev double-invoke runs a cleanup while the component
+  // lives, and a ref set there would outlive the socket it was meant to mark.
   const leftRef = useRef(false);
   const [endLine, setEndLine] = useState<string | null>(null);
 
   useEffect(() => {
     const ws = new WebSocket(tunnelUrl(proxyBase));
     wsRef.current = ws;
+    // This effect's own disposal flag. Its close (a real unmount, or
+    // StrictMode's simulated one) is not a cause the viewer has to report:
+    // on a real unmount nothing is left to render, and under StrictMode the
+    // line burned by the discarded socket would stand in for every later,
+    // genuine close.
+    let disposed = false;
     const onSocketClose = (event: CloseEvent): void => {
+      if (disposed) return;
       if (leftRef.current) setEndLine(SCREEN_CLOSE_LINES["viewer-left"]);
-      else if ((PREVIEW_CLOSE_REASONS as readonly string[]).includes(event.reason))
-        setEndLine(SCREEN_CLOSE_LINES[event.reason as PreviewCloseReason]);
-      else setEndLine(LOST_LINK_LINE);
+      else {
+        // Only the words this map owns render themselves; an unknown word
+        // (and `over-cap`, which pv-ws can only ever refuse at the upgrade,
+        // wordless) is an unattributed link loss.
+        const line = (SCREEN_CLOSE_LINES as Partial<Record<PreviewCloseReason, string>>)[
+          event.reason as PreviewCloseReason
+        ];
+        setEndLine(line ?? LOST_LINK_LINE);
+      }
     };
     ws.addEventListener("close", onSocketClose);
     const host = hostRef.current;
@@ -84,7 +107,7 @@ export function ScreenViewer({ display, proxyBase, onClose }: ScreenViewerProps)
       rfb.clipViewport = false;
     }
     return () => {
-      leftRef.current = true;
+      disposed = true;
       rfb?.disconnect();
       // Closing here is the lane's `viewer-left`. `rfb.disconnect()` runs on
       // a timer of its own, so the socket does not wait for it.
@@ -94,7 +117,7 @@ export function ScreenViewer({ display, proxyBase, onClose }: ScreenViewerProps)
   }, [proxyBase]);
 
   function handleDisconnect(): void {
-    // Our own close: the flag makes the arriving wordless close say
+    // The user's own close: the flag makes the arriving wordless close say
     // `viewer-left`, which is exactly what the lane books for it.
     leftRef.current = true;
     wsRef.current?.close();
