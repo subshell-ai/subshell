@@ -196,6 +196,22 @@ async function waitUntil(cond: () => boolean, what: string, ms = 3000): Promise<
   }
 }
 
+/** True when this host can bind an IPv6 loopback listener (probed once at collect). */
+const HAS_V6_LOOPBACK = await (async (): Promise<boolean> => {
+  const probe = createServer();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      probe.once("error", reject);
+      probe.listen(0, "::1", () => resolve());
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    probe.close();
+  }
+})();
+
 const closeEvents = (events: PreviewLaneEvent[]): { ref: string; reason: PreviewCloseReason }[] =>
   events
     .filter((e): e is Extract<PreviewLaneEvent, { type: "preview_closed" }> => e.type === "preview_closed")
@@ -235,11 +251,15 @@ describe("(a) pending ack, off-chain dial (the ssh-relay A-branch contract)", ()
     expect(ping.kind).toBe("pong");
     expect(h.attempts).toEqual([{ host: "127.0.0.1", port: 4321 }]);
 
-    // The eventual failure: v4 refused, the ONE v6 retry refused, and the
-    // plane is told `target-gone` exactly once.
+    // The eventual failure: v4 refused (a real connect failure is an `error`
+    // THEN a guaranteed `close`), the ONE v6 retry refused the same way, and
+    // the plane is told `target-gone` exactly once.
     h.sockets[0]?.fire("error", new Error("connect ECONNREFUSED 127.0.0.1:4321"));
+    h.sockets[0]?.fire("close");
     expect(h.attempts.map((a) => a.host)).toEqual(["127.0.0.1", "::1"]);
+    expect(h.forward.laneCount()).toBe(1); // the dead v4 dial's close must not end the retry
     h.sockets[1]?.fire("error", new Error("connect ECONNREFUSED ::1:4321"));
+    h.sockets[1]?.fire("close");
     expect(closeEvents(h.events)).toEqual([{ ref: refFor(1), reason: "target-gone" }]);
     expect(h.forward.laneCount()).toBe(0);
 
@@ -248,6 +268,78 @@ describe("(a) pending ack, off-chain dial (the ssh-relay A-branch contract)", ()
       ok: true,
       data: { ref: refFor(1), closed: false },
     });
+  });
+
+  it("the v4 dial's close does not kill the v6 retry: error+close survives to a live ::1", () => {
+    // The MAJOR-1 posture (Task 5 review): a real socket whose connect fails
+    // emits `error` and then, on a nextTick, a guaranteed `close`. The close
+    // lands AFTER the synchronous retry is in flight, and it must not be read
+    // as the LANE dying (which would destroy the pending ::1 socket and emit
+    // target-gone before the v6 handshake, precisely on the one-family server
+    // the retry exists for).
+    const h = makeHarness("retry-survives");
+    h.forward.openLane({
+      ref: refFor(1),
+      port: 4321,
+      paneId: PANE,
+      lifetimeMs: 60_000,
+      hooks: { emit: (ev) => h.events.push(ev) },
+    });
+    h.sockets[0]?.fire("error", new Error("connect ECONNREFUSED 127.0.0.1:4321"));
+    expect(h.attempts.map((a) => a.host)).toEqual(["127.0.0.1", "::1"]); // retry already in flight
+    h.sockets[0]?.fire("close"); // the dead v4 socket's own death notice
+    expect(h.forward.laneCount()).toBe(1); // the lane lives
+    expect(closeEvents(h.events)).toHaveLength(0); // and reports nothing
+    expect(h.sockets[0]?.destroyed).toBe(true); // the superseded socket is released by the retry itself
+    expect(h.sockets[1]?.destroyed).toBe(false); // the in-flight ::1 dial survives
+    h.sockets[1]?.fire("connect");
+    expect(h.forward.laneCount()).toBe(1);
+    expect(h.events).toHaveLength(0);
+  });
+
+  // The end-to-end twin, real net on both legs (case (b)'s habit): a server
+  // bound to ::1 ONLY, so the production dial must take its v4 refusal and
+  // land on v6. A host without IPv6 loopback cannot represent this; the skip
+  // says so out loud. The fake-sequence case above runs everywhere.
+  it.skipIf(!HAS_V6_LOOPBACK)("a v6-only loopback server is reached through the real retry", async () => {
+    const received: Buffer[] = [];
+    let connected = false;
+    const server = createServer((sock) => {
+      sock.on("data", (d) => {
+        received.push(Buffer.from(d));
+        sock.write(d);
+      });
+    });
+    server.once("connection", () => {
+      connected = true;
+    });
+    await new Promise<void>((r) => server.listen(0, "::1", r));
+    const port = (server.address() as AddressInfo).port;
+    const h = makeHarness("v6-only", { deps: { connect: undefined } }); // real net, fake clock
+    try {
+      const res = await dispatchCommand(h.ctx, openCmd({ port }));
+      expect(res.ok).toBe(true);
+      // The v4 refusal (error then close) must ride out; stop at whichever
+      // real event arrives first, so a pre-fix death reads as itself.
+      await waitUntil(() => connected || closeEvents(h.events).length > 0, "the v6 dial or a lane death");
+      expect(closeEvents(h.events)).toHaveLength(0);
+      expect(connected).toBe(true);
+      expect(h.forward.laneCount()).toBe(1);
+      await new Promise((r) => setTimeout(r, 50)); // let any late v4 socket close land
+      expect(h.forward.laneCount()).toBe(1);
+      expect(closeEvents(h.events)).toHaveLength(0);
+      h.forward.ingestInboundFrame({
+        type: "preview_data",
+        ref: refFor(1),
+        dir: "in",
+        blob: Buffer.from("ping").toString("base64"),
+      });
+      await waitUntil(() => dataEvents(h.events).length >= 1, "the echoed bytes back on the v6 lane");
+      expect(Buffer.concat(received).toString()).toBe("ping");
+    } finally {
+      h.forward.closeAll("viewer-left");
+      server.close();
+    }
   });
 });
 
@@ -414,7 +506,7 @@ describe("(e) idle and target death", () => {
     expect(g.forward.closeLane(refFor(2), "viewer-left")).toEqual({ closed: true });
     g.sockets[0]?.fire("end"); // the late EOF finds no lane
     g.sockets[0]?.fire("close");
-    g.clock.fire(250_000_000); // and no timer can resurrect it either
+    g.clock.fire(900_000); // the ARMED idle budget, at the ms FakeClock matches: no timer can resurrect it
     expect(g.events).toHaveLength(0);
   });
 });
