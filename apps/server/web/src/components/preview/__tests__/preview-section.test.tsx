@@ -326,14 +326,18 @@ describe("the shared-pane banner variant", () => {
     // (measured 2026-10-23: 29 s to format the failure). The 10 s cap above sits
     // PAST bun's 5 s default test budget, so the test also carries an explicit
     // 45 s budget (third arg): without it the loop starvation cut the test off
-    // at 5 s while the waitFor was still patient (both CI retries, measured). A
-    // banner that truly never retired would still fail at the waitFor's cap.
-    await waitFor(() => expect(screen.queryByText(/shared this subshell with 2 other people/i)).toBeNull(), {
+    // at 5 s while the waitFor was still patient (both CI retries, measured).
+    // The disappearance poll asserts a BOOLEAN: `expect(node).toBeNull()` makes
+    // bun serialize the whole happy-dom graph on every failed poll, which is the
+    // 30 s-per-failure the CI run showed even with the cap (2026-10-23: 30350 ms
+    // for this test, formatting, on a job that ran the rest in 68 s). A banner
+    // that truly never retired would still fail here at the cap.
+    await waitFor(() => expect(screen.queryByText(/shared this subshell with 2 other people/i) === null).toBe(true), {
       timeout: 10000,
     });
     view.unmount();
     render(<PreviewSection paneId="pane1" access="owner" subshell={shared} preview={controller({ info: info() })} />);
-    expect(screen.queryByText(/shared this subshell with 2 other people/i)).toBeNull();
+    expect(screen.queryByText(/shared this subshell with 2 other people/i) === null).toBe(true);
   }, 45000);
 
   it("says nothing when the pane is private", () => {
