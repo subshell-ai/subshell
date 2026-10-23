@@ -1,5 +1,17 @@
 # @internal/docs
 
+## 0.10.5
+
+### Patch Changes
+
+- [#427](https://github.com/subshell-ai/subshell/pull/427) [`2b4c02b`](https://github.com/subshell-ai/subshell/commit/2b4c02ba32b08a557854e3d908b6beded8fd754e) Thanks [@theogravity](https://github.com/theogravity)! - Upgrade Next.js to 16.4.3 on both sites, taking the fixes for three freshly
+  published advisories: two unauthenticated remote code executions (Image
+  Optimization with SVG input, `use cache` returning typed arrays) and a Server
+  Actions denial of service. Retire the two stale entries in the audit allowlist
+  whose advisories no longer report.
+
+- [#430](https://github.com/subshell-ai/subshell/pull/430) [`b1d5fee`](https://github.com/subshell-ai/subshell/commit/b1d5fee2fbaf992d8f64bb4ef430bc05e8976045) Thanks [@theogravity](https://github.com/theogravity)! - Updated zod to 4.6.6, including a root override that moves every transitive 4.x copy onto it. This picks up the fix for a high-severity advisory where validating an oversized constrained collection could exhaust memory (GHSA-mrhx-c7xc-m3w5).
+
 ## 0.10.4
 
 ### Patch Changes
