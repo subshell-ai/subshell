@@ -135,9 +135,9 @@ export function PreviewSection({
 
   // The Screen verb rides the SAME forward lane as Open (decision 6 makes the
   // rfbPort session raw on the plane; zero new protocol), and the viewer
-  // mounts in the panel. The phone layout has no panel (spec §7): a press
-  // still opens the lane, and with no viewer to pump it, the lane expires on
-  // its own. Task 14's mobile leg is where that posture gets its human test.
+  // mounts in the panel. The phone layout has no panel (spec §7), and the
+  // phone-tier Screen control is disabled there with that reason, so this
+  // handler is only ever reached with a panel that will host the viewer.
   async function handleScreen(): Promise<void> {
     if (!info?.screen) return;
     const gen = generation.current;
@@ -193,6 +193,7 @@ export function PreviewSection({
           onWatch={() => void preview.startWatch(info.cdpPort ?? undefined)}
           onStopWatch={() => void preview.stopWatch()}
           onScreen={() => void handleScreen()}
+          phone={phone}
         />
       )}
 

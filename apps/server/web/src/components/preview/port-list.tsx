@@ -25,6 +25,15 @@ export const OPEN_VIEW_REASON = "Opening a forwarded port needs edit access to t
 /** Why a `view` grantee cannot open the noVNC surface (spec §7: Screen is `edit`-gated). */
 export const SCREEN_VIEW_REASON = "Screen preview needs edit access to this subshell.";
 
+/**
+ * Why the phone layout disables Screen even at `edit` (spec §7's panel never
+ * renders there): pressing it would open a real lane no viewer would ever
+ * pump, and the press would read as a failure. Watch is the verb a phone
+ * serves, so the reason says the frames are still there.
+ */
+export const SCREEN_PHONE_REASON =
+  "Screen preview needs the panel, and phones do not have one. Watch still streams frames here.";
+
 /** The remedy line per plane-side reason word, for rows shown while the node cannot serve. */
 export function nodeReasonLine(reason: string | undefined): string {
   switch (reason) {
@@ -53,6 +62,8 @@ export interface PortListProps {
   onStopWatch: () => void;
   /** The Screen verb: open the raw lane on the display's RFB port. */
   onScreen: () => void;
+  /** The phone layout: the panel does not render there, so Screen loses its host. */
+  phone?: boolean;
 }
 
 export function PortList({
@@ -63,11 +74,21 @@ export function PortList({
   onWatch,
   onStopWatch,
   onScreen,
+  phone,
 }: PortListProps): JSX.Element | null {
   const rows = info.ports;
   const openReason = access === "view" ? OPEN_VIEW_REASON : !info.nodeEnabled ? nodeReasonLine(info.reason) : undefined;
+  // Access first, the node switch second, the layout last: on a phone with a
+  // dead node the switch's remedy still reads true, and it is only once the
+  // node serves again that "this layout has no panel" becomes the live reason.
   const screenReason =
-    access === "view" ? SCREEN_VIEW_REASON : !info.nodeEnabled ? nodeReasonLine(info.reason) : undefined;
+    access === "view"
+      ? SCREEN_VIEW_REASON
+      : !info.nodeEnabled
+        ? nodeReasonLine(info.reason)
+        : phone
+          ? SCREEN_PHONE_REASON
+          : undefined;
   // The same node-switch reason the Open row already carries: a disabled
   // Watch must explain itself like its siblings, not sit mute.
   const watchReason = info.nodeEnabled ? undefined : nodeReasonLine(info.reason);
@@ -136,8 +157,10 @@ export function PortList({
           </div>
           {/* One control for every tier (round-14 MINOR: the render contract
               is ONE, so the disabled-for-view affordance Task 12 pins and the
-              enabled-for-edit action share this button). `edit` alone clears
-              the reason: the raw lane is an edit act (spec §6). */}
+              enabled-for-edit action share this button). `edit` clears the
+              reason - the raw lane is an edit act (spec §6) - except on the
+              phone layout, where the panel Screen needs does not render and
+              the layout becomes the reason instead. */}
           <Button
             variant="outline"
             size="sm"
