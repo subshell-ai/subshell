@@ -25,6 +25,7 @@
     "@internal/server": "workspace:*",
     "@internal/subshell-protocol": "workspace:*",
     "@loglayer/transport-simple-pretty-terminal": "3.3.0",
+    "@novnc/novnc": "1.7.0",
     "@subshell-ai/plugin-api": "workspace:*",
     "@tanstack/react-form": "1.33.5",
     "@tanstack/react-query": "5.101.4",

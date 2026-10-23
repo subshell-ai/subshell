@@ -1,7 +1,8 @@
 import { errMessage } from "@internal/node-admin";
-import { type JSX, useMemo, useState } from "react";
+import { type JSX, useEffect, useMemo, useState } from "react";
 import { OpenPanel } from "@/components/preview/open-panel";
 import { nodeReasonLine, PortList } from "@/components/preview/port-list";
+import { ScreenViewer } from "@/components/preview/screen-viewer";
 import { WatchViewer } from "@/components/preview/watch-viewer";
 import { TrustNoticeBanner } from "@/components/trust-notice-banner";
 import { useIsPhoneLayout } from "@/hooks/use-is-phone-layout";
@@ -84,9 +85,18 @@ export function PreviewSection({
   const phoneDefault = useIsPhoneLayout();
   const phone = isPhone ?? phoneDefault;
   const [open, setOpen] = useState<{ port: number; proxyBase: string } | null>(null);
+  // The open screen session: the display is kept from the answer so a later
+  // info poll that reports the display gone cannot retitle the live viewer.
+  const [screenSession, setScreenSession] = useState<{ display: string; proxyBase: string } | null>(null);
   const [openError, setOpenError] = useState<string | null>(null);
   const info = preview.info;
   const notice = useMemo(() => previewSharedNotice(subshell), [subshell]);
+
+  // Navigating to another pane must close this pane's screen viewer: it holds
+  // a live socket, and Section props change in place with no remount here.
+  useEffect(() => {
+    setScreenSession(null);
+  }, []);
 
   async function handleOpen(port: number): Promise<void> {
     setOpenError(null);
@@ -102,6 +112,25 @@ export function PreviewSection({
     } catch (err) {
       // The named refusal (the caps, the stale node answer) renders as asked.
       setOpenError(errMessage(err, "Couldn't open a preview lane to that port."));
+    }
+  }
+
+  // The Screen verb rides the SAME forward lane as Open (decision 6 makes the
+  // rfbPort session raw on the plane; zero new protocol), and the viewer
+  // mounts in the panel. The phone layout has no panel (spec §7): a press
+  // still opens the lane, and with no viewer to pump it, the lane expires on
+  // its own. Task 14's mobile leg is where that posture gets its human test.
+  async function handleScreen(): Promise<void> {
+    if (!info?.screen) return;
+    setOpenError(null);
+    try {
+      const { proxyBase } = await preview.openPort(info.screen.rfbPort);
+      setScreenSession({ display: info.screen.display, proxyBase });
+      // A fresh session is exactly when the info poll should be re-asked:
+      // its own throttle still rules (spec §7).
+      preview.refresh();
+    } catch (err) {
+      setOpenError(errMessage(err, "Couldn't open a screen preview lane."));
     }
   }
 
@@ -142,6 +171,7 @@ export function PreviewSection({
           onOpen={(port) => void handleOpen(port)}
           onWatch={() => void preview.startWatch(info.cdpPort ?? undefined)}
           onStopWatch={() => void preview.stopWatch()}
+          onScreen={() => void handleScreen()}
         />
       )}
 
@@ -179,6 +209,19 @@ export function PreviewSection({
       {/* Desktop-first by the mobile rule in spec §7: the panel simply does
           not render on a phone layout. */}
       {open && !phone && <OpenPanel port={open.port} proxyBase={open.proxyBase} onClose={() => setOpen(null)} />}
+
+      {/* The Screen viewer is a panel too, so it follows the same mobile rule.
+          Keyed on the session's proxy: a re-open is a fresh socket on a fresh
+          mount, never a re-connect over a stale one (the viewer's whole
+          construction assumes a new WebSocket per mount). */}
+      {screenSession && !phone && (
+        <ScreenViewer
+          key={screenSession.proxyBase}
+          display={screenSession.display}
+          proxyBase={screenSession.proxyBase}
+          onClose={() => setScreenSession(null)}
+        />
+      )}
     </section>
   );
 }
