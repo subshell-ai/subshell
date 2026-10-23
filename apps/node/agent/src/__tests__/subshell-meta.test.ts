@@ -204,3 +204,42 @@ describe("SubshellMetaStore", () => {
     }
   });
 });
+
+describe("SubshellMetaStore.listComplete", () => {
+  // The display sweep's trust gate: "no meta rows" and "the scan could not
+  // read the directory" arrive at `list()` identically as [], and sweeping on
+  // the first one reaps displays. scanOk is the answer to "did you actually
+  // see the whole directory", false only for a scan that broke mid-read.
+  // ENOENT and ENOTDIR are legitimate emptiness (a node that never launched
+  // a pane has no subshells dir at all), so they stay scanOk true.
+
+  it("a healthy scan reports scanOk with every row", async () => {
+    const { store } = freshStore("complete-healthy");
+    await store.record(meta(UUID));
+    const scan = await store.listComplete();
+    expect(scan.scanOk).toBe(true);
+    expect(scan.metas.map((m) => m.subshellId)).toEqual([UUID]);
+  });
+
+  it("a missing subshells dir is emptiness, not a broken scan", async () => {
+    const { store } = freshStore("complete-missing");
+    const scan = await store.listComplete();
+    expect(scan.scanOk).toBe(true);
+    expect(scan.metas).toEqual([]);
+  });
+
+  it("a subshells path that is a file (ENOTDIR) is emptiness, not a broken scan", async () => {
+    const { store, dataDir } = freshStore("complete-notdir");
+    writeFileSync(join(dataDir, "subshells"), "not a dir");
+    const scan = await store.listComplete();
+    expect(scan.scanOk).toBe(true);
+    expect(scan.metas).toEqual([]);
+  });
+
+  it("list() stays the scan's metas exactly", async () => {
+    const { store } = freshStore("complete-list");
+    await store.record(meta(UUID));
+    const scan = await store.listComplete();
+    expect(await store.list()).toEqual(scan.metas);
+  });
+});

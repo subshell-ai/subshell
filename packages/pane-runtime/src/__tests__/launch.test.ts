@@ -85,7 +85,7 @@ describe("paneEnvFor extraEnv layer (pane-preview Task 7)", () => {
   // the same keys (the same rule that puts the MCP wiring env above the
   // preset), and the exit hook must be built from the same map or the death
   // report leaves the pane's machine settings behind. With no fifth layer the
-  // chain must be byte-identical to the four-layer spread it used to be —
+  // chain must be byte-identical to the four-layer spread it used to be:
   // every pane without a display rides that exact string.
 
   const preset = {

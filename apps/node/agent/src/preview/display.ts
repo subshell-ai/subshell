@@ -51,9 +51,11 @@ import type { PreviewScreenHandle } from "./ports.js";
  *   the sweep), which deregisters BEFORE signalling, so the child-exit watch
  *   never mistakes a teardown for a loss. Only a mid-pane vanish - a child
  *   dying while the entry is still registered - marks
- *   {@link PreviewDisplays.lostFor}, and it marks without touching the pane:
- *   spec §9's posture is a darkened Screen affordance that can say WHY, not
- *   a killed terminal.
+ *   {@link PreviewDisplays.lostFor}: the exit watch for children this daemon
+ *   spawned, and the sweep's signal-0 probe of the recorded pids for entries
+ *   it merely rehydrated. Both mark without touching the pane: spec §9's
+ *   posture is a darkened Screen affordance that can say WHY, not a killed
+ *   terminal.
  *
  * Durability is deliberately half-hearted: `display.json` records the pids
  * incrementally (every crash window leaves the pids that exist) so the
@@ -141,7 +143,20 @@ interface DisplayEntry {
   /** Spawned handles when THIS process started the display; undefined on a rehydrated entry. */
   xvfbChild?: DisplayChild;
   vncChild?: DisplayChild;
+  /**
+   * Earliest sweep-clock time at which this entry may be torn down for
+   * ABSENT-FROM-CENSUS. A launch registers its display moments before the
+   * meta row the census reads exists, so "absent" is not yet "dead" right
+   * after `openFor`: a fresh entry gets registration + one minute. A
+   * rehydrated entry's registration time is meaningless (it did not happen
+   * now), so it carries the record's own mtime under the launch floor it was
+   * rehydrated past - which is already in the past, and correct.
+   */
+  sweptAfter: number;
 }
+
+/** Pass 1's fresh-entry floor: the census races the launch by far less than this. */
+const DISPLAY_CENSUS_FRESH_MS = 60_000;
 
 /** What a `sweepOrphans` pass did, for the one log line it earns. */
 export interface DisplaySweepResult {
@@ -223,11 +238,6 @@ export class PreviewDisplays {
   /** The named mid-pane loss for this pane, or null. Set by the exit watch, cleared by the next open. */
   lostFor(paneId: string): NodePreviewScreenLost | null {
     return this.lost.get(paneId) ?? null;
-  }
-
-  /** Registered displays node-wide (the shared-budget read; also handy to tests). */
-  count(): number {
-    return this.entries.size;
   }
 
   /**
@@ -317,6 +327,7 @@ export class PreviewDisplays {
         x11vncPid: vncChild.pid,
         xvfbChild,
         vncChild,
+        sweptAfter: d.now() + DISPLAY_CENSUS_FRESH_MS,
       };
       this.entries.set(paneId, entry);
       this.lost.delete(paneId); // a fresh display clears the old loss story
@@ -335,6 +346,7 @@ export class PreviewDisplays {
           rfbPort: 0,
           xvfbPid: xvfbChild?.pid ?? 0,
           x11vncPid: vncChild?.pid ?? 0,
+          sweptAfter: 0, // never registered; the census floor is not its question
         },
         paneDir,
         lockPath,
@@ -361,6 +373,11 @@ export class PreviewDisplays {
     // Unregistered belt: a half-open launch left a dir whose lock the record
     // still names. Reap the dir and (only when the record is readable) its
     // lock; a lock with no record is the sweep's floor-guarded business.
+    // The pane is being closed, so a loss marker left by its child's exit is
+    // the story of a display this close ends: clear it even when the dir is
+    // already gone (the watch reaped it first), or the ports arm would keep
+    // answering screenLost for a pane the plane has now explicitly closed.
+    this.lost.delete(paneId);
     const paneDir = join(this.dataDir, "displays", paneId);
     const rec = readRecord(paneDir);
     const displayNumber = displayNumberOf(rec?.display);
@@ -374,6 +391,7 @@ export class PreviewDisplays {
           rfbPort: 0,
           xvfbPid: intOf(rec?.xvfbPid),
           x11vncPid: intOf(rec?.x11vncPid),
+          sweptAfter: 0, // belt teardown, not a registered entry
         },
         paneDir,
         this.lockPathFor(displayNumber),
@@ -390,25 +408,58 @@ export class PreviewDisplays {
   /**
    * The periodic reconciliation (spec §5's "the sweep catches what a crash
    * orphaned"), run by the daemon at boot and hourly with the alive-pane
-   * census. THREE passes, and the first is not the one the brief distrusts:
-   * registry teardown is nearly free and catches what the death report missed;
-   * the DISK walk is what a daemon restart makes necessary, because the
-   * restart cleared the registry - so a live pane's dir rehydrates from
-   * `display.json` (only while `bindProbe` still answers its recorded RFB
-   * port: children dead means REAP, not a record that would strand the
-   * affordance forever on a dead socket), a dead pane's dir is reaped, and the
-   * ssh retention's one-hour launch floor rides both, because a dir from an
-   * in-flight `openFor` is not an orphan.
+   * census - and by the daemon's wrapper ONLY on a census that completed,
+   * because sweeping on a census that cannot vouch for its own completeness
+   * would tear down every live display. THREE passes:
+   * pass 1 works the registry: a LIVE pane's handle-less (rehydrated) entry
+   * gets its recorded pids signal-0 probed, so a display that died under a
+   * live pane gets the same named loss + reap the child-exit watch performs
+   * for spawned children; a census-absent entry is reaped only once past its
+   * fresh-entry floor (a launch can register before the census's meta scan
+   * sees the row); pass 2 walks the DISK, what a daemon restart makes
+   * necessary because the restart cleared the registry - a live pane's dir
+   * rehydrates from `display.json` (only while `bindProbe` still answers its
+   * recorded RFB port: children dead means REAP, not a record that would
+   * strand the affordance forever on a dead socket), a dead pane's dir is
+   * reaped, and the ssh retention's one-hour launch floor rides both,
+   * because a dir from an in-flight `openFor` is not an orphan; pass 3 frees
+   * aged locks no entry holds.
    */
   async sweepOrphans(alivePaneIds: string[]): Promise<DisplaySweepResult> {
     const alive = new Set(alivePaneIds);
     const d = this.deps();
+    const now = d.now();
     let reaped = 0;
     let rehydrated = 0;
     let locksFreed = 0;
 
     for (const [paneId, entry] of [...this.entries]) {
-      if (alive.has(paneId)) continue;
+      if (alive.has(paneId)) {
+        // A rehydrated entry has no child handles, so the child-exit watch
+        // cannot see its death. The signal-0 probe is the sweep's half of
+        // that watch: a recorded pid that no longer exists means the display
+        // died under a live pane, which gets the SAME named loss, deregister,
+        // and reap the exit watch performs for the displays this daemon
+        // spawned - otherwise the registry answers `screen` for a dead server
+        // forever and the plane dials it with no cause to show.
+        if (!entry.xvfbChild && !entry.vncChild) {
+          const deadBinary = this.probeRehydratedDeath(entry);
+          if (deadBinary !== null) {
+            this.entries.delete(paneId);
+            this.lost.set(paneId, deadBinary);
+            log(
+              `preview display ${entry.display} for pane ${paneId}: recorded ${deadBinary} pid is gone; reaped the display, pane left running`,
+            );
+            this.teardown(entry, join(this.dataDir, "displays", paneId), this.lockPathFor(entry.displayNumber));
+            reaped += 1;
+          }
+        }
+        continue;
+      }
+      // Absent from the census: only after the fresh-entry floor, because a
+      // launch can register its display before the census's meta scan sees
+      // the row. One minute is generous for that race and short for an orphan.
+      if (now < entry.sweptAfter) continue;
       this.entries.delete(paneId);
       this.lost.delete(paneId);
       this.teardown(entry, join(this.dataDir, "displays", paneId), this.lockPathFor(entry.displayNumber));
@@ -422,7 +473,6 @@ export class PreviewDisplays {
     } catch {
       return { reaped, rehydrated, locksFreed }; // ENOENT/ENOTDIR: never any displays here
     }
-    const now = d.now();
     for (const name of names) {
       if (!isSubshellId(name)) continue; // our own dirs are id-named; anything else is not ours
       if (this.entries.has(name)) continue; // registered = pass 1's (or nobody's) business
@@ -453,8 +503,13 @@ export class PreviewDisplays {
             xvfbPid: intOf(rec.xvfbPid),
             x11vncPid: intOf(rec.x11vncPid),
             // No child handles: THIS process did not spawn them, so there is
-            // no exit promise to watch. A rehydrated display whose children
-            // die mid-pane reads dead on the next census pass, not lostFor.
+            // no exit promise to watch. The sweep watches instead: pass 1
+            // probes the recorded pids every pass while the pane is alive
+            // (probeRehydratedDeath), and a dead one gets the same named-loss
+            // teardown the exit watch performs for spawned children. The
+            // census floor is the record's own age (already past it: that is
+            // what made rehydration eligible), never "now".
+            sweptAfter: st.mtimeMs + ORPHAN_SSH_DIR_MIN_AGE_MS,
           });
           rehydrated += 1;
           log(`preview display :${displayNumber}: rehydrated for live pane ${name}`);
@@ -468,6 +523,7 @@ export class PreviewDisplays {
             rfbPort: 0,
             xvfbPid: intOf(rec?.xvfbPid),
             x11vncPid: intOf(rec?.x11vncPid),
+            sweptAfter: 0, // disk reap of an unregistered dir
           },
           path,
           Number.isInteger(displayNumber) && displayNumber > 0 ? this.lockPathFor(displayNumber) : "",
@@ -611,18 +667,35 @@ export class PreviewDisplays {
 
   /** Probe-then-SIGTERM: never signal a pid that is not ours to signal, never throw at a caller. */
   private killGuarded(pid: number): void {
-    if (!Number.isInteger(pid) || pid <= 0) return;
-    const kill = this.deps().kill;
+    if (!this.probeAlive(pid)) return; // already gone (the common case on the restart reaps)
     try {
-      kill(pid, 0);
-    } catch {
-      return; // already gone (the common case on the restart reaps)
-    }
-    try {
-      kill(pid, "SIGTERM");
+      this.deps().kill(pid, "SIGTERM");
     } catch {
       /* died mid-signal */
     }
+  }
+
+  /** Signal-0 liveness: true only for a real pid the OS still knows. Never signals anything. */
+  private probeAlive(pid: number): boolean {
+    if (!Number.isInteger(pid) || pid <= 0) return false;
+    try {
+      this.deps().kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Which recorded child of a HANDLE-LESS (rehydrated) entry is gone, or null
+   * when both still probe alive. Xvfb is checked first: when both are dead,
+   * the server's own loss is the truer name for what the pane lost, and the
+   * order costs nothing else.
+   */
+  private probeRehydratedDeath(entry: DisplayEntry): NodePreviewScreenLost | null {
+    if (!this.probeAlive(entry.xvfbPid)) return "Xvfb";
+    if (!this.probeAlive(entry.x11vncPid)) return "x11vnc";
+    return null;
   }
 
   private lockPathFor(displayNumber: number): string {

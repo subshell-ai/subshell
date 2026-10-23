@@ -53,7 +53,7 @@ export function buildHarnessCommand(
  * @param preset the wire preset (its `env` layer rides above `subshellEnv`)
  * @param subshellEnv SUBSHELL_* credentials from the control plane
  * @param mcpEnv the MCP registration's wiring env (above the preset; see below)
- * @param extraEnv the node-allocated layer (a virtual display's DISPLAY/XAUTHORITY) —
+ * @param extraEnv the node-allocated layer (a virtual display's DISPLAY/XAUTHORITY),
  *   appended LAST so an env the machine allocated FOR this pane cannot lose to
  *   a preset that happens to name the same keys
  * @throws Error when a merged env key is not a valid shell variable name
@@ -90,9 +90,10 @@ export function assembleHarnessCommand(
  * `SUBSHELL_*` credentials (a preset may deliberately override
  * `SUBSHELL_BASE_URL`) < the preset's own env < the registration's wiring env
  * < the node-allocated layer (`extraEnv`). Wiring env goes above the preset on
- * purpose: a key like `OPENCODE_CONFIG` is transport plumbing, not a user knob
- * — a preset setting it would otherwise silently drop the subshell's subshell
- * tools while the UI still promised automatic registration. `extraEnv` rides
+ * purpose: a key like `OPENCODE_CONFIG` is transport plumbing, not a user
+ * knob. A preset setting it would otherwise silently drop the subshell's
+ * subshell tools while the UI still promised automatic registration.
+ * `extraEnv` rides
  * above everything because its keys describe a resource this machine created
  * FOR this pane: a virtual display's `DISPLAY`/`XAUTHORITY` allocated by the
  * node is truth, and a preset (or stray host env) naming the same key is
