@@ -9,7 +9,7 @@ name: Test
 # org-registered and the repo page shows none of them, which is how a CI
 # outage starts looking like a missing fleet.
 #
-# The image (docker/desktop-builder.Dockerfile) already carries bun 1.4.2,
+# The image (docker/desktop-builder.Dockerfile) already carries bun 1.4.4,
 # rustup stable and Tauri's system dependencies, which is why the jobs below
 # install none of that: `setup-bun`, `dtolnay/rust-toolchain` and every
 # `sudo apt-get` stay gone. The image is a PRIVATE package; the pull

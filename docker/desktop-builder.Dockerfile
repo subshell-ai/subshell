@@ -60,7 +60,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 1.4.0's multipart parser sit red on every developer machine while CI stayed
 # green.
 ENV BUN_INSTALL=/usr/local
-RUN curl -fsSL https://bun.sh/install | bash -s "bun-v1.4.2"
+RUN curl -fsSL https://bun.sh/install | bash -s "bun-v1.4.4"
 
 ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo PATH=/usr/local/cargo/bin:$PATH
 # `minimal` omits rustfmt and clippy, which the CI jobs are almost entirely
