@@ -83,10 +83,10 @@ separate from this feature.
 ### Correction (2026-10-23, task 15): it was the leg driver, and there is no ticket
 
 This paragraph was wrong twice, and it owes no ticket. The pane's bash does
-have a line editor (`$-` carries `i`, and `bind -p` answers with the full
-emacs bindings). And nothing corrupted the bytes: a matrix of ~100 clean
+have a line editor (`$-` carries `i`, and `bind -p` answers with the emacs
+bindings). And nothing corrupted the bytes: a matrix of ~100 clean
 single sends against a fresh plane and an enrolled container node (104
-records, each with its `tmux capture-pane` truth column) is byte-exact
+records; every clean cell with its capture truth column on disk) is byte-exact
 across every seam, REST input, exec, WS keystroke frames with and without
 ids, `cat`, `cat > file`, and kilobyte-scale payloads verified against the
 written file's bytes.
@@ -110,27 +110,28 @@ async function ensureTyped(paneId, text, aliveCmd, label) {
 When the alive-check fails it types the whole command again while the
 previous attempt is still talking, and a dying background server's stderr
 banner lands between the echoed characters of the next copy. Captured live
-from the leg's condition (a bound port, the retype 2.6 s later): the copy
-resumes after the failed server's banner row, and the screen's 80-column
-wrap splits `TextEncoder` itself (`...new Response(new T` on one row,
-`xtEncoder...` on the next). Bash's job-status line reprints the whole
-command too, so the same text shows two or three times on one screen.
+from the leg's condition (a bound port, the retype 2.6 s later): the copy's
+echo resumes after the failed server's banner row, starting mid-word at
+`extEncoder...`, and the screen's 80-column wrap splits `TextEncoder` itself
+(`...new Response(new T` on one row, `extEncoder...` on the next). Bash's
+job-status line reprints the whole command too, so the same text shows two
+or three times on one screen.
 
 ```
       at /root/[eval]:1:5
 
 Bun v1.4.4 (Linux x64)
-xtEncoder().encode("ok " + Date.now()),{headers:{"content-type":"text/plain","s
+extEncoder().encode("ok " + Date.now()),{headers:{"content-type":"text/plain","s
 et-cookie":"t=1"}})})' &
 [3] 267
 [2]   Exit 1                  bun -e 'Bun.serve({port:45321,fetch:()=>new Respon
 ```
 
 Quoting the command across the gap where a wrap or the banner split a word
-is what manufactures the doubled fragments: `...new Text` before the gap
-plus `xtEncoder...` after it reads as one line as `TextxtEncoder`, and
-`content-ty` before the gap plus `pext/plain` after it as `typext/plain`.
-The bytes were never the problem. Every copy in the reproduction ran as its
+joins pieces that were never adjacent, and that is how the doubled
+`TextxtEncoder` and `typext/plain` arose from an intact `TextEncoder` and
+`text/plain`. The bytes were never the problem. Every copy in the
+reproduction ran as its
 full command (one server bound the port, the next died of `EADDRINUSE`), and
 a retype onto a line still holding unsubmitted characters glues two whole
 copies onto one prompt line: each copy is byte-complete, though the merged
