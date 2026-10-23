@@ -15,6 +15,8 @@ import type { SubshellAccess, SubshellView } from "@/types/subshell";
 
 const VIEW_REASON = "Opening a forwarded port needs edit access to this subshell.";
 const SCREEN_VIEW_REASON = "Screen preview needs edit access to this subshell.";
+const SCREEN_PHONE_REASON =
+  "Screen preview needs the panel, and phones do not have one. Watch still streams frames here.";
 const SWITCH_OFF_REASON = "Preview is switched off on this node. Its owner can turn it on in node settings.";
 
 function controller(over: Partial<UseSubshellPreview> = {}): UseSubshellPreview {
@@ -269,6 +271,23 @@ describe("the screen row", () => {
 });
 
 describe("phone layouts trade the panel, never Watch", () => {
+  it("Screen renders present but disabled on a phone, with the layout as the reason", () => {
+    // The ruling after Task 14's mobile walk-through: an enabled Screen press
+    // on a phone opened a real lane no panel would ever host, and the press
+    // read as a failure. The affordance stays, the reason names the layout,
+    // and Watch - the verb a phone CAN serve - stays enabled beside it.
+    mount({
+      access: "edit",
+      info: info({ screen: { display: ":90", rfbPort: 5900 } }),
+      isPhone: true,
+    });
+    const showScreen = screen.getByRole("button", { name: "Screen" });
+    expect(showScreen.matches(":disabled, [aria-disabled=true]")).toBe(true);
+    expect(showScreen.getAttribute("aria-description")).toBe(SCREEN_PHONE_REASON);
+    const watch = screen.getByRole("button", { name: "Watch" });
+    expect(watch.matches(":disabled, [aria-disabled=true]")).toBe(false);
+  });
+
   it("Open on a phone never renders the panel; it hands the proxy to a new tab. Watch still paints", async () => {
     const opened: string[] = [];
     const originalOpen = window.open;
