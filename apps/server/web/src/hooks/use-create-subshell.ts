@@ -52,6 +52,12 @@ export interface CreateSubshellInput {
   saveAsPreset?: boolean;
   /** Its name; the form gates submit on it while `saveAsPreset` is set. */
   presetName?: string;
+  /**
+   * "Virtual display" (pane-preview spec §7): checked puts `screen` on the
+   * create body, unchecked or absent sends NO `screen` field. The default
+   * size is fixed at 1280x800; the API schema owns the 320..4096 bounds.
+   */
+  virtualDisplay?: boolean;
 }
 
 /**
@@ -74,6 +80,7 @@ export function toSubshellCreateBody({
   name,
   nodeId,
   promptBlocks,
+  virtualDisplay,
 }: CreateSubshellInput): {
   harnessId: string;
   presetId?: string;
@@ -81,6 +88,7 @@ export function toSubshellCreateBody({
   name?: string;
   nodeId?: string;
   prompt?: string;
+  screen?: { width: number; height: number };
 } {
   // The joined stack when it is non-empty. With a PRESET
   // chosen and the stack emptied (nothing added, or every copied block removed
@@ -99,6 +107,10 @@ export function toSubshellCreateBody({
     name: name?.trim() || undefined,
     nodeId: nodeId ? nodeId : undefined,
     prompt,
+    // The virtual screen ONLY when asked for: `undefined` means JSON omits
+    // the key, and the create route's launch treats a missing `screen` as a
+    // plain terminal. Checked gets the default geometry.
+    screen: virtualDisplay === true ? { width: 1280, height: 800 } : undefined,
   };
 }
 

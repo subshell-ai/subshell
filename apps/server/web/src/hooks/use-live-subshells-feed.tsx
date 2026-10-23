@@ -1,8 +1,9 @@
 import { apiFetch } from "@internal/node-admin";
-import type { LiveClientFrame, LiveServerFrame } from "@internal/subshell-protocol";
+import type { LiveClientFrame, LiveServerFrame, PreviewStreamFrame } from "@internal/subshell-protocol";
 import { useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { WORKSPACES_QUERY_KEY } from "@/hooks/use-workspaces";
+import { publishPreviewFrame } from "@/lib/preview-bus";
 import {
   SUBSHELL_QUERY_KEY,
   SUBSHELL_WORKSPACES_QUERY_KEY,
@@ -24,11 +25,22 @@ function send(socket: WebSocket, frame: LiveClientFrame): void {
   socket.send(JSON.stringify(frame));
 }
 
-interface LiveSubshellsFeedValue {
+export interface LiveSubshellsFeedValue {
   /** True while the `/ws/live` socket is open and delivering. */
   connected: boolean;
   /** The most recent snapshot's list, or null until one has arrived. */
   lastList: SubshellView[] | null;
+  /**
+   * Send one client frame on the CURRENT socket.
+   *
+   * The socket lives in the provider's effect closure, so a consumer that
+   * reached for `send(socket, frame)` itself would be holding nothing to send
+   * on. This is the bound half: true means the bytes went to a live socket,
+   * false means there was no socket to take them and the caller keeps its
+   * own truth until the reconnect (the preview watch re-fire is exactly that
+   * caller). Never throws: a dead socket is an answer, not an exception.
+   */
+  send: (frame: LiveClientFrame) => boolean;
   /**
    * Asks the server for these subshells' screens.
    *
@@ -51,9 +63,16 @@ interface LiveSubshellsFeedValue {
 const RECONNECT_MIN_MS = 1_000;
 const RECONNECT_MAX_MS = 3_000;
 
-const FeedContext = createContext<LiveSubshellsFeedValue>({
+/**
+ * The feed context. Exported as a TEST SEAM ONLY (`@internal`): production
+ * reads it through `useLiveSubshellsFeed`, and a page that mounted its own
+ * Provider would fork the one-socket-per-tab rule. Hook tests supply a fake
+ * feed (bound `send`, `connected`) through this without opening a WebSocket.
+ */
+export const FeedContext = createContext<LiveSubshellsFeedValue>({
   connected: false,
   lastList: null,
+  send: () => false,
   requestPreviews: () => {},
 });
 
@@ -98,6 +117,13 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
   // wraps it so consumers never re-render when the socket is replaced.
   const requestRef = useRef<(ids: string[]) => void>(() => {});
   const requestPreviews = useCallback((ids: string[]) => requestRef.current(ids), []);
+  // The same pattern for the generic send: the effect installs a sender bound
+  // to its socket, and the callback below keeps every consumer's identity
+  // stable across reconnects (the preview hook memoizes on it).
+  const sendRef = useRef<(frame: LiveClientFrame) => boolean>(() => false);
+  // Named away from the module-level `send(socket, frame)` helper it wraps:
+  // shadowing that inside the provider would silently retype every effect use.
+  const sendFrame = useCallback((frame: LiveClientFrame) => sendRef.current(frame), []);
 
   useEffect(() => {
     if (!enabled) return;
@@ -155,6 +181,15 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
         if (ids.length > 0 && socket.readyState === WebSocket.OPEN) {
           send(socket, { type: "previews", ids });
         }
+      };
+      // The generic half, bound to THIS socket: a caller (the preview hook)
+      // registers and unregisters subscriptions without ever holding the
+      // socket itself. `false` says "no socket took it" - the caller keeps
+      // its own truth and the re-fire on the next `connected` is the retry.
+      sendRef.current = (frame: LiveClientFrame) => {
+        if (socket.readyState !== WebSocket.OPEN) return false;
+        send(socket, frame);
+        return true;
       };
 
       /**
@@ -237,6 +272,16 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
           // cannot. A cast, since JSON.parse answers `any` — the frames are
           // still checked field by field before anything is applied.
           const frame = JSON.parse(e.data as string) as Partial<LiveFrame>;
+
+          // Screencast frames ride this socket but touch NOTHING in the list
+          // cache: they are keyed by pane, they are JPEGs, and a tab with no
+          // viewer open must hand them to nobody at a cost of zero. The bus
+          // is the pane-keyed door; the viewer subscribes there.
+          if (frame.type === "preview-stream" && frame.id && frame.blob !== undefined) {
+            publishPreviewFrame(frame as PreviewStreamFrame);
+            return;
+          }
+
           const current = queryClient.getQueryData<SubshellView[]>(SUBSHELLS_QUERY_KEY) ?? [];
 
           if (frame.type === "snapshot" && frame.subshells) {
@@ -426,8 +471,8 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
   // fresh object and re-renders the tree through the back door the shared
   // cache write just closed.
   const value = useMemo<LiveSubshellsFeedValue>(
-    () => ({ connected, lastList, requestPreviews }),
-    [connected, lastList, requestPreviews],
+    () => ({ connected, lastList, send: sendFrame, requestPreviews }),
+    [connected, lastList, sendFrame, requestPreviews],
   );
 
   return <FeedContext.Provider value={value}>{children}</FeedContext.Provider>;
