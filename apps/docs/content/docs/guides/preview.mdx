@@ -1,0 +1,58 @@
+---
+title: "Preview"
+description: "Watch a pane's browser, open its dev servers in your own browser, and view a pane's virtual screen."
+---
+
+Preview shows you what a subshell's pane is producing beyond its text: a page a
+browser opened, a web server the pane started, or a screen running on the
+pane's own virtual display. Everything here reads from your dashboard. Nothing
+opens a new port on your machines.
+
+## Before you start
+
+Preview is off until you turn it on for a node. Open the node's page, find the
+**Preview** card, and turn on **Allow preview**. Only the node's owner can
+change it (an admin can, on the server's own machine). Turning it off stops new
+previews; the machine keeps running its panes.
+
+Viewing needs at least view access to the subshell, and opening ports or
+screens needs edit access, same as typing into the pane does.
+
+## Open a port the pane opened
+
+When a pane starts a web server, the port shows up in the **Preview** section
+under the terminal. Choose **Open** and the app appears in a panel inside your
+dashboard, proxied to you as if it were local. Choose a port the pane is
+actually listening on. Only ports the node reports can be opened.
+
+## Watch a browser pane
+
+If the pane runs a browser with remote debugging turned on (Chrome and Chromium
+use `--remote-debugging-port` for it), the browser's port appears with a
+**Watch** button. Press it and the pane's browser pages stream into the panel as
+frames, so you can see what the agent is seeing. Stop it the same way, and stop
+it when you're done. Watching is a live look, not a recording.
+
+## Screen, on Linux
+
+A pane launched with the **Virtual display** option gets its own screen on the
+node. In the Preview section, choose **Screen** and the pane's display appears
+in the panel, updating live. This needs the machine to have Xvfb, x11vnc, and
+xauth installed. Without them the launch says so, by name.
+
+macOS nodes refuse the screen and browser-watch sides of preview the same way.
+The Preview section tells you the machine doesn't support it, and that's the
+expected answer there. Forwarded ports still work on mac.
+
+## If an app rejects the proxied host
+
+The preview proxy rewrites the `Host` header to a loopback address with the
+pane's port, so dev-server host checks see a local request and normally pass.
+An app that still rejects the request is not patched around here, because
+silently rewriting headers would hide the app's own security check. Set the
+app's `allowedHosts`-style option to accept the address it reports instead.
+
+## On a phone
+
+The preview panel is desktop furniture. On a phone layout, **Open** sends the
+port to a new browser tab, and Watch still streams frames.
