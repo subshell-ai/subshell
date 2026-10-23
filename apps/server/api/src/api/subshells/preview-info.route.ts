@@ -55,7 +55,7 @@ const PreviewInfoResponseSchema = t.Object({
   reason: t.Optional(
     t.String({
       description:
-        "Why nodeEnabled is false (preview-disabled, node-held, node-too-old, node-offline, or the node's named refusal); also carries the ports refusal word when nodeEnabled is true and the node itself refused the scan",
+        "Why nodeEnabled is false: a plane word (preview-disabled, node-held, node-too-old, node-offline, node-timeout), the composed node-refused (code) or preview-refused for what the plane cannot name, or the node's own refusal word passed through verbatim; also carries the ports refusal word when nodeEnabled is true and the node itself refused the scan",
     }),
   ),
 });
@@ -71,6 +71,12 @@ function mapPortsFailure(err: unknown): { nodeEnabled: boolean; reason: string }
     // The agent's own refusal, passed through NAMED (the wire-constant
     // habit). `preview-ports-unsupported` keeps `nodeEnabled: true`: the
     // node is online and switched on, it just has no /proc to read.
+    if (err.code === "unsupported") {
+      // The PLANE's own verdict that the connected agent predates the
+      // command: it carries no `detail`, but it says exactly what the
+      // detail-bearing refusal says. Same branch, same reason word.
+      return { nodeEnabled: true, reason: PREVIEW_PORTS_UNSUPPORTED };
+    }
     if (err.detail !== undefined && err.code === "failed") {
       if (err.detail === PREVIEW_PORTS_UNSUPPORTED) return { nodeEnabled: true, reason: PREVIEW_PORTS_UNSUPPORTED };
       return { nodeEnabled: false, reason: err.detail };
@@ -103,11 +109,19 @@ export const previewInfoRoute = new Elysia()
         return { ...EMPTY_PORTS, ...nodeState };
       }
       try {
-        const answer = await getPreviewBroker().getPorts(nodeId, params.id);
+        const broker = getPreviewBroker();
+        const answer = await broker.getPorts(nodeId, params.id);
+        // The launch ack names the screen before the node's own scan
+        // reports it (the bridge is up when the ack flies; a scan can lag
+        // it). The plane's memory may fill a null screen, but it never
+        // masks a live answer and never overwrites a named screenLost: a
+        // death the node reported outranks the plane's memory of the birth.
+        const remembered =
+          answer.screen === null && answer.screenLost === undefined ? broker.displayForPane(params.id) : null;
         return {
           ports: answer.ports,
           cdpPort: answer.cdpPort,
-          screen: answer.screen,
+          screen: remembered && remembered.nodeId === nodeId ? remembered.screen : answer.screen,
           ...(answer.screenLost === undefined ? {} : { screenLost: answer.screenLost }),
           nodeEnabled: true,
         };

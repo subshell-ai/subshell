@@ -191,6 +191,13 @@ export interface PreviewBroker {
   sessionForPane(paneId: string): PreviewSession | null;
   getPorts(nodeId: string, paneId: string): Promise<NodePreviewPortsResult>;
   onDisplayOpened(nodeId: string, paneId: string, screen: NodePreviewScreenWire): void;
+  /**
+   * The screen the plane remembers from this pane's launch ack, or null.
+   * The ack names the display before the node's own ports scan reports it,
+   * and Task 9's info route fills that window from here (a reported
+   * `screenLost` still outranks the memory).
+   */
+  displayForPane(paneId: string): { nodeId: string; screen: NodePreviewScreenWire } | null;
   onDisplayClosed(paneId: string, reason: PreviewCloseReason): Promise<void>;
   closeForPane(paneId: string, reason: PreviewCloseReason): Promise<void>;
   closeAllForNode(nodeId: string, reason: PreviewCloseReason): Promise<void>;
@@ -892,6 +899,10 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
       void auditPreview("node.preview_display.open", nodeId, { paneId, nodeId, ...screen }).catch((err: unknown) =>
         deps.log(`preview display-open audit threw: ${String(err)}`),
       );
+    },
+
+    displayForPane(paneId) {
+      return displaysByPane.get(paneId) ?? null;
     },
 
     async onDisplayClosed(paneId, reason) {

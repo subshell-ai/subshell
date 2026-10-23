@@ -13,6 +13,7 @@ import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { holdConnection, resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
+import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { getPreviewBroker, resetForTests, shutdownPreviewBrokerForTests } from "@/services/preview-broker.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
@@ -171,6 +172,30 @@ describe("preview REST surface (Task 9)", () => {
       .where("userId", "=", userId)
       .executeTakeFirst();
     return Number(r?.n ?? 0);
+  }
+
+  /**
+   * ENABLED api keys owned by `id`. Revocation disables the row rather than
+   * deleting it (`revokeSubshellToken` -> `setApiKeyEnabled(…, false)`), so a
+   * rolled-back create must not change this count even though its key row
+   * still exists, disabled.
+   */
+  function liveKeyCount(userId: string): number {
+    const row = authDatabase()
+      .prepare<{ n: number }, [string]>(`SELECT COUNT(*) AS n FROM apikey WHERE "referenceId" = ? AND enabled = 1`)
+      .get(userId);
+    return Number(row?.n ?? 0);
+  }
+
+  /** The create-path rollback leaves the row terminated, not deleted: read its status. */
+  async function paneStatusByName(userId: string, name: string): Promise<string | undefined> {
+    const r = await db
+      .selectFrom("subshells")
+      .select("status")
+      .where("userId", "=", userId)
+      .where("name", "=", name)
+      .executeTakeFirst();
+    return r?.status;
   }
 
   beforeAll(async () => {
@@ -478,6 +503,49 @@ describe("preview REST surface (Task 9)", () => {
     expect(body.screen).toBeNull();
   });
 
+  it("an agent that predates the ports command answers the mac-leg shape, nodeEnabled TRUE", async () => {
+    // A plane-side `unsupported` (the connected agent predates
+    // preview_ports_get, so there is no `detail` to pass through) means
+    // exactly what the detail-bearing refusal means: the node is online and
+    // switched on, it just cannot scan. Same branch, same reason word. The
+    // seam throws the plane's own verdict because nothing older than the
+    // command vocabulary exists to script.
+    attachLive();
+    const pane = await directRow();
+    resetForTests({
+      send: async () => {
+        throw new NodeRpcError("unsupported", `node "${nodeId}" does not support preview_ports_get`, nodeId);
+      },
+    });
+    const res = await call("GET", `/${pane}/preview`, { cookie: ownerCookie });
+    expect(res.status).toBe(200);
+    const body = await jsonBody(res);
+    expect(body.nodeEnabled).toBe(true);
+    expect(body.reason).toBe("preview-ports-unsupported");
+    expect(body.ports).toEqual([]);
+    expect(body.cdpPort).toBeNull();
+    expect(body.screen).toBeNull();
+  });
+
+  it("a node failure the plane cannot name still answers the composed node-refused reason", async () => {
+    // `failed` with no detail sits outside every named branch, so the
+    // composed `node-refused (failed)` is what a polling page reads. It is
+    // now DOCUMENTED in the schema description, which is what this row
+    // pins: the composition stays honest, and a named-word refactor that
+    // starts swallowing detail would flip this row red.
+    attachLive();
+    const pane = await directRow();
+    resetForTests({
+      send: async () => {
+        throw new NodeRpcError("failed", `node "${nodeId}" reported: something the wire did not name`, nodeId);
+      },
+    });
+    const body = await jsonBody(await call("GET", `/${pane}/preview`, { cookie: ownerCookie }));
+    expect(body.nodeEnabled).toBe(false);
+    expect(body.reason).toBe("node-refused (failed)");
+    expect(body.ports).toEqual([]);
+  });
+
   it("a display that died mid-pane passes screenLost named, paired with screen null", async () => {
     // Spec §9: the marker arrives from the node and passes through named,
     // never inferred. A route that swallowed it would render silence where
@@ -626,13 +694,52 @@ describe("preview REST surface (Task 9)", () => {
     expect(body.message).toMatch(/offline|not connected|gone/i);
   });
 
+  it("watch whose preview_open times out is a 409 naming a retry, never a 500", async () => {
+    // The node-state pre-gate cannot see this: a stale SPA POSTs a watch at
+    // a node that went slow after its last info poll, and the plain Error a
+    // timeout carries would render a 500. Mirror of open's timeout arm
+    // (same sentence shape, the named retry). The seam throws the plane's
+    // own verdict because waiting out the real RPC budget to prove a
+    // mapping is a test spending seconds it has not earned.
+    attachLive();
+    const pane = await directRow();
+    resetForTests({
+      send: async () => {
+        throw new NodeRpcError("timeout", `node "${nodeId}" did not answer preview_open in time`, nodeId);
+      },
+    });
+    const res = await call("POST", `/${pane}/preview/watch`, { cookie: ownerCookie, body: { port: 3000 } });
+    expect(res.status).toBe(409);
+    const body = await errorBody(res);
+    expect(body.message).toMatch(/did not answer the preview watch in time/);
+    expect(body.message).toMatch(/try again/i);
+  });
+
+  it("watch against an agent that predates the preview command is a 409 naming the update, never a 500", async () => {
+    // The other half of the stale-SPA race: an older node answers the plane
+    // with `unsupported`, which carries no status either. Same 409 shape as
+    // open's, naming the remedy (update the node).
+    attachLive();
+    const pane = await directRow();
+    resetForTests({
+      send: async () => {
+        throw new NodeRpcError("unsupported", `node "${nodeId}" does not support preview_open`, nodeId);
+      },
+    });
+    const res = await call("POST", `/${pane}/preview/watch`, { cookie: ownerCookie, body: { port: 3000 } });
+    expect(res.status).toBe(409);
+    const body = await errorBody(res);
+    expect(body.message).toMatch(/does not support preview yet/);
+    expect(body.message).toMatch(/update the node/i);
+  });
+
   /* ---------------------------------------------------------------- */
   /* the create path's screen field                                   */
   /* ---------------------------------------------------------------- */
 
   /** Install the harness so the create path reaches its node resolution. */
-  async function makeLaunchable(): Promise<void> {
-    attachLive();
+  async function makeLaunchable(overrides: ScriptedHandlers = {}): Promise<void> {
+    attachLive(overrides);
     await nodes.applyInventory(
       nodeId,
       JSON.stringify([{ harnessId: "claude-code", installed: true, binaryPath: "/usr/bin/claude" }]),
@@ -706,6 +813,118 @@ describe("preview REST surface (Task 9)", () => {
     expect(res.status).toBe(400);
     expect((await errorBody(res)).code).toBe(BackendErrorCodes.INPUT_VALIDATION_ERROR);
     expect(sim.countOf("launch")).toBe(0);
+  });
+
+  // The node-side half of the screen gate: refusals that arrive FROM the
+  // wire, which the service preflight cannot see (an older node, or a
+  // switch flipped mid-race). Each row's `echo` says whether the remedy
+  // matcher appends the node's own detail: it does only for a SUFFIXED form
+  // (the missing-binaries pair). The bare word and the node-off word match
+  // their keys exactly, and the node-off key already IS its remedy string,
+  // so neither is appended to.
+  const SCREEN_REFUSALS: ReadonlyArray<readonly [string, RegExp, boolean]> = [
+    ["preview-display-unsupported", /hosts no X server stack/, false],
+    ["preview-display-missing-binaries: x11vnc", /missing one of the display binaries/, true],
+    ["preview-node-off: turn on Preview for this node", /Turn on Preview for this node/i, false],
+  ];
+
+  it.each(SCREEN_REFUSALS)(
+    "a node-side screen refusal %s is a 400 with the remedy, and the create rolls back",
+    async (detail, remedy, echo) => {
+      // The DB switch stays ON (beforeEach set it), so the preflight passes
+      // and the refusal only ever comes from the scripted launch itself.
+      // One `launch` flying is the contrast with the preflight row's zero.
+      await makeLaunchable({ launch: () => new Error(detail) });
+      const name = `pv refused ${detail.slice(0, 22)}`;
+      const keysBefore = liveKeyCount(ownerId);
+      const res = await call("POST", "", {
+        cookie: ownerCookie,
+        body: await createBody({ name, screen: { width: 1280, height: 800 } }),
+      });
+      expect(res.status).toBe(400);
+      const body = await errorBody(res);
+      expect(body.message).toMatch(remedy);
+      if (echo) {
+        // The node's word rides along in the message so an operator can
+        // grep exactly what the agent said.
+        expect(body.message).toContain(detail);
+      }
+      expect(sim.countOf("launch")).toBe(1);
+      // The manager's rollback: best-effort kill, the row ends TERMINATED
+      // (it was written before the wire, so the row stays, retired), and the
+      // pane's token stops being an enabled key.
+      expect(await paneStatusByName(ownerId, name)).toBe("terminated");
+      expect(liveKeyCount(ownerId)).toBe(keysBefore);
+    },
+  );
+
+  it("a malformed launch ack rolls the create back and answers the plain error, never a false 200", async () => {
+    // `{ screen: "junk" }` fails the launch grammar: the plane cannot say
+    // what screen the pane has, so it must not claim the pane launched. The
+    // posture is the plain Error (500 through the handler) plus the full
+    // rollback; pinned so a rewording of the ack path can neither turn the
+    // breach into a success nor leak a live row with a live token.
+    await makeLaunchable({ launch: () => ({ screen: "junk" }) });
+    const name = "pv junk ack";
+    const keysBefore = liveKeyCount(ownerId);
+    const res = await call("POST", "", {
+      cookie: ownerCookie,
+      body: await createBody({ name, screen: { width: 1280, height: 800 } }),
+    });
+    expect(res.status).toBe(500);
+    expect((await errorBody(res)).code).toBe(BackendErrorCodes.INTERNAL_SERVER_ERROR);
+    expect(await paneStatusByName(ownerId, name)).toBe("terminated");
+    expect(liveKeyCount(ownerId)).toBe(keysBefore);
+  });
+
+  it("the launch ack's screen echo arms the info answer before the ports scan reports it", async () => {
+    // The VNC bridge is up when the ack flies; the next preview_ports_get
+    // may not know the screen yet, so the broker's launch memory answers
+    // the info poll inside that window. The memory holds the ack verbatim,
+    // which is also the spy that onDisplayOpened fired.
+    await makeLaunchable({
+      launch: () => ({ screen: { display: ":90", rfbPort: 5910 } }),
+      preview_ports_get: () => ({ ports: [], cdpPort: null, screen: null }),
+    });
+    const res = await call("POST", "", {
+      cookie: ownerCookie,
+      body: await createBody({ name: "pv ack echo", screen: { width: 1280, height: 800 } }),
+    });
+    expect(res.status).toBe(200);
+    const created = String((await jsonBody(res)).id);
+    createdSubshellIds.push(created);
+    expect(getPreviewBroker().displayForPane(created)).toEqual({
+      nodeId,
+      screen: { display: ":90", rfbPort: 5910 },
+    });
+    const body = await jsonBody(await call("GET", `/${created}/preview`, { cookie: ownerCookie }));
+    expect(body.screen).toEqual({ display: ":90", rfbPort: 5910 });
+    expect(body.screenLost).toBeUndefined();
+  });
+
+  it("the launch memory never masks a screenLost the node reported", async () => {
+    // A death the node reported outranks the plane's memory of the birth:
+    // once the scan says the display process died, info keeps answering
+    // screen null with the named marker, not the remembered screen. Without
+    // this leg the overlay could show a dead screen forever.
+    await makeLaunchable({
+      launch: () => ({ screen: { display: ":90", rfbPort: 5910 } }),
+      preview_ports_get: () => ({ ports: [], cdpPort: null, screen: null }),
+    });
+    const res = await call("POST", "", {
+      cookie: ownerCookie,
+      body: await createBody({ name: "pv ack then lost", screen: { width: 1280, height: 800 } }),
+    });
+    expect(res.status).toBe(200);
+    const created = String((await jsonBody(res)).id);
+    createdSubshellIds.push(created);
+    // Same node identity, new answers: the scan now reports the x11vnc died.
+    attachLive({
+      preview_ports_get: () => ({ ports: [], cdpPort: null, screen: null, screenLost: "x11vnc" }),
+    });
+    const body = await jsonBody(await call("GET", `/${created}/preview`, { cookie: ownerCookie }));
+    expect(body.screen).toBeNull();
+    expect(body.screenLost).toBe("x11vnc");
   });
 
   /* ---------------------------------------------------------------- */
