@@ -102,6 +102,36 @@ afterEach(() => {
   globalThis.fetch = fetchDelegator;
 });
 
+/**
+ * A CONSOLE.ERROR OBSERVER SLOT, installed here for the same reason the fetch
+ * delegator is: noVNC's logging module binds `console.error` at its own module
+ * evaluation (`core/util/logging.js` runs `Error = console.error.bind(window.
+ * console)` at import), so a test that swaps the global afterward never sees a
+ * line that already-bound module writes. This slot is in place before any test
+ * file imports novnc, and it always FORWARDS to the real function; an observer
+ * only watches. That keeps the one case worth seeing on the terminal: an
+ * unexpected line from noVNC still prints while its test fails over it.
+ *
+ * The per-test reset mirrors the fetch and URL resets above: a mid-test throw
+ * must not walk an observer forward into the serial run's later files.
+ */
+type ConsoleErrorObserver = ((args: unknown[]) => void) | null;
+let consoleErrorObserver: ConsoleErrorObserver = null;
+const underlyingConsoleError = console.error.bind(console) as (...args: unknown[]) => void;
+console.error = (...args: unknown[]): void => {
+  consoleErrorObserver?.(args);
+  underlyingConsoleError(...args);
+};
+
+/** Watches (never swallows) `console.error` for the calling test. Cleared after every test. */
+export function setConsoleErrorObserver(observer: ConsoleErrorObserver): void {
+  consoleErrorObserver = observer;
+}
+
+afterEach(() => {
+  consoleErrorObserver = null;
+});
+
 const globals = globalThis as Record<string, unknown>;
 // `__BUILD_ID__` is a Vite `define`: the real build inlines it at compile
 // time, so under bun test the global simply is not there. It is typed as a
