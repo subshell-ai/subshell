@@ -82,25 +82,60 @@ separate from this feature.
 
 ### Correction (2026-10-23, task 15): it was the leg driver, and there is no ticket
 
-This paragraph was wrong twice over, settled by a clean single-send matrix
-against a fresh plane plus an enrolled container node (full evidence,
-including the capture-pane truth columns, in
-`.superpowers/sdd/2026-10-21-pane-preview/task-15-report.md`). Single sends
-are byte-exact across every seam: REST input, exec, WS keystroke frames with
-and without ids, `cat`, `cat > file`, and multi-kilobyte payloads verified
-against the written file's bytes. The pane's bash also does have line
-editing (`$-` carries `s`, `bind -p` answers), so the "no line editor"
-framing was a wrong guess. What actually corrupted the transcript is
-`ensureTyped` itself: its retries land while the previous attempt is still
-talking, and a failed background server's stderr banner and bash's job-status
-lines (which reprint the whole command) land between the echoed characters
-of the next copy. One captured row ends `...new Text`, a later row resumes
-`xtEncoder...`, and quoting the command across that gap yields exactly the
-`TextxtEncoder` and `typext/plain` fragments recorded above. A retype onto a
-line still holding unsubmitted characters also glues two whole copies onto
-one prompt line, which mangles the tokenization but never the bytes: in every
-reproduction the commands executed correctly. No product change; the ticket
-this paragraph promised is closed here.
+This paragraph was wrong twice, and it owes no ticket. The pane's bash does
+have a line editor (`$-` carries `i`, and `bind -p` answers with the full
+emacs bindings). And nothing corrupted the bytes: a matrix of ~100 clean
+single sends against a fresh plane and an enrolled container node (104
+records, each with its `tmux capture-pane` truth column) is byte-exact
+across every seam, REST input, exec, WS keystroke frames with and without
+ids, `cat`, `cat > file`, and kilobyte-scale payloads verified against the
+written file's bytes.
+
+The culprit is the leg's retype helper, `ensureTyped`, which every script
+used before trusting the input path:
+
+```js
+async function ensureTyped(paneId, text, aliveCmd, label) {
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    await (await restInput(paneId, text))();
+    await sleep(2500 + attempt * 500);
+    const alive = await sh(aliveCmd);   // docker-exec pgrep
+    if (alive.trim()) return true;
+    log(`input ${label} attempt ${attempt} did not stick, retyping`);
+  }
+  return false;
+}
+```
+
+When the alive-check fails it types the whole command again while the
+previous attempt is still talking, and a dying background server's stderr
+banner lands between the echoed characters of the next copy. Captured live
+from the leg's condition (a bound port, the retype 2.6 s later): the copy
+resumes after the failed server's banner row, and the screen's 80-column
+wrap splits `TextEncoder` itself (`...new Response(new T` on one row,
+`xtEncoder...` on the next). Bash's job-status line reprints the whole
+command too, so the same text shows two or three times on one screen.
+
+```
+      at /root/[eval]:1:5
+
+Bun v1.4.4 (Linux x64)
+xtEncoder().encode("ok " + Date.now()),{headers:{"content-type":"text/plain","s
+et-cookie":"t=1"}})})' &
+[3] 267
+[2]   Exit 1                  bun -e 'Bun.serve({port:45321,fetch:()=>new Respon
+```
+
+Quoting the command across the gap where a wrap or the banner split a word
+is what manufactures the doubled fragments: `...new Text` before the gap
+plus `xtEncoder...` after it reads as one line as `TextxtEncoder`, and
+`content-ty` before the gap plus `pext/plain` after it as `typext/plain`.
+The bytes were never the problem. Every copy in the reproduction ran as its
+full command (one server bound the port, the next died of `EADDRINUSE`), and
+a retype onto a line still holding unsubmitted characters glues two whole
+copies onto one prompt line: each copy is byte-complete, though the merged
+argument list mangles what the command prints. No product change; the
+ticket this paragraph promised is closed here.
 
 ## Display lifetime (expected, logged so the next reader doesn't file it)
 
