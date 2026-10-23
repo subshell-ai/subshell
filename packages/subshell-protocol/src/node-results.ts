@@ -10,9 +10,15 @@
  * history of the pre-restart numbering is in git; the numbering itself
  * restarted at 1 on 2026-09-09 — see `NODE_PROTOCOL_VERSION`.)
  *
- * `launch` / `terminate` / `kill` / `input` / `resize` / `tail_start` /
- * `tail_stop` / `remove_paths` / `inventory` / `ping` carry no data — their
+ * `terminate` / `kill` / `input` / `resize` / `tail_start` / `tail_stop` /
+ * `remove_paths` / `inventory` / `ping` carry no data — their
  * success result is just `{ ok: true }`, so they need no validator here.
+ * `launch` left that list at protocol 23: it may echo the `screen` it
+ * allocated (spec 2026-10-21 §4), so it has {@link parseNodeLaunchResult},
+ * whose common answer is the one with no echo at all. `set_preview_enabled`
+ * joins `set_ssh_enabled` in firing best-effort with an ack nobody reads:
+ * the plane's truth is its own DB row, and a dataless command has no entry
+ * here.
  *
  * Validators are hand-rolled in the `parseNodeEvent` style (this package stays
  * schema-lib-free); a NON-null return is safe to cast. The primitives the
@@ -25,6 +31,7 @@ import { parseSshConnectionSnapshot } from "./ssh-config.js";
 import { isSshErrorCode } from "./ssh-errors.js";
 import { isSshFingerprint, isSshKnownHostsPinLine, isSshPaneId } from "./ssh-frames.js";
 import {
+  PREVIEW_REF_RE,
   SSH_EXEC_RESULT_MAX_CHARS,
   SSH_MAX_DISCOVERED_ALIASES,
   SSH_MAX_HOST_KEY_LINES,
@@ -767,4 +774,173 @@ export function parseNodeSshExecStatus(data: unknown): NodeSshExecStatusResult |
 function isExecStreamStr(value: unknown): value is string {
   if (!isStr(value) || value.length > SSH_EXEC_RESULT_MAX_CHARS) return false;
   return !/\p{Cc}/u.test(value.replace(/[\n\r\t]/g, ""));
+}
+
+/* ------------------------------------------------------------------ */
+/* preview (pane-preview spec 2026-10-21 §4)                            */
+/* ------------------------------------------------------------------ */
+
+/** The virtual display a node allocated: named on the launch ack, reported again by the ports walk. */
+export interface NodePreviewScreenWire {
+  /** X display name the node allocated (e.g. `:1`). */
+  display: string;
+  /** rfb (VNC) port the node started for this display. */
+  rfbPort: number;
+}
+
+/** Which half of the screen machinery died after the display came up (spec §9; Task 7's child-exit watch is the only writer). */
+export type NodePreviewScreenLost = "Xvfb" | "x11vnc";
+
+/** A display pair is complete or it is not an answer: a half-named screen is worse than none. */
+function parsePreviewScreenWire(value: unknown): NodePreviewScreenWire | null {
+  if (!isRecord(value) || !isNonEmptyStr(value.display)) return null;
+  if (!isInt(value.rfbPort) || (value.rfbPort as number) < 1 || (value.rfbPort as number) > 65_535) return null;
+  return { display: value.display, rfbPort: value.rfbPort as number };
+}
+
+/**
+ * `preview_open`'s answer, by kind: the forward lane acknowledges the
+ * registration (`pending: true` is the only shape that means "dialing"), and
+ * the screencast reports how many subscribers it has after the join, so the
+ * plane's copy of the per-bridge cap and the node's agree without a second
+ * round trip.
+ */
+export type NodePreviewOpenResult = { ref: string; pending: true } | { ref: string; subscribers: number };
+
+/**
+ * Validates and narrows a `preview_open` answer. The two kinds answer
+ * differently and the answer names its own kind: `pending: false` is not a
+ * lane that failed to dial (that is an `ok:false` refusal), it is a value
+ * this grammar does not have.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed answer, or null when malformed
+ */
+export function parseNodePreviewOpenResult(data: unknown): NodePreviewOpenResult | null {
+  if (!isRecord(data) || !isStr(data.ref) || !PREVIEW_REF_RE.test(data.ref)) return null;
+  if (data.pending === true) return { ref: data.ref, pending: true };
+  if (isInt(data.subscribers) && (data.subscribers as number) >= 0) {
+    return { ref: data.ref, subscribers: data.subscribers as number };
+  }
+  return null;
+}
+
+/** `preview_close`'s answer: whether a lane actually died from this command. */
+export interface NodePreviewCloseResult {
+  /** Echo of the lane ref the command named. */
+  ref: string;
+  /** False means the ref matched no lane - already gone, which is an answer, not a failure. */
+  closed: boolean;
+}
+
+/**
+ * Validates and narrows a `preview_close` answer (the lane-teardown echo).
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed answer, or null when malformed
+ */
+export function parseNodePreviewCloseResult(data: unknown): NodePreviewCloseResult | null {
+  if (!isRecord(data) || !isStr(data.ref) || !PREVIEW_REF_RE.test(data.ref)) return null;
+  if (!isBool(data.closed)) return null;
+  return { ref: data.ref, closed: data.closed };
+}
+
+/** One listening socket of the pane's process tree (spec §4's ports answer rows). */
+export interface NodePreviewPortWire {
+  /** Socket family, as the walker found it; the proxy dials both spellings of loopback. */
+  proto: "tcp" | "tcp6";
+  /** Listening port. */
+  port: number;
+  /** Owning pid inside the pane's process tree. */
+  pid: number;
+}
+
+/**
+ * `preview_ports_get`'s one-pass answer (spec §4): what the pane's process
+ * tree is listening on, the CDP port if one is open, and the display the node
+ * allocated if the pane has one. `screen` is REQUIRED and nullable, never
+ * absent: a walker that forgot the field is malformed, a machine with no
+ * display says so with null. `screenLost` rides ONLY beside that null (spec
+ * §9): it reports WHICH half of the machinery died, so the viewer copy can
+ * name the loss instead of showing a dead frame.
+ */
+export interface NodePreviewPortsResult {
+  /** One row per listening socket of the pane's tree; empty is a real answer. */
+  ports: NodePreviewPortWire[];
+  /** The open devtools port, or null when nothing in the tree speaks CDP. */
+  cdpPort: number | null;
+  /** The allocated display, or null when the pane has none (or it died). */
+  screen: NodePreviewScreenWire | null;
+  /** Set only when `screen` is null: the display process that died since it came up. */
+  screenLost?: NodePreviewScreenLost;
+}
+
+/**
+ * Validates and narrows a `preview_ports_get` answer. The hand-rolled style
+ * REBUILDS what it validates, so `screenLost` is copied explicitly here: a
+ * validator that never names the member would strip it silently between
+ * Task 7's writer and Task 9's reader, green at every unit layer.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed answer, or null when malformed
+ */
+export function parseNodePreviewPortsResult(data: unknown): NodePreviewPortsResult | null {
+  if (!isRecord(data) || !Array.isArray(data.ports)) return null;
+  const ports: NodePreviewPortWire[] = [];
+  for (const p of data.ports) {
+    if (!isRecord(p) || (p.proto !== "tcp" && p.proto !== "tcp6")) return null;
+    if (!isInt(p.port) || (p.port as number) < 1 || (p.port as number) > 65_535) return null;
+    if (!isInt(p.pid) || (p.pid as number) < 0) return null;
+    ports.push({ proto: p.proto, port: p.port as number, pid: p.pid as number });
+  }
+  if (
+    !(
+      data.cdpPort === null ||
+      (isInt(data.cdpPort) && (data.cdpPort as number) >= 1 && (data.cdpPort as number) <= 65_535)
+    )
+  )
+    return null;
+  if (!("screen" in data)) return null;
+  let screen: NodePreviewScreenWire | null = null;
+  if (data.screen !== null) {
+    const parsed = parsePreviewScreenWire(data.screen);
+    if (parsed === null) return null;
+    screen = parsed;
+  }
+  if ("screenLost" in data) {
+    // The pairing is law (spec §9): the marker reports the ABSENCE of a
+    // screen, so an answer carrying both claims both.
+    if (screen !== null) return null;
+    if (data.screenLost !== "Xvfb" && data.screenLost !== "x11vnc") return null;
+  }
+  return {
+    ports,
+    cdpPort: data.cdpPort === null ? null : (data.cdpPort as number),
+    screen,
+    ...("screenLost" in data ? { screenLost: data.screenLost as NodePreviewScreenLost } : {}),
+  };
+}
+
+/**
+ * `launch`'s answer (protocol 23): the virtual display it allocated, when it
+ * allocated one. The plane audits the display from the ack because a
+ * post-ack `getPorts` would race the 5 s cache on a pane that just started
+ * (spec §4). Validated on BOTH ends per this file's header contract.
+ */
+export interface NodeLaunchResult {
+  /** The display the node started the pane on; absent means the launch asked for none (or was refused, which answers `ok:false`). */
+  screen?: NodePreviewScreenWire;
+}
+
+/**
+ * Validates and narrows a `launch` answer. Absent, null, and `{}` all read
+ * the common case: no screen was asked for, so nothing echoes. A present
+ * `screen` must be a complete pair, because the plane writes what it trusts.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed answer, or null when malformed
+ */
+export function parseNodeLaunchResult(data: unknown): NodeLaunchResult | null {
+  if (data === undefined || data === null) return {};
+  if (!isRecord(data)) return null;
+  if (data.screen === undefined) return {};
+  const screen = parsePreviewScreenWire(data.screen);
+  if (screen === null) return null;
+  return { screen };
 }

@@ -2,7 +2,16 @@ import { BASE64_RE, isBool, isInt, isNum, isRecord, isStr, isStrArray, isStringM
 import type { JsonValue } from "./json.js";
 import { type NodeSystemSpecs, parseNodeSystemSpecs } from "./node-system-specs.js";
 import { isSshFingerprint, parseSshNodeCommandBody, type SshNodeCommandBody } from "./ssh-frames.js";
-import { SSH_CONFIG_FILE_MAX_BYTES, SSH_PATH_MAX_CHARS, SSH_RELAY_FRAME_MAX_BYTES } from "./ssh-limits.js";
+import {
+  PREVIEW_FPS_GRAMMAR_MAX,
+  PREVIEW_FRAME_MAX_BYTES,
+  PREVIEW_LIFETIME_MAX_MS,
+  PREVIEW_LIFETIME_MIN_MS,
+  PREVIEW_REF_RE,
+  SSH_CONFIG_FILE_MAX_BYTES,
+  SSH_PATH_MAX_CHARS,
+  SSH_RELAY_FRAME_MAX_BYTES,
+} from "./ssh-limits.js";
 
 /**
  * Node ↔ control-plane wire contract (spec 2026-08-31 §3).
@@ -190,8 +199,22 @@ import { SSH_CONFIG_FILE_MAX_BYTES, SSH_PATH_MAX_CHARS, SSH_RELAY_FRAME_MAX_BYTE
  *
  * **21 -> 22:** a launch may carry bounded companion integration files beside
  * its MCP config, which only nodes that materialize them can run.
+ *
+ * **22 -> 23:** the preview surface. `preview_open` / `preview_close` signed
+ * commands and the `preview_data` link frame carry a gated byte lane between
+ * a dashboard viewer and a pane's loopback port (forward and CDP bridge
+ * kinds); the `preview_stream` event carries read-only screencast frames;
+ * `preview_ports_get` reports a pane's listening ports and CDP/screen hints;
+ * `set_preview_enabled` mirrors a per-machine owner switch, and the
+ * `preview_enabled` event reports a mirror that moved underneath the
+ * connection (ssh's `ssh_enabled` twin); a launch may carry a `screen`
+ * request. A lane the node ends on its own (target process gone, idle timer,
+ * revoked switch) says so through the `preview_closed` event, so the
+ * close-reason set includes `target-gone` (plan decision 3). An agent below
+ * 23 understands none of it, and the exact-match gate is what refuses pairing
+ * before any of it is sent.
  */
-export const NODE_PROTOCOL_VERSION = 22;
+export const NODE_PROTOCOL_VERSION = 23;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an
@@ -834,6 +857,8 @@ export type NodeCommandBody =
       cols?: number;
       /** Initial terminal geometry */
       rows?: number;
+      /** Allocates a virtual display and starts the pane on it. Linux only; a machine with the switch off refuses before spawning (spec §4). */
+      screen?: { width: number; height: number };
       /**
        * Revive parity (phase-2): when true the agent downgrades a log-attach
        * failure (subshells-dir mkdir + pipe-pane) to a logged note and still
@@ -1269,7 +1294,15 @@ export type NodeCommandBody =
   // The SSH commands: three members folded in as one union member so the SSH
   // grammar lives in `ssh-frames.ts` beside the commands it narrows; their
   // answers are validated by the ssh result parsers in `node-results.ts`.
-  | SshNodeCommandBody;
+  | SshNodeCommandBody
+  // The preview surface (protocol 23, spec 2026-10-21 §4): lane open/close,
+  // the one-pass ports walk, and the owner-switch mirror. Their answers are
+  // validated by the preview result parsers in `node-results.ts`;
+  // `set_preview_enabled`'s ack is never read (the ssh doctrine).
+  | PreviewOpenCommand
+  | PreviewCloseCommand
+  | PreviewPortsGetCommand
+  | SetPreviewEnabledCommand;
 
 /**
  * One node's maintenance state, as it travels in either direction.
@@ -1315,6 +1348,28 @@ export interface NodeSshEnabledWire {
 
 /** A {@link NodeSshEnabledWire}, or null when the value is not one. */
 export function parseNodeSshEnabled(value: unknown): NodeSshEnabledWire | null {
+  if (!isRecord(value) || !isBool(value.on) || !isStr(value.changedAt)) return null;
+  return { on: value.on, changedAt: value.changedAt };
+}
+
+/**
+ * One machine's preview capability, as it travels in either direction (spec
+ * 2026-10-21 §4): the same `{ on, changedAt }` shape as maintenance and the
+ * ssh gate, and the same division of authorship. `on` means this machine may
+ * serve preview lanes, and only the plane writes it; `changedAt` rides
+ * verbatim so a relay never outranks the decision it carries. Nothing here
+ * compares stamps: the plane is authoritative, and every disagreement ends
+ * with the plane's value pushed down.
+ */
+export interface NodePreviewEnabledWire {
+  /** True = this machine may serve preview lanes. */
+  on: boolean;
+  /** ISO 8601 stamp of the write that produced this value. */
+  changedAt: string;
+}
+
+/** A {@link NodePreviewEnabledWire}, or null when the value is not one. */
+export function parseNodePreviewEnabled(value: unknown): NodePreviewEnabledWire | null {
   if (!isRecord(value) || !isBool(value.on) || !isStr(value.changedAt)) return null;
   return { on: value.on, changedAt: value.changedAt };
 }
@@ -1552,6 +1607,131 @@ export function relayFrameOverCap(value: unknown): boolean {
   return relayFrameRefIfOverCap(value) !== null;
 }
 
+/* ------------------------------------------------------------------ */
+/* preview surface (pane-preview spec 2026-10-21 §4)                    */
+/* ------------------------------------------------------------------ */
+
+/** What a preview_open asks for: the raw loopback lane, or the read-only CDP screencast (spec §4). */
+export type PreviewLaneKind = "forward" | "screencast";
+
+/** Opens one preview lane inside the pane's node. */
+export interface PreviewOpenCommand {
+  type: "preview_open";
+  /** Opaque lane ref: 32 lowercase hex, also the proxy path secret family. */
+  ref: string;
+  kind: PreviewLaneKind;
+  /** Attribution + liveness check on the node, never a routing target. */
+  paneId: string;
+  /** Dial target (forward) or devtools port (screencast). The node dials loopback only. */
+  port: number;
+  /** Screencast only; the bridge clamps it to [1, 5] and defaults it. Forward forbids it. */
+  fps?: number;
+  /** Self-expiry: the node closes the lane by this deadline whatever the plane does. */
+  lifetimeMs: number;
+}
+
+/** Why a lane or bridge ended. Closed set; the UI maps them (spec §6/§9). */
+export type PreviewCloseReason =
+  | "viewer-left"
+  | "pane-gone"
+  | "node-dropped"
+  | "slow-link"
+  | "over-cap"
+  | "idle"
+  | "revoked"
+  | "not-cdp"
+  | "target-gone";
+
+/** The runtime list beside the union, per the enums rule: one edit site, and the tests' census iterates it. */
+export const PREVIEW_CLOSE_REASONS: readonly PreviewCloseReason[] = [
+  "viewer-left",
+  "pane-gone",
+  "node-dropped",
+  "slow-link",
+  "over-cap",
+  "idle",
+  "revoked",
+  "not-cdp",
+  "target-gone",
+];
+
+/** Whether `value` is one of the close reasons (narrows to the type). */
+function isPreviewCloseReason(value: unknown): value is PreviewCloseReason {
+  return (PREVIEW_CLOSE_REASONS as readonly unknown[]).includes(value);
+}
+
+/** Lane teardown. Never access-gated (the set_ssh_enabled doctrine); an unknown ref answers closed:false. */
+export interface PreviewCloseCommand {
+  type: "preview_close";
+  ref: string;
+  reason: PreviewCloseReason;
+}
+
+/** One pass: what the pane's process tree is listening on, plus the CDP and display hints (spec §4). */
+export interface PreviewPortsGetCommand {
+  type: "preview_ports_get";
+  paneId: string;
+}
+
+/** The per-machine owner switch, plane sole author. Mirrors set_ssh_enabled's shape (decision 5). */
+export interface SetPreviewEnabledCommand {
+  type: "set_preview_enabled";
+  on: boolean;
+  changedAt: string;
+}
+
+/**
+ * The preview commands as a runtime list (the SSH_COMMAND_TYPES precedent):
+ * the pinned census test iterates it, so a fifth preview command must be
+ * added HERE as well as to the dispatcher, or that test fails.
+ */
+export const PREVIEW_COMMAND_TYPES = [
+  "preview_open",
+  "preview_close",
+  "preview_ports_get",
+  "set_preview_enabled",
+] as const;
+
+/** The preview lane frame: one capped base64 blob, both legs, parsed like RelayFrame (no seq; order is the link's). */
+export interface PreviewDataFrame {
+  type: "preview_data";
+  ref: string;
+  /** in = toward the node's dialled socket, out = back toward the plane. */
+  dir: "in" | "out";
+  blob: string;
+}
+
+/**
+ * Validates and narrows a preview lane frame (raw JSON text or the already-
+ * parsed object, same intake as {@link parseRelayFrame}). One capped base64
+ * blob per frame keyed by the lane ref, and NO seq: lane order is the link's
+ * order, so a frame is identified by its ref and its position in the stream,
+ * never a per-frame counter (spec §4). The blob is opaque to the grammar -
+ * SHAPE and the RAW-byte cap are law (spec §4); what the bytes mean belongs
+ * to the lane's endpoint. An over-cap blob is refused here, quietly: unlike
+ * the relay's sealed session there is no named close the grammar owes, the
+ * broker (Task 8) owns lane lifecycle either way.
+ *
+ * @param raw - candidate frame as received
+ * @returns the narrowed frame, or null when malformed / not a lane frame
+ */
+export function parsePreviewFrame(raw: string | object): PreviewDataFrame | null {
+  let value: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      value = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!isRecord(value) || value.type !== "preview_data") return null;
+  if (!isStr(value.ref) || !PREVIEW_REF_RE.test(value.ref)) return null;
+  if (value.dir !== "in" && value.dir !== "out") return null;
+  if (!isStr(value.blob) || value.blob.length === 0 || !BASE64_RE.test(value.blob)) return null;
+  if (base64RawLength(value.blob) > PREVIEW_FRAME_MAX_BYTES) return null;
+  return { type: "preview_data", ref: value.ref, dir: value.dir, blob: value.blob };
+}
+
 export type NodeEvent =
   | {
       type: "ready";
@@ -1618,6 +1798,17 @@ export type NodeEvent =
        * disagreement from its own row on the very same `ready`.
        */
       sshEnabled?: NodeSshEnabledWire;
+      /**
+       * This machine's preview mirror, as its file reads at connect (spec
+       * 2026-10-21 §4). Absent means the node has no file, which for preview
+       * reads as REFUSED (fail-closed, ssh's rule).
+       *
+       * Dropped rather than fatal when malformed, exactly like `sshEnabled`:
+       * the plane answers silence with its row (a row that says on pushes
+       * down), so a bad mirror cannot strand a machine on the wrong side of
+       * the switch.
+       */
+      previewEnabled?: NodePreviewEnabledWire;
     }
   | {
       /**
@@ -1697,7 +1888,58 @@ export type NodeEvent =
    * same shape with {@link parseRelayFrame} directly; "event" here names the
    * inbound-to-plane position, not a claim that the node volunteered it.
    */
-  | RelayFrame;
+  | RelayFrame
+  /**
+   * The preview lane leg (spec 2026-10-21 §4). Folded in for the PLANE's
+   * inbound path exactly like {@link RelayFrame}: a lane's `out` leg arrives
+   * on an agent socket, where `parseNodeEvent` is the one kind dispatcher.
+   * On the plane-to-node leg the node parses the same shape with
+   * {@link parsePreviewFrame} directly.
+   */
+  | PreviewDataFrame
+  | {
+      /**
+       * One screencast frame for a lane (spec §4). The bridge (Task 6)
+       * produces these from the pane's CDP screencast; the plane fans them
+       * out read-only (Task 8). `seq` is the bridge's own frame counter for
+       * gap reporting, NOT the anti-replay slot the relay's is: the socket
+       * already authenticates the machine.
+       */
+      type: "preview_stream";
+      ref: string;
+      seq: number;
+      w: number;
+      h: number;
+      ts: number;
+      blob: string;
+    }
+  | {
+      /**
+       * A lane or bridge the NODE ended on its own (plan decision 3): target
+       * process gone, idle timer, revoked switch. Without this event a lane
+       * that died machine-side would leave every viewer waiting on a stream
+       * nothing will ever send again. The plane's own closes need no report;
+       * this is the node volunteering a death it observed.
+       */
+      type: "preview_closed";
+      ref: string;
+      reason: PreviewCloseReason;
+    }
+  | {
+      /**
+       * This machine's preview mirror moved underneath the connection (spec
+       * §4) - the heartbeat belt's carrier, and ssh's `ssh_enabled` twin with
+       * the same strictness: this frame IS the change, so half of it is not
+       * an answer. Chiefly CORRUPTION, which flips a machine from "allowed"
+       * to "refused" silently; the plane's answer to any disagreement is a
+       * push of its row, which is also the repair.
+       */
+      type: "preview_enabled";
+      /** The refusal/allowance this machine is acting on, as its mirror reads. */
+      on: boolean;
+      /** ISO 8601 stamp from the file (its own mtime when the file is unreadable). */
+      changedAt: string;
+    };
 
 /* ------------------------------------------------------------------ */
 /* validators (hand-rolled, parseClientFrame style — spec §3)          */
@@ -1790,6 +2032,21 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       }
       if ("cols" in value && !(isInt(value.cols) && (value.cols as number) > 0)) return null;
       if ("rows" in value && !(isInt(value.rows) && (value.rows as number) > 0)) return null;
+      // A requested virtual display (spec 2026-10-21 §4): bounded on both
+      // dims at the parse, because the node allocates whatever it accepts and
+      // an unbounded request is an unbounded Xvfb. Whether THIS machine may
+      // serve it is execution's question (the owner switch), not the
+      // grammar's. 320..4096: a smaller screen cannot host a terminal plus a
+      // browser, a larger one no viewer can usefully watch.
+      if ("screen" in value) {
+        const screen = value.screen;
+        if (
+          !isRecord(screen) ||
+          !(isInt(screen.width) && (screen.width as number) >= 320 && (screen.width as number) <= 4096) ||
+          !(isInt(screen.height) && (screen.height as number) >= 320 && (screen.height as number) <= 4096)
+        )
+          return null;
+      }
       if ("bestEffortLog" in value && !isBool(value.bestEffortLog)) return null;
       // Server-built argv and its resolve rule (inversion spec §5): REQUIRED
       // since protocol 3. The node holds no plugin and builds nothing itself,
@@ -2052,6 +2309,62 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       // Delegation, not a second parser: the SSH grammar (all arms, one
       // file) lives in ssh-frames.ts beside the commands it narrows.
       return parseSshNodeCommandBody(value);
+    case "preview_open": {
+      // The kind decides which optional members may appear at all, so the
+      // rebuild branches on it: forward forbids `fps`, screencast carries it
+      // OPTIONALLY (absent stays absent - the grammar does not default it;
+      // the default belongs to the bridge, Task 6), and the grammar accepts
+      // any rate up to PREVIEW_FPS_GRAMMAR_MAX because the clamp into [1, 5]
+      // is the bridge's, not the wire's. Stray members drop with the rebuild.
+      if (!isStr(value.ref) || !PREVIEW_REF_RE.test(value.ref)) return null;
+      if (!isStr(value.paneId)) return null;
+      if (!isInt(value.port) || (value.port as number) < 1 || (value.port as number) > 65_535) return null;
+      if (
+        !isInt(value.lifetimeMs) ||
+        (value.lifetimeMs as number) < PREVIEW_LIFETIME_MIN_MS ||
+        (value.lifetimeMs as number) > PREVIEW_LIFETIME_MAX_MS
+      )
+        return null;
+      if (value.kind === "forward" && "fps" in value) return null;
+      if (
+        "fps" in value &&
+        !(isInt(value.fps) && (value.fps as number) >= 1 && (value.fps as number) <= PREVIEW_FPS_GRAMMAR_MAX)
+      )
+        return null;
+      if (value.kind === "forward")
+        return {
+          type: "preview_open",
+          ref: value.ref,
+          kind: "forward",
+          paneId: value.paneId,
+          port: value.port as number,
+          lifetimeMs: value.lifetimeMs as number,
+        };
+      if (value.kind === "screencast")
+        return {
+          type: "preview_open",
+          ref: value.ref,
+          kind: "screencast",
+          paneId: value.paneId,
+          port: value.port as number,
+          lifetimeMs: value.lifetimeMs as number,
+          ...("fps" in value ? { fps: value.fps as number } : {}),
+        };
+      return null;
+    }
+    case "preview_close": {
+      if (!isStr(value.ref) || !PREVIEW_REF_RE.test(value.ref)) return null;
+      if (!isPreviewCloseReason(value.reason)) return null;
+      return { type: "preview_close", ref: value.ref, reason: value.reason };
+    }
+    case "preview_ports_get":
+      return isStr(value.paneId) ? { type: "preview_ports_get", paneId: value.paneId } : null;
+    case "set_preview_enabled": {
+      // Same shape as set_maintenance / set_ssh_enabled, strict for the same
+      // reason: half a stamp pair is not a decision.
+      const state = parseNodePreviewEnabled(value);
+      return state ? { type: "set_preview_enabled", ...state } : null;
+    }
     default:
       return null;
   }
@@ -2091,29 +2404,37 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
       ) {
         return null;
       }
-      // `runtime`, `maintenance` and `sshEnabled` are additive: a malformed
-      // one is dropped so the connection still comes up without it, rather
-      // than refused. For `sshEnabled` the drop is also SAFE in a way the
-      // others are not quite: the plane answers silence with its row (a row
-      // that says on pushes down), so a malformed field cannot strand a
-      // machine on the wrong side of the gate.
+      // `runtime`, `maintenance`, `sshEnabled` and `previewEnabled` are
+      // additive: a malformed one is dropped so the connection still comes up
+      // without it, rather than refused. For the two gate mirrors the drop is
+      // also SAFE in a way the others are not quite: the plane answers
+      // silence with its row (a row that says on pushes down), so a malformed
+      // field cannot strand a machine on the wrong side of the gate.
       const {
         systemSpecs: rawSystemSpecs,
         runtime: rawRuntime,
         maintenance: rawMaintenance,
         sshEnabled: rawSshEnabled,
+        previewEnabled: rawPreviewEnabled,
         ...rest
-      } = value as Record<string, unknown> & { runtime?: unknown; maintenance?: unknown; sshEnabled?: unknown };
+      } = value as Record<string, unknown> & {
+        runtime?: unknown;
+        maintenance?: unknown;
+        sshEnabled?: unknown;
+        previewEnabled?: unknown;
+      };
       const systemSpecs = parseNodeSystemSpecs(rawSystemSpecs);
       const runtime = rawRuntime === undefined ? null : parseNodeRuntimeReport(rawRuntime);
       const maintenance = rawMaintenance === undefined ? null : parseNodeMaintenance(rawMaintenance);
       const sshEnabled = rawSshEnabled === undefined ? null : parseNodeSshEnabled(rawSshEnabled);
+      const previewEnabled = rawPreviewEnabled === undefined ? null : parseNodePreviewEnabled(rawPreviewEnabled);
       return {
         ...(rest as unknown as Extract<NodeEvent, { type: "ready" }>),
         ...(systemSpecs ? { systemSpecs } : {}),
         ...(runtime ? { runtime } : {}),
         ...(maintenance ? { maintenance } : {}),
         ...(sshEnabled ? { sshEnabled } : {}),
+        ...(previewEnabled ? { previewEnabled } : {}),
       };
     }
     case "inventory": {
@@ -2183,6 +2504,45 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
       // (ref, seq, direction, capped opaque blob) lives in parseRelayFrame
       // beside the type it narrows.
       return parseRelayFrame(value);
+    case "preview_data":
+      // Same delegation for the lane frame: shape and the raw cap live in
+      // parsePreviewFrame beside the type it narrows.
+      return parsePreviewFrame(value);
+    case "preview_stream": {
+      // One screencast frame on its way to the plane's fan-out (Task 8). No
+      // blob cap here beyond strict base64: the frame ceiling is what bounds
+      // a link frame, and PREVIEW_FRAME_MAX_BYTES is the LANE's quota, not
+      // the bridge's. `seq` starts where a counter starts; dims are positive
+      // because a zero-pixel frame is not a screen.
+      if (!isStr(value.ref) || !PREVIEW_REF_RE.test(value.ref)) return null;
+      if (!isInt(value.seq) || (value.seq as number) < 0) return null;
+      if (!isInt(value.w) || (value.w as number) <= 0 || !isInt(value.h) || (value.h as number) <= 0) return null;
+      if (!isInt(value.ts) || (value.ts as number) < 0) return null;
+      if (!isStr(value.blob) || value.blob.length === 0 || !BASE64_RE.test(value.blob)) return null;
+      return {
+        type: "preview_stream",
+        ref: value.ref,
+        seq: value.seq as number,
+        w: value.w as number,
+        h: value.h as number,
+        ts: value.ts as number,
+        blob: value.blob,
+      };
+    }
+    case "preview_closed": {
+      // Plan decision 3: the node's own report of a lane it ended. The reason
+      // must come from the closed set - the plane maps it onto viewer copy,
+      // so a reason outside the set is not a half-answer, it is junk.
+      if (!isStr(value.ref) || !PREVIEW_REF_RE.test(value.ref)) return null;
+      if (!isPreviewCloseReason(value.reason)) return null;
+      return { type: "preview_closed", ref: value.ref, reason: value.reason };
+    }
+    case "preview_enabled": {
+      // Strict for the same reason `ssh_enabled` is: this frame is the
+      // machine reporting what it is acting on; half of it is not an answer.
+      const state = parseNodePreviewEnabled(value);
+      return state ? { type: "preview_enabled", ...state } : null;
+    }
     default:
       return null;
   }
