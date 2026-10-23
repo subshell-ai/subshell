@@ -10,6 +10,7 @@ import type {
   RelayFrame,
 } from "@internal/subshell-protocol";
 import type { NodeConfig } from "../config.js";
+import type { PreviewForward, PreviewLaneEvent } from "../preview/forward.js";
 import type { ServiceDeps } from "../service.js";
 import type { SubshellMetaStore } from "../subshell-meta.js";
 import type { NodeBinaryDeps } from "../update.js";
@@ -131,6 +132,22 @@ export interface CommandContext {
      */
     sendRelayFrame(frame: RelayFrame): void;
   };
+  /**
+   * The preview forward-lane registry (pane-preview spec 2026-10-21 §4, Task
+   * 5): the ref→lane map the `preview_open` forward branch registers into and
+   * `preview_close` cuts from. OPTIONAL by type so every pre-preview context
+   * fake keeps compiling; the real daemon always provides it, and the preview
+   * arms refuse loudly when a context does not (the relay precedent).
+   */
+  previewForward?: PreviewForward;
+  /**
+   * Hand one preview lane event to the CURRENT established link.
+   * DELIVER-OR-THROW, and the SAME sender the relay frames ride
+   * (`relay-send.ts`): the lane's slow-link accounting reads the throw — an
+   * event that silently returned would be a byte the plane believes left.
+   * Optional for the same fake-compiling reason as {@link previewForward}.
+   */
+  sendPreviewEvent?: (ev: PreviewLaneEvent) => void;
   /**
    * The panes supervised for natural death, keyed by subshellId →
    * {@link WatcherRegistration} (socket + registration token + unreachable
