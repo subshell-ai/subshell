@@ -12,6 +12,7 @@ import {
   type NodePreviewEnabledWire,
   type NodeRuntimeReport,
   type NodeSshEnabledWire,
+  parsePreviewFrame,
   parseRelayFrame,
   relayFrameRefIfOverCap,
   SeqTracker,
@@ -43,6 +44,7 @@ import { binaryPayload, createLinkNegotiator, type LinkNegotiator, type LinkNego
 import { clearLock, writeLock } from "./lock.js";
 import { log } from "./log.js";
 import { createRetentionPass, PANE_LOG_RETENTION_PASS_MS, resolveLogRetention } from "./pane-log-retention.js";
+import { PreviewForward } from "./preview/forward.js";
 import { createDaemonRelaySend } from "./relay-send.js";
 import { noteSweepScheduled } from "./retention-settings.js";
 import { type NodeRoute, NodeRouteSelector } from "./route-selection.js";
@@ -511,6 +513,14 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   // from Task 7, the A responder) register into it by routing ref.
   const relaySessions = deps.relaySessions ?? new RelaySessions(log);
 
+  // The preview forward-lane registry (pane-preview spec 2026-10-21, Task 5):
+  // PER-DAEMON like the relay registry — a lane belongs to the plane's proxy
+  // request, but it may NOT outlive the link it was dialed on: `finish` sweeps
+  // it with `closeAll("node-dropped")` (the relay's survive reconnects by
+  // design; a raw TCP lane's peer is the proxy, which died with the socket).
+  // Production mechanics are the defaults: real net, unref'd real timers.
+  const previewForward = new PreviewForward();
+
   // PER-PROCESS executor context (spec §3.4/§7): built once, survives every
   // reconnect. `ws` is a STABLE wrapper routing to the CURRENT socket —
   // executors hold `ctx` across reconnects. The serial chain does NOT keep
@@ -536,6 +546,14 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       return (currentWs as unknown as { bufferedAmount?: number } | undefined)?.bufferedAmount;
     },
   };
+  // One pump, two byte legs (pane-preview Task 5): relay frames and preview
+  // lane events leave through the SAME deliver-or-throw path, so the sealed
+  // write, the size guard, and the throw the lane's slow-link accounting
+  // reads are one implementation. The pump reads the CURRENT socket and link
+  // through a getter, exactly like the stale-socket guard in `send` above: a
+  // frame sent after this socket died targets the new link if one exists, and
+  // throws if none does (acceptance (c)).
+  const laneSend = createDaemonRelaySend(() => ({ ws: currentWs, link }));
   const ctx: CommandContext = {
     config,
     tmux: deps.tmux ?? new TmuxRunner(),
@@ -554,8 +572,12 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
     // if one exists, and throws if none does (acceptance (c)).
     relay: {
       sessions: relaySessions,
-      sendRelayFrame: createDaemonRelaySend(() => ({ ws: currentWs, link })),
+      sendRelayFrame: laneSend,
     },
+    // The preview lane plumbing (pane-preview spec 2026-10-21, Task 5): the
+    // ref→lane registry plus its event leg, which IS the relay pump above.
+    previewForward,
+    sendPreviewEvent: laneSend,
     requestRestart: () => {
       // Deferred, because the daemon is the only sender of `result`: the
       // executor returns `{ ok: true }`, the frame leaves on this turn, and
@@ -1033,6 +1055,20 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       }
       return;
     }
+    // The `preview_data` lane frame is not a command either (pane-preview spec
+    // §4: the link authenticates the machine, so the byte legs skip per-frame
+    // signing), and it takes the SAME intake shape: recognized by `type`
+    // before the JWS path, parsed by the grammar, routed by ref. Malformed or
+    // over-cap candidates drop with a line, per the parser's own rule: the
+    // grammar refuses the over-cap blob quietly and lane lifecycle belongs to
+    // the lane (the SENDER-side over-cap guard, preview/forward.ts, is what
+    // spec §6 names a close; inbound over-cap is a plane bug and noise here).
+    if (typeof parsed === "object" && parsed !== null && (parsed as { type?: unknown }).type === "preview_data") {
+      const frame = parsePreviewFrame(parsed as object);
+      if (frame !== null) previewForward.ingestInboundFrame(frame);
+      else log("malformed preview frame dropped");
+      return;
+    }
     const jws = (parsed as { jws?: unknown } | undefined)?.jws;
     if (typeof jws !== "string") {
       send(ws, { type: "error", code: "verify", message: "malformed" });
@@ -1163,6 +1199,13 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
         // the reconnect loop dials again (the control plane re-`tail_start`s
         // on the new connection with its own cursors; spec §3.4).
         stopAllTails(ctx);
+        // The same rule for preview forward lanes (pane-preview Task 5): a
+        // lane's peer is this link's proxy lane, and a raw TCP lane must not
+        // outlive it. `closeAll` dials down every lane with one
+        // `preview_closed` each; the pump throws for those events (the link is
+        // gone) and `forward.ts` keeps the log record. The plane learns of the
+        // lanes' deaths from the dropped link itself.
+        previewForward.closeAll("node-dropped");
         resolve(close);
       };
       // The per-socket link negotiator (spec 2026-09-24). It owns the wire

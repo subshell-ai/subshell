@@ -22,6 +22,8 @@ import type { CommandContext, CommandResult } from "./context.js";
 import { execFileRead } from "./file-read.js";
 import { execFsLs } from "./fs-ls.js";
 import { execLaunch } from "./launch.js";
+import { execPreviewClose } from "./preview-close-exec.js";
+import { execPreviewOpen } from "./preview-open-exec.js";
 import { execPreviewPorts } from "./preview-ports-exec.js";
 import { execPromptDeliver } from "./prompt.js";
 import { execService } from "./service.js";
@@ -130,6 +132,10 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execPaneSize(ctx, cmd);
       case "pane_cursor":
         return await execPaneCursor(ctx, cmd);
+      case "preview_open":
+        return await execPreviewOpen(ctx, cmd);
+      case "preview_close":
+        return execPreviewClose(ctx, cmd);
       case "preview_ports_get":
         return await execPreviewPorts(ctx, cmd);
       case "prompt_deliver":
