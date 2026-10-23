@@ -179,11 +179,21 @@ export function useSubshellPreview(id: string, subshell: SubshellView | undefine
     }
   }, [id]);
 
-  // Leaving the page mid-watch releases both halves. The DELETE is fire-and-
-  // forget: the tab is closing the question, not waiting on the answer.
+  // Leaving the page mid-watch releases both halves, and a NAVIGATION to
+  // another pane runs this same cleanup for the OLD id. The state reset is
+  // the load-bearing part of that second use: React runs the cleanup before
+  // the next effects, so the reconnect re-fire below (whose deps include
+  // `id`) sees `false` and does not send a `watch` frame for the new pane -
+  // a pane this tab never opened a bridge for, since `startWatch` must POST
+  // first. Without the reset, navigation rendered a watching pane B whose
+  // Stop would DELETE a bridge this tab never joined. The DELETE stays
+  // fire-and-forget: the tab is closing the question, not waiting.
   useEffect(
     () => () => {
       if (!watchingRef.current) return;
+      watchingRef.current = false;
+      setWatching(false);
+      setWatchError(null);
       sendRef.current({ type: "unwatch", id });
       void apiFetch(`/api/subshells/${encodeURIComponent(id)}/preview/watch`, { method: "DELETE" }).catch(() => {});
     },

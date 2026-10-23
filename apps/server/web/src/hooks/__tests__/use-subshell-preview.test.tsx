@@ -53,12 +53,12 @@ function wire(opts: { watchStatus?: number; watchMessage?: string } = {}) {
       url: url.pathname,
       body: init?.body ? (JSON.parse(String(init.body)) as Call["body"]) : undefined,
     });
-    if (url.pathname === "/api/subshells/pane1/preview" && method === "GET") {
+    if (/^\/api\/subshells\/pane\d+\/preview$/.test(url.pathname) && method === "GET") {
       return Promise.resolve(
         new Response(JSON.stringify({ ports: [], cdpPort: 9333, screen: null, nodeEnabled: true })),
       );
     }
-    if (url.pathname === "/api/subshells/pane1/preview/watch") {
+    if (/^\/api\/subshells\/pane\d+\/preview\/watch$/.test(url.pathname)) {
       if (method === "POST" && opts.watchStatus && opts.watchStatus !== 200) {
         return Promise.resolve(
           new Response(JSON.stringify({ errId: "e", code: "CONFLICT", message: opts.watchMessage ?? "refused" }), {
@@ -73,6 +73,7 @@ function wire(opts: { watchStatus?: number; watchMessage?: string } = {}) {
 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   let subshell: SubshellView | undefined = paneRow();
+  let paneId = "pane1";
   function Wrapper({ children }: { children: ReactNode }) {
     return (
       <QueryClientProvider client={client}>
@@ -80,7 +81,7 @@ function wire(opts: { watchStatus?: number; watchMessage?: string } = {}) {
       </QueryClientProvider>
     );
   }
-  const hook = renderHook(() => useSubshellPreview("pane1", subshell), { wrapper: Wrapper });
+  const hook = renderHook(() => useSubshellPreview(paneId, subshell), { wrapper: Wrapper });
   const infoGets = () => calls.filter((c) => c.method === "GET" && c.url.endsWith("/preview")).length;
   const watchFrames = () => frames.filter((f) => f.type === "watch" && f.id === "pane1").length;
   return {
@@ -96,6 +97,13 @@ function wire(opts: { watchStatus?: number; watchMessage?: string } = {}) {
     rerenderWith(next: SubshellView | undefined) {
       subshell = next;
       hook.rerender();
+    },
+    setPane(next: string) {
+      paneId = next;
+      hook.rerender();
+    },
+    framesFor(type: "watch" | "unwatch", id: string) {
+      return frames.filter((f) => f.type === type && f.id === id);
     },
     unmount: hook.unmount,
     restore: () => {
@@ -184,6 +192,38 @@ describe("stopWatch mirrors it", () => {
       });
       expect(h.calls.some((c) => c.method === "DELETE" && c.url.endsWith("/preview/watch"))).toBe(true);
       expect(h.frames.filter((f) => f.type === "unwatch").length).toBe(1);
+    } finally {
+      h.restore();
+    }
+  });
+});
+
+describe("pane navigation", () => {
+  it("watching pane A, navigating to pane B releases A and never half-watches B", async () => {
+    const h = wire();
+    try {
+      await act(async () => {
+        await h.result.current.startWatch(9333);
+      });
+      expect(h.framesFor("watch", "pane1").length).toBe(1);
+      // The route re-renders the SAME hook for the next pane: the [id]
+      // release effect runs its cleanup, then every id-keyed effect re-runs
+      // against B. Watching B needs B's own REST bridge first; without the
+      // state reset, the reconnect re-fire (which depends on `id`) would
+      // happily send a `watch` frame for a bridge this tab never joined.
+      await act(async () => {
+        h.setPane("pane2");
+      });
+      // A is released on both halves.
+      expect(h.framesFor("unwatch", "pane1").length).toBe(1);
+      await waitFor(() =>
+        expect(h.calls.some((c) => c.method === "DELETE" && c.url === "/api/subshells/pane1/preview/watch")).toBe(true),
+      );
+      // B is untouched: no frame, no bridge POST, and the surface reads false.
+      expect(h.framesFor("watch", "pane2").length).toBe(0);
+      expect(h.framesFor("unwatch", "pane2").length).toBe(0);
+      expect(h.calls.some((c) => c.url === "/api/subshells/pane2/preview/watch")).toBe(false);
+      expect(h.result.current.watching).toBe(false);
     } finally {
       h.restore();
     }
