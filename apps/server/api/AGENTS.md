@@ -485,12 +485,18 @@ capture child's own account is in Architecture above.
   shape, not a gap: what a lane reaches is what a viewer with `edit` access
   could type into the pane's own browser anyway. `Host` is rewritten to
   `127.0.0.1:<port>` so dev-server host checks see loopback.
-- **Watch frames ride `/ws/live`, so the §11.14 control covers them too.** The
-  fan-out to stream subscribers goes through the same derived-topic path as
-  every other live frame, and the exhaustive viewer→row / row→recipients diff
-  test is still the thing that makes that safe; watch/unwatch sit at `view`,
-  open/Screen at `edit` (spec §7), and the broker drops frames with no
-  subscriber rather than buffering them.
+- **Watch frames ride `/ws/live`, so the §11.14 control covers their audience.**
+  The frames themselves do NOT ride the topic machinery:
+  `configurePreviewStreamSender` (`live-ws.ts`) installs a direct-socket
+  sender (`sendPreviewStreamSocket`, `live-registry.ts`) and the broker fans
+  bytes straight to the sockets in its own registry. The control holds anyway
+  because only `watch` registration puts a socket into that set (gated through
+  the same visibility resolver as every other read), and every grant change
+  cuts it back out (`closeUnauthorizedForPane` on a shares write, the
+  role-change and disable user sweeps); the exhaustive diff test covers this
+  fan-out's viewer→row pairing too. watch/unwatch sit at `view`, open/Screen
+  at `edit` (spec §7), and the broker drops frames with no subscriber rather
+  than buffering them.
 - The per-node switch is the gate in front of all of it (`node.preview-enabled`,
   audited `node.preview_enabled.update`); every preview route answers the node
   state itself with its named refusal rather than inventing one: the plane's own

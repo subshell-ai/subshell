@@ -56,8 +56,12 @@ export const subshellExitRoute = new Elysia()
       // (the broker files the display close through its own bookkeeping,
       // so the route never calls `onDisplayClosed` beside it). Best-effort
       // by design: the death row is already written, and a preview that
-      // refuses to tear down must not turn the pane's own report into a 500
-      // (the reconcile sweep and the node's link-drop pass are the backstop).
+      // refuses to tear down must not turn the pane's own report into a 500.
+      // This is the FAST path, not the only close: the shared death
+      // transition (`#applyDeath`, where the sweep and the exit census
+      // land) belts the same `closeForPane` for a dead pane, and the node's
+      // link-drop pass still catches a whole node. The broker's close is
+      // idempotent, so a fast path racing a belt audits one close, not two.
       try {
         await getPreviewBroker().closeForPane(params.id, "pane-gone");
       } catch (err) {

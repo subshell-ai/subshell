@@ -319,6 +319,27 @@ export function shutdownPreviewBrokerForTests(): void {
   instance = undefined;
 }
 
+/**
+ * The crash-case belt: close one pane's preview state from a death transition
+ * that has no room to wait or to throw. Same shape as `closeRelayForPaneExit`
+ * in ssh-relay.service.ts — fire-and-forget, every failure logged and none
+ * re-raised — because a node whose pane just crashed may never answer the
+ * lane closes, and a reconcile pass must keep walking rows whatever the
+ * answer. The exit route's own awaited `closeForPane` is the fast path; this
+ * is what stops forward lanes and browser stream sockets from outliving the
+ * pane to the idle and lifetime caps when the hook report is lost. `closeForPane`
+ * is idempotent, so route-and-belt together still audit exactly one close.
+ */
+export function closePreviewForPaneExit(paneId: string): void {
+  try {
+    void getPreviewBroker()
+      .closeForPane(paneId, "pane-gone")
+      .catch((err: unknown) => getLogger().warn(`preview teardown for pane ${paneId} failed: ${String(err)}`));
+  } catch (err) {
+    getLogger().warn(`preview teardown for pane ${paneId} threw before the close: ${String(err)}`);
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* the mint                                                            */
 /* ------------------------------------------------------------------ */

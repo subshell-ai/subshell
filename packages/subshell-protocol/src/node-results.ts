@@ -782,7 +782,7 @@ function isExecStreamStr(value: unknown): value is string {
 
 /** The virtual display a node allocated: named on the launch ack, reported again by the ports walk. */
 export interface NodePreviewScreenWire {
-  /** X display name the node allocated (e.g. `:1`). */
+  /** X display name the node allocated (e.g. `:98`; the allocator never goes below `:90`). */
   display: string;
   /** rfb (VNC) port the node started for this display. */
   rfbPort: number;

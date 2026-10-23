@@ -141,3 +141,5 @@ Non-loopback forwarding (never, per §8.1); any TLS or mesh assumption (transpor
 2. Watch defaults: **5 fps, JPEG q60**, node-clamped. Accepted wire cost: ~400 KiB/s per watched browser per subscriber (fan-out is per socket).
 3. Proxy path: **`/pv/:session/`**, mounted beside the SPA routes.
 4. RFB client: **vendored noVNC `core/` at a pinned tag** with its MPL-2.0 license files beside it, lazy-loaded chunk. This is the arc's only dependency-shaped call outside npm pinning.
+
+**Amendment (2026-10-23).** What shipped is the npm-pinned `@novnc/novnc` 1.7.0 package, imported statically at the top of the screen viewer: no vendored sources, no lazy chunk. The repo bans dynamic `import()` (it breaks `bun build --compile`; the one named exception lives in `.claude/rules/code-style.md`), so the lazy-loaded shape was not available, and npm pinning is how the repo takes a dependency anyway. The "only dependency-shaped call outside npm pinning" collapsed into plain npm pinning; the package carries its own MPL-2.0 `LICENSE.txt`, so the license record travels with it like any other dependency's.
