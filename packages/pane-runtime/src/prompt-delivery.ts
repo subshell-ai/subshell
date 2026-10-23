@@ -64,8 +64,10 @@ function normalizeScreen(text: string): string {
   return stripAnsi(text).replace(/\s+/g, "");
 }
 
-/** Non-overlapping count of `needle` in `haystack`, for the delta rule. */
+/** Non-overlapping count of `needle` in `haystack`, for the delta rule.
+ * An empty needle answers 0: `indexOf` would match at zero forever. */
 function countOccurrences(haystack: string, needle: string): number {
+  if (needle === "") return 0;
   let count = 0;
   for (let at = haystack.indexOf(needle); at !== -1; at = haystack.indexOf(needle, at + needle.length)) {
     count += 1;
