@@ -44,13 +44,15 @@ import { getPreviewBroker, PreviewRefusal, type PreviewSession } from "@/service
  * off the close event.
  *
  * A text-frame caveat worth stating because it is the one byte-exactness
- * exception: Elysia's `.ws()` message parser JSON-parses text frames that
- * LOOK like JSON before this handler sees them, so an inbound text frame
- * with significant whitespace re-stringifies semantically intact but not
- * byte-exact. Binary frames and non-JSON text (the dev-server dialects that
- * matter: Vite HMR's own JSON, VNC's binary) ride exact. Being fully raw
- * would mean a hand-rolled `server.upgrade` route, which is a design change
- * from the `.ws()` mount the brief registers, not a line to quietly take.
+ * exception, and the shapes Elysia's `.ws()` parser leaves behind are the
+ * ones `message` below has to sort out: a text frame that looks like JSON
+ * arrives parsed, so one with significant whitespace rides re-stringified
+ * (semantics kept, whitespace not); a text frame like `123`, `true`, or
+ * `null` arrives as the coerced primitive and rides on as its string form;
+ * plain strings, binary frames, and the dev-server dialects that matter
+ * (Vite HMR's compact JSON, VNC's binary) ride exact. Being fully raw would
+ * mean a hand-rolled `server.upgrade` route, which is a design change from
+ * the `.ws()` mount the brief registers, not a line to quietly take.
  */
 
 /** One live browser↔lane tunnel, stashed on `ws.data` at upgrade (socket identity is not state). */
@@ -264,15 +266,33 @@ export function previewWsRoute(options: { preAckMaxBytes?: number } = {}) {
     message(ws, message) {
       const t = (ws.data as unknown as { pv: PvTunnel }).pv;
       if (t.closed) return;
-      const text = typeof message === "string";
-      const bytes = text
-        ? Buffer.from(message as string)
-        : typeof message === "object" && message !== null && !Buffer.isBuffer(message)
-          ? // Elysia's JSON coercion (see the file header): a parsed object
-            // can only ride on re-stringified; semantics kept, bytes may
-            // differ. Plain Buffers and plain strings are untouched above.
-            Buffer.from(JSON.stringify(message))
-          : Buffer.from((message as Buffer).buffer, (message as Buffer).byteOffset, (message as Buffer).byteLength);
+      // Elysia's parser hands the frame over in whatever shape its coercion
+      // left it, and the shape decides both the bytes and the frame type
+      // back out. A string rides verbatim. A coerced PRIMITIVE (the parser
+      // turns "123" into 123, "true" into true, "null" into null) rides as
+      // text in its string form: the target receives the bare digits or
+      // word it would receive unwrapped, which is reversible. A parsed JSON
+      // object can only ride re-stringified: semantics kept, whitespace
+      // not. Anything buffer-shaped rides byte-exact as binary.
+      let bytes: Buffer;
+      let text: boolean;
+      if (typeof message === "string") {
+        bytes = Buffer.from(message);
+        text = true;
+      } else if (message === null || typeof message !== "object") {
+        bytes = Buffer.from(String(message));
+        text = true;
+      } else if (Buffer.isBuffer(message)) {
+        bytes = Buffer.from(message.buffer, message.byteOffset, message.byteLength);
+        text = false;
+      } else if ("buffer" in message && "byteOffset" in message) {
+        const view = message as ArrayBufferView;
+        bytes = Buffer.from(view.buffer, view.byteOffset, view.byteLength);
+        text = false;
+      } else {
+        bytes = Buffer.from(JSON.stringify(message));
+        text = true;
+      }
       if (t.mode === "raw") {
         getPreviewBroker().sendLaneBytes(t.laneRef, bytes);
         return;
