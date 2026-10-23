@@ -32,17 +32,20 @@ function tunnelUrl(proxyBase: string): string {
 /**
  * The human line per close word (spec §9): each cause reads as itself.
  *
- * `over-cap` is deliberately absent. pv-ws refuses an over-cap lane at the
- * UPGRADE (HTTP 503), and a refused upgrade closes the socket with nothing on
- * it, so the word never reaches a listener this live. The honest line for
- * that refusal is the lost-link fallback below, not a cause this surface
- * cannot actually observe.
+ * `over-cap` has two paths, and they arrive differently. The byte ones ride
+ * this word: the node's pump guard kills the lane when a framebuffer read
+ * crosses `PREVIEW_FRAME_MAX_BYTES` (forward.ts), and the plane drops a
+ * session when a browser message comes in oversized (preview-broker); both
+ * reach the listener as pv-ws's 1011 + the word. The lane-COUNT refusal never
+ * does: pv-ws answers it at the UPGRADE with a 503, and a refused upgrade
+ * closes the socket with nothing on it, landing in the lost-link fallback.
  */
-export const SCREEN_CLOSE_LINES: Record<Exclude<PreviewCloseReason, "over-cap">, string> = {
+export const SCREEN_CLOSE_LINES: Record<PreviewCloseReason, string> = {
   "viewer-left": "You closed this preview.",
   "pane-gone": "The subshell ended, so its screen went with it.",
   "node-dropped": "The node dropped its link to the server, so this preview ended.",
   "slow-link": "This preview couldn't keep up with the pane's screen, so it closed.",
+  "over-cap": "The pane's screen produced data bigger than a preview lane can carry, so this preview closed.",
   idle: "This preview sat unused, so it closed.",
   revoked: "Your access to this subshell changed, so the preview closed.",
   "not-cdp": "That port doesn't speak the protocol this preview needs.",
@@ -87,9 +90,8 @@ export function ScreenViewer({ display, proxyBase, onClose }: ScreenViewerProps)
       if (disposed) return;
       if (leftRef.current) setEndLine(SCREEN_CLOSE_LINES["viewer-left"]);
       else {
-        // Only the words this map owns render themselves; an unknown word
-        // (and `over-cap`, which pv-ws can only ever refuse at the upgrade,
-        // wordless) is an unattributed link loss.
+        // Every protocol word has a line; anything else on the close (junk,
+        // or the wordless refused-upgrade shape) is an unattributed link loss.
         const line = (SCREEN_CLOSE_LINES as Partial<Record<PreviewCloseReason, string>>)[
           event.reason as PreviewCloseReason
         ];

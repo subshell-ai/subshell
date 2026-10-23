@@ -1,5 +1,5 @@
 import { errMessage } from "@internal/node-admin";
-import { type JSX, useEffect, useMemo, useState } from "react";
+import { type JSX, useEffect, useMemo, useRef, useState } from "react";
 import { OpenPanel } from "@/components/preview/open-panel";
 import { nodeReasonLine, PortList } from "@/components/preview/port-list";
 import { ScreenViewer } from "@/components/preview/screen-viewer";
@@ -100,17 +100,25 @@ export function PreviewSection({
   // pump keeps pv-ws from ever idling the lane (idle expiry needs a silent
   // side), so A's forward slot would stay pinned indefinitely. The Open panel
   // and its error are the same pane-scoped state.
+  // The clear-what-is-up half of pane navigation. The other half is in the
+  // open handlers: an in-flight POST that answers after the repoint must not
+  // repopulate the new pane with the old one's lane, so every handler
+  // captures this counter and ignores its answer once the counter moved.
+  const generation = useRef(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: the paneId dependency IS the reset, the React prop-change pattern. The body never reads paneId (its setters are stable), which is what the exhaustive-deps autofix would strip and what shipped the bug this pins.
   useEffect(() => {
+    generation.current += 1;
     setScreenSession(null);
     setOpen(null);
     setOpenError(null);
   }, [paneId]);
 
   async function handleOpen(port: number): Promise<void> {
+    const gen = generation.current;
     setOpenError(null);
     try {
       const { proxyBase } = await preview.openPort(port);
+      if (generation.current !== gen) return;
       if (phone) {
         // The panel is traded for tabs here, exactly like the dock: the lane
         // is real, it just opens somewhere with room for it.
@@ -120,6 +128,7 @@ export function PreviewSection({
       setOpen({ port, proxyBase });
     } catch (err) {
       // The named refusal (the caps, the stale node answer) renders as asked.
+      if (generation.current !== gen) return;
       setOpenError(errMessage(err, "Couldn't open a preview lane to that port."));
     }
   }
@@ -131,14 +140,17 @@ export function PreviewSection({
   // its own. Task 14's mobile leg is where that posture gets its human test.
   async function handleScreen(): Promise<void> {
     if (!info?.screen) return;
+    const gen = generation.current;
     setOpenError(null);
     try {
       const { proxyBase } = await preview.openPort(info.screen.rfbPort);
+      if (generation.current !== gen) return;
       setScreenSession({ display: info.screen.display, proxyBase });
       // A fresh session is exactly when the info poll should be re-asked:
       // its own throttle still rules (spec §7).
       preview.refresh();
     } catch (err) {
+      if (generation.current !== gen) return;
       setOpenError(errMessage(err, "Couldn't open a screen preview lane."));
     }
   }
