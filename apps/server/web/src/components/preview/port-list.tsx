@@ -56,7 +56,9 @@ export function PortList({ info, access, watching, onOpen, onWatch, onStopWatch 
   const openReason = access === "view" ? OPEN_VIEW_REASON : !info.nodeEnabled ? nodeReasonLine(info.reason) : undefined;
   const screenReason =
     access === "view" ? SCREEN_VIEW_REASON : !info.nodeEnabled ? nodeReasonLine(info.reason) : undefined;
-  const _hasBrowser = info.cdpPort !== null;
+  // The same node-switch reason the Open row already carries: a disabled
+  // Watch must explain itself like its siblings, not sit mute.
+  const watchReason = info.nodeEnabled ? undefined : nodeReasonLine(info.reason);
 
   if (rows.length === 0 && info.screen === null && info.screenLost === undefined) return null;
 
@@ -93,7 +95,13 @@ export function PortList({ info, access, watching, onOpen, onWatch, onStopWatch 
                     Stop
                   </Button>
                 ) : (
-                  <Button variant="outline" size="sm" disabled={!info.nodeEnabled} onClick={onWatch}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={watchReason !== undefined}
+                    disabledReason={watchReason}
+                    onClick={onWatch}
+                  >
                     Watch
                   </Button>
                 ))}

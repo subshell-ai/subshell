@@ -121,6 +121,13 @@ describe("gated controls explain themselves", () => {
     mount({ info: info({ ports: [], cdpPort: null, nodeEnabled: false, reason: "preview-disabled" }) });
     expect(screen.getByText(SWITCH_OFF_REASON)).toBeTruthy();
   });
+
+  it("the disabled Watch explains itself the way Open and Screen do", () => {
+    mount({ info: info({ nodeEnabled: false, reason: "preview-disabled" }) });
+    const watch = screen.getByRole("button", { name: "Watch" });
+    expect(watch.matches(":disabled, [aria-disabled=true]")).toBe(true);
+    expect(watch.getAttribute("aria-description")).toBe(SWITCH_OFF_REASON);
+  });
 });
 
 describe("Open (edit unlocks it)", () => {
@@ -179,10 +186,18 @@ describe("the Watch canvas", () => {
     const badge = () => view.container.querySelector("[data-preview-badge]");
     publishPreviewFrame({ type: "preview-stream", id: "pane1", seq: 1, w: 10, h: 8, blob: "AA-BB" });
     await waitFor(() => expect(canvas(view.container)?.getAttribute("data-seq")).toBe("1"));
-    const frozen = badge()?.textContent;
-    expect(frozen).toContain("fps");
-    expect(frozen).toContain("ago");
-    fake = 105_001;
+    // A second frame a simulated second later: the badge must read age off
+    // the NEWEST arrival, not mount time and not the first frame. At fake
+    // 101 s the newest stamp is 101 s, so the line says "0.0 s ago"; an age
+    // anchored at mount or at the first frame would say 1.0 s instead.
+    fake = 101_000;
+    publishPreviewFrame({ type: "preview-stream", id: "pane1", seq: 2, w: 10, h: 8, blob: "AA-BB-CC" });
+    await waitFor(() => expect(canvas(view.container)?.getAttribute("data-seq")).toBe("2"));
+    const frozen = badge()?.firstChild?.textContent;
+    expect(frozen).toMatch(/\d\.\d fps/);
+    expect(frozen).toMatch(/· 0\.0 s ago/);
+    // 5 s after the newest arrival: stale.
+    fake = 106_001;
     await waitFor(() => expect(screen.getByText(/still there\?/i).textContent).toMatch(/still there\?/i), {
       timeout: 2000,
     });
@@ -191,7 +206,7 @@ describe("the Watch canvas", () => {
     // the clock).
     expect(badge()?.firstChild?.textContent).toBe(frozen);
     // The canvas itself stays: a stale page, not a vanished one.
-    expect(canvas(view.container)?.getAttribute("data-seq")).toBe("1");
+    expect(canvas(view.container)?.getAttribute("data-seq")).toBe("2");
   });
 
   it("cdpPort vanishing mid-watch says the browser is gone beside the stale canvas", () => {

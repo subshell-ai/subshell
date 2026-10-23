@@ -61,6 +61,11 @@ export function WatchViewer({
   useEffect(() => {
     lastSeenRef.current = Date.now();
     arrivalsRef.current = [lastSeenRef.current];
+    // The seq high-water mark is per-bridge, so it starts over with the pane:
+    // a survived number from another pane's canvas would silently drop this
+    // one's first frames. (The arrival clock above resets with the same line
+    // of reasoning.)
+    lastSeqRef.current = 0;
     const off = subscribePreview(paneId, (f) => {
       if (f.seq <= lastSeqRef.current) return;
       lastSeqRef.current = f.seq;

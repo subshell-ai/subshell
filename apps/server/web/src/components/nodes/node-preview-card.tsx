@@ -45,7 +45,7 @@ export function NodePreviewCard({ node }: { node: NodeDetail }) {
           <p className="text-detail text-muted-foreground">
             {node.kind === "local"
               ? "An admin can change this setting."
-              : "Only this node's owner can change this setting."}
+              : "Only this node’s owner can change this setting."}
           </p>
         )}
         {update.isError && (
