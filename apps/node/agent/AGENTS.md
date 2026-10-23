@@ -235,6 +235,47 @@ launch argv **and** the pane's tmux hook table. Both are accepted (§11.2,
 refused, not escaped: tmux re-parses hook values when it fires and `#`
 expands (§11.14).
 
+## Preview (`src/preview/`, `src/commands/preview-*.ts`, pane-preview spec 2026-10-21)
+
+The node's half of pane preview, and its executors join the command
+inventory: `preview_ports_get` (Linux-only: it reads `/proc`, and non-Linux
+answers `preview-ports-unsupported` BEFORE touching the filesystem; the
+`screen` half rides the display registry), `preview_open` (one command, two
+branches by `kind`: `forward` registers a lane synchronously and its ack
+precedes any socket activity, exactly `ssh-relay-exec.ts`'s off-the-chain A
+contract, because the executor chain serializes every command; `screencast`
+awaits `startBridge`), `preview_close`, `set_preview_enabled` (the switch
+mirror, which SUCCEEDS everywhere including mac), and the display gate inside
+`launch` (3c/5a: platform, then switch, then the registry; the allocation
+precedes tmux so the refusal fails the launch with its named reason).
+
+- **The loopback invariant is absolute.** A lane's wire grammar carries no
+  host, only a bounded port, and the dials are loopback literals only; the
+  screencast bridge likewise dials CDP on `127.0.0.1` and refuses a
+  `webSocketDebuggerUrl` whose host is not loopback. This machine never
+  proxies to an address someone typed.
+- **Xvfb, x11vnc and xauth are optional runtime dependencies.** A
+  non-Linux machine refuses by platform (`preview-display-unsupported`); a
+  Linux machine missing one of the binaries refuses
+  `preview-display-missing-binaries` naming the binary, and a pair that never
+  comes up inside the budget refuses `preview-display-not-ready`; a
+  switched-off node answers the one shared voice
+  (`preview-node-off: turn on Preview for this node`). Nothing installs them,
+  and nothing degrades
+  silently: a dropped `screen` at launch would be the bug, not the error.
+  `xauth add` (not `generate`) mints the cookie before Xvfb exists, and the
+  pane's `DISPLAY`/`XAUTHORITY` ride the env chain pinned by
+  `packages/pane-runtime`'s launch test.
+- **Budgets are shared, so one mechanism cannot starve the other.** The open
+  executor sums the node-wide lane count with the bridge registry's count
+  against `PREVIEW_SESSIONS_PER_NODE` before either starts, plus a per-pane
+  lane cap; frame bytes are capped (`PREVIEW_FRAME_MAX_BYTES`) and slow
+  viewers shed bytes, not the machine. A healthy screencast bridge logs
+  NOTHING (drops are the only lines); the display sweep (boot + hourly)
+  reaps registered displays absent from a COMPLETE pane census past a
+  one-minute floor, unknown-not-dead, and the plane's pane-close path is
+  the normal teardown: the sweep is the backstop for deleted rows.
+
 ## The loopback dashboard (`src/dashboard/`, spec 2026-09-19)
 
 `subshell run` binds **127.0.0.1:3090** and serves the node its own admin

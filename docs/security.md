@@ -1063,6 +1063,20 @@ consequences are:
   old sessions. Peer pins remain unchanged and require separate verified
   repair. A corrupt identity or quarantined pin store requires restoring
   verified files, rather than treating missing trust as first use.
+- **Preview lanes carry pane bytes to the plane on purpose (pane-preview spec
+  2026-10-21), accounted here the way the relay lanes are.** A forward lane
+  dials a port bound only to the node's loopback (the wire grammar bounds the
+  port and there is no host on the wire), and the plane's proxy rewrites
+  `Host` to loopback so the pane's dev server sees a local browser; the
+  session's 32-hex ref inside the `/pv/` path is the credential. The
+  screencast bridge dials CDP on the node's loopback, so frames ride the
+  encrypted node link like any other node event. The plane therefore sees
+  proxied bytes by design, not by accident (spec §8), and what a lane reaches
+  is what an `edit` viewer could type into the pane's own browser anyway.
+  Watch frames fan out through `/ws/live`, so §11.14's control governs stream
+  subscribers exactly as it governs the rest of the feed, and a machine with
+  no capture stack refuses by name (`preview-ports-unsupported`,
+  `preview-display-unsupported`) instead of half-serving silently.
 - **Node shares and subshell shares are independent axes.** Sharing a node does
   not hand out subshell tokens, but anything launched there trusts the machine.
 - **Whoever owns the node's OS user owns every pane launched there**, including
