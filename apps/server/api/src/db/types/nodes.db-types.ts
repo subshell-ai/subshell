@@ -108,6 +108,20 @@ export interface NodeTable {
    */
   sshEnabledAt: string | null;
   /**
+   * 1 = pane preview may be watched on this machine (pane-preview spec
+   * Task 3). Opt-in per node, never a fleet default: 0 for every row that
+   * predates the column, so an upgrade leaves preview off everywhere until
+   * the owner flips it — the flag exposes terminal content.
+   */
+  previewEnabled: number;
+  /**
+   * ISO 8601 of the write that last changed {@link previewEnabled} (the
+   * wire's `changedAt`), or null when the flag was never written. The stamp
+   * rides the flag on every push, the shape {@link sshEnabledAt} has for
+   * SSH.
+   */
+  previewEnabledAt: string | null;
+  /**
    * 1 = this machine's owner allows SSH port forwards to bind NON-loopback
    * addresses (docs/superpowers/specs/2026-10-15-ssh-port-forwards-design.md
    * §6). Default 0: forwards bind loopback only. A wide bind turns the machine

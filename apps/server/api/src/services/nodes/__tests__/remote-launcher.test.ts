@@ -176,6 +176,8 @@ function nodeRow(over: Partial<NodeTable> = {}): NodeTable {
     sshEnabled: 0,
     sshWideForwards: 0,
     sshEnabledAt: null,
+    previewEnabled: 0,
+    previewEnabledAt: null,
     // The 0049 mirror slot: NULL until the runtime-report task fills it.
     sshFingerprint: null,
     createdAt: "2026-09-01T00:00:00.000Z",

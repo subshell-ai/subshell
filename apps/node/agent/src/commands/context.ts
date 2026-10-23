@@ -4,6 +4,7 @@ import type {
   NodeCommandBody,
   NodeEvent,
   NodeMaintenanceWire,
+  NodePreviewEnabledWire,
   NodeRuntimeReport,
   NodeSshEnabledWire,
   RelayFrame,
@@ -192,6 +193,17 @@ export interface CommandContext {
    * repair), so there is no failing restore to say anything about.
    */
   lastReportedSshEnabled?: NodeSshEnabledWire;
+  /**
+   * The last preview-switch value this connection spoke about — the same echo
+   * memo as {@link lastReportedSshEnabled}, cloned with the same reasoning:
+   * the plane is the mirror's ONLY writer, so the belt reports a mirror that
+   * moved by accident (corruption, mostly) and never the plane's own push
+   * come back one tick later. Seeded at every connect from the same read
+   * that built `ready`. No restore-from-memo partner here either: a
+   * hand-deleted plane-only file is not an interface, and the next `ready`
+   * makes the plane push the row value back.
+   */
+  lastReportedPreviewEnabled?: NodePreviewEnabledWire;
   /**
    * Whether this connection has already reported a mirror it could not
    * rewrite (see `restoreMirrorFromMemo`).

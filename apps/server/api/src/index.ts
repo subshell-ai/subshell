@@ -57,6 +57,7 @@ import { prepareLocalPlugins } from "@/services/nodes/local-plugins.js";
 import { reconcileMaintenance } from "@/services/nodes/maintenance.js";
 import { setNodeLifecycleHooks } from "@/services/nodes/node-events.js";
 import { listOnline } from "@/services/nodes/node-registry.js";
+import { reconcilePreviewEnabled } from "@/services/nodes/preview-enabled.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { reconcileSshEnabled } from "@/services/nodes/ssh-enabled.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
@@ -328,6 +329,9 @@ async function bootServer(): Promise<void> {
     // The SSH mirror's sibling (spec 2026-10-07 §4.3): same door, opposite
     // direction — the row is the record, so this reconcile only pushes.
     onSshEnabled: (nodeId, reported) => reconcileSshEnabled(nodeId, reported),
+    // The preview switch's sibling (pane-preview spec Task 3): same door, same
+    // direction rule — the row is the record, so this reconcile only pushes.
+    onPreviewEnabled: (nodeId, reported) => reconcilePreviewEnabled(nodeId, reported),
   });
   // Restore alive/exit state at boot: a backend restart mid-subshell must not
   // leave stale alive=1 rows (tmux subshells died with the old process).

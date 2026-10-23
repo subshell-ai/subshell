@@ -26,6 +26,7 @@ import { execPromptDeliver } from "./prompt.js";
 import { execService } from "./service.js";
 import { execSetLogLevel } from "./set-log-level.js";
 import { execSetMaintenance } from "./set-maintenance.js";
+import { execSetPreviewEnabled } from "./set-preview-enabled-exec.js";
 import { execSetServerUrl } from "./set-server-url.js";
 import { execSetSshEnabled } from "./set-ssh-enabled.js";
 import { execSshDiscoverAliases, execSshResolveConfig } from "./ssh-aliases.js";
@@ -158,6 +159,8 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return execSetLogLevel(ctx, cmd);
       case "set_maintenance":
         return execSetMaintenance(ctx, cmd);
+      case "set_preview_enabled":
+        return execSetPreviewEnabled(ctx, cmd);
       case "set_ssh_enabled":
         return execSetSshEnabled(ctx, cmd);
       case "ssh_discover_aliases":

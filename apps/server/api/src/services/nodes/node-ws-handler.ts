@@ -1098,6 +1098,12 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       // cheap; everything slow lives in the push's own best-effort swallow.
       if (hooks) await hooks.onSshEnabled(nodeId, event.sshEnabled);
       else logger.debug(`node ws: ready from ${nodeId} with no lifecycle hook to reconcile ssh_enabled`);
+      // The preview mirror travels the same door (pane-preview spec Task 3)
+      // with the same decision behind it: the row is the record and never
+      // adopts, so the hook's whole cost is one read and at most one
+      // fire-and-forget push of the row's own value.
+      if (hooks) await hooks.onPreviewEnabled(nodeId, event.previewEnabled);
+      else logger.debug(`node ws: ready from ${nodeId} with no lifecycle hook to reconcile preview_enabled`);
       // The §4.3 signing bootstrap (spec 2026-10-08): an agent whose identity
       // record has no signing key is ASKED ONCE, and the answer files itself.
       // Fire-and-forget for the same reason the detect kick above is: the
@@ -1178,6 +1184,21 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       // disagreement, and one reconciler keeps them answering alike.
       if (hooks) await hooks.onSshEnabled(nodeId, { on: event.on, changedAt: event.changedAt });
       else logger.warn(`node ws: ssh_enabled from ${nodeId} with no lifecycle hook`);
+      return;
+    }
+    case "preview_enabled": {
+      const hooks = getNodeLifecycleHooks();
+      // The machine's preview mirror moved mid-session. With no node-side
+      // writer there is no keyboard flip to carry — what arrives here is a
+      // file that changed by other means (corruption, chiefly: it flips the
+      // node to REFUSED silently, and this frame is how the plane learns to
+      // push the repair now rather than at the next reconnect). Same hook as
+      // `ready`: a mid-session report and a connect-time state are the same
+      // disagreement, and one reconciler keeps them answering alike. The
+      // switch has no default arm, so an event type added here without one
+      // lands dead — this arm is the whole dispatch for this frame.
+      if (hooks) await hooks.onPreviewEnabled(nodeId, { on: event.on, changedAt: event.changedAt });
+      else logger.warn(`node ws: preview_enabled from ${nodeId} with no lifecycle hook`);
       return;
     }
     case "result": {
