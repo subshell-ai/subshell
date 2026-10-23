@@ -65,6 +65,7 @@ import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
 import { EMPTY_PRESET, parsePreset } from "@/services/preset-definition.js";
+import { closePreviewForPaneExit } from "@/services/preview-broker.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
 import { sshCanonicalDestination } from "@/services/ssh-destination.js";
 import { sweepLocalSshDir } from "@/services/ssh-launch.service.js";
@@ -1753,10 +1754,11 @@ export class SubshellManagerService {
 
   /**
    * The shared death transition — where a probe- or report-driven death is
-   * stamped alive→dead AND the pane's artifacts (preview cache, ssh config dir,
-   * idle tmux server) are cleared. Every entry point that learns a LIVE pane is
-   * gone calls this: the sweep (local tmux probe or the agent `probe`/`exit`
-   * census), an agent `exit` event, and the `subshells_report` reconnect census.
+   * stamped alive→dead AND the pane's artifacts (preview cache, preview broker
+   * state, ssh config dir, idle tmux server) are cleared. Every entry point
+   * that learns a LIVE pane is gone calls this: the sweep (local tmux probe
+   * or the agent `probe`/`exit` census), an agent `exit` event, and the
+   * `subshells_report` reconnect census.
    * (The reconcile's no-socket fast path — a row that cannot be alive — stamps
    * directly rather than routing here, and repeats the ssh sweep so no
    * alive→dead path misses it.) Idempotent by construction: the stamp + death
@@ -1815,7 +1817,14 @@ export class SubshellManagerService {
     // The relay cut runs whatever the restart ladder decided: an agent-capable
     // ssh pane never auto-restarts (M1 decision 7), and a restart of anything
     // else must not strand the relay session of the process that just died.
+    // Same posture, same belt, for the preview state: the exit route's own
+    // `closeForPane` is the fast path, but when the hook report is lost it is
+    // THIS line that keeps a forward session (and the browser stream sockets
+    // attached to the pane) from outliving it to the idle and lifetime caps.
+    // Fire-and-forget like the relay's: a crashed pane's node may not answer
+    // the lane closes, and the sweep must keep walking rows.
     closeRelayForPaneExit(fresh.id);
+    closePreviewForPaneExit(fresh.id);
     if (!restarted) sweepLocalSshDir(fresh);
     if (!restarted && (fresh.restartOnExit !== 1 || fresh.backoffCount >= 5)) {
       // Terminal: this subshell will never come back, so its bearer must
