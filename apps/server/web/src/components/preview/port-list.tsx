@@ -1,7 +1,6 @@
 import { Badge, Button } from "@internal/node-admin";
 import { Monitor } from "lucide-react";
 import type { JSX } from "react";
-import { ScreenLaunchHint } from "@/components/preview/screen-launch-hint";
 import type { PreviewInfo } from "@/hooks/use-subshell-preview";
 import type { SubshellAccess } from "@/types/subshell";
 
@@ -13,9 +12,12 @@ import type { SubshellAccess } from "@/types/subshell";
  * `screenLost` row is absent on purpose: a dead display has no control left
  * to explain.
  *
- * Kind detection is what the info answer carries, nothing clever: a port the
- * pane speaks CDP on is the browser-debug row (that is where Watch lives),
- * and the screen row only exists when the display does.
+ * The Screen button opens the raw lane against the display's RFB port and
+ * the noVNC viewer mounts in the panel (spec §6, decision 6); the caller
+ * decides where that goes. Kind detection is what the info answer carries,
+ * nothing clever: a port the pane speaks CDP on is the browser-debug row
+ * (that is where Watch lives), and the screen row only exists when the
+ * display does.
  */
 
 /** Why a `view` grantee cannot take the raw-lane act (spec §6: open is `edit`). */
@@ -49,9 +51,19 @@ export interface PortListProps {
   onOpen: (port: number) => void;
   onWatch: () => void;
   onStopWatch: () => void;
+  /** The Screen verb: open the raw lane on the display's RFB port. */
+  onScreen: () => void;
 }
 
-export function PortList({ info, access, watching, onOpen, onWatch, onStopWatch }: PortListProps): JSX.Element | null {
+export function PortList({
+  info,
+  access,
+  watching,
+  onOpen,
+  onWatch,
+  onStopWatch,
+  onScreen,
+}: PortListProps): JSX.Element | null {
   const rows = info.ports;
   const openReason = access === "view" ? OPEN_VIEW_REASON : !info.nodeEnabled ? nodeReasonLine(info.reason) : undefined;
   const screenReason =
@@ -122,16 +134,19 @@ export function PortList({ info, access, watching, onOpen, onWatch, onStopWatch 
             </span>
             <span className="text-detail text-muted-foreground">Virtual display {info.screen.display}</span>
           </div>
-          {access === "view" ? (
-            <Button variant="outline" size="sm" disabled={screenReason !== undefined} disabledReason={screenReason}>
-              Screen
-            </Button>
-          ) : (
-            // The enabled Screen action and its noVNC viewer are Task 13; a
-            // disabled-with-a-lie or an enabled-nothing control is worse than
-            // the hint, so the row says what is true today.
-            <ScreenLaunchHint screen={info.screen} />
-          )}
+          {/* One control for every tier (round-14 MINOR: the render contract
+              is ONE, so the disabled-for-view affordance Task 12 pins and the
+              enabled-for-edit action share this button). `edit` alone clears
+              the reason: the raw lane is an edit act (spec §6). */}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={screenReason !== undefined}
+            disabledReason={screenReason}
+            onClick={onScreen}
+          >
+            Screen
+          </Button>
         </div>
       )}
 

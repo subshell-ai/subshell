@@ -252,10 +252,13 @@ describe("Watch verbs drive both halves through the controller", () => {
 });
 
 describe("the screen row", () => {
-  it("a live screen shows the launch hint with its DISPLAY for edit, and no dead Screen control", () => {
+  it("a live screen shows its display and the Screen action for edit (Task 13's enabled contract; the viewer itself is screen-viewer.test)", () => {
     mount({ access: "edit", info: info({ ports: [], cdpPort: null, screen: { display: ":90", rfbPort: 5901 } }) });
-    expect(screen.getByText(/DISPLAY=:/).textContent).toContain(":90");
-    expect(screen.queryByRole("button", { name: "Screen" })).toBeNull();
+    // One render contract (round-14 MINOR): the row always carries the button;
+    // edit clears its reason, and no hint text replaces it.
+    expect(screen.getByText("Virtual display :90")).toBeTruthy();
+    const button = screen.getByRole("button", { name: "Screen" });
+    expect(button.matches(":disabled, [aria-disabled=true]")).toBe(false);
   });
 
   it("screenLost reads as the loss line, with no Screen control", () => {
