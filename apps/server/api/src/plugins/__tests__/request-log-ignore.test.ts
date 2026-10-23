@@ -62,4 +62,15 @@ describe("REQUEST_LOG_IGNORE", () => {
     // A route that happens to begin with those letters is a different thing.
     expect(ignored("/wsx")).toBe(false);
   });
+
+  it("ignores every /pv/ proxy path, because the session secret rides the path", () => {
+    // A request line is a path, and for the preview proxy the path IS the
+    // credential (spec 2026-10-21 §10): the 32-hex session ref is the only
+    // secret standing between a log reader and anyone's forwarded pane port.
+    // A debug log that records the request lines records every live link.
+    expect(ignored("/pv/4f9c1a2b3d4e5f60718293a4b5c6d7e8/index.html")).toBe(true);
+    expect(ignored("/pv/4f9c1a2b3d4e5f60718293a4b5c6d7e8/")).toBe(true);
+    // Not merely the prefix shape: any depth, any verb's path.
+    expect(ignored("/pv/deadbeefdeadbeefdeadbeefdeadbeef/ws/hmr")).toBe(true);
+  });
 });
