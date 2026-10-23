@@ -45,6 +45,7 @@ import { clearLock, writeLock } from "./lock.js";
 import { log } from "./log.js";
 import { createRetentionPass, PANE_LOG_RETENTION_PASS_MS, resolveLogRetention } from "./pane-log-retention.js";
 import { bridgeCloseAll } from "./preview/cdp-bridge.js";
+import { PreviewDisplays } from "./preview/display.js";
 import { PreviewForward, setActivePreviewForward } from "./preview/forward.js";
 import { createDaemonRelaySend } from "./relay-send.js";
 import { noteSweepScheduled } from "./retention-settings.js";
@@ -521,12 +522,20 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   // design; a raw TCP lane's peer is the proxy, which died with the socket).
   // Production mechanics are the defaults: real net, unref'd real timers.
   const previewForward = new PreviewForward();
-  // Publish it as the node-wide count source the SHARED preview budget reads
-  // (`forwardCount()`), the same way `relaySessions` is this loop's registry:
-  // the bridge branch of `preview_open` counts lanes through the module handle
-  // because the sum is one number, not two habits. Cleared in the finally
-  // below, like the dashboard's restart hook.
+  // Publish it as the node-wide count source (`forwardCount()`) so callers
+  // that hold no instance still see the truth. The `preview_open` executors
+  // themselves count lanes through `ctx.previewForward` on BOTH rungs - the
+  // lane+bridge sum is one number read at one moment, and the context handle
+  // is the same object this call published. Cleared in the finally below,
+  // like the dashboard's restart hook.
   setActivePreviewForward(previewForward);
+  // The virtual-display registry (pane-preview spec §5, Task 7): PER-DAEMON
+  // like its siblings. Displays deliberately do NOT die with the link the way
+  // lanes do: a pane keeps its screen across a reconnect (its terminal never
+  // blinked), and it is the pane's death - or the hourly sweep's census -
+  // that closes one. No publish-and-clear dance: nothing counts displays
+  // through a module handle; the ctx member is the only route.
+  const previewDisplays = new PreviewDisplays(config.dataDir);
 
   // PER-PROCESS executor context (spec §3.4/§7): built once, survives every
   // reconnect. `ws` is a STABLE wrapper routing to the CURRENT socket —
@@ -585,6 +594,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
     // ref→lane registry plus its event leg, which IS the relay pump above.
     previewForward,
     sendPreviewEvent: laneSend,
+    previewDisplays,
     requestRestart: () => {
       // Deferred, because the daemon is the only sender of `result`: the
       // executor returns `{ ok: true }`, the frame leaves on this turn, and
@@ -705,6 +715,26 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
     });
   }, deps.retentionMs ?? PANE_LOG_RETENTION_PASS_MS);
   sshDirSweepTimer.unref?.();
+  // Orphaned virtual displays (spec §5, Task 7 Step 5): boot pass plus the
+  // same hourly beat, unref'd and fire-and-forget like the two above. The
+  // sweep needs the ALIVE CENSUS, and the census is the pane-log-retention
+  // shape, not a tmux list: one `hasSubshell` per meta record, and a probe
+  // that cannot answer counts the pane ALIVE (unknown is not dead - the same
+  // rule the exit watcher's blip counter exists for). Dirs with no meta row
+  // cannot be probed at all and ride the sweep's one-hour launch floor.
+  const sweepDisplays = async (): Promise<void> => {
+    const alive = await collectLivePaneIds(ctx);
+    await previewDisplays.sweepOrphans(alive);
+  };
+  void sweepDisplays().catch((err: unknown) => {
+    log(`display sweep failed: ${err instanceof Error ? err.message : String(err)}`);
+  });
+  const displaySweepTimer = setInterval(() => {
+    void sweepDisplays().catch((err: unknown) => {
+      log(`display sweep failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  }, deps.retentionMs ?? PANE_LOG_RETENTION_PASS_MS);
+  displaySweepTimer.unref?.();
   // SERIAL command executor (spec §3.4): verified commands queue here so pane
   // effects land in arrival order across the whole daemon life — surviving
   // reconnects. A command verified pre-`seqTracker.reset` executing post-reset
@@ -1535,6 +1565,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   } finally {
     clearInterval(transferSweepTimer);
     clearInterval(sshDirSweepTimer);
+    clearInterval(displaySweepTimer);
     if (retentionTimer !== undefined) clearInterval(retentionTimer);
     registerRestart(null);
     setActivePreviewForward(undefined);
@@ -1547,6 +1578,31 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       /* best-effort */
     }
   }
+}
+
+/**
+ * The alive-pane census the display sweep needs: every meta record probed on
+ * its OWN socket with `hasSubshell` (the two-seam shape pane-log-retention
+ * runs - per-record, not a `list-panes` enumeration), where a probe that
+ * cannot answer counts the pane ALIVE. "Unknown is not dead" is the same rule
+ * the exit watcher's unreachable-counter exists for: a wedged tmux server
+ * must never turn an hourly sweep into a display massacre.
+ */
+async function collectLivePaneIds(ctx: CommandContext): Promise<string[]> {
+  const alive = new Set<string>();
+  const records = await ctx.meta.list().catch((err: unknown) => {
+    log(`display census: meta.list failed: ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
+  });
+  if (!records) return [];
+  for (const m of records) {
+    try {
+      if (await ctx.tmux.hasSubshell(m.socket, m.subshellId)) alive.add(m.subshellId);
+    } catch {
+      alive.add(m.subshellId); // unknown is not dead
+    }
+  }
+  return [...alive];
 }
 
 /** Extra seams for {@link probeOnline}. */

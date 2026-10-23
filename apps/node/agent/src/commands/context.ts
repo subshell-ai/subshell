@@ -10,6 +10,7 @@ import type {
   RelayFrame,
 } from "@internal/subshell-protocol";
 import type { NodeConfig } from "../config.js";
+import type { PreviewDisplays } from "../preview/display.js";
 import type { PreviewForward, PreviewLaneEvent } from "../preview/forward.js";
 import type { ServiceDeps } from "../service.js";
 import type { SubshellMetaStore } from "../subshell-meta.js";
@@ -151,6 +152,18 @@ export interface CommandContext {
    * fake-compiling reason as {@link previewForward}.
    */
   sendPreviewEvent?: (ev: PreviewLaneEvent) => void;
+  /**
+   * The virtual-display registry (pane-preview spec §5, Task 7): the
+   * per-daemon `Xvfb` + `x11vnc` allocation the `launch` frame's `screen`
+   * path opens into, the ports arm reads for its `screen` half, and the
+   * death report closes. OPTIONAL by the same fake-compiling reason as
+   * {@link previewForward}; the real daemon always provides it. The launch
+   * arm refuses LOUDLY when a `screen` launch meets a context without one
+   * (a machine silently dropping the screen it was asked for would be the
+   * bug), while the ports arm answers `screen: null` without it, which is
+   * exactly the pre-Task-7 behavior every fake keeps.
+   */
+  previewDisplays?: PreviewDisplays;
   /**
    * The panes supervised for natural death, keyed by subshellId →
    * {@link WatcherRegistration} (socket + registration token + unreachable
