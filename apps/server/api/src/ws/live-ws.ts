@@ -261,7 +261,9 @@ export function liveWsDeps(): LiveWsDeps {
 export const MAX_PREVIEW_REQUEST = 60;
 
 /**
- * Handles a client frame. The only thing a client may ask for is screens.
+ * Handles a client frame. Today the only thing this handler acts on is a
+ * screens ask; `watch`/`unwatch` are grammar ahead of wiring, parsed by the
+ * shared parser and ignored here until the screencast fan-out lands.
  *
  * Previews are PULLED rather than pushed (spec 2026-09-19 §4.4): the cards are
  * the one surface that renders them, so a page showing none costs nothing, and
@@ -296,6 +298,11 @@ export async function handleLiveMessage(ws: LiveWsSocket, raw: unknown, deps: Li
     }
     return;
   }
+
+  // `watch`/`unwatch` parse (the feed's grammar is shared, and Task 8 will
+  // fan screencasts out from here), but nothing is wired to them yet: a
+  // subscription asks for a stream this handler cannot send, so it is a no-op.
+  if (frame.type !== "previews") return;
 
   const wanted = frame.ids.slice(0, MAX_PREVIEW_REQUEST);
   if (wanted.length === 0) return;
