@@ -383,6 +383,7 @@ export class SubshellManagerService {
     extraPaneEnv,
     subshellId,
     workspaceId,
+    screen,
   }: {
     /** Explicit permission ceiling of the creating credential. */
     systemKeyPermissions?: ApiKeyPermission[] | null;
@@ -467,6 +468,14 @@ export class SubshellManagerService {
      * the truth rather than a fiction.
      */
     workspaceId?: string;
+    /**
+     * The virtual display size to request with the launch (pane-preview spec
+     * §6): forwarded verbatim to the launcher, which ships it on the frame;
+     * the AGENT node allocates (or refuses by name), `LocalLauncher` ignores
+     * it. The service preflighted the node's Preview switch before arriving
+     * here, so no row exists unless the plane already said yes.
+     */
+    screen?: { width: number; height: number };
   }): Promise<{ id: string; tmuxSocket: string; apiKey: string; promptDelivered: boolean }> {
     if (subshellId !== undefined && !/^[a-zA-Z0-9_-]{1,64}$/.test(subshellId)) {
       throw new Error("createSubshell: subshellId is outside the id grammar");
@@ -641,6 +650,9 @@ export class SubshellManagerService {
         // The composed ssh member (spec 2026-10-07 decision 4). Conditional
         // spread: absent on every non-ssh launch, byte-identical plan there.
         ...(ssh ? { ssh: { configPath: ssh.configPath, fileContent: ssh.fileContent } } : {}),
+        // Conditional too (pane-preview §6): a plain launch's frame carries
+        // no screen member at all, byte-identical to the pre-preview plan.
+        ...(screen ? { screen } : {}),
       });
       if (prompt?.trim()) {
         promptDelivered = await this.#deliverPrompt(

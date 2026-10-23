@@ -2,6 +2,8 @@ import { Elysia, t } from "elysia";
 import { authGuard, HttpError, requirePerm } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
+import { getPreviewBroker } from "@/services/preview-broker.js";
+import { logger } from "@/utils/logger.js";
 
 const ExitBodySchema = t.Object({
   exitCode: t.Optional(
@@ -49,6 +51,18 @@ export const subshellExitRoute = new Elysia()
         throw new HttpError(403, "Only a subshell's own key may report its exit");
       }
       await ctx.services.subshells.reportExit(params.id, body.exitCode ?? null);
+      // The pane is gone, so everything hanging off it goes too: every
+      // forward lane, the screencast bridge, and the display-audit fact
+      // (the broker files the display close through its own bookkeeping,
+      // so the route never calls `onDisplayClosed` beside it). Best-effort
+      // by design: the death row is already written, and a preview that
+      // refuses to tear down must not turn the pane's own report into a 500
+      // (the reconcile sweep and the node's link-drop pass are the backstop).
+      try {
+        await getPreviewBroker().closeForPane(params.id, "pane-gone");
+      } catch (err) {
+        logger.warn(`preview teardown after exit report for ${params.id} failed: ${String(err)}`);
+      }
       return { ok: true } as const;
     },
     {

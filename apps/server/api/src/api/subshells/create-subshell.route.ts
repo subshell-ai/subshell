@@ -34,6 +34,26 @@ const CreateSubshellBodySchema = t.Object({
         "Workspace to file the new subshell in: a tab row is written for it beside the launch. 404 when it is not the caller's (or absent). Omitted = the pane starts ungrouped",
     }),
   ),
+  screen: t.Optional(
+    t.Object(
+      {
+        width: t.Integer({
+          minimum: 320,
+          maximum: 4096,
+          description: "Virtual display width in pixels the node allocates for this pane",
+        }),
+        height: t.Integer({
+          minimum: 320,
+          maximum: 4096,
+          description: "Virtual display height in pixels the node allocates for this pane",
+        }),
+      },
+      {
+        description:
+          "Ask the node for a virtual display (Xvfb + screencast bridge) for this pane. Refused before the launch when the node's Preview switch is off, and by the node itself when its platform or binaries cannot host one",
+      },
+    ),
+  ),
 });
 
 /** Shared with restart (same response shape). */
@@ -88,6 +108,7 @@ export const createSubshellRoute = new Elysia()
         prompt: body.prompt,
         nodeId: body.nodeId,
         workspaceId: body.workspaceId,
+        screen: body.screen,
         machineActor: actor !== "cookie",
         // A launch that arrives on a PANE'S OWN token is an agent opening a
         // sibling to talk to it (`create_subshell`); a system key is admin
