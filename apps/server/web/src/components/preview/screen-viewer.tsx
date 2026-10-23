@@ -13,14 +13,17 @@ import { type JSX, useEffect, useRef, useState } from "react";
  *
  * The component owns the WebSocket and hands the SOCKET to RFB, not the URL,
  * and that is the load-bearing choice. rfb.js 1.7.0 accepts a live socket in
- * the constructor (core/rfb.js:95-113); on the URL form RFB owns the socket
+ * the constructor (core/rfb.js:95-116); on the URL form RFB owns the socket
  * and its host-facing `disconnect` detail carries only `{ clean }`
- * (core/rfb.js:943-945, with the steady-state close handler reading
- * `e.code`/`e.reason` into a message it then discards at :665-669). pv-ws's
+ * (core/rfb.js:946-948, with the steady-state close handler reading
+ * `e.code`/`e.reason` into a message it then discards at :668-672). pv-ws's
  * close shape (Task 10) is code 1011 with the `PreviewCloseReason` word
  * verbatim in the reason field, so only a close listener THIS file attaches
  * can see the word. Everything else would render every named cause as a
  * generic loss, inverting spec §9's "tells it why".
+ *
+ * Those numbers read the bun-patched install; the patch-pin describe in
+ * screen-viewer.test.tsx guards the socket-mode half of this choice.
  */
 
 /** One screen session's tunnel root: pv-ws serves any suffix under the path. */

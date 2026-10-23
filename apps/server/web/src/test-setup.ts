@@ -108,9 +108,11 @@ afterEach(() => {
  * evaluation (`core/util/logging.js` runs `Error = console.error.bind(window.
  * console)` at import), so a test that swaps the global afterward never sees a
  * line that already-bound module writes. This slot is in place before any test
- * file imports novnc, and it always FORWARDS to the real function; an observer
- * only watches. That keeps the one case worth seeing on the terminal: an
- * unexpected line from noVNC still prints while its test fails over it.
+ * file imports novnc, and it forwards to the real function FIRST, then hands
+ * the args to the observer: an observer only watches, and a broken one can
+ * never swallow the line. That keeps the one case worth seeing on the
+ * terminal: an unexpected line from noVNC still prints while its test fails
+ * over it.
  *
  * The per-test reset mirrors the fetch and URL resets above: a mid-test throw
  * must not walk an observer forward into the serial run's later files.
@@ -119,8 +121,8 @@ type ConsoleErrorObserver = ((args: unknown[]) => void) | null;
 let consoleErrorObserver: ConsoleErrorObserver = null;
 const underlyingConsoleError = console.error.bind(console) as (...args: unknown[]) => void;
 console.error = (...args: unknown[]): void => {
-  consoleErrorObserver?.(args);
   underlyingConsoleError(...args);
+  consoleErrorObserver?.(args);
 };
 
 /** Watches (never swallows) `console.error` for the calling test. Cleared after every test. */
