@@ -72,6 +72,7 @@ export { LIST_SEARCH_MAX } from "./list-search.js";
 export {
   type LiveClientFrame,
   type LiveServerFrame,
+  type PreviewStreamFrame,
   parseLiveClientFrame,
 } from "./live-frames.js";
 export {

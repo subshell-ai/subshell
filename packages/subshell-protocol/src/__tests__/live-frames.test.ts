@@ -12,6 +12,24 @@ describe("parseLiveClientFrame", () => {
     expect(parseLiveClientFrame('{"type":"resync"}')).toEqual({ type: "resync" });
   });
 
+  it("takes a watch and an unwatch, as a string and as an object", () => {
+    const expected: LiveClientFrame = { type: "watch", id: "s1" };
+    expect(parseLiveClientFrame(JSON.stringify(expected))).toEqual(expected);
+    expect(parseLiveClientFrame(expected)).toEqual(expected);
+    expect(parseLiveClientFrame('{"type":"unwatch","id":"s1"}')).toEqual({ type: "unwatch", id: "s1" });
+    expect(parseLiveClientFrame({ type: "unwatch", id: "s1" })).toEqual({ type: "unwatch", id: "s1" });
+  });
+
+  it("refuses a watch or unwatch that does not name a pane with a string id", () => {
+    // A subscription addresses exactly one row; the server re-checks
+    // visibility against that id, so a frame without one names nothing to
+    // check and is refused rather than guessed at.
+    expect(parseLiveClientFrame({ type: "watch" })).toBeNull();
+    expect(parseLiveClientFrame({ type: "watch", id: 7 })).toBeNull();
+    expect(parseLiveClientFrame('{"type":"unwatch"}')).toBeNull();
+    expect(parseLiveClientFrame({ type: "unwatch", id: null })).toBeNull();
+  });
+
   it("drops non-string ids rather than refusing the frame", () => {
     // A client whose list is partly junk still gets the screens it named
     // properly; the alternative is a page that silently renders none.
@@ -24,7 +42,18 @@ describe("parseLiveClientFrame", () => {
   it("answers null for anything it does not recognize, and never throws", () => {
     // Client frames are untrusted input: the socket stays up and the frame is
     // ignored, exactly as the terminal socket's own parser does.
-    for (const raw of ["not json", "", "null", "[]", '{"type":"input","data":"x"}', '{"type":"previews"}', 42, null]) {
+    for (const raw of [
+      "not json",
+      "",
+      "null",
+      "[]",
+      '{"type":"input","data":"x"}',
+      '{"type":"previews"}',
+      '{"type":"watcher","id":"s1"}',
+      '{"type":"unwatched","id":"s1"}',
+      42,
+      null,
+    ]) {
       expect(parseLiveClientFrame(raw)).toBeNull();
     }
   });

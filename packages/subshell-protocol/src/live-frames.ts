@@ -2,7 +2,7 @@
  * The dashboard's live feed (`/ws/live`, spec 2026-09-19) — one socket per
  * tab carrying every subshell the viewer may see.
  *
- * Shared rather than restated on each side because there are five frame
+ * Shared rather than restated on each side because there are ten frame
  * kinds across two directions now, and the pair that matters is easy to get
  * wrong from one end alone: a SNAPSHOT row is per-viewer and carries its
  * `access`, while a broadcast row cannot — one payload reaches every
@@ -14,6 +14,37 @@
  * ones: the server's is derived from its own service's return type, the
  * browser's is the SPA's `SubshellView`. What is shared is the envelope.
  */
+
+/**
+ * One screencast frame of a pane the viewer watches (spec §6, screencast
+ * fan-out).
+ *
+ * Published ONLY to sockets the broker has verified hold `view` on the row;
+ * a subscription is re-checked at `watch` time through the feed's own
+ * authorization path. It carries no `ref` on purpose: subscribers address
+ * panes by id and refs stay plane-side. This is also why there is no
+ * wall-clock field here. The node-to-plane `preview_stream` EVENT is a
+ * different shape, lane-addressed by `ref` and stamped `ts`; nothing about
+ * this frame should be read as that one crossing over.
+ */
+export interface PreviewStreamFrame {
+  /** Screencast frame for a pane this socket watches. */
+  type: "preview-stream";
+  /** The subshell whose pane is being cast. */
+  id: string;
+  /**
+   * The bridge's own frame counter, for gap and age reporting on the viewer
+   * side. Not an anti-replay slot: the socket already authenticates the
+   * subscriber.
+   */
+  seq: number;
+  /** Frame width in pixels; the viewer sizes its canvas from `w` and `h`. */
+  w: number;
+  /** Frame height in pixels. */
+  h: number;
+  /** The JPEG, base64-encoded exactly as the node's event carries it. */
+  blob: string;
+}
 
 /**
  * A frame the server sends.
@@ -71,9 +102,10 @@ export type LiveServerFrame<SnapshotRow, ChangedRow> =
       id: string;
       /** The captured lines, top row first. */
       lines: string[];
-    };
+    }
+  | PreviewStreamFrame;
 
-/** A frame the browser sends. The only thing a client may ask for is screens, or the list again. */
+/** A frame the browser sends. A client may ask for screens, a screencast subscription, or the list again. */
 export type LiveClientFrame =
   | {
       /** Capture and return these subshells' screens. */
@@ -90,6 +122,24 @@ export type LiveClientFrame =
        * `view` grantee.
        */
       type: "resync";
+    }
+  | {
+      /**
+       * Start streaming this pane's screencast frames (`preview-stream`).
+       *
+       * The server re-checks visibility on subscribe through the feed's own
+       * authorization path; an id this viewer cannot see simply gets no
+       * frames.
+       */
+      type: "watch";
+      /** The subshell to watch, by id: refs stay plane-side (spec §6). */
+      id: string;
+    }
+  | {
+      /** Stop streaming it. The viewer stops receiving `preview-stream` for this pane. */
+      type: "unwatch";
+      /** The subshell to stop watching. */
+      id: string;
     };
 
 /**
@@ -100,13 +150,18 @@ export type LiveClientFrame =
  * which is what `parseClientFrame` does for the terminal socket too.
  *
  * `ids` is filtered to strings; the COUNT is bounded by the caller, because
- * that ceiling is a server-side defence rather than part of the contract.
+ * that ceiling is a server-side defence rather than part of the contract. A
+ * `watch`/`unwatch` instead names exactly one pane, so a frame without a
+ * string `id` names nothing to subscribe and is refused, not guessed at.
  */
 export function parseLiveClientFrame(raw: unknown): LiveClientFrame | null {
   const frame = typeof raw === "string" ? safeParse(raw) : raw;
   if (!frame || typeof frame !== "object") return null;
-  const { type, ids } = frame as { type?: unknown; ids?: unknown };
+  const { type, ids, id } = frame as { type?: unknown; ids?: unknown; id?: unknown };
   if (type === "resync") return { type: "resync" };
+  if (type === "watch" || type === "unwatch") {
+    return typeof id === "string" ? { type, id } : null;
+  }
   if (type !== "previews" || !Array.isArray(ids)) return null;
   return { type: "previews", ids: ids.filter((id): id is string => typeof id === "string") };
 }
