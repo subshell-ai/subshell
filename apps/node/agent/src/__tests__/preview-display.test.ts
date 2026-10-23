@@ -18,6 +18,7 @@ import { execLaunch } from "../commands/launch.js";
 import { execPreviewPorts, PREVIEW_NODE_OFF, type PreviewPortsSeams } from "../commands/preview-ports-exec.js";
 import { runExitWatchTick } from "../commands/report.js";
 import type { NodeConfig } from "../config.js";
+import { runDisplaySweep } from "../daemon.js";
 import {
   type DisplayChild,
   type DisplayDeps,
@@ -170,7 +171,7 @@ function makeDeps(over: DepOverrides = {}) {
     calls.filter((c): c is Extract<DepCall, { kind: "spawn" }> => c.kind === "spawn");
   const killPids = (): number[] => calls.flatMap((c) => (c.kind === "kill" && c.signal !== 0 ? [c.pid] : []));
   const probes = (): number[] => calls.flatMap((c) => (c.kind === "kill" && c.signal === 0 ? [c.pid] : []));
-  return { deps, calls, busy, alivePids, spawns, killPids, probes };
+  return { deps, calls, busy, alivePids, spawns, killPids, probes, advanceClock: (ms: number) => (clock += ms) };
 }
 
 /** Let the resolved `exited` promises run their watch handlers. */
@@ -183,6 +184,29 @@ function ageOut(...paths: string[]): void {
   const old = new Date(Date.now() - 2 * HOUR_MS);
   for (const p of paths) utimesSync(p, old, old);
 }
+
+/* Ports-executor test stand-ins (shared by the wiring group and round 1). */
+
+function portsCtx(dataDir: string, previewDisplays?: PreviewDisplays): CommandContext {
+  return {
+    config: { dataDir, nodeId: "node-self" },
+    meta: { get: async () => undefined },
+    tmux: { panePid: async () => 100 },
+    previewDisplays,
+  } as unknown as CommandContext;
+}
+
+/** The scan seam that echoes the screen it is handed, as scanPanePorts does. */
+function passthroughScan(seen: unknown[]): PreviewPortsSeams {
+  return {
+    scan: async (opts) => {
+      seen.push(opts.screen);
+      return { ports: [], cdpPort: null, screen: opts.screen ?? null };
+    },
+  };
+}
+
+const portsCmd = { type: "preview_ports_get", paneId: PANE } as Cmd<"preview_ports_get">;
 
 /* ------------------------------------------------------------------ */
 /* openFor: allocation, argv exactness, modes                          */
@@ -425,26 +449,6 @@ describe("the child-exit watch", () => {
 /* ------------------------------------------------------------------ */
 
 describe("the preview_ports_get executor reads the display registry", () => {
-  function portsCtx(dataDir: string, previewDisplays?: PreviewDisplays): CommandContext {
-    return {
-      config: { dataDir, nodeId: "node-self" },
-      meta: { get: async () => undefined },
-      tmux: { panePid: async () => 100 },
-      previewDisplays,
-    } as unknown as CommandContext;
-  }
-
-  function passthroughScan(seen: unknown[]): PreviewPortsSeams {
-    return {
-      scan: async (opts) => {
-        seen.push(opts.screen);
-        return { ports: [], cdpPort: null, screen: opts.screen ?? null };
-      },
-    };
-  }
-
-  const portsCmd = { type: "preview_ports_get", paneId: PANE } as Cmd<"preview_ports_get">;
-
   it("a registered display answers screen { display, rfbPort } and survives the Task 1 validator", async () => {
     const dataDir = onDir("ports-registered");
     const { deps } = makeDeps();
@@ -565,10 +569,13 @@ describe("pane death and the orphan sweep", () => {
 
   it("sweepOrphans closes a REGISTERED display whose pane id is absent from the alive list", async () => {
     const dataDir = onDir("sweep-registered");
-    const { deps, spawns, killPids } = makeDeps();
+    const { deps, spawns, killPids, advanceClock } = makeDeps();
     const reg = new PreviewDisplays(dataDir, deps);
     await reg.openFor(PANE, { width: 640, height: 480 });
     const pids = spawns().map((s) => s.child.pid);
+    // Past the fresh-entry floor (round 1): the census-absent reap waits out
+    // the launch/census race, pinned in both directions by the round 1 group.
+    advanceClock(61_000);
 
     const r = await reg.sweepOrphans(["someone-else"]);
     expect(r.reaped).toBe(1);
@@ -652,6 +659,109 @@ describe("pane death and the orphan sweep", () => {
     expect(probed).toContain(deadRecord.x11vncPid);
     const struck = new Set(shared.killPids());
     expect(struck.has(deadRecord.xvfbPid)).toBe(false);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* review round 1: sweep trust, rehydrated death, fresh-entry floor    */
+/* ------------------------------------------------------------------ */
+
+describe("review round 1: what the sweep sees", () => {
+  it("a rehydrated entry whose recorded child dies is probed, marked lost, and reaped by the next sweep", async () => {
+    const dataDir = onDir("round1-rehydrated-death");
+    const shared = makeDeps();
+    const reg = new PreviewDisplays(dataDir, shared.deps);
+    await reg.openFor(PANE, { width: 640, height: 480 });
+    const [xvfbPid, vncPid] = shared.spawns().map((s) => s.child.pid);
+    ageOut(join(dataDir, "displays", PANE));
+
+    // The daemon restart: a fresh instance over the same data dir, rfb still
+    // answering, both recorded pids still alive -> the entry rehydrates.
+    const reg2 = new PreviewDisplays(dataDir, shared.deps);
+    expect(reg2.getFor(PANE)).toBeNull();
+    await reg2.sweepOrphans([PANE]);
+    expect(reg2.getFor(PANE)).toEqual({ display: ":90", rfbPort: 5910 });
+
+    // x11vnc dies of natural causes afterwards. THIS process has no child
+    // handle to watch, so only the sweep's signal-0 probe can notice - and
+    // it must, or the registry answers `screen` for a dead server forever.
+    shared.alivePids.delete(vncPid);
+    await reg2.sweepOrphans([PANE]);
+
+    expect(reg2.getFor(PANE)).toBeNull(); // deregistered
+    expect(reg2.lostFor(PANE)).toBe("x11vnc"); // named, like the exit watch would
+    expect(existsSync(join(dataDir, "displays", PANE))).toBe(false); // dir reaped
+    expect(existsSync(join(dataDir, "displays", ".display-90.lock"))).toBe(false); // lock freed
+    expect(shared.killPids()).toContain(xvfbPid); // the surviving Xvfb is not orphaned
+    expect(shared.probes()).toContain(vncPid); // it was the probe that saw the death
+
+    // And the ports answer now names the loss through Task 1's validator.
+    const seen: unknown[] = [];
+    const res = await execPreviewPorts(portsCtx(dataDir, reg2), portsCmd, passthroughScan(seen));
+    const parsed = parseNodePreviewPortsResult(res.ok ? res.data : null);
+    expect(parsed?.screen).toBeNull();
+    expect(parsed?.screenLost).toBe("x11vnc");
+  });
+
+  it("closeFor on a pane whose dir is already gone clears the stale lost marker", async () => {
+    const dataDir = onDir("round1-belt-clear");
+    const { deps, spawns } = makeDeps();
+    const reg = new PreviewDisplays(dataDir, deps);
+    await reg.openFor(PANE, { width: 640, height: 480 });
+    spawns()[1]?.child.fireExit(); // x11vnc dies mid-pane: the watch marks and reaps
+    await flush();
+    expect(reg.lostFor(PANE)).toBe("x11vnc");
+
+    reg.closeFor(PANE); // a late death report or plane close hits the unregistered belt
+    expect(reg.lostFor(PANE)).toBeNull(); // the belt path must clear the marker too
+  });
+
+  it("a display registered moments ago survives a sweep whose census does not list its pane, and dies aged", async () => {
+    const dataDir = onDir("round1-fresh-floor");
+    const { deps, advanceClock } = makeDeps();
+    const reg = new PreviewDisplays(dataDir, deps);
+    await reg.openFor(PANE, { width: 640, height: 480 });
+
+    // The census raced the launch: the meta row lands after the scan read it,
+    // so "absent from this census" is not yet "dead".
+    await reg.sweepOrphans([]);
+    expect(reg.getFor(PANE)).toEqual({ display: ":90", rfbPort: 5910 });
+    expect(existsSync(join(dataDir, "displays", PANE))).toBe(true);
+
+    advanceClock(61_000); // past the one-minute fresh-entry floor
+    await reg.sweepOrphans([]);
+    expect(reg.getFor(PANE)).toBeNull();
+    expect(existsSync(join(dataDir, "displays", PANE))).toBe(false);
+    expect(existsSync(join(dataDir, "displays", ".display-90.lock"))).toBe(false);
+  });
+
+  it("a meta scan that did not complete skips the whole sweep (a live display survives)", async () => {
+    const dataDir = onDir("round1-untrusted-census");
+    const { deps } = makeDeps();
+    const reg = new PreviewDisplays(dataDir, deps);
+    await reg.openFor(PANE, { width: 640, height: 480 });
+    const { ctx } = makeLaunchCtx(dataDir, reg);
+    // A broken scan arrives as an empty census through the old list(); the
+    // trust gate reads listComplete and refuses to sweep on it at all. (The
+    // ENOTDIR-is-emptiness side is pinned in subshell-meta.test.ts.)
+    ctx.meta = { listComplete: async () => ({ metas: [], scanOk: false }) } as unknown as SubshellMetaStore;
+    await runDisplaySweep(ctx, reg);
+    expect(reg.getFor(PANE)).toEqual({ display: ":90", rfbPort: 5910 });
+    expect(existsSync(join(dataDir, "displays", PANE))).toBe(true);
+    expect(existsSync(join(dataDir, "displays", ".display-90.lock"))).toBe(true);
+  });
+
+  it("a TRUSTED empty census still reaps a registered display (the legitimate cleanup direction)", async () => {
+    const dataDir = onDir("round1-trusted-census");
+    const { deps, advanceClock } = makeDeps();
+    const reg = new PreviewDisplays(dataDir, deps);
+    await reg.openFor(PANE, { width: 640, height: 480 });
+    advanceClock(61_000); // past the fresh-entry floor, so the census alone decides
+    const { ctx } = makeLaunchCtx(dataDir, reg);
+    ctx.meta = { listComplete: async () => ({ metas: [], scanOk: true }) } as unknown as SubshellMetaStore;
+    await runDisplaySweep(ctx, reg);
+    expect(reg.getFor(PANE)).toBeNull();
+    expect(existsSync(join(dataDir, "displays", PANE))).toBe(false);
   });
 });
 

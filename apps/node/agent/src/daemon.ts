@@ -717,20 +717,15 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   sshDirSweepTimer.unref?.();
   // Orphaned virtual displays (spec §5, Task 7 Step 5): boot pass plus the
   // same hourly beat, unref'd and fire-and-forget like the two above. The
-  // sweep needs the ALIVE CENSUS, and the census is the pane-log-retention
-  // shape, not a tmux list: one `hasSubshell` per meta record, and a probe
-  // that cannot answer counts the pane ALIVE (unknown is not dead - the same
-  // rule the exit watcher's blip counter exists for). Dirs with no meta row
-  // cannot be probed at all and ride the sweep's one-hour launch floor.
-  const sweepDisplays = async (): Promise<void> => {
-    const alive = await collectLivePaneIds(ctx);
-    await previewDisplays.sweepOrphans(alive);
-  };
-  void sweepDisplays().catch((err: unknown) => {
+  // trust rule is in runDisplaySweep (module level, test-exported): the
+  // sweep runs ONLY on a census the meta store vouches for, because an
+  // empty-by-failure census would otherwise tear down every live display on
+  // the node. Skipping a pass costs an hour; a wrong pass kills live Xvfbs.
+  void runDisplaySweep(ctx, previewDisplays).catch((err: unknown) => {
     log(`display sweep failed: ${err instanceof Error ? err.message : String(err)}`);
   });
   const displaySweepTimer = setInterval(() => {
-    void sweepDisplays().catch((err: unknown) => {
+    void runDisplaySweep(ctx, previewDisplays).catch((err: unknown) => {
       log(`display sweep failed: ${err instanceof Error ? err.message : String(err)}`);
     });
   }, deps.retentionMs ?? PANE_LOG_RETENTION_PASS_MS);
@@ -1581,21 +1576,46 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
 }
 
 /**
+ * One display-sweep pass with its trust gate (pane-preview Task 7, review
+ * round 1): take the census, and if the census cannot vouch for its own
+ * completeness, skip the pass entirely. `sweepOrphans([])` reaps every
+ * registered display whose pane the census omitted, so a wedged meta scan
+ * that reads as "zero panes" must never reach it - a skipped hourly pass
+ * costs an hour, a wrong pass kills live Xvfb's.
+ * @internal exported for the sweep-trust tests; the daemon calls it from its
+ * boot pass and hourly timer.
+ */
+export async function runDisplaySweep(ctx: CommandContext, displays: PreviewDisplays): Promise<void> {
+  const alive = await collectLivePaneIds(ctx);
+  if (alive === null) {
+    log("display sweep skipped: the subshell-meta scan did not complete (unknown is not dead)");
+    return;
+  }
+  await displays.sweepOrphans(alive);
+}
+
+/**
  * The alive-pane census the display sweep needs: every meta record probed on
  * its OWN socket with `hasSubshell` (the two-seam shape pane-log-retention
  * runs - per-record, not a `list-panes` enumeration), where a probe that
  * cannot answer counts the pane ALIVE. "Unknown is not dead" is the same rule
  * the exit watcher's unreachable-counter exists for: a wedged tmux server
- * must never turn an hourly sweep into a display massacre.
+ * must never turn an hourly sweep into a display massacre. The rule has two
+ * doors, not one: the PER-PANE probe failure counts the pane alive (null
+ * never fires for it), and a CENSUS-WIDE failure - a meta scan that did not
+ * complete, per `listComplete`'s `scanOk` - returns null, meaning "no
+ * answer", which runDisplaySweep skips rather than sweeps on. Dirs with no
+ * meta row cannot be probed at all and ride the sweep's one-hour launch
+ * floor.
  */
-async function collectLivePaneIds(ctx: CommandContext): Promise<string[]> {
-  const alive = new Set<string>();
-  const records = await ctx.meta.list().catch((err: unknown) => {
-    log(`display census: meta.list failed: ${err instanceof Error ? err.message : String(err)}`);
+async function collectLivePaneIds(ctx: CommandContext): Promise<string[] | null> {
+  const scan = await ctx.meta.listComplete().catch((err: unknown) => {
+    log(`display census: meta scan threw: ${err instanceof Error ? err.message : String(err)}`);
     return undefined;
   });
-  if (!records) return [];
-  for (const m of records) {
+  if (!scan?.scanOk) return null; // cannot vouch for completeness: not a census, no matter how short
+  const alive = new Set<string>();
+  for (const m of scan.metas) {
     try {
       if (await ctx.tmux.hasSubshell(m.socket, m.subshellId)) alive.add(m.subshellId);
     } catch {

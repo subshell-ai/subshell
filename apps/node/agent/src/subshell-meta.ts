@@ -44,6 +44,20 @@ const META_SUFFIX = ".meta.json";
  */
 export const isSubshellId = isNodeSubshellId;
 
+/**
+ * One complete-enough answer from {@link SubshellMetaStore.listComplete}:
+ * the rows the scan could read, and whether the directory read itself
+ * completed. Callers that ACT on absence (the display sweep reaping what the
+ * census does not list) must check `scanOk` first; callers that merely read
+ * go through `list()`.
+ */
+export interface MetaScan {
+  /** Metas for every readable `*.meta.json` file, sorted by id. */
+  metas: SubshellMeta[];
+  /** False only when readdir failed with something other than ENOENT/ENOTDIR. */
+  scanOk: boolean;
+}
+
 /** Throws when `id` could not have come from our control plane; callers surface this as a command failure. */
 function assertSubshellId(id: string): void {
   if (!isSubshellId(id)) throw new Error("invalid subshell id");
@@ -206,15 +220,31 @@ export class SubshellMetaStore {
    * `[]`, non-meta files are ignored, junk files are skipped (one log line each).
    */
   async list(): Promise<SubshellMeta[]> {
+    return (await this.listComplete()).metas;
+  }
+
+  /**
+   * The same scan as {@link list}, plus the answer to "did you actually see
+   * the whole directory". The display sweep needs the difference: `list()`
+   * answers `[]` identically for "no panes were recorded" and "the readdir
+   * broke", and sweeping displays on the second one tears down every live
+   * Xvfb. `scanOk` is false ONLY for a readdir failure that is neither ENOENT
+   * nor ENOTDIR - both of those are legitimate emptiness (a node that never
+   * launched a pane has no `subshells` dir at all). `list()` delegates, so
+   * every existing caller sees byte-identical behavior.
+   */
+  async listComplete(): Promise<MetaScan> {
     let names: string[];
+    let scanOk = true;
     try {
       names = await readdir(this.subshellsDir());
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code !== "ENOENT" && code !== "ENOTDIR") {
         log(`subshell meta scan failed: ${this.subshellsDir()}: ${err instanceof Error ? err.message : String(err)}`);
+        scanOk = false;
       }
-      return [];
+      names = [];
     }
     const out: SubshellMeta[] = [];
     for (const name of names) {
@@ -232,7 +262,7 @@ export class SubshellMetaStore {
       if (meta) out.push(meta);
     }
     out.sort((a, b) => a.subshellId.localeCompare(b.subshellId));
-    return out;
+    return { metas: out, scanOk };
   }
 
   /**
