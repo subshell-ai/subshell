@@ -23,8 +23,9 @@ import type { PreviewInfo, UseSubshellPreview } from "@/hooks/use-subshell-previ
  * in `reason`), while `viewer-left` never rides a close. It is what our own
  * disconnect causes: the socket ends with nothing on it, and the component
  * says so. `revoked` gets its own named line, not a generic loss. `over-cap`
- * owns no line at all: pv-ws refuses that lane at the upgrade, so its close
- * is wordless and the lost-link fallback is the honest answer.
+ * too: it means the byte-limit death (the node's frame guard, or the plane's
+ * oversized message), which rides the word. Only the lane-COUNT refusal is
+ * wordless, answered with a 503 at the upgrade before any close exists.
  */
 
 // Eager static copies taken before any mocking: the restore re-arms the real
@@ -151,9 +152,10 @@ describe("the viewer owns the socket", () => {
 });
 
 describe("disconnect causes render by name", () => {
-  // Every word the map owns is dispatch-rendered, not just map-tested: the
-  // listener's lookup path is half of the contract. (`over-cap` owns no line;
-  // its wordless-refusal fallback has its own test below.)
+  // Every protocol word is dispatch-rendered, not just map-tested: the
+  // listener's lookup path is half of the contract. `over-cap` earns its row
+  // here the same way as the rest, because its byte-limit deaths (the node's
+  // frame guard, the plane's oversized message) ride the wire word.
   for (const word of Object.keys(SCREEN_CLOSE_LINES) as (keyof typeof SCREEN_CLOSE_LINES)[]) {
     it(`a ${word} close, fed as pv-ws sends it (1011 + the word), renders its own line`, () => {
       render(<ScreenViewer display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />);
@@ -169,24 +171,20 @@ describe("disconnect causes render by name", () => {
     expect(SCREEN_CLOSE_LINES.revoked).not.toMatch(/connection lost/i);
   });
 
-  it("every word the map owns owns its own line, and over-cap is not one of them", () => {
-    const lines = Object.keys(SCREEN_CLOSE_LINES).map(
-      (word) => SCREEN_CLOSE_LINES[word as keyof typeof SCREEN_CLOSE_LINES],
-    );
+  it("every protocol close word owns its own line", () => {
+    expect(new Set(Object.keys(SCREEN_CLOSE_LINES))).toEqual(new Set(PREVIEW_CLOSE_REASONS));
+    const lines = PREVIEW_CLOSE_REASONS.map((reason) => SCREEN_CLOSE_LINES[reason]);
     for (const line of lines) expect(line.length).toBeGreaterThan(0);
     expect(new Set(lines).size).toBe(lines.length);
-    // over-cap stays a protocol word but keeps no line: pv-ws refuses that
-    // lane at the UPGRADE (HTTP 503), and a refused upgrade closes wordless.
-    expect(PREVIEW_CLOSE_REASONS).toContain("over-cap");
-    expect(Object.keys(SCREEN_CLOSE_LINES)).not.toContain("over-cap");
   });
 
-  it("an over-cap word on a close, which pv-ws can never actually send, still reads as a lost link", () => {
+  it("a close carrying a word the protocol never defines reads as a lost link, not a named cause", () => {
     render(<ScreenViewer display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />);
     act(() => {
-      MockSocket.made[0].dispatchClose(1011, "over-cap");
+      MockSocket.made[0].dispatchClose(1011, "not-a-reason-of-ours");
     });
     expect(screen.getByText(/closed before/i)).toBeTruthy();
+    expect(screen.queryByText(SCREEN_CLOSE_LINES["over-cap"])).toBeNull();
   });
 
   it("the component's own disconnect renders the viewer-left line through the close it causes", () => {
@@ -317,6 +315,28 @@ describe("teardown on the paths that keep the instance alive", () => {
     await waitFor(() => expect(screen.getByText("Port 8080")).toBeTruthy());
     view.rerender(<PreviewSection paneId="paneB" access="edit" preview={preview} isPhone={false} />);
     expect(viewerAlive()).toBe(false);
+    expect(screen.queryByText("Port 8080")).toBeNull();
+  });
+
+  it("an open whose pane changes mid-POST cannot repopulate the new pane", async () => {
+    // Both presses are in flight when the page repoints; the answers belong
+    // to the pane the user left, not the one now on screen.
+    const resolvers: ((v: { proxyBase: string }) => void)[] = [];
+    const preview = controller({
+      info: info({ ports: [{ proto: "tcp", port: 8080, pid: 4242 }] }),
+      openPort: () => new Promise((resolve) => void resolvers.push(resolve)),
+    });
+    const view = render(<PreviewSection paneId="paneA" access="edit" preview={preview} isPhone={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Screen" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    expect(resolvers).toHaveLength(2);
+    view.rerender(<PreviewSection paneId="paneB" access="edit" preview={preview} isPhone={false} />);
+    await act(async () => {
+      resolvers[0]?.({ proxyBase: "/pv/late-screen/" });
+      resolvers[1]?.({ proxyBase: "/pv/late-port/" });
+    });
+    expect(viewerAlive()).toBe(false);
+    expect(MockSocket.made).toHaveLength(0);
     expect(screen.queryByText("Port 8080")).toBeNull();
   });
 });
