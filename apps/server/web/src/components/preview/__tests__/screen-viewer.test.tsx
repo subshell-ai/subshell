@@ -7,6 +7,7 @@ import { nodeReasonLine, SCREEN_VIEW_REASON } from "@/components/preview/port-li
 import { PreviewSection } from "@/components/preview/preview-section";
 import { SCREEN_CLOSE_LINES, ScreenViewer } from "@/components/preview/screen-viewer";
 import type { PreviewInfo, UseSubshellPreview } from "@/hooks/use-subshell-preview";
+import { setConsoleErrorObserver } from "@/test-setup";
 
 /**
  * The Screen viewer and its control (spec §6, §7; Task 13).
@@ -16,7 +17,9 @@ import type { PreviewInfo, UseSubshellPreview } from "@/hooks/use-subshell-previ
  * hand-the-socket construction is exactly that the wire's reason word reaches
  * OUR listener. So the mock records what it was handed and stays out of the
  * way. The module mock is restored per test so a serial run's later files get
- * the real class back (the enroll-route.test.ts snapshot pattern).
+ * the real class back (the enroll-route.test.ts snapshot pattern). The file's
+ * last describe is the one exception: it pins the bun patch on the REAL class,
+ * and the eager `novncReal` import is how it reaches it untouched by the mock.
  *
  * Each disconnect word is fed the way it ACTUALLY arrives (Task 10's wire
  * shape): every word rides pv-ws's close event (code 1011, the word verbatim
@@ -80,6 +83,24 @@ class MockSocket {
   dispatchClose(code: number, reason: string): void {
     for (const l of [...this.listeners]) if (l.type === "close") l.cb({ code, reason });
   }
+}
+
+/**
+ * A raw channel shaped exactly as noVNC's Websock wants it: the property list
+ * `core/websock.js` checks on attach, parked at CONNECTING (0) so the real
+ * RFB constructor reaches the code under test and stops there, no handshake,
+ * no pump, no timers. It doubles as the `WebSocket` the URL form opens for
+ * itself. Only the patch-pin describe uses it.
+ */
+class PatchProbeChannel {
+  binaryType = "";
+  onerror: ((ev: unknown) => void) | null = null;
+  onmessage: ((ev: unknown) => void) | null = null;
+  onopen: (() => void) | null = null;
+  protocol = "";
+  readyState = 0;
+  send(): void {}
+  close(): void {}
 }
 
 beforeEach(() => {
@@ -338,5 +359,75 @@ describe("teardown on the paths that keep the instance alive", () => {
     expect(viewerAlive()).toBe(false);
     expect(MockSocket.made).toHaveLength(0);
     expect(screen.queryByText("Port 8080")).toBeNull();
+  });
+});
+
+/**
+ * The pin on `patches/@novnc%2Fnovnc@1.7.0.patch` (operator ruling 2026-10-23,
+ * from the feature's leg log): on a plain-http LAN origin the Screen session
+ * works fine, so noVNC must not print "noVNC requires a secure context (TLS).
+ * Expect crashes!" for OUR construction. The patch narrows that warning to
+ * URL mode, where noVNC opens its own socket and will later reach for crypto
+ * and clipboard APIs the insecure context genuinely withholds.
+ *
+ * These two tests run the REAL class (the eager `novncReal` import, not the
+ * module mock) through the console observer the preload installs, because
+ * noVNC binds `console.error` at its own import and a spy attached afterward
+ * could never see the line. The URL-mode row is the permanent positive
+ * control: if a future `bun install` silently drops patches/ the socket row
+ * fails; if the capture itself ever dies, this row fails. Neither assertion
+ * can pass vacuously.
+ */
+describe("the secure-context warning speaks only in URL mode", () => {
+  const RealRFB = novncReal.default;
+
+  /** The plain-http shape: a page whose origin is not a secure context. */
+  function withPlainHttpPage<T>(run: () => T): T {
+    const holder = window as unknown as { isSecureContext?: unknown };
+    const previous = Object.getOwnPropertyDescriptor(window, "isSecureContext");
+    Object.defineProperty(window, "isSecureContext", { value: false, configurable: true, writable: true });
+    try {
+      return run();
+    } finally {
+      if (previous) Object.defineProperty(window, "isSecureContext", previous);
+      else delete holder.isSecureContext;
+    }
+  }
+
+  /** Everything `console.error` carried while `run` went through, one line per call. */
+  function errorLinesFrom(run: () => void): string[] {
+    const lines: string[] = [];
+    setConsoleErrorObserver((args) => lines.push(args.map(String).join(" ")));
+    try {
+      run();
+    } finally {
+      setConsoleErrorObserver(null);
+    }
+    return lines;
+  }
+
+  it("the hand-the-socket form, the one Screen uses, logs nothing about the context", () => {
+    const lines = errorLinesFrom(() =>
+      withPlainHttpPage(() => {
+        void new RealRFB(document.createElement("div"), new PatchProbeChannel() as unknown as WebSocket);
+      }),
+    );
+    expect(lines.some((line) => line.includes("secure context") || line.includes("Expect crashes"))).toBe(false);
+  });
+
+  it("URL mode still carries the warning, which keeps this capture honest about it", () => {
+    const previousWebSocket = globalThis.WebSocket;
+    // URL mode opens its own socket; the probe channel answers for that too.
+    globalThis.WebSocket = PatchProbeChannel as unknown as typeof WebSocket;
+    try {
+      const lines = errorLinesFrom(() =>
+        withPlainHttpPage(() => {
+          void new RealRFB(document.createElement("div"), "ws://plane.invalid/pv/probe/" as unknown as WebSocket);
+        }),
+      );
+      expect(lines.some((line) => line.includes("Expect crashes"))).toBe(true);
+    } finally {
+      globalThis.WebSocket = previousWebSocket;
+    }
   });
 });

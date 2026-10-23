@@ -656,6 +656,7 @@
   "patchedDependencies": {
     "query-string@7.1.3": "patches/query-string@7.1.3.patch",
     "metro@0.87.0": "patches/metro@0.87.0.patch",
+    "@novnc/novnc@1.7.0": "patches/@novnc%2Fnovnc@1.7.0.patch",
   },
   "overrides": {
     "decode-uri-component": "0.5.0",
