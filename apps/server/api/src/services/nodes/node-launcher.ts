@@ -159,8 +159,9 @@ export interface NodeLauncher {
   /**
    * Types `text` into a fresh pane once it shows output and submits it — the
    * mirror of the phase-2 `prompt_deliver` command, so a remote agent runs
-   * the whole settle loop as ONE round-trip. Returns `promptDelivered`
-   * (false on settle timeout or failed input; never throws).
+   * the whole settle loop as ONE round-trip. Enter is held until the pane
+   * shows the typed text (or the gate's budget runs out). Returns
+   * `promptDelivered` (false on settle timeout or failed input; never throws).
    */
   deliverPrompt(socket: string, id: string, text: string, settleTimeoutMs: number, pollMs: number): Promise<boolean>;
   /** Absolute path of the subshell's pipe-pane replay log. */

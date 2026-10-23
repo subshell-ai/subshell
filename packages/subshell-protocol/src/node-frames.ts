@@ -856,7 +856,7 @@ export type NodeCommandBody =
   | { type: "input"; subshellId: string; data: string }
   | { type: "resize"; subshellId: string; cols: number; rows: number }
   | {
-      /** Agent-side prompt settle loop: capture-poll until the pane is quiet, type + Enter */
+      /** Agent-side prompt delivery: capture-poll until the pane shows output, type, then hold Enter until the text is rendered (or the gate budget runs out) */
       type: "prompt_deliver";
       subshellId: string;
       text: string;
