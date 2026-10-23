@@ -238,11 +238,13 @@ describe("execPromptDeliver (spec §6.5)", () => {
 
   it("a pane that never echoes the text still gets its Enter when the budget runs out", async () => {
     // Masked input / a harness that swallows keystrokes: the gate waits its
-    // budget on ctx.nowMs() (advance per clock read) and Enter goes anyway —
-    // the pre-gate behavior beats no submit at all.
+    // OWN budget — the module's 10 s default, since the wire frame carries no
+    // gate field — on ctx.nowMs() (advancing 500 ms per read so the fake-time
+    // budget burns in ~20 polls) and Enter goes anyway; the pre-gate behavior
+    // beats no submit at all.
     let t = 0;
     const ft = fakeTmux({ capturePane: () => "ready", sendInput: () => {}, pressEnter: () => {} });
-    const { ctx } = makeCtx(freshDataDir("prompt-gate-timeout"), ft.tmux, { nowMs: () => (t += 10) });
+    const { ctx } = makeCtx(freshDataDir("prompt-gate-timeout"), ft.tmux, { nowMs: () => (t += 500) });
     const result = await execPromptDeliver(ctx, {
       type: "prompt_deliver",
       subshellId: S1,

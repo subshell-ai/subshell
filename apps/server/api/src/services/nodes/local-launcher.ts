@@ -237,7 +237,7 @@ export class LocalLauncher implements NodeLauncher {
    * Types `text` into a freshly-spawned pane once it shows output, then
    * submits with Enter — held until the pane proves it rendered the typed
    * text, so a harness whose stdin reader mounts late never swallows the
-   * Enter (see `deliverPrompt` in `@internal/pane-runtime`, which owns the
+   * Enter (see `deliverPromptInto` in `@internal/pane-runtime`, which owns the
    * policy for both delivery sites). Never settled, or an input failure,
    * reports delivery as false rather than typing blind. No throws, no side
    * effects on timeout.

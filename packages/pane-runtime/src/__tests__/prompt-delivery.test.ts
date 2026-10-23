@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { unlinkSync } from "node:fs";
 import { deliverPromptInto, type PromptDeliveryPane } from "../prompt-delivery.js";
 import { freshSocket, runner } from "./helpers/tmux-test-harness.js";
 
@@ -80,7 +81,7 @@ describe("deliverPrompt (shared policy)", () => {
   it("a prompt whose newlines the pane swallows still clears the gate", async () => {
     // Claude Code eats raw LFs from the burst: the rendered box shows the
     // text run together. Matching normalizes whitespace on both sides.
-    const { pane, calls } = fakePane(["", "ready: first line second line"]);
+    const { pane, calls } = fakePane(["", "ready", "ready: first line second line"]);
     const delivered = await deliverPromptInto(pane, "sock", "s1", "first line\n\nsecond line", {
       settleTimeoutMs: 10_000,
       pollMs: 1,
@@ -103,15 +104,93 @@ describe("deliverPrompt (shared policy)", () => {
 
   it("gate timeout never blocks delivery: Enter still runs, budget-exhausted still true", async () => {
     // The harness never echoes the text (masked input, an invisible dialog):
-    // the gate waits its budget and Enter goes anyway — today's behavior.
+    // the gate waits its OWN budget and Enter goes anyway — today's behavior.
     const { pane, calls } = fakePane(["", "banner"]);
     const delivered = await deliverPromptInto(pane, "sock", "s1", "secret prompt", {
       settleTimeoutMs: 100,
+      renderTimeoutMs: 100,
       pollMs: 1,
       nowMs: steppingClock(10),
     });
     expect(delivered).toBe(true);
     expect(calls.some((c) => c.kind === "pressEnter")).toBe(true);
+  });
+
+  it("a banner a short prompt hides inside is no proof until the screen changes", async () => {
+    // "hi" sits inside "This is…" from the very first painted frame, so its
+    // bare presence proves nothing. The gate must hold Enter through the
+    // captures that merely repeat the baseline and release only once the
+    // pane's own echo changes the screen.
+    const banner = "This is the boot banner";
+    const { pane, calls } = fakePane(["", banner, banner, `${banner}\n❯ hi`]);
+    const delivered = await deliverPromptInto(pane, "sock", "s1", "hi", {
+      settleTimeoutMs: 10_000,
+      renderTimeoutMs: 10_000,
+      pollMs: 1,
+      nowMs: steppingClock(1),
+    });
+    expect(delivered).toBe(true);
+    const kinds = calls.map((c) => c.kind);
+    const inputAt = kinds.indexOf("sendInput");
+    const enterAt = kinds.indexOf("pressEnter");
+    const gate = calls.slice(inputAt + 1, enterAt);
+    expect(gate.length).toBeGreaterThanOrEqual(2); // baseline repeat rejected…
+    expect(gate[0]?.detail).toBe(banner); // …then the echo accepted
+    expect(gate[gate.length - 1]?.detail).toContain("❯ hi");
+  });
+
+  it("text already on a static screen burns the gate budget, Enter still goes", async () => {
+    // A resumed transcript that already shows the prompt on a pane that never
+    // repaints: presence + no change is not evidence, so the gate times out
+    // rather than fast-forwarding Enter into the mount window.
+    const { pane, calls } = fakePane(["", "welcome hi panel"]);
+    const delivered = await deliverPromptInto(pane, "sock", "s1", "hi", {
+      settleTimeoutMs: 100,
+      renderTimeoutMs: 100,
+      pollMs: 1,
+      nowMs: steppingClock(10),
+    });
+    expect(delivered).toBe(true);
+    expect(calls.filter((c) => c.kind === "capture").length).toBeGreaterThan(3);
+    expect(calls.some((c) => c.kind === "pressEnter")).toBe(true);
+  });
+
+  it("pressEnter failure ⇒ false", async () => {
+    // New split from the old single try: failing AFTER the gate (possibly a
+    // whole budget later) is its own false path.
+    const pane: PromptDeliveryPane = {
+      async capturePane() {
+        return "ready";
+      },
+      async sendInput() {},
+      async pressEnter() {
+        throw new Error("no pane");
+      },
+    };
+    expect(
+      await deliverPromptInto(pane, "sock", "s1", "hi", {
+        settleTimeoutMs: 100,
+        renderTimeoutMs: 100,
+        pollMs: 1,
+        nowMs: steppingClock(10),
+      }),
+    ).toBe(false);
+  });
+
+  it("a prompt longer than the needle clears the gate on the shown head alone", async () => {
+    // The screen can lag the tail mid-render: matching the first 48
+    // normalized chars is what lets the gate pass while the rest renders.
+    const text = `${"x".repeat(30)} ${"y".repeat(30)}`;
+    const head = "x".repeat(30) + "y".repeat(18); // the 48 normalized chars
+    const { pane, calls } = fakePane(["", "boot", `boot\n❯ ${head}`]);
+    const delivered = await deliverPromptInto(pane, "sock", "s1", text, {
+      settleTimeoutMs: 10_000,
+      pollMs: 1,
+      nowMs: steppingClock(1),
+    });
+    expect(delivered).toBe(true);
+    const kinds = calls.map((c) => c.kind);
+    expect(kinds.indexOf("pressEnter")).toBe(kinds.indexOf("sendInput") + 2); // one gate capture, no spin
   });
 
   it("never settles ⇒ false, no input, no Enter", async () => {
@@ -248,7 +327,11 @@ describe("deliverPrompt (real pane, booting TUI that eats a bulk-read Enter)", (
     } finally {
       runner.killSubshell(socket, "s1");
       void runner.cleanSocket(socket);
-      await Bun.write(script, "");
+      try {
+        unlinkSync(script);
+      } catch {
+        // already gone; nothing to reap
+      }
     }
   }, 30_000);
 });

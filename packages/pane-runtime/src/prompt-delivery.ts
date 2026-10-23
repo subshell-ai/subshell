@@ -15,7 +15,9 @@ import { stripAnsi } from "@internal/backend-errors";
  * for the screen to be non-blank cannot catch this: the screen is fully
  * painted while the pane still swallows input. What DOES prove the harness is
  * reading is the typed text coming back on the screen, so this waits for
- * exactly that between the type and the Enter.
+ * exactly that between the type and the Enter — and only text that was NOT on
+ * screen before typing counts, because a short prompt hides inside ordinary
+ * banner text and a resumed pane may already show the old transcript.
  */
 
 /** The pane operations delivery needs; `TmuxRunner` is the production filler. */
@@ -28,8 +30,11 @@ export interface PromptDeliveryPane {
 /** Timing knobs, all on the caller's clock: the server owns the one policy
  * and sends the same numbers to a node over the `prompt_deliver` wire. */
 export interface PromptDeliveryOptions {
-  /** Budget for the WHOLE delivery: settle wait plus render-gate wait. */
+  /** Budget for the settle wait: the pane showing its first output. */
   settleTimeoutMs: number;
+  /** Budget for the render gate ALONE, counted from when the text lands.
+   * Both delivery sites run without one, so they share `RENDER_GATE_TIMEOUT_MS`. */
+  renderTimeoutMs?: number;
   /** Poll interval for both capture loops. */
   pollMs: number;
   /** Clock seam; tests own time, production reads `Date.now`. */
@@ -38,11 +43,18 @@ export interface PromptDeliveryOptions {
 
 /**
  * How much of the normalized prompt must appear in the capture before Enter
- * goes. The whole text is too strict (a harness may still be rendering the
- * tail, and a narrow pane scrolls the head off), the first few characters are
- * too weak (a shell prompt can collide with them).
+ * goes. The whole text is too strict: a harness mid-render may show the head
+ * but not the tail. A narrow pane is not a risk — `normalizeScreen` joins
+ * wrapped rows, so the text reads the same however the pane broke it.
  */
 const RENDER_NEEDLE_MAX_CHARS = 48;
+
+/**
+ * The gate's budget when the caller names none. Kept inside the shared module
+ * rather than split across the two callers, so a node running an older server
+ * (the wire frame carries no gate field) and the control plane gate alike.
+ */
+const RENDER_GATE_TIMEOUT_MS = 10_000;
 
 /** Whitespace runs carry no meaning for the render check: the pane wraps, and
  * Claude Code eats raw LFs out of a burst. Both sides normalize identically. */
@@ -57,14 +69,19 @@ function normalizeScreen(text: string): string {
  * (see the file note). Returns whether the prompt was delivered: a pane that
  * never shows anything, or an input command that fails, reports `false`
  * rather than typing blind. A pane that never echoes the text (masked input,
- * a dialog that hides keystrokes) still gets its Enter when the budget runs
- * out — that is the pre-gate behavior, and better than no submit at all.
+ * a dialog that hides keystrokes) still gets its Enter when the gate budget
+ * runs out — that is the pre-gate behavior, and better than no submit at all.
+ *
+ * The two waits keep separate budgets (settle, then the gate) so a slow boot
+ * cannot starve the proof; a masked pane's worst-case delay is therefore
+ * `settleTimeoutMs + renderTimeoutMs`, still inside the remote RPC's
+ * `settleTimeoutMs + 30s` slack.
  *
  * @param pane - the capture/send/enter trio (the `TmuxRunner`)
  * @param socket - the tmux socket the pane lives on
  * @param subshellId - the pane's tmux session name
  * @param text - the prompt to type; the caller trims it
- * @param opts - budget, poll pacing, and the clock seam
+ * @param opts - budgets, poll pacing, and the clock seam
  */
 export async function deliverPromptInto(
   pane: PromptDeliveryPane,
@@ -74,16 +91,20 @@ export async function deliverPromptInto(
   opts: PromptDeliveryOptions,
 ): Promise<boolean> {
   const now = opts.nowMs ?? Date.now;
-  const deadline = now() + opts.settleTimeoutMs;
 
   // Settle: a blank pane is still booting; swallow capture errors (the pane
   // is simply not queryable yet) and keep polling. ANSI control codes alone
   // are not output — a screen holding only a reset sequence is still blank.
-  if (
-    !(await waitFor(pane, socket, subshellId, now, deadline, opts.pollMs, (screen) => normalizeScreen(screen) !== ""))
-  ) {
-    return false;
-  }
+  const settled = await waitFor(
+    pane,
+    socket,
+    subshellId,
+    now,
+    now() + opts.settleTimeoutMs,
+    opts.pollMs,
+    (screen) => normalizeScreen(screen) !== "",
+  );
+  if (settled === undefined) return false;
 
   try {
     await pane.sendInput(socket, subshellId, text);
@@ -94,11 +115,26 @@ export async function deliverPromptInto(
 
   // Render gate: the text coming back on the screen is the proof the harness
   // is reading its input, so Enter only enters the same queue the keystrokes
-  // are living in. On timeout the Enter goes anyway.
+  // are living in. Text that was ALREADY on screen before typing (a banner a
+  // short prompt hides inside, a resumed transcript) proves nothing on its
+  // own — then, and only then, a changed screen must accompany it. On timeout
+  // the Enter goes anyway.
   const needle = normalizeScreen(text).slice(0, RENDER_NEEDLE_MAX_CHARS);
   if (needle !== "") {
-    await waitFor(pane, socket, subshellId, now, deadline, opts.pollMs, (screen) =>
-      normalizeScreen(screen).includes(needle),
+    const baseline = normalizeScreen(settled);
+    const baselineHasNeedle = baseline.includes(needle);
+    await waitFor(
+      pane,
+      socket,
+      subshellId,
+      now,
+      now() + (opts.renderTimeoutMs ?? RENDER_GATE_TIMEOUT_MS),
+      opts.pollMs,
+      (screen) => {
+        const normalized = normalizeScreen(screen);
+        if (!normalized.includes(needle)) return false;
+        return !baselineHasNeedle || normalized !== baseline;
+      },
     );
   }
 
@@ -114,7 +150,7 @@ export async function deliverPromptInto(
  * One polling loop shared by the settle and render-gate phases: capture,
  * test, sleep, until the predicate holds or the deadline passes. Capture
  * errors count as "not yet".
- * @returns true when the predicate held inside the budget
+ * @returns the screen that passed, or undefined if the budget ran out
  */
 async function waitFor(
   pane: PromptDeliveryPane,
@@ -124,14 +160,15 @@ async function waitFor(
   deadline: number,
   pollMs: number,
   predicate: (screen: string) => boolean,
-): Promise<boolean> {
+): Promise<string | undefined> {
   while (true) {
     try {
-      if (predicate(await pane.capturePane(socket, subshellId))) return true;
+      const screen = await pane.capturePane(socket, subshellId);
+      if (predicate(screen)) return screen;
     } catch {
       // pane not queryable yet; keep polling
     }
-    if (now() >= deadline) return false;
+    if (now() >= deadline) return undefined;
     await Bun.sleep(pollMs);
   }
 }
