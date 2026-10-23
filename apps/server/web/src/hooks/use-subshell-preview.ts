@@ -190,10 +190,13 @@ export function useSubshellPreview(id: string, subshell: SubshellView | undefine
   // fire-and-forget: the tab is closing the question, not waiting.
   useEffect(
     () => () => {
+      // The error clears even when there is nothing to release: a refused
+      // watch sets its named alert with no live watch behind it, and pane B
+      // must never inherit pane A's red line.
+      setWatchError(null);
       if (!watchingRef.current) return;
       watchingRef.current = false;
       setWatching(false);
-      setWatchError(null);
       sendRef.current({ type: "unwatch", id });
       void apiFetch(`/api/subshells/${encodeURIComponent(id)}/preview/watch`, { method: "DELETE" }).catch(() => {});
     },
