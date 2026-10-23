@@ -80,6 +80,28 @@ only, in this container; whether plain bash's lack of a line editor makes it
 more exposed than an editor-backed shell is untested here and worth a ticket
 separate from this feature.
 
+### Correction (2026-10-23, task 15): it was the leg driver, and there is no ticket
+
+This paragraph was wrong twice over, settled by a clean single-send matrix
+against a fresh plane plus an enrolled container node (full evidence,
+including the capture-pane truth columns, in
+`.superpowers/sdd/2026-10-21-pane-preview/task-15-report.md`). Single sends
+are byte-exact across every seam: REST input, exec, WS keystroke frames with
+and without ids, `cat`, `cat > file`, and multi-kilobyte payloads verified
+against the written file's bytes. The pane's bash also does have line
+editing (`$-` carries `s`, `bind -p` answers), so the "no line editor"
+framing was a wrong guess. What actually corrupted the transcript is
+`ensureTyped` itself: its retries land while the previous attempt is still
+talking, and a failed background server's stderr banner and bash's job-status
+lines (which reprint the whole command) land between the echoed characters
+of the next copy. One captured row ends `...new Text`, a later row resumes
+`xtEncoder...`, and quoting the command across that gap yields exactly the
+`TextxtEncoder` and `typext/plain` fragments recorded above. A retype onto a
+line still holding unsubmitted characters also glues two whole copies onto
+one prompt line, which mangles the tokenization but never the bytes: in every
+reproduction the commands executed correctly. No product change; the ticket
+this paragraph promised is closed here.
+
 ## Display lifetime (expected, logged so the next reader doesn't file it)
 
 Deleting a pane through the API does not itself tear down its Xvfb/x11vnc
