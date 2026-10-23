@@ -17,7 +17,7 @@ import { attachScriptedNode, ok } from "@/test-helpers/scripted-node.js";
 
 /**
  * The preview switch's plane half (pane-preview spec Task 3): the decide table
- * — pure, no DB, no socket (the ssh-enabled suite's pattern) — and the hook
+ * (pure, no DB, no socket, the ssh-enabled suite's pattern) and the hook
  * body with one real row and one scripted node (its seam: no RPC mocks, the
  * push travels the real `sendCommand` chain and lands in the scripted wire,
  * which is what proves the `set_preview_enabled` frame parses against the
@@ -26,7 +26,7 @@ import { attachScriptedNode, ok } from "@/test-helpers/scripted-node.js";
  * The property this suite exists to pin is the DIRECTION, cloned verbatim from
  * the SSH twin: the plane is the sole writer, so a reconcile NEVER adopts.
  * Every disagreement ends with the row's value pushed down and the row itself
- * unmoved — that push IS the corruption repair.
+ * unmoved: that push IS the corruption repair.
  */
 
 const nodes = new NodesRepository(db);
@@ -45,7 +45,7 @@ async function mkUser(): Promise<string> {
   });
 }
 
-/** An enrolled agent node with no live socket — every command on it fails offline. */
+/** An enrolled agent node with no live socket. Every command on it fails offline. */
 async function mkNode(): Promise<string> {
   const id = crypto.randomUUID();
   nodeIds.push(id);
@@ -91,10 +91,10 @@ afterAll(async () => {
 
 /* ------------------ the pure table -------------------------- */
 
-describe("decidePreviewEnabled — the plane is authoritative, so stamps are never read", () => {
+describe("decidePreviewEnabled: the plane is authoritative, so stamps are never read", () => {
   const row = (previewEnabled: 0 | 1, previewEnabledAt: string | null) => ({ previewEnabled, previewEnabledAt });
 
-  it("agreement is a noop — reported matches the row, either value", () => {
+  it("agreement is a noop: reported matches the row, either value", () => {
     expect(
       decidePreviewEnabled(row(1, "2026-10-21T10:00:00.000Z"), { on: true, changedAt: "2026-10-21T10:00:00.000Z" }),
     ).toBe("noop");
@@ -102,7 +102,7 @@ describe("decidePreviewEnabled — the plane is authoritative, so stamps are nev
       decidePreviewEnabled(row(0, "2026-10-21T10:00:00.000Z"), { on: false, changedAt: "2026-10-21T09:00:00.000Z" }),
     ).toBe("noop");
     // Differing stamps under an agreeing value are a relayed fact, not a
-    // fight — there is no node-side writer to bargain with.
+    // fight: there is no node-side writer to bargain with.
     expect(
       decidePreviewEnabled(row(1, "2026-10-21T12:00:00.000Z"), { on: true, changedAt: "2026-10-21T09:00:00.000Z" }),
     ).toBe("noop");
@@ -111,13 +111,13 @@ describe("decidePreviewEnabled — the plane is authoritative, so stamps are nev
   it("silence means OFF here: row-off agrees (noop), row-on pushes", () => {
     // An absent mirror reads REFUSED on the machine, so a never-written or
     // off row and a silent node already answer alike; the row saying ON faces
-    // a machine that refuses, and the row wins — that push is the repair.
+    // a machine that refuses, and the row wins: that push is the repair.
     expect(decidePreviewEnabled(row(0, null), undefined)).toBe("noop");
     expect(decidePreviewEnabled(row(0, "2026-10-21T10:00:00.000Z"), undefined)).toBe("noop");
     expect(decidePreviewEnabled(row(1, "2026-10-21T10:00:00.000Z"), undefined)).toBe("push-plane");
   });
 
-  it("disagreement pushes the row, in both directions — and never adopts, not even a NEWER report", () => {
+  it("disagreement pushes the row, in both directions, and never adopts: not even a NEWER report", () => {
     // With no node-side writer, even a future-dated report is just bytes the
     // row overwrites. This is the direction rule the task exists to pin.
     expect(
@@ -131,7 +131,7 @@ describe("decidePreviewEnabled — the plane is authoritative, so stamps are nev
   it("the one disagreement with nothing to send is a noop, not an invented stamp", () => {
     // Row never written + a node mirror saying ON (a data dir carried across
     // from another plane, say): the row IS off, every plane-side gate reads
-    // the row, so the disagreement is inert — and a push would have to mint a
+    // the row, so the disagreement is inert, and a push would have to mint a
     // `changedAt` for a write that never happened.
     expect(decidePreviewEnabled(row(0, null), { on: true, changedAt: "2026-10-21T09:00:00.000Z" })).toBe("noop");
   });
@@ -139,7 +139,7 @@ describe("decidePreviewEnabled — the plane is authoritative, so stamps are nev
 
 /* ------------------ the act, on a real row -------------------------- */
 
-describe("setPreviewEnabled — write, audit, push, one function", () => {
+describe("setPreviewEnabled: write, audit, push, one function", () => {
   it("writes the row, audits EXACTLY ONE row naming the actor, and pushes the stamped value", async () => {
     const nodeId = await mkNode();
     const scripted = attachScriptedNode(nodeId, { set_preview_enabled: ok });
@@ -149,13 +149,13 @@ describe("setPreviewEnabled — write, audit, push, one function", () => {
       expect(row?.previewEnabled).toBe(1);
       expect(row?.previewEnabledAt).not.toBeNull();
       await settle();
-      // Exactly one audit row — the push adds nothing, and a second writer of
+      // Exactly one audit row: the push adds nothing, and a second writer of
       // this act is precisely what the one-function shape exists to prevent.
       const rows = await auditFor(nodeId);
       expect(rows).toHaveLength(1);
       expect(rows[0].actorUserId).toBe(ownerId);
       expect(rows[0].meta).toEqual({ on: true });
-      // The push is the row's OWN bytes — the wire frame the shipped parser
+      // The push is the row's OWN bytes: the wire frame the shipped parser
       // accepted, the stored stamp included, not a re-stamped copy.
       expect(scripted.cmdsOf("set_preview_enabled")).toEqual([
         { type: "set_preview_enabled", on: true, changedAt: stamped(row?.previewEnabledAt) },
@@ -165,7 +165,7 @@ describe("setPreviewEnabled — write, audit, push, one function", () => {
     }
   });
 
-  it("an OFF flip lands too — the mirror is written as a value, not deleted", async () => {
+  it("an OFF flip lands too: the mirror is written as a value, not deleted", async () => {
     const nodeId = await mkNode();
     const scripted = attachScriptedNode(nodeId, { set_preview_enabled: ok });
     try {
@@ -182,7 +182,7 @@ describe("setPreviewEnabled — write, audit, push, one function", () => {
     }
   });
 
-  it("survives an offline node — the push is best-effort; the row already refuses", async () => {
+  it("survives an offline node: the push is best-effort; the row already refuses", async () => {
     const nodeId = await mkNode();
     await expect(setPreviewEnabled(nodeId, ownerId, true)).resolves.toBeUndefined();
     expect((await nodes.findById(nodeId))?.previewEnabled).toBe(1);
@@ -191,7 +191,7 @@ describe("setPreviewEnabled — write, audit, push, one function", () => {
 
 /* ------------------ the fail-closed read -------------------------- */
 
-describe("getPreviewEnabled — the row is the record, read fail-CLOSED", () => {
+describe("getPreviewEnabled: the row is the record, read fail-CLOSED", () => {
   it("a row that does not exist reads OFF", async () => {
     await expect(getPreviewEnabled("no-such-node")).resolves.toBe(false);
   });
@@ -206,8 +206,8 @@ describe("getPreviewEnabled — the row is the record, read fail-CLOSED", () => 
 
 /* ------------------ the hook body -------------------------- */
 
-describe("reconcilePreviewEnabled — decide, push the row, write nothing", () => {
-  it("agreement pushes NOTHING — the steady state must not echo a command per beat", async () => {
+describe("reconcilePreviewEnabled: decide, push the row, write nothing", () => {
+  it("agreement pushes NOTHING: the steady state must not echo a command per beat", async () => {
     const nodeId = await mkNode();
     const scripted = attachScriptedNode(nodeId, { set_preview_enabled: ok });
     await setPreviewEnabled(nodeId, ownerId, true);
@@ -231,7 +231,7 @@ describe("reconcilePreviewEnabled — decide, push the row, write nothing", () =
     await settle();
     try {
       // The machine reports REFUSED (its mirror corrupted, say) under an ON
-      // row: the answer is the row pushed down — never the report pulled up.
+      // row: the answer is the row pushed down, never the report pulled up.
       await reconcilePreviewEnabled(nodeId, { on: false, changedAt: "2026-10-21T13:00:00.000Z" });
       await settle();
       const pushes = scripted.cmdsOf("set_preview_enabled");
@@ -265,7 +265,7 @@ describe("reconcilePreviewEnabled — decide, push the row, write nothing", () =
     }
   });
 
-  it("a future-dated report does not outrank anything — there is nothing to outrank", async () => {
+  it("a future-dated report does not outrank anything: there is nothing to outrank", async () => {
     // No adopt means nothing to clamp: an adopted stamp is the failure mode
     // clamps guard against, and preview never adopts one to begin with.
     const nodeId = await mkNode();
@@ -288,10 +288,10 @@ describe("reconcilePreviewEnabled — decide, push the row, write nothing", () =
 /* ------------------ `local` -------------------------- */
 
 describe("`local` has no mirror to push to", () => {
-  it("pushSetPreviewEnabled is a NO-OP for local — resolves without a socket, where an agent would fail offline", async () => {
+  it("pushSetPreviewEnabled is a NO-OP for local: resolves without a socket, where an agent would fail offline", async () => {
     // The proof is the contrast: `sendCommand` to a node with no live socket
     // rejects (the offline case above swallows exactly that). Local must
-    // RESOLVE — its answer to the gate is the DB row, and there is no second
+    // RESOLVE: its answer to the gate is the DB row, and there is no second
     // copy to tell.
     await nodes.create({ id: LOCAL_NODE_ID, ownerUserId: ownerId, name: "Server", kind: "local" }).catch(() => {});
     await expect(

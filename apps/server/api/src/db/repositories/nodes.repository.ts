@@ -305,7 +305,7 @@ export class NodesRepository extends BaseRepository {
    * Write the preview switch and its stamp (pane-preview spec Task 3).
    *
    * Same shape as {@link setSshEnabled}: both fields move together, and the
-   * CALLER supplies `changedAt` — the stamp is the reconciliation protocol
+   * CALLER supplies `changedAt`: the stamp is the reconciliation protocol
    * between the plane's row and the node's mirror file, so a relay must not
    * re-stamp the fact it is carrying.
    */
@@ -314,7 +314,7 @@ export class NodesRepository extends BaseRepository {
     state: {
       /** True = this machine's panes may be watched. */
       on: boolean;
-      /** ISO 8601 of the write that produced `on` — never re-stamped on relay. */
+      /** ISO 8601 of the write that produced `on`. Never re-stamped on relay. */
       changedAt: string;
     },
   ): Promise<NodeTable | undefined> {

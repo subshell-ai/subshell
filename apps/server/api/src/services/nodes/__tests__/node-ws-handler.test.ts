@@ -969,12 +969,12 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
 
   /**
    * The preview mirror (pane-preview spec Task 3) walks the same two frames
-   * into the same shape of hook as SSH — one reconciler for connect-time state
-   * and a mid-session report — and the rows below pin the DOOR: both carriers,
+   * into the same shape of hook as SSH: one reconciler for connect-time state
+   * and a mid-session report, and the rows below pin the DOOR: both carriers,
    * the socket's nodeId, the lenient field. What the hook does with what it
    * hears ("never adopt") lives in `preview-enabled.test.ts`. The switch in
    * `node-ws-handler.ts` has no default branch, so an event arm that is simply
-   * missing passes every other suite — these rows are the only thing the
+   * missing passes every other suite, and these rows are the only thing the
    * `preview_enabled` arm and the ready-path read answer to.
    */
   describe("preview_enabled → the lifecycle hook (pane-preview spec Task 3)", () => {
@@ -1008,11 +1008,11 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
       }
     });
 
-    it("a ready WITHOUT it still reconciles — silence is the fail-closed answer, not a skipped beat", async () => {
+    it("a ready WITHOUT it still reconciles: silence is the fail-closed answer, not a skipped beat", async () => {
       // A node with no mirror file reads REFUSED, which is precisely when the
       // plane's row (say, ON from a flip during the outage) must push. This
       // `undefined` report IS the fail-closed beat connect-time mirror repair
-      // lives or dies on — the same load-bearing cell the ssh quartet pins.
+      // lives or dies on, the same load-bearing cell the ssh quartet pins.
       const { seen, off } = recordPreviewEnabled();
       try {
         const h = makeHarness();

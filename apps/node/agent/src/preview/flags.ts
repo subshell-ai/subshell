@@ -9,18 +9,18 @@ import { logger } from "../log.js";
  *
  * It is the SSH capability mirror's twin in mechanics and in default. Same
  * file-permission doctrine (0600, temp+rename, its own file beside
- * `ssh-enabled.json` and for the same two reasons — `config.json` is
+ * `ssh-enabled.json` and for the same two reasons: `config.json` is
  * snapshotted at boot and it is the node key's only home). Same fail-CLOSED
  * read: what ENABLING lets Subshell do is stream pane content to anyone the
  * plane's sharing admits, so a setting this process cannot read is not a
- * permission. Absent refuses too — watching panes has no "before" to keep
+ * permission. Absent refuses too: watching panes has no "before" to keep
  * behaving like.
  *
  * **The plane is the sole writer.** There is no `subshell preview-enabled`
  * verb, because turning a machine's pane-watching on from a keyboard at that
  * machine is exactly the decision this gate exists to make someone make in a
- * browser, as the owner, with an audit row. So the mirror has only one author
- * — a `set_preview_enabled` push — and its readers are the preview gates
+ * browser, as the owner, with an audit row. The mirror therefore has exactly
+ * one author, a `set_preview_enabled` push. Its readers are the preview gates
  * (this process, fail-closed) and the `ready` report plus heartbeat belt that
  * let the plane notice when the two copies disagree.
  *
@@ -38,7 +38,7 @@ export function previewEnabledPath(dataDir: string): string {
 }
 
 /**
- * What the mirror says, as the three answers a caller must tell apart — the
+ * What the mirror says, as the three answers a caller must tell apart: the
  * gate's answers, not the file's biography. Same shape as the SSH mirror's
  * `SshEnabledRead`, cloned for the same reasons.
  *
@@ -47,7 +47,7 @@ export function previewEnabledPath(dataDir: string): string {
  * parses to `{ on: false, changedAt }` and a file that does not exist give the
  * SAME answer to every reader (refuse; and the plane's row already says off,
  * so there is nothing to report), and no node-side writer exists whose stamp
- * anyone would later reconcile — so the off file reads as `absent` while its
+ * anyone would later reconcile, so the off file reads as `absent` while its
  * bytes stay on disk. `unreadable` refuses too, but unlike the other two it
  * says so: the answer it produces may match a quiet row, and when the row says
  * on it is a disagreement the plane can only repair if it hears about it.
@@ -58,20 +58,20 @@ export type PreviewEnabledRead =
   /** The mirror parsed and says yes: panes here may be watched. */
   | {
       kind: "on";
-      /** The stored stamp, verbatim — `ready.previewEnabled` is built from it. */
+      /** The stored stamp, verbatim: `ready.previewEnabled` is built from it. */
       changedAt: string;
     }
   /** The file exists but is not a state: REFUSED (fail-closed), reported under the file's mtime. */
   | {
       kind: "unreadable";
-      /** The file's mtime, ISO — absent only when the stat failed too, leaving nothing truthful to send. */
+      /** The file's mtime, ISO. Absent only when the stat failed too, leaving nothing truthful to send. */
       changedAt?: string;
     };
 
 /**
  * Reads the mirror.
  *
- * Total — every failure answers `unreadable` (one warn line) rather than
+ * Total: every failure answers `unreadable` (one warn line) rather than
  * throwing, because every caller is on a path where a throw would cost more
  * than the wrong answer: the preview gates, a heartbeat tick, and the `ready`
  * builder.
@@ -102,7 +102,7 @@ export function readPreviewEnabled(dataDir: string): PreviewEnabledRead {
 }
 
 /**
- * A file's mtime as an ISO stamp. TOTAL — every caller is on a path where the
+ * A file's mtime as an ISO stamp. TOTAL: every caller is on a path where the
  * answer is optional and a throw would cost the whole read.
  */
 function mtimeOf(file: string): string | undefined {
@@ -120,7 +120,7 @@ function mtimeOf(file: string): string | undefined {
  * Every reporting path goes through this so the answers cannot be classified
  * differently in three places: `ready`, the heartbeat memo check and the
  * preview gates all owe the plane the same value for the same file. An
- * unreadable mirror announces the REFUSAL it actually produces — the SSH
+ * unreadable mirror announces the REFUSAL it actually produces, the SSH
  * twin's rule, held for the same reason.
  *
  * @param read - what {@link readPreviewEnabled} answered
@@ -136,7 +136,7 @@ export function reportablePreviewEnabled(read: PreviewEnabledRead): NodePreviewE
 
 /**
  * The value this machine would hand `ready`, and the shape every preview gate
- * reads: a permit is `?.on === true` and NOTHING else — absent, unreadable,
+ * reads: a permit is `?.on === true` and NOTHING else. Absent, unreadable,
  * and a malformed file all answer a refusal (or nothing), never a permit. The
  * fail-closed rule, spelled once at the read.
  */
@@ -148,12 +148,12 @@ export function getPreviewEnabled(dataDir: string): NodePreviewEnabledWire | und
  * Persists the mirror, 0600, via temp + rename.
  *
  * Atomic for the SSH reason and sharper: a gate may read this at any instant,
- * and a half-written file parses as corrupt — which under the fail-closed rule
+ * and a half-written file parses as corrupt, which under the fail-closed rule
  * REFUSES every preview act for as long as the write takes.
  *
  * The `state` is stored VERBATIM. The plane sent it; re-stamping here would
  * make the two copies differ by exactly the link delay, and the next `ready`
- * would report a disagreement this process invented — which the plane would
+ * would report a disagreement this process invented, which the plane would
  * "repair" by pushing the same value again, forever.
  *
  * @returns the state as stored

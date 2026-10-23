@@ -194,7 +194,7 @@ export interface CommandContext {
    */
   lastReportedSshEnabled?: NodeSshEnabledWire;
   /**
-   * The last preview-switch value this connection spoke about — the same echo
+   * The last preview-switch value this connection spoke about, the same echo
    * memo as {@link lastReportedSshEnabled}, cloned with the same reasoning:
    * the plane is the mirror's ONLY writer, so the belt reports a mirror that
    * moved by accident (corruption, mostly) and never the plane's own push

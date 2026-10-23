@@ -18,7 +18,7 @@ const PreviewEnabledBodySchema = t.Object({
 });
 
 /**
- * `PUT /api/nodes/:id/preview-enabled` `{on}` — open or close pane preview on
+ * `PUT /api/nodes/:id/preview-enabled` `{on}`: open or close pane preview on
  * one machine (pane-preview spec Task 3). Browser session or an API key
  * holding the `nodes:preview` grant.
  *
@@ -26,12 +26,12 @@ const PreviewEnabledBodySchema = t.Object({
  * the same gate as SSH and maintenance: a grantee may restart the agent or
  * read its log, but deciding whether this machine's pane content may be
  * watched is not theirs. The permission is its OWN catalog id, not
- * `nodes:ssh` — a key scoped to SSH must not be able to flip preview; the
+ * `nodes:ssh`. A key scoped to SSH must not be able to flip preview; the
  * grants answer different questions.
  *
  * The route writes nothing and audits nothing itself: `setPreviewEnabled` is
  * the one change-site (row + audit + push), so no caller can perform half the
- * act — and the route is the only place the acting human is wired in.
+ * act. The route is the only place the acting human is wired in.
  *
  * It answers on an OFFLINE node rather than refusing: the flag is the plane's
  * record, and the machine learns the value at its next `ready` reconcile.

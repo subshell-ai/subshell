@@ -1189,14 +1189,14 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
     case "preview_enabled": {
       const hooks = getNodeLifecycleHooks();
       // The machine's preview mirror moved mid-session. With no node-side
-      // writer there is no keyboard flip to carry — what arrives here is a
+      // writer there is no keyboard flip to carry: what arrives here is a
       // file that changed by other means (corruption, chiefly: it flips the
       // node to REFUSED silently, and this frame is how the plane learns to
       // push the repair now rather than at the next reconnect). Same hook as
       // `ready`: a mid-session report and a connect-time state are the same
       // disagreement, and one reconciler keeps them answering alike. The
       // switch has no default arm, so an event type added here without one
-      // lands dead — this arm is the whole dispatch for this frame.
+      // lands dead. This arm is the whole dispatch for this frame.
       if (hooks) await hooks.onPreviewEnabled(nodeId, { on: event.on, changedAt: event.changedAt });
       else logger.warn(`node ws: preview_enabled from ${nodeId} with no lifecycle hook`);
       return;

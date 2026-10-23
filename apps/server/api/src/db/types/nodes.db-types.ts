@@ -111,7 +111,7 @@ export interface NodeTable {
    * 1 = pane preview may be watched on this machine (pane-preview spec
    * Task 3). Opt-in per node, never a fleet default: 0 for every row that
    * predates the column, so an upgrade leaves preview off everywhere until
-   * the owner flips it — the flag exposes terminal content.
+   * the owner flips it: the flag exposes terminal content.
    */
   previewEnabled: number;
   /**

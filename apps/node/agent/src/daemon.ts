@@ -1335,7 +1335,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
           // for it to ride ahead of, because an SSH flip kills no panes.
           maybeReportSshEnabled(ctx);
           // The preview switch's belt (pane-preview spec Task 3): the same
-          // quiet shape, the same single mid-session path — a preview flip
+          // quiet shape, the same single mid-session path: a preview flip
           // closes no panes here, so this tick is the only way the plane
           // learns the mirror moved before the next reconnect.
           maybeReportPreviewEnabled(ctx);
