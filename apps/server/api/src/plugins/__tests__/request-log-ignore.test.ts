@@ -37,6 +37,15 @@ describe("REQUEST_LOG_IGNORE", () => {
     expect(ignored("/api/nodes/local/logs")).toBe(true);
   });
 
+  it("ignores the open pane view's preview poll but not its acts", () => {
+    // The pane view polls GET /:id/preview while it is open (spec §7);
+    // opening a forward or starting a watch changes what the pane does and
+    // must stay in the log.
+    expect(ignored("/api/subshells/018f2c4e-1a2b-7c3d-9e4f-5a6b7c8d9e0f/preview")).toBe(true);
+    expect(ignored("/api/subshells/x/preview/open")).toBe(false);
+    expect(ignored("/api/subshells/x/preview/watch")).toBe(false);
+  });
+
   it("does not swallow the node routes that are ACTS rather than polls", () => {
     // Service verbs, repointing and the logging switch each change a machine.
     // Those lines are the reason an admin turns debug logging on at all.

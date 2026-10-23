@@ -58,6 +58,14 @@ export interface LaunchPlan {
    * (createSubshell stays strict).
    */
   bestEffortLog?: boolean;
+  /**
+   * The virtual display size to request (pane-preview spec §6). The agent
+   * node allocates the Xvfb + screencast pair before the pane starts (and
+   * refuses the launch by name when its platform or binaries cannot host
+   * one); `LocalLauncher` ignores the member, since a control-plane pane has
+   * no allocation machinery yet. Absent on every plain launch.
+   */
+  screen?: { width: number; height: number };
 }
 
 /**

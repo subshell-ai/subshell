@@ -38,6 +38,7 @@ import {
   probeQuiet,
   waitSentinel,
 } from "@/services/nodes/pane-exec.js";
+import { getPreviewEnabled } from "@/services/nodes/preview-enabled.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { getNotifyService } from "@/services/notify.service.js";
 import { getPreviewBroker } from "@/services/preview-broker.js";
@@ -450,6 +451,7 @@ export class SubshellsService extends BaseService {
     extraPaneEnv,
     subshellId,
     workspaceId,
+    screen,
   }: {
     /** Permission ceiling passed to the new pane credential. */
     systemKeyPermissions?: ApiKeyPermission[] | null;
@@ -511,6 +513,14 @@ export class SubshellsService extends BaseService {
      * row before anything spawns.
      */
     workspaceId?: string;
+    /**
+     * A virtual display for the pane (pane-preview spec §6): the node to be
+     * allocates Xvfb + a screencast bridge at this size. The plane prefights
+     * the node's Preview switch BEFORE any row, token, or RPC; the node
+     * stays the authority on everything the plane cannot see (platform,
+     * binaries), and refuses the launch by name.
+     */
+    screen?: { width: number; height: number };
   }): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
     // Lockdown is the FIRST question the instance asks of every create
     // (operator ask 2026-09-24): it answers valid bodies and invalid ones
@@ -635,6 +645,19 @@ export class SubshellsService extends BaseService {
         409,
       );
     }
+    // The gated screen preflight (spec §6): a `screen` launch against a node
+    // whose Preview switch is off is refused HERE, before the row, the
+    // token, and the wire, with the same remedy the node itself names. The
+    // node's Task 7 gate stays the authority for every fact the plane's row
+    // cannot hold (platform, binaries). Placed in the service rather than
+    // the launcher so a refused create never creates a pane at all.
+    if (screen !== undefined && !(await getPreviewEnabled(resolvedNodeId))) {
+      throw new SubshellCreateError(
+        "bad_request",
+        "Preview is off for that node, so a screen pane cannot start there. Turn on Preview for this node (the node's settings row), or launch without a screen.",
+        400,
+      );
+    }
     // The deferred default (spec 2026-10-01 §2): the launch node's home, read
     // only from sources this request already has — the local host's homedir,
     // or the agent's reported `ready` facts. A node that has never reported a
@@ -684,6 +707,7 @@ export class SubshellsService extends BaseService {
         ...(extraPaneEnv !== undefined ? { extraPaneEnv } : {}),
         ...(subshellId !== undefined ? { subshellId } : {}),
         ...(workspaceId !== undefined ? { workspaceId } : {}),
+        ...(screen !== undefined ? { screen } : {}),
       })
       .catch(rethrowLaunchRefusal);
     // Feed the picker's Recents (and the new-subshell form's pre-fill) from
