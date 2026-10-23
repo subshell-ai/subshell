@@ -87,13 +87,25 @@ export const previewWatchRoute = new Elysia()
           // SPA a 409 that says which).
           throw new HttpError(409, `${err.code}: ${err.message}`);
         }
-        if (err instanceof NodeRpcError && err.code === "failed" && err.detail !== undefined) {
-          // The node's refusal of the screencast open (`not-cdp`, pane gone,
-          // switch off mid-call): pass the word through named.
-          throw new HttpError(409, `That node refused the watch: ${err.detail}`);
-        }
-        if (err instanceof NodeRpcError && err.code === "offline") {
-          throw new HttpError(409, "That node is not connected right now. Reconnect it, then watch again.");
+        if (err instanceof NodeRpcError) {
+          if (err.code === "failed" && err.detail !== undefined) {
+            // The node's refusal of the screencast open (`not-cdp`, pane
+            // gone, switch off mid-call): pass the word through named.
+            throw new HttpError(409, `That node refused the watch: ${err.detail}`);
+          }
+          if (err.code === "offline") {
+            throw new HttpError(409, "That node is not connected right now. Reconnect it, then watch again.");
+          }
+          if (err.code === "timeout") {
+            // The pre-gate cannot see a node that went slow after the page's
+            // last info poll, and a timeout carries no status: left alone it
+            // would render a 500. Mirrors open's timeout arm.
+            throw new HttpError(409, "The node did not answer the preview watch in time. Try again in a moment.");
+          }
+          // `unsupported`: the connected agent predates the preview command
+          // (a stale SPA POSTs a watch to an older node). Same remedy as
+          // open's: update the node.
+          throw new HttpError(409, "That node's agent does not support preview yet. Update the node, then retry.");
         }
         throw err;
       }
