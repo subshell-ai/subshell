@@ -783,6 +783,80 @@ describe("(g) preview_close falls forward to the bridge", () => {
       cdp.stop();
     }
   });
+
+  it("the sweep cancels an in-flight handshake: the late open never registers, sends nothing, volunteers nothing", async () => {
+    // MINOR-1 (Task 6 review): a bridge registers only once the handshake
+    // lands, so for up to the budget window a screencast open is invisible to
+    // bridgeCloseAll. The plane's link must not be able to die inside that
+    // window and leave a bridge streaming to nobody until its lifetime expires.
+    const clock = new FakeClock();
+    let listRequests = 0;
+    const sends: string[] = [];
+    let late: HeldWs | undefined;
+    class HeldWs {
+      onopen: ((ev: unknown) => void) | null = null;
+      onerror: ((err: unknown) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onmessage: ((msg: { data: string | Buffer }) => void) | null = null;
+      closed = false;
+      constructor() {
+        late = this;
+      }
+      send(data: string): void {
+        sends.push(data);
+      }
+      close(): void {
+        this.closed = true;
+      }
+      open(): void {
+        this.onopen?.({});
+      }
+    }
+    const events: PreviewLaneEvent[] = [];
+    // Observe the eventual outcome from the start: the fix rejects during the
+    // sweep, long before the test awaits, and an unattached rejection would
+    // leak into the next test.
+    const outcome = startBridge({
+      ref: refFor(1),
+      cdpPort: 9222,
+      fps: 5,
+      lifetimeMs: 60_000,
+      emitStream: (ev) => {
+        events.push(ev);
+      },
+      emitClosed: (ev) => {
+        events.push(ev);
+      },
+      deps: {
+        timer: clock,
+        fetch: async () => {
+          listRequests += 1;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => [{ type: "page", webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/page/T1" }],
+          };
+        },
+        WebSocketImpl: HeldWs as unknown as new (url: string) => BridgeWs,
+      },
+    }).then(
+      () => ({ status: "resolved" as const }),
+      (err: unknown) => ({ status: "rejected" as const, why: String(err) }),
+    );
+    try {
+      await waitUntil(() => listRequests === 1 && late !== undefined, "the list answer and the websocket dial");
+      bridgeCloseAll("node-dropped"); // the link dies with the open not yet fired
+      expect(late?.closed).toBe(true); // the sweep releases the in-flight socket at once
+      late?.open(); // and the open lands anyway, after the sweep has run
+      expect(await outcome).toEqual({ status: "rejected", why: "Error: node-dropped" });
+      expect(bridgeCount()).toBe(0); // the late handshakeOpen must not register
+      expect(sends).toHaveLength(0); // no Page.enable, no screencast, on a dead link
+      expect(events).toHaveLength(0); // nothing volunteered: the plane never held this ref
+      expect(clock.liveAt(60_000)).toBe(0); // no lifetime armed for a bridge that never was
+    } finally {
+      bridgeCloseAll("viewer-left");
+    }
+  });
 });
 
 /* ------------------------------------------------------------------ */
@@ -794,7 +868,7 @@ describe("(h) the shared node budget", () => {
     expect(PREVIEW_SESSIONS_PER_NODE).toBe(16);
     const cdp = new FakeCdp();
     const h = makeHarness("shared-budget-bridge");
-    setActivePreviewForward(h.forward); // forwardCount() now reads THIS registry
+    setActivePreviewForward(h.forward); // the daemon boot handle; the executor reads THIS registry directly
     try {
       // 15 lanes spread 4-per-pane (the per-pane cap is its own rung; this
       // case is about the NODE sum, so the lanes must not trip it first).

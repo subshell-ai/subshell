@@ -6,7 +6,7 @@ import {
 } from "@internal/subshell-protocol";
 import { type BridgeDeps, bridgeCount, startBridge } from "../preview/cdp-bridge.js";
 import { getPreviewEnabled } from "../preview/flags.js";
-import { forwardCount, type LaneDeps } from "../preview/forward.js";
+import type { LaneDeps } from "../preview/forward.js";
 import { resolveSocket } from "./basics.js";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
 import { PREVIEW_NODE_OFF } from "./preview-ports-exec.js";
@@ -26,12 +26,12 @@ import { PREVIEW_NODE_OFF } from "./preview-ports-exec.js";
  *   pane, so liveness is law before registration, not a fact the dial trusts.
  * - **The budget last, and it is ONE number**: spec §6's "16 per node" is a
  *   sum over BOTH registries (sixteen of any mix), checked before either
- *   mechanism starts. The lane path consults {@link bridgeCount}, the bridge
- *   path {@link forwardCount}; a sum living only in one branch is how 32
- *   total sessions come back, and a dial-then-refuse would leave a live
- *   connection behind for a request that was never going to register. Each
- *   refusal still names its own kind. The 4-per-pane cap stays lane-only: the
- *   screencast has no per-pane quota in the spec.
+ *   mechanism starts. Both rungs sum the context registry's node-wide
+ *   `laneCount()` with {@link bridgeCount}; a sum living only in one branch
+ *   is how 32 total sessions come back, and a dial-then-refuse would leave a
+ *   live connection behind for a request that was never going to register.
+ *   Each refusal still names its own kind. The 4-per-pane cap stays lane-only:
+ *   the screencast has no per-pane quota in the spec.
  *
  * The forward branch calls {@link PreviewForward.openLane}, which registers
  * synchronously and dials OFF the command chain (the ssh-relay A-branch
@@ -40,7 +40,7 @@ import { PREVIEW_NODE_OFF } from "./preview-ports-exec.js";
  * answer to this command. The screencast branch AWAITS {@link startBridge}:
  * the open answers `{ ref, subscribers: 1 }` only once the CDP handshake and
  * `Page.startScreencast` have actually landed, and every handshake failure
- * answers the {@link PREVIEW_NOT_CDP} refusal with no half-started state —
+ * answers the {@link PREVIEW_NOT_CDP} refusal with no half-started state:
  * the plane never holds a ref it has no live bridge behind.
  */
 
@@ -116,9 +116,9 @@ export async function execPreviewOpen(
   }
   // The screencast branch: the shared budget BEFORE the dial (a refusal must
   // not leave a live CDP connection behind for a request that was never going
-  // to register), and the absent `fps` defaults HERE — the wire grammar
+  // to register), and the absent `fps` defaults HERE: the wire grammar
   // rebuilds the command without it and leaves the defaulting to this arm.
-  if (forwardCount() + bridgeCount() >= PREVIEW_SESSIONS_PER_NODE)
+  if (forward.laneCount() + bridgeCount() >= PREVIEW_SESSIONS_PER_NODE)
     return { ok: false, error: PREVIEW_WATCH_OVER_NODE_CAP };
   try {
     await startBridge({

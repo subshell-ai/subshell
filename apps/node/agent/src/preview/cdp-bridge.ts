@@ -143,12 +143,27 @@ interface Bridge {
 /** The live bridge registry, module-level like the daemon's other per-machine maps. */
 const bridges = new Map<string, Bridge>();
 
+/**
+ * Handshakes in flight, keyed by ref. A bridge joins {@link bridges} only
+ * once its handshake lands, which would leave a screencast open invisible to
+ * {@link bridgeCloseAll} for the budget window, exactly the hazard the
+ * link-drop sweep exists to close. Every start registers HERE first, so the
+ * sweep can cancel it: `cancel` rejects the awaiting `startBridge` and marks
+ * the handshake settled, and a late open then closes its socket instead of
+ * registering.
+ */
+interface PendingHandshake {
+  bridge: Bridge;
+  cancel: (reason: string) => void;
+}
+const pending = new Map<string, PendingHandshake>();
+
 /** Clamp the command's fps into the protocol's [1, 5] window (pure; exported for its pin). */
 export function clampFps(fps: number): number {
   return Math.min(PREVIEW_WATCH_FPS_MAX, Math.max(PREVIEW_WATCH_FPS_MIN, fps));
 }
 
-/** Bridges now registered: the shared node budget's bridge half (`forwardCount()` is the lane half). */
+/** Bridges now registered: the shared node budget's bridge half (the lane half is the registry's `laneCount()`). */
 export function bridgeCount(): number {
   return bridges.size;
 }
@@ -202,10 +217,18 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
   let ws: BridgeWs | undefined;
   let handshakeOpen: () => void = () => {};
   let handshakeFail: (why: string) => void = () => {};
+  let handshakeCancel: (reason: string) => void = () => {};
+  // Drop only OUR pending entry: a second handshake under the same ref (an
+  // unrepresentable collision, but this map is global) must not be orphaned
+  // by the first one settling.
+  const clearPending = (): void => {
+    if (pending.get(args.ref)?.bridge === bridge) pending.delete(args.ref);
+  };
   const handshake = new Promise<{ subscribers: number }>((resolve, reject) => {
     handshakeOpen = () => {
       if (settled) return;
       settled = true;
+      clearPending();
       timer.clearTimeout(budgetHandle);
       bridges.set(bridge.ref, bridge);
       // The lifetime arms only once the mechanism is actually running: the
@@ -217,6 +240,7 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
     handshakeFail = (why: string) => {
       if (settled) return;
       settled = true;
+      clearPending();
       timer.clearTimeout(budgetHandle);
       try {
         ws?.close();
@@ -226,7 +250,25 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
       say(`preview bridge ${bridge.ref}: handshake failed (${why}), refusing not-cdp`);
       reject(new Error("not-cdp"));
     };
+    handshakeCancel = (reason: string) => {
+      if (settled) return; // the budget or a failure already owned this handshake
+      settled = true;
+      clearPending();
+      timer.clearTimeout(budgetHandle);
+      try {
+        ws?.close();
+      } catch {
+        /* already gone */
+      }
+      // NO `preview_closed` is volunteered: the plane never held this ref. The
+      // awaiting open simply answers a refusal, and the open arm speaks
+      // `not-cdp` whatever the handshake throws, so the message only carries
+      // the sweep's reason for the log.
+      say(`preview bridge ${bridge.ref}: handshake cancelled by the link-drop sweep (${reason})`);
+      reject(new Error(reason));
+    };
   });
+  pending.set(args.ref, { bridge, cancel: handshakeCancel });
   budgetHandle = timer.setTimeout(
     () => handshakeFail(`handshake budget ${BRIDGE_HANDSHAKE_BUDGET_MS} ms expired`),
     BRIDGE_HANDSHAKE_BUDGET_MS,
@@ -243,6 +285,17 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
     }
     bridge.ws = ws; // the frame path acks through the bridge, not just the closure
     ws.onopen = () => {
+      if (settled) {
+        // The handshake was cancelled by the sweep (or the budget fired)
+        // while this open was in flight: the socket has no owner, so close
+        // it instead of starting a screencast nobody registered for.
+        try {
+          ws?.close();
+        } catch {
+          /* already gone */
+        }
+        return;
+      }
       try {
         ws?.send(JSON.stringify({ id: bridge.nextId++, method: "Page.enable" }));
         ws?.send(
@@ -324,6 +377,7 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
       handshakeFail(`webSocketDebuggerUrl host ${host} is not loopback`);
       return;
     }
+    if (settled) return; // cancelled while the list fetch was in flight: no dial now
     attachSocket(url);
   })();
 
@@ -346,11 +400,15 @@ export function stopBridge(ref: string, reason: PreviewCloseReason): boolean {
 
 /**
  * The daemon's link-drop hook beside the lanes': every bridge dies with
- * exactly one `preview_closed`. Without it a continuous-repaint page would
- * screencast forever after the plane's link died. The pump throws for each of
- * these (the link is gone); `die` treats that as the expected answer.
+ * exactly one `preview_closed`, and every IN-FLIGHT HANDSHAKE is cancelled
+ * (see the {@link pending} note) so a late open can never register behind a
+ * dead link. Without either, a continuous-repaint page would screencast
+ * forever after the plane's link died. The pump throws for each of these (the
+ * link is gone); `die` treats that as the expected answer, and a cancelled
+ * handshake volunteers nothing: the plane never held that ref.
  */
 export function bridgeCloseAll(reason: PreviewCloseReason): void {
+  for (const entry of [...pending.values()]) entry.cancel(reason);
   for (const bridge of [...bridges.values()]) die(bridge, reason);
 }
 

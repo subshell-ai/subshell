@@ -1609,7 +1609,7 @@ export interface PreviewOpenCommand {
   paneId: string;
   /** Dial target (forward) or devtools port (screencast). The node dials loopback only. */
   port: number;
-  /** Screencast only; the bridge clamps it to [1, 5] and defaults it. Forward forbids it. */
+  /** Screencast only; the open EXECUTOR branch defaults an absent fps and the bridge clamps it to [1, 5]. Forward forbids it. */
   fps?: number;
   /** Self-expiry: the node closes the lane by this deadline whatever the plane does. */
   lifetimeMs: number;
