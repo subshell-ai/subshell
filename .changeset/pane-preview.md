@@ -19,3 +19,5 @@ Open the preview picker dialog from a subshell’s header window icon.
 Move preview choices into a dialog and consolidate each viewer’s controls into one toolbar, letting the viewer fill the tab. Distinguish virtual displays with a window icon while device sizing keeps its monitor icon.
 
 Simplify the preview picker with clickable rows, distinct view icons, and port badges, without introductory text.
+
+Keep large preview pickers manageable with search, sorted ports, denser rows, and a bounded app list that leaves display and browser choices visible.
