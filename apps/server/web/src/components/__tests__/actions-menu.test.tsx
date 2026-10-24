@@ -45,7 +45,7 @@ describe("ActionsMenu", () => {
     expect(fired).toBe(1);
     // Radix unmounts menu content on close — gone items are what make the
     // next click land on the card instead of a stale item.
-    await waitFor(() => expect(screen.queryByRole("menuitem")).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("menuitem") === null).toBe(true));
   });
 
   it("marks destructive items so they render in the destructive colour", async () => {

@@ -197,7 +197,7 @@ describe("CreatePresetDialog — clone (initialForm)", () => {
       await waitFor(() =>
         expect((client.getQueryData<PresetRow[]>(PRESETS_QUERY_KEY) ?? []).map((r) => r.id)).toContain("p-new"),
       );
-      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      await waitFor(() => expect(screen.queryByRole("dialog") === null).toBe(true));
     } finally {
       m.restore();
     }
@@ -370,7 +370,7 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
       // The picked machine earns its X (2026-09-30): clearing is an act on
       // the field, not a row in the list.
       fireEvent.click(screen.getByRole("button", { name: "Clear machine" }));
-      await waitFor(() => expect(dialog.querySelector('[aria-label="Clear machine"]')).toBeNull());
+      await waitFor(() => expect(dialog.querySelector('[aria-label="Clear machine"]') === null).toBe(true));
       expect((dialog.querySelector("#preset-launch-node") as HTMLElement).textContent).toContain("Decide at launch");
       // Re-pick: the gap checks below need the machine chosen again.
       fireEvent.click(dialog.querySelector("#preset-launch-node") as HTMLElement);
@@ -389,7 +389,7 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
         target: { value: "/srv/app" },
       });
       // Both met: the list empties and the switch arms.
-      await waitFor(() => expect(dialog.querySelector("#preset-cross-comm-gaps")).toBeNull());
+      await waitFor(() => expect(dialog.querySelector("#preset-cross-comm-gaps") === null).toBe(true));
       expect(
         (dialog.querySelector("#preset-cross-comm") as HTMLButtonElement).matches(":disabled, [aria-disabled=true]"),
       ).toBe(false);
@@ -483,7 +483,7 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
     expect(screen.queryByRole("dialog")).not.toBeNull();
     expect(closed).toEqual([]);
     fireEvent.click(screen.getByLabelText("Close"));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog") === null).toBe(true));
     expect(closed).toEqual([false]);
   });
 

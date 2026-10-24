@@ -240,7 +240,7 @@ describe("SetupKeysSection", () => {
       expect(within(dialog).queryByText("Generate setup key first")).toBeNull();
 
       fireEvent.click(within(dialog).getByRole("button", { name: "Done" }));
-      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      await waitFor(() => expect(screen.queryByRole("dialog") === null).toBe(true));
     } finally {
       restore();
     }
@@ -386,7 +386,7 @@ describe("SetupKeysSection", () => {
 
       // And switching back returns to the narrow read.
       fireEvent.click(toggle);
-      await waitFor(() => expect(screen.queryByText("nsk_foreign_foreign_foreign_fore_1")).toBeNull());
+      await waitFor(() => expect(screen.queryByText("nsk_foreign_foreign_foreign_fore_1") === null).toBe(true));
     } finally {
       restore();
     }

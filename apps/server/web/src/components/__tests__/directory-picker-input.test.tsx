@@ -267,7 +267,7 @@ describe("DirectoryPickerInput", () => {
         // The pick is complete: the panel closes the way a select's empty
         // item closes it (unlike Start over, which keeps browsing).
         expect(screen.queryByRole("button", { name: "Decide at launch" })).toBeNull();
-        await waitFor(() => expect(screen.queryByText("src")).toBeNull());
+        await waitFor(() => expect(screen.queryByText("src") === null).toBe(true));
       } finally {
         m.restore();
       }
@@ -636,7 +636,7 @@ describe("DirectoryPickerInput", () => {
       // so one more ".." climbs to the root, where the row disappears.
       await screen.findByText("projects");
       fireEvent.click(screen.getByRole("button", { name: ".." }));
-      await waitFor(() => expect(screen.queryByRole("button", { name: ".." })).toBeNull());
+      await waitFor(() => expect(screen.queryByRole("button", { name: ".." }) === null).toBe(true));
       expect(picks).toEqual(["/home", "/"]);
     } finally {
       restore();
@@ -675,7 +675,7 @@ describe("DirectoryPickerInput", () => {
       // /tmp has a parent, so the ".." row marks an open panel.
       await screen.findByRole("button", { name: ".." });
       fireEvent.keyDown(document.body, { key: "Escape" });
-      await waitFor(() => expect(screen.queryByRole("button", { name: ".." })).toBeNull());
+      await waitFor(() => expect(screen.queryByRole("button", { name: ".." }) === null).toBe(true));
       expect(picked).toBe("");
     } finally {
       restore();
@@ -897,7 +897,7 @@ describe("DirectoryPickerInput", () => {
       // A plain Event with the pointerdown type is enough to reach the
       // document listener (happy-dom has no PointerEvent constructor).
       fireEvent(document.body, new Event("pointerdown", { bubbles: true }));
-      await waitFor(() => expect(screen.queryByText("cache")).toBeNull());
+      await waitFor(() => expect(screen.queryByText("cache") === null).toBe(true));
     } finally {
       restore();
     }
