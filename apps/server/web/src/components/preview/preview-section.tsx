@@ -32,7 +32,6 @@ import type { SubshellAccess, SubshellView } from "@/types/subshell";
 export type PreviewChoice = import("@internal/subshell-protocol").WorkspacePreviewTarget;
 
 export interface PreviewSectionProps {
-  onOpenAnother?: () => void;
   onClose?: () => void;
   initialView?: PreviewChoice | null;
   onViewChange?: (choice: PreviewChoice | null) => void;
@@ -95,7 +94,6 @@ export function PreviewSection({
   fill = false,
   initialView,
   onViewChange,
-  onOpenAnother,
   onClose,
 }: PreviewSectionProps): JSX.Element {
   const phoneDefault = useIsPhoneLayout();
@@ -295,8 +293,6 @@ export function PreviewSection({
             selected={selected}
             busy={busy}
             connection={connection}
-            onOpenAnother={onOpenAnother ?? (() => {})}
-            target={initialView}
             onRefresh={refreshViewer}
             onDisconnect={disconnect}
             onFullscreen={() => void toggleFullscreen()}

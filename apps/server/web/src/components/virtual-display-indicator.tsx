@@ -1,4 +1,4 @@
-import { AppWindow } from "lucide-react";
+import { AppWindow, Globe } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export function VirtualDisplayIndicator({
@@ -10,7 +10,7 @@ export function VirtualDisplayIndicator({
   compact?: boolean;
   onOpen?: () => void;
 }) {
-  if (!display) return null;
+  if (!display && (compact || !onOpen)) return null;
   const label = `Virtual display ${display}`;
   if (compact)
     return (
@@ -26,9 +26,13 @@ export function VirtualDisplayIndicator({
         onClick={onOpen}
         className="inline-flex shrink-0 items-center text-primary"
       >
-        <AppWindow className="size-3.5" aria-hidden="true" />
+        {display ? (
+          <AppWindow className="size-3.5" aria-hidden="true" />
+        ) : (
+          <Globe className="size-3.5" aria-hidden="true" />
+        )}
       </TooltipTrigger>
-      <TooltipContent>Virtual display enabled - click to activate</TooltipContent>
+      <TooltipContent>{display ? "Virtual display enabled - click to activate" : "Open preview"}</TooltipContent>
     </Tooltip>
   );
 }

@@ -6,7 +6,6 @@ afterEach(cleanup);
 function props(overrides: Partial<PreviewToolbarProps> = {}): PreviewToolbarProps {
   return {
     selected: "app:41430",
-    onOpenAnother: () => {},
     onRefresh: () => {},
     onDisconnect: () => {},
     onFullscreen: () => {},
@@ -18,22 +17,6 @@ function props(overrides: Partial<PreviewToolbarProps> = {}): PreviewToolbarProp
     ...overrides,
   };
 }
-it("opens the chooser without replacing this resource", () => {
-  let opened = 0;
-  render(
-    <PreviewToolbar
-      {...props({
-        target: { kind: "app", port: 41430 },
-        onOpenAnother: () => {
-          opened += 1;
-        },
-      })}
-    />,
-  );
-  fireEvent.click(screen.getByRole("button", { name: "Open another preview" }));
-  expect(opened).toBe(1);
-  expect(screen.getByText("App · 41430")).toBeTruthy();
-});
 it("keeps secondary actions in More, including an actual browser-tab link", async () => {
   let closed = 0;
   render(

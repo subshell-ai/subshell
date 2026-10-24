@@ -23,3 +23,17 @@ it("opens the display from an icon-only header shortcut", () => {
   fireEvent.click(screen.getByRole("button", { name: "Open preview" }));
   expect(opened).toBe(1);
 });
+
+it("keeps the header picker available for subshells without a virtual display", () => {
+  let opened = 0;
+  render(
+    <VirtualDisplayIndicator
+      onOpen={() => {
+        opened += 1;
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Open preview" }));
+  expect(opened).toBe(1);
+  expect(screen.queryByRole("img")).toBeNull();
+});

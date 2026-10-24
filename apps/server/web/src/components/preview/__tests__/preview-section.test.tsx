@@ -401,7 +401,6 @@ it("keeps the chooser free of a toolbar and shows it only after opening a view",
   expect(screen.queryByRole("button", { name: "Refresh preview" }) === null).toBe(true);
   fireEvent.click(screen.getAllByRole("button", { name: /^Open app/ })[0]);
   await screen.findByTitle("Preview of port 3000");
-  expect(screen.getByRole("button", { name: "Open another preview" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Refresh preview" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: /^Open app/ }) === null).toBe(true);
 });
