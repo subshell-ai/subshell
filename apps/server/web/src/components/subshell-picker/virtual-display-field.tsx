@@ -2,7 +2,7 @@ import { apiFetch, Button, Label, type Node } from "@internal/node-admin";
 import { type PreviewDisplayReadiness, parsePreviewDisplayReadiness } from "@internal/subshell-protocol";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -53,10 +53,14 @@ export function VirtualDisplayField({
         : virtualDisplayReason(node, check.data);
   const needsSetup =
     shouldCheck && !check.isFetching && !check.isError && check.data?.supported && check.data.missing.length > 0;
-  // A machine change must not carry an unsupported display into the next launch.
+  const previousNode = useRef(node?.id);
+  // Revalidating the same machine must not discard the user's selection.
+  // A different machine or a completed refusal does invalidate it.
   useEffect(() => {
-    if (reason && checked) onChange(false);
-  }, [reason, checked, onChange]);
+    const changedNode = previousNode.current !== node?.id;
+    previousNode.current = node?.id;
+    if (checked && (changedNode || (reason && !check.isFetching))) onChange(false);
+  }, [node?.id, reason, check.isFetching, checked, onChange]);
   const control = (
     <div className="flex items-center gap-3">
       <Checkbox
@@ -94,7 +98,7 @@ export function VirtualDisplayField({
       )}
       <p id={`${id}-hint`} className="text-detail text-muted-foreground">
         Gives browsers and other graphical apps launched in this subshell a screen, even without a physical monitor. See
-        and control them from Preview → View screen.
+        and control them from Apps &amp; screens → Virtual display.
       </p>
       {reason && (
         <p id={`${id}-reason`} className="text-detail text-warning">

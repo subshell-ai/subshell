@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { Node } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { VirtualDisplayField, virtualDisplayReason } from "@/components/subshell-picker/virtual-display-field";
 
 const originalFetch = globalThis.fetch;
@@ -88,4 +88,25 @@ describe("virtual display prerequisites", () => {
     expect(screen.getByRole("checkbox").getAttribute("aria-disabled")).toBe("true");
     await screen.findByRole("link", { name: "Set up virtual display" });
   });
+});
+
+it("preserves a selected display while revalidating the same machine", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(["preview-display-readiness", linux.id], ready);
+  let resolve!: (response: Response) => void;
+  globalThis.fetch = (() =>
+    new Promise<Response>((r) => {
+      resolve = r;
+    })) as unknown as typeof fetch;
+  const changes: boolean[] = [];
+  render(
+    <QueryClientProvider client={client}>
+      <VirtualDisplayField node={linux} id="display" checked onChange={(v) => changes.push(v)} />
+    </QueryClientProvider>,
+  );
+  await waitFor(() => expect(resolve).toBeDefined());
+  expect(changes).toEqual([]);
+  await act(async () => resolve(new Response(JSON.stringify(ready))));
+  await waitFor(() => expect(screen.getByRole("checkbox").getAttribute("aria-disabled")).not.toBe("true"));
+  expect(changes).toEqual([]);
 });

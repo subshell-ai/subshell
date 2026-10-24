@@ -2,7 +2,14 @@ import { describe, expect, it } from "bun:test";
 import { ApiError } from "../api-client.js";
 import { createSubshell, listNodes } from "../subshell-tools.js";
 import type { ToolDeps } from "../tools.js";
-import { getNode, listSubshellViews, openSubshellView, ScreenSchema, watchSubshellBrowser } from "../view-tools.js";
+import {
+  getNode,
+  listSubshellViews,
+  OpenSubshellViewSchema,
+  openSubshellView,
+  ScreenSchema,
+  watchSubshellBrowser,
+} from "../view-tools.js";
 
 const node = {
   id: "linux-1",
@@ -150,4 +157,11 @@ describe("MCP preview discovery and launch", () => {
       ["DELETE", undefined],
     ]);
   });
+});
+
+it("refuses ambiguous view arguments before opening a capability", () => {
+  expect(OpenSubshellViewSchema.safeParse({ subshell_id: "p", kind: "app" }).success).toBe(false);
+  expect(OpenSubshellViewSchema.safeParse({ subshell_id: "p", kind: "screen", port: 3000 }).success).toBe(false);
+  expect(OpenSubshellViewSchema.safeParse({ subshell_id: "p", kind: "app", port: 3000 }).success).toBe(true);
+  expect(OpenSubshellViewSchema.safeParse({ subshell_id: "p", kind: "screen" }).success).toBe(true);
 });

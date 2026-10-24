@@ -73,11 +73,25 @@ export function listSubshellViews(deps: ToolDeps, args: z.infer<typeof ListSubsh
   return deps.api.req(`/api/subshells/${encodeURIComponent(args.subshell_id)}/views`);
 }
 
-export const OpenSubshellViewSchema = z.object({
-  subshell_id: z.string().min(1),
-  kind: z.enum(["app", "screen"]),
-  port: z.number().int().min(1).max(65535).optional().describe("Required for app previews; omit for screen previews"),
-});
+export const OpenSubshellViewSchema = z
+  .object({
+    subshell_id: z.string().min(1),
+    kind: z.enum(["app", "screen"]),
+    port: z.number().int().min(1).max(65535).optional().describe("Required for app previews; omit for screen previews"),
+  })
+  .superRefine((args, ctx) => {
+    if (args.kind === "app" && args.port === undefined) {
+      ctx.addIssue({ code: "custom", path: ["port"], message: "Choose an app port from list_subshell_views." });
+    }
+    if (args.kind === "screen" && args.port !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["port"],
+        message: "Omit port for a virtual display; its screen port is discovered automatically.",
+      });
+    }
+  });
+
 export async function openSubshellView(deps: ToolDeps, args: z.infer<typeof OpenSubshellViewSchema>) {
   let port: number;
   if (args.kind === "screen") {

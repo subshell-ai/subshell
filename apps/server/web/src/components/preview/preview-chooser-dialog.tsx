@@ -22,7 +22,7 @@ export function PreviewChooserDialog({ subshellId, onClose }: { subshellId: stri
         <DialogHeader>
           <DialogTitle>Open app or screen</DialogTitle>
         </DialogHeader>
-        {!info && <p className="text-detail text-muted-foreground">Checking available views…</p>}
+        {!info && !preview.error && <p className="text-detail text-muted-foreground">Checking available views…</p>}
         {preview.error && (
           <p role="alert" className="text-destructive text-detail">
             {preview.error}

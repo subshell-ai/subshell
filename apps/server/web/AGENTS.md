@@ -541,6 +541,8 @@ Subshell list views carry `virtualDisplay` metadata for the sidebar and headers.
 
 Workspace previews consolidate refresh, full screen, and secondary actions in one toolbar. Selected viewers omit their own headers and padding; the terminal’s Apps & screens bar is hidden while its preview tab is open. Connection indicators reflect iframe loading, RFB connection events, or browser frame freshness. Preview groups put Maximize pane in their viewer action menu and show Restore pane directly in the toolbar while maximized. Full screen follows the same pattern: enter through the menu, exit from the toolbar. They omit the duplicate group-header button. The dock adapter subscribes to maximize and group-change events and reads the current group when toggling, so moving a preview keeps its actions bound to the right group.
 
+Browser-watch requests carry a lifecycle generation: late success must release its old pane's interest without reactivating the view, and late errors must not follow navigation. Stop and unmount invalidate pending starts. Display prerequisite rechecks on the same machine preserve the user's selection; changing machines or receiving a completed refusal clears it.
+
 The preview picker always uses compact rows, adding search and a bounded app scroller when it has more than six choices. Browser and virtual display choices stay outside the app scroller. Ports are sorted and deduplicated before rendering.
 
 

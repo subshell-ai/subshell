@@ -328,7 +328,7 @@ export function PreviewSection({
           )}
           {onHide && (
             <Button variant="ghost" size="sm" onClick={onHide} aria-expanded={true}>
-              Hide preview
+              Hide apps and screens
             </Button>
           )}
           {preview.infoLoading && info === undefined && (

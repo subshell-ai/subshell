@@ -30,7 +30,7 @@ function paneRow(over: Partial<SubshellView> = {}): SubshellView {
   } as unknown as SubshellView;
 }
 
-function wire(opts: { watchStatus?: number; watchMessage?: string } = {}) {
+function wire(opts: { watchStatus?: number; watchMessage?: string; watchResponse?: Promise<Response> } = {}) {
   const calls: Call[] = [];
   const frames: LiveClientFrame[] = [];
   const feedRef: { value: LiveSubshellsFeedValue } = {
@@ -59,6 +59,7 @@ function wire(opts: { watchStatus?: number; watchMessage?: string } = {}) {
       );
     }
     if (/^\/api\/subshells\/pane\d+\/views\/browser\/watch$/.test(url.pathname)) {
+      if (method === "POST" && opts.watchResponse) return opts.watchResponse;
       if (method === "POST" && opts.watchStatus && opts.watchStatus !== 200) {
         return Promise.resolve(
           new Response(JSON.stringify({ errId: "e", code: "CONFLICT", message: opts.watchMessage ?? "refused" }), {
@@ -350,6 +351,63 @@ describe("the info refresh", () => {
       expect(h.infoGets()).toBe(2);
     } finally {
       clock.restore();
+      h.restore();
+    }
+  });
+});
+
+describe("pending browser watches", () => {
+  for (const leave of ["navigate", "unmount", "stop"] as const) {
+    it(`doesn't revive a watch after ${leave}`, async () => {
+      let resolve!: (response: Response) => void;
+      const watchResponse = new Promise<Response>((r) => {
+        resolve = r;
+      });
+      const h = wire({ watchResponse });
+      try {
+        let pending!: Promise<void>;
+        await act(async () => {
+          pending = h.result.current.startWatch(9333);
+        });
+        await act(async () => {
+          if (leave === "navigate") h.setPane("pane2");
+          else if (leave === "unmount") h.unmount();
+          else await h.result.current.stopWatch();
+        });
+        await act(async () => {
+          resolve(new Response(JSON.stringify({ ok: true })));
+          await pending;
+        });
+        expect(h.framesFor("watch", "pane1")).toHaveLength(0);
+        expect(h.framesFor("watch", "pane2")).toHaveLength(0);
+        expect(h.calls.some((c) => c.method === "DELETE" && c.url === "/api/subshells/pane1/views/browser/watch")).toBe(
+          true,
+        );
+        if (leave !== "unmount") expect(h.result.current.watching).toBe(false);
+      } finally {
+        h.restore();
+      }
+    });
+  }
+  it("doesn't carry a late refusal into the next pane", async () => {
+    let resolve!: (response: Response) => void;
+    const h = wire({
+      watchResponse: new Promise<Response>((r) => {
+        resolve = r;
+      }),
+    });
+    try {
+      let pending!: Promise<void>;
+      await act(async () => {
+        pending = h.result.current.startWatch();
+      });
+      await act(async () => h.setPane("pane2"));
+      await act(async () => {
+        resolve(new Response(JSON.stringify({ message: "old pane refused" }), { status: 409 }));
+        await pending;
+      });
+      expect(h.result.current.watchError).toBeNull();
+    } finally {
       h.restore();
     }
   });

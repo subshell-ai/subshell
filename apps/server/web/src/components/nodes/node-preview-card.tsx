@@ -8,6 +8,7 @@ import {
   type NodeDetail,
   Switch,
 } from "@internal/node-admin";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSetViewsEnabled } from "@/hooks/use-nodes";
 
 /**
@@ -20,6 +21,22 @@ import { useSetViewsEnabled } from "@/hooks/use-nodes";
  */
 export function NodePreviewCard({ node }: { node: NodeDetail }) {
   const update = useSetViewsEnabled();
+  const disabledReason = !node.canManage
+    ? node.kind === "local"
+      ? "An admin can change this setting."
+      : "Only this node’s owner can change this setting."
+    : update.isPending
+      ? "Saving the apps and screens setting…"
+      : undefined;
+  const toggle = (
+    <Switch
+      id="node-preview-enabled"
+      checked={node.viewsEnabled === true}
+      disabled={Boolean(disabledReason)}
+      aria-describedby={disabledReason ? "node-views-disabled-reason" : undefined}
+      onCheckedChange={(on) => update.mutate({ id: node.id, on })}
+    />
+  );
   return (
     <Card>
       <CardHeader>
@@ -27,25 +44,43 @@ export function NodePreviewCard({ node }: { node: NodeDetail }) {
       </CardHeader>
       <CardContent className="flex flex-col items-start gap-3">
         <div className="flex items-center gap-4">
-          <Switch
-            id="node-preview-enabled"
-            checked={node.viewsEnabled === true}
-            disabled={!node.canManage || update.isPending}
-            onCheckedChange={(on) => update.mutate({ id: node.id, on })}
-          />
+          {disabledReason ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  // biome-ignore lint/a11y/useSemanticElements: a native button cannot wrap a switch; this focus target explains the disabled control.
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    aria-disabled={true}
+                    aria-label={disabledReason}
+                    className="inline-flex"
+                  />
+                }
+              >
+                {toggle}
+              </TooltipTrigger>
+              <TooltipContent>{disabledReason}</TooltipContent>
+            </Tooltip>
+          ) : (
+            toggle
+          )}
           <Label htmlFor="node-preview-enabled">Allow apps and screens</Label>
         </div>
         {node.canManage ? (
           <p className="text-detail text-muted-foreground">
             {node.viewsEnabled
-              ? "Pane content on this machine can be watched: forwarded ports, live browser frames, and virtual screens. Turning this off stops new previews; the machine keeps running its panes."
-              : "Turning this on lets authorized viewers watch pane content on this machine: forwarded ports, live browser frames, and virtual screens. Every act still goes through the pane's own access rules."}
+              ? "Authorized viewers can open apps, watch browsers, and control virtual displays on this machine. Turning this off prevents new connections; existing connections and subshells keep running."
+              : "Turning this on lets authorized viewers open apps, watch browsers, and control virtual displays. Each subshell’s access rules still apply."}
           </p>
         ) : (
-          <p className="text-detail text-muted-foreground">
-            {node.kind === "local"
-              ? "An admin can change this setting."
-              : "Only this node’s owner can change this setting."}
+          <p id="node-views-disabled-reason" className="text-detail text-warning">
+            {disabledReason}
+          </p>
+        )}
+        {node.canManage && update.isPending && (
+          <p id="node-views-disabled-reason" role="status" className="text-detail text-muted-foreground">
+            {disabledReason}
           </p>
         )}
         {update.isError && (

@@ -42,15 +42,15 @@ export function nodeReasonLine(reason: string | undefined): string {
     case "preview-disabled":
       return "Apps & screens is switched off on this node. Its owner can turn it on in node settings.";
     case "node-held":
-      return "This node is held for one command right now. Preview waits until the hold ends.";
+      return "This node needs attention before it can serve apps and screens. Check its status in node settings.";
     case "node-too-old":
-      return "Update this node's agent to use preview.";
+      return "Update Subshell on this node to use apps and screens.";
     case "node-offline":
-      return "This node is offline. Preview works when it comes back.";
+      return "This node is offline. Reconnect it to open apps and screens.";
     case "node-timeout":
-      return "The node didn't answer the preview check in time. Try again in a moment.";
+      return "The node didn't answer the view discovery request in time. Try again in a moment.";
     default:
-      return `The node can't serve preview right now${reason ? ` (${reason})` : ""}.`;
+      return `The node can't serve apps and screens right now${reason ? ` (${reason})` : ""}.`;
   }
 }
 

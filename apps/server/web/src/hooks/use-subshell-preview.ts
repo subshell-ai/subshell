@@ -127,6 +127,9 @@ export function useSubshellPreview(id: string, subshell: SubshellView | undefine
   // Read inside socket-lifetime effects where a stale state closure would
   // re-send for a watch this tab no longer holds.
   const watchingRef = useRef(false);
+  const watchGeneration = useRef(0);
+  const currentPane = useRef(id);
+  currentPane.current = id;
   const sendRef = useRef(feed.send);
   sendRef.current = feed.send;
   const connected = feed.connected;
@@ -144,6 +147,7 @@ export function useSubshellPreview(id: string, subshell: SubshellView | undefine
 
   const startWatch = useCallback(
     async (port?: number) => {
+      const generation = ++watchGeneration.current;
       setWatchError(null);
       try {
         await apiFetch(`/api/subshells/${encodeURIComponent(id)}/views/browser/watch`, {
@@ -155,7 +159,17 @@ export function useSubshellPreview(id: string, subshell: SubshellView | undefine
         // The named refusal (watch-port-conflict, the caps, the 400 naming
         // what is missing) renders; no frame goes out, because there is no
         // bridge this tab joined.
-        setWatchError(errMessage(err, "The watch could not be started."));
+        if (generation === watchGeneration.current) setWatchError(errMessage(err, "The watch could not be started."));
+        return;
+      }
+      if (generation !== watchGeneration.current) {
+        // A late POST must not revive a closed view or attach the next pane.
+        // Release its server interest unless a newer watch still owns this pane.
+        if (currentPane.current !== id || !watchingRef.current) {
+          void apiFetch(`/api/subshells/${encodeURIComponent(id)}/views/browser/watch`, { method: "DELETE" }).catch(
+            () => {},
+          );
+        }
         return;
       }
       watchingRef.current = true;
@@ -168,6 +182,7 @@ export function useSubshellPreview(id: string, subshell: SubshellView | undefine
   );
 
   const stopWatch = useCallback(async () => {
+    watchGeneration.current += 1;
     watchingRef.current = false;
     setWatching(false);
     sendRef.current({ type: "unwatch", id });
@@ -190,6 +205,7 @@ export function useSubshellPreview(id: string, subshell: SubshellView | undefine
   // fire-and-forget: the tab is closing the question, not waiting.
   useEffect(
     () => () => {
+      watchGeneration.current += 1;
       // The error clears even when there is nothing to release: a refused
       // watch sets its named alert with no live watch behind it, and pane B
       // must never inherit pane A's red line.
