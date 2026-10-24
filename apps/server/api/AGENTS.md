@@ -112,6 +112,7 @@ keys with the specific `systemPermission` declared by each route. New keys carry
 versioned explicit grants; authGuard denies unannotated routes by default. The shared
 `nodeManagementGuard` denies legacy keys and subshell tokens; `loadNodeGate`
 limits bearer access to owned agent nodes, without shares or the local host.
+The read-only `GET /api/nodes/:id/preview-display` preflight also accepts subshell tokens, with the same owned-agent-node boundary enforced by `loadNodeGate`.
 Node lifecycle, server-address changes, and machine trust repair routes stay cookie-only. Setup-key
 creation still honors the enrollment setting. The accounting is `docs/security.md` §3 and the pins are
 `api/nodes/__tests__/nodes-list-bearer.test.ts` plus the admin-arm cell in

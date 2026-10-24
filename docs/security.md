@@ -4054,6 +4054,7 @@ stay unprobeable.
 
 ## 11.15 Preview apps, browsers, and virtual displays
 
+
 Preview is opt-in per node, including the built-in node. The node owner controls
 it; an administrator controls the built-in node. The server checks the database
 setting before opening a preview and enrolled nodes check its signed mirror.
@@ -4067,6 +4068,20 @@ terminate a subshell, or stop graphical programs.
 | `/pv/<ref>/` HTTP and WS | The random 128-bit path reference is the credential. A forwarded link can be used without the opener's cookie. |
 | Browser frame subscriptions | Authorized `/ws/live` registration and recipient pruning, as in §11.14. |
 | Saved preview panels | Parsed resource identity and an authorized parent workspace pane. Parameters are reconstructed, not trusted. |
+
+### MCP Preview discovery and launch
+
+The MCP Preview tools call the existing subshell discovery, open, and watch
+routes with the pane's token; they don't grant access to another user's shared
+subshell. Display allocation uses the normal launch checks. Returning a proxy
+capability makes it a secret in the MCP conversation, with the same bearer-link
+risk and revocation rules as browser-created capabilities.
+
+`GET /api/nodes/:id/preview-display` accepts subshell tokens for a read-only
+prerequisite probe. `loadNodeGate` restricts machine actors to owned enrolled
+nodes, excluding shares, admin privilege inheritance, and the server host.
+Node management/detail and SSH guards are unchanged. Node discovery reports
+SSH settings and harness health without granting configuration or SSH access.
 
 **Website JavaScript does not inherit dashboard authority.** Proxied documents
 carry a CSP sandbox without `allow-same-origin`; embedded app viewers also use

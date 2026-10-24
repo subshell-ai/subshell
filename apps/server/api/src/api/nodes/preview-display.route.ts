@@ -1,15 +1,14 @@
 import { previewDisplayReadiness } from "@internal/pane-runtime";
 import { parsePreviewDisplayReadiness } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { HttpError } from "@/api/auth-guard.js";
+import { authGuard, HttpError } from "@/api/auth-guard.js";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
-import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
 import { apiModels } from "@/schema/index.js";
 import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 
-/** Read-only launch preflight; check the selected machine, never the browser's host. */
+/** Read-only launch preflight. Machine actors may inspect owned enrolled nodes only, as in list_nodes; loadNodeGate never inherits shares or admin rights for them. */
 export const previewDisplayRoute = new Elysia()
-  .use(nodeManagementGuard)
+  .use(authGuard)
   .use(apiModels)
   .get(
     "/:id/preview-display",
