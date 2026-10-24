@@ -15,12 +15,17 @@
  *
  * The eight absent-forbidden members (`proxyCommand`, `forwards`, `tunnels`,
  * `localCommands`, `remoteCommand`, `sendEnv`, `setEnv`, `escapes`) are typed
- * as literal `null` ON PURPOSE: they exist in the shape to be refused. A
- * resolver that faithfully recorded a `ProxyCommand` produced a value this
- * parser rejects, which is the "refuse with a named limitation rather than
- * silently changing connection semantics" rule expressed in grammar. The
- * runtime check is stricter than the type: any present non-null value fails,
- * so hand-built JSON cannot smuggle one past TypeScript.
+ * as literal `null` ON PURPOSE: they exist in the shape to be refused. Two
+ * resolve-time paths lead here. Settings that could change what the
+ * connection IS get refused by name (ProxyCommand, tunnels/forwards,
+ * local/remote commands); settings this grammar cannot express at all
+ * (env sends, the escape menu) are dropped at normalization: environment
+ * never rides a Subshell link, and the ~ menu belongs to an interactive
+ * local shell. Either way, a snapshot that
+ * carried a value would ask the node's grammar to render a connection the
+ * human never approved, so the parser rejects it. The runtime check is
+ * stricter than the type: any present non-null value fails, so hand-built
+ * JSON cannot smuggle one past TypeScript.
  *
  * Hand-rolled in the `node-frames.ts` validator style; imports no `node:`
  * builtin; lives in the Metro-safe barrel.
@@ -104,15 +109,15 @@ export interface SshConnectionSnapshotWire {
   localCommands: null;
   /** Literal null: `RemoteCommand` found at resolution fails setup; it would replace the command contract. */
   remoteCommand: null;
-  /** Literal null: `SendEnv` found at resolution fails setup; no environment rides the link. */
+  /** Literal null: config `SendEnv` is dropped at normalization (env never rides the link, so there is nothing to honor); this field exists so the parser can refuse a smuggled value. */
   sendEnv: null;
-  /** Literal null: `SetEnv` found at resolution fails setup; same reason, remote side. */
+  /** Literal null: config `SetEnv` is dropped at normalization; same reason, remote side. */
   setEnv: null;
-  /** Literal null: live escape characters fail setup; the ~ menu is an interactive local shell. */
+  /** Literal null: config `EscapeChar` is never carried; the render's policy forces `EscapeChar none` every hop, since the ~ menu is an interactive local shell. */
   escapes: null;
 }
 
-/** The absent-forbidden members, in the order the parser refuses them; the resolve `settings` list names these strings back. */
+/** The absent-forbidden members, in the order the parser refuses them. Where resolve refuses by name, its `settings` list names these strings back; env sends and escapes are dropped there, and appear here as the smuggle guard only. */
 export const SSH_FORBIDDEN_SNAPSHOT_FIELDS = [
   "proxyCommand",
   "forwards",

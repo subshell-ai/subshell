@@ -24,7 +24,7 @@
 
 /** The refusal set as a runtime list. Exported beside the type because the parsers, the routes and the SPA all iterate it. */
 export const SSH_ERROR_CODES = [
-  /** Resolution found a setting the approved normalization cannot represent (`ProxyCommand`, forwards, tunnels, local commands, `RemoteCommand`, `SendEnv`, `SetEnv`, escapes, …). The resolve answer's `settings` list names which. */
+  /** Resolution found a setting the approved normalization cannot represent (`ProxyCommand`, forwards, tunnels, local commands, `RemoteCommand`, `KnownHostsCommand`, `Match exec`, …). The resolve answer's `settings` list names which. Env sends are NOT in this family: they are dropped at normalization (see `ssh-resolve.ts`). */
   "unsupported_setting",
   /** The alias does not appear in the account's config (or an include) the discovery parsed. */
   "config_missing",
@@ -99,7 +99,7 @@ export function isSshErrorCode(value: unknown): value is SshErrorCode {
  */
 export const SSH_ERROR_DESCRIPTIONS: Record<SshErrorCode, string> = {
   unsupported_setting:
-    "The resolved SSH config needs a setting Subshell will not run (proxy commands, forwarding, tunnels, local commands, remote commands, or environment injection). Edit the config or choose another alias.",
+    "The resolved SSH config needs a setting Subshell will not run (proxy commands, forwarding, tunnels, local commands, remote commands). Edit the config or choose another alias.",
   config_missing: "That alias is not in the connecting account's SSH config. Check the spelling or add it there.",
   config_ambiguous:
     "The alias matches conflicting config blocks that cannot be reduced to one destination. Simplify the config or enter the alias differently.",

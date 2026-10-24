@@ -59,9 +59,9 @@ export interface SshSnapshot {
   localCommands: null;
   /** Always null: a resolved RemoteCommand refuses the snapshot */
   remoteCommand: null;
-  /** Always null: a resolved SendEnv refuses the snapshot */
+  /** Always null: config SendEnv is dropped at normalization; environment never rides the link */
   sendEnv: null;
-  /** Always null: a resolved SetEnv refuses the snapshot */
+  /** Always null: config SetEnv is dropped at normalization; environment never rides the link */
   setEnv: null;
   /** Always null: live escape characters refuse the snapshot */
   escapes: null;

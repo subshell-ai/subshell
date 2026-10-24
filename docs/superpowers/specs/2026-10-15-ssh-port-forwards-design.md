@@ -101,6 +101,12 @@ channels are our rendered lines and the root-owned system file - the same
 already names. The connecting account's own config never reaches a Subshell
 launch, which is what the clear was really guarding.
 
+(Amendment, 2026-10-24: the sentence's second channel does not exist either.
+OpenSSH reads no system file when `-F` names ours, so the only forward
+channels at connect time are our own rendered lines; the renderer's header
+now states that rule, replacing the class this passage pointed at. See the
+2026-10-07 §5.2 amendment.)
+
 The exact-Host block still matters for the other reason: ProxyJump children re-read
 the `-F` file matching their own host, so they inherit the `Host *` policy (without
 the now-absent clear, which they never needed for confinement: `ForwardAgent`/

@@ -28,15 +28,20 @@ import {
  *   — options the jump children must NOT inherit — plus `-F` so the user
  *   config the whole chain reads is ours.
  *
- * Config keyword precedence is the second reason this split works: within one
- * ssh invocation the command line wins over the user file, which wins over
- * the system file, PER KEYWORD (first-obtained wins). Every key the policy
- * names appears in our file, so `/etc/ssh/ssh_config` cannot reintroduce a
- * forwarding directive, a control socket, or canonicalization for this
- * connection's hops. Keywords the policy does not name and a system file
- * could set remain root's to decide — inside the OS trust boundary, per
- * docs/security.md §0-1, and resolution already ran `-G` WITH that system
- * file, so what it refused, the snapshot never carries.
+ * The relation to the other config files is simpler than precedence: `-F`
+ * replaces them. OpenSSH reads ONLY the file `-F` names (man 1 ssh: with a
+ * command-line config, the system-wide file is ignored), so at connect time
+ * neither the connecting user's `~/.ssh/config` nor `/etc/ssh/ssh_config`
+ * is consulted, the effective config is this file plus the argv's
+ * destination-scoped facts, and nothing is root's to decide about this
+ * connection mid-flight. Keywords the policy does not name take OpenSSH's
+ * built-in defaults, not whatever some file once set. The drops that depend
+ * on this fact are the env sends (`SendEnv`/`SetEnv`): resolution drops them
+ * (amendment 2026-10-24), and neither can reappear from a system file here,
+ * because this file is the only file ssh reads. (Within this file
+ * first-obtained precedence still matters: the argv carries options no
+ * file line may contradict, which is why destination facts ride the
+ * command line.)
  *
  * The snapshot is re-validated on entry: the renderer's refusal set is
  * "anything the grammar cannot express", and the grammar is the protocol's,
@@ -85,7 +90,7 @@ const MANDATORY_POLICY: readonly [string, string][] = [
   ["PermitRemoteOpen", "none"],
   // no local commands on any branch (spec 2026-10-07 §5.2: remote/local commands refused by name)
   ["PermitLocalCommand", "no"],
-  // the command contract owns the remote side; no imported remote command / env (spec 2026-10-07 §5.2: env and command sends refused)
+  // the command contract owns the remote side (spec 2026-10-07 §5.2: command sends refused by name; env sends are dropped at resolve, amendment 2026-10-24)
   ["RemoteCommand", "none"],
   // no escape menu; `~` is a local shell (spec 2026-10-07 §5.2: escape sends refused)
   ["EscapeChar", "none"],
@@ -204,10 +209,10 @@ function forwardLine(row: SshForwardWire): string {
  * neither from a later block nor from the command line; keeping the line
  * would silently undo the rows, and silently dropping a forward is precisely
  * the lie the resolver's refusal-by-name exists to prevent. Omitting it is
- * honest because the forward channels left are our own lines and the
- * root-owned system file - `-F` replaces the user config outright, and the
- * system file is the "root's to decide" class this file's header already
- * names. The rows enter under the EXACT destination host because ProxyJump
+ * honest because the forward channels left are only our own lines: `-F`
+ * replaces the user config outright and ssh reads no system file at all
+ * when `-F` names ours, so no external forward line can share the channel.
+ * The rows enter under the EXACT destination host because ProxyJump
  * children re-read this file matching their own host: they get the `Host *`
  * policy and never the row block, so a forward cannot leak onto a hop.
  * Absent or empty rows, every byte is what renders today, clear included.
