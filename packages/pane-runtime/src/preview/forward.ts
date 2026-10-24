@@ -111,8 +111,6 @@ interface Lane {
   laneBufferMaxBytes: number;
   /** Set the moment the dial starts (a pending socket is destroyed on death too). */
   socket?: LaneSocket;
-  /** Running total of bytes the pump refused to deliver (the slow-link budget). */
-  pendingBytes: number;
   timers: { idle?: unknown; lifetime?: unknown };
   say: (line: string) => void;
 }
@@ -170,7 +168,6 @@ export class PreviewForward {
       laneBufferMaxBytes:
         args.deps?.laneBufferMaxBytes ?? this.defaults.laneBufferMaxBytes ?? PREVIEW_LANE_BUFFER_MAX_BYTES,
       socket: undefined,
-      pendingBytes: 0,
       timers: {},
       say: args.hooks.log ?? (() => {}),
     };
@@ -356,18 +353,10 @@ export class PreviewForward {
     try {
       lane.hooks.emit(frame);
     } catch (err: unknown) {
-      // Deliver-or-throw: the throw is the slow-link signal. The bytes join
-      // the unaccepted total; the lane survives until that total passes the
-      // budget (spec §5's number), then dies `slow-link`. Nothing re-sends
-      // them — a lane with a dropped hole is already broken, and the budget
-      // is what bounds how long "temporarily undeliverable" may pretend.
-      lane.pendingBytes += chunk.length;
-      if (lane.pendingBytes > lane.laneBufferMaxBytes) {
-        lane.say(
-          `preview lane ${lane.ref.slice(0, 8)}…: ${lane.pendingBytes}B undeliverable (budget ${lane.laneBufferMaxBytes}B), closing slow-link (${String(err)})`,
-        );
-        this.die(lane, "slow-link");
-      }
+      // TCP bytes cannot be skipped. Once delivery fails, truncate the lane
+      // instead of letting later bytes turn a damaged response into success.
+      lane.say(`preview lane ${lane.ref.slice(0, 8)}…: transport refused bytes, closing slow-link (${String(err)})`);
+      this.die(lane, "slow-link");
     }
   }
 

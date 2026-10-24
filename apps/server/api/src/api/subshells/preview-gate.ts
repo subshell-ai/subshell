@@ -73,13 +73,14 @@ export async function recheckPreviewOpen(
   nodeId: string,
   min: "view" | "edit",
   actor: GuardActor,
-): Promise<void> {
+): Promise<Access> {
   if (await accountDisabled(db, viewerId)) throw new HttpError(401, "Your account is no longer available.");
-  const { row } = await gatePreview(viewerId, paneId, min, actor);
+  const { row, access } = await gatePreview(viewerId, paneId, min, actor);
   if (row.nodeId !== nodeId || row.status !== "running" || row.alive !== 1) {
     throw new HttpError(409, "This subshell is no longer running. Reopen Preview after restarting it.");
   }
   if (!(await previewNodeState(nodeId)).nodeEnabled) {
     throw new HttpError(409, "Preview is no longer available on this node.");
   }
+  return access;
 }

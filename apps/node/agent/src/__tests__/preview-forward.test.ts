@@ -534,7 +534,7 @@ describe("(e) idle and target death", () => {
 /* ------------------------------------------------------------------ */
 
 describe("(f) slow link", () => {
-  it("undeliverable bytes past the injected buffer close the lane with slow-link", () => {
+  it("the first undeliverable chunk closes the lane instead of silently dropping TCP bytes", () => {
     const h = makeHarness("slow", { deps: { laneBufferMaxBytes: 64 } });
     // The recording pump: every frame is ATTEMPTED (recorded) and the byte
     // leg is REFUSED, which is the deliver-or-throw shape a dead link gives
@@ -554,11 +554,11 @@ describe("(f) slow link", () => {
       },
     });
     h.sockets[0]?.fire("connect");
-    h.sockets[0]?.fire("data", Buffer.alloc(40, 7)); // 40 unaccepted: still under the 64-byte budget
-    expect(h.forward.laneCount()).toBe(1);
-    expect(closeEvents(attempts)).toHaveLength(0);
-    h.sockets[0]?.fire("data", Buffer.alloc(40, 7)); // 80 past 64: the link is too slow
-    expect(dataEvents(attempts)).toHaveLength(2); // the pump was given both frames; both refused delivery
+    h.sockets[0]?.fire("data", Buffer.alloc(40, 7)); // even a single short chunk cannot be skipped
+    expect(h.forward.laneCount()).toBe(0);
+    expect(closeEvents(attempts)).toHaveLength(1);
+    h.sockets[0]?.fire("data", Buffer.alloc(40, 7)); // later data cannot revive a truncated stream
+    expect(dataEvents(attempts)).toHaveLength(1); // the second chunk never reaches the dead lane
     expect(closeEvents(attempts)).toEqual([{ ref: refFor(1), reason: "slow-link" }]);
     expect(h.sockets[0]?.destroyed).toBe(true);
     expect(h.forward.laneCount()).toBe(0);

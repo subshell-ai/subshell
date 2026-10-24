@@ -14,6 +14,14 @@ function frame(id: string, seq: number): PreviewStreamFrame {
 }
 
 describe("subscribePreview / publishPreviewFrame", () => {
+  it("drops oversized canvas dimensions and encoded frames before reaching a viewer", () => {
+    let seen = 0;
+    const off = subscribePreview("bounded", () => seen++);
+    publishPreviewFrame({ ...frame("bounded", 1), w: 65535, h: 65535 });
+    publishPreviewFrame({ ...frame("bounded", 2), blob: "A".repeat(400_000) });
+    expect(seen).toBe(0);
+    off();
+  });
   it("delivers only frames for the subscribed pane", () => {
     const seen: number[] = [];
     const off = subscribePreview("a", (f) => seen.push(f.seq));

@@ -1367,6 +1367,38 @@ describe("preview authorization at publication", () => {
   }
 });
 
+it("retries authorization when a share sweep overtakes its permission read", async () => {
+  makeHarness({ accessFor: async () => "view" });
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let reads = 0;
+  const b = broker();
+  const result = b
+    .startWatch({
+      viewerUserId: "u-race",
+      paneId: PANE,
+      nodeId: NODE,
+      port: 9333,
+      authorize: async () => {
+        reads++;
+        if (reads === 2) await gate; // stale editor answer after the node opened
+        if (reads > 2) throw new Error("port no longer allowed");
+      },
+    })
+    .then(
+      () => "opened",
+      () => "refused",
+    );
+  await settle();
+  expect(reads).toBe(2);
+  await b.closeUnauthorizedForPane(PANE);
+  release();
+  expect(await result).toBe("refused");
+  expect(reads).toBe(3);
+});
+
 describe("uncertain preview opens", () => {
   for (const failure of ["timeout", "malformed"] as const) {
     for (const kind of ["probe", "bridge", "lane"] as const) {
@@ -1404,4 +1436,38 @@ describe("uncertain preview opens", () => {
       });
     }
   }
+});
+
+describe("preview capability capacity", () => {
+  it("bounds retained forwarding capabilities even when they have no active lane", async () => {
+    makeHarness();
+    const input = { viewerUserId: "u-open", paneId: PANE, nodeId: NODE, port: 8080 };
+    for (let i = 0; i < 64; i++) await broker().openForward(input);
+    await expect(broker().openForward(input)).rejects.toMatchObject({ code: "preview-session-over-cap" });
+    await broker().closeForPane(PANE, "pane-gone");
+    await expect(broker().openForward(input)).resolves.toHaveProperty("ref");
+  });
+  it("bounds pending authorization before any node resource exists", async () => {
+    makeHarness();
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const input = {
+      viewerUserId: "u-open",
+      paneId: PANE,
+      nodeId: NODE,
+      port: 8080,
+      authorize: async () => {
+        await gate;
+      },
+    };
+    const pending = Array.from({ length: 32 }, () => broker().openForward(input));
+    try {
+      await expect(broker().openForward(input)).rejects.toMatchObject({ code: "preview-session-over-cap" });
+    } finally {
+      release();
+      await Promise.all(pending);
+    }
+  });
 });

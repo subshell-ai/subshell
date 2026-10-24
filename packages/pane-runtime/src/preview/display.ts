@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { connect as netConnect } from "node:net";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { isNodeSubshellId as isSubshellId, type NodePreviewScreenLost } from "@internal/subshell-protocol";
 import { pathAllowed } from "../ssh/relay/path-policy.js";
 // The handle type lives in ports.ts (Task 4 defined it for the wire row); a
@@ -119,6 +119,8 @@ export interface DisplayDeps {
   bindProbe?: (port: number) => Promise<boolean>;
   /** Signal a pid (0 = liveness probe). Throws ESRCH-style for dead pids, like `process.kill`. */
   kill?: (pid: number, signal?: number | string) => void;
+  /** Verify a recorded PID still runs this display's child before reusing or signalling it. */
+  matchesProcess?: (pid: number, binary: "Xvfb" | "x11vnc", authPath: string) => boolean;
   /** Does `/tmp/.X11-unix/X<NN>` exist? Its own seam because `-nolisten tcp` leaves no port to bind-probe. */
   xSocketReady?: (displayNumber: number) => boolean;
   /** Skip display numbers already used by another server or node data directory. */
@@ -212,6 +214,17 @@ const portOccupied = (port: number): Promise<boolean> =>
   });
 
 const socketExists = (displayNumber: number): boolean => existsSync(`/tmp/.X11-unix/X${displayNumber}`);
+
+function matchesDisplayProcess(pid: number, binary: "Xvfb" | "x11vnc", authPath: string): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    const argv = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0");
+    const auth = argv.indexOf("-auth");
+    return basename(argv[0] ?? "") === binary && auth >= 0 && argv[auth + 1] === authPath;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Per-daemon display registry, exactly like `RelaySessions` and
@@ -492,6 +505,8 @@ export class PreviewDisplays {
         const paneAlive = alive.has(name);
         const childrenAnswer =
           paneAlive &&
+          d.matchesProcess(intOf(rec?.xvfbPid), "Xvfb", xauthorityPath(this.dataDir, name)) &&
+          d.matchesProcess(intOf(rec?.x11vncPid), "x11vnc", xauthorityPath(this.dataDir, name)) &&
           Number.isInteger(displayNumber) &&
           displayNumber > 0 &&
           Number.isInteger(rec?.rfbPort) &&
@@ -589,6 +604,7 @@ export class PreviewDisplays {
         d.kill ??
         ((pid: number, signal: number | string = "SIGTERM") => process.kill(pid, signal as NodeJS.Signals | 0)),
       xSocketReady: d.xSocketReady ?? socketExists,
+      matchesProcess: d.matchesProcess ?? matchesDisplayProcess,
       displayOccupied:
         d.displayOccupied ?? ((number: number) => socketExists(number) || existsSync(`/tmp/.X${number}-lock`)),
       readyBudgetMs: d.readyBudgetMs ?? DEFAULT_READY_BUDGET_MS,
@@ -659,8 +675,8 @@ export class PreviewDisplays {
 
   /** The ONE reap path: signal the children that probe alive, then dir, then lock. */
   private teardown(entry: DisplayEntry, paneDir: string, lockPath: string): void {
-    this.killGuarded(entry.xvfbPid);
-    this.killGuarded(entry.x11vncPid);
+    this.killGuarded(entry.xvfbPid, "Xvfb", join(paneDir, "Xauthority"));
+    this.killGuarded(entry.x11vncPid, "x11vnc", join(paneDir, "Xauthority"));
     try {
       rmSync(paneDir, { recursive: true, force: true });
     } catch (err: unknown) {
@@ -676,7 +692,8 @@ export class PreviewDisplays {
   }
 
   /** Probe-then-SIGTERM: never signal a pid that is not ours to signal, never throw at a caller. */
-  private killGuarded(pid: number): void {
+  private killGuarded(pid: number, binary: "Xvfb" | "x11vnc", auth: string): void {
+    if (!this.deps().matchesProcess(pid, binary, auth)) return;
     if (!this.probeAlive(pid)) return; // already gone (the common case on the restart reaps)
     try {
       this.deps().kill(pid, "SIGTERM");
@@ -703,8 +720,10 @@ export class PreviewDisplays {
    * order costs nothing else.
    */
   private probeRehydratedDeath(entry: DisplayEntry): NodePreviewScreenLost | null {
-    if (!this.probeAlive(entry.xvfbPid)) return "Xvfb";
-    if (!this.probeAlive(entry.x11vncPid)) return "x11vnc";
+    const auth = xauthorityPath(this.dataDir, entry.paneId);
+    if (!this.deps().matchesProcess(entry.xvfbPid, "Xvfb", auth) || !this.probeAlive(entry.xvfbPid)) return "Xvfb";
+    if (!this.deps().matchesProcess(entry.x11vncPid, "x11vnc", auth) || !this.probeAlive(entry.x11vncPid))
+      return "x11vnc";
     return null;
   }
 

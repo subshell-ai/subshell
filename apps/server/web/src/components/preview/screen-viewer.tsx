@@ -2,6 +2,7 @@ import { Button, cn } from "@internal/node-admin";
 import type { PreviewCloseReason } from "@internal/subshell-protocol";
 import RFB from "@novnc/novnc";
 import { type JSX, useEffect, useRef, useState } from "react";
+import { installRfbBounds } from "@/lib/preview-rfb-bounds";
 
 /**
  * The Screen viewer: noVNC's RFB canvas over a pane's raw forward lane
@@ -119,6 +120,7 @@ export function ScreenViewer({
     const host = hostRef.current;
     const rfb = host ? new RFB(host, ws) : undefined;
     if (rfb) {
+      installRfbBounds(rfb);
       rfb.addEventListener?.("connect", () => {
         if (!disposed) connectionRef.current?.("connected");
       });

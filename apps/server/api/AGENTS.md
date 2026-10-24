@@ -943,3 +943,11 @@ Live-screen subscriptions must repeat access reads overtaken by a broker
 revocation revision. Uncertain open replies need best-effort node cleanup too.
 Keep target-controlled HTTP/WS queues and messages within the lane byte budget,
 and retain the cookie-jar limits documented in the architecture guide.
+
+
+Preview opens reserve capacity before awaiting authorization: at most 64
+retained forward capabilities and 32 pending opens per node. Authorization
+retries if a revocation revision changes during the check, and a watch's final
+check must repeat view-only port restrictions after an edit-to-view downgrade.
+Preview transport senders check buffered bytes before sealing; a failed sealed
+write closes the link because secretstream frames cannot be skipped.

@@ -139,10 +139,12 @@ revocation does not depend on an exit hook arriving after token rotation.
 Pending opens participate in every revocation sweep, then recheck current
 account/access and pane/node availability before publishing a session. A second
 sweep after retiring the old row catches opens arriving during its stop.
-Live-screen subscription checks also carry a revocation revision: a permission
+Open and live-screen subscription checks carry a revocation revision: a permission
 read overtaken by a sweep must be repeated before registration. Account disable
 and required password changes are checked again at subscription time. Uncertain
-open replies trigger best-effort teardown of the allocated node reference.
+open replies trigger best-effort teardown of the allocated node reference. A
+watch publication also repeats the view-only port restriction if edit access
+was downgraded while opening.
 
 Forward sessions expire after 15 minutes without traffic. Each underlying
 lane or bridge has a maximum four-hour lifetime. Closing an app tab releases
@@ -155,7 +157,15 @@ of existing connections or a stop command for graphical programs.
 | Raw payload per preview frame | 256 KiB |
 | Buffered lane bytes, target TCP write queue, HTTP reader queue, and browser WS debt | 1 MiB each |
 | Assembled application WS message | 1 MiB, including fragmented messages |
+| Preview contribution to the encrypted link's send buffer | 1 MiB, checked before sealing |
 | CDP discovery JSON | 256 KiB |
+| Image/framebuffer dimensions | 8,192 per axis and 16,777,216 pixels |
+| Encoded RFB JPEG/PNG | 4 MiB, with header dimensions matching the rectangle |
+| RFB pending rendering | Next rectangle must fit within 33,554,432 queued pixels; refuse at 1,024 pending actions |
+| RFB clipboard input | 1 MiB, consumed without decompression or clipboard integration |
+| Retained forwarding capabilities per node | 64 |
+| Pending preview opens per node | 32 |
+| Cached discovery entries | 512 |
 | Target cookie jar | 128 entries, 64 KiB total, 4 KiB per cookie |
 | Active forward lanes per subshell | 4 |
 | Active lanes and bridges per node | 16 |
@@ -164,6 +174,13 @@ of existing connections or a stop command for graphical programs.
 | Watch frame rate | 1–5 fps, default 5 |
 | Buffered screencast frames | 5 |
 | Stream subscriber byte debt | 4 MiB |
+
+The browser checks JPEG/PNG dimensions before handing compressed bytes to its
+image decoder. noVNC's optional H.264 path and animated PNGs are refused;
+x11vnc does not require them. The bounds adapter uses the pinned noVNC 1.7
+private surface and has real-class regressions. A package upgrade must keep
+those guards effective. Display cleanup and restart recovery verify each
+saved PID's executable and Xauthority argument before trusting the child.
 
 ## Workspace presentation
 

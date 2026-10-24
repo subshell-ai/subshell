@@ -150,7 +150,7 @@ class FakeCdp {
   }
 
   /** Push one `Page.screencastFrame` notification on the most recent socket. */
-  pushFrame(opts: { data: string; w?: number; h?: number; sessionId?: string } = { data: "AA==" }): void {
+  pushFrame(opts: { data: string; w?: number; h?: number; sessionId?: number } = { data: "AA==" }): void {
     const ws = this.sockets[this.sockets.length - 1];
     if (!ws) throw new Error("fake CDP has no upgraded socket to push on");
     ws.send(
@@ -159,7 +159,7 @@ class FakeCdp {
         params: {
           data: opts.data,
           metadata: { deviceWidth: opts.w ?? 800, deviceHeight: opts.h ?? 600 },
-          sessionId: opts.sessionId ?? "sess-1",
+          sessionId: opts.sessionId ?? 1,
         },
       }),
     );
@@ -372,12 +372,12 @@ describe("(b) the ack is unconditional, the emission is throttled", () => {
         deps: { timer: clock, now: t.now },
       });
       await waitUntil(() => cdp.messages().length >= 2, "the screencast to start");
-      cdp.pushFrame({ data: SMALL_BLOB, sessionId: "sess-A" });
-      cdp.pushFrame({ data: SMALL_BLOB, sessionId: "sess-B" });
-      cdp.pushFrame({ data: SMALL_BLOB, sessionId: "sess-C" });
+      cdp.pushFrame({ data: SMALL_BLOB, sessionId: 101 });
+      cdp.pushFrame({ data: SMALL_BLOB, sessionId: 102 });
+      cdp.pushFrame({ data: SMALL_BLOB, sessionId: 103 });
       await waitUntil(() => cdp.acks().length === 3, "three screencastFrameAcks");
       // Every capture got its immediate ack, whatever the emitter did with it.
-      expect(cdp.acks().map((a) => a.sessionId)).toEqual(["sess-A", "sess-B", "sess-C"]);
+      expect(cdp.acks().map((a) => a.sessionId)).toEqual([101, 102, 103]);
       // One tick, one emission: the extras are DROPPED at the emit boundary.
       expect(streams).toHaveLength(1);
       expect(streams[0]).toEqual({
@@ -675,8 +675,8 @@ describe("(e) the emit boundary", () => {
         deps: { timer: clock, now: t.now },
       });
       await waitUntil(() => cdp.messages().length >= 2, "the screencast to start");
-      cdp.pushFrame({ data: BIG_BLOB, sessionId: "sess-BIG" });
-      cdp.pushFrame({ data: SMALL_BLOB, sessionId: "sess-SMALL" });
+      cdp.pushFrame({ data: BIG_BLOB, sessionId: 104 });
+      cdp.pushFrame({ data: SMALL_BLOB, sessionId: 105 });
       await waitUntil(() => cdp.acks().length === 2, "both acks (the ack contract is unconditional)");
       // The plane's parser refuses an over-cap blob; an emitting bridge would
       // corrupt the stream silently, so it is dropped at the boundary instead.

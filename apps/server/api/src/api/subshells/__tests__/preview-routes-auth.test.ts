@@ -294,6 +294,34 @@ describe("preview REST surface (Task 9)", () => {
     expect((await errorBody(res)).message).toContain("browser discovered in this subshell");
   });
 
+  it("refuses an arbitrary watch port when edit access becomes view while opening", async () => {
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered = () => {};
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    attachLive({
+      preview_open: async (cmd) => {
+        entered();
+        await gate;
+        return cmd.type === "preview_open" ? { ref: cmd.ref, subscribers: 1 } : {};
+      },
+    });
+    const pane = await directRow();
+    await grantPane(pane, editorId, "edit");
+    const pending = call("POST", `/${pane}/preview/watch`, { cookie: editorCookie, body: { port: 9333 } });
+    await started;
+    await grantPane(pane, editorId, "view");
+    await getPreviewBroker().closeUnauthorizedForPane(pane);
+    release();
+    const response = await pending;
+    expect(response.status).toBe(403);
+    expect(getPreviewBroker().sessionForPane(pane)).toBeNull();
+  });
+
   it("a foreign account sees 404 on all four doors, never a 403", async () => {
     attachLive();
     const pane = await directRow();

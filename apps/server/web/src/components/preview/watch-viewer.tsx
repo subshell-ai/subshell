@@ -2,6 +2,7 @@ import { Button } from "@internal/node-admin";
 import type { PreviewStreamFrame } from "@internal/subshell-protocol";
 import { type JSX, useEffect, useRef, useState } from "react";
 import { subscribePreview } from "@/lib/preview-bus";
+import { previewJpegAllowed } from "@/lib/preview-jpeg";
 
 /**
  * The Watch canvas: the pane's live browser frame, painted from
@@ -98,7 +99,7 @@ export function WatchViewer({
   // late-arriving decode would paint the frame the canvas is showing anyway.
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!frame || !canvas) return;
+    if (!frame || !canvas || !previewJpegAllowed(frame.blob)) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return; // no 2D here (test environments); the attributes still hold truth
     canvas.width = frame.w;
@@ -111,6 +112,10 @@ export function WatchViewer({
       if (typeof ctx.drawImage === "function") ctx.drawImage(img, 0, 0, frame.w, frame.h);
     };
     img.src = `data:image/jpeg;base64,${frame.blob}`;
+    return () => {
+      img.onload = null;
+      img.src = "";
+    };
   }, [frame]);
 
   const now = Date.now();

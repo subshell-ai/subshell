@@ -16,6 +16,7 @@ import {
   parseNodePreviewCloseResult,
   parseNodePreviewOpenResult,
   parseNodePreviewPortsResult,
+  previewImageSizeAllowed,
 } from "@internal/subshell-protocol";
 import { db } from "@/db/index.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
@@ -62,7 +63,8 @@ export type PreviewRefusalCode =
   | "preview-lane-over-cap"
   | "preview-watch-over-cap"
   | "watch-port-conflict"
-  | "preview-open-cancelled";
+  | "preview-open-cancelled"
+  | "preview-session-over-cap";
 
 /**
  * A refusal raised by the broker's own caps, carrying the wire-stable code
@@ -188,6 +190,7 @@ interface PreviewOpenInput {
 interface PendingPreviewOpen extends PreviewOpenInput {
   kind: "forward" | "screencast";
   cancelled?: PreviewCloseReason;
+  registered?: boolean;
 }
 
 export interface PreviewBroker {
@@ -242,6 +245,9 @@ export interface PreviewBroker {
 
 /** The `getPorts` cache window (spec §6: 5 s, keyed by pane). */
 export const PREVIEW_PORTS_CACHE_MS = 5_000;
+export const PREVIEW_CAPABILITIES_PER_NODE = 64;
+export const PREVIEW_PENDING_OPENS_PER_NODE = 32;
+const PREVIEW_PORTS_CACHE_ENTRIES = 512;
 
 /** How often the periodic idle sweep runs; tests call `sweepIdle()` directly. */
 const PREVIEW_SWEEP_INTERVAL_MS = 60_000;
@@ -433,7 +439,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
   /** paneId -> the display the node reported at launch (the mac-leg fallback for `mode`). */
   const displaysByPane = new Map<string, { nodeId: string; screen: NodePreviewScreenWire }>();
   /** paneId -> cached `getPorts` answer (5 s window, spec §6). */
-  const portsCache = new Map<string, { at: number; answer: NodePreviewPortsResult }>();
+  const portsCache = new Map<string, { nodeId: string; at: number; answer: NodePreviewPortsResult }>();
   /** paneId -> queued lane requests beyond the per-pane cap (decision 2). */
   const laneWaitersByPane = new Map<string, LaneWaiter[]>();
   /**
@@ -458,15 +464,42 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
       );
   }
   async function authorizeOpening(op: PendingPreviewOpen): Promise<void> {
-    checkOpening(op);
-    await op.authorize?.();
-    checkOpening(op);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      checkOpening(op);
+      const revision = streamAccessRevision;
+      await op.authorize?.();
+      checkOpening(op);
+      if (revision === streamAccessRevision) return;
+    }
+    throw new PreviewRefusal(
+      "preview-open-cancelled",
+      "Preview access changed while opening. Reopen it if you still have access.",
+    );
   }
   async function withOpening<T>(
     input: PreviewOpenInput,
     kind: PendingPreviewOpen["kind"],
     run: (op: PendingPreviewOpen) => Promise<T>,
   ): Promise<T> {
+    const pending = [...opening].filter((op) => op.nodeId === input.nodeId);
+    if (pending.length >= PREVIEW_PENDING_OPENS_PER_NODE) {
+      throw new PreviewRefusal(
+        "preview-session-over-cap",
+        "Too many previews are opening on this node. Wait for them to finish, then try again.",
+      );
+    }
+    if (kind === "forward") {
+      const retained = [...sessionsByRef.values()].filter(
+        (session) => session.nodeId === input.nodeId && session.kind === "forward",
+      ).length;
+      const reserved = pending.filter((op) => op.kind === "forward" && !op.registered).length;
+      if (retained + reserved >= PREVIEW_CAPABILITIES_PER_NODE) {
+        throw new PreviewRefusal(
+          "preview-session-over-cap",
+          "Preview capacity on this node is full. Reuse an existing preview, or try again after inactive preview links expire.",
+        );
+      }
+    }
     const op: PendingPreviewOpen = { ...input, kind };
     opening.add(op);
     try {
@@ -834,6 +867,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
           cookieJar: new Map(),
         };
         sessionsByRef.set(ref, session);
+        op.registered = true;
         await auditPreview("node.preview_forward.open", nodeId, { paneId, nodeId, port, kind: "forward" });
         checkOpening(op);
         return { ref };
@@ -1007,14 +1041,18 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
 
     async getPorts(nodeId, paneId) {
       const hit = portsCache.get(paneId);
-      if (hit && deps.nowMs() - hit.at < PREVIEW_PORTS_CACHE_MS) return hit.answer;
+      if (hit && hit.nodeId === nodeId && deps.nowMs() - hit.at < PREVIEW_PORTS_CACHE_MS) return hit.answer;
       // A node refusal (preview-ports-unsupported, offline, ...) REJECTS with
       // the named error rather than fabricating an empty answer; Task 9's
       // info route is what turns the rejection into `{ nodeEnabled, reason }`.
       const raw = await deps.send(nodeId, { type: "preview_ports_get", paneId });
       const answer = parseNodePreviewPortsResult(raw);
       if (answer === null) throw new Error("preview_ports_get answered a shape the grammar refuses");
-      portsCache.set(paneId, { at: deps.nowMs(), answer });
+      if (!portsCache.has(paneId) && portsCache.size >= PREVIEW_PORTS_CACHE_ENTRIES) {
+        const oldest = portsCache.keys().next().value;
+        if (oldest !== undefined) portsCache.delete(oldest);
+      }
+      portsCache.set(paneId, { nodeId, at: deps.nowMs(), answer });
       return answer;
     },
 
@@ -1165,6 +1203,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
     },
 
     onStreamEvent(nodeId, ev) {
+      if (!previewImageSizeAllowed(ev.w, ev.h, ev.blob)) return;
       const session = sessionsByRef.get(ev.ref);
       if (session?.kind !== "screencast" || session.nodeId !== nodeId) return; // foreign node's bridge, or a lane ref, or gone
       const map = streamsByPane.get(session.paneId);

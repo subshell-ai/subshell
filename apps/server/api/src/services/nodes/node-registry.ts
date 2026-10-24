@@ -49,6 +49,7 @@ export const OWNER_DISABLED_CLOSE_CODE = 4403;
  * drive fakes and the Bun ws object satisfies it structurally.
  */
 export interface NodeSocket {
+  getBufferedAmount?(): number;
   /**
    * Send one frame; returns like Bun's `ws.send`. Text carries the legacy
    * JSON envelope; a Buffer carries an encrypted link's binary ciphertext —
