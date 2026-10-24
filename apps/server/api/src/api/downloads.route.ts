@@ -227,7 +227,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
       // The air-gapped plane serves only what it holds. Nothing held: the
       // same 404 the installer path answers, which the node reports as a
       // download failure. Something held but not the release: the incoherent
-      // offer, refused with the remedy instead of being streamed to a node
+      // offer, refused with the remedy instead of being served to a node
       // that would refuse it after the download.
       return status(
         onDisk === null ? 404 : 409,

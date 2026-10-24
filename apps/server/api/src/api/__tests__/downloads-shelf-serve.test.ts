@@ -198,7 +198,7 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
     const shelf = plantShelf(shelfScript(MIN_NODE_VERSION, NODE_PROTOCOL_VERSION));
     const res = await get(`/api/downloads/node/${TARGET}`);
     expect(await res.text()).toBe(NEWBODY);
-    // Operator bytes, no ledger entry: streamed PAST, never overwritten.
+    // Operator bytes, no ledger entry: served PAST from a temp copy, never overwritten.
     expect(readFileSync(binaryPath, "utf8")).toBe(shelf);
 
     const sha = await get(`/api/downloads/node/${TARGET}.sha256`);
