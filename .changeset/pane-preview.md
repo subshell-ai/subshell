@@ -21,3 +21,5 @@ Move preview choices into a dialog and consolidate each viewer’s controls into
 Simplify the preview picker with clickable rows, distinct view icons, and port badges, without introductory text.
 
 Keep large preview pickers manageable with search, sorted ports, denser rows, and a bounded app list that leaves display and browser choices visible.
+
+Use compact rows for small preview lists too.

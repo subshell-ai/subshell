@@ -541,4 +541,4 @@ Subshell list views carry `virtualDisplay` metadata for the sidebar and headers.
 
 Workspace previews consolidate the Open another preview shortcut, refresh, full screen, and secondary actions in one toolbar. Selected viewers omit their own headers and padding; the terminal’s Preview bar is hidden while its preview tab is open. Connection indicators reflect iframe loading, RFB connection events, or browser frame freshness.
 
-The preview picker uses compact rows, search, and a bounded app scroller when it has more than six choices. Browser and virtual display choices stay outside the app scroller. Ports are sorted and deduplicated before rendering.
+The preview picker always uses compact rows, adding search and a bounded app scroller when it has more than six choices. Browser and virtual display choices stay outside the app scroller. Ports are sorted and deduplicated before rendering.
