@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 import { authGuard, HttpError, requirePerm } from "@/api/auth-guard.js";
-import { gatePreview, previewNodeState } from "@/api/subshells/preview-gate.js";
+import { gatePreview, previewNodeState, recheckPreviewOpen } from "@/api/subshells/preview-gate.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
@@ -50,6 +50,7 @@ export const previewOpenRoute = new Elysia()
           paneId: params.id,
           nodeId: row.nodeId,
           port: body.port,
+          authorize: () => recheckPreviewOpen(user.id, params.id, row.nodeId, "edit", actor),
         });
         return { proxyBase: `/pv/${ref}/` };
       } catch (err) {

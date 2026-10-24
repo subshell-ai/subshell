@@ -57,59 +57,62 @@ export function readLaneHead(duplex: Duplex): Promise<LaneHead> {
     let acc = Buffer.alloc(0);
     const onData = (chunk: Buffer): void => {
       acc = Buffer.concat([acc, chunk]);
-      if (acc.byteLength > HEAD_MAX) {
-        cleanup();
-        reject(new LaneProtocolError("response head exceeds 64 KiB"));
-        return;
-      }
-      const end = acc.indexOf("\r\n\r\n");
-      if (end === -1) return;
-      const headText = acc.subarray(0, end).toString("latin1");
-      const tail = acc.subarray(end + 4);
-      const lines = headText.split("\r\n");
-      const parsed: [string, string][] = [];
-      for (const line of lines.slice(1)) {
-        if (line === "") continue;
-        // `obs-fold` continuations (RFC 7230: a line starting with a space
-        // or tab) fold into the previous value. No proxied dev server emits
-        // them, but the parser handles them anyway, and the check runs
-        // BEFORE the colon check because a real continuation line carries no
-        // colon at all: checked after, it would be refused as malformed and
-        // the fold branch could never fire.
-        if (/^[ \t]/.test(line)) {
-          if (parsed.length === 0) {
-            cleanup();
-            reject(new LaneProtocolError("folded header with no header to fold into"));
-            return;
-          }
-          parsed[parsed.length - 1][1] += ` ${line.trim()}`;
-          continue;
-        }
-        const colon = line.indexOf(":");
-        if (colon === -1) {
+      for (;;) {
+        const end = acc.indexOf("\r\n\r\n");
+        if (end > HEAD_MAX || (end === -1 && acc.byteLength > HEAD_MAX)) {
           cleanup();
-          reject(new LaneProtocolError("malformed response header line"));
+          reject(new LaneProtocolError("response head exceeds 64 KiB"));
           return;
         }
-        const name = line.slice(0, colon).trim().toLowerCase();
-        const value = line.slice(colon + 1).trim();
-        parsed.push([name, value]);
-      }
-      if (!/^HTTP\/1\.[01] \d{3}/.test(lines[0] ?? "")) {
+        if (end === -1) return;
+        const headText = acc.subarray(0, end).toString("latin1");
+        const tail = acc.subarray(end + 4);
+        const lines = headText.split("\r\n");
+        const parsed: [string, string][] = [];
+        for (const line of lines.slice(1)) {
+          if (line === "") continue;
+          // `obs-fold` continuations (RFC 7230: a line starting with a space
+          // or tab) fold into the previous value. No proxied dev server emits
+          // them, but the parser handles them anyway, and the check runs
+          // BEFORE the colon check because a real continuation line carries no
+          // colon at all: checked after, it would be refused as malformed and
+          // the fold branch could never fire.
+          if (/^[ \t]/.test(line)) {
+            if (parsed.length === 0) {
+              cleanup();
+              reject(new LaneProtocolError("folded header with no header to fold into"));
+              return;
+            }
+            parsed[parsed.length - 1][1] += ` ${line.trim()}`;
+            continue;
+          }
+          const colon = line.indexOf(":");
+          if (colon === -1) {
+            cleanup();
+            reject(new LaneProtocolError("malformed response header line"));
+            return;
+          }
+          const name = line.slice(0, colon).trim().toLowerCase();
+          const value = line.slice(colon + 1).trim();
+          parsed.push([name, value]);
+        }
+        if (!/^HTTP\/1\.[01] \d{3}/.test(lines[0] ?? "")) {
+          cleanup();
+          reject(new LaneProtocolError(`bad status line ${JSON.stringify(lines[0]?.slice(0, 40))}`));
+          return;
+        }
+        const status = Number(lines[0].slice(9, 12));
+        // 101 is NOT informational here: it is a WebSocket upgrade's success
+        // answer, and swallowing it would hang the redial forever.
+        if (status >= 100 && status < 200 && status !== 101) {
+          // Informational (103 Early Hints, 100 Continue): consume and keep reading.
+          acc = tail;
+          continue;
+        }
         cleanup();
-        reject(new LaneProtocolError(`bad status line ${JSON.stringify(lines[0]?.slice(0, 40))}`));
+        resolve({ statusLine: lines[0], headers: parsed, tail });
         return;
       }
-      const status = Number(lines[0].slice(9, 12));
-      // 101 is NOT informational here: it is a WebSocket upgrade's success
-      // answer, and swallowing it would hang the redial forever.
-      if (status >= 100 && status < 200 && status !== 101) {
-        // Informational (103 Early Hints, 100 Continue): consume and keep reading.
-        acc = tail;
-        return;
-      }
-      cleanup();
-      resolve({ statusLine: lines[0], headers: parsed, tail });
     };
     const onClosed = (): void => {
       cleanup();

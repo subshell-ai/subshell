@@ -95,10 +95,13 @@ JavaScript asset URLs are not rewritten.
 Target `Set-Cookie` pairs remain in the session's server-side jar and are used
 only on subsequent target requests. No target cookie is installed on the
 dashboard origin. Origin-wide response policy headers (`Clear-Site-Data`,
-`WWW-Authenticate`, HSTS, and Alt-Svc) are removed. Custom reverse-proxy identity
+`WWW-Authenticate`, HSTS, Alt-Svc, NEL, Report-To, Reporting-Endpoints,
+Accept-CH, and Critical-CH) are removed. Target Content-Length is also removed;
+the proxy owns browser response framing. Custom reverse-proxy identity
 headers outside the recognized families need operator filtering.
 Name-only cookie keying is a compatibility limitation, not
-a full browser cookie implementation.
+a full browser cookie implementation. Jars evict oldest entries to stay within
+128 cookies and 64 KiB; individual cookies over 4 KiB are ignored.
 
 Every proxied response enforces a CSP sandbox without `allow-same-origin`.
 The workspace iframe adds the same sandbox attribute so a navigation cannot
@@ -121,7 +124,9 @@ A watch requires view access. View-only grantees can watch only the CDP port
 reported for their shared subshell; supplying another port is refused before
 the bridge opens. Owners and edit grantees can supply a port explicitly, as
 they already have shell-equivalent access. CDP discovery refuses non-loopback
-WebSocket targets returned by the browser.
+WebSocket targets returned by the browser and requires the requested port.
+CDP HTTP discovery refuses redirects, bounds JSON at 256 KiB, and aborts on
+handshake timeout or cancellation. Pending handshakes count toward node capacity.
 
 The runtime starts `Page.startScreencast`, acknowledges incoming frames, and
 emits bounded JPEGs. The server fans them out through an explicitly authorized
@@ -131,6 +136,9 @@ viewer leaves. Grant changes, account disable, subshell death, and node loss
 close or prune the affected sessions and subscriptions. Explicit terminate,
 delete, and restart await broker teardown before stopping the old process;
 revocation does not depend on an exit hook arriving after token rotation.
+Pending opens participate in every revocation sweep, then recheck current
+account/access and pane/node availability before publishing a session. A second
+sweep after retiring the old row catches opens arriving during its stop.
 
 Forward sessions expire after 15 minutes without traffic. Each underlying
 lane or bridge has a maximum four-hour lifetime. Closing an app tab releases
@@ -141,7 +149,10 @@ of existing connections or a stop command for graphical programs.
 | Budget | Current bound |
 | --- | --- |
 | Raw payload per preview frame | 256 KiB |
-| Buffered lane bytes | 1 MiB |
+| Buffered lane bytes, HTTP reader queue, and browser WS debt | 1 MiB each |
+| Assembled application WS message | 1 MiB, including fragmented messages |
+| CDP discovery JSON | 256 KiB |
+| Target cookie jar | 128 entries, 64 KiB total, 4 KiB per cookie |
 | Active forward lanes per subshell | 4 |
 | Active lanes and bridges per node | 16 |
 | Waiting lanes per subshell | 8 |

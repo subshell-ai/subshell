@@ -58,7 +58,11 @@ import { getLogger } from "@/utils/logger.js";
 /* ------------------------------------------------------------------ */
 
 /** Viewer-level refusals the broker itself raises (node refusals are NodeRpcError). */
-export type PreviewRefusalCode = "preview-lane-over-cap" | "preview-watch-over-cap" | "watch-port-conflict";
+export type PreviewRefusalCode =
+  | "preview-lane-over-cap"
+  | "preview-watch-over-cap"
+  | "watch-port-conflict"
+  | "preview-open-cancelled";
 
 /**
  * A refusal raised by the broker's own caps, carrying the wire-stable code
@@ -172,13 +176,27 @@ export interface PreviewSession {
 }
 
 /** The verbs the routes, the ws feed, and the sweeps call (Tasks 9-11). */
+interface PreviewOpenInput {
+  viewerUserId: string;
+  paneId: string;
+  nodeId: string;
+  port: number;
+  /** The route rechecks current account/access after asynchronous node work. */
+  authorize?: () => Promise<void>;
+}
+
+interface PendingPreviewOpen extends PreviewOpenInput {
+  kind: "forward" | "screencast";
+  cancelled?: PreviewCloseReason;
+}
+
 export interface PreviewBroker {
-  openForward(input: { viewerUserId: string; paneId: string; nodeId: string; port: number }): Promise<{ ref: string }>;
+  openForward(input: PreviewOpenInput): Promise<{ ref: string }>;
   openLaneForConnection(sessionRef: string): Promise<{ laneRef: string }>;
   subscribeLane(laneRef: string, cb: PreviewLaneCallback): () => void;
   sendLaneBytes(laneRef: string, bytes: Uint8Array): void;
   closeLaneForConnection(laneRef: string, reason: PreviewCloseReason): Promise<void>;
-  startWatch(input: { viewerUserId: string; paneId: string; nodeId: string; port: number }): Promise<{ ok: true }>;
+  startWatch(input: PreviewOpenInput): Promise<{ ok: true }>;
   stopWatch(viewerUserId: string, paneId: string): Promise<{ ok: true }>;
   attachStream(
     paneId: string,
@@ -424,6 +442,36 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
    * when the chain settles either way, so a failed open is not sticky.
    */
   const watchOpeningByPane = new Map<string, Promise<PreviewSession>>();
+  // Revocation must see opens before their node acknowledgement registers a session.
+  const opening = new Set<PendingPreviewOpen>();
+  function cancelOpening(matches: (op: PendingPreviewOpen) => boolean, reason: PreviewCloseReason): void {
+    for (const op of opening) if (matches(op)) op.cancelled = reason;
+  }
+  function checkOpening(op: PendingPreviewOpen): void {
+    if (op.cancelled)
+      throw new PreviewRefusal(
+        "preview-open-cancelled",
+        "Preview access changed while opening. Reopen it if you still have access.",
+      );
+  }
+  async function authorizeOpening(op: PendingPreviewOpen): Promise<void> {
+    checkOpening(op);
+    await op.authorize?.();
+    checkOpening(op);
+  }
+  async function withOpening<T>(
+    input: PreviewOpenInput,
+    kind: PendingPreviewOpen["kind"],
+    run: (op: PendingPreviewOpen) => Promise<T>,
+  ): Promise<T> {
+    const op: PendingPreviewOpen = { ...input, kind };
+    opening.add(op);
+    try {
+      return await run(op);
+    } finally {
+      opening.delete(op);
+    }
+  }
 
   const sweepTimer = setInterval(() => {
     void broker.sweepIdle().catch((err: unknown) => deps.log(`preview idle sweep failed: ${String(err)}`));
@@ -545,8 +593,9 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
     const rec = lanesByRef.get(laneRef);
     if (!rec) {
       // The session died under the in-flight open (closeForwardSession walked
-      // the placeholder away). Reject honestly; a node-side lane that the ack
-      // still races expires with its own lifetime.
+      // the placeholder away). A late node registration also needs an explicit
+      // close: the earlier close could have arrived before it existed.
+      await sendPreviewClose(session.nodeId, laneRef, "revoked");
       throw new Error(`preview session ${session.ref.slice(0, 8)}… closed while its lane was opening`);
     }
     rec.pending = false;
@@ -639,17 +688,20 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
   }
 
   /** The serialized zero->one edge: ask the node, register the bridge, audit the pair. */
-  async function openBridge({
-    viewerUserId,
-    paneId,
-    nodeId,
-    port,
-  }: {
-    viewerUserId: string;
-    paneId: string;
-    nodeId: string;
-    port: number;
-  }): Promise<PreviewSession> {
+  async function openBridge(
+    {
+      viewerUserId,
+      paneId,
+      nodeId,
+      port,
+    }: {
+      viewerUserId: string;
+      paneId: string;
+      nodeId: string;
+      port: number;
+    },
+    op: PendingPreviewOpen,
+  ): Promise<PreviewSession> {
     if (1 > PREVIEW_WATCH_SUBSCRIBERS_MAX) {
       throw new PreviewRefusal("preview-watch-over-cap", "screencast subscribers cap below one");
     }
@@ -664,6 +716,12 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
     });
     if (parseNodePreviewOpenResult(data) === null) {
       throw new Error("preview_open answered a shape the grammar refuses");
+    }
+    try {
+      await authorizeOpening(op);
+    } catch (err) {
+      await sendPreviewClose(nodeId, ref, op.cancelled ?? "revoked");
+      throw err;
     }
     // The ack's `subscribers` count is IGNORED: the bridge counts itself
     // (this broker owns the refcount; the node's number is advisory at best).
@@ -722,43 +780,50 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
   }
 
   const broker: PreviewBroker = {
-    async openForward({ viewerUserId, paneId, nodeId, port }) {
-      const ref = mintRef();
-      const mode = await resolveMode(nodeId, paneId, port);
-      // The PROBE open (spec §5): validates the node will serve this pane at
-      // all, and the refusal path records nothing and opens nothing. Every
-      // preview_open rides the lifetime cap: the absolute ceiling is
-      // belt-and-braces while refcount/idle/revoke are the real lifecycle,
-      // and the value is named here so two executors cannot pick two.
-      const data = await deps.send(nodeId, {
-        type: "preview_open",
-        ref,
-        kind: "forward",
-        paneId,
-        port,
-        lifetimeMs: PREVIEW_LIFETIME_MAX_MS,
+    async openForward(input) {
+      return withOpening(input, "forward", async (op) => {
+        const { viewerUserId, paneId, nodeId, port } = input;
+        await authorizeOpening(op);
+        const ref = mintRef();
+        const mode = await resolveMode(nodeId, paneId, port);
+        checkOpening(op);
+        // The PROBE open (spec §5): validates the node will serve this pane at
+        // all, and the refusal path records nothing and opens nothing. Every
+        // preview_open rides the lifetime cap: the absolute ceiling is
+        // belt-and-braces while refcount/idle/revoke are the real lifecycle,
+        // and the value is named here so two executors cannot pick two.
+        const data = await deps.send(nodeId, {
+          type: "preview_open",
+          ref,
+          kind: "forward",
+          paneId,
+          port,
+          lifetimeMs: PREVIEW_LIFETIME_MAX_MS,
+        });
+        if (parseNodePreviewOpenResult(data) === null) {
+          throw new Error("preview_open answered a shape the grammar refuses");
+        }
+        await sendPreviewClose(nodeId, ref, op.cancelled ?? "viewer-left");
+        await authorizeOpening(op);
+        const session: PreviewSession = {
+          ref,
+          kind: "forward",
+          mode,
+          paneId,
+          nodeId,
+          port,
+          createdBy: viewerUserId,
+          createdAt: deps.nowMs(),
+          lanes: new Map(),
+          viewers: new Map(),
+          lastActivity: deps.nowMs(),
+          cookieJar: new Map(),
+        };
+        sessionsByRef.set(ref, session);
+        await auditPreview("node.preview_forward.open", nodeId, { paneId, nodeId, port, kind: "forward" });
+        checkOpening(op);
+        return { ref };
       });
-      if (parseNodePreviewOpenResult(data) === null) {
-        throw new Error("preview_open answered a shape the grammar refuses");
-      }
-      await sendPreviewClose(nodeId, ref, "viewer-left");
-      const session: PreviewSession = {
-        ref,
-        kind: "forward",
-        mode,
-        paneId,
-        nodeId,
-        port,
-        createdBy: viewerUserId,
-        createdAt: deps.nowMs(),
-        lanes: new Map(),
-        viewers: new Map(),
-        lastActivity: deps.nowMs(),
-        cookieJar: new Map(),
-      };
-      sessionsByRef.set(ref, session);
-      await auditPreview("node.preview_forward.open", nodeId, { paneId, nodeId, port, kind: "forward" });
-      return { ref };
     },
 
     async openLaneForConnection(sessionRef) {
@@ -836,30 +901,36 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
       await removeLane(rec, reason, true);
     },
 
-    async startWatch({ viewerUserId, paneId, nodeId, port }) {
-      if (joinBridge({ viewerUserId, paneId, port })) return { ok: true };
-      const flying = watchOpeningByPane.get(paneId);
-      if (flying) {
-        // The pane's one cold open is already flying (two tabs POSTed at
-        // once): await the winner's ack, then take the join path against the
-        // now-live bridge — port-conflict and the per-bridge cap apply to
-        // the joiner exactly as to a late caller. If the open FAILED, the
-        // rejection is this caller's honest answer too; the map entry is
-        // already cleared, so the NEXT startWatch flies fresh.
-        await flying;
-        return broker.startWatch({ viewerUserId, paneId, nodeId, port });
-      }
-      // Cold: this caller owns the open, and registering the bridge happens
-      // inside the serialized chain — the race is gone because only one open
-      // per pane ever flies (review 2026-10-23).
-      const opening = openBridge({ viewerUserId, paneId, nodeId, port });
-      watchOpeningByPane.set(paneId, opening);
-      try {
-        await opening;
-      } finally {
-        watchOpeningByPane.delete(paneId);
-      }
-      return { ok: true };
+    async startWatch(input) {
+      return withOpening(input, "screencast", async (op) => {
+        const { viewerUserId, paneId, nodeId, port } = input;
+        await authorizeOpening(op);
+        if (joinBridge({ viewerUserId, paneId, port })) return { ok: true };
+        const flying = watchOpeningByPane.get(paneId);
+        if (flying) {
+          // The pane's one cold open is already flying (two tabs POSTed at
+          // once): await the winner's ack, then take the join path against the
+          // now-live bridge — port-conflict and the per-bridge cap apply to
+          // the joiner exactly as to a late caller. If the open FAILED, the
+          // rejection is this caller's honest answer too; the map entry is
+          // already cleared, so the NEXT startWatch flies fresh.
+          await flying;
+          checkOpening(op);
+          return broker.startWatch(input);
+        }
+        // Cold: this caller owns the open, and registering the bridge happens
+        // inside the serialized chain — the race is gone because only one open
+        // per pane ever flies (review 2026-10-23).
+        const opening = openBridge({ viewerUserId, paneId, nodeId, port }, op);
+        watchOpeningByPane.set(paneId, opening);
+        try {
+          await opening;
+          checkOpening(op);
+        } finally {
+          watchOpeningByPane.delete(paneId);
+        }
+        return { ok: true } as const;
+      });
     },
 
     async stopWatch(viewerUserId, paneId) {
@@ -962,6 +1033,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
     },
 
     async closeForPane(paneId, reason) {
+      cancelOpening((op) => op.paneId === paneId, reason);
       for (const session of [...sessionsByRef.values()]) {
         if (session.paneId !== paneId) continue;
         if (session.kind === "forward") await closeForwardSession(session, reason);
@@ -974,6 +1046,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
     },
 
     async closeAllForNode(nodeId, reason) {
+      cancelOpening((op) => op.nodeId === nodeId, reason);
       const panesTouched = new Set<string>();
       for (const session of [...sessionsByRef.values()]) {
         if (session.nodeId !== nodeId) continue;
@@ -992,6 +1065,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
     },
 
     async closeAllForUser(userId, reason) {
+      cancelOpening((op) => op.viewerUserId === userId, reason);
       let closed = 0;
       for (const session of [...sessionsByRef.values()]) {
         if (session.kind === "forward") {
@@ -1033,6 +1107,13 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
         asked.set(userId, a);
         return a;
       };
+      for (const op of [...opening]) {
+        if (
+          op.paneId === paneId &&
+          !accessAtLeast(await access(op.viewerUserId), op.kind === "forward" ? "edit" : "view")
+        )
+          op.cancelled = "revoked";
+      }
       for (const session of [...sessionsByRef.values()]) {
         if (session.paneId !== paneId) continue;
         if (session.kind === "forward") {
@@ -1174,6 +1255,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
     },
 
     shutdown() {
+      cancelOpening(() => true, "node-dropped");
       clearInterval(sweepTimer);
       sessionsByRef.clear();
       bridgeRefByPane.clear();

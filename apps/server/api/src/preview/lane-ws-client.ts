@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Duplex } from "node:stream";
+import { PREVIEW_LANE_BUFFER_MAX_BYTES } from "@internal/subshell-protocol";
 import { readLaneHead } from "@/preview/lane-wire.js";
 // Bun 1.4.2 ships a BUILT-IN module named `ws` that shadows the pinned
 // dependency for any import of the bare name (measured: its `Sender`
@@ -66,7 +67,7 @@ interface FrameSender {
 }
 
 /** The untyped-but-real framing classes; see the casts and the import comment. */
-const Receiver = ReceiverFile as unknown as new (options: { isServer: false }) => FrameReceiver;
+const Receiver = ReceiverFile as unknown as new (options: { isServer: false; maxPayload: number }) => FrameReceiver;
 const Sender = SenderFile as unknown as new (socket: Duplex, extensions: Record<string, never>) => FrameSender;
 
 /** The live end of a redialed WebSocket: what `pv-ws.ts` pumps frames through. */
@@ -156,7 +157,7 @@ export async function openLaneWebSocket(duplex: Duplex, init: LaneWsInit): Promi
   if (cookies.length > 0) init.onCookies(cookies);
 
   const sender = new Sender(duplex, {});
-  const receiver = new Receiver({ isServer: false });
+  const receiver = new Receiver({ isServer: false, maxPayload: PREVIEW_LANE_BUFFER_MAX_BYTES });
   receiver.on("message", (data, isBinary) => init.onMessage(data, isBinary));
   receiver.on("ping", (data) => sender.pong(data, true));
   // `conclude` is ws's "a close frame arrived": the target is done talking.

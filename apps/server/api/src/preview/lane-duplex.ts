@@ -1,5 +1,5 @@
 import { Duplex } from "node:stream";
-import type { PreviewCloseReason } from "@internal/subshell-protocol";
+import { PREVIEW_LANE_BUFFER_MAX_BYTES, type PreviewCloseReason } from "@internal/subshell-protocol";
 
 /** One delivery from a broker lane: bytes, or the named reason the lane died. */
 export type LaneEvent = { bytes: Uint8Array } | { closed: PreviewCloseReason };
@@ -22,9 +22,8 @@ export interface LaneDuplexDeps {
  * directly (`lane-http.ts`, `lane-ws-client.ts`).
  *
  * The broker's lane delivery is a firehose (a Set of subscribers, no
- * pause/resume), so `push` is unconditional and the Duplex's internal buffer
- * absorbs a slow consumer; the flow limit that matters sits on the node,
- * which pumps a lane only as fast as its own socket drains. A lane `closed`
+ * pause/resume), so unread bytes have a hard cap here as well as on the node.
+ * A slow browser must not turn node traffic into unbounded server memory. A lane `closed`
  * ends the read side with `push(null)` (FIN semantics), never an `Error`:
  * the reason WORD is what the proxy needs, and it reads it from
  * `closedReason`, not from an exception that would flatten every death into
@@ -42,12 +41,17 @@ export class LaneDuplex extends Duplex {
     // ends, and the writable side ending with it (the default) is what makes
     // the stream's `close` event fire, which is how `lane-wire.ts` and
     // `streamBody` learn the far end is gone.
-    super();
+    super({ allowHalfOpen: false });
     this.deps = deps;
     this.unsubscribe = deps.onLane((event) => {
       if ("closed" in event) {
         this.closedReason = event.closed;
         this.push(null);
+        return;
+      }
+      if (this.readableLength + event.bytes.byteLength > PREVIEW_LANE_BUFFER_MAX_BYTES) {
+        this.closedReason = "slow-link";
+        this.destroy();
         return;
       }
       this.push(Buffer.from(event.bytes));

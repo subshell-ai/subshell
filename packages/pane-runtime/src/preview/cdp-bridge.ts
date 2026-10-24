@@ -7,6 +7,7 @@ import {
   PREVIEW_WATCH_JPEG_QUALITY,
   type PreviewCloseReason,
 } from "@internal/subshell-protocol";
+import { fetchCdpJson } from "./cdp-http.js";
 import { type LaneTimers, realTimers } from "./forward.js";
 
 /**
@@ -164,7 +165,7 @@ export function clampFps(fps: number): number {
 
 /** Bridges now registered: the shared node budget's bridge half (the lane half is the registry's `laneCount()`). */
 export function bridgeCount(): number {
-  return bridges.size;
+  return bridges.size + pending.size;
 }
 
 /**
@@ -185,7 +186,13 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
   }
   const now = args.deps?.now ?? Date.now;
   const timer = args.deps?.timer ?? realTimers;
-  const fetchImpl: NonNullable<BridgeDeps["fetch"]> = args.deps?.fetch ?? ((url) => globalThis.fetch(url));
+  const discovery = new AbortController();
+  const fetchImpl: NonNullable<BridgeDeps["fetch"]> =
+    args.deps?.fetch ??
+    (async (url) => {
+      const data = await fetchCdpJson(url, discovery.signal);
+      return { ok: true, status: 200, json: async () => data };
+    });
   // The one seam cast: the DOM `WebSocket` libtype does not describe the
   // narrower surface a bridge uses, and the production default is the global.
   const WSImpl: NonNullable<BridgeDeps["WebSocketImpl"]> =
@@ -228,6 +235,7 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
       if (settled) return;
       settled = true;
       clearPending();
+      discovery.abort();
       timer.clearTimeout(budgetHandle);
       bridges.set(bridge.ref, bridge);
       // The lifetime arms only once the mechanism is actually running: the
@@ -240,6 +248,7 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
       if (settled) return;
       settled = true;
       clearPending();
+      discovery.abort();
       timer.clearTimeout(budgetHandle);
       try {
         ws?.close();
@@ -253,6 +262,7 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
       if (settled) return; // the budget or a failure already owned this handshake
       settled = true;
       clearPending();
+      discovery.abort();
       timer.clearTimeout(budgetHandle);
       try {
         ws?.close();
@@ -365,19 +375,29 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
     // distrust it. WHATWG parses a v6 host bracketed, so compare the parsed
     // hostname with the brackets gone; the constraint names `::1`, and this
     // check must not silently narrow it.
-    let host: string;
+    let destination: URL;
     try {
-      host = new URL(url).hostname.replace(/^\[|\]$/g, "");
+      destination = new URL(url);
     } catch {
-      handshakeFail(`webSocketDebuggerUrl ${url} is not a URL`);
+      handshakeFail("webSocketDebuggerUrl is not a URL");
       return;
     }
-    if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") {
-      handshakeFail(`webSocketDebuggerUrl host ${host} is not loopback`);
+    const host = destination.hostname.replace(/^\[|\]$/g, "");
+    if (
+      (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") ||
+      (destination.protocol !== "ws:" && destination.protocol !== "wss:") ||
+      Number(destination.port || (destination.protocol === "wss:" ? 443 : 80)) !== args.cdpPort ||
+      destination.username ||
+      destination.password ||
+      destination.hash
+    ) {
+      handshakeFail("webSocketDebuggerUrl must stay on the requested loopback port without credentials or a fragment");
       return;
     }
-    if (settled) return; // cancelled while the list fetch was in flight: no dial now
-    attachSocket(url);
+    // Resolve the loopback alias ourselves; the target cannot choose a DNS lookup.
+    if (host === "localhost") destination.hostname = "127.0.0.1";
+    if (settled) return;
+    attachSocket(destination.href);
   })();
 
   return handshake;
@@ -390,6 +410,11 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
  * executor fall through to the tombstone answer.
  */
 export function stopBridge(ref: string, reason: PreviewCloseReason): boolean {
+  const starting = pending.get(ref);
+  if (starting) {
+    starting.cancel(reason);
+    return true;
+  }
   const bridge = bridges.get(ref);
   if (!bridge) return false;
   remove(bridge);
@@ -422,6 +447,8 @@ export function bridgeCloseAll(reason: PreviewCloseReason): void {
  * nothing else: the bridge stays alive for the next one.
  */
 function onSocketMessage(bridge: Bridge, raw: string | Buffer): void {
+  // Bound work before JSON parsing or base64 decoding, including malformed input.
+  if (Buffer.byteLength(raw) > Math.ceil(PREVIEW_FRAME_MAX_BYTES / 3) * 4 + 64 * 1024) return;
   let msg: { method?: unknown; params?: { data?: unknown; metadata?: unknown; sessionId?: unknown } };
   try {
     msg = JSON.parse(typeof raw === "string" ? raw : raw.toString()) as typeof msg;

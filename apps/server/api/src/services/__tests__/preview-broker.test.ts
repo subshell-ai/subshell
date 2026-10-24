@@ -1303,3 +1303,66 @@ describe("concurrency: synchronous reservations and the one-bridge-per-pane edge
     expect(h.held).toHaveLength(0);
   });
 });
+
+describe("revocation during a preview open", () => {
+  for (const kind of ["forward", "screencast"] as const) {
+    for (const revoke of ["pane", "node", "account", "share"] as const) {
+      it(`${revoke} revocation cancels a pending ${kind} before its late acknowledgement`, async () => {
+        const h = makeHarness({ hold: (cmd) => cmd.type === "preview_open", accessFor: async () => "none" });
+        const b = getPreviewBroker();
+        const input = { viewerUserId: "u-race", paneId: PANE, nodeId: NODE, port: 8080 };
+        const opening = (kind === "forward" ? b.openForward(input) : b.startWatch(input)).then(
+          () => "opened",
+          () => "refused",
+        );
+        await settle();
+        expect(h.held).toHaveLength(1);
+        const ref = cmds(h, "preview_open")[0]?.ref;
+        if (!ref) throw new Error("Missing pending ref");
+        if (revoke === "pane") await b.closeForPane(PANE, "pane-gone");
+        if (revoke === "node") await b.closeAllForNode(NODE, "node-dropped");
+        if (revoke === "account") await b.closeAllForUser("u-race", "revoked");
+        if (revoke === "share") await b.closeUnauthorizedForPane(PANE);
+        releaseHeld(h);
+        expect(await opening).toBe("refused");
+        expect(b.sessionFor(ref)).toBeNull();
+        expect(cmds(h, "preview_close").some((cmd) => cmd.ref === ref)).toBe(true);
+      });
+    }
+  }
+});
+
+describe("preview authorization at publication", () => {
+  for (const kind of ["forward", "screencast"] as const) {
+    it(`rechecks authorization before publishing a ${kind} that already reached the node`, async () => {
+      const h = makeHarness({ hold: (cmd) => cmd.type === "preview_open" });
+      let allowed = true;
+      let checks = 0;
+      const input = {
+        viewerUserId: "u-race",
+        paneId: PANE,
+        nodeId: NODE,
+        port: 8080,
+        authorize: async () => {
+          checks++;
+          if (!allowed) throw new Error("access removed");
+        },
+      };
+      const b = getPreviewBroker();
+      const outcome = (kind === "forward" ? b.openForward(input) : b.startWatch(input)).then(
+        () => "opened",
+        () => "refused",
+      );
+      await settle();
+      expect(h.held).toHaveLength(1);
+      allowed = false;
+      const ref = cmds(h, "preview_open")[0]?.ref;
+      if (!ref) throw new Error("Missing ref");
+      releaseHeld(h);
+      expect(await outcome).toBe("refused");
+      expect(checks).toBe(2);
+      expect(b.sessionFor(ref)).toBeNull();
+      expect(cmds(h, "preview_close").some((cmd) => cmd.ref === ref)).toBe(true);
+    });
+  }
+});

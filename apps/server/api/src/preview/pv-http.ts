@@ -71,11 +71,17 @@ function isIdentityHeader(name: string): boolean {
 const OUTBOUND_DROP = new Set([
   ...HOP_BY_HOP,
   "set-cookie",
+  "content-length",
   "x-frame-options",
   "clear-site-data",
   "www-authenticate",
   "strict-transport-security",
   "alt-svc",
+  "nel",
+  "report-to",
+  "reporting-endpoints",
+  "accept-ch",
+  "critical-ch",
 ]);
 
 /** The 404 text. Deliberately about the link, never about the pane behind it. */
@@ -97,7 +103,19 @@ export function storeCookiesInJar(jar: Map<string, string>, setCookies: readonly
     if (!pair) continue;
     const eq = pair.indexOf("=");
     if (eq < 1) continue;
-    jar.set(pair.slice(0, eq), pair);
+    const name = pair.slice(0, eq);
+    // The jar is target-controlled and outlives individual HTTP requests.
+    // Bound both entry count and bytes, evicting the oldest cookie first.
+    if (Buffer.byteLength(pair) > 4096) continue;
+    jar.delete(name);
+    jar.set(name, pair);
+    let bytes = [...jar.values()].reduce((sum, value) => sum + Buffer.byteLength(value), 0);
+    while (jar.size > 128 || bytes > 64 * 1024) {
+      const oldest = jar.entries().next().value;
+      if (!oldest) break;
+      bytes -= Buffer.byteLength(oldest[1]);
+      jar.delete(oldest[0]);
+    }
   }
 }
 

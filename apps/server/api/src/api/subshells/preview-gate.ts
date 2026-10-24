@@ -4,6 +4,7 @@ import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repo
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import { type Access, accessAtLeast, loadSubshellAccess } from "@/lib/subshell-access.js";
+import { accountDisabled } from "@/services/account-status.js";
 import { getHeld, isNodeOffline } from "@/services/nodes/node-registry.js";
 import { getPreviewEnabled } from "@/services/nodes/preview-enabled.js";
 
@@ -63,4 +64,22 @@ export async function previewNodeState(nodeId: string): Promise<PreviewNodeState
     return { nodeEnabled: false, reason: "node-offline" };
   }
   return { nodeEnabled: true };
+}
+
+/** Recheck after node RPCs so stale route authorization cannot mint fresh access. */
+export async function recheckPreviewOpen(
+  viewerId: string,
+  paneId: string,
+  nodeId: string,
+  min: "view" | "edit",
+  actor: GuardActor,
+): Promise<void> {
+  if (await accountDisabled(db, viewerId)) throw new HttpError(401, "Your account is no longer available.");
+  const { row } = await gatePreview(viewerId, paneId, min, actor);
+  if (row.nodeId !== nodeId || row.status !== "running" || row.alive !== 1) {
+    throw new HttpError(409, "This subshell is no longer running. Reopen Preview after restarting it.");
+  }
+  if (!(await previewNodeState(nodeId)).nodeEnabled) {
+    throw new HttpError(409, "Preview is no longer available on this node.");
+  }
 }

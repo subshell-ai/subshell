@@ -107,6 +107,8 @@ export function previewWsRoute(options: { preAckMaxBytes?: number } = {}) {
   function teardown(t: PvTunnel, reason: PreviewCloseReason, from: "browser" | "lane" | "target"): void {
     if (t.closed) return;
     t.closed = true;
+    t.queue.length = 0;
+    t.queuedBytes = 0;
     // A close frame before the lane dies: best-effort courtesy, a frame
     // that cannot be written is noise under the lane close right behind it.
     t.handle?.close(undefined, undefined);
@@ -195,6 +197,13 @@ export function previewWsRoute(options: { preAckMaxBytes?: number } = {}) {
             return;
           }
           if (t.closed) return;
+          if (
+            (ws.raw as unknown as { getBufferedAmount(): number }).getBufferedAmount() + event.bytes.byteLength >
+            PREVIEW_LANE_BUFFER_MAX_BYTES
+          ) {
+            teardown(t, "slow-link", "target");
+            return;
+          }
           try {
             ws.send(Buffer.from(event.bytes));
           } catch {
@@ -243,6 +252,13 @@ export function previewWsRoute(options: { preAckMaxBytes?: number } = {}) {
         },
         onMessage: (data, isBinary) => {
           if (t.closed) return;
+          if (
+            (ws.raw as unknown as { getBufferedAmount(): number }).getBufferedAmount() + data.byteLength >
+            PREVIEW_LANE_BUFFER_MAX_BYTES
+          ) {
+            teardown(t, "slow-link", "target");
+            return;
+          }
           try {
             ws.send(isBinary ? data : data.toString("utf8"));
           } catch {
@@ -298,6 +314,10 @@ export function previewWsRoute(options: { preAckMaxBytes?: number } = {}) {
       } else {
         bytes = Buffer.from(JSON.stringify(message));
         text = true;
+      }
+      if (bytes.byteLength > PREVIEW_LANE_BUFFER_MAX_BYTES) {
+        teardown(t, "over-cap", "target");
+        return;
       }
       if (t.mode === "raw") {
         getPreviewBroker().sendLaneBytes(t.laneRef, bytes);

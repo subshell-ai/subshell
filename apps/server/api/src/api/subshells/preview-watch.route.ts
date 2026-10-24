@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 import { authGuard, HttpError, requirePerm } from "@/api/auth-guard.js";
-import { gatePreview, previewNodeState } from "@/api/subshells/preview-gate.js";
+import { gatePreview, previewNodeState, recheckPreviewOpen } from "@/api/subshells/preview-gate.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
@@ -96,7 +96,13 @@ export const previewWatchRoute = new Elysia()
         }
       }
       try {
-        await broker.startWatch({ viewerUserId: user.id, paneId: params.id, nodeId: row.nodeId, port });
+        await broker.startWatch({
+          viewerUserId: user.id,
+          paneId: params.id,
+          nodeId: row.nodeId,
+          port,
+          authorize: () => recheckPreviewOpen(user.id, params.id, row.nodeId, "view", actor),
+        });
         return { ok: true } as const;
       } catch (err) {
         if (err instanceof PreviewRefusal) {

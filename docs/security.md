@@ -4077,8 +4077,9 @@ cookies on the dashboard origin. The HTTP proxy strips `Authorization`,
 `X-Api-Key`, `Forwarded`, `Remote-User`, and headers in the `CF-Access-*`,
 `X-Auth-*`, `X-Amzn-Oidc-*`, and `X-Forwarded-*` families. Operators using other
 custom identity headers must prevent those from reaching preview routes.
-Target `Clear-Site-Data`, `WWW-Authenticate`, HSTS, and Alt-Svc response headers
-are removed so a dev server cannot set origin-wide dashboard policy.
+Target `Clear-Site-Data`, `WWW-Authenticate`, HSTS, Alt-Svc, NEL, Report-To,
+Reporting-Endpoints, Accept-CH, and Critical-CH response headers are removed
+so a dev server cannot install those origin-wide dashboard policies.
 Responses use `Cache-Control: no-store` and
 `Referrer-Policy: no-referrer`.
 
@@ -4103,7 +4104,9 @@ discovery is not a security allowlist for an edit-authorized forward: shell
 editors can already contact the execution account's local services. View-only
 browser watches do not receive that authority and cannot select arbitrary ports.
 Discovery is cached for five seconds, so it is not a durable OS process-isolation
-claim against a machine capable of rebinding its ports.
+claim against a machine capable of rebinding its ports. CDP discovery refuses
+redirects and bounds JSON at 256 KiB; the returned WebSocket must retain the
+requested loopback port. Cancellation aborts discovery and pending handshakes.
 
 **A virtual display is not isolation from local OS users.** Xvfb disables its
 TCP listener and uses a private Xauthority file. x11vnc binds loopback and uses
@@ -4122,14 +4125,21 @@ Closing a tab releases its connections, but the forward session can remain
 valid until its 15-minute traffic-idle expiry, loss of the opener's access,
 subshell death, account disable, or node loss. Explicit terminate, delete, and
 restart await preview teardown before stopping the old pane, independently of
-its exit hook. Individual lanes and bridges
+its exit hook. Opens waiting for node acknowledgement are included in those
+sweeps and in share, account, and node revocation; the route's current
+account/access and pane/node availability are checked again before publication.
+Explicit lifecycle actions also sweep after retiring the old row, covering
+opens that arrived during the stop. Individual lanes and bridges
 have a four-hour ceiling; it is not a fixed lifetime for an actively reused
 forward capability. Use grant removal or end the subshell when revocation is
 required rather than relying on closing a tab or switching Preview off.
 
 Resource limits bound active lanes, queued requests, frame sizes, stream byte
 debt, and screencast rate; they are not general API rate limiting. Session maps
-and cookie jars are in server memory, and untrusted execution programs can
+and cookie jars are in server memory. Proxy queues, unread lane bytes,
+browser WS debt, and assembled WS messages have a 1 MiB ceiling; chunked HTTP
+bodies stream without holding whole chunks. Jars retain at most 128 cookies
+and 64 KiB, with a 4 KiB per-cookie limit. Untrusted execution programs can
 consume host resources. The existing trusted-instance and OS-account posture
 still applies.
 
