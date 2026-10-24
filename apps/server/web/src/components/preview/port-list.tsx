@@ -234,9 +234,7 @@ function PreviewOption({
   action,
   reason,
   onClick,
-  dense = false,
 }: {
-  dense?: boolean;
   icon: LucideIcon;
   label: string;
   port?: number;
@@ -247,19 +245,14 @@ function PreviewOption({
   return (
     <div className="flex flex-col gap-1">
       <Button
-        variant={dense ? "ghost" : "outline"}
-        className={cn("h-auto min-h-11 w-full justify-start gap-3 px-3", dense ? "py-2" : "py-3")}
+        variant="ghost"
+        className="h-auto min-h-11 w-full justify-start gap-3 px-3 py-2"
         aria-label={action}
         disabled={Boolean(reason)}
         disabledReason={reason}
         onClick={onClick}
       >
-        <span
-          className={cn(
-            "flex shrink-0 items-center justify-center rounded-md bg-muted text-primary",
-            dense ? "size-7" : "size-9",
-          )}
-        >
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-primary">
           <Icon className="size-5" aria-hidden />
         </span>
         <span className="text-label">{label}</span>
@@ -300,7 +293,6 @@ function CompactPreviewChoices({
     <>
       {screen && (
         <PreviewOption
-          dense={large}
           icon={AppWindow}
           label="Virtual display"
           action="View screen"
@@ -309,19 +301,12 @@ function CompactPreviewChoices({
         />
       )}
       {browser && (
-        <PreviewOption
-          dense={large}
-          icon={Eye}
-          label="Browser"
-          action="Watch browser"
-          reason={watchReason}
-          onClick={onWatch}
-        />
+        <PreviewOption icon={Eye} label="Browser" action="Watch browser" reason={watchReason} onClick={onWatch} />
       )}
     </>
   );
   return (
-    <div className="flex min-h-0 flex-col gap-2">
+    <div className={cn("flex min-h-0 flex-col", large ? "gap-2" : "gap-0.5 rounded-md border p-1")}>
       {large && (
         <div className="relative">
           <Search className="pointer-events-none absolute top-2.5 left-3 size-4 text-muted-foreground" aria-hidden />
@@ -345,13 +330,12 @@ function CompactPreviewChoices({
         <div
           className={cn(
             "flex flex-col",
-            large ? "max-h-[40dvh] gap-0.5 overflow-y-auto overscroll-contain rounded-md border p-1" : "gap-2",
+            large ? "max-h-[40dvh] gap-0.5 overflow-y-auto overscroll-contain rounded-md border p-1" : "gap-0.5",
           )}
         >
           {apps.map((row) => (
             <PreviewOption
               key={row.port}
-              dense={large}
               icon={Globe}
               label="App"
               port={row.port}
