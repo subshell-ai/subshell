@@ -17,6 +17,28 @@ lets you discover available views and watch browser frames. Switching Preview
 off prevents new operations; it doesn't stop your subshell or immediately close
 an existing connection.
 
+## Use Preview from a Mac
+
+You can view and control previews from your Mac in a browser or **Subshell
+Client** while the subshell runs on a Linux node. The server's built-in node
+also works when the server runs on Linux.
+
+1. Open your server's dashboard on the Mac and
+   [enable Preview](#enable-preview-on-the-machine) for the Linux node.
+2. Launch your subshell on that node and start the project's dev server there.
+3. Follow [Check a website](#check-a-website) to open its app preview. For an
+   interactive browser or GUI app, follow
+   [Use a virtual display on Linux](#use-a-virtual-display-on-linux).
+
+Install Xvfb, x11vnc, xauth, and the browser on the Linux node when you need a
+virtual display. Your Mac doesn't need those programs or its own node to view
+that screen.
+
+If the subshell runs directly on macOS, the picker cannot automatically discover
+its app ports or browser. Virtual displays require Linux, and Preview does not
+capture native Mac app windows. Installing the Linux display programs on a Mac
+doesn't add that support.
+
 ## Check a website
 
 1. Start your project's dev server inside a subshell. Keep it listening on
@@ -87,11 +109,6 @@ login flows, or another graphical app.
   <ImageZoom src="/screenshots/preview-display.png" alt="A development terminal beside the Northstar website running in the subshell's virtual-display browser." width="1560" height="1280" loading="lazy" decoding="async" unoptimized />
   <figcaption>The virtual display shows the browser running on the node. Keyboard and pointer input require edit access. Select the image to enlarge it.</figcaption>
 </figure>
-
-Virtual displays require Linux. Automatic port discovery and browser watching
-also rely on Linux's process information; the picker explains when a machine
-can't provide them. A macOS node doesn't gain a virtual display by installing
-the Linux display programs.
 
 A virtual display isn't a sandbox for the programs you run. They keep the
 execution account's permissions. Don't enable it on a host shared with untrusted
