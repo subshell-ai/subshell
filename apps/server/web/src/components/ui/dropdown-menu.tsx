@@ -19,10 +19,14 @@ export const DropdownMenuTrigger = Menu.Trigger;
 
 export interface DropdownMenuContentProps
   extends Pick<Menu.Positioner.Props, "side" | "sideOffset" | "align" | "alignOffset" | "anchor">,
-    Menu.Popup.Props {}
+    Menu.Popup.Props {
+  /** A fullscreen viewer must contain its menus to keep them in the browser's top layer. */
+  container?: Menu.Portal.Props["container"];
+}
 
 export function DropdownMenuContent({
   className,
+  container,
   sideOffset = 4,
   align,
   alignOffset,
@@ -31,7 +35,7 @@ export function DropdownMenuContent({
   ...props
 }: DropdownMenuContentProps): JSX.Element {
   return (
-    <Menu.Portal>
+    <Menu.Portal container={container}>
       {/* Declared, destructured, forwarded to the Positioner — Base UI
           requires positioning props on this node; letting them fall through
           onto the Popup silently breaks anchoring. `anchor` likewise: pass a
