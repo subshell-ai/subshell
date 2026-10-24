@@ -202,7 +202,7 @@ it("selects a child through the parent endpoint and returns to the parent on the
     renderRow(makeSubshell(), false, () => {
       opened++;
     });
-    fireEvent.click(await screen.findByRole("button", { name: "Expand subagents" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Expand subshell details" }));
     const child = await screen.findByRole("button", { name: /Review changes/ });
     fireEvent.click(child);
     await waitFor(() => expect(selectPosts).toEqual([{ agentId: "child" }]));
@@ -227,7 +227,9 @@ for (const focused of [true, false]) {
       renderRow(makeSubshell(), focused, () => {
         opened++;
       });
-      const arrow = await screen.findByRole("button", { name: focused ? "Collapse subagents" : "Expand subagents" });
+      const arrow = await screen.findByRole("button", {
+        name: focused ? "Collapse subshell details" : "Expand subshell details",
+      });
       expect(arrow.getAttribute("aria-expanded")).toBe(String(focused));
       if (!focused) fireEvent.click(arrow);
       expect(arrow.closest("a")).toBeNull();

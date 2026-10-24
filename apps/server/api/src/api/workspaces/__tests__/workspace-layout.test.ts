@@ -216,3 +216,36 @@ describe("pruneLayout", () => {
     expect("edgeGroups" in pruned).toBe(false);
   });
 });
+
+describe("preview tabs follow their parent pane's visibility", () => {
+  function layout() {
+    return {
+      grid: {
+        root: {
+          type: "branch",
+          data: [
+            { type: "leaf", data: { id: "group", views: ["a", "preview:a", "preview:b"], activeView: "preview:a" } },
+          ],
+        },
+      },
+      panels: {
+        a: { id: "a" },
+        "preview:a": { id: "preview:a", contentComponent: "preview", params: { paneId: "foreign" } },
+        "preview:b": { id: "preview:b" },
+      },
+    };
+  }
+  it("preserves the preview with its authorized parent and binds its content to that parent", () => {
+    const pruned = pruneLayout(layout(), new Set(["a"]));
+    expect(panelIdsInLayout(pruned)).toEqual(["a", "preview:a"]);
+    expect((pruned?.panels as Record<string, unknown> | undefined)?.["preview:a"]).toEqual({
+      id: "preview:a",
+      contentComponent: "preview",
+      params: { paneId: "a" },
+      renderer: "always",
+    });
+  });
+  it("removes the preview when its parent is deleted or access is revoked", () => {
+    expect(pruneLayout(layout(), new Set())).toBeNull();
+  });
+});

@@ -269,7 +269,7 @@ export function SubshellRecentRow({
                        Derived from the line-height token, not a font-size
                        multiple, so a type-scale edit moves it in step. */
                     className="absolute top-[calc(var(--spacing)+var(--text-detail)*var(--text-detail--line-height)*1.5)] left-1 size-5 -translate-y-1/2 text-muted-foreground [&_svg]:size-3"
-                    aria-label={expanded ? "Collapse subagents" : "Expand subagents"}
+                    aria-label={expanded ? "Collapse subshell details" : "Expand subshell details"}
                     aria-expanded={expanded}
                     aria-controls={childrenId}
                     onClick={() => setExpanded((value) => !value)}
@@ -278,7 +278,9 @@ export function SubshellRecentRow({
               >
                 {expanded ? <ChevronDown /> : <ChevronRight />}
               </TooltipTrigger>
-              <TooltipContent side="bottom">{expanded ? "Collapse subagents" : "Expand subagents"}</TooltipContent>
+              <TooltipContent side="bottom">
+                {expanded ? "Collapse subshell details" : "Expand subshell details"}
+              </TooltipContent>
             </Tooltip>
           </TooltipProvider>
         )}

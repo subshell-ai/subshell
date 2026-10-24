@@ -28,7 +28,11 @@ import type { SubshellAccess, SubshellView } from "@/types/subshell";
  * surface shows more than the terminal does - a live screen, not a log.
  */
 
+export type PreviewChoice = { kind: "app"; port: number } | { kind: "screen" } | { kind: "browser" };
+
 export interface PreviewSectionProps {
+  initialView?: PreviewChoice | null;
+  onViewChange?: (choice: PreviewChoice | null) => void;
   /** The pane being previewed; watch frames key on it. */
   paneId: string;
   /** The caller's resolved access, exactly as the terminal reads it. */
@@ -45,6 +49,7 @@ export interface PreviewSectionProps {
   /** Test seam for the banner's dwell, passed straight through. */
   bannerVisibleMs?: number;
   onHide?: () => void;
+  fill?: boolean;
 }
 
 /**
@@ -84,6 +89,9 @@ export function PreviewSection({
   isPhone,
   bannerVisibleMs,
   onHide,
+  fill = false,
+  initialView,
+  onViewChange,
 }: PreviewSectionProps): JSX.Element {
   const phoneDefault = useIsPhoneLayout();
   const phone = isPhone ?? phoneDefault;
@@ -123,6 +131,7 @@ export function PreviewSection({
   // repopulate the new pane with the old one's lane, so every handler
   // captures this counter and ignores its answer once the counter moved.
   const generation = useRef(0);
+  const resumed = useRef(false);
   // biome-ignore lint/correctness/useExhaustiveDependencies: the paneId dependency IS the reset, the React prop-change pattern. The body never reads paneId (its setters are stable), which is what the exhaustive-deps autofix would strip and what shipped the bug this pins.
   useEffect(() => {
     generation.current += 1;
@@ -132,12 +141,17 @@ export function PreviewSection({
   }, [paneId]);
 
   async function handleOpen(port: number): Promise<void> {
+    resumed.current = true;
     const gen = generation.current;
     setOpenError(null);
     try {
       const { proxyBase } = await preview.openPort(port);
       if (generation.current !== gen) return;
+      setScreenSession(null);
+      if (preview.watching) await preview.stopWatch();
+      if (generation.current !== gen) return;
       setOpen({ port, proxyBase });
+      onViewChange?.({ kind: "app", port });
     } catch (err) {
       // The named refusal (the caps, the stale node answer) renders as asked.
       if (generation.current !== gen) return;
@@ -152,12 +166,17 @@ export function PreviewSection({
   // handler is only ever reached with a panel that will host the viewer.
   async function handleScreen(): Promise<void> {
     if (!info?.screen) return;
+    resumed.current = true;
     const gen = generation.current;
     setOpenError(null);
     try {
       const { proxyBase } = await preview.openPort(info.screen.rfbPort);
       if (generation.current !== gen) return;
+      setOpen(null);
+      if (preview.watching) await preview.stopWatch();
+      if (generation.current !== gen) return;
       setScreenSession({ display: info.screen.display, proxyBase });
+      onViewChange?.({ kind: "screen" });
       // A fresh session is exactly when the info poll should be re-asked:
       // its own throttle still rules (spec §7).
       preview.refresh();
@@ -166,6 +185,16 @@ export function PreviewSection({
       setOpenError(errMessage(err, "Couldn't open a screen preview lane."));
     }
   }
+
+  const reopen = useRef({ handleOpen, handleScreen, startWatch: preview.startWatch });
+  reopen.current = { handleOpen, handleScreen, startWatch: preview.startWatch };
+  useEffect(() => {
+    if (resumed.current || !initialView || !info?.nodeEnabled || info.reason) return;
+    resumed.current = true;
+    if (initialView.kind === "app") void reopen.current.handleOpen(initialView.port);
+    else if (initialView.kind === "screen") void reopen.current.handleScreen();
+    else void reopen.current.startWatch(info.cdpPort ?? undefined);
+  }, [initialView, info]);
 
   // The info poll is what carries a vanished browser (spec §5): the named
   // state renders beside the canvas, and the canvas stays where it was.
@@ -185,7 +214,11 @@ export function PreviewSection({
       ref={sectionRef}
       className={cn(
         "flex min-h-0 shrink-0 flex-col gap-3 border-border border-t bg-card p-3",
-        hasViewer ? "h-[55%] max-h-[85%] min-h-40 resize-y overflow-hidden" : "max-h-[45%] overflow-y-auto",
+        fill
+          ? "h-full w-full overflow-hidden"
+          : hasViewer
+            ? "h-[55%] max-h-[85%] min-h-40 resize-y overflow-hidden"
+            : "max-h-[45%] overflow-y-auto",
         "[&:fullscreen]:h-screen [&:fullscreen]:max-h-none [&:fullscreen]:resize-none",
       )}
     >
@@ -234,14 +267,20 @@ export function PreviewSection({
         </Link>
       )}
       {info && (
-        <details open={!open && !screenSession && !preview.watching} className="shrink-0">
+        <details open={!open && !screenSession && !preview.watching} className="max-h-[45%] shrink-0 overflow-y-auto">
           <summary className="cursor-pointer text-detail text-muted-foreground">Ports and screens</summary>
           <PortList
             info={info}
             access={access}
             watching={preview.watching}
             onOpen={(port) => void handleOpen(port)}
-            onWatch={() => void preview.startWatch(info.cdpPort ?? undefined)}
+            onWatch={() => {
+              resumed.current = true;
+              setOpen(null);
+              setScreenSession(null);
+              onViewChange?.({ kind: "browser" });
+              void preview.startWatch(info.cdpPort ?? undefined);
+            }}
             onScreen={() => void handleScreen()}
             phone={phone}
           />
@@ -269,7 +308,16 @@ export function PreviewSection({
       )}
 
       {/* Keep Stop beside the picture when its port row is collapsed or disappears. */}
-      {preview.watching && <WatchViewer paneId={paneId} gone={browserGone} onStop={() => void preview.stopWatch()} />}
+      {preview.watching && (
+        <WatchViewer
+          paneId={paneId}
+          gone={browserGone}
+          onStop={() => {
+            onViewChange?.(null);
+            void preview.stopWatch();
+          }}
+        />
+      )}
 
       {open && phone && (
         <a href={open.proxyBase} target="_blank" rel="noreferrer" className="text-label text-primary underline">
@@ -277,7 +325,16 @@ export function PreviewSection({
         </a>
       )}
       {/* A real link keeps phone navigation inside a user gesture even after a slow request. */}
-      {open && !phone && <OpenPanel port={open.port} proxyBase={open.proxyBase} onClose={() => setOpen(null)} />}
+      {open && !phone && (
+        <OpenPanel
+          port={open.port}
+          proxyBase={open.proxyBase}
+          onClose={() => {
+            onViewChange?.(null);
+            setOpen(null);
+          }}
+        />
+      )}
 
       {/* The Screen viewer is a panel too, so it follows the same mobile rule.
           Keyed on the session's proxy: a re-open is a fresh socket on a fresh
@@ -288,7 +345,10 @@ export function PreviewSection({
           key={screenSession.proxyBase}
           display={screenSession.display}
           proxyBase={screenSession.proxyBase}
-          onClose={() => setScreenSession(null)}
+          onClose={() => {
+            onViewChange?.(null);
+            setScreenSession(null);
+          }}
         />
       )}
     </section>

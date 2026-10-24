@@ -9,3 +9,5 @@ Add pane preview. Nodes carry an opt-in Preview switch, and workspace panes and 
 Preview also works on the server’s built-in node. Virtual displays check the machine’s platform and Preview setting before launch, phone app previews use a new-tab link, and viewers can use full screen without reloading the app.
 
 Check virtual display prerequisites before launch, disable the checkbox when programs are missing, and let users recheck after installing them.
+
+Open workspace previews in draggable tabs with child entries beneath their subshells in the sidebar. Preview tabs fill their panels, retain one selected view at a time, and close without removing the terminal.

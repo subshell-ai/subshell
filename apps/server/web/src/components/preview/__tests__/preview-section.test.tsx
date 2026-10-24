@@ -339,3 +339,55 @@ describe("unsupported discovery", () => {
     expect(screen.queryByText(/Nothing to preview yet/)).toBeNull();
   });
 });
+
+it("fills a preview tab and resumes its selected app only once", async () => {
+  const opened: number[] = [];
+  const c = controller({
+    info: info(),
+    openPort: async (port) => {
+      opened.push(port);
+      return { proxyBase: "/pv/tab/" };
+    },
+  });
+  const view = render(
+    <PreviewSection
+      paneId="pane1"
+      access="owner"
+      preview={c}
+      fill
+      initialView={{ kind: "app", port: 3000 }}
+      isPhone={false}
+    />,
+  );
+  await screen.findByText("App preview");
+  expect(screen.getByRole("region", { name: "Preview" }).className).toContain("h-full");
+  view.rerender(
+    <PreviewSection
+      paneId="pane1"
+      access="owner"
+      preview={c}
+      fill
+      initialView={{ kind: "app", port: 3000 }}
+      isPhone={false}
+    />,
+  );
+  expect(opened).toEqual([3000]);
+});
+
+it("replaces an app view when the browser watch is selected", async () => {
+  let starts = 0;
+  mount({
+    info: info(),
+    isPhone: false,
+    controller: {
+      startWatch: async () => {
+        starts += 1;
+      },
+    },
+  });
+  fireEvent.click(screen.getAllByRole("button", { name: "Open app" })[0]);
+  await screen.findByText("App preview");
+  fireEvent.click(screen.getByRole("button", { name: "Watch browser" }));
+  expect(starts).toBe(1);
+  expect(screen.queryByText("App preview") === null).toBe(true);
+});

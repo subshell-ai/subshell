@@ -17,6 +17,7 @@ import { PaneFocusHeader } from "@/components/pane-focus-header";
 import { SubshellPicker } from "@/components/subshell-picker";
 import { type WorkspaceDockContextValue, WorkspaceDockProvider } from "@/components/workspace-dock/context";
 import { DockedPane, type DockedPaneParams } from "@/components/workspace-dock/docked-pane";
+import { DockedPreview } from "@/components/workspace-dock/docked-preview";
 import { GroupHeaderActions } from "@/components/workspace-dock/group-header-actions";
 import { SubshellTab } from "@/components/workspace-dock/subshell-tab";
 import { useCloseSubshellLanding } from "@/hooks/use-close-subshell-landing";
@@ -32,6 +33,12 @@ import {
   panesMissingFromLayout,
   resolveAddPosition,
 } from "@/lib/workspace-layout";
+import {
+  onWorkspacePreviewRequest,
+  previewPanelId,
+  previewParentId,
+  publishWorkspacePreviews,
+} from "@/lib/workspace-preview";
 import type { SplitIntent } from "@/lib/workspace-split-intent";
 import type { SubshellView } from "@/types/subshell";
 import type { SplitDirection, WorkspaceDetail, WorkspacePaneRow } from "@/types/workspace";
@@ -46,6 +53,7 @@ function isSubshellDrag(e: ReactDragEvent): boolean {
 
 /** Panel content renderers, keyed by the `component` id passed to `addPanel`. */
 const components = {
+  preview: (props: IDockviewPanelProps<DockedPaneParams>) => <DockedPreview {...props} />,
   subshell: (props: IDockviewPanelProps<DockedPaneParams>) => <DockedPane {...props} />,
 };
 
@@ -134,7 +142,13 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
   workspaceIdRef.current = detail.workspace.id;
   // Publish the dock's focused pane to the rail (it lives in the app shell, a
   // separate tree). Cleared on unmount so a stale focus never outlives the page.
-  useEffect(() => () => setWorkspaceFocusedId(null), []);
+  useEffect(
+    () => () => {
+      setWorkspaceFocusedId(null);
+      publishWorkspacePreviews([], null);
+    },
+    [],
+  );
   // One focus publisher for every moment focus can change: dockview's events
   // AND the reconciliation effect. The event alone is not enough — when
   // `handleAdd` places a new panel, dockview fires `onDidAddPanel`
@@ -145,7 +159,18 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
   // spec caught). Re-running on `detail.panes` changes is what heals that.
   const publishFocus = useCallback(() => {
     const activeId = apiRef.current?.activePanel?.id;
-    const pane = activeId ? panesRef.current.find((p) => p.id === activeId) : undefined;
+    const pane = activeId ? panesRef.current.find((p) => p.id === (previewParentId(activeId) ?? activeId)) : undefined;
+    const api = apiRef.current;
+    publishWorkspacePreviews(
+      (api?.panels ?? []).flatMap((panel) => {
+        const parent = previewParentId(panel.id);
+        const row = panesRef.current.find((p) => p.id === parent);
+        return row
+          ? [{ id: panel.id, paneId: row.id, subshellId: row.subshellId, workspaceId: workspaceIdRef.current }]
+          : [];
+      }),
+      activeId && previewParentId(activeId) ? activeId : null,
+    );
     setWorkspaceFocusedId(pane?.subshellId ?? null);
   }, []);
   // A rail click that had to NAVIGATE here first (the pane was not on screen
@@ -180,6 +205,30 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
         return true;
       }),
     [],
+  );
+
+  useEffect(
+    () =>
+      onWorkspacePreviewRequest((subshellId) => {
+        const pane = panesRef.current.find((row) => row.subshellId === subshellId);
+        const api = apiRef.current;
+        if (!pane || !api) return false;
+        const id = previewPanelId(pane.id);
+        const existing = api.getPanel(id);
+        if (existing) existing.api.setActive();
+        else
+          api.addPanel<DockedPaneParams>({
+            id,
+            component: "preview",
+            title: `${pane.subshellName} · Preview`,
+            renderer: "always",
+            params: { paneId: pane.id },
+            position: { referencePanel: pane.id, direction: "within" },
+          });
+        publishFocus();
+        return true;
+      }),
+    [publishFocus],
   );
 
   const setSearchAddon = useCallback((paneId: string, addon: SearchAddon | null) => {
@@ -264,6 +313,7 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
     // unmount); the id→subshell mapping is re-read each fire, so a pane added
     // or removed elsewhere still resolves on the next layout/add event.
     event.api.onDidActiveGroupChange(() => publishFocus());
+    event.api.onDidActivePanelChange(() => publishFocus());
     event.api.onDidLayoutChange(() => publishFocus());
     event.api.onDidAddPanel(() => publishFocus());
     publishFocus();
@@ -306,6 +356,14 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
     // panel added here a moment ago, still absent from the in-flight poll,
     // is never closed as though it had been deleted.
     for (const panel of [...api.panels]) {
+      const previewParent = previewParentId(panel.id);
+      if (previewParent) {
+        const owner = detail.panes.find((pane) => pane.id === previewParent);
+        if (!owner) panel.api.close();
+        else if (panel.title !== `${owner.subshellName} · Preview`)
+          panel.api.setTitle(`${owner.subshellName} · Preview`);
+        continue;
+      }
       if (live.has(panel.id)) continue;
       if (!serverSeenPaneIdsRef.current.has(panel.id)) continue;
       panel.api.close();
@@ -349,6 +407,11 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
 
   const handleRemovePane = useCallback(
     async (paneId: string) => {
+      if (previewParentId(paneId)) {
+        apiRef.current?.getPanel(paneId)?.api.close();
+        publishFocus();
+        return;
+      }
       let workspaceDeleted = false;
       try {
         ({ workspaceDeleted } = await removePane(paneId));
@@ -374,7 +437,7 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
       apiRef.current?.getPanel(paneId)?.api.close();
       void onRefetch();
     },
-    [removePane, onRefetch, detail.panes, navigate],
+    [removePane, onRefetch, detail.panes, navigate, publishFocus],
   );
 
   const handleCloseSubshell = useCallback(
