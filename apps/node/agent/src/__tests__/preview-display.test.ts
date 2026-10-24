@@ -667,6 +667,16 @@ describe("pane death and the orphan sweep", () => {
 /* ------------------------------------------------------------------ */
 
 describe("review round 1: what the sweep sees", () => {
+  it("restores a complete display for a live pane immediately after restart, while the directory is fresh", async () => {
+    const dataDir = onDir("fresh-live-rehydrate");
+    const shared = makeDeps();
+    const original = new PreviewDisplays(dataDir, shared.deps);
+    await original.openFor(PANE, { width: 640, height: 480 });
+    const restarted = new PreviewDisplays(dataDir, shared.deps);
+    await restarted.sweepOrphans([PANE]);
+    expect(restarted.getFor(PANE)).toEqual({ display: ":90", rfbPort: 5910 });
+  });
+
   it("a rehydrated entry whose recorded child dies is probed, marked lost, and reaped by the next sweep", async () => {
     const dataDir = onDir("round1-rehydrated-death");
     const shared = makeDeps();

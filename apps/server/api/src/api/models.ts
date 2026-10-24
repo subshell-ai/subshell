@@ -67,6 +67,9 @@ export const PresetSchema = t.Object({
 });
 
 export const SubshellSchema = t.Object({
+  virtualDisplay: t.Nullable(
+    t.String({ description: "The subshell’s known virtual display, or null when none is available" }),
+  ),
   id: t.String({ description: "Subshell id" }),
   presetId: t.Nullable(t.String({ description: "Preset launched with (null = presetless launch)" })),
   harnessId: t.String({ description: "Harness plugin id" }),

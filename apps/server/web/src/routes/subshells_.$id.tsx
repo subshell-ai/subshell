@@ -24,6 +24,7 @@ import { TerminalKeyBar } from "@/components/terminal-key-bar";
 import { TranscriptSearch } from "@/components/transcript-search";
 import { TrustIndicators } from "@/components/trust-indicators";
 import { TrustNoticeBanner } from "@/components/trust-notice-banner";
+import { VirtualDisplayIndicator } from "@/components/virtual-display-indicator";
 import { useClockTick } from "@/hooks/use-clock-tick";
 import { useHarnessSubagents } from "@/hooks/use-harness-subagents";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
@@ -341,6 +342,7 @@ function SubshellPage() {
                     off (spec 2026-10-07 §5.4). The badge is the label; the
                     enforcement is the server's access downgrade the terminal
                     already honours. */}
+                <VirtualDisplayIndicator display={subshell?.virtualDisplay} />
                 <SshPaneLabels subshell={subshell} nodeLabel={nodeLabel} />
                 {/* Permanent disclosure: whose machine this runs on, and who
                     else can read it. Never suppressible — see

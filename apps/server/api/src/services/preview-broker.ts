@@ -200,6 +200,7 @@ export interface PreviewBroker {
    * `screenLost` still outranks the memory).
    */
   displayForPane(paneId: string): { nodeId: string; screen: NodePreviewScreenWire } | null;
+  observeDisplay(nodeId: string, paneId: string, screen: NodePreviewScreenWire | null): void;
   onDisplayClosed(paneId: string, reason: PreviewCloseReason): Promise<void>;
   closeForPane(paneId: string, reason: PreviewCloseReason): Promise<void>;
   closeAllForNode(nodeId: string, reason: PreviewCloseReason): Promise<void>;
@@ -937,6 +938,11 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
       void auditPreview("node.preview_display.open", nodeId, { paneId, nodeId, ...screen }).catch((err: unknown) =>
         deps.log(`preview display-open audit threw: ${String(err)}`),
       );
+    },
+
+    observeDisplay(nodeId, paneId, screen) {
+      if (screen) displaysByPane.set(paneId, { nodeId, screen });
+      else displaysByPane.delete(paneId);
     },
 
     displayForPane(paneId) {

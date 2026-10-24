@@ -36,6 +36,7 @@ import { runMigrations } from "@/db/migrate.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
+import { sweepLocalPreviewDisplays } from "@/preview/local-preview.js";
 import { startServer } from "@/server.js";
 import { sweepBackupDownloads } from "@/services/backup-download-jobs.js";
 import { sweepRestoreStages } from "@/services/backup-staging.js";
@@ -224,6 +225,10 @@ async function bootServer(): Promise<void> {
   } catch (err) {
     getLogger().withError(err).warn("could not prepare this host's plugins at boot; will retry next start");
   }
+
+  await sweepLocalPreviewDisplays().catch((err: unknown) =>
+    getLogger().withError(err).warn("could not restore virtual displays at boot"),
+  );
 
   // The trusted-origin registry, from the RECORDS, before the listener: a
   // network that survived the restart is reachable the millisecond the port

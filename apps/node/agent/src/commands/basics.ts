@@ -152,7 +152,12 @@ export async function execProbe(ctx: CommandContext, cmd: Cmd<"probe">): Promise
       continue;
     }
     const pane = await ctx.tmux.paneTitle(socket, subshellId);
-    const entry: NodeProbeEntry = { subshellId, alive: true, exitCode: null };
+    const entry: NodeProbeEntry = {
+      subshellId,
+      alive: true,
+      exitCode: null,
+      ...(ctx.previewDisplays ? { previewScreen: ctx.previewDisplays.getFor(subshellId) } : {}),
+    };
     if (pane) {
       entry.title = pane.title;
       entry.command = pane.command;

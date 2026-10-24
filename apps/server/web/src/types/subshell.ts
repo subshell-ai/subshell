@@ -21,6 +21,8 @@ export type SubshellAccess = "owner" | "edit" | "view";
  * A subshell as seen by the operator UX (home cards + terminal page).
  */
 export interface SubshellView {
+  /** Display metadata rides the ordinary subshell list, without per-row preview scans. */
+  virtualDisplay?: string | null;
   /** Unique identifier (UUID) */
   id: string;
   /** Preset the subshell launched from; null = a presetless launch */
