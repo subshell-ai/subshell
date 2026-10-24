@@ -42,6 +42,10 @@ class MockRFB {
   focusOnClick = false;
   clipViewport = false;
   disconnects = 0;
+  onConnect: (() => void) | undefined;
+  addEventListener(type: string, listener: () => void) {
+    if (type === "connect") this.onConnect = listener;
+  }
 
   constructor(
     readonly target: HTMLElement,
@@ -446,7 +450,26 @@ it("opens a cached screen shortcut once under StrictMode, including in a phone w
       <PreviewSection paneId="pane1" access="owner" preview={c} initialView={{ kind: "screen" }} isPhone fill />
     </StrictMode>,
   );
-  await screen.findByText("Screen preview");
+  await waitFor(() => expect(MockSocket.made.filter((socket) => socket.closed === 0)).toHaveLength(1));
+  expect(screen.queryByText("Screen preview") === null).toBe(true);
   expect(ports).toEqual([5910]);
   expect(MockSocket.made.filter((socket) => socket.closed === 0)).toHaveLength(1);
+});
+
+it("reports the RFB connection state instead of treating an allocated lane as connected", () => {
+  const states: string[] = [];
+  render(
+    <ScreenViewer
+      display=":90"
+      proxyBase="/pv/state/"
+      onClose={() => {}}
+      compact
+      onConnectionChange={(state) => states.push(state)}
+    />,
+  );
+  expect(states).toEqual(["connecting"]);
+  act(() => MockRFB.builds[0].onConnect?.());
+  expect(states.at(-1)).toBe("connected");
+  act(() => MockSocket.made[0].dispatchClose(1006, ""));
+  expect(states.at(-1)).toBe("disconnected");
 });

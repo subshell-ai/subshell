@@ -229,16 +229,27 @@ it("opens one phone preview tab and closes it without removing the subshell", as
     renderStrip();
     await waitFor(() => expect(Boolean(document.querySelector("[data-terminal-controls-scroller]"))).toBe(true));
     act(() => {
-      expect(requestWorkspacePreview("s-1")).toBe(true);
+      expect(requestWorkspacePreview("s-1", { kind: "screen" })).toBe(true);
     });
-    await screen.findByRole("button", { name: "s-1 · Preview" });
+    await screen.findByRole("button", { name: "Virtual display · s-1" });
     act(() => {
-      requestWorkspacePreview("s-1");
+      requestWorkspacePreview("s-1", { kind: "screen" });
     });
-    expect(screen.getAllByRole("button", { name: "s-1 · Preview" })).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "Close preview for s-1" }));
-    expect(screen.queryByRole("button", { name: "s-1 · Preview" }) === null).toBe(true);
+    expect(screen.getAllByRole("button", { name: "Virtual display · s-1" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Close Virtual display for s-1" }));
+    expect(screen.queryByRole("button", { name: "Virtual display · s-1" }) === null).toBe(true);
     expect(document.querySelector('[data-pane-id="p0"]')).toBeTruthy();
+    act(() => {
+      requestWorkspacePreview("s-1", { kind: "app", port: 41430 });
+    });
+    await screen.findByRole("button", { name: "App · 41430 · s-1" });
+    act(() => {
+      requestWorkspacePreview("s-1", { kind: "screen" });
+    });
+    await screen.findByRole("button", { name: "Virtual display · s-1" });
+    expect(screen.getByRole("button", { name: "App · 41430 · s-1" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close Virtual display for s-1" }));
+    expect(screen.getByRole("button", { name: "App · 41430 · s-1" })).toBeTruthy();
     expect(deletes).toEqual([]);
   } finally {
     cleanup();

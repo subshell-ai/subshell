@@ -14,6 +14,7 @@ import type { JSX } from "react";
  * were dropped, not ported — no consumer used them.
  */
 export const DropdownMenu = Menu.Root;
+export const DropdownMenuGroup = Menu.Group;
 export const DropdownMenuTrigger = Menu.Trigger;
 
 export interface DropdownMenuContentProps

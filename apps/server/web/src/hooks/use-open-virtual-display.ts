@@ -7,7 +7,7 @@ export function useOpenVirtualDisplay(subshell: SubshellView | undefined) {
   const openAsTab = useOpenPaneAsTab();
   return useCallback(() => {
     if (!subshell) return;
-    if (requestWorkspacePreview(subshell.id, "screen")) return;
+    if (requestWorkspacePreview(subshell.id, { kind: "screen" })) return;
     armWorkspaceScreen(subshell.id);
     void openAsTab(subshell);
   }, [subshell, openAsTab]);

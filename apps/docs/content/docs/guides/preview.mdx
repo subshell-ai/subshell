@@ -10,13 +10,19 @@ opens a new port on your machines.
 
 ## Before you start
 
-Choose **Preview** below a subshell’s terminal to open a preview tab in its
-workspace. Drag the tab to arrange it beside your terminals. It also appears
-under its subshell in the sidebar; select that entry to return to it. Closing
-the preview tab leaves the subshell running.
+Choose **Preview** below a subshell’s terminal to open the preview picker.
+Each app, browser watch, or virtual display opens in its own workspace tab.
+Drag tabs side by side to see several views together. Each open view also
+appears under its subshell in the sidebar; select that entry to return to it.
+Opening the same view again focuses its existing tab. Closing a preview leaves
+the subshell and its other previews running.
 
-A monitor icon beside a subshell’s name in the sidebar means it has a virtual
-display. Click the monitor icon in its header to open the virtual display in a
+Use the view name in the compact toolbar to open the picker again. Refresh and
+full screen sit beside it; the More menu contains **Close preview** and, for
+apps, **Open in browser tab**.
+
+A window icon beside a subshell’s name in the sidebar means it has a virtual
+display. Click the window icon in its header to open the virtual display in a
 workspace tab. The preview appears beneath the subshell in the sidebar.
 
 Preview is off until you turn it on for a node. Open the node's page, find the
@@ -32,10 +38,9 @@ screens needs edit access, same as typing into the pane does.
 
 ## Open a port the pane opened
 
-When a pane starts a web server, the port shows up in the **Preview** tab
-in its workspace. Choose **Open app** and the app appears in a panel inside your
+When a pane starts a web server, the port shows up in the preview picker. Choose **Open app** and the app appears in a panel inside your
 dashboard, proxied to you as if it were local. Choose **Full screen** for more
-room, or **Open in new tab** to use a separate tab. Choose a port the pane is
+room, or choose **Open in browser tab** from the More menu to use a separate browser tab. Choose a port the pane is
 actually listening on. Only ports the node reports can be opened.
 
 ## Watch a browser pane
@@ -43,13 +48,12 @@ actually listening on. Only ports the node reports can be opened.
 If the pane runs a browser with remote debugging turned on (Chrome and Chromium
 use `--remote-debugging-port` for it), the browser's port appears with a
 **Watch browser** button. Press it and the pane's browser pages stream into the panel as
-frames, so you can see what the agent is seeing. Stop it the same way, and stop
-it when you're done. Watching is a live look, not a recording.
+frames, so you can see what the agent is seeing. Close its preview tab when you're done. Watching is a live look, not a recording.
 
 ## Screen, on Linux
 
 A pane launched with the **Virtual display** option gets its own screen on the
-node. In the Preview section, choose **View screen** and the pane's display appears
+node. In the preview picker, choose **View screen** and the pane's display appears
 in the panel, updating live. This needs the machine to have Xvfb, x11vnc, and
 xauth installed. The launch form checks the selected machine before enabling
 **Virtual display**. If any programs are missing, the checkbox stays disabled
@@ -71,7 +75,8 @@ app's `allowedHosts`-style option to accept the address it reports instead.
 
 ## On a phone
 
-On a phone, choose **Open app**, then follow the link to open the prepared
-preview in a new browser tab. **Watch browser** still streams frames.
+On a phone, **Open app** opens its own workspace tab too. The More menu lets
+you open it in a separate browser tab. On the standalone subshell page, follow
+the prepared preview link instead. **Watch browser** still streams frames.
 **View screen** works in a workspace preview tab. The standalone subshell page
 needs a larger screen for this view.

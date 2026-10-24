@@ -2,13 +2,14 @@ import { Button } from "@internal/node-admin";
 import { useState } from "react";
 import { PreviewSection } from "@/components/preview/preview-section";
 import { useSubshellPreview } from "@/hooks/use-subshell-preview";
-import { requestWorkspacePreview } from "@/lib/workspace-preview";
+import { requestWorkspacePreview, useWorkspacePreviews } from "@/lib/workspace-preview";
 import type { SubshellView } from "@/types/subshell";
 
 /** Background tabs release their preview subscriptions without remounting the terminal. */
 export function WorkspacePreview({ subshell, active }: { subshell: SubshellView; active: boolean }) {
   const [shown, setShown] = useState(false);
-  if (!active) return null;
+  const previews = useWorkspacePreviews();
+  if (!active || previews.some((preview) => preview.subshellId === subshell.id)) return null;
   return shown ? (
     <ActivePreview subshell={subshell} onHide={() => setShown(false)} />
   ) : (

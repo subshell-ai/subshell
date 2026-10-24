@@ -1,5 +1,5 @@
 import { Badge, Button } from "@internal/node-admin";
-import { Monitor } from "lucide-react";
+import { AppWindow } from "lucide-react";
 import type { JSX } from "react";
 import type { PreviewInfo } from "@/hooks/use-subshell-preview";
 import type { SubshellAccess } from "@/types/subshell";
@@ -55,6 +55,8 @@ export function nodeReasonLine(reason: string | undefined): string {
 }
 
 export interface PortListProps {
+  compact?: boolean;
+  busy?: boolean;
   info: PreviewInfo;
   access: SubshellAccess;
   /** The Watch half of this tab's browser row; the verb on the row reflects it. */
@@ -75,23 +77,36 @@ export function PortList({
   onWatch,
   onScreen,
   phone,
+  compact = false,
+  busy = false,
 }: PortListProps): JSX.Element | null {
-  const rows = info.ports;
-  const openReason = access === "view" ? OPEN_VIEW_REASON : !info.nodeEnabled ? nodeReasonLine(info.reason) : undefined;
+  const rows = compact
+    ? info.ports.filter((row, index, all) => all.findIndex((other) => other.port === row.port) === index)
+    : info.ports;
+  const openReason =
+    access === "view"
+      ? OPEN_VIEW_REASON
+      : busy
+        ? "Opening the selected view…"
+        : !info.nodeEnabled
+          ? nodeReasonLine(info.reason)
+          : undefined;
   // Access first, the node switch second, the layout last: on a phone with a
   // dead node the switch's remedy still reads true, and it is only once the
   // node serves again that "this layout has no panel" becomes the live reason.
   const screenReason =
     access === "view"
       ? SCREEN_VIEW_REASON
-      : !info.nodeEnabled
-        ? nodeReasonLine(info.reason)
-        : phone
-          ? SCREEN_PHONE_REASON
-          : undefined;
+      : busy
+        ? "Opening the selected view…"
+        : !info.nodeEnabled
+          ? nodeReasonLine(info.reason)
+          : phone
+            ? SCREEN_PHONE_REASON
+            : undefined;
   // The same node-switch reason the Open row already carries: a disabled
   // Watch must explain itself like its siblings, not sit mute.
-  const watchReason = info.nodeEnabled ? undefined : nodeReasonLine(info.reason);
+  const watchReason = busy ? "Opening the selected view…" : info.nodeEnabled ? undefined : nodeReasonLine(info.reason);
 
   if (rows.length === 0 && info.screen === null && info.screenLost === undefined) return null;
 
@@ -103,14 +118,18 @@ export function PortList({
           <div key={`${p.proto}:${p.port}`} className="flex items-center justify-between gap-3 py-1">
             <div className="flex min-w-0 flex-col">
               <span className="font-strong text-label">
-                {p.port}{" "}
-                <Badge variant="secondary" className="ml-1 text-detail">
-                  {browser ? "Browser" : "Port"}
-                </Badge>
+                {compact ? `App · ${p.port}` : p.port}{" "}
+                {!compact && (
+                  <Badge variant="secondary" className="ml-1 text-detail">
+                    {browser ? "Browser" : "Port"}
+                  </Badge>
+                )}
               </span>
-              <span className="text-detail text-muted-foreground">
-                {p.proto} loopback · pid {p.pid}
-              </span>
+              {!compact && (
+                <span className="text-detail text-muted-foreground">
+                  {p.proto} loopback · pid {p.pid}
+                </span>
+              )}
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <Button
@@ -145,13 +164,21 @@ export function PortList({
         <div className="flex items-center justify-between gap-3 py-1">
           <div className="flex min-w-0 flex-col">
             <span className="font-strong text-label">
-              <Monitor className="mr-1 inline size-3.5" aria-hidden />
-              Screen{" "}
-              <Badge variant="secondary" className="text-detail">
-                screen
-              </Badge>
+              <AppWindow className="mr-1 inline size-3.5" aria-hidden />
+              {compact ? (
+                "Virtual display"
+              ) : (
+                <>
+                  Screen{" "}
+                  <Badge variant="secondary" className="text-detail">
+                    screen
+                  </Badge>
+                </>
+              )}
             </span>
-            <span className="text-detail text-muted-foreground">Virtual display {info.screen.display}</span>
+            {!compact && (
+              <span className="text-detail text-muted-foreground">Virtual display {info.screen.display}</span>
+            )}
           </div>
           {/* One control for every tier (round-14 MINOR: the render contract
               is ONE, so the disabled-for-view affordance Task 12 pins and the
@@ -174,7 +201,7 @@ export function PortList({
       {info.screen === null && info.screenLost !== undefined && (
         <div className="flex flex-col py-1">
           <span className="font-strong text-label">
-            <Monitor className="mr-1 inline size-3.5" aria-hidden />
+            <AppWindow className="mr-1 inline size-3.5" aria-hidden />
             Screen
           </span>
           {/* The loss line (spec §9): named, and honest that the pane itself lives on. */}

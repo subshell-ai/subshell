@@ -1,23 +1,31 @@
+import {
+  parseWorkspacePreviewId,
+  type WorkspacePreviewTarget,
+  workspacePreviewId,
+  workspacePreviewLabel,
+} from "@internal/subshell-protocol";
 import { useSyncExternalStore } from "react";
+
+export type { WorkspacePreviewTarget };
+export { parseWorkspacePreviewId, workspacePreviewLabel };
 
 export interface WorkspacePreviewEntry {
   id: string;
   paneId: string;
   subshellId: string;
   workspaceId: string;
+  view: WorkspacePreviewTarget;
 }
-export function previewPanelId(paneId: string): string {
-  return `preview:${paneId}`;
-}
+export const previewPanelId = workspacePreviewId;
 export function previewParentId(panelId: string): string | null {
-  return panelId.startsWith("preview:") ? panelId.slice(8) : null;
+  return parseWorkspacePreviewId(panelId)?.paneId ?? null;
 }
 // Only the mounted workspace publishes entries. Desktop persistence stays in its
 // dock layout; this store connects that presentation to the sidebar.
 let entries: readonly WorkspacePreviewEntry[] = [];
 let focused: string | null = null;
 const listeners = new Set<() => void>();
-const requests = new Set<(subshellId: string, view?: "screen") => boolean>();
+const requests = new Set<(subshellId: string, view?: WorkspacePreviewTarget) => boolean>();
 let pendingScreen: string | null = null;
 function emit() {
   for (const listener of listeners) listener();
@@ -48,11 +56,11 @@ export function useFocusedPreview() {
     () => focused,
   );
 }
-export function requestWorkspacePreview(subshellId: string, view?: "screen"): boolean {
+export function requestWorkspacePreview(subshellId: string, view?: WorkspacePreviewTarget): boolean {
   for (const request of requests) if (request(subshellId, view)) return true;
   return false;
 }
-export function onWorkspacePreviewRequest(request: (subshellId: string, view?: "screen") => boolean) {
+export function onWorkspacePreviewRequest(request: (subshellId: string, view?: WorkspacePreviewTarget) => boolean) {
   requests.add(request);
   flushWorkspaceScreen();
   return () => {
@@ -65,5 +73,5 @@ export function armWorkspaceScreen(subshellId: string) {
   pendingScreen = subshellId;
 }
 export function flushWorkspaceScreen() {
-  if (pendingScreen && requestWorkspacePreview(pendingScreen, "screen")) pendingScreen = null;
+  if (pendingScreen && requestWorkspacePreview(pendingScreen, { kind: "screen" })) pendingScreen = null;
 }

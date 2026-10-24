@@ -1,7 +1,12 @@
 import { Button } from "@internal/node-admin";
-import { Monitor } from "lucide-react";
+import { AppWindow } from "lucide-react";
 import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
-import { requestWorkspacePreview, useFocusedPreview, useWorkspacePreviews } from "@/lib/workspace-preview";
+import {
+  requestWorkspacePreview,
+  useFocusedPreview,
+  useWorkspacePreviews,
+  workspacePreviewLabel,
+} from "@/lib/workspace-preview";
 import type { SubshellView } from "@/types/subshell";
 
 /** A real subshell row with its agent-created helpers nested below it. */
@@ -67,10 +72,10 @@ export function SubshellTreeRow({
                     size="sm"
                     className="w-full justify-start"
                     aria-current={focusedPreview === entry.id ? "page" : undefined}
-                    onClick={() => requestWorkspacePreview(subshell.id)}
+                    onClick={() => requestWorkspacePreview(subshell.id, entry.view)}
                   >
-                    <Monitor data-icon="inline-start" />
-                    Preview
+                    <AppWindow data-icon="inline-start" />
+                    {workspacePreviewLabel(entry.view)}
                   </Button>
                 ))}
               </section>

@@ -1,6 +1,6 @@
 import { ExplainedButton } from "@internal/node-admin";
 import type { IDockviewPanelHeaderProps } from "dockview-react";
-import { Bell, Monitor, X } from "lucide-react";
+import { AppWindow, Bell, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SubshellDot } from "@/components/subshell-dot";
 import { ContextMenuRoot, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -121,7 +121,7 @@ export function SubshellTab(props: IDockviewPanelHeaderProps) {
               middleDown.current = false;
             }}
           >
-            {previewParentId(props.api.id) && <Monitor className="mr-1.5 size-3.5" aria-hidden />}
+            {previewParentId(props.api.id) && <AppWindow className="mr-1.5 size-3.5" aria-hidden />}
             {subshell && <SubshellDot subshell={subshell} className="mt-0 mr-1.5" />}
             <span className="dv-default-tab-content">{title}</span>
             {waiting && <TabWaitingMarker />}

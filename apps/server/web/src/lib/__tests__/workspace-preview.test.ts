@@ -14,7 +14,7 @@ afterEach(() => {
   dispose = undefined;
 });
 it("keeps a stable preview identity tied to one parent pane", () => {
-  expect(previewParentId(previewPanelId("pane1"))).toBe("pane1");
+  expect(previewParentId(previewPanelId("pane1", { kind: "screen" }))).toBe("pane1");
   expect(previewParentId("pane1")).toBeNull();
 });
 it("opens or focuses the preview only when a workspace accepts the request", () => {
@@ -37,7 +37,7 @@ it("carries a screen shortcut through navigation until the workspace can accept 
   armWorkspaceScreen("pane1");
   dispose = onWorkspacePreviewRequest((id, view) => {
     if (!ready) return false;
-    seen.push(`${id}:${view}`);
+    seen.push(`${id}:${view?.kind}`);
     return true;
   });
   expect(seen).toEqual([]);

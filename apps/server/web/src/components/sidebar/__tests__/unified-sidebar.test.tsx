@@ -651,7 +651,10 @@ test("removing the last pane leaves the retired workspace after its list row dis
 test("an open preview is a focusable leaf under its subshell and disappears when closed", async () => {
   const fx = standardRig();
   setWorkspaceFocusedId("s1");
-  publishWorkspacePreviews([{ id: "preview:p1", paneId: "p1", subshellId: "s1", workspaceId: "w1" }], "preview:p1");
+  publishWorkspacePreviews(
+    [{ id: "preview:p1:screen", paneId: "p1", subshellId: "s1", workspaceId: "w1", view: { kind: "screen" } }],
+    "preview:p1:screen",
+  );
   const focused: string[] = [];
   const dispose = onWorkspacePreviewRequest((id) => {
     focused.push(id);
@@ -660,12 +663,12 @@ test("an open preview is a focusable leaf under its subshell and disappears when
   try {
     const { add } = await mountRig(fx);
     const parent = add.querySelector('[data-subshell-tree-id="s1"]') as HTMLElement;
-    const leaf = await within(parent).findByRole("button", { name: "Preview" });
+    const leaf = await within(parent).findByRole("button", { name: "Virtual display" });
     expect(leaf.getAttribute("aria-current")).toBe("page");
     fireEvent.click(leaf);
     expect(focused).toEqual(["s1"]);
     act(() => publishWorkspacePreviews([], null));
-    expect(within(parent).queryByRole("button", { name: "Preview" }) === null).toBe(true);
+    expect(within(parent).queryByRole("button", { name: "Virtual display" }) === null).toBe(true);
     expect(within(parent).getByRole("link", { name: /Member 1/ })).toBeTruthy();
   } finally {
     dispose();

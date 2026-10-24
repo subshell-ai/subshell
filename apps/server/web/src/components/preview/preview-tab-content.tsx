@@ -1,16 +1,17 @@
 import { type PreviewChoice, PreviewSection } from "@/components/preview/preview-section";
 import { useSubshellPreview } from "@/hooks/use-subshell-preview";
 import { useSubshellRow } from "@/hooks/use-subshell-row";
+import { requestWorkspacePreview } from "@/lib/workspace-preview";
 
 /** Mounted only while the preview tab is visible, so hidden tabs release their lanes. */
 export function PreviewTabContent({
   subshellId,
   choice,
-  onViewChange,
+  onClose,
 }: {
   subshellId: string;
-  choice?: PreviewChoice | null;
-  onViewChange?: (choice: PreviewChoice | null) => void;
+  choice: PreviewChoice;
+  onClose: () => void;
 }) {
   const subshell = useSubshellRow(subshellId);
   const preview = useSubshellPreview(subshellId, subshell);
@@ -23,7 +24,8 @@ export function PreviewTabContent({
       preview={preview}
       fill
       initialView={choice}
-      onViewChange={onViewChange}
+      onOpenAnother={() => requestWorkspacePreview(subshellId)}
+      onClose={onClose}
     />
   );
 }

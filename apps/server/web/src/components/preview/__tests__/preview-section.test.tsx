@@ -359,7 +359,8 @@ it("fills a preview tab and resumes its selected app only once", async () => {
       isPhone={false}
     />,
   );
-  await screen.findByText("App preview");
+  await screen.findByTitle("Preview of port 3000");
+  expect(screen.queryByText("App preview") === null).toBe(true);
   expect(screen.getByRole("region", { name: "Preview" }).className).toContain("h-full");
   view.rerender(
     <PreviewSection
@@ -390,4 +391,36 @@ it("replaces an app view when the browser watch is selected", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Watch browser" }));
   expect(starts).toBe(1);
   expect(screen.queryByText("App preview") === null).toBe(true);
+});
+
+it("keeps the chooser free of a toolbar and shows it only after opening a view", async () => {
+  const c = controller({ info: info() });
+  render(<PreviewSection paneId="pane1" access="owner" preview={c} fill isPhone={false} />);
+  expect(screen.getAllByRole("button", { name: "Open app" }).length).toBeGreaterThan(0);
+  expect(screen.queryByRole("button", { name: "Open another preview" }) === null).toBe(true);
+  expect(screen.queryByRole("button", { name: "Refresh preview" }) === null).toBe(true);
+  fireEvent.click(screen.getAllByRole("button", { name: "Open app" })[0]);
+  await screen.findByTitle("Preview of port 3000");
+  expect(screen.getByRole("button", { name: "Open another preview" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Refresh preview" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Open app" }) === null).toBe(true);
+});
+
+it("refreshes the selected app without allocating another forwarded lane", async () => {
+  let opened = 0;
+  const c = controller({
+    info: info(),
+    openPort: async () => {
+      opened += 1;
+      return { proxyBase: "/pv/one-lane/" };
+    },
+  });
+  render(<PreviewSection paneId="pane1" access="owner" preview={c} fill isPhone={false} />);
+  fireEvent.click(screen.getAllByRole("button", { name: "Open app" })[0]);
+  const first = await screen.findByTitle("Preview of port 3000");
+  fireEvent.load(first);
+  expect(screen.getByRole("button", { name: "App loaded" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Refresh preview" }));
+  expect(screen.getByTitle("Preview of port 3000").isSameNode(first)).toBe(false);
+  expect(opened).toBe(1);
 });
