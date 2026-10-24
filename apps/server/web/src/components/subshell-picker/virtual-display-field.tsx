@@ -100,7 +100,7 @@ export function VirtualDisplayField({
           {reason}
         </p>
       )}
-      {shouldCheck && !check.isFetching && (
+      {shouldCheck && reason && !check.isFetching && (
         <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => void check.refetch()}>
           Recheck
         </Button>
