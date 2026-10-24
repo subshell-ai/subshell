@@ -10,6 +10,7 @@ import { listSetupKeyRoute } from "@/api/nodes/list-setup-keys.route.js";
 import { localSshIdentityRoute } from "@/api/nodes/local-ssh-identity.route.js";
 import { nodeLoggingRoute } from "@/api/nodes/node-logging.route.js";
 import { nodeLogsRoute } from "@/api/nodes/node-logs.route.js";
+import { previewDisplayRoute } from "@/api/nodes/preview-display.route.js";
 import { recheckNodeRoute } from "@/api/nodes/recheck-node.route.js";
 import { renameNodeRoute } from "@/api/nodes/rename-node.route.js";
 import { repairNodeMachinePinRoute } from "@/api/nodes/repair-node-machine-pin.route.js";
@@ -59,6 +60,7 @@ const nodeOperationsRoutes = new Elysia()
   .use(setNodeMaintenanceRoute)
   .use(setNodeSshEnabledRoute)
   .use(setNodePreviewEnabledRoute)
+  .use(previewDisplayRoute)
   .use(repairNodeMachinePinRoute)
   .use(rotateNodeKeyRoute)
   .use(reregisterNodeRoute)

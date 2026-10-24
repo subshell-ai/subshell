@@ -473,6 +473,8 @@ capture child's own account is in Architecture above.
 
 ## Preview lanes (pane-preview spec 2026-10-21)
 
+`GET /api/nodes/:id/preview-display` checks the selected machine’s display prerequisites without starting a display or requiring an existing subshell. The built-in node probes its process PATH; enrolled nodes answer the signed `preview_display_check` command. Only known binary names leave the machine. Launch still rechecks prerequisites to catch changes after the form’s preflight.
+
 The server's built-in node uses `preview/local-preview.ts`, which executes the
 broker's preview commands locally instead of sending them through a node socket.
 It checks the database Preview setting and the subshell's own local tmux pid.

@@ -541,4 +541,4 @@ can be resized or put into full screen without remounting the viewer. Phone
 app previews prepare a real new-tab link after the request, avoiding popup
 blocking. The launch form checks the selected machine's platform and Preview
 setting before offering Virtual display, and clears it when a new machine
-cannot support it.
+cannot support it. Before enabling the checkbox, a live machine check verifies Xvfb, x11vnc, and xauth on the selected node. Missing programs and failed checks disable the control with visible guidance and a Recheck action after installation.

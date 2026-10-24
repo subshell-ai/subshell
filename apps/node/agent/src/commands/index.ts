@@ -1,3 +1,4 @@
+import { previewDisplayReadiness } from "@internal/pane-runtime";
 import type { NodeCommandBody } from "@internal/subshell-protocol";
 import { execAgentLogRead } from "./agent-log.js";
 import { execArchiveCreate } from "./archive-create.js";
@@ -136,6 +137,8 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execPreviewOpen(ctx, cmd);
       case "preview_close":
         return execPreviewClose(ctx, cmd);
+      case "preview_display_check":
+        return { ok: true, data: { ...previewDisplayReadiness() } };
       case "preview_ports_get":
         return await execPreviewPorts(ctx, cmd);
       case "prompt_deliver":

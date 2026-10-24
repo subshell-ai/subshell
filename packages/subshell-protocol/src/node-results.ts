@@ -944,3 +944,19 @@ export function parseNodeLaunchResult(data: unknown): NodeLaunchResult | null {
   if (screen === null) return null;
   return { screen };
 }
+
+/** Programs required for a subshell's private Linux display. Paths never leave the machine. */
+export const PREVIEW_DISPLAY_BINARIES = ["Xvfb", "x11vnc", "xauth"] as const;
+export interface PreviewDisplayReadiness {
+  supported: boolean;
+  missing: (typeof PREVIEW_DISPLAY_BINARIES)[number][];
+}
+
+/** An unknown or malformed node reply must never enable the launch checkbox. */
+export function parsePreviewDisplayReadiness(value: unknown): PreviewDisplayReadiness | null {
+  if (!value || typeof value !== "object") return null;
+  const data = value as Record<string, unknown>;
+  if (typeof data.supported !== "boolean" || !Array.isArray(data.missing)) return null;
+  if (!data.missing.every((name) => PREVIEW_DISPLAY_BINARIES.includes(name))) return null;
+  return { supported: data.supported, missing: [...new Set(data.missing)] };
+}

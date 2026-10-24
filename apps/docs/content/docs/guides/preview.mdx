@@ -45,7 +45,11 @@ it when you're done. Watching is a live look, not a recording.
 A pane launched with the **Virtual display** option gets its own screen on the
 node. In the Preview section, choose **View screen** and the pane's display appears
 in the panel, updating live. This needs the machine to have Xvfb, x11vnc, and
-xauth installed. Without them the launch says so, by name.
+xauth installed. The launch form checks the selected machine before enabling
+**Virtual display**. If any programs are missing, the checkbox stays disabled
+and names what to install on that machine. Install them, then choose **Recheck**
+to enable the option. If the machine can’t be reached, bring its node online and
+recheck.
 
 macOS nodes refuse the screen and browser-watch sides of preview the same way.
 The Preview section explains that automatic port discovery and browser
