@@ -52,3 +52,39 @@ it("refreshes the current view and explains a pending selection", () => {
   view.rerender(<PreviewToolbar {...props({ busy: true })} />);
   expect(screen.getByRole("button", { name: "Refresh preview" }).getAttribute("aria-disabled")).toBe("true");
 });
+
+it("moves full screen into More and changes the action while full screen is active", async () => {
+  let toggled = 0;
+  const view = render(
+    <PreviewToolbar
+      {...props({
+        onFullscreen: () => {
+          toggled += 1;
+        },
+      })}
+    />,
+  );
+  expect(screen.queryByRole("button", { name: "Full screen" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "More preview actions" }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Full screen" }));
+  expect(toggled).toBe(1);
+  view.rerender(<PreviewToolbar {...props({ fullscreen: true })} />);
+  fireEvent.click(screen.getByRole("button", { name: "More preview actions" }));
+  expect(await screen.findByRole("menuitem", { name: "Exit full screen" })).toBeTruthy();
+});
+
+it("keeps the exit action inside the fullscreen viewer", async () => {
+  const host = document.createElement("section");
+  document.body.append(host);
+  const descriptor = Object.getOwnPropertyDescriptor(document, "fullscreenElement");
+  Object.defineProperty(document, "fullscreenElement", { configurable: true, value: host });
+  try {
+    render(<PreviewToolbar {...props({ fullscreen: true })} />);
+    fireEvent.click(screen.getByRole("button", { name: "More preview actions" }));
+    expect(host.contains(await screen.findByRole("menuitem", { name: "Exit full screen" }))).toBe(true);
+  } finally {
+    if (descriptor) Object.defineProperty(document, "fullscreenElement", descriptor);
+    else Reflect.deleteProperty(document, "fullscreenElement");
+    host.remove();
+  }
+});

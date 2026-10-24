@@ -25,3 +25,5 @@ Keep large preview pickers manageable with search, sorted ports, denser rows, an
 Use compact rows for small preview lists too.
 
 Open the preview picker from the subshell header, removing the duplicate selector from viewer toolbars.
+
+Move full screen into the preview action menu, keeping that menu usable inside the fullscreen viewer.
