@@ -475,3 +475,5 @@ Build the shared runtime before testing changes through these wrappers.
 CDP discovery refuses redirects and bounds JSON before parsing. Its returned
 WebSocket URL must retain the requested loopback port; pending handshakes count
 toward capacity and must cancel their discovery fetch when closed or timed out.
+Forwarding must bound the target socket's queued writes as well as outgoing
+preview frames; a target that stops reading cannot grow the daemon's heap.

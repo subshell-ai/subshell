@@ -402,7 +402,7 @@ describe("/ws/live bounded work and resync", () => {
  * a serial run: what these rows exercise is the real broker mechanics and
  * the real serialization, driven through the real handler.
  */
-function fakePreviewNode(): { commands: NodeCommandBody[] } {
+function fakePreviewNode(accessFor?: LiveWsDeps["accessFor"]): { commands: NodeCommandBody[] } {
   const commands: NodeCommandBody[] = [];
   resetForTests({
     send: async (_nodeId: string, cmd: NodeCommandBody): Promise<unknown> => {
@@ -412,6 +412,7 @@ function fakePreviewNode(): { commands: NodeCommandBody[] } {
       return {};
     },
     sendToSockets: sendPreviewStreamSocket,
+    accessFor,
   });
   return { commands };
 }
@@ -434,6 +435,90 @@ function streamFrames(sent: string[]): Record<string, unknown>[] {
 }
 
 describe("/ws/live watch subscriptions", () => {
+  it("refuses a disabled account before its live socket has been closed", async () => {
+    fakePreviewNode();
+    const ref = await openBridge("p-1");
+    let disabled = false;
+    const d = deps({ accountDisabled: async () => disabled });
+    const { ws, closeWs, sent } = fakeSocket({ token: "good" });
+    await handleLiveOpen(ws, d);
+    disabled = true;
+    await handleLiveMessage(ws, JSON.stringify({ type: "watch", id: "p-1" }), d);
+    getPreviewBroker().onStreamEvent("n-fake", streamEvent(ref, 1));
+    try {
+      expect(streamFrames(sent)).toEqual([]);
+    } finally {
+      handleLiveClose(closeWs);
+    }
+  });
+
+  it("stops retrying when revocation repeatedly overtakes the access check", async () => {
+    fakePreviewNode();
+    const ref = await openBridge("p-1");
+    let asked = 0;
+    const d = deps({
+      accessFor: async () => {
+        asked++;
+        await getPreviewBroker().closeUnauthorizedForPane("another-pane");
+        return "view";
+      },
+    });
+    const { ws, closeWs, sent } = fakeSocket({ token: "good" });
+    await handleLiveOpen(ws, d);
+    await handleLiveMessage(ws, JSON.stringify({ type: "watch", id: "p-1" }), d);
+    getPreviewBroker().onStreamEvent("n-fake", streamEvent(ref, 1));
+    try {
+      expect(streamFrames(sent)).toEqual([]);
+      expect(asked).toBe(3);
+    } finally {
+      handleLiveClose(closeWs);
+    }
+  });
+
+  for (const cut of ["share", "user"] as const) {
+    it(`rechecks a pending stream subscription after ${cut} revocation`, async () => {
+      let allowed = true;
+      fakePreviewNode(async (userId) => (userId === "u1" && !allowed ? "none" : "owner"));
+      const ref = await openBridge("p-1");
+      let release = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let entered = () => {};
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let asked = 0;
+      const d = deps({
+        accessFor: async () => {
+          asked++;
+          const answer = allowed ? "view" : "none";
+          if (asked === 1) {
+            entered();
+            await gate;
+          }
+          return answer;
+        },
+      });
+      const { ws, closeWs, sent } = fakeSocket({ token: "good" });
+      await handleLiveOpen(ws, d);
+      const pending = handleLiveMessage(ws, JSON.stringify({ type: "watch", id: "p-1" }), d);
+      await started;
+      allowed = false;
+      if (cut === "share") await getPreviewBroker().closeUnauthorizedForPane("p-1");
+      else await getPreviewBroker().closeAllForUser("u1", "revoked");
+      release();
+      await pending;
+      getPreviewBroker().onStreamEvent("n-fake", streamEvent(ref, 1));
+      try {
+        expect(streamFrames(sent)).toEqual([]);
+        expect(asked).toBe(2);
+      } finally {
+        handleLiveClose(closeWs);
+      }
+    });
+  }
+
   it("a watch from a view grant attaches the socket; frames arrive with the blob untouched, and only there", async () => {
     fakePreviewNode();
     const ref = await openBridge("p-1");

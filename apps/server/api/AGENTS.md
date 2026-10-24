@@ -939,5 +939,7 @@ headers in the proxy. Explicit stop, delete, and restart must await broker
 teardown before killing the old pane and sweep again after retiring its row.
 Pending opens must participate in revocation and recheck current access before
 publication; exit hooks and registered sessions alone cannot cover late RPCs.
+Live-screen subscriptions must repeat access reads overtaken by a broker
+revocation revision. Uncertain open replies need best-effort node cleanup too.
 Keep target-controlled HTTP/WS queues and messages within the lane byte budget,
 and retain the cookie-jar limits documented in the architecture guide.

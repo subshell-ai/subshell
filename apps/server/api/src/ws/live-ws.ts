@@ -441,9 +441,21 @@ async function handlePreviewSubscription(
   paneId: string,
   deps: LiveWsDeps,
 ): Promise<void> {
-  let access: Access;
+  const broker = getPreviewBroker();
+  let access: Access = "none";
   try {
-    access = await deps.accessFor(userId, paneId);
+    // A sweep cannot detach a subscription that hasn't registered yet. If
+    // revocation overtook this read, ask again before attaching. Bound the
+    // retries so continuous permission changes cannot hold this task forever.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const revision = broker.streamAccessRevision();
+      if ((await deps.accountDisabled(userId)) || (await deps.passwordChangeRequired(userId))) return;
+      const answer = await deps.accessFor(userId, paneId);
+      if (revision === broker.streamAccessRevision()) {
+        access = answer;
+        break;
+      }
+    }
   } catch (err) {
     // Fail CLOSED: an unanswered access question is no access. The socket
     // stays open on its feed; the next frame will ask again on its own.
@@ -458,7 +470,6 @@ async function handlePreviewSubscription(
   if (!ws.data.liveStop) return;
   const streamKey = ws.data.streamViewerId;
   if (!streamKey) return;
-  const broker = getPreviewBroker();
   if (verb === "unwatch") {
     broker.detachStream(paneId, streamKey);
     return;

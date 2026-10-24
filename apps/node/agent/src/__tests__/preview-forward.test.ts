@@ -108,6 +108,7 @@ class FakeSocket {
   private handlers = new Map<string, ((arg?: unknown) => void)[]>();
   writes: Buffer[] = [];
   destroyed = false;
+  writableLength = 0;
 
   on(event: string, listener: (arg?: unknown) => void): this {
     const list = this.handlers.get(event) ?? [];
@@ -122,6 +123,7 @@ class FakeSocket {
 
   write(chunk: Uint8Array | string): boolean {
     this.writes.push(Buffer.from(chunk));
+    this.writableLength += Buffer.byteLength(chunk);
     return true;
   }
 
@@ -616,6 +618,31 @@ describe("(h) closeAll", () => {
 /* ------------------------------------------------------------------ */
 
 describe("(i) over-cap", () => {
+  it("closes a stalled target before its TCP write queue exceeds the lane budget", () => {
+    const h = makeHarness("stalled-writer", { deps: { laneBufferMaxBytes: 64 } });
+    h.forward.openLane({
+      ref: refFor(1),
+      port: 4321,
+      paneId: PANE,
+      lifetimeMs: 60_000,
+      hooks: { emit: (ev) => h.events.push(ev) },
+    });
+    const send = (size: number) =>
+      h.forward.ingestInboundFrame({
+        type: "preview_data",
+        ref: refFor(1),
+        dir: "in",
+        blob: Buffer.alloc(size).toString("base64"),
+      });
+    send(64);
+    expect(h.sockets[0]?.writableLength).toBe(64);
+    send(1);
+    expect(h.sockets[0]?.writableLength).toBe(64);
+    expect(h.sockets[0]?.destroyed).toBe(true);
+    expect(closeEvents(h.events)).toEqual([{ ref: refFor(1), reason: "slow-link" }]);
+    expect(h.forward.laneCount()).toBe(0);
+  });
+
   it("one oversized read sends zero preview_data and closes over-cap exactly once", () => {
     const h = makeHarness("over-cap");
     h.forward.openLane({
