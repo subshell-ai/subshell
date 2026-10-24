@@ -34,7 +34,7 @@ describe("virtual display prerequisites", () => {
     expect(virtualDisplayReason({ ...linux, previewEnabled: false })).toContain("Allow preview");
     expect(virtualDisplayReason(null)).toContain("Choose a machine");
     expect(virtualDisplayReason(linux, { supported: true, missing: ["x11vnc"] })).toContain(
-      "install x11vnc on Test machine.",
+      "Required virtual display programs are missing",
     );
   });
   it("disables a missing display, explains the remedy, and enables it after rechecking", async () => {
@@ -43,13 +43,18 @@ describe("virtual display prerequisites", () => {
     render(<VirtualDisplayField node={linux} id="display" checked={true} onChange={(value) => changes.push(value)} />, {
       wrapper,
     });
-    await screen.findByText(/install Xvfb and x11vnc on Test machine\./);
+    const guide = await screen.findByRole("link", { name: "Set up virtual display" });
+    expect(guide.getAttribute("href")).toBe("https://docs.subshell.sh/guides/preview#use-a-virtual-display-on-linux");
+    expect(guide.getAttribute("target")).toBe("_blank");
+    expect(guide.closest(".text-warning")).not.toBeNull();
+    expect(screen.queryByText(/install Xvfb/)).toBeNull();
     expect(screen.getByRole("checkbox").getAttribute("aria-disabled")).toBe("true");
     expect(changes).toContain(false);
     respond(ready);
     fireEvent.click(screen.getByRole("button", { name: "Recheck" }));
     await waitFor(() => expect(screen.getByRole("checkbox").getAttribute("aria-disabled")).not.toBe("true"));
     expect(screen.queryByRole("button", { name: "Recheck" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Set up virtual display" })).toBeNull();
   });
   it("fails closed when a check fails and recovers on recheck", async () => {
     respond({ message: "Bring this node online, then recheck." }, 409);
@@ -60,6 +65,7 @@ describe("virtual display prerequisites", () => {
     fireEvent.click(screen.getByRole("button", { name: "Recheck" }));
     await waitFor(() => expect(screen.getByRole("checkbox").getAttribute("aria-disabled")).not.toBe("true"));
     expect(screen.queryByRole("button", { name: "Recheck" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Set up virtual display" })).toBeNull();
   });
   it("doesn't reuse another machine's successful check", async () => {
     respond(ready);
@@ -72,6 +78,7 @@ describe("virtual display prerequisites", () => {
     );
     await waitFor(() => expect(screen.getByRole("checkbox").getAttribute("aria-disabled")).not.toBe("true"));
     expect(screen.queryByRole("button", { name: "Recheck" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Set up virtual display" })).toBeNull();
     respond({ supported: true, missing: ["xauth"] });
     view.rerender(
       <QueryClientProvider client={client}>
@@ -79,6 +86,6 @@ describe("virtual display prerequisites", () => {
       </QueryClientProvider>,
     );
     expect(screen.getByRole("checkbox").getAttribute("aria-disabled")).toBe("true");
-    await screen.findByText(/install xauth/);
+    await screen.findByRole("link", { name: "Set up virtual display" });
   });
 });
