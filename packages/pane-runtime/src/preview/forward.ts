@@ -46,6 +46,8 @@ export type PreviewLaneEvent = Extract<NodeEvent, { type: "preview_data" | "prev
  * `net.Socket` satisfies it structurally.
  */
 export interface LaneSocket {
+  /** Bytes Node has queued for a target that has not consumed its writes. */
+  readonly writableLength: number;
   on(event: "connect", listener: () => void): unknown;
   on(event: "data", listener: (chunk: Buffer) => void): unknown;
   on(event: "end" | "close", listener: () => void): unknown;
@@ -213,7 +215,12 @@ export class PreviewForward {
       // `socket` is set the moment the dial starts, so the only way to miss
       // it is a synchronous connect throw — and net buffers writes on a
       // connecting socket anyway.
-      lane.socket?.write(Buffer.from(frame.blob, "base64"));
+      const bytes = Buffer.from(frame.blob, "base64");
+      if (lane.socket && lane.socket.writableLength + bytes.byteLength > lane.laneBufferMaxBytes) {
+        this.die(lane, "slow-link");
+        return;
+      }
+      lane.socket?.write(bytes);
     } catch (err: unknown) {
       // The dialed target died under the write: the socket is gone, the lane
       // follows it. (The `error`/`end` handlers race this on a real socket;

@@ -139,6 +139,10 @@ revocation does not depend on an exit hook arriving after token rotation.
 Pending opens participate in every revocation sweep, then recheck current
 account/access and pane/node availability before publishing a session. A second
 sweep after retiring the old row catches opens arriving during its stop.
+Live-screen subscription checks also carry a revocation revision: a permission
+read overtaken by a sweep must be repeated before registration. Account disable
+and required password changes are checked again at subscription time. Uncertain
+open replies trigger best-effort teardown of the allocated node reference.
 
 Forward sessions expire after 15 minutes without traffic. Each underlying
 lane or bridge has a maximum four-hour lifetime. Closing an app tab releases
@@ -149,7 +153,7 @@ of existing connections or a stop command for graphical programs.
 | Budget | Current bound |
 | --- | --- |
 | Raw payload per preview frame | 256 KiB |
-| Buffered lane bytes, HTTP reader queue, and browser WS debt | 1 MiB each |
+| Buffered lane bytes, target TCP write queue, HTTP reader queue, and browser WS debt | 1 MiB each |
 | Assembled application WS message | 1 MiB, including fragmented messages |
 | CDP discovery JSON | 256 KiB |
 | Target cookie jar | 128 entries, 64 KiB total, 4 KiB per cookie |

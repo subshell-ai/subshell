@@ -1366,3 +1366,42 @@ describe("preview authorization at publication", () => {
     });
   }
 });
+
+describe("uncertain preview opens", () => {
+  for (const failure of ["timeout", "malformed"] as const) {
+    for (const kind of ["probe", "bridge", "lane"] as const) {
+      it(`closes the allocated ref after a ${failure} ${kind} acknowledgement`, async () => {
+        let failOpen = false;
+        const h = makeHarness({
+          ack: (cmd) => {
+            if (cmd.type === "preview_ports_get") return { ports: [], cdpPort: null, screen: null };
+            if (cmd.type === "preview_close") return { ref: cmd.ref, closed: true };
+            if (cmd.type === "preview_open") {
+              if (failOpen) {
+                if (failure === "timeout") throw new NodeRpcError("timeout", "late node", NODE);
+                return {};
+              }
+              return { ref: cmd.ref, pending: true };
+            }
+            throw new Error("unexpected command");
+          },
+        });
+        const input = { viewerUserId: "u-open", paneId: PANE, nodeId: NODE, port: 8080 };
+        const session = kind === "lane" ? await broker().openForward(input) : null;
+        const sentBefore = h.sent.length;
+        failOpen = true;
+        const result =
+          kind === "lane"
+            ? broker().openLaneForConnection(session?.ref ?? "")
+            : kind === "bridge"
+              ? broker().startWatch(input)
+              : broker().openForward(input);
+        await expect(result).rejects.toBeInstanceOf(Error);
+        const sent = h.sent.slice(sentBefore).map((entry) => entry.cmd);
+        const open = sent.find((cmd) => cmd.type === "preview_open");
+        expect(open).toBeDefined();
+        expect(sent.some((cmd) => cmd.type === "preview_close" && cmd.ref === open?.ref)).toBe(true);
+      });
+    }
+  }
+});

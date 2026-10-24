@@ -222,7 +222,8 @@ watch frames are delivered only to authorized live-feed subscriptions.
 CDP discovery refuses HTTP redirects, caps discovery JSON at 256 KiB, and
 requires the returned WebSocket to stay on the requested loopback port.
 
-Raw preview payloads are capped at 256 KiB per frame, lane buffering at 1 MiB,
+Raw preview payloads are capped at 256 KiB per frame, lane buffering and queued
+TCP writes to the target at 1 MiB each,
 active forward lanes at four per subshell, and active lanes plus bridges at
 16 per node. The queue admits eight waiting lanes per subshell. Browser watches
 run at 1–5 fps, with five buffered frames and at most eight subscribers.
@@ -232,6 +233,8 @@ bridges have a four-hour maximum lifetime. Close reasons include `viewer-left`,
 `pane-gone`, `node-dropped`, `slow-link`, `over-cap`, `idle`, `revoked`, `not-cdp`,
 and `target-gone`. Switching Preview off prevents new operations rather than
 immediately draining existing connections.
+If an open reply times out or is malformed, the server attempts to close the
+allocated reference; it doesn't assume the node failed to create the resource.
 
 See [Preview architecture](/concepts/architecture#preview-apps-and-screens) and
 [Preview security](/concepts/security#preview-security) for the browser isolation,

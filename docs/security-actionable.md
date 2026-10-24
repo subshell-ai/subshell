@@ -118,6 +118,40 @@ the end-to-end coverage for ordinary traffic. The original audit's scope and
 remaining trust boundaries still apply; this does not claim general denial-of-service
 protection or OS-user isolation.
 
+## Additional preview race and resource audit: 2026-10-24
+
+A further review reproduced three more issues. Nine regression cases failed
+before their fixes:
+
+1. **High: a pending live-screen subscription could outlast revocation.**
+   `/ws/live` checked access asynchronously, then registered the viewer. A
+   share or user sweep during that check found no registered viewer to remove;
+   the old permission answer could then attach the socket and receive another
+   viewer's active screencast. Revocation now advances a broker revision before
+   its first await. Subscription checks retry when that revision changes,
+   failing closed after three attempts. They also recheck account disable and
+   required password changes before attaching.
+
+2. **Medium availability: a non-reading target could grow the node's TCP
+   write queue.** Browser-to-target writes ignored socket backpressure. The
+   runtime now checks queued bytes plus the incoming frame against the 1 MiB
+   lane budget and closes the lane with `slow-link` before exceeding it.
+   This applies while connecting as well as after connection. A real Bun TCP
+   probe confirmed that stalled writes appear in `writableLength`.
+
+3. **Medium availability: uncertain open replies could strand node resources.**
+   Timeout and malformed-reply paths discarded the server reservation without
+   closing the node reference. Probes, forward lanes, and screencast bridges
+   now attempt a close when the reply cannot establish the outcome, and verify
+   the acknowledged reference. An explicit node refusal still propagates
+   unchanged. Cleanup is best effort when the node is unreachable; link loss
+   and the existing lifetime ceiling remain the fallback.
+
+Regression coverage includes share and user revocation during subscription,
+disabled accounts before socket closure, bounded authorization retries, a
+stalled TCP writer, and uncertain replies across all three open paths. The
+earlier audits' scope and accepted trust boundaries still apply.
+
 ## Targeted code audit: 2026-10-21
 
 This pass reviewed authentication and scoped credentials, node enrollment and

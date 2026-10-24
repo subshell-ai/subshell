@@ -4127,13 +4127,16 @@ sweeps and in share, account, and node revocation; the route's current
 account/access and pane/node availability are checked again before publication.
 Explicit lifecycle actions also sweep after retiring the old row, covering
 opens that arrived during the stop. Individual lanes and bridges
+also receive best-effort teardown when an open reply times out or is malformed.
+Live-screen subscriptions repeat access checks overtaken by a revocation sweep
+and refuse disabled accounts or accounts requiring a password change. Lanes and bridges
 have a four-hour ceiling; it is not a fixed lifetime for an actively reused
 forward capability. Use grant removal or end the subshell when revocation is
 required rather than relying on closing a tab or switching Preview off.
 
 Resource limits bound active lanes, queued requests, frame sizes, stream byte
 debt, and screencast rate; they are not general API rate limiting. Session maps
-and cookie jars are in server memory. Proxy queues, unread lane bytes,
+and cookie jars are in server memory. Proxy queues, unread lane bytes, target TCP write queues,
 browser WS debt, and assembled WS messages have a 1 MiB ceiling; chunked HTTP
 bodies stream without holding whole chunks. Jars retain at most 128 cookies
 and 64 KiB, with a 4 KiB per-cookie limit. Untrusted execution programs can

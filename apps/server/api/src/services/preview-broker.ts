@@ -24,7 +24,7 @@ import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { type Access, accessAtLeast, loadSubshellAccess } from "@/lib/subshell-access.js";
 import { getLocalPreviewRuntime, sweepLocalPreviewDisplays } from "@/preview/local-preview.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
-import { sendCommand } from "@/services/nodes/node-rpc.js";
+import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 import { sendPreviewFrameOverNodeSocket } from "@/services/nodes/preview-frames.js";
 import { getLogger } from "@/utils/logger.js";
 
@@ -191,6 +191,8 @@ interface PendingPreviewOpen extends PreviewOpenInput {
 }
 
 export interface PreviewBroker {
+  /** Changes at every revocation, invalidating access reads already in flight. */
+  streamAccessRevision(): number;
   openForward(input: PreviewOpenInput): Promise<{ ref: string }>;
   openLaneForConnection(sessionRef: string): Promise<{ laneRef: string }>;
   subscribeLane(laneRef: string, cb: PreviewLaneCallback): () => void;
@@ -444,6 +446,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
   const watchOpeningByPane = new Map<string, Promise<PreviewSession>>();
   // Revocation must see opens before their node acknowledgement registers a session.
   const opening = new Set<PendingPreviewOpen>();
+  let streamAccessRevision = 0;
   function cancelOpening(matches: (op: PendingPreviewOpen) => boolean, reason: PreviewCloseReason): void {
     for (const op of opening) if (matches(op)) op.cancelled = reason;
   }
@@ -516,6 +519,25 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
     }
   }
 
+  async function requestPreviewOpen(
+    nodeId: string,
+    command: Extract<NodeCommandBody, { type: "preview_open" }>,
+  ): Promise<void> {
+    try {
+      const result = parseNodePreviewOpenResult(await deps.send(nodeId, command));
+      if (!result || result.ref !== command.ref) {
+        throw new Error("preview_open answered a shape or reference the grammar refuses");
+      }
+    } catch (err) {
+      // Only an explicit refusal proves the node didn't open anything. A
+      // lost or malformed reply still needs teardown for the allocated ref.
+      if (!(err instanceof NodeRpcError && err.code === "failed")) {
+        await sendPreviewClose(nodeId, command.ref, "viewer-left");
+      }
+      throw err;
+    }
+  }
+
   /** Removes the lane entry, notifies its subscribers, optionally tells the node, then frees a queue slot. */
   async function removeLane(rec: LaneRecord, reason: PreviewCloseReason, sendWire: boolean): Promise<void> {
     lanesByRef.delete(rec.lane.ref);
@@ -572,7 +594,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
     session.lanes.set(laneRef, lane);
     lanesByRef.set(laneRef, { lane, session, pending: true });
     try {
-      const data = await deps.send(session.nodeId, {
+      await requestPreviewOpen(session.nodeId, {
         type: "preview_open",
         ref: laneRef,
         kind: "forward",
@@ -580,12 +602,9 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
         port: session.port,
         lifetimeMs: PREVIEW_LIFETIME_MAX_MS,
       });
-      if (parseNodePreviewOpenResult(data) === null) {
-        throw new Error("preview_open answered a shape the grammar refuses");
-      }
     } catch (err) {
-      // No wire close on the release: the node never acked this ref, so the
-      // only thing the plane owns is the reservation itself.
+      // requestPreviewOpen already closes uncertain node state. Releasing
+      // this reservation only frees the server-side slot.
       const rec = lanesByRef.get(laneRef);
       if (rec) await removeLane(rec, "viewer-left", false);
       throw err;
@@ -706,7 +725,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
       throw new PreviewRefusal("preview-watch-over-cap", "screencast subscribers cap below one");
     }
     const ref = mintRef();
-    const data = await deps.send(nodeId, {
+    await requestPreviewOpen(nodeId, {
       type: "preview_open",
       ref,
       kind: "screencast",
@@ -714,9 +733,6 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
       port,
       lifetimeMs: PREVIEW_LIFETIME_MAX_MS,
     });
-    if (parseNodePreviewOpenResult(data) === null) {
-      throw new Error("preview_open answered a shape the grammar refuses");
-    }
     try {
       await authorizeOpening(op);
     } catch (err) {
@@ -780,6 +796,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
   }
 
   const broker: PreviewBroker = {
+    streamAccessRevision: () => streamAccessRevision,
     async openForward(input) {
       return withOpening(input, "forward", async (op) => {
         const { viewerUserId, paneId, nodeId, port } = input;
@@ -792,7 +809,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
         // preview_open rides the lifetime cap: the absolute ceiling is
         // belt-and-braces while refcount/idle/revoke are the real lifecycle,
         // and the value is named here so two executors cannot pick two.
-        const data = await deps.send(nodeId, {
+        await requestPreviewOpen(nodeId, {
           type: "preview_open",
           ref,
           kind: "forward",
@@ -800,9 +817,6 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
           port,
           lifetimeMs: PREVIEW_LIFETIME_MAX_MS,
         });
-        if (parseNodePreviewOpenResult(data) === null) {
-          throw new Error("preview_open answered a shape the grammar refuses");
-        }
         await sendPreviewClose(nodeId, ref, op.cancelled ?? "viewer-left");
         await authorizeOpening(op);
         const session: PreviewSession = {
@@ -1033,6 +1047,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
     },
 
     async closeForPane(paneId, reason) {
+      streamAccessRevision++;
       cancelOpening((op) => op.paneId === paneId, reason);
       for (const session of [...sessionsByRef.values()]) {
         if (session.paneId !== paneId) continue;
@@ -1046,6 +1061,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
     },
 
     async closeAllForNode(nodeId, reason) {
+      streamAccessRevision++;
       cancelOpening((op) => op.nodeId === nodeId, reason);
       const panesTouched = new Set<string>();
       for (const session of [...sessionsByRef.values()]) {
@@ -1065,6 +1081,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
     },
 
     async closeAllForUser(userId, reason) {
+      streamAccessRevision++;
       cancelOpening((op) => op.viewerUserId === userId, reason);
       let closed = 0;
       for (const session of [...sessionsByRef.values()]) {
@@ -1092,6 +1109,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
     },
 
     async closeUnauthorizedForPane(paneId) {
+      streamAccessRevision++;
       // THE shares cut. Riding the relay's recompute posture (spec §6 names
       // it): re-ask authorization per holder from THIS broker's own state,
       // never diff the event that triggered the recompute. One verb covers
@@ -1255,6 +1273,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
     },
 
     shutdown() {
+      streamAccessRevision++;
       cancelOpening(() => true, "node-dropped");
       clearInterval(sweepTimer);
       sessionsByRef.clear();
