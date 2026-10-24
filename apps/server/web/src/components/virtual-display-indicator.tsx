@@ -27,7 +27,7 @@ export function VirtualDisplayIndicator({
       >
         <Monitor className="size-3.5" aria-hidden="true" />
       </TooltipTrigger>
-      <TooltipContent>Virtual display enabled</TooltipContent>
+      <TooltipContent>Virtual display enabled - click to activate</TooltipContent>
     </Tooltip>
   );
 }
