@@ -18,17 +18,18 @@
  *   pays the tiny reads at most once per TTL) and the update verb — never a
  *   routine of their own. Binary BYTES are still lazy: nothing over ~1 KB
  *   moves until a machine is actually being served.
- * - **The bytes are streamed THROUGH, not staged and then served.** The
- *   alternative — download 80 MB, verify, then serve it — doubles the wait and
- *   holds an HTTP connection open with no bytes on it for as long as a minute,
- *   which is where reverse-proxy read timeouts live. Streaming hashes each
- *   chunk on its way past; a digest mismatch ERRORS the response mid-flight,
- *   so the node sees a truncated download and fails its own check. Nothing
- *   unverified is ever cached, and `install.sh` verifies the digest itself
- *   before the first `chmod +x` — that check is what makes streaming sound,
- *   and it predates this module. {@link downloadVerified} is the same
- *   hash-as-you-go discipline for the case with no client to stream to: the
- *   server's own update, which writes a file and then execs it.
+ * - **The bytes are downloaded IN FULL and verified before anything is
+ *   served.** The old shape streamed the release through while hashing on the
+ *   way past, and paid for it on 2026-10-23: the coalescer's shared live
+ *   stream was already consumed for every joiner but the first, and the
+ *   mid-flight error it produced was a truncated download nobody could tell
+ *   from a broken network. Now {@link downloadVerified} writes the whole file
+ *   to a temp path (hashing each chunk, bounded by `MAX_ARTIFACT_BYTES` as it
+ *   goes), a mismatch fails the FETCH itself with the temp deleted, and the
+ *   caller serves a fresh read of bytes that already passed. Nothing
+ *   unverified is cached, and `install.sh` still verifies the digest itself
+ *   before the first `chmod +x` — that check predates this module and stands
+ *   as the node's own defense.
  * - **A file we fetched is ours to replace; a file the operator put there is
  *   not.** Cached artifacts are recorded in a manifest with the release tag
  *   they came from, and only manifest-recorded files are ever superseded or
@@ -50,6 +51,7 @@
  *   Updates page already renders, because "why is there no update" is the
  *   question the page exists to answer.
  */
+import { randomUUID } from "node:crypto";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -850,16 +852,33 @@ export interface FetchArtifactOptions {
  * its own body from it. The download-before-serve order costs the first
  * caller's first byte (it now waits for the plane's full fetch from the
  * release source) and buys the whole fan-out case: see the incident note on
- * {@link FetchedArtifact}. A `cache: false` caller does NOT join: its bytes
- * live in a temp file whose cleanup belongs to that one caller, and sharing
- * it would let one joiner's cleanup delete another's serve mid-flight. The
- * mixed case (a `cache: true` fetch already running) still rides it: the
- * first caller's cache flag governs the shared download, same as before.
+ * {@link FetchedArtifact}. A `cache: false` caller never shares, in either
+ * direction: its bytes live in a temp file whose cleanup is that one
+ * caller's, and coalescing it would let one joiner's cleanup delete
+ * another's serve mid-flight — so it neither joins the in-flight cached
+ * fetch nor becomes joinable (its own temp name is unique per download), and
+ * a `cache: true` caller arriving meanwhile starts a fresh shared download.
+ * Two parallel fetches of one target over one stale-shelf fan-out is the
+ * accepted cost of never touching the operator's file.
  */
 export async function fetchArtifact(target: NodeTarget, options: FetchArtifactOptions = {}): Promise<FetchedArtifact> {
   if (options.cache === false) return fetchArtifactUncoordinated(target, false);
   const existing = inFlight.get(target);
-  if (existing) return existing;
+  if (existing) {
+    // A failed fetch is NOT sticky for its joiners. The settled attempt is
+    // deleted from the map the moment it rejects, but callers who joined it
+    // mid-flight were handed that same promise, and one failed read inside
+    // the 15-minute index TTL would otherwise reject every download of that
+    // target until the cache expires. A joiner whose attempt failed retries
+    // once onto whatever newer attempt is running (or starts one), which is
+    // what the route's "press Update again" copy promises the operator.
+    try {
+      return await existing;
+    } catch {
+      const retry = inFlight.get(target);
+      if (retry !== undefined && retry !== existing) return retry;
+    }
+  }
   const work = fetchArtifactUncoordinated(target, true).finally(() => inFlight.delete(target));
   inFlight.set(target, work);
   return work;
@@ -954,13 +973,24 @@ async function fetchArtifactUncoordinated(target: NodeTarget, cache: boolean): P
  * mid-way. A leftover partial must never look like a shelf file, and a
  * complete one left behind is 80 MB nobody asked the disk to keep.
  */
+/** Bun's own reader type for a file stream — annotated anywhere else and the
+ *  lib types disagree with what `stream().getReader()` actually returns. */
+function fileReader(tmp: string) {
+  return Bun.file(tmp).stream().getReader();
+}
+
 function drainedFile(tmp: string): ReadableStream<Uint8Array> {
-  const reader = Bun.file(tmp).stream().getReader();
   const sweep = (): Promise<void> => rm(tmp, { force: true }).catch(() => {});
+  // The reader opens on the FIRST pull, not beside construction: a
+  // materialization that throws before anything consumed the stream would
+  // skip both the sweep and `controller.error`, leaving the temp file on disk
+  // and handing the caller a generic stream error.
+  let opened: ReturnType<typeof fileReader> | null = null;
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
-        const { done, value } = await reader.read();
+        if (opened === null) opened = fileReader(tmp);
+        const { done, value } = await opened.read();
         if (done) {
           await sweep();
           controller.close();
@@ -973,7 +1003,7 @@ function drainedFile(tmp: string): ReadableStream<Uint8Array> {
       }
     },
     async cancel(reason) {
-      await reader.cancel(reason).catch(() => {});
+      await opened?.cancel(reason).catch(() => {});
       await sweep();
     },
   });
@@ -994,7 +1024,7 @@ async function discard(sink: { end: () => unknown } | null, tmp: string): Promis
 /**
  * The digest for a target this instance does not have, without downloading the
  * binary. `install.sh` asks for the sha AFTER the binary, so this is normally
- * served from the file the streaming fetch just wrote; it exists for the order
+ * served from the cache entry the binary's fetch just wrote; it exists for the order
  * being the other way round — and for `POST /api/nodes/:id/update`, which
  * embeds it in the command.
  *
@@ -1018,7 +1048,7 @@ export interface DownloadVerifiedInput {
   expectedDigest: string;
   /** Directory the temp file is written in — the binary's OWN directory, so the later rename is on one filesystem. */
   destDir: string;
-  /** Base name of the temp file; `.download-<pid>` is appended. */
+  /** Base name of the temp file; a unique `.download-<pid>-<id>` suffix is appended. */
   destName: string;
   /** Progress, called per chunk. `total` is null when the server sent no length. */
   onProgress?: (received: number, total: number | null) => void;
@@ -1036,12 +1066,20 @@ export interface DownloadVerifiedInput {
  * promise is "these bytes are the ones that release published", and a file
  * this returns is not yet something anyone has decided to run.
  *
+ * Each download gets its OWN temp file: two concurrent uncoalesced fetches of
+ * one target (the stale-shelf arm of an "Update all", where every tokened
+ * download asks for `cache: false` bytes) used to collide on a name keyed
+ * only by pid, interleave two writers into one file, and let one caller's
+ * cleanup unlink another's in-flight copy — the same shape the server's own
+ * update hit before its job-slot claim made it single-flight (see
+ * `services/server-update.ts`).
+ *
  * @returns the temp file's path, on a digest match
  * @throws when the download fails, exceeds {@link MAX_ARTIFACT_BYTES}, or does
  *   not match — in every case having deleted the partial file
  */
 export async function downloadVerified(input: DownloadVerifiedInput): Promise<string> {
-  const tmp = join(input.destDir, `${input.destName}.download-${process.pid}`);
+  const tmp = join(input.destDir, `${input.destName}.download-${process.pid}-${randomUUID()}`);
   // The server's own update passes a URL read from the release list — the
   // same untrusted field the lazy fetch pins (C12), hops included, so the
   // pin belongs here too: this download writes a file and the CALLER

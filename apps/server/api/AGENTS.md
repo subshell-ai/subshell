@@ -123,8 +123,9 @@ unconsumed setup key, or a still-valid one-time `?update_token=`; never
 anonymous), and fetches the binary LAZILY from the project's own
 `cli-node-v*` GitHub release when that is the answer, downloading it in full
 and hashing the whole file against the SIGNED manifest's `assets` map before
-any byte is served (the 2026-10-23 fan-out fix: an in-flight fetch is shared,
-and a shared one-shot stream handed every joiner but the first an empty body). Which release a
+any byte is served (the 2026-10-23 fan-out fix: an in-flight fetch is
+shared, and a shared one-shot stream handed every joiner but the first an
+empty body). Which release a
 node is OFFERED (`NODE_PROTOCOL_VERSION` matching), the three-way refusal
 grammar, the shelf-reconciled versus release-coherent serving (spec
 2026-10-09: the copy is asked what it is before it wins), and the surfaces

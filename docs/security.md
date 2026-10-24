@@ -1783,18 +1783,20 @@ posture:
   authenticated (cookie, unconsumed setup key, or `?update_token=`, per the
   credential list above), so this is not a way for an anonymous caller to
   make the plane fetch anything.
-- **The bytes are streamed through and hashed on the way past**, against the
-  digest taken from the signed manifest's `assets` map: the binary's
-  `.sha256` sidecar is never fetched; since 2026-09-17 it is WRITTEN from
-  that digest (`releases.ts:648-660,717-720`), and the manifest itself is
-  verified before a single byte of the binary is requested. A mismatch ERRORS
-  the response mid-flight, so the node sees a truncated download; nothing
-  unverified is ever cached. The stream is bounded mid-flight by
-  `MAX_ARTIFACT_BYTES` (300 MB); an endless body cannot fill the disk
-  (`releases.ts:81,690-694,810-813`). What makes streaming sound rather than
-  merely fast is the check that was already there: `install.sh` verifies the
-  digest itself before the first `chmod +x`, so the node never trusts the
-  plane's word for what it received.
+- **The bytes are downloaded IN FULL, to disk, and hashed while written**,
+  against the digest taken from the signed manifest's `assets` map: the
+  binary's `.sha256` sidecar is never fetched; since 2026-09-17 it is WRITTEN
+  from that digest, and the manifest itself is verified before a single byte
+  of the binary is requested (`downloadVerified` and the cache write in
+  `releases.ts`). A mismatch fails the FETCH itself: the uniquely-named temp is
+  deleted and nothing is cached, so a node's download is either complete
+  verified bytes or a clean refusal, never a truncated body; the mid-flight
+  error this replaced was the 2026-10-23 "Update all" incident's other face,
+  where one shared stream left every joiner but the first with an empty one.
+  The ingest is bounded by `MAX_ARTIFACT_BYTES` (300 MB) chunk by chunk; an
+  endless body cannot fill the disk. And the check that predates all of it
+  still stands: `install.sh` verifies the digest itself before the first
+  `chmod +x`, so the node never trusts the plane's word for what it received.
 - **Authenticity is the publisher's key, not the channel's** (2026-09-17).
   The fetch verifies `release-manifest.json.sig` against the compiled-in
   `RELEASE_PUBKEY` and takes the digest from the signed payload; a
@@ -1840,8 +1842,9 @@ posture:
   one-time `?update_token=` that binds the digest the update command named
   (from the signed manifest), and is served release-coherently instead: the
   disk file only when it hashes to that digest, the verified release fetched
-  around it otherwise (streamed through, never overwriting the hand-published
-  file), and a 409 naming the remedy when the disk copy is stale and the
+  around it otherwise (served from a self-cleaning temp copy, never
+  overwriting the hand-published file), and a 409 naming the remedy when the
+  disk copy is stale and the
   release cannot be fetched (2026-09-21).
 - **The shelf answers for itself at serve time (2026-10-09).** "Disk wins,
   always" meant a plane that had crossed a protocol bump kept handing out an

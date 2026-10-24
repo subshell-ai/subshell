@@ -387,6 +387,41 @@ describe("fetchArtifact", () => {
     expect(await drain(b.body())).toBe(BINARY_PAYLOAD.bytes.byteLength);
   });
 
+  it("does not make a joiner inherit a failed attempt — the next fetch is a fresh one", async () => {
+    // A rejection must not be sticky. The first fetch fails mid-download (the
+    // bytes disagree with the signed manifest); whoever joined it while it ran
+    // retries onto a new attempt rather than inheriting the old promise's
+    // rejection, so one failed read cannot blackhole the target for the rest
+    // of the index TTL. Both attempts fail here because the release is broken
+    // for everyone — what the test pins is the SECOND upstream fetch.
+    fake.assets.set(BINARY, new TextEncoder().encode("corrupted in transit"));
+    const p1 = fetchArtifact(TARGET);
+    const p2 = fetchArtifact(TARGET); // same tick: joins p1's attempt
+    await expect(p1).rejects.toThrow(/did not match the published digest/);
+    await expect(p2).rejects.toThrow(/did not match the published digest/);
+    expect(fake.assetFetches.get(BINARY)).toBe(2);
+    expect(existsSync(artifactPath(TARGET))).toBe(false);
+    expect(readdirSync(NODE_ARTIFACTS_DIR).some((name) => name.includes(".download-"))).toBe(false);
+  });
+
+  it("runs two cache:false fetches of one target side by side without touching each other", async () => {
+    // The stale-shelf arm of an "Update all": every tokened download asks for
+    // cache:false bytes, and those fetches deliberately do not coalesce (each
+    // one's temp cleanup is its own). They used to collide on a pid-keyed
+    // temp name — two writers in one file, and one caller's sweep unlinking
+    // another's in-flight copy. Each download now owns a unique temp.
+    writeFileSync(artifactPath(TARGET), "the operator's own");
+    const [a, b] = await Promise.all([
+      fetchArtifact(TARGET, { cache: false }),
+      fetchArtifact(TARGET, { cache: false }),
+    ]);
+    expect(fake.assetFetches.get(BINARY)).toBe(2);
+    expect(await drain(a.body())).toBe(BINARY_PAYLOAD.bytes.byteLength);
+    expect(await drain(b.body())).toBe(BINARY_PAYLOAD.bytes.byteLength);
+    expect(readFileSync(artifactPath(TARGET), "utf8")).toBe("the operator's own");
+    expect(readdirSync(NODE_ARTIFACTS_DIR).some((name) => name.includes(".download-"))).toBe(false);
+  });
+
   it("keeps the operator's file when asked not to cache, and removes its own temp copy after the serve", async () => {
     // A file already sitting at the target path may be the operator's
     // hand-published binary: `cache: false` serves the release bytes from a
