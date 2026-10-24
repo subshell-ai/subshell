@@ -17,3 +17,5 @@ Mark subshells with virtual displays in sidebar rows and headers, and restore li
 Open the preview picker dialog from a subshell’s header window icon.
 
 Move preview choices into a dialog and consolidate each viewer’s controls into one toolbar, letting the viewer fill the tab. Distinguish virtual displays with a window icon while device sizing keeps its monitor icon.
+
+Simplify the preview picker with clickable rows, distinct view icons, and port badges, without introductory text.
