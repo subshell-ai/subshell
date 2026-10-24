@@ -52,7 +52,7 @@
  *   question the page exists to answer.
  */
 import { randomUUID } from "node:crypto";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   MIN_NODE_VERSION,
@@ -84,6 +84,16 @@ const METADATA_TIMEOUT_MS = 15_000;
  * something unbounded onto the data volume, not to police the real artifacts.
  */
 export const MAX_ARTIFACT_BYTES = 300 * 1024 * 1024;
+
+/** How old a `.download-*` stray must be before a fresh download sweeps it.
+ *  One hour clears any honest download at 300 MB/s-and-change, so a stray
+ *  older than this is a crashed attempt's corpse, not a live write. @internal */
+export const STALE_DOWNLOAD_MAX_AGE_MS = 60 * 60 * 1000;
+
+/** The digest-failure phrase, shared because {@link fetchArtifactUncoordinated}
+ *  pattern-matches what {@link downloadVerified} throws to keep the artifact
+ *  log line truthful. Tests pin the shipped string with a literal regex. */
+const DIGEST_MISMATCH_PHRASE = "did not match the published digest";
 
 /**
  * What this instance fetched, and from which release.
@@ -728,8 +738,9 @@ async function writeManifest(manifest: FetchedManifest): Promise<void> {
  * The recorded digest is the whole point: a caller compares it against the
  * bytes ACTUALLY on disk, and only a match makes the file "ours" — something
  * this instance may replace. An operator who edited the file since our fetch
- * (or who put it there) reclaimed it, and the stream-past rule of the update
- * route applies: serve the release through, leave the bytes alone.
+ * (or who put it there) reclaimed it, and the serve-past rule of the update
+ * route applies: serve the release from its own temp copy, leave the bytes
+ * alone.
  */
 export async function fetchedLedgerEntry(target: NodeTarget): Promise<{ tag: string; digest: string } | null> {
   const entry = (await readManifest())[target];
@@ -936,7 +947,7 @@ async function fetchArtifactUncoordinated(target: NodeTarget, cache: boolean): P
     // Keep the digest failure in the artifact log line the streaming design
     // emitted: the release identity lives here, and `downloadVerified` is
     // release-agnostic by contract.
-    if (error instanceof Error && error.message.includes("did not match the published digest")) {
+    if (error instanceof Error && error.message.includes(DIGEST_MISMATCH_PHRASE)) {
       getLogger().warn(`node artifacts: ${names.binary} from ${release.tag} failed its digest check: ${error.message}`);
     }
     throw error;
@@ -954,7 +965,7 @@ async function fetchArtifactUncoordinated(target: NodeTarget, cache: boolean): P
     return { digest: expected, tag: release.tag, body: () => file.stream(), dispose: async () => {} };
   }
 
-  // Stream-through: the file at the artifact path was not ours to overwrite
+  // Served-from-temp: the file at the artifact path was not ours to overwrite
   // (it may be the operator's hand-published binary), so these bytes live in
   // the temp copy only, and that copy is deleted when the response ends.
   // Not coalesced (see {@link fetchArtifact}) precisely because that cleanup
@@ -1079,8 +1090,39 @@ export interface DownloadVerifiedInput {
  * @throws when the download fails, exceeds {@link MAX_ARTIFACT_BYTES}, or does
  *   not match — in every case having deleted the partial file
  */
+/**
+ * Remove strays a crashed attempt left behind: no in-process path can clean
+ * what a SIGKILL interrupted, and since the temp name is unique per attempt
+ * (so concurrent fetches cannot collide), each crash leaves a NEW name rather
+ * than one bounded slot to reuse. Every download therefore sweeps matching
+ * strays older than {@link STALE_DOWNLOAD_MAX_AGE_MS} before it writes. Age
+ * is the whole safety story: a live download of anything under the size cap
+ * is minutes old, so it is never a stray. Best effort by design: a directory
+ * we cannot read, or a file another writer just touched, costs a retry later,
+ * never a failed download.
+ */
+async function sweepStaleDownloads(destDir: string, prefix: string, keep: string): Promise<void> {
+  const staleBefore = Date.now() - STALE_DOWNLOAD_MAX_AGE_MS;
+  let names: string[];
+  try {
+    names = await readdir(destDir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    if (!name.startsWith(prefix) || name === keep) continue;
+    const path = join(destDir, name);
+    const info = await stat(path).catch(() => null);
+    if (info !== null && info.mtimeMs < staleBefore) {
+      await rm(path, { force: true }).catch(() => {});
+    }
+  }
+}
+
 export async function downloadVerified(input: DownloadVerifiedInput): Promise<string> {
-  const tmp = join(input.destDir, `${input.destName}.download-${process.pid}-${randomUUID()}`);
+  const tmpName = `${input.destName}.download-${process.pid}-${randomUUID()}`;
+  const tmp = join(input.destDir, tmpName);
+  await sweepStaleDownloads(input.destDir, `${input.destName}.download-`, tmpName);
   // The server's own update passes a URL read from the release list — the
   // same untrusted field the lazy fetch pins (C12), hops included, so the
   // pin belongs here too: this download writes a file and the CALLER
@@ -1112,9 +1154,7 @@ export async function downloadVerified(input: DownloadVerifiedInput): Promise<st
   const actual = hasher.digest("hex");
   if (actual !== input.expectedDigest) {
     await rm(tmp, { force: true }).catch(() => {});
-    throw new Error(
-      `${input.url} did not match the published digest (expected ${input.expectedDigest}, got ${actual})`,
-    );
+    throw new Error(`${input.url} ${DIGEST_MISMATCH_PHRASE} (expected ${input.expectedDigest}, got ${actual})`);
   }
   return tmp;
 }

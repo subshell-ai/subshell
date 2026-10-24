@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   MIN_NODE_VERSION,
@@ -23,6 +23,7 @@ import {
   releaseSeams,
   resetReleaseCacheForTests,
   resolveReleases,
+  STALE_DOWNLOAD_MAX_AGE_MS,
   setReleaseUrlForTests,
   signedAssetDigest,
 } from "@/services/releases.js";
@@ -547,7 +548,7 @@ describe("egress pin (round-3 sweep C12)", () => {
         }),
       ).rejects.toThrow(/is neither a GitHub release host nor the configured release source's host/);
       expect(hits).toBe(0);
-      expect(existsSync(join(NODE_ARTIFACTS_DIR, `subshell-server.download-${process.pid}`))).toBe(false);
+      expect(readdirSync(NODE_ARTIFACTS_DIR).some((name) => name.startsWith("subshell-server.download-"))).toBe(false);
     } finally {
       attacker.stop(true);
     }
@@ -698,20 +699,18 @@ describe("downloadVerified", () => {
 
   it("deletes the partial file and throws on a mismatch", async () => {
     // The server's own update EXECS what this writes, so a mismatch must leave
-    // nothing behind rather than merely report.
-    let path = "";
+    // nothing behind rather than merely report. The temp name carries a uuid
+    // now, so the honest check is "no stray of this prefix survives", not one
+    // hand-guessed path.
     await expect(
       downloadVerified({
         url: assetUrl(BINARY),
         expectedDigest: "0".repeat(64),
         destDir: NODE_ARTIFACTS_DIR,
         destName: "subshell-server",
-        onProgress: () => {
-          path = join(NODE_ARTIFACTS_DIR, `subshell-server.download-${process.pid}`);
-        },
       }),
     ).rejects.toThrow(/did not match the published digest/);
-    expect(existsSync(path)).toBe(false);
+    expect(readdirSync(NODE_ARTIFACTS_DIR).some((name) => name.startsWith("subshell-server.download-"))).toBe(false);
   });
 
   it("reports progress as the bytes arrive", async () => {
@@ -737,7 +736,7 @@ describe("downloadVerified", () => {
         destName: "subshell-server",
       }),
     ).rejects.toThrow(/is neither a GitHub release host nor the configured release source's host/);
-    expect(existsSync(join(NODE_ARTIFACTS_DIR, `subshell-server.download-${process.pid}`))).toBe(false);
+    expect(readdirSync(NODE_ARTIFACTS_DIR).some((name) => name.startsWith("subshell-server.download-"))).toBe(false);
   });
 
   it("throws and keeps nothing when the asset is not there", async () => {
@@ -749,6 +748,30 @@ describe("downloadVerified", () => {
         destName: "subshell-server",
       }),
     ).rejects.toThrow(/answered 404/);
-    expect(existsSync(join(NODE_ARTIFACTS_DIR, `subshell-server.download-${process.pid}`))).toBe(false);
+    expect(readdirSync(NODE_ARTIFACTS_DIR).some((name) => name.startsWith("subshell-server.download-"))).toBe(false);
+  });
+
+  it("sweeps a crashed attempt's stray before writing, and leaves a young one alone", async () => {
+    // A SIGKILL between the write and the serve strands a uniquely-named
+    // temp: no in-process path cleans what the kill interrupted, and because
+    // the name is per-attempt, every crash would pile up another artifact's
+    // worth of bytes forever. Each download reclaims strays past the age
+    // bound. A YOUNG stray survives, because it could be a concurrent
+    // fetch's live copy — that is what the age bound is for.
+    const stray = join(NODE_ARTIFACTS_DIR, "subshell-server.download-99999-deadbeef");
+    const young = join(NODE_ARTIFACTS_DIR, "subshell-server.download-99998-live");
+    writeFileSync(stray, "orphaned from a killed process");
+    writeFileSync(young, "someone could be mid-write");
+    const old = new Date(Date.now() - STALE_DOWNLOAD_MAX_AGE_MS - 60_000);
+    utimesSync(stray, old, old);
+    const { digest } = payload("a convincing binary");
+    await downloadVerified({
+      url: assetUrl(BINARY),
+      expectedDigest: digest,
+      destDir: NODE_ARTIFACTS_DIR,
+      destName: "subshell-server",
+    });
+    expect(existsSync(stray)).toBe(false);
+    expect(existsSync(young)).toBe(true);
   });
 });

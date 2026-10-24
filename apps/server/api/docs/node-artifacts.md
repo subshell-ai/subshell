@@ -66,6 +66,10 @@ only when it hashes to it, and anything else is fetched around: an absent disk
 file is cached exactly as the installer lazy fetch always did, while a
 present-but-different file is served from a temp copy and never overwritten
 (the hand-published-binary rule holds; the temp goes when the response ends).
+A download killed outright strands its uniquely-named temp, because no
+in-process path cleans what a SIGKILL interrupted, so each download sweeps
+strays older than an hour first; the age bound is what makes that safe beside
+a concurrent fetch's live copy, whose mtime stays fresh while it is written.
 Since the 2026-10-23 fan-out fix the fetch lands COMPLETE and verified on disk
 before the route hands anything out: the release-vs-token digest comparison
 therefore runs with no byte served, a mismatch answers 409, and an

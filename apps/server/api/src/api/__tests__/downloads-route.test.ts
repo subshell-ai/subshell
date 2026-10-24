@@ -1646,7 +1646,7 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
     }
   });
 
-  it("serves TWO simultaneous update downloads with full bytes each — the fan-out incident", async () => {
+  it("serves THREE simultaneous update downloads with full bytes each — the fan-out incident", async () => {
     // The 2026-10-23 "Update all" incident, at the route the fan-out actually
     // hits: every node the operator pressed was answered by the SAME
     // in-flight fetch, and the shared stream let only the first response
