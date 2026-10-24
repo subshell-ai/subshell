@@ -88,13 +88,14 @@ export function DropdownMenuItem({ className, onSelect, onClick, ...props }: Dro
     <Menu.Item
       data-slot="menu-item"
       className={cn(
-        // min-h-9 (36px) + py-1.5 — the same row grammar as the Select and
-        // combobox lists — keeps every entry a real touch target (the split
-        // menu is the path a touch or keyboard user relies on entirely, since
-        // drag never reaches them) without spending half a phone screen on a
-        // seven-item menu (operator call 2026-09-24; still well above the
-        // WCAG 2.5.8 24px floor).
-        "relative flex min-h-9 cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50",
+        // min-h-8 (32px) + py-1 — one row grammar for every menu in the app.
+        // This item backs all of them (the ⋯ menus, the dock/user/preset
+        // menus, and the sidebar right-click, which reuses it as-is), so a
+        // size here is the same size everywhere by construction. 32px now
+        // matches the Select and Combobox rows the earlier 36px ran taller
+        // than (operator freed the 36px touch call 2026-10-24); it still
+        // clears the WCAG 2.5.8 24px floor.
+        "relative flex min-h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 py-1 text-sm outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50",
         className,
       )}
       onClick={(event) => {
