@@ -115,8 +115,12 @@ export const SshSnapshotViewSchema = t.Object({
   tunnels: t.Null({ description: "Always null: any resolved tunnel refuses the snapshot" }),
   localCommands: t.Null({ description: "Always null: any resolved local command refuses the snapshot" }),
   remoteCommand: t.Null({ description: "Always null: a resolved RemoteCommand refuses the snapshot" }),
-  sendEnv: t.Null({ description: "Always null: a resolved SendEnv refuses the snapshot" }),
-  setEnv: t.Null({ description: "Always null: a resolved SetEnv refuses the snapshot" }),
+  sendEnv: t.Null({
+    description: "Always null: config SendEnv is dropped at normalization; environment never rides the link",
+  }),
+  setEnv: t.Null({
+    description: "Always null: config SetEnv is dropped at normalization; environment never rides the link",
+  }),
   escapes: t.Null({ description: "Always null: live escape characters refuse the snapshot" }),
 });
 

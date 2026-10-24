@@ -220,14 +220,27 @@ describe("resolveSshAliasConfig", () => {
         "locallyforward 8080 localhost:80",
         "permitremoteopen yes",
         "remotecommand /bin/sh",
-        "sendenv FOO",
         "localcommand /bin/true",
       ].join("\n"),
     );
     expect(out.accepted).toBe(false);
     if (!out.accepted) {
       expect(out.code).toBe("unsupported_setting");
-      expect(out.settings).toEqual(["LocalForward", "PermitRemoteOpen", "LocalCommand", "RemoteCommand", "SendEnv"]);
+      expect(out.settings).toEqual(["LocalForward", "PermitRemoteOpen", "LocalCommand", "RemoteCommand"]);
+    }
+  });
+
+  it("drops a config SendEnv/SetEnv silently: env never rides the link, so there is nothing to honor or refuse", async () => {
+    // Ubuntu's default /etc/ssh/ssh_config ships `SendEnv LANG LC_*`, so the
+    // old named refusal failed every default-configured machine over a
+    // setting this connection could not express either way. Dropping it is
+    // unobservable: the value is never extracted, the snapshot field stays
+    // null, and the render never sees it.
+    const { out } = await resolveWith("app02", `${CLEAN_G}\nsendenv LANG LC_*\nsetenv FOO=bar`);
+    expect(out.accepted).toBe(true);
+    if (out.accepted) {
+      expect(out.snapshot.sendEnv).toBeNull();
+      expect(out.snapshot.setEnv).toBeNull();
     }
   });
 

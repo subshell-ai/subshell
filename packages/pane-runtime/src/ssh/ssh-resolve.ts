@@ -248,8 +248,6 @@ async function resolveConfig(
   if (setWhere(g, "permitlocalcommand", ["no"])) blocked.push("PermitLocalCommand");
   if (setWhere(g, "localcommand")) blocked.push("LocalCommand");
   if (setWhere(g, "remotecommand")) blocked.push("RemoteCommand");
-  if (g.some((l) => l.keyword === "sendenv" && l.value !== "")) blocked.push("SendEnv");
-  if (g.some((l) => l.keyword === "setenv" && l.value !== "")) blocked.push("SetEnv");
   if (setWhere(g, "knownhostscommand")) blocked.push("KnownHostsCommand");
   if (blocked.length > 0) return refuse("unsupported_setting", blocked);
   // NOTE on what is NOT refused here: ForwardAgent/ForwardX11/ControlPath/
@@ -257,7 +255,17 @@ async function resolveConfig(
   // policy (ssh-render.ts applies it to every hop regardless), so they change
   // nothing the human approved and stay representable. A ProxyCommand has no
   // kill switch — it IS the route — so it fails setup instead. That asymmetry
-  // is the grammar's, not an accident.
+  // is the grammar's, not an accident. SendEnv/SetEnv are dropped rather than
+  // refused (amendment 2026-10-24): environment never rides a Subshell SSH
+  // link by contract, so a config env send has nothing here to honor or
+  // refuse, and refusing Ubuntu's default `SendEnv LANG LC_*` asked every
+  // default-configured machine to edit a config line this connection could
+  // not express either way. The value is simply not extracted; the snapshot's
+  // literal-null fields and the parser that refuses a smuggled value are
+  // unchanged, so the wire still cannot carry an env send. Dropping is safe
+  // at CONNECT time too: the runtime ssh reads only the rendered `-F` file,
+  // and OpenSSH ignores the system config when `-F` names ours, so a SendEnv
+  // left in /etc/ssh/ssh_config cannot reappear on the live connection.
 
   // --- destination facts ---
   const hostValues = valuesOf(g, "hostname");

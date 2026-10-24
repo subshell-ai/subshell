@@ -145,6 +145,26 @@ like `ForwardAgent` that are neither snapshotted nor named cannot reappear at
 connect time because they are absent from the rendered file and ssh's own defaults
 are off.
 
+(Amendment, 2026-10-24: `SendEnv`/`SetEnv` are dropped at normalization rather
+than refused by name, joining the never-carried settings. Env sends cannot
+change what the connection IS, so silently ignoring them cannot mislead the
+approver the way a vanished ProxyCommand or forward would; refusing Ubuntu's
+default `SendEnv LANG LC_*` instead failed every default-configured machine
+over a line this connection could not express either way. Read the list's
+"env and escape sends" with this note: it never named either setting's
+mechanism. Escapes were never refused by name at resolve (nothing related
+to escapes is ever carried, and the render forces `EscapeChar none` on
+every hop); env sends are now dropped the same way. What stands refused
+by name: ProxyCommand, tunnels/forwards, remote/local commands,
+`KnownHostsCommand`, `Match exec`, and the hop checks that name a
+`ProxyJump` carrying facts a hop may not set. Note also that the
+paragraph's "absent from the rendered file
+and ssh's own defaults are off" understates the connect-time story: OpenSSH
+reads only the file `-F` names and ignores the system config then, so the
+effective config is exactly what this design renders, and a system-file
+`SendEnv` has no route back in. The snapshot grammar still refuses a carried
+value, so the wire cannot smuggle an env send.)
+
 ### 5.3 Sealed agent relay (Milestone 2)
 
 The one genuinely new subsystem: encrypted channels carrying the SSH agent

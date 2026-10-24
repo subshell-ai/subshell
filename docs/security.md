@@ -1450,10 +1450,10 @@ and owns the asking. When approved rows exist the rendered config omits its
 `ClearAllForwardings yes` line (measured on OpenSSH: the keyword applies at the
 end of the whole config load, so rows cannot survive it from anywhere), and
 that omission is honest because the pane's `-F` file replaces the connecting
-account's configuration outright, leaving only our rendered lines and the
-root-owned system file as forward sources. `Tunnel`, `ForwardAgent`, and
-`ForwardX11` toward the destination stay refused: this opens TCP port
-forwarding and nothing else.
+account's configuration outright, and OpenSSH reads no system config when
+`-F` names ours, leaving our rendered lines as the only forward sources.
+`Tunnel`, `ForwardAgent`, and `ForwardX11` toward the destination stay
+refused: this opens TCP port forwarding and nothing else.
 
 **Setup progress is not a durable job.** Completed results remain for one hour
 in the running server process. Closing the dialog does not cancel the installer;
