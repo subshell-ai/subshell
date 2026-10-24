@@ -61,6 +61,8 @@ export function OpenPanel({
       <iframe
         key={reloadKey}
         onLoad={() => onConnectionChange?.("connected")}
+        sandbox="allow-scripts allow-forms allow-modals allow-downloads allow-popups"
+        referrerPolicy="no-referrer"
         title={`Preview of port ${port}`}
         src={proxyBase}
         className={cn("min-h-0 w-full flex-1 bg-background", !compact && "rounded border border-border")}

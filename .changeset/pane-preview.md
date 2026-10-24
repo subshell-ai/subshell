@@ -31,3 +31,5 @@ Move full screen into the preview action menu, keeping that menu usable inside t
 Open new previews in a split to the right of their terminal, and move workspace maximize and restore into the preview action menu.
 
 Show restore and exit controls directly in preview toolbars while maximized or in full screen.
+
+Isolate app previews from dashboard browser authority, keep target cookies in the server, strip dashboard credentials and origin-wide target policy headers, restrict view-only browser watches to their subshell’s discovered browser port, and revoke previews before stopping or restarting a subshell. Avoid occupied host display numbers and redact preview capability references in runtime diagnostics.

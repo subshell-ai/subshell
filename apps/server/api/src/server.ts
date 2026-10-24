@@ -27,7 +27,8 @@ const FRONTEND_DIST = new URL("../../web/dist", import.meta.url).pathname;
  * echoes that header back with `vary: Origin`. Exported so the integration
  * test mounts the very predicate the app runs, not a copy.
  *
- * Exact match on purpose. The plugin's own string branch also accepted a
+ * Opaque-origin preview resources have a capability-path exception below;
+ * dashboard APIs never inherit it. Exact match otherwise. The plugin's own string branch also accepted a
  * SCHEMELESS entry by stripping the scheme off the incoming header — which
  * made `box.local:3080` a scheme wildcard there (security-context.md). The
  * operator writer already refuses schemeless entries; this closes the branch
@@ -35,6 +36,9 @@ const FRONTEND_DIST = new URL("../../web/dist", import.meta.url).pathname;
  */
 export function corsOriginAllowed(request: Request): boolean {
   const origin = request.headers.get("origin");
+  // Opaque preview documents may load their capability-bound resources.
+  // Never extend this exception to API routes or the dashboard sockets.
+  if (origin === "null" && /^\/pv\/[0-9a-f]{32}\//.test(new URL(request.url).pathname)) return true;
   return origin !== null && originRegistry().has(origin);
 }
 

@@ -1076,7 +1076,9 @@ consequences are:
   Watch frames fan out through `/ws/live`, so §11.14's control governs stream
   subscribers exactly as it governs the rest of the feed, and a machine with
   no capture stack refuses by name (`preview-ports-unsupported`,
-  `preview-display-unsupported`) instead of half-serving silently.
+  `preview-display-unsupported`) instead of half-serving silently. Browser
+  document isolation, bearer-link exposure, and local-user limits are accounted
+  separately in §11.15.
 - **Node shares and subshell shares are independent axes.** Sharing a node does
   not hand out subshell tokens, but anything launched there trusts the machine.
 - **Whoever owns the node's OS user owns every pane launched there**, including
@@ -4046,6 +4048,91 @@ audience is a topic. They are PULLED instead, by the one surface that draws
 them, through a request filtered by the ordinary visible-set read, so an id
 the viewer cannot see is absent from the answer rather than refused, and ids
 stay unprobeable.
+
+## 11.15 Preview apps, browsers, and virtual displays
+
+Preview is opt-in per node, including the built-in node. The node owner controls
+it; an administrator controls the built-in node. The server checks the database
+setting before opening a preview and enrolled nodes check its signed mirror.
+Turning it off prevents new operations. It does not drain existing lanes,
+terminate a subshell, or stop graphical programs.
+
+| Surface | Authorization and boundary |
+| --- | --- |
+| Discovery and browser watch | Subshell view access; view-only watchers are restricted to that subshell's discovered CDP port. |
+| App forwarding and virtual-screen input | Subshell edit access, including its shell-equivalent authority over the execution account. |
+| `/pv/<ref>/` HTTP and WS | The random 128-bit path reference is the credential. A forwarded link can be used without the opener's cookie. |
+| Browser frame subscriptions | Authorized `/ws/live` registration and recipient pruning, as in §11.14. |
+| Saved preview panels | Parsed resource identity and an authorized parent workspace pane. Parameters are reconstructed, not trusted. |
+
+**Website JavaScript does not inherit dashboard authority.** Proxied documents
+carry a CSP sandbox without `allow-same-origin`; embedded app viewers also use
+the iframe sandbox attribute. Their opaque origin cannot read the dashboard
+DOM or storage. The browser's dashboard cookie is stripped on target requests,
+and target cookies stay in a per-session server-side jar rather than setting
+cookies on the dashboard origin. The HTTP proxy strips `Authorization`,
+`X-Api-Key`, `Forwarded`, `Remote-User`, and headers in the `CF-Access-*`,
+`X-Auth-*`, `X-Amzn-Oidc-*`, and `X-Forwarded-*` families. Operators using other
+custom identity headers must prevent those from reaching preview routes.
+Target `Clear-Site-Data`, `WWW-Authenticate`, HSTS, and Alt-Svc response headers
+are removed so a dev server cannot set origin-wide dashboard policy.
+Responses use `Cache-Control: no-store` and
+`Referrer-Policy: no-referrer`.
+
+Preview CORS permits modules and application requests only under the capability
+path. `Origin: null` is supported for those preview preflights and WebSocket
+handshakes because sandboxed documents produce it. It remains refused by the
+dashboard API and dashboard WebSocket origin gates. The WS capability must
+still exist before a tunnel opens. This exception does not add `null` to the
+instance's trusted-origin registry.
+
+The sandbox deliberately prevents same-origin storage and service-worker use.
+Sites requiring those browser capabilities, JavaScript-managed cookies, or a
+full browser login should run in the node's browser and be checked through a
+virtual display. Target CSP remains effective apart from its framing directive;
+a strict target policy can still prevent an embedded app from working.
+
+**The server and node remain trusted endpoints.** Remote bytes cross the
+established encrypted node link, but the server decrypts and proxies them. This
+is not end-to-end encryption between the viewer and the website. Each dial uses
+loopback literals and a bounded port, with no host supplied by a browser. Port
+discovery is not a security allowlist for an edit-authorized forward: shell
+editors can already contact the execution account's local services. View-only
+browser watches do not receive that authority and cannot select arbitrary ports.
+Discovery is cached for five seconds, so it is not a durable OS process-isolation
+claim against a machine capable of rebinding its ports.
+
+**A virtual display is not isolation from local OS users.** Xvfb disables its
+TCP listener and uses a private Xauthority file. x11vnc binds loopback and uses
+no separate RFB password; the authenticated proxy is the remote access boundary.
+Other local users able to reach that loopback listener can interact with the
+screen. Do not enable displays on hosts shared with untrusted local users.
+Agents and GUI applications retain their normal execution-account permissions.
+The allocator skips X sockets and X lock files owned by other data directories;
+a concurrent bind can still fail closed rather than reusing their screen.
+
+**Capabilities need protection beyond application logs.** `/pv/` paths are
+excluded from request logs and full references are absent from preview audit
+metadata. Reverse proxies, browser history, copied links, and an operator's
+external diagnostics can still retain a capability URL. Treat it as a secret.
+Closing a tab releases its connections, but the forward session can remain
+valid until its 15-minute traffic-idle expiry, loss of the opener's access,
+subshell death, account disable, or node loss. Explicit terminate, delete, and
+restart await preview teardown before stopping the old pane, independently of
+its exit hook. Individual lanes and bridges
+have a four-hour ceiling; it is not a fixed lifetime for an actively reused
+forward capability. Use grant removal or end the subshell when revocation is
+required rather than relying on closing a tab or switching Preview off.
+
+Resource limits bound active lanes, queued requests, frame sizes, stream byte
+debt, and screencast rate; they are not general API rate limiting. Session maps
+and cookie jars are in server memory, and untrusted execution programs can
+consume host resources. The existing trusted-instance and OS-account posture
+still applies.
+
+See [Preview architecture](preview-architecture.md) for protocol shapes, limits,
+and lifecycle, and the [2026-10-24 audit](security-actionable.md#preview-feature-audit-2026-10-24)
+for the findings, fixes, and verification scope.
 
 ## 12. Hardening checklist for a wider deployment
 

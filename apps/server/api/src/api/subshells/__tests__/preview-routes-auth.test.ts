@@ -110,7 +110,7 @@ const jsonBody = async (res: Response) => (await res.json()) as Record<string, u
 const DOORS = [
   { label: "info", method: "GET", path: (id: string) => `/${id}/preview` },
   { label: "open", method: "POST", path: (id: string) => `/${id}/preview/open`, body: { port: 3000 } },
-  { label: "watch", method: "POST", path: (id: string) => `/${id}/preview/watch`, body: { port: 3000 } },
+  { label: "watch", method: "POST", path: (id: string) => `/${id}/preview/watch`, body: { port: 9222 } },
   { label: "watch stop", method: "DELETE", path: (id: string) => `/${id}/preview/watch` },
 ] as const;
 
@@ -283,6 +283,15 @@ describe("preview REST surface (Task 9)", () => {
       // Forwarding a raw lane is `edit`; info and the watch doors are reads.
       expect(res.status).toBe(door.label === "open" ? 403 : 200);
     }
+  });
+
+  it("refuses a view grantee's attempt to watch another port on the node", async () => {
+    attachLive();
+    const pane = await directRow();
+    await grantPane(pane, viewerId, "view");
+    const res = await call("POST", `/${pane}/preview/watch`, { cookie: viewerCookie, body: { port: 9333 } });
+    expect(res.status).toBe(403);
+    expect((await errorBody(res)).message).toContain("browser discovered in this subshell");
   });
 
   it("a foreign account sees 404 on all four doors, never a 403", async () => {

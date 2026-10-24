@@ -922,3 +922,15 @@ rechecks current access and alias resolution, then uses the existing pin store's
 no-overwrite rule. Existing or conflicting trust cannot enter this path; the
 host-pins API remains available for explicit operator recovery. See the SSH trust
 accounting in `docs/security.md` §6.
+
+Preview browser boundaries are documented in [Preview architecture](../../../docs/preview-architecture.md)
+and [security §11.15](../../../docs/security.md#1115-preview-apps-browsers-and-virtual-displays).
+Proxied documents require a response CSP sandbox without `allow-same-origin`,
+plus the workspace iframe sandbox. Keep upstream cookies in the broker jar;
+never write them to the dashboard browser. Only capability-bound preview CORS
+and WS may accept opaque `Origin: null`; dashboard APIs and WS must keep refusing
+it. View-only watch requests must match the shared subshell's discovered CDP port.
+
+Strip dashboard HTTP/edge credentials and origin-wide target response policy
+headers in the proxy. Explicit stop, delete, and restart must await broker
+teardown before killing the old pane; exit hooks alone cannot guarantee revocation.

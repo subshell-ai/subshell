@@ -47,6 +47,13 @@ describe("browser origin authorization", () => {
     port = boundPort;
   });
 
+  it("limits the opaque-origin CORS exception to valid preview paths", async () => {
+    const requestFor = (path: string) => new Request(`http://localhost${path}`, { headers: { origin: "null" } });
+    expect(corsOriginAllowed(requestFor("/pv/0123456789abcdef0123456789abcdef/filter.js"))).toBe(true);
+    expect(corsOriginAllowed(requestFor("/api/subshells"))).toBe(false);
+    expect(corsOriginAllowed(requestFor("/pv/invalid/index.html"))).toBe(false);
+  });
+
   afterEach(async () => {
     originRegistry().clearPlugin(PLUGIN);
     await db.deleteFrom("prompts").where("userId", "=", userId).execute();

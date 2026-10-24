@@ -180,7 +180,7 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
   if (bridges.has(args.ref)) {
     // Same posture as `openLane`: a ref the registry owns keeps its live
     // bridge, and crypto-random 32-hex refs make the collision unrepresentable.
-    args.log?.(`preview bridge ${args.ref}: open for an already-registered ref, keeping the live bridge`);
+    args.log?.(`preview bridge ${args.ref.slice(0, 8)}…: open for an already-registered ref, keeping the live bridge`);
     return { subscribers: 1 };
   }
   const now = args.deps?.now ?? Date.now;
@@ -207,7 +207,7 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
     nextId: 1,
   };
   say(
-    `preview bridge ${bridge.ref}: starting against 127.0.0.1:${args.cdpPort} ` +
+    `preview bridge ${bridge.ref.slice(0, 8)}…: starting against 127.0.0.1:${args.cdpPort} ` +
       `(fps ${clampFps(args.fps)}, interval ${bridge.intervalMs} ms, lifetime ${args.lifetimeMs} ms)`,
   );
 
@@ -246,7 +246,7 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
       } catch {
         /* already gone */
       }
-      say(`preview bridge ${bridge.ref}: handshake failed (${why}), refusing not-cdp`);
+      say(`preview bridge ${bridge.ref.slice(0, 8)}…: handshake failed (${why}), refusing not-cdp`);
       reject(new Error("not-cdp"));
     };
     handshakeCancel = (reason: string) => {
@@ -263,7 +263,7 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
       // awaiting open simply answers a refusal, and the open arm speaks
       // `not-cdp` whatever the handshake throws, so the message only carries
       // the sweep's reason for the log.
-      say(`preview bridge ${bridge.ref}: handshake cancelled by the link-drop sweep (${reason})`);
+      say(`preview bridge ${bridge.ref.slice(0, 8)}…: handshake cancelled by the link-drop sweep (${reason})`);
       reject(new Error(reason));
     };
   });
@@ -393,7 +393,7 @@ export function stopBridge(ref: string, reason: PreviewCloseReason): boolean {
   const bridge = bridges.get(ref);
   if (!bridge) return false;
   remove(bridge);
-  bridge.say(`preview bridge ${ref}: closed by the plane (${reason})`);
+  bridge.say(`preview bridge ${ref.slice(0, 8)}…: closed by the plane (${reason})`);
   return true;
 }
 
@@ -436,20 +436,22 @@ function onSocketMessage(bridge: Bridge, raw: string | Buffer): void {
   } catch (err: unknown) {
     // The socket died between delivery and ack; the `close` handler is the
     // death path, and this bridge is already on its way out.
-    bridge.say(`preview bridge ${bridge.ref}: ack send failed (${String(err)})`);
+    bridge.say(`preview bridge ${bridge.ref.slice(0, 8)}…: ack send failed (${String(err)})`);
   }
   const blob = typeof params.data === "string" ? params.data : "";
   if (blob.length === 0 || Buffer.from(blob, "base64").length > PREVIEW_FRAME_MAX_BYTES) {
     // The plane's parser refuses an over-cap blob, so emitting one would
     // corrupt the lane SILENTLY. Drop it; the bridge continues.
-    bridge.say(`preview bridge ${bridge.ref}: frame over the ${PREVIEW_FRAME_MAX_BYTES}B cap (or empty), dropped`);
+    bridge.say(
+      `preview bridge ${bridge.ref.slice(0, 8)}…: frame over the ${PREVIEW_FRAME_MAX_BYTES}B cap (or empty), dropped`,
+    );
     return;
   }
   const meta = (params.metadata ?? {}) as { deviceWidth?: unknown; deviceHeight?: unknown };
   const w = meta.deviceWidth;
   const h = meta.deviceHeight;
   if (!Number.isInteger(w) || (w as number) <= 0 || !Number.isInteger(h) || (h as number) <= 0) {
-    bridge.say(`preview bridge ${bridge.ref}: frame metadata had no positive dims, dropped`);
+    bridge.say(`preview bridge ${bridge.ref.slice(0, 8)}…: frame metadata had no positive dims, dropped`);
     return;
   }
   // Throttle: `Math.ceil(1000 / fps)` between emissions, extras dropped (the
@@ -462,7 +464,7 @@ function onSocketMessage(bridge: Bridge, raw: string | Buffer): void {
   // pump may hold at most `PREVIEW_WATCH_FRAMES_BUFFERED`; past that, drop.
   if (bridge.queue.length >= PREVIEW_WATCH_FRAMES_BUFFERED) {
     bridge.say(
-      `preview bridge ${bridge.ref}: ${bridge.queue.length} frames already held, dropped one (the pump is behind)`,
+      `preview bridge ${bridge.ref.slice(0, 8)}…: ${bridge.queue.length} frames already held, dropped one (the pump is behind)`,
     );
     return;
   }
@@ -496,7 +498,7 @@ async function drain(bridge: Bridge): Promise<void> {
       const accepted = bridge.emitStream(ev);
       if (accepted && typeof accepted.then === "function") await accepted;
     } catch (err: unknown) {
-      bridge.say(`preview bridge ${bridge.ref}: stream frame undeliverable, dropped (${String(err)})`);
+      bridge.say(`preview bridge ${bridge.ref.slice(0, 8)}…: stream frame undeliverable, dropped (${String(err)})`);
     }
     bridge.queue.shift();
     if (bridges.get(bridge.ref) !== bridge) break; // closed mid-drain: stop feeding a dead bridge
@@ -512,14 +514,14 @@ async function drain(bridge: Bridge): Promise<void> {
 function die(bridge: Bridge, reason: PreviewCloseReason): void {
   if (bridges.get(bridge.ref) !== bridge) return;
   remove(bridge);
-  bridge.say(`preview bridge ${bridge.ref}: closing (${reason})`);
+  bridge.say(`preview bridge ${bridge.ref.slice(0, 8)}…: closing (${reason})`);
   try {
     bridge.emitClosed({ type: "preview_closed", ref: bridge.ref, reason });
   } catch (err: unknown) {
     // Expected exactly once: the link-drop sweep closes bridges whose link is
     // already gone. The plane reads that link drop itself; the agent log keeps
     // the record.
-    bridge.say(`preview bridge ${bridge.ref}: preview_closed (${reason}) undeliverable: ${String(err)}`);
+    bridge.say(`preview bridge ${bridge.ref.slice(0, 8)}…: preview_closed (${reason}) undeliverable: ${String(err)}`);
   }
 }
 

@@ -12,9 +12,9 @@ import { getPreviewBroker, PreviewRefusal } from "@/services/preview-broker.js";
  * session's proxy path opens its own forward lane (the browser reconnects
  * per request; lanes are cheap and one-shot), carries the session's cookies
  * from the jar instead of the browser's, and rewrites the answer so the
- * target believes it lives under `/pv/<ref>/` and the browser's cookie store
- * stays inside that path. The session ref in the path is the whole
- * credential (spec §10), so an unknown one is a plain 404 saying nothing
+ * target believes it lives under `/pv/<ref>/`. Its cookies stay in the
+ * server's session jar rather than the browser's dashboard cookie store.
+ * The session ref in the path is the whole credential (spec §10), so an unknown one is a plain 404 saying nothing
  * else.
  *
  * The request itself is hand-framed over the lane (`lane-http.ts`): Bun's
@@ -30,14 +30,11 @@ import { getPreviewBroker, PreviewRefusal } from "@/services/preview-broker.js";
  *   exactly what a Host-checking dev server checks); drop `Connection`/
  *   `Keep-Alive` (the lane is one-shot; a keep-alive promise to the target
  *   would outlive the lane).
- * - OUTBOUND: drop hop-by-hop headers (they describe the lane's transport,
- *   not the proxied exchange); force `Set-Cookie` Path onto the session's
- *   proxy path (without it the target's own path guess, normally `/`, lets
- *   the cookie leak plane-wide, and it would never come back on the next
- *   request either); store only the name=value pair in the jar; prefix a
- *   relative `Location` with the proxy path; strip `frame-ancestors` from
- *   both CSP headers (the iframe IS the product; the rest of a target's CSP
- *   is its own business and survives untouched).
+ * - OUTBOUND: keep target cookies only in the session jar, rewrite relative
+ *   redirects, and replace target framing restrictions with our own. A CSP
+ *   sandbox gives every document an opaque origin, including direct tabs;
+ *   CORS permits its modules and requests only under the capability URL.
+ *   Preview responses cannot set cookies on the dashboard origin.
  */
 
 /** Header names describing the lane's transport rather than the proxied exchange. */
@@ -53,7 +50,33 @@ const HOP_BY_HOP = new Set([
 ]);
 
 /** Browser-context headers the jar/Host/one-shot rules replace or re-frame. */
-const INBOUND_DROP = new Set(["cookie", "host", "content-length", ...HOP_BY_HOP]);
+const INBOUND_DROP = new Set([
+  "cookie",
+  "host",
+  "content-length",
+  "authorization",
+  "x-api-key",
+  "forwarded",
+  "remote-user",
+  ...HOP_BY_HOP,
+]);
+
+// Edge authentication belongs to the dashboard, never to a pane's dev server.
+function isIdentityHeader(name: string): boolean {
+  return /^(cf-access-|x-auth-|x-auth-request-|x-amzn-oidc-|x-forwarded-)/.test(name);
+}
+
+// A target may describe its document, but cannot clear dashboard storage,
+// install transport policy, or request HTTP authentication for our host.
+const OUTBOUND_DROP = new Set([
+  ...HOP_BY_HOP,
+  "set-cookie",
+  "x-frame-options",
+  "clear-site-data",
+  "www-authenticate",
+  "strict-transport-security",
+  "alt-svc",
+]);
 
 /** The 404 text. Deliberately about the link, never about the pane behind it. */
 const DEAD_LINK = "This preview link is no longer valid. Reopen the preview to get a fresh one.";
@@ -83,11 +106,18 @@ export function jarCookieHeader(jar: Map<string, string>): string {
   return [...jar.values()].join("; ");
 }
 
-/** Force one `Set-Cookie` to ride the session's proxy path, attributes kept. */
-function rewriteSetCookiePath(raw: string, ref: string): string {
-  const [pair, ...attributes] = raw.split(";");
-  const kept = attributes.filter((attr) => !/^\s*path\s*=/i.test(attr));
-  return `${pair?.trim() ?? ""}; Path=/pv/${ref}/${kept.length > 0 ? `; ${kept.map((a) => a.trim()).join("; ")}` : ""}`;
+/** Enforce the browser boundary on embedded documents and direct preview tabs. */
+export function isolatedPreviewHeaders(headers = new Headers()): Headers {
+  headers.append(
+    "content-security-policy",
+    "sandbox allow-scripts allow-forms allow-modals allow-downloads allow-popups; frame-ancestors 'self'",
+  );
+  headers.set("access-control-allow-origin", "*");
+  headers.set("access-control-allow-credentials", "false");
+  headers.set("referrer-policy", "no-referrer");
+  headers.set("cache-control", "no-store");
+  headers.set("x-content-type-options", "nosniff");
+  return headers;
 }
 
 /**
@@ -116,7 +146,7 @@ function outHeadersToWeb(pairs: [string, string][], jar: Map<string, string>, re
   const headers = new Headers();
   const setCookies = pairs.filter(([n]) => n === "set-cookie").map(([, v]) => v);
   for (const [name, value] of pairs) {
-    if (HOP_BY_HOP.has(name) || name === "set-cookie") continue;
+    if (OUTBOUND_DROP.has(name)) continue;
     if (name === "content-security-policy" || name === "content-security-policy-report-only") {
       headers.append(name, stripFrameAncestors(value));
     } else if (name === "location") {
@@ -127,9 +157,8 @@ function outHeadersToWeb(pairs: [string, string][], jar: Map<string, string>, re
   }
   if (setCookies.length > 0) {
     storeCookiesInJar(jar, setCookies);
-    for (const cookie of setCookies) headers.append("set-cookie", rewriteSetCookiePath(cookie, ref));
   }
-  return headers;
+  return isolatedPreviewHeaders(headers);
 }
 
 /**
@@ -145,6 +174,16 @@ async function proxyRequest(request: Request, sessionRef: string, rest: string):
   const broker = getPreviewBroker();
   const session = broker.sessionFor(sessionRef);
   if (!session) throw new HttpError(404, DEAD_LINK);
+
+  // Opaque-origin scripts need CORS for modules and fetch. The unguessable
+  // session path authorizes these reads; dashboard API CORS remains unchanged.
+  if (request.method === "OPTIONS" && request.headers.has("access-control-request-method")) {
+    const headers = isolatedPreviewHeaders();
+    headers.set("access-control-allow-methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS");
+    const requested = request.headers.get("access-control-request-headers");
+    if (requested) headers.set("access-control-allow-headers", requested);
+    return new Response(null, { status: 204, headers });
+  }
 
   let laneRef: string;
   try {
@@ -184,7 +223,7 @@ async function proxyRequest(request: Request, sessionRef: string, rest: string):
   ];
   for (const [name, value] of request.headers) {
     const lower = name.toLowerCase();
-    if (INBOUND_DROP.has(lower)) continue;
+    if (INBOUND_DROP.has(lower) || isIdentityHeader(lower)) continue;
     headers.push([lower, value]);
   }
   const jarCookie = jarCookieHeader(session.cookieJar);

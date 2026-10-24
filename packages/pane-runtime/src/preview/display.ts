@@ -121,6 +121,8 @@ export interface DisplayDeps {
   kill?: (pid: number, signal?: number | string) => void;
   /** Does `/tmp/.X11-unix/X<NN>` exist? Its own seam because `-nolisten tcp` leaves no port to bind-probe. */
   xSocketReady?: (displayNumber: number) => boolean;
+  /** Skip display numbers already used by another server or node data directory. */
+  displayOccupied?: (displayNumber: number) => boolean;
   /** Readiness budget; defaults to {@link DEFAULT_READY_BUDGET_MS}. */
   readyBudgetMs?: number;
 }
@@ -273,7 +275,7 @@ export class PreviewDisplays {
 
     const root = join(this.dataDir, "displays");
     mkdirSync(root, { recursive: true, mode: 0o700 });
-    const displayNumber = this.claimNumber(root);
+    const displayNumber = this.claimNumber(root, d.displayOccupied);
     const display = `:${displayNumber}`;
     const lockPath = join(root, `.display-${displayNumber}.lock`);
     const paneDir = join(root, paneId);
@@ -587,13 +589,16 @@ export class PreviewDisplays {
         d.kill ??
         ((pid: number, signal: number | string = "SIGTERM") => process.kill(pid, signal as NodeJS.Signals | 0)),
       xSocketReady: d.xSocketReady ?? socketExists,
+      displayOccupied:
+        d.displayOccupied ?? ((number: number) => socketExists(number) || existsSync(`/tmp/.X${number}-lock`)),
       readyBudgetMs: d.readyBudgetMs ?? DEFAULT_READY_BUDGET_MS,
     };
   }
 
   /** The `wx` claim loop: the kernel's exclusivity is the lock, :90..:199. */
-  private claimNumber(root: string): number {
+  private claimNumber(root: string, occupied: (number: number) => boolean): number {
     for (let candidate = DISPLAY_MIN; candidate <= DISPLAY_MAX; candidate++) {
+      if (occupied(candidate)) continue;
       const path = join(root, `.display-${candidate}.lock`);
       try {
         closeSync(openSync(path, "wx", 0o600));

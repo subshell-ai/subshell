@@ -165,6 +165,7 @@ function makeDeps(over: DepOverrides = {}) {
       if (signal !== 0) alivePids.delete(pid);
     },
     xSocketReady: () => over.xSocketReady ?? true,
+    displayOccupied: () => false,
     ...(over.readyBudgetMs === undefined ? {} : { readyBudgetMs: over.readyBudgetMs }),
   };
   const spawns = (): Array<Extract<DepCall, { kind: "spawn" }>> =>
@@ -213,6 +214,14 @@ const portsCmd = { type: "preview_ports_get", paneId: PANE } as Cmd<"preview_por
 /* ------------------------------------------------------------------ */
 
 describe("PreviewDisplays.openFor", () => {
+  it("skips display numbers used outside this data directory", async () => {
+    const { deps } = makeDeps();
+    deps.displayOccupied = (number) => number === 90 || number === 91;
+    const displays = new PreviewDisplays(onDir("external-display"), deps);
+    const screen = await displays.openFor(PANE, { width: 1280, height: 800 });
+    expect(screen.display).toBe(":92");
+    displays.closeFor(PANE);
+  });
   it("allocates :90/5910 with the EXACT argv and ORDER, 0700 dir, 0600 files, incremental display.json", async () => {
     const dataDir = onDir("happy");
     const displaysRoot = join(dataDir, "displays");

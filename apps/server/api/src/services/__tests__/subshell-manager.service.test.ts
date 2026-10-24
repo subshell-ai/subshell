@@ -1830,6 +1830,53 @@ describe("applyRemoteExit — shared death transition (idempotent against sweep 
     return cond();
   }
 
+  for (const action of ["terminate", "delete", "restart"] as const) {
+    it(`${action} revokes preview access before stopping the pane, without an exit hook`, async () => {
+      const nodeId = `explicit-${action}-preview`;
+      const off = nodeOnline(nodeId, []);
+      const f = remoteFixture();
+      previewBeltHarness();
+      const id = await seedNodeRow(nodeId, { alive: 1, presetId: null });
+      try {
+        const { ref } = await getPreviewBroker().openForward({
+          viewerUserId: "u-recon",
+          paneId: id,
+          nodeId,
+          port: 8080,
+        });
+        let stopped = false;
+        f.launcher.killSubshell = async () => {
+          expect(getPreviewBroker().sessionFor(ref)).toBeNull();
+          stopped = true;
+          if (action === "restart") throw new Error("stop test before revival");
+        };
+        // A foreign caller cannot revoke the owner's preview either.
+        if (action === "restart") {
+          expect(await f.manager.restartSubshell("foreign", id)).toBeNull();
+        } else if (action === "delete") {
+          expect(await f.manager.deleteSubshell("foreign", id)).toBe(false);
+        } else {
+          expect(await f.manager.terminateSubshell("foreign", id)).toBe(false);
+        }
+        expect(getPreviewBroker().sessionFor(ref)).not.toBeNull();
+        if (action === "restart") {
+          await expect(f.manager.restartSubshell("u-recon", id)).rejects.toThrow("stop test before revival");
+        } else if (action === "delete") {
+          await f.manager.deleteSubshell("u-recon", id);
+        } else {
+          await f.manager.terminateSubshell("u-recon", id);
+        }
+        expect(stopped).toBe(true);
+        expect(getPreviewBroker().sessionFor(ref)).toBeNull();
+        expect(await forwardCloseRows(id)).toHaveLength(1);
+      } finally {
+        off();
+        shutdownPreviewBrokerForTests();
+        await subshellsRepo.delete(id);
+      }
+    });
+  }
+
   it("a forward session closes with pane-gone when death lands WITHOUT the exit hook", async () => {
     const nodeId = "exit-node-preview-belt";
     const off = nodeOnline(nodeId, []);

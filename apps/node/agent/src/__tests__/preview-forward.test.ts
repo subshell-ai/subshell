@@ -225,6 +225,22 @@ const dataEvents = (events: PreviewLaneEvent[]): Extract<PreviewLaneEvent, { typ
 /* ------------------------------------------------------------------ */
 
 describe("(a) pending ack, off-chain dial (the ssh-relay A-branch contract)", () => {
+  it("keeps full capability references out of runtime diagnostics", () => {
+    const h = makeHarness("private-reference");
+    const ref = "0123456789abcdef0123456789abcdef";
+    const logs: string[] = [];
+    h.forward.openLane({
+      ref,
+      port: 4321,
+      paneId: PANE,
+      lifetimeMs: 60000,
+      hooks: { emit: () => {}, log: (line) => logs.push(line) },
+    });
+    h.forward.closeLane(ref, "viewer-left");
+    expect(logs.length).toBeGreaterThan(0);
+    expect(logs.every((line) => !line.includes(ref))).toBe(true);
+    expect(logs.some((line) => line.includes(ref.slice(0, 8)))).toBe(true);
+  });
   it("acks immediately, unblocks the next command, and a failed dial emits target-gone once", async () => {
     const h = makeHarness("ack-offchain");
     const exec = dispatchCommand(h.ctx, openCmd());

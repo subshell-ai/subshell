@@ -129,7 +129,9 @@ export function previewWsRoute(options: { preAckMaxBytes?: number } = {}) {
   return new Elysia({ name: "pv-ws" }).ws("/pv/:session/*", {
     async upgrade(context) {
       const { request, params } = context as { request: Request; params: Record<string, string> };
-      if (!browserOriginAllowed(request)) {
+      // Sandboxed preview documents have an opaque Origin. This exception
+      // belongs only to capability-bound preview tunnels, never dashboard WS.
+      if (request.headers.get("origin") !== "null" && !browserOriginAllowed(request)) {
         throw new HttpError(403, "This request came from an untrusted origin.");
       }
       const broker = getPreviewBroker();
