@@ -238,18 +238,18 @@ describe("the Screen control", () => {
         isPhone={false}
       />,
     );
-    expect(screen.queryByRole("button", { name: "Screen" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "View screen" })).toBeNull();
     cleanup();
     render(<PreviewSection paneId="pane1" access="edit" preview={controller()} isPhone={false} />);
-    expect(screen.getByRole("button", { name: "Screen" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "View screen" })).toBeTruthy();
   });
 
   it("enabled-ness follows edit", () => {
     render(<PreviewSection paneId="pane1" access="edit" preview={controller()} isPhone={false} />);
-    expect(screen.getByRole("button", { name: "Screen" }).matches(":disabled, [aria-disabled=true]")).toBe(false);
+    expect(screen.getByRole("button", { name: "View screen" }).matches(":disabled, [aria-disabled=true]")).toBe(false);
     cleanup();
     render(<PreviewSection paneId="pane1" access="view" preview={controller()} isPhone={false} />);
-    const gated = screen.getByRole("button", { name: "Screen" });
+    const gated = screen.getByRole("button", { name: "View screen" });
     expect(gated.matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(gated.getAttribute("aria-description")).toBe(SCREEN_VIEW_REASON);
   });
@@ -263,7 +263,7 @@ describe("the Screen control", () => {
         isPhone={false}
       />,
     );
-    const screenButton = screen.getByRole("button", { name: "Screen" });
+    const screenButton = screen.getByRole("button", { name: "View screen" });
     expect(screenButton.matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(screenButton.getAttribute("aria-description")).toBe(nodeReasonLine("preview-disabled"));
   });
@@ -281,7 +281,7 @@ describe("the Screen control", () => {
       },
     });
     render(<PreviewSection paneId="pane1" access="edit" preview={preview} isPhone={false} />);
-    fireEvent.click(screen.getByRole("button", { name: "Screen" }));
+    fireEvent.click(screen.getByRole("button", { name: "View screen" }));
     await waitFor(() => expect(opens).toEqual([5901]));
     expect(opens).toHaveLength(1);
     // The answer's proxyBase is the tunnel root the viewer dials, and the
@@ -330,9 +330,9 @@ describe("teardown on the paths that keep the instance alive", () => {
       openPort: async (port) => ({ proxyBase: port === 5901 ? "/pv/screen-ref/" : "/pv/port-ref/" }),
     });
     const view = render(<PreviewSection paneId="paneA" access="edit" preview={preview} isPhone={false} />);
-    fireEvent.click(screen.getByRole("button", { name: "Screen" }));
+    fireEvent.click(screen.getByRole("button", { name: "View screen" }));
     await waitFor(() => expect(viewerAlive()).toBe(true));
-    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open app" }));
     await waitFor(() => expect(screen.getByText("Port 8080")).toBeTruthy());
     view.rerender(<PreviewSection paneId="paneB" access="edit" preview={preview} isPhone={false} />);
     expect(viewerAlive()).toBe(false);
@@ -348,8 +348,8 @@ describe("teardown on the paths that keep the instance alive", () => {
       openPort: () => new Promise((resolve) => void resolvers.push(resolve)),
     });
     const view = render(<PreviewSection paneId="paneA" access="edit" preview={preview} isPhone={false} />);
-    fireEvent.click(screen.getByRole("button", { name: "Screen" }));
-    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    fireEvent.click(screen.getByRole("button", { name: "View screen" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open app" }));
     expect(resolvers).toHaveLength(2);
     view.rerender(<PreviewSection paneId="paneB" access="edit" preview={preview} isPhone={false} />);
     await act(async () => {

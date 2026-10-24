@@ -129,9 +129,10 @@ export function ScreenViewer({ display, proxyBase, onClose }: ScreenViewerProps)
   }
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-border bg-background p-3">
-      <div className="flex items-center justify-between gap-3">
-        <span className="font-strong text-label">Virtual display {display}</span>
+    <div className="flex min-h-0 flex-1 flex-col gap-2 rounded-md border border-border bg-background p-3">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
+        <span className="font-strong text-label">Screen preview</span>
+        <span className="text-detail text-muted-foreground">Virtual display {display}</span>
         {endLine === null ? (
           <Button variant="outline" size="sm" onClick={handleDisconnect}>
             Disconnect
@@ -145,7 +146,7 @@ export function ScreenViewer({ display, proxyBase, onClose }: ScreenViewerProps)
       {endLine !== null ? (
         <p className="text-detail text-muted-foreground">{endLine}</p>
       ) : (
-        <div ref={hostRef} className="h-[60vh] w-full overflow-auto rounded border border-border bg-background" />
+        <div ref={hostRef} className="min-h-0 w-full flex-1 overflow-auto rounded border border-border bg-background" />
       )}
     </div>
   );

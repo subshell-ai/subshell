@@ -10,10 +10,16 @@ opens a new port on your machines.
 
 ## Before you start
 
+Choose **Preview** below a subshell’s terminal in its workspace to see its
+ports and screens. You can hide it again to give the terminal more room.
+
 Preview is off until you turn it on for a node. Open the node's page, find the
 **Preview** card, and turn on **Allow preview**. Only the node's owner can
 change it (an admin can, on the server's own machine). Turning it off stops new
 previews; the machine keeps running its panes.
+
+The server’s own node supports Preview too. Its **Allow preview** setting
+is managed by an admin on the same Nodes page.
 
 Viewing needs at least view access to the subshell, and opening ports or
 screens needs edit access, same as typing into the pane does.
@@ -21,28 +27,29 @@ screens needs edit access, same as typing into the pane does.
 ## Open a port the pane opened
 
 When a pane starts a web server, the port shows up in the **Preview** section
-under the terminal. Choose **Open** and the app appears in a panel inside your
-dashboard, proxied to you as if it were local. Choose a port the pane is
+in its workspace. Choose **Open app** and the app appears in a panel inside your
+dashboard, proxied to you as if it were local. Choose **Full screen** for more
+room, or **Open in new tab** to use a separate tab. Choose a port the pane is
 actually listening on. Only ports the node reports can be opened.
 
 ## Watch a browser pane
 
 If the pane runs a browser with remote debugging turned on (Chrome and Chromium
 use `--remote-debugging-port` for it), the browser's port appears with a
-**Watch** button. Press it and the pane's browser pages stream into the panel as
+**Watch browser** button. Press it and the pane's browser pages stream into the panel as
 frames, so you can see what the agent is seeing. Stop it the same way, and stop
 it when you're done. Watching is a live look, not a recording.
 
 ## Screen, on Linux
 
 A pane launched with the **Virtual display** option gets its own screen on the
-node. In the Preview section, choose **Screen** and the pane's display appears
+node. In the Preview section, choose **View screen** and the pane's display appears
 in the panel, updating live. This needs the machine to have Xvfb, x11vnc, and
 xauth installed. Without them the launch says so, by name.
 
 macOS nodes refuse the screen and browser-watch sides of preview the same way.
-The Preview section tells you the machine doesn't support it, and that's the
-expected answer there. Forwarded ports still work on mac.
+The Preview section explains that automatic port discovery and browser
+watching aren’t supported there. Virtual displays are available on Linux only.
 
 ## If an app rejects the proxied host
 
@@ -54,7 +61,6 @@ app's `allowedHosts`-style option to accept the address it reports instead.
 
 ## On a phone
 
-The preview panel is desktop furniture. On a phone layout, **Open** sends the
-port to a new browser tab, and Watch still streams frames. The **Screen**
-control sits disabled there, because it lives in the panel and a phone does not
-show one; Watch is the verb to reach for.
+On a phone, choose **Open app**, then follow the link to open the prepared
+preview in a new browser tab. **Watch browser** still streams frames.
+**View screen** needs a larger screen.

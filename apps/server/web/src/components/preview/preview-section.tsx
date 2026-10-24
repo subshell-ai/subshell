@@ -1,4 +1,5 @@
-import { errMessage } from "@internal/node-admin";
+import { Button, cn, errMessage } from "@internal/node-admin";
+import { Link } from "@tanstack/react-router";
 import { type JSX, useEffect, useMemo, useRef, useState } from "react";
 import { OpenPanel } from "@/components/preview/open-panel";
 import { nodeReasonLine, PortList } from "@/components/preview/port-list";
@@ -38,11 +39,12 @@ export interface PreviewSectionProps {
   preview: UseSubshellPreview;
   /**
    * The dock's phone predicate, overridable for the tests: on a phone the
-   * Open panel never renders and Open goes straight to a new tab.
+   * Open panel never renders; a prepared preview opens through a new-tab link.
    */
   isPhone?: boolean;
   /** Test seam for the banner's dwell, passed straight through. */
   bannerVisibleMs?: number;
+  onHide?: () => void;
 }
 
 /**
@@ -81,6 +83,7 @@ export function PreviewSection({
   preview,
   isPhone,
   bannerVisibleMs,
+  onHide,
 }: PreviewSectionProps): JSX.Element {
   const phoneDefault = useIsPhoneLayout();
   const phone = isPhone ?? phoneDefault;
@@ -88,6 +91,21 @@ export function PreviewSection({
   // The open screen session: the display is kept from the answer so a later
   // info poll that reports the display gone cannot retitle the live viewer.
   const [screenSession, setScreenSession] = useState<{ display: string; proxyBase: string } | null>(null);
+  const sectionRef = useRef<HTMLElement>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  useEffect(() => {
+    const onChange = () => setFullscreen(document.fullscreenElement === sectionRef.current);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  async function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement === sectionRef.current) await document.exitFullscreen();
+      else await sectionRef.current?.requestFullscreen();
+    } catch {
+      setOpenError("Couldn't enter full screen. Try opening the app in a new tab for more room.");
+    }
+  }
   const [openError, setOpenError] = useState<string | null>(null);
   const info = preview.info;
   const notice = useMemo(() => previewSharedNotice(subshell), [subshell]);
@@ -119,12 +137,6 @@ export function PreviewSection({
     try {
       const { proxyBase } = await preview.openPort(port);
       if (generation.current !== gen) return;
-      if (phone) {
-        // The panel is traded for tabs here, exactly like the dock: the lane
-        // is real, it just opens somewhere with room for it.
-        window.open(proxyBase, "_blank", "noopener");
-        return;
-      }
       setOpen({ port, proxyBase });
     } catch (err) {
       // The named refusal (the caps, the stale node answer) renders as asked.
@@ -158,8 +170,10 @@ export function PreviewSection({
   // The info poll is what carries a vanished browser (spec §5): the named
   // state renders beside the canvas, and the canvas stays where it was.
   const browserGone = preview.watching && info != null && info.cdpPort === null;
+  const hasViewer = Boolean((open && !phone) || screenSession || preview.watching);
   const nothingToPreview =
     info?.nodeEnabled &&
+    !info.reason &&
     info.ports.length === 0 &&
     info.screen === null &&
     info.screenLost === undefined &&
@@ -168,10 +182,34 @@ export function PreviewSection({
   return (
     <section
       aria-label="Preview"
-      className="flex max-h-[45vh] shrink-0 flex-col gap-3 overflow-y-auto border-border border-t bg-card p-4"
+      ref={sectionRef}
+      className={cn(
+        "flex min-h-0 shrink-0 flex-col gap-3 border-border border-t bg-card p-3",
+        hasViewer ? "h-[55%] max-h-[85%] min-h-40 resize-y overflow-hidden" : "max-h-[45%] overflow-y-auto",
+        "[&:fullscreen]:h-screen [&:fullscreen]:max-h-none [&:fullscreen]:resize-none",
+      )}
     >
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 flex-wrap items-center gap-3">
         <h2 className="font-strong text-label">Preview</h2>
+        <Button variant="ghost" size="sm" onClick={preview.refresh}>
+          Refresh
+        </Button>
+        {hasViewer && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void toggleFullscreen()}
+            disabled={!sectionRef.current?.requestFullscreen}
+            disabledReason="Your browser doesn't support full screen."
+          >
+            {fullscreen ? "Exit full screen" : "Full screen"}
+          </Button>
+        )}
+        {onHide && (
+          <Button variant="ghost" size="sm" onClick={onHide} aria-expanded={true}>
+            Hide preview
+          </Button>
+        )}
         {preview.infoLoading && info === undefined && (
           <span className="text-detail text-muted-foreground">Checking what the pane offers…</span>
         )}
@@ -182,19 +220,32 @@ export function PreviewSection({
       {/* The switch's remedy line: the info answer is always the full shape,
           so a switched-off node says so in words rather than showing a blank
           list that reads as "nothing is listening". */}
-      {info && !info.nodeEnabled && <p className="text-detail text-muted-foreground">{nodeReasonLine(info.reason)}</p>}
+      {info && (!info.nodeEnabled || info.reason) && (
+        <p className="text-detail text-muted-foreground">{nodeReasonLine(info.reason)}</p>
+      )}
 
+      {info?.reason === "preview-disabled" && subshell && (
+        <Link
+          to="/nodes/$id"
+          params={{ id: subshell.nodeId ?? "local" }}
+          className="text-detail text-primary underline"
+        >
+          Open node settings
+        </Link>
+      )}
       {info && (
-        <PortList
-          info={info}
-          access={access}
-          watching={preview.watching}
-          onOpen={(port) => void handleOpen(port)}
-          onWatch={() => void preview.startWatch(info.cdpPort ?? undefined)}
-          onStopWatch={() => void preview.stopWatch()}
-          onScreen={() => void handleScreen()}
-          phone={phone}
-        />
+        <details open={!open && !screenSession && !preview.watching} className="shrink-0">
+          <summary className="cursor-pointer text-detail text-muted-foreground">Ports and screens</summary>
+          <PortList
+            info={info}
+            access={access}
+            watching={preview.watching}
+            onOpen={(port) => void handleOpen(port)}
+            onWatch={() => void preview.startWatch(info.cdpPort ?? undefined)}
+            onScreen={() => void handleScreen()}
+            phone={phone}
+          />
+        </details>
       )}
 
       {nothingToPreview && (
@@ -217,19 +268,15 @@ export function PreviewSection({
         </p>
       )}
 
-      {/* Watch renders on every layout. The row's Stop control left with the
-          browser row when the poll said the CDP port vanished, so the canvas
-          holds the stop itself in exactly that case. */}
-      {preview.watching && (
-        <WatchViewer
-          paneId={paneId}
-          gone={browserGone}
-          onStop={browserGone ? () => void preview.stopWatch() : undefined}
-        />
-      )}
+      {/* Keep Stop beside the picture when its port row is collapsed or disappears. */}
+      {preview.watching && <WatchViewer paneId={paneId} gone={browserGone} onStop={() => void preview.stopWatch()} />}
 
-      {/* Desktop-first by the mobile rule in spec §7: the panel simply does
-          not render on a phone layout. */}
+      {open && phone && (
+        <a href={open.proxyBase} target="_blank" rel="noreferrer" className="text-label text-primary underline">
+          Open port {open.port} in new tab
+        </a>
+      )}
+      {/* A real link keeps phone navigation inside a user gesture even after a slow request. */}
       {open && !phone && <OpenPanel port={open.port} proxyBase={open.proxyBase} onClose={() => setOpen(null)} />}
 
       {/* The Screen viewer is a panel too, so it follows the same mobile rule.

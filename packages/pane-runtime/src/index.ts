@@ -113,6 +113,10 @@ export {
   uninstallPlugin,
 } from "./plugins-dir.js";
 export { prepareInstalledPlugins, seedBuiltIns } from "./plugins-seed.js";
+export * from "./preview/cdp-bridge.js";
+export * from "./preview/display.js";
+export * from "./preview/forward.js";
+export * from "./preview/ports.js";
 export {
   deliverPromptInto,
   type PromptDeliveryOptions,

@@ -530,3 +530,15 @@ remain authoritative. SSH imports carry the exported destination as the
 expected destination while resolving their saved alias; never silently follow
 an alias to another host. The file limit is 1 MiB. Keep validation, exports,
 and the public guide aligned when adding a field or version.
+
+## Preview in subshells
+
+Workspace panes expose Preview below their terminal. It opens on demand and
+releases watch subscriptions when hidden or moved to a background tab, while
+the terminal stays mounted. The standalone subshell route uses the same
+PreviewSection. App and screen viewers fill the available preview area, which
+can be resized or put into full screen without remounting the viewer. Phone
+app previews prepare a real new-tab link after the request, avoiding popup
+blocking. The launch form checks the selected machine's platform and Preview
+setting before offering Virtual display, and clears it when a new machine
+cannot support it.

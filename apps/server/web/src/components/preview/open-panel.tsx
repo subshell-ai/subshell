@@ -20,9 +20,10 @@ export interface OpenPanelProps {
 
 export function OpenPanel({ port, proxyBase, onClose }: OpenPanelProps): JSX.Element {
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-border bg-background p-3">
-      <div className="flex items-center justify-between gap-3">
-        <span className="font-strong text-label">Port {port}</span>
+    <div className="flex min-h-0 flex-1 flex-col gap-2 rounded-md border border-border bg-background p-3">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
+        <span className="font-strong text-label">App preview</span>
+        <span className="text-detail text-muted-foreground">Port {port}</span>
         <div className="flex items-center gap-1">
           <a
             href={proxyBase}
@@ -41,7 +42,7 @@ export function OpenPanel({ port, proxyBase, onClose }: OpenPanelProps): JSX.Ele
       <iframe
         title={`Preview of port ${port}`}
         src={proxyBase}
-        className="h-[60vh] w-full rounded border border-border bg-background"
+        className="min-h-0 w-full flex-1 rounded border border-border bg-background"
         // The forwarded lane is the pane's own protocol; the CSP carve-out
         // for `/pv/` frames is the server's (spec §7, §8).
       />

@@ -32,11 +32,13 @@ export const SCREEN_VIEW_REASON = "Screen preview needs edit access to this subs
  * serves, so the reason says the frames are still there.
  */
 export const SCREEN_PHONE_REASON =
-  "Screen preview needs the panel, and phones do not have one. Watch still streams frames here.";
+  "View screen is available on larger screens. You can still watch browser frames on this phone.";
 
 /** The remedy line per plane-side reason word, for rows shown while the node cannot serve. */
 export function nodeReasonLine(reason: string | undefined): string {
   switch (reason) {
+    case "preview-ports-unsupported":
+      return "This machine doesn’t support automatic port discovery or browser watching. Virtual screens need Linux.";
     case "preview-disabled":
       return "Preview is switched off on this node. Its owner can turn it on in node settings.";
     case "node-held":
@@ -59,7 +61,6 @@ export interface PortListProps {
   watching: boolean;
   onOpen: (port: number) => void;
   onWatch: () => void;
-  onStopWatch: () => void;
   /** The Screen verb: open the raw lane on the display's RFB port. */
   onScreen: () => void;
   /** The phone layout: the panel does not render there, so Screen loses its host. */
@@ -72,7 +73,6 @@ export function PortList({
   watching,
   onOpen,
   onWatch,
-  onStopWatch,
   onScreen,
   phone,
 }: PortListProps): JSX.Element | null {
@@ -105,7 +105,7 @@ export function PortList({
               <span className="font-strong text-label">
                 {p.port}{" "}
                 <Badge variant="secondary" className="ml-1 text-detail">
-                  {browser ? "browser-debug" : "server"}
+                  {browser ? "Browser" : "Port"}
                 </Badge>
               </span>
               <span className="text-detail text-muted-foreground">
@@ -120,13 +120,11 @@ export function PortList({
                 disabledReason={openReason}
                 onClick={() => onOpen(p.port)}
               >
-                Open
+                Open app
               </Button>
               {browser &&
                 (watching ? (
-                  <Button variant="outline" size="sm" onClick={onStopWatch}>
-                    Stop
-                  </Button>
+                  <Badge variant="secondary">Watching</Badge>
                 ) : (
                   <Button
                     variant="outline"
@@ -135,7 +133,7 @@ export function PortList({
                     disabledReason={watchReason}
                     onClick={onWatch}
                   >
-                    Watch
+                    Watch browser
                   </Button>
                 ))}
             </div>
@@ -168,7 +166,7 @@ export function PortList({
             disabledReason={screenReason}
             onClick={onScreen}
           >
-            Screen
+            View screen
           </Button>
         </div>
       )}
