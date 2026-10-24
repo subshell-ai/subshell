@@ -34,6 +34,7 @@ import {
   resolveAddPosition,
 } from "@/lib/workspace-layout";
 import {
+  flushWorkspaceScreen,
   onWorkspacePreviewRequest,
   previewPanelId,
   previewParentId,
@@ -209,20 +210,23 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
 
   useEffect(
     () =>
-      onWorkspacePreviewRequest((subshellId) => {
+      onWorkspacePreviewRequest((subshellId, view) => {
         const pane = panesRef.current.find((row) => row.subshellId === subshellId);
         const api = apiRef.current;
         if (!pane || !api) return false;
         const id = previewPanelId(pane.id);
         const existing = api.getPanel(id);
-        if (existing) existing.api.setActive();
-        else
+        const screenRequest = view === "screen" ? { requestedView: "screen", viewRequest: crypto.randomUUID() } : {};
+        if (existing) {
+          if (view) existing.api.updateParameters(screenRequest);
+          existing.api.setActive();
+        } else
           api.addPanel<DockedPaneParams>({
             id,
             component: "preview",
             title: `${pane.subshellName} · Preview`,
             renderer: "always",
-            params: { paneId: pane.id },
+            params: { paneId: pane.id, ...screenRequest },
             position: { referencePanel: pane.id, direction: "within" },
           });
         publishFocus();
@@ -230,6 +234,10 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
       }),
     [publishFocus],
   );
+
+  useEffect(() => {
+    if (ready) flushWorkspaceScreen();
+  }, [ready]);
 
   const setSearchAddon = useCallback((paneId: string, addon: SearchAddon | null) => {
     setSearchAddons((prev) => {
@@ -381,6 +389,7 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
     // after `handleAdd`, the active panel's pane row exists only NOW, and
     // without this the header would sit on its workspace-name fallback.
     publishFocus();
+    flushWorkspaceScreen();
   }, [detail.panes, addPanel, publishFocus]);
 
   const { addPane, removePane, restartSubshell } = useWorkspacePaneMutations(detail.workspace.id);

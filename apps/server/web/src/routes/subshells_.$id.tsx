@@ -30,6 +30,7 @@ import { useHarnessSubagents } from "@/hooks/use-harness-subagents";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
 import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
 import { useNodes } from "@/hooks/use-nodes";
+import { useOpenVirtualDisplay } from "@/hooks/use-open-virtual-display";
 import { useSwipeOrderedSubshells } from "@/hooks/use-ordered-subshells";
 import { usePaneCopyMode } from "@/hooks/use-pane-copy-mode";
 import { usePresets } from "@/hooks/use-presets";
@@ -123,6 +124,7 @@ function SubshellPage() {
   // a failed background refresh keeps the cache, and relabeling resolved
   // names on a blip is the bug that shape caused once.
   const { data: nodesData } = useNodes();
+  const openVirtualDisplay = useOpenVirtualDisplay(subshell);
   const nodeLabel = useMemo(() => {
     if (!subshell) return null;
     const nodeId = subshell.nodeId || FALLBACK_NODE_ID;
@@ -342,7 +344,7 @@ function SubshellPage() {
                     off (spec 2026-10-07 §5.4). The badge is the label; the
                     enforcement is the server's access downgrade the terminal
                     already honours. */}
-                <VirtualDisplayIndicator display={subshell?.virtualDisplay} />
+                <VirtualDisplayIndicator display={subshell?.virtualDisplay} onOpen={openVirtualDisplay} />
                 <SshPaneLabels subshell={subshell} nodeLabel={nodeLabel} />
                 {/* Permanent disclosure: whose machine this runs on, and who
                     else can read it. Never suppressible — see

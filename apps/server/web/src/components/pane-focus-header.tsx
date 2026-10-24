@@ -16,6 +16,7 @@ import { useHarnessSubagents } from "@/hooks/use-harness-subagents";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
 import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
 import { useNodes } from "@/hooks/use-nodes";
+import { useOpenVirtualDisplay } from "@/hooks/use-open-virtual-display";
 import { usePaneCopyMode } from "@/hooks/use-pane-copy-mode";
 import { usePaneDevices } from "@/hooks/use-pane-devices";
 import { useSubshellRow } from "@/hooks/use-subshell-row";
@@ -86,6 +87,7 @@ export function PaneFocusHeader({
   const focusedId = useWorkspaceFocusedId();
   const focusedPane = panes.find((pane) => pane.subshellId === focusedId);
   const subshell = useSubshellRow(focusedPane?.subshellId ?? "");
+  const openVirtualDisplay = useOpenVirtualDisplay(subshell);
   const devices = usePaneDevices(focusedPane?.id);
   const trustNotices = useTrustNotices(focusedPane ? subshell : undefined);
   const stacked = useIsStackedHeader();
@@ -156,7 +158,7 @@ export function PaneFocusHeader({
       }
       actions={
         <>
-          {isPane && <VirtualDisplayIndicator display={subshell?.virtualDisplay} />}
+          {isPane && <VirtualDisplayIndicator display={subshell?.virtualDisplay} onOpen={openVirtualDisplay} />}
           {isPane && subshell && <SshPaneLabels subshell={subshell} nodeLabel={nodeLabel} />}
           {isPane && <TrustIndicators notices={trustNotices} />}
           {devices && <SubshellDevices key={focusedPane?.id} state={devices.state} onSizing={devices.onSizing} />}
