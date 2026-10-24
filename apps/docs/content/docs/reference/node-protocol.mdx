@@ -219,6 +219,8 @@ A forward command contains a port, not an arbitrary hostname. Frame references
 are bound to the authenticated node on receipt. The server's HTTP/WS proxy
 uses separate per-connection lanes beneath a browser capability URL, and browser
 watch frames are delivered only to authorized live-feed subscriptions.
+CDP discovery refuses HTTP redirects, caps discovery JSON at 256 KiB, and
+requires the returned WebSocket to stay on the requested loopback port.
 
 Raw preview payloads are capped at 256 KiB per frame, lane buffering at 1 MiB,
 active forward lanes at four per subshell, and active lanes plus bridges at

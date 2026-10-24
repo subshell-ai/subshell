@@ -70,6 +70,54 @@ users were not exhaustively tested. Accepted bearer-link, loopback RFB,
 execution-account, cookie-jar, and resource-usage limits are stated in
 [security §11.15](security.md#1115-preview-apps-browsers-and-virtual-displays).
 
+## Preview follow-up audit: 2026-10-24
+
+A second implementation review tested the asynchronous open and revocation
+paths, CDP destinations, proxy parsers, and target-controlled browser policy.
+It reproduced and corrected four further boundaries:
+
+1. **High: revocation missed opens waiting for node acknowledgement.** The
+   broker registered sessions only after the RPC completed. An app or watch
+   could therefore finish opening after share removal, account disable,
+   subshell teardown, or node loss had swept the registered sessions. Eight
+   held-ack regressions failed before the fix. Pending opens now participate in
+   those sweeps, recheck account/access/liveness/node availability before
+   publication, and close late node registrations. Explicit lifecycle actions
+   sweep again after the old row is retired or parked, covering opens that
+   arrived while the process was stopping.
+
+2. **High: CDP answers could redirect discovery or repoint a watch at another
+   loopback browser.** `/json/version` and `/json/list` followed HTTP redirects;
+   the returned WebSocket URL needed only a loopback hostname. Discovery now
+   refuses redirects, caps JSON at 256 KiB, and aborts on timeout or cancellation.
+   A WebSocket URL must retain the requested port, use WS/WSS, and contain no
+   credentials or fragment. The localhost alias is normalized to a literal
+   loopback address. Pending handshakes count toward node capacity and can be
+   cancelled individually.
+
+3. **Medium: target responses could grow proxy memory beyond lane budgets.**
+   HTTP chunk parsing buffered whole declared chunks, the browser response
+   queue and unread duplex had no byte cap, and the upstream WebSocket receiver
+   accepted unbounded fragmented messages. HTTP chunks now stream incrementally;
+   queues, unread lane bytes, browser WS debt, and WS messages are capped at
+   1 MiB. Malformed framing and truncated bodies fail without retrying writes.
+   Cookie jars retain at most 128 entries and 64 KiB, with a 4 KiB cookie limit.
+   Target Content-Length is dropped so the proxy controls browser framing.
+
+4. **Medium: target reporting headers could persist policy for the dashboard
+   origin.** NEL, Report-To, Reporting-Endpoints, Accept-CH, and Critical-CH now
+   join the response-header denylist. A dev server cannot use those headers to
+   enroll the dashboard in its network-error reporting or client-hint policy.
+
+Regressions exercise late acknowledgements after each revocation, changed
+access at publication, redirects without destination contact, foreign loopback
+CDP ports, oversized discovery JSON, slow HTTP readers, huge chunk declarations,
+malformed/truncated framing, fragmented WebSocket limits, cookie eviction, and
+response-header filtering. The Chromium and enrolled-node preview checks remain
+the end-to-end coverage for ordinary traffic. The original audit's scope and
+remaining trust boundaries still apply; this does not claim general denial-of-service
+protection or OS-user isolation.
+
 ## Targeted code audit: 2026-10-21
 
 This pass reviewed authentication and scoped credentials, node enrollment and

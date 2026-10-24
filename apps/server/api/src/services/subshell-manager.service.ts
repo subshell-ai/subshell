@@ -1049,6 +1049,9 @@ export class SubshellManagerService {
         logger.info(`subshell restart abandoned (terminate/delete raced): ${source.id}`);
         return null;
       }
+      // Catch opens that arrived while the old pane was stopping. The parked
+      // row now rejects opens until revival completes.
+      await getPreviewBroker().closeForPane(source.id, "pane-gone");
       const parked = await this.#subshells.findById(source.id);
       if (!parked) return null; // deleted between park and re-read
       let revived: boolean;
@@ -1139,6 +1142,7 @@ export class SubshellManagerService {
     // `terminated` there is no transition left to claim.
     const stopped = (await this.#subshells.updateIfAlive(id, { alive: 0 })) > 0;
     await this.#subshells.markTerminated(id, new Date().toISOString());
+    await getPreviewBroker().closeForPane(id, "pane-gone");
     publishLive({ kind: "subshell.changed", id });
     // Teardown must finish even when the token store is down: a failed revoke
     // unlinks apiKeyId (guard 401s the key) so the audit event below still lands.
@@ -1235,6 +1239,7 @@ export class SubshellManagerService {
       return [] as string[];
     });
     await this.#subshells.delete(id);
+    await getPreviewBroker().closeForPane(id, "pane-gone");
     // The pane's row is gone, so its tab rows cascaded with it. The OWNER's
     // workspaces THIS emptied retire too (spec 2026-10-17: a workspace exists
     // exactly as long as it holds a tab), and only the ones it emptied — an

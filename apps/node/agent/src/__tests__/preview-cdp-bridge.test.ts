@@ -440,6 +440,60 @@ describe("(b) the ack is unconditional, the emission is throttled", () => {
 /* ------------------------------------------------------------------ */
 
 describe("(c) not-cdp", () => {
+  it("counts and cancels a handshake while discovery is still pending", async () => {
+    let release: () => void = () => {};
+    const discovery = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const outcome = startBridge({
+      ref: refFor(901),
+      cdpPort: 9222,
+      fps: 5,
+      lifetimeMs: 60000,
+      emitStream: () => {},
+      emitClosed: () => {},
+      deps: {
+        fetch: async () => {
+          await discovery;
+          return { ok: true, status: 200, json: async () => [] };
+        },
+      },
+    }).then(
+      () => "opened",
+      () => "cancelled",
+    );
+    expect(bridgeCount()).toBe(1);
+    expect(stopBridge(refFor(901), "revoked")).toBe(true);
+    expect(await outcome).toBe("cancelled");
+    expect(bridgeCount()).toBe(0);
+    release();
+  });
+
+  it("refuses another loopback browser port returned by a discovered endpoint", async () => {
+    const foreign = new FakeCdp();
+    const source = new FakeCdp({
+      targets: () => [{ type: "page", webSocketDebuggerUrl: `ws://127.0.0.1:${foreign.port()}/devtools/page/T1` }],
+    });
+    try {
+      await expect(
+        startBridge({
+          ref: refFor(900),
+          cdpPort: source.port(),
+          fps: 5,
+          lifetimeMs: 60000,
+          emitStream: () => {},
+          emitClosed: () => {},
+        }),
+      ).rejects.toThrow("not-cdp");
+      expect(foreign.sockets).toHaveLength(0);
+      expect(bridgeCount()).toBe(0);
+    } finally {
+      bridgeCloseAll("viewer-left");
+      source.stop();
+      foreign.stop();
+    }
+  });
+
   it("a webSocketDebuggerUrl on a non-loopback host is refused without a dial", async () => {
     const cdp = new FakeCdp({
       targets: () => [{ type: "page", webSocketDebuggerUrl: "ws://9.9.9.9:9222/devtools/page/T1" }],

@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
+import { fetchCdpJson } from "./cdp-http.js";
 
 /**
  * Pane port discovery (pane-preview spec §4/§5, Task 4): what the pane's
@@ -113,11 +114,7 @@ export async function scanPanePorts(opts: ScanPanePortsOptions): Promise<PanePor
  */
 async function defaultCdpProbe(port: number): Promise<boolean> {
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/json/version`, {
-      signal: AbortSignal.timeout(CDP_PROBE_TIMEOUT_MS),
-    });
-    if (!res.ok) return false;
-    const body: unknown = await res.json();
+    const body = await fetchCdpJson(`http://127.0.0.1:${port}/json/version`, AbortSignal.timeout(CDP_PROBE_TIMEOUT_MS));
     return typeof body === "object" && body !== null && "Browser" in body;
   } catch {
     return false;

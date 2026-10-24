@@ -472,3 +472,6 @@ Preview's machine-local implementations live in
 nodes use the same discovery, forward, CDP, and display lifecycle code. The
 agent's `preview/` modules preserve its logging and file-backed opt-in gate.
 Build the shared runtime before testing changes through these wrappers.
+CDP discovery refuses redirects and bounds JSON before parsing. Its returned
+WebSocket URL must retain the requested loopback port; pending handshakes count
+toward capacity and must cancel their discovery fetch when closed or timed out.

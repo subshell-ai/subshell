@@ -1,4 +1,5 @@
 import type { Duplex } from "node:stream";
+import { PREVIEW_LANE_BUFFER_MAX_BYTES } from "@internal/subshell-protocol";
 import { LaneClosedError, LaneProtocolError, readLaneHead } from "@/preview/lane-wire.js";
 
 /**
@@ -54,15 +55,21 @@ function writeRequest(duplex: Duplex, init: LaneRequestInit): void {
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
+        if (duplex.destroyed) {
+          await reader.cancel();
+          return;
+        }
         if (value.byteLength === 0) continue;
         duplex.write(Buffer.from(`${value.byteLength.toString(16)}\r\n`, "latin1"));
         duplex.write(Buffer.from(value));
         duplex.write(Buffer.from("\r\n", "latin1"));
       }
     } catch {
-      // An aborted browser body cannot be half-sent honestly; the target will
-      // see an unterminated chunk stream and its own timeout decides. Closing
-      // the lane (the caller's teardown) cuts it at TCP level too.
+      // Never turn an interrupted upload into a valid, shorter request.
+      duplex.destroy();
+      return;
+    } finally {
+      reader.releaseLock();
     }
     duplex.write(Buffer.from("0\r\n\r\n", "latin1"));
   };
@@ -95,6 +102,7 @@ function streamBody(
 
   let acc: Buffer = tail;
   let done = false;
+  let chunkEnd = false;
   let chunkSize: number | null = null; // current chunked part; null = awaiting size line
   let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
 
@@ -111,6 +119,10 @@ function streamBody(
     }
   };
   const emit = (bytes: Buffer): void => {
+    if (bytes.byteLength > (controller?.desiredSize ?? 0)) {
+      fail("preview response exceeded the slow-reader buffer limit");
+      return;
+    }
     try {
       controller?.enqueue(new Uint8Array(bytes));
     } catch {
@@ -119,7 +131,7 @@ function streamBody(
   };
   const onData = (incoming: Buffer): void => {
     acc = acc.byteLength === 0 ? incoming : Buffer.concat([acc, incoming]);
-    for (;;) {
+    while (!done) {
       if (mode === "eof") {
         // Read to EOF means there is no framing: hand everything to the
         // consumer and let the lane close be the terminator.
@@ -143,14 +155,27 @@ function streamBody(
         if (remaining === 0) finish();
         return;
       }
-      // chunked
+      // Stream chunk data as it arrives; a declared chunk size never reserves memory.
+      if (chunkEnd) {
+        if (acc.byteLength < 2) return;
+        if (acc[0] !== 13 || acc[1] !== 10) {
+          fail("malformed chunk terminator");
+          return;
+        }
+        acc = acc.subarray(2);
+        chunkEnd = false;
+      }
       if (chunkSize === null) {
         const eol = acc.indexOf("\r\n");
+        if (eol > 8192 || (eol === -1 && acc.byteLength > 8192)) {
+          fail("chunk size line exceeds 8 KiB");
+          return;
+        }
         if (eol === -1) return;
         const sizeLine = acc.subarray(0, eol).toString("latin1").split(";")[0] ?? "";
         const size = Number.parseInt(sizeLine.trim(), 16);
         acc = acc.subarray(eol + 2);
-        if (Number.isNaN(size)) {
+        if (!/^[0-9a-f]+$/i.test(sizeLine) || !Number.isSafeInteger(size)) {
           fail("malformed chunk size");
           return;
         }
@@ -165,18 +190,21 @@ function streamBody(
         chunkSize = size;
         continue;
       }
-      if (acc.byteLength < chunkSize + 2) return; // wait for the chunk + its CRLF
-      emit(acc.subarray(0, chunkSize));
-      acc = acc.subarray(chunkSize + 2);
+      const take = Math.min(chunkSize, acc.byteLength);
+      if (take > 0) emit(acc.subarray(0, take));
+      acc = acc.subarray(take);
+      chunkSize -= take;
+      if (chunkSize > 0) return;
       chunkSize = null;
+      chunkEnd = true;
     }
   };
   const onClose = (): void => {
-    // A lane that dies mid-body truncates the stream (the consumer sees the
-    // close, not an exception: a POST may already have landed and the answer
-    // is a dead stream, not a retryable error).
+    // A truncated body is an error, not a complete response. This never
+    // retries the request: a POST may already have changed the target.
     acc = Buffer.alloc(0);
-    finish();
+    if (mode !== "eof" && !done) fail("preview response ended before its body was complete");
+    else finish();
   };
   const fail = (message: string): void => {
     if (done) return;
@@ -192,11 +220,18 @@ function streamBody(
   };
   duplex.on("data", onData);
   duplex.on("close", onClose);
-  const stream = new ReadableStream<Uint8Array>({
-    start(c) {
-      controller = c;
+  const stream = new ReadableStream<Uint8Array>(
+    {
+      start(c) {
+        controller = c;
+      },
+      cancel() {
+        acc = Buffer.alloc(0);
+        finish();
+      },
     },
-  });
+    { highWaterMark: PREVIEW_LANE_BUFFER_MAX_BYTES, size: (bytes) => bytes?.byteLength ?? 0 },
+  );
   if (mode === "length" && remaining === 0) finish();
   // The head reader handed us bytes past the head: drive the machine once so
   // they are not stranded in `acc` until the next arrival.

@@ -209,6 +209,11 @@ beforeAll(async () => {
             ["www-authenticate", 'Basic realm="dashboard"'],
             ["strict-transport-security", "max-age=31536000"],
             ["alt-svc", 'h3=":443"'],
+            ["nel", '{"report_to":"target","max_age":86400}'],
+            ["report-to", '{"group":"target","max_age":86400,"endpoints":[{"url":"https://collector.example"}]}'],
+            ["reporting-endpoints", 'target="https://collector.example"'],
+            ["accept-ch", "Sec-CH-UA-Platform-Version"],
+            ["critical-ch", "Sec-CH-UA-Platform-Version"],
           ],
         });
       }
@@ -375,7 +380,17 @@ describe("pv-http: the same-origin rewrite", () => {
     const ref = await openSession(targetPort);
     const res = await proxyFetch(`/pv/${ref}/cookie`);
     expect(res.headers.getSetCookie()).toEqual([]);
-    for (const name of ["clear-site-data", "www-authenticate", "strict-transport-security", "alt-svc"]) {
+    for (const name of [
+      "clear-site-data",
+      "www-authenticate",
+      "strict-transport-security",
+      "alt-svc",
+      "nel",
+      "report-to",
+      "reporting-endpoints",
+      "accept-ch",
+      "critical-ch",
+    ]) {
       expect(res.headers.get(name)).toBeNull();
     }
     expect(res.headers.get("content-security-policy")).toContain("sandbox allow-scripts");
