@@ -46,12 +46,12 @@ describe("SearchableSelect — group headers", () => {
     // Query only a grouped row: the group still has a member, so the header
     // is there even though t1 is filtered out (the surviving t2 opens the run).
     fireEvent.change(input, { target: { value: "ended" } });
-    await waitFor(() => expect(screen.queryByRole("option", { name: /Running one/ })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("option", { name: /Running one/ }) === null).toBe(true));
     expect(screen.getByRole("option", { name: /Another ended/ })).toBeDefined();
     expect(screen.getAllByText("Recently used")).toHaveLength(1);
     // Query an UNGROUPED row: no grouped member survives, so no orphan header.
     fireEvent.change(input, { target: { value: "Running" } });
-    await waitFor(() => expect(screen.queryByRole("option", { name: /Stopped job/ })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("option", { name: /Stopped job/ }) === null).toBe(true));
     expect(screen.getByRole("option", { name: /Running one/ })).toBeDefined();
     expect(screen.queryByText("Recently used")).toBeNull();
   });

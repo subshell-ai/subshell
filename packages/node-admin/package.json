@@ -33,7 +33,7 @@
     "tailwind-merge": "3.6.0"
   },
   "devDependencies": {
-    "@happy-dom/global-registrator": "20.11.13",
+    "@happy-dom/global-registrator": "21.0.4",
     "@internal/tsconfig": "workspace:*",
     "@tanstack/react-query": "5.101.4",
     "@tanstack/react-router": "1.170.30",

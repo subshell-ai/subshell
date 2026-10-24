@@ -54,7 +54,7 @@
     "zod": "4.6.6"
   },
   "devDependencies": {
-    "@happy-dom/global-registrator": "20.11.13",
+    "@happy-dom/global-registrator": "21.0.4",
     "@internal/tsconfig": "workspace:*",
     "@tailwindcss/vite": "4.3.3",
     "@tanstack/react-query-devtools": "5.101.4",

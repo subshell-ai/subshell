@@ -73,7 +73,7 @@ describe("EditableText", () => {
     const input = renderLine(async (v) => void saved.push(v));
     fireEvent.change(input, { target: { value: "discard me" } });
     fireEvent.keyDown(input, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("textbox")).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("textbox") === null).toBe(true));
     expect(saved).toEqual([]);
     expect(screen.getByRole("button", { name: "Rename workspace" })).toBeDefined();
   });
@@ -96,7 +96,7 @@ describe("EditableText", () => {
     const input = renderLine(async (v) => void saved.push(v));
     fireEvent.change(input, { target: { value: "Deck" } });
     fireEvent.keyDown(input, { key: "Enter" });
-    await waitFor(() => expect(screen.queryByRole("textbox")).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("textbox") === null).toBe(true));
     expect(saved).toEqual([]);
   });
 

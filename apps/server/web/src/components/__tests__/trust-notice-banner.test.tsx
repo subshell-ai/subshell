@@ -60,7 +60,7 @@ describe("TrustNoticeBanner", () => {
     // a loaded suite, then prove it beat the automatic path rather than
     // racing it.
     await waitFor(() => expect(noticeSeen("shared:s1:2:false")).toBe(true), { timeout: 4000 });
-    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull(), { timeout: 4000 });
+    await waitFor(() => expect(screen.queryByRole("alert") === null).toBe(true), { timeout: 4000 });
   }, 15_000);
 
   it("stays quiet for an exposure already seen on this device", () => {

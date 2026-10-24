@@ -140,7 +140,7 @@ describe("/login round-trip refusals", () => {
     // the clear-on-mount effect has had no other coverage — carried minor 4).
     await screen.findByText("Invalid email or password");
     expect(screen.queryByText("Old refusal")).toBeNull();
-    await waitFor(() => expect(screen.queryByRole("button", { name: /Signing in/ })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Signing in/ }) === null).toBe(true));
   });
 
   it("a fresh mount with no params paints no refusal line", async () => {

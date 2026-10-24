@@ -30,9 +30,16 @@ async function openReset(init: Parameters<typeof installFakeIpc>[0] = {}) {
   renderApp(<App />);
   await waitFor(() => expect(ipc?.callsTo("node_probe").length).toBeGreaterThan(0));
   fireEvent.click(screen.getByRole("button", { name: "Reset" }));
-  const dialog = await screen.findByRole("dialog", { name: "Reset everything?" });
+  // 5 s waits, and disappearance polled as a boolean: happy-dom 21 drives
+  // CSS transitions, so the dialog's first frames really do lag, and on
+  // bun 1.4.4 a failed `toBeNull()`/`findBy` wait serializes the whole DOM
+  // into the error and starves the very poll it is waiting on.
+  const dialog = await screen.findByRole("dialog", { name: "Reset everything?" }, { timeout: 5000 });
   // Finding the shell of the dialog does not mean its async deletion plan is ready.
-  await waitFor(() => expect(within(dialog).queryByText("Checking what this machine would delete…")).toBeNull());
+  await waitFor(
+    () => expect(within(dialog).queryByText("Checking what this machine would delete…") === null).toBe(true),
+    { timeout: 5000 },
+  );
   return { fake: ipc as FakeIpc, dialog };
 }
 
@@ -79,7 +86,7 @@ describe("the reset dialog", () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 0));
     });
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog") === null).toBe(true), { timeout: 5000 });
     // Ruling 2026-09-22 on the COMPLETED reset ("the app didn't restart to
     // the FTE", "Reset should mean EVERYTHING resets"): a success sends the
     // app to the beginning of the walk — the walk IS the receipt — so the
@@ -134,7 +141,7 @@ describe("the reset dialog", () => {
       gate.resolve({ ok: true, stdout: "reset complete", stderr: "" });
       await new Promise((r) => setTimeout(r, 0));
     });
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog") === null).toBe(true), { timeout: 5000 });
     expect(fake.callsTo("node_reset")).toEqual([{ typed: "devbox" }]);
   });
 
@@ -142,12 +149,12 @@ describe("the reset dialog", () => {
   // the CLI omits its `paths` block entirely when no config loaded.
   it("offers no reset at all on a machine that is not enrolled", async () => {
     await openReset({ handlers: { node_arm_reset: () => false } });
-    await screen.findByText(/not registered with a control plane/);
+    await screen.findByText(/not registered with a control plane/, {}, { timeout: 5000 });
     expect(screen.queryByText("Reset Everything")).toBeNull();
     // The modal's way out is its own: a Close button, and Escape works when
     // nothing is running.
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog") === null).toBe(true), { timeout: 5000 });
   });
 
   // A refused arm is an un-armed dialog: either way nothing is staged.
@@ -159,7 +166,7 @@ describe("the reset dialog", () => {
         },
       },
     });
-    await screen.findByText(/not registered with a control plane/);
+    await screen.findByText(/not registered with a control plane/, {}, { timeout: 5000 });
     expect(screen.queryByText("Reset Everything")).toBeNull();
   });
 
@@ -168,7 +175,7 @@ describe("the reset dialog", () => {
   it("cancels back to the standing section", async () => {
     await openReset({ handlers: { node_arm_reset: () => true } });
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog") === null).toBe(true), { timeout: 5000 });
     expect(screen.getByRole("heading", { name: "Control Plane" })).toBeTruthy();
   });
 

@@ -540,12 +540,20 @@ describe("backup and restore command policy", () => {
     }
   });
 
-  test("an offline SQLite reader in a real process prevents inode replacement", async () => {
+  test("a real process holding the database file open prevents inode replacement", async () => {
     const source = fixture("source");
     const helper = join(root, "reader.ts");
+    // The guard's contract is "any process holding an open descriptor on the
+    // file is found", so the fixture just holds one. It used to open the file
+    // through `bun:sqlite` with `readonly: true`, but since bun 1.4.4 an idle
+    // readonly connection retains no visible descriptor (measured 2026-10-23:
+    // the child's /proc/<pid>/fd carries only fds 0-4), so it proved nothing
+    // and the test went red in CI. A running server opens the database
+    // read-write, and that descriptor is always visible; a plain held fd is
+    // the honest stand-in for both runtimes.
     writeFileSync(
       helper,
-      'import { Database } from "bun:sqlite"; const db=new Database(process.argv[2], {readonly:true}); db.query("SELECT 1 FROM sample").get(); console.log("ready"); setInterval(()=>{},1000);',
+      'import { openSync } from "node:fs"; openSync(process.argv[2], "r"); console.log("ready"); setInterval(() => {}, 1000);',
     );
     const reader = Bun.spawn({
       cmd: [process.execPath, helper, source.databasePath],

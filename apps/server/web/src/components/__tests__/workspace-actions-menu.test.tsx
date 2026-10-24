@@ -124,7 +124,7 @@ describe("renaming from the menu (spec 2026-10-17)", () => {
     fireEvent.change(field, { target: { value: "Deck 2026-10" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(puts).toHaveLength(1));
-    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Workspace name" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Workspace name" }) === null).toBe(true));
   });
 
   it("disables Save on an empty name", async () => {

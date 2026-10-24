@@ -219,7 +219,7 @@ describe("UserRowActions", () => {
       await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Cannot demote the last admin"));
       expect(capturedDelay).toBe(8000);
       act(() => retire?.());
-      await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+      await waitFor(() => expect(screen.queryByRole("alert") === null).toBe(true));
     } finally {
       globalThis.setTimeout = real;
       restore();

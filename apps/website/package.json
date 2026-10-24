@@ -29,7 +29,7 @@
     "zod": "4.6.6"
   },
   "devDependencies": {
-    "@happy-dom/global-registrator": "20.11.13",
+    "@happy-dom/global-registrator": "21.0.4",
     "@internal/tsconfig": "workspace:*",
     "@tailwindcss/postcss": "4.3.3",
     "@testing-library/dom": "10.4.1",
