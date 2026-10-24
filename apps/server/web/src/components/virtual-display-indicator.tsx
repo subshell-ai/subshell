@@ -1,7 +1,15 @@
 import { Monitor } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
-export function VirtualDisplayIndicator({ display, compact = false }: { display?: string | null; compact?: boolean }) {
+export function VirtualDisplayIndicator({
+  display,
+  compact = false,
+  onOpen,
+}: {
+  display?: string | null;
+  compact?: boolean;
+  onOpen?: () => void;
+}) {
   if (!display) return null;
   const label = `Virtual display ${display}`;
   if (compact)
@@ -12,13 +20,14 @@ export function VirtualDisplayIndicator({ display, compact = false }: { display?
     );
   return (
     <Tooltip>
-      <TooltipTrigger aria-label={label} className="inline-flex shrink-0 items-center gap-1.5 text-detail text-primary">
+      <TooltipTrigger
+        aria-label="Open virtual display"
+        onClick={onOpen}
+        className="inline-flex shrink-0 items-center text-primary"
+      >
         <Monitor className="size-3.5" aria-hidden="true" />
-        {!compact && <span aria-hidden="true">Virtual display</span>}
       </TooltipTrigger>
-      <TooltipContent>
-        This subshell has a virtual display. Open Preview, then View screen to see its graphical apps.
-      </TooltipContent>
+      <TooltipContent>Virtual display enabled</TooltipContent>
     </Tooltip>
   );
 }

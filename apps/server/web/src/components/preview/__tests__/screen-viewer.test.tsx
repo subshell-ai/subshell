@@ -431,3 +431,22 @@ describe("the secure-context warning speaks only in URL mode", () => {
     }
   });
 });
+
+it("opens a cached screen shortcut once under StrictMode, including in a phone workspace tab", async () => {
+  const ports: number[] = [];
+  const c = controller({
+    info: info({ screen: { display: ":90", rfbPort: 5910 } }),
+    openPort: async (port) => {
+      ports.push(port);
+      return { proxyBase: "/pv/shortcut/" };
+    },
+  });
+  render(
+    <StrictMode>
+      <PreviewSection paneId="pane1" access="owner" preview={c} initialView={{ kind: "screen" }} isPhone fill />
+    </StrictMode>,
+  );
+  await screen.findByText("Screen preview");
+  expect(ports).toEqual([5910]);
+  expect(MockSocket.made.filter((socket) => socket.closed === 0)).toHaveLength(1);
+});

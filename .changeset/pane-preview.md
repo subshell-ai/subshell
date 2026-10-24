@@ -13,3 +13,5 @@ Check virtual display prerequisites before launch, disable the checkbox when pro
 Open workspace previews in draggable tabs with child entries beneath their subshells in the sidebar. Preview tabs fill their panels, retain one selected view at a time, and close without removing the terminal.
 
 Mark subshells with virtual displays in sidebar rows and headers, and restore live display metadata after a server restart.
+
+Open a subshell’s virtual display directly in a workspace preview tab from its header’s monitor icon.

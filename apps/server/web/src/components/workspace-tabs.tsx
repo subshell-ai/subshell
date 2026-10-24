@@ -138,6 +138,7 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
   const navigate = useNavigate();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [previewRequests, setPreviewRequests] = useState<Record<string, number>>({});
   const [previewChoices, setPreviewChoices] = useState<Record<string, PreviewChoice | null>>({});
   const [previewIds, setPreviewIds] = useState<string[]>(() =>
     panelIdsInLayout(detail.workspace.layout).filter((id) => previewParentId(id)),
@@ -146,11 +147,15 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
   const selectedPreview = previewPanes.find((pane) => previewPanelId(pane.id) === selectedId);
   useEffect(
     () =>
-      onWorkspacePreviewRequest((subshellId) => {
+      onWorkspacePreviewRequest((subshellId, view) => {
         const pane = detail.panes.find((row) => row.subshellId === subshellId);
         if (!pane) return false;
         const id = previewPanelId(pane.id);
         setPreviewIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
+        if (view === "screen") {
+          setPreviewChoices((choices) => ({ ...choices, [pane.id]: { kind: "screen" } }));
+          setPreviewRequests((requests) => ({ ...requests, [pane.id]: (requests[pane.id] ?? 0) + 1 }));
+        }
         setSelectedId(id);
         return true;
       }),
@@ -412,7 +417,7 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
           {selectedPreview && (
             <div className="absolute inset-0">
               <PreviewTabContent
-                key={selectedPreview.id}
+                key={`${selectedPreview.id}:${previewRequests[selectedPreview.id] ?? 0}`}
                 subshellId={selectedPreview.subshellId}
                 choice={previewChoices[selectedPreview.id]}
                 onViewChange={(choice) =>

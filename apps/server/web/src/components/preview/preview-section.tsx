@@ -138,6 +138,9 @@ export function PreviewSection({
     setScreenSession(null);
     setOpen(null);
     setOpenError(null);
+    return () => {
+      generation.current += 1;
+    };
   }, [paneId]);
 
   async function handleOpen(port: number): Promise<void> {
@@ -190,10 +193,20 @@ export function PreviewSection({
   reopen.current = { handleOpen, handleScreen, startWatch: preview.startWatch };
   useEffect(() => {
     if (resumed.current || !initialView || !info?.nodeEnabled || info.reason) return;
-    resumed.current = true;
-    if (initialView.kind === "app") void reopen.current.handleOpen(initialView.port);
-    else if (initialView.kind === "screen") void reopen.current.handleScreen();
-    else void reopen.current.startWatch(info.cdpPort ?? undefined);
+    if (initialView.kind === "screen" && !info.screen) return;
+    // Wait until mount effects settle, so StrictMode's replay cannot consume
+    // the shortcut while invalidating its in-flight viewer request.
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled || resumed.current) return;
+      resumed.current = true;
+      if (initialView.kind === "app") void reopen.current.handleOpen(initialView.port);
+      else if (initialView.kind === "screen") void reopen.current.handleScreen();
+      else void reopen.current.startWatch(info.cdpPort ?? undefined);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [initialView, info]);
 
   // The info poll is what carries a vanished browser (spec §5): the named
@@ -282,7 +295,7 @@ export function PreviewSection({
               void preview.startWatch(info.cdpPort ?? undefined);
             }}
             onScreen={() => void handleScreen()}
-            phone={phone}
+            phone={phone && !fill}
           />
         </details>
       )}
@@ -340,7 +353,7 @@ export function PreviewSection({
           Keyed on the session's proxy: a re-open is a fresh socket on a fresh
           mount, never a re-connect over a stale one (the viewer's whole
           construction assumes a new WebSocket per mount). */}
-      {screenSession && !phone && (
+      {screenSession && (!phone || fill) && (
         <ScreenViewer
           key={screenSession.proxyBase}
           display={screenSession.display}

@@ -17,7 +17,8 @@ export function previewParentId(panelId: string): string | null {
 let entries: readonly WorkspacePreviewEntry[] = [];
 let focused: string | null = null;
 const listeners = new Set<() => void>();
-const requests = new Set<(subshellId: string) => boolean>();
+const requests = new Set<(subshellId: string, view?: "screen") => boolean>();
+let pendingScreen: string | null = null;
 function emit() {
   for (const listener of listeners) listener();
 }
@@ -47,13 +48,22 @@ export function useFocusedPreview() {
     () => focused,
   );
 }
-export function requestWorkspacePreview(subshellId: string): boolean {
-  for (const request of requests) if (request(subshellId)) return true;
+export function requestWorkspacePreview(subshellId: string, view?: "screen"): boolean {
+  for (const request of requests) if (request(subshellId, view)) return true;
   return false;
 }
-export function onWorkspacePreviewRequest(request: (subshellId: string) => boolean) {
+export function onWorkspacePreviewRequest(request: (subshellId: string, view?: "screen") => boolean) {
   requests.add(request);
+  flushWorkspaceScreen();
   return () => {
     requests.delete(request);
   };
+}
+
+/** Carries a header shortcut through navigation until its workspace is ready. */
+export function armWorkspaceScreen(subshellId: string) {
+  pendingScreen = subshellId;
+}
+export function flushWorkspaceScreen() {
+  if (pendingScreen && requestWorkspacePreview(pendingScreen, "screen")) pendingScreen = null;
 }
