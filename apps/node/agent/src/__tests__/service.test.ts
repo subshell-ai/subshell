@@ -1194,6 +1194,57 @@ describe("controlService", () => {
     expect(s.calls.at(-1)).toEqual(["launchctl", "kickstart", "-k", TARGET]);
   });
 
+  // Live incident 2026-10-23 (thedarknesss-Mac-Studio): a manual update swapped
+  // the binary, then `kickstart -k` answered 125 "Domain does not support
+  // specified action" — the gui/<uid> agent domain exists only while someone is
+  // signed in at the machine's own display, so a daemon started from an SSH
+  // session sits outside launchd's reach. The bare exit code told nobody that,
+  // or what to do.
+  test("darwin: a kickstart DOMAIN failure names the GUI-session cause and the way through", async () => {
+    const s = stub({
+      platform: "darwin",
+      respond: (cmd) =>
+        cmd[0] === "plutil"
+          ? { code: 0, out: "true\n", err: "" }
+          : cmd[1] === "print"
+            ? { code: 0, out: "\tstate = running\n\tpid = 5150\n", err: "" }
+            : cmd[1] === "kickstart"
+              ? {
+                  code: 125,
+                  out: "",
+                  err: 'Could not kickstart service "dev.subshell.client": 125: Domain does not support specified action\n',
+                }
+              : { code: 0, out: "", err: "" },
+    });
+    s.files.set(PLIST, "<key>AbandonProcessGroup</key><true/><key>RunAtLoad</key><true/>");
+    const r = await controlService(s.deps, "restart");
+    expect(r.code).toBe(1);
+    expect(msgLine(r.err)).toContain("launchctl kickstart -k failed (exit 125)");
+    expect(msgLine(r.err)).toContain("Domain does not support specified action");
+    expect(msgLine(r.err)).toContain("signed in at this machine's own display");
+    expect(msgLine(r.err)).toContain("subshell run");
+  });
+
+  test("darwin: other kickstart failures point at service status, not the domain story", async () => {
+    const s = stub({
+      platform: "darwin",
+      respond: (cmd) =>
+        cmd[0] === "plutil"
+          ? { code: 0, out: "true\n", err: "" }
+          : cmd[1] === "print"
+            ? { code: 0, out: "\tstate = running\n\tpid = 5150\n", err: "" }
+            : cmd[1] === "kickstart"
+              ? { code: 1, out: "", err: "BootStrap failed for some other reason\n" }
+              : { code: 0, out: "", err: "" },
+    });
+    s.files.set(PLIST, "<key>AbandonProcessGroup</key><true/><key>RunAtLoad</key><true/>");
+    const r = await controlService(s.deps, "restart");
+    expect(r.code).toBe(1);
+    expect(msgLine(r.err)).toContain("BootStrap failed for some other reason");
+    expect(msgLine(r.err)).toContain("subshell service status");
+    expect(msgLine(r.err)).not.toContain("signed in at");
+  });
+
   test("darwin: restart of a STOPPED job bootstraps it — kickstart needs a loaded job", async () => {
     const s = darwinServiceStub({ loaded: false });
     const r = await controlService(s.deps, "restart");

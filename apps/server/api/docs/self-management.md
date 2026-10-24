@@ -247,6 +247,16 @@ which silently asserted over the no-report case), and the server's OWN
 `restart`/`update` refusals follow the same rule on their own
 `paneSafety` field.
 
+The same honesty shapes the `NODE_NOT_SUPERVISED` sentence on the UPDATE
+route (`update-node.route.ts`; the service verb keeps its plain one): it
+composes from the runtime report already in hand, so
+"installed but not running from it" and "nothing installed" name different
+remedies, a launchd domain that answers `unknown` adds its own clause (its
+user agents need someone signed in at the display), and no facts at all keep
+the plain sentence. The report is read live-or-held: a refused agent's `ready`
+is that machine's last honest answer, persisted before the gate that held it,
+and a held node is exactly the machine someone presses Update on.
+
 `runtime` (the node's report of how its own process runs) lives on the LIVE
 CONNECTION, never in the `nodes` table, and `GET /api/nodes/:id` exposes it
 only when the node is online, the viewer can configure it, and the row is an

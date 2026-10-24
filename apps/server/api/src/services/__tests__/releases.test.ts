@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   MIN_NODE_VERSION,
@@ -310,24 +310,25 @@ describe("fetchArtifact", () => {
     // has to survive on its own mkdir.
     rmSync(NODE_ARTIFACTS_DIR, { recursive: true, force: true });
     const fetched = await fetchArtifact(TARGET);
-    await drain(fetched.stream);
+    await drain(fetched.body());
     expect(existsSync(artifactPath(TARGET))).toBe(true);
     expect(readFileSync(artifactPath(TARGET), "utf8")).toBe("a convincing binary");
   });
 
-  it("streams the bytes and caches them once verified", async () => {
+  it("downloads the bytes in full and caches them once verified", async () => {
     const fetched = await fetchArtifact(TARGET);
     expect(fetched.tag).toBe("cli-node-v9.9.9");
-    const bytes = await drain(fetched.stream);
-    expect(bytes).toBe(fake.assets.get(BINARY)?.byteLength ?? -1);
-    // Cached only after the digest matched, with its sidecar beside it so the
-    // `.sha256` route is answered locally next time.
+    expect(await drain(fetched.body())).toBe(fake.assets.get(BINARY)?.byteLength ?? -1);
+    // The cache landed the moment the fetch resolved — the digest gate runs on
+    // the whole file BEFORE any caller holds a body, the shape the 2026-10-23
+    // fan-out fix moved to — with its sidecar beside it so the `.sha256`
+    // route is answered locally next time.
     expect(readFileSync(artifactPath(TARGET), "utf8")).toBe("a convincing binary");
     expect(readFileSync(`${artifactPath(TARGET)}.sha256`, "utf8").trim()).toBe(fetched.digest);
   });
 
   it("records what it fetched — tag and the signed manifest's commit — so the file is known to be ours", async () => {
-    await drain((await fetchArtifact(TARGET)).stream);
+    await fetchArtifact(TARGET);
     const manifest = JSON.parse(readFileSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"), "utf8"));
     expect(manifest[TARGET]?.tag).toBe("cli-node-v9.9.9");
     expect(manifest[TARGET]?.digest).toBe((await fetchArtifact(TARGET)).digest);
@@ -336,16 +337,18 @@ describe("fetchArtifact", () => {
     expect(manifest[TARGET]?.commit).toBe("0123456789abcdef0123456789abcdef01234567");
   });
 
-  it("errors the stream and caches NOTHING when the digest is wrong", async () => {
+  it("refuses and caches NOTHING when the digest is wrong", async () => {
     // The SIGNED manifest announces a digest the bytes do not have — a
-    // corrupted transfer, or a release whose assets disagree.
+    // corrupted transfer, or a release whose assets disagree. The whole file
+    // is hashed before the fetch resolves, so the mismatch throws from the
+    // fetch itself and no caller ever holds a body of bad bytes.
     fake.assets.set(RELEASE_MANIFEST_NAME, manifestBody({ assets: { [BINARY]: "0".repeat(64) } }));
-    const fetched = await fetchArtifact(TARGET);
-    expect(drain(fetched.stream)).rejects.toThrow(/did not match the digest/);
-    // The node sees a truncated download and fails its own check; the next
-    // machine must not be served the bad bytes from a cache.
+    await expect(fetchArtifact(TARGET)).rejects.toThrow(/did not match the published digest/);
+    // The next machine must not be served the bad bytes from a cache, and the
+    // partial temp must not survive to look like a shelf file.
     expect(existsSync(artifactPath(TARGET))).toBe(false);
     expect(existsSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"))).toBe(false);
+    expect(readdirSync(NODE_ARTIFACTS_DIR).some((name) => name.includes(".download-"))).toBe(false);
   });
 
   it("caches NOTHING when the signature fails — the release source alone cannot push bytes here", async () => {
@@ -370,11 +373,49 @@ describe("fetchArtifact", () => {
     expect(fetchArtifact(TARGET)).rejects.toThrow(/publishes no/);
   });
 
-  it("downloads once when two machines ask at the same moment", async () => {
+  it("downloads once when two machines ask at the same moment — and both get a live body", async () => {
+    // The 2026-10-23 "Update all" incident: the coalesced value carried ONE
+    // ReadableStream, the first download consumed it, and every joiner's
+    // response wrapped a dead body — N minus one node reported a download
+    // failure while one update ran. The shared value is the settled file now,
+    // and each body() opens it again.
     const [a, b] = await Promise.all([fetchArtifact(TARGET), fetchArtifact(TARGET)]);
-    // Same in-flight fetch, so the 80 MB is spent once rather than twice.
-    expect(a).toBe(b);
-    await drain(a.stream);
+    expect(a).toBe(b); // same in-flight fetch: the 80 MB is spent once...
+    expect(fake.assetFetches.get(BINARY)).toBe(1);
+    // ...and BOTH callers drain the whole thing, in any order.
+    expect(await drain(a.body())).toBe(BINARY_PAYLOAD.bytes.byteLength);
+    expect(await drain(b.body())).toBe(BINARY_PAYLOAD.bytes.byteLength);
+  });
+
+  it("keeps the operator's file when asked not to cache, and removes its own temp copy after the serve", async () => {
+    // A file already sitting at the target path may be the operator's
+    // hand-published binary: `cache: false` serves the release bytes from a
+    // temp copy and leaves the path alone (the download route passes false
+    // exactly when the disk holds a different digest).
+    writeFileSync(artifactPath(TARGET), "the operator's own");
+    const fetched = await fetchArtifact(TARGET, { cache: false });
+    expect(await drain(fetched.body())).toBe(BINARY_PAYLOAD.bytes.byteLength);
+    expect(readFileSync(artifactPath(TARGET), "utf8")).toBe("the operator's own");
+    expect(readdirSync(NODE_ARTIFACTS_DIR).some((name) => name.includes(".download-"))).toBe(false);
+  });
+
+  it("dispose removes the temp copy when the caller never serves it", async () => {
+    writeFileSync(artifactPath(TARGET), "the operator's own");
+    const fetched = await fetchArtifact(TARGET, { cache: false });
+    await fetched.dispose();
+    expect(readdirSync(NODE_ARTIFACTS_DIR).some((name) => name.includes(".download-"))).toBe(false);
+    expect(readFileSync(artifactPath(TARGET), "utf8")).toBe("the operator's own");
+  });
+
+  it("a cancelled temp serve still removes the file", async () => {
+    // The node hung up mid-download — the response body is cancelled, and the
+    // temp must go anyway.
+    writeFileSync(artifactPath(TARGET), "the operator's own");
+    const fetched = await fetchArtifact(TARGET, { cache: false });
+    const reader = fetched.body().getReader();
+    await reader.read();
+    await reader.cancel();
+    expect(readdirSync(NODE_ARTIFACTS_DIR).some((name) => name.includes(".download-"))).toBe(false);
   });
 });
 
@@ -522,7 +563,7 @@ describe("egress pin (round-3 sweep C12)", () => {
     fake.assets.set("signed-blob-storage", BINARY_PAYLOAD.bytes);
     fake.redirects.set(BINARY, "/asset/signed-blob-storage");
     const fetched = await fetchArtifact(TARGET);
-    expect(await drain(fetched.stream)).toBe(BINARY_PAYLOAD.bytes.byteLength);
+    expect(await drain(fetched.body())).toBe(BINARY_PAYLOAD.bytes.byteLength);
     expect(readFileSync(artifactPath(TARGET), "utf8")).toBe("a convincing binary");
     expect(fake.assetFetches.get("signed-blob-storage")).toBe(1);
   });
@@ -549,7 +590,7 @@ describe("superseding", () => {
       JSON.stringify({ [TARGET]: { tag: "cli-node-v1.0.0", digest: "x", fetchedAt: "2026-01-01T00:00:00.000Z" } }),
     );
 
-    await drain((await fetchArtifact(TARGET)).stream);
+    await fetchArtifact(TARGET);
 
     // Ours was superseded and replaced by the new release's bytes...
     expect(readFileSync(artifactPath(TARGET), "utf8")).toBe("a convincing binary");
@@ -570,7 +611,7 @@ describe("superseding", () => {
       }),
     );
 
-    await drain((await fetchArtifact(TARGET)).stream);
+    await fetchArtifact(TARGET);
 
     expect(existsSync(darwin)).toBe(false);
     const manifest = JSON.parse(readFileSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"), "utf8"));
@@ -585,7 +626,7 @@ describe("superseding", () => {
         "darwin-arm64": { tag: "cli-node-v9.9.9", digest: "x", fetchedAt: "2026-01-01T00:00:00.000Z" },
       }),
     );
-    await drain((await fetchArtifact(TARGET)).stream);
+    await fetchArtifact(TARGET);
     expect(readFileSync(join(NODE_ARTIFACTS_DIR, "subshell-node-cli-darwin-arm64"), "utf8")).toBe(
       "current darwin build",
     );

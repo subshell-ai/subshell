@@ -173,7 +173,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
       }
       try {
         const fetched = await fetchArtifact(params.target, { cache: decision.cache });
-        return new Response(fetched.stream, { headers });
+        return new Response(fetched.body(), { headers });
       } catch (error) {
         // A release that cannot be read is the same OUTCOME as an unpublished
         // build — the machine cannot install — so it is the same 404 rather than
@@ -249,10 +249,14 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
       // outstanding token, and streaming those bytes against the command's
       // digest would land the node in exactly the refusal this path exists to
       // prevent, one download later. So the comparison happens before the
-      // first byte is served, and a mismatch cancels the stream: nothing of
-      // the newer release reaches the node or the cache.
+      // first byte is served — and since the fetch verifies the whole file
+      // before this line runs (the "Update all" fan-out fix of 2026-10-23), a
+      // mismatch now stops with NO byte served: `dispose` removes the temp
+      // copy the stream-through fetch wrote, and where the fetch cached, the
+      // newer release stays on the shelf because it IS the release an
+      // installer would serve next — the retry fast-paths on it.
       if (fetched.digest !== expected) {
-        await fetched.stream.cancel().catch(() => {});
+        await fetched.dispose();
         // Two causes, two sentences: a STALE DISK file is the operator's
         // artifact problem (publish or hand update), but an EMPTY disk with
         // the index moved past the token is nothing anyone published; the
@@ -269,7 +273,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
           }),
         );
       }
-      return new Response(fetched.stream, { headers });
+      return new Response(fetched.body(), { headers });
     } catch (error) {
       getLogger().warn(`node artifacts: could not fetch ${params.target} from the release: ${errorText(error)}`);
       // The release could not be served. With nothing (or nothing readable)

@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -1431,11 +1432,17 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
   const TARGET = "darwin-arm64";
   const binaryPath = join(NODE_ARTIFACTS_DIR, `subshell-node-cli-${TARGET}`);
   const BODY = "a convincing darwin binary";
+  /** The bytes the same tag answers once the source has moved on — the
+   * release-advance tests' release B. Bytes and announced digest stay
+   * COHERENT, because since the 2026-10-23 fan-out fix the plane hashes the
+   * whole file before serving, so an announcement that its own bytes cannot
+   * satisfy reads as a failed download, not as an advanced release. */
+  const BODY_B = "release B's darwin binary, published after the update was ordered";
   let cookie = "";
   let _userId = "";
-  let release: { url: string; stop: () => void; serveDigest: string };
-  /** What /manifest's `assets` map names; "" falls back to the served bytes' digest. */
-  let servedManifestDigest = "";
+  let release: { url: string; stop: () => void; serveDigest: string; digestB: string };
+  /** Flip the source to release B: /bin serves its bytes and /manifest names them. */
+  let servingReleaseB = false;
 
   beforeAll(async () => {
     await setupAuthTables();
@@ -1451,6 +1458,9 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
     const hasher = new Bun.CryptoHasher("sha256");
     hasher.update(new TextEncoder().encode(BODY));
     const digest = hasher.digest("hex");
+    const hasherB = new Bun.CryptoHasher("sha256");
+    hasherB.update(new TextEncoder().encode(BODY_B));
+    const digestB = hasherB.digest("hex");
     const server = Bun.serve({
       port: 0,
       fetch(request) {
@@ -1477,7 +1487,7 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
             },
           ]);
         }
-        if (url.pathname === "/bin") return new Response(BODY);
+        if (url.pathname === "/bin") return new Response(servingReleaseB ? BODY_B : BODY);
         if (url.pathname === "/sha") return new Response(`${release.serveDigest}\n`);
         if (url.pathname === "/sig") return new Response(TEST_ARMOR);
         if (url.pathname === "/manifest") {
@@ -1487,17 +1497,17 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
             nodeProtocol: NODE_PROTOCOL_VERSION,
             minNodeVersion: MIN_NODE_VERSION,
             commit: "0123456789abcdef0123456789abcdef01234567",
-            // `servedManifestDigest` defaults to the digest of the bytes /bin
-            // serves; the release-advance test below moves it to a DIFFERENT
-            // value, which is what "the source now answers another release"
-            // means without a second server.
-            assets: { [`subshell-node-cli-${TARGET}`]: servedManifestDigest || digest },
+            // The release-advance tests flip `servingReleaseB`, which moves
+            // /bin and this map together to release B's coherent pair — what
+            // "the source now answers another release" means without a
+            // second server.
+            assets: { [`subshell-node-cli-${TARGET}`]: servingReleaseB ? digestB : digest },
           });
         }
         return new Response("no", { status: 404 });
       },
     });
-    release = { url: `http://127.0.0.1:${server.port}`, stop: () => server.stop(true), serveDigest: digest };
+    release = { url: `http://127.0.0.1:${server.port}`, stop: () => server.stop(true), serveDigest: digest, digestB };
     // The minisign crypto stands in, as in the releases/update-node suites:
     // it is pinned once against real `tauri signer` fixtures in the protocol
     // package, and this suite's subject is the download route's caching and
@@ -1636,6 +1646,43 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
     }
   });
 
+  it("serves TWO simultaneous update downloads with full bytes each — the fan-out incident", async () => {
+    // The 2026-10-23 "Update all" incident, at the route the fan-out actually
+    // hits: every node the operator pressed was answered by the SAME
+    // in-flight fetch, and the shared stream let only the first response
+    // carry bytes. The coalescer now shares the settled file and each
+    // response opens its own read — so every concurrent node downloads
+    // completely, not just the one whose request happened to be first.
+    setReleaseUrlForTests(`${release.url}/releases`);
+    resetReleaseCacheForTests();
+    resetUpdateTokensForTests();
+    rmSync(binaryPath, { force: true });
+    rmSync(`${binaryPath}.sha256`, { force: true });
+    rmSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"), { force: true });
+    try {
+      const tokens = [1, 2, 3].map((n) => mintUpdateToken(`fan${n}`, TARGET, release.serveDigest));
+      const resps = await Promise.all(
+        tokens.map((token) =>
+          app.handle(
+            new Request(`http://localhost/api/downloads/node/${TARGET}?update_token=${encodeURIComponent(token)}`),
+          ),
+        ),
+      );
+      const bodies = await Promise.all(resps.map((res) => res.text()));
+      expect(bodies.map((body) => body.length)).toEqual([BODY.length, BODY.length, BODY.length]);
+      bodies.forEach((body) => {
+        expect(body).toBe(BODY);
+      });
+      // The cached shelf is still the one clean copy: bytes arrived once and
+      // landed intact.
+      expect(readFileSync(binaryPath, "utf8")).toBe(BODY);
+    } finally {
+      rmSync(binaryPath, { force: true });
+      rmSync(`${binaryPath}.sha256`, { force: true });
+      rmSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"), { force: true });
+    }
+  });
+
   it("an update token refuses a release the source has moved past, before any byte is served", async () => {
     // Release-coherent serving, the second half: the token names release A's
     // digest, but the index's 15-minute TTL means the source may answer B by
@@ -1652,9 +1699,10 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
     const STALE = "a stale darwin binary, ignored either way";
     writeFileSync(binaryPath, STALE);
     try {
-      // Release B: the manifest now names bytes nobody published here. The
-      // manifest is memoized on the index entry, so the memo must drop too.
-      servedManifestDigest = "b".repeat(64);
+      // Release B: the source now answers coherent bytes nobody published
+      // here, under the same tag. The manifest is memoized on the index
+      // entry, so the memo must drop too.
+      servingReleaseB = true;
       resetReleaseCacheForTests();
 
       const token = mintUpdateToken("n1", TARGET, release.serveDigest);
@@ -1666,11 +1714,13 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
       expect(body.code).toBe("NODE_UPDATE_UNAVAILABLE");
       expect(body.message).toContain("node-artifacts");
       expect(body.message).toContain("release:cli-node");
-      // Nothing streamed: the stale file is untouched and nothing was
-      // recorded as ours. (The upstream request head is made before the
-      // comparison; it is the stream that never starts.)
+      // Nothing served: the fetched B bytes went through a temp copy that the
+      // refusal deleted, the stale file stands untouched, and nothing was
+      // recorded as ours — the comparison now lands BEFORE the first byte,
+      // because the fetch verifies the whole file before handing anything out.
       expect(readFileSync(binaryPath, "utf8")).toBe(STALE);
       expect(existsSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"))).toBe(false);
+      expect(readdirSync(NODE_ARTIFACTS_DIR).some((name) => name.includes(".download-"))).toBe(false);
       // The token was spent by the refused request.
       expect(
         (
@@ -1680,7 +1730,7 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
         ).status,
       ).toBe(401);
     } finally {
-      servedManifestDigest = "";
+      servingReleaseB = false;
       resetReleaseCacheForTests();
       rmSync(binaryPath, { force: true });
       rmSync(`${binaryPath}.sha256`, { force: true });
@@ -1701,7 +1751,7 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
     rmSync(`${binaryPath}.sha256`, { force: true });
     rmSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"), { force: true });
     try {
-      servedManifestDigest = "b".repeat(64);
+      servingReleaseB = true;
       resetReleaseCacheForTests();
 
       const token = mintUpdateToken("n1", TARGET, release.serveDigest);
@@ -1714,13 +1764,24 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
       expect(body.message).toContain("no longer the newest");
       expect(body.message).toContain("Press Update again");
       // The stale-artifact remedy is NOT the answer here: nobody published
-      // anything.
+      // anything to this disk.
       expect(body.message).not.toContain("node-artifacts");
-      // Nothing streamed, nothing cached: the fetch was cancelled and the
-      // directory holds no record of release B.
-      expect(existsSync(binaryPath)).toBe(false);
-      expect(existsSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"))).toBe(false);
-      // The token was spent by the refused request.
+      // NO BYTE of release B was served to the refused node — the fetch
+      // verifies the whole file before the route hands anything out, so the
+      // digest comparison lands first. What it DID land is the shelf: with
+      // nothing there before, B is now cached, because B is exactly what the
+      // next installer would be served, and the retry fast-paths onto it.
+      expect(readFileSync(binaryPath, "utf8")).toBe(BODY_B);
+      expect(readdirSync(NODE_ARTIFACTS_DIR).some((name) => name.includes(".download-"))).toBe(false);
+      // Press Update again: the retry is ordered against what the source now
+      // serves, and the served answer is the release the token names.
+      const retry = mintUpdateToken("n1", TARGET, release.digestB);
+      const again = await app.handle(
+        new Request(`http://localhost/api/downloads/node/${TARGET}?update_token=${encodeURIComponent(retry)}`),
+      );
+      expect(again.status).toBe(200);
+      expect(await again.text()).toBe(BODY_B);
+      // The refused request's own token was spent by it, not by the retry.
       expect(
         (
           await app.handle(
@@ -1729,7 +1790,7 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
         ).status,
       ).toBe(401);
     } finally {
-      servedManifestDigest = "";
+      servingReleaseB = false;
       resetReleaseCacheForTests();
       rmSync(binaryPath, { force: true });
       rmSync(`${binaryPath}.sha256`, { force: true });

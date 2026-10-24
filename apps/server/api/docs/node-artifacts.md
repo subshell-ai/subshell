@@ -16,13 +16,15 @@ still lazy: served on request, never warmed up, no admin button, no poll, so a
 plane whose nodes are all one platform never spends a byte on the others.
 Since 2026-10-09 the tiny index/manifest reads behind the serve decision run
 on EVERY authenticated download request (TTL-cached; a failed read is backed
-off a minute), not just on the branch that ends in a fetch. The bytes
-stream THROUGH while being hashed against the digest from the release's
-SIGNED manifest `assets` map; the manifest and its signature are
-verified before the first binary byte, and the `.sha256` sidecar is never
-fetched on this path; a mismatch errors the response mid-flight, so
-nothing unverified is cached and the node's own digest check before
-`chmod +x` still decides.
+off a minute), not just on the branch that ends in a fetch. The bytes are
+downloaded IN FULL and hashed against the digest from the release's
+SIGNED manifest `assets` map before anything is served; the manifest and its
+signature are verified before the first binary byte, and the `.sha256` sidecar
+is never fetched on this path. A mismatch never reaches a response at all: the
+fetch itself fails, the partial temp is deleted, and nothing unverified is
+cached (since the 2026-10-23 fan-out fix; the streaming-through shape shared
+one dead stream with every concurrent caller). The node's own digest check
+before `chmod +x` still decides.
 `SUBSHELL_RELEASE_URL` configures it and EMPTY disables it (the
 air-gapped configuration, and the default under `IS_TEST` so no suite reaches
 the network by accident). (It was `SUBSHELL_NODE_RELEASE_URL` until spec
@@ -62,11 +64,21 @@ instead** (2026-09-21, the live-incident follow-up). The token binds the digest
 the update command named from the signed manifest, so the disk file is served
 only when it hashes to it, and anything else is fetched around: an absent disk
 file is cached exactly as the installer lazy fetch always did, while a
-present-but-different file is streamed through and never overwritten (the
-hand-published-binary rule holds). A plane that cannot fetch refuses a token
+present-but-different file is served from a temp copy and never overwritten
+(the hand-published-binary rule holds; the temp goes when the response ends).
+Since the 2026-10-23 fan-out fix the fetch lands COMPLETE and verified on disk
+before the route hands anything out: the release-vs-token digest comparison
+therefore runs with no byte served, a mismatch answers 409, and an
+update that ordered a release the source has moved past learns it before its
+download rather than after it. When the disk had nothing, the fetched release
+stays cached: it is what the next installer gets, and the retry fast-paths
+onto it. A plane that cannot fetch refuses a token
 download whose disk copy is stale with a 409 naming the remedy, and the
 narrowed guard in `update-node.route.ts` is that case's backstop at the update
-route itself.
+route itself. The coalescer shares the settled download, not a stream:
+concurrent same-target fetches (an "Update all" fan-out) each open their own
+read of it, and a `cache: false` fetch runs uncoalesced because its temp
+cleanup belongs to that one caller.
 
 Three surfaces still report what is on disk, so the air-gapped case is visible
 instead of being discovered: the published set (`lib/node-artifacts.ts:publishedNodeTargets`,

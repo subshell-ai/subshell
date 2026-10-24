@@ -820,12 +820,21 @@ export async function applyUpdate(input: ApplyUpdateInput): Promise<AppliedUpdat
   }
   const res = await input.restartService(input.force === true);
   if (res.code !== 0) {
+    // The swap already happened, and the manager's line alone ("launchctl
+    // kickstart -k failed (exit 125): ...") leaves the machine's actual state
+    // a riddle: the FILE on disk is the new version, the RUNNING daemon is
+    // the old one, and that split is the fact the person needs first. The
+    // manager's own words ride along because the reason lives in them.
+    const managerLine =
+      (res.err.trim() || res.out.trim() || "the service manager would not restart it").split("\n")[0] ?? "";
     return {
       from: NODE_VERSION,
       to: input.version,
       binary,
       restarted: false,
-      note: (res.err.trim() || res.out.trim() || "the service manager would not restart it").split("\n")[0] ?? "",
+      note:
+        `the new binary is installed, but the daemon still runs ${NODE_VERSION}: ${managerLine}. ` +
+        "Restart it where it runs: `subshell service restart`, or stop and start the running `subshell run` again",
     };
   }
   return { from: NODE_VERSION, to: input.version, binary, restarted: true };

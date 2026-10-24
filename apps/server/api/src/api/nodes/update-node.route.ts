@@ -9,6 +9,7 @@ import {
   NODE_RESULT_NOT_SUPERVISED,
   NODE_RESULT_VERSION_MISMATCH,
   NODE_SIGNED_UPDATES_PROTOCOL_VERSION,
+  type NodeRuntimeReport,
   type NodeTarget,
   semverLt,
 } from "@internal/subshell-protocol";
@@ -67,7 +68,11 @@ interface Refusal {
  * lands here. The message names the verb to type at the keyboard, which is the
  * only remedy left for it.
  */
-function refusalFor(err: NodeRpcError, paneSafety: "keeps" | "kills" | "unknown" | undefined): Refusal {
+function refusalFor(
+  err: NodeRpcError,
+  paneSafety: "keeps" | "kills" | "unknown" | undefined,
+  service: NodeRuntimeReport["service"] | undefined,
+): Refusal {
   if (err.code === "offline") {
     return { code: BackendErrorCodes.NODE_OFFLINE, message: err.message };
   }
@@ -79,11 +84,28 @@ function refusalFor(err: NodeRpcError, paneSafety: "keeps" | "kills" | "unknown"
     };
   }
   if (err.detail === NODE_RESULT_NOT_SUPERVISED) {
-    return {
-      code: BackendErrorCodes.NODE_NOT_SUPERVISED,
-      message:
-        "That node is not running under a service manager, so nothing would restart it into the new binary; update it where it was started",
-    };
+    // The bare constant says only "not supervised". What a person can act on
+    // is WHICH half of that is true on that machine, and the node's `ready`
+    // already froze the answer in the runtime report the plane holds: whether
+    // a service definition is installed there at all, and whether the
+    // manager even answers about it. Composed from facts already in hand —
+    // nothing new crosses the wire, and the equality mapping above stands.
+    const base = "That node is not running under a service manager, so nothing would restart it into the new binary";
+    let message =
+      service === undefined
+        ? `${base}; update it where it was started`
+        : service.installed
+          ? `${base}. A service definition is installed there, so the daemon answering here did not start from it; run \`subshell service install\` on that machine to bring it back under the manager, or update there with \`subshell update\``
+          : `${base}. Nothing is installed there, so nothing could restart anything; run \`subshell service install\` on that machine and updates will work from here, or update there with \`subshell update\``;
+    if (service?.manager === "launchd" && service.state === "unknown") {
+      // launchd did not answer for the job. The macOS user-agent domain is
+      // the common cause on a headless box: it exists only while someone is
+      // signed in at the machine's own display, so a daemon started over SSH
+      // is running OUTSIDE launchd's reach by definition.
+      message +=
+        ". launchd is not answering for this machine's user agents; on macOS that domain needs someone signed in at the machine's own display";
+    }
+    return { code: BackendErrorCodes.NODE_NOT_SUPERVISED, message };
   }
   if (err.detail === NODE_RESULT_KILLS_PANES) {
     return {
@@ -399,8 +421,15 @@ export const updateNodeRoute = new Elysia()
 
       const from = reported ?? "unknown";
       // Read BEFORE sending: the command is about to take this socket down,
-      // and this is what decides the WORDING of a pane-safety refusal.
-      const paneSafety = live?.agent?.runtime?.service.paneSafety;
+      // and this is what decides the WORDING of a pane-safety refusal. The
+      // whole service block is read for the same reason — a "not supervised"
+      // refusal names which half is true on that machine from these same
+      // frozen facts (2026-10-23 surfacing), not from anything fetched after.
+      // The held record counts too: its `ready` is that machine's last honest
+      // answer, persisted before the gate that held it, and a refused old
+      // agent is exactly the machine an update gets pressed on.
+      const runtimeService = live?.agent?.runtime?.service ?? held?.conn.agent?.runtime?.service;
+      const paneSafety = runtimeService?.paneSafety;
       // The tracker opens its entry the instant the order is real (design
       // 2026-09-25): AFTER every 409 gate above, because a refused offer
       // ordered nothing and must not render as an update in flight, and BEFORE
@@ -459,7 +488,7 @@ export const updateNodeRoute = new Elysia()
               metadataJson: JSON.stringify({ from, to: release.version, forced: body.force === true }),
             });
           }
-          const refusal = refusalFor(err, paneSafety);
+          const refusal = refusalFor(err, paneSafety, runtimeService);
           // Two codes are NOT the node saying it did nothing. `timeout`: the
           // plane stopped waiting on a five-minute window that contains a
           // ~70 MB download. `offline` (review 2026-09-26): failConnPendings
