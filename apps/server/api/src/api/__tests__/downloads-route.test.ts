@@ -1577,8 +1577,8 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
   it("an update token serves the release bytes past a stale disk artifact, and never overwrites it", async () => {
     // Release-coherent serving (2026-09-21): the token's download is measured
     // against the digest the update command named, so a stale hand-published
-    // file on disk is fetched around, streamed through, and left byte for byte
-    // alone.
+    // file on disk is fetched around into its own temp copy and left byte
+    // for byte alone.
     setReleaseUrlForTests(`${release.url}/releases`);
     resetReleaseCacheForTests();
     resetUpdateTokensForTests();

@@ -1319,11 +1319,14 @@ export async function controlService(
       // specified action" (125) is the common one on a headless Mac: the
       // gui/<uid> agent domain exists only while someone is signed in at the
       // machine's own display, so a daemon started over SSH sits outside
-      // launchd's reach and no `-k` will ever land. Say the cause and the
-      // way forward; everything else at least gets pointed at the status
-      // view, which carries launchd's own words.
+      // launchd's reach and no `-k` will ever land. Only that exact sentence
+      // earns the GUI-session story; other launchctl failures that merely
+      // mention a domain (the "find service ... in domain" family) get the
+      // status pointer instead, because the sign-in story would be false for
+      // them. Everything else at least gets pointed at the status view,
+      // which carries launchd's own words.
       const detail = cmdDetail(res);
-      const hint = /domain/i.test(detail)
+      const hint = /domain does not support specified action/i.test(detail)
         ? "; the user's launchd domain needs someone signed in at this machine's own display (its agents run in a GUI session, not an SSH one). Start the daemon by hand with `subshell run`, or sign in at the console and try again"
         : "; run `subshell service status` to see what launchd says about this job";
       return errLine(`launchctl kickstart -k failed (exit ${res.code}): ${detail}${hint}`);

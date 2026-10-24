@@ -867,9 +867,9 @@ export async function fetchArtifact(target: NodeTarget, options: FetchArtifactOp
   if (existing) {
     // A failed fetch is NOT sticky for its joiners. The settled attempt is
     // deleted from the map the moment it rejects, but callers who joined it
-    // mid-flight were handed that same promise, and one failed read inside
-    // the 15-minute index TTL would otherwise reject every download of that
-    // target until the cache expires. A joiner whose attempt failed retries
+    // mid-flight were handed that same promise, and without a retry one
+    // failed read rejects every download already coalesced onto that
+    // attempt. A joiner whose attempt failed retries
     // once onto whatever newer attempt is running (or starts one), which is
     // what the route's "press Update again" copy promises the operator.
     try {
@@ -912,8 +912,8 @@ async function fetchArtifactUncoordinated(target: NodeTarget, cache: boolean): P
   // plane's own filesystem named as nothing. Measured on mac-builder
   // 2026-09-20; every test green the whole time because every test fixture
   // created the directory itself. It is created for BOTH fetch shapes now:
-  // the cached rename needs it, and so does the temp file a stream-through
-  // fetch is written to before it is served and removed.
+  // the cached rename needs it, and so does the temp file the uncoalesced
+  // `cache: false` fetch is written to before it is served and removed.
   await mkdir(NODE_ARTIFACTS_DIR, { recursive: true });
 
   // Download in full, hash as it goes, refuse a mismatch. All of that, plus
@@ -967,18 +967,18 @@ async function fetchArtifactUncoordinated(target: NodeTarget, cache: boolean): P
   };
 }
 
-/**
- * A response body that reads a temp copy of verified bytes and removes the
- * file once the read is over, however it ends: drained, cancelled, or broken
- * mid-way. A leftover partial must never look like a shelf file, and a
- * complete one left behind is 80 MB nobody asked the disk to keep.
- */
 /** Bun's own reader type for a file stream — annotated anywhere else and the
  *  lib types disagree with what `stream().getReader()` actually returns. */
 function fileReader(tmp: string) {
   return Bun.file(tmp).stream().getReader();
 }
 
+/**
+ * A response body that reads a temp copy of verified bytes and removes the
+ * file once the read is over, however it ends: drained, cancelled, or broken
+ * mid-way. A leftover partial must never look like a shelf file, and a
+ * complete one left behind is 80 MB nobody asked the disk to keep.
+ */
 function drainedFile(tmp: string): ReadableStream<Uint8Array> {
   const sweep = (): Promise<void> => rm(tmp, { force: true }).catch(() => {});
   // The reader opens on the FIRST pull, not beside construction: a
@@ -1057,9 +1057,10 @@ export interface DownloadVerifiedInput {
 /**
  * Download a release asset to a temp file, hashing as it goes.
  *
- * The same discipline {@link fetchArtifact} applies, for the case with no
- * client to stream to: the server's own update writes a file and then EXECS
- * it, so a mismatch has to leave nothing behind rather than error a response.
+ * The same discipline {@link fetchArtifact} applies, for the caller that
+ * writes a file and then EXECS it (the server's own update): a mismatch has
+ * to leave nothing behind, because a file someone might run is a worse
+ * leftover than a failed serve.
  *
  * It never chmods. Making a downloaded file executable is the caller's act and
  * belongs beside the caller's own version probe — this function's whole

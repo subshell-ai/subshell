@@ -241,18 +241,19 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
     try {
       // Absent disk: cache the verified bytes, as the installer lazy fetch
       // always has (same `.fetched.json` semantics). Present but different:
-      // stream the release bytes THROUGH only, because the file there may be
-      // the operator's hand-published binary and is never overwritten here.
+      // serve the release bytes from their own temp copy, because the file
+      // there may be the operator's hand-published binary and is never
+      // overwritten here.
       const fetched = await fetchArtifact(params.target, { cache: onDisk === null });
       // The release the source serves NOW must be the release the COMMAND
       // named. The index's 15-minute TTL can carry a newer release past an
-      // outstanding token, and streaming those bytes against the command's
+      // outstanding token, and serving those bytes against the command's
       // digest would land the node in exactly the refusal this path exists to
       // prevent, one download later. So the comparison happens before the
       // first byte is served — and since the fetch verifies the whole file
       // before this line runs (the "Update all" fan-out fix of 2026-10-23), a
       // mismatch now stops with NO byte served: `dispose` removes the temp
-      // copy the stream-through fetch wrote, and where the fetch cached, the
+      // copy the fetch wrote, and where the fetch cached, the
       // newer release stays on the shelf because it IS the release an
       // installer would serve next — the retry fast-paths on it.
       if (fetched.digest !== expected) {

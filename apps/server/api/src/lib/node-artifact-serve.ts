@@ -41,8 +41,8 @@ import { artifactPath, artifactSha, artifactStat, diskArtifactSha256Cached } fro
  *    newest build this server can talk to, which is the whole promise the
  *    one-liner makes. Bytes this instance fetched (`.fetched.json` says so,
  *    digest to the digest) are REPLACED by the cache; bytes it did not are
- *    streamed past, never overwritten, same rule the update route learned on
- *    2026-09-21;
+ *    served past from their own temp copy, never overwritten, same rule the
+ *    update route learned on 2026-09-21;
  * 4. no compatible release at all → the shelf serves only while it can
  *    actually connect (its reported protocol matches, its version clears the
  *    floor); an unmeasurable shelf serves (unknown is not a verdict); a
@@ -313,8 +313,8 @@ export async function resolveNodeServe(target: NodeTarget): Promise<NodeServeDec
   if (shelfInconsistent) {
     // The release wins a broken cell outright: its bytes arrive under the
     // signed digest every consumer re-verifies. Our own bytes may be
-    // replaced; an operator's broken pair is streamed past, untouched, for
-    // them to republish.
+    // replaced; an operator's broken pair is served past from a temp copy,
+    // untouched, for them to republish.
     const ours = diskDigest !== null && (await fetchedLedgerEntry(target))?.digest === diskDigest;
     return { kind: "release", digest: releaseDigest, cache: ours, releaseVersion };
   }
@@ -348,7 +348,7 @@ export async function resolveNodeServe(target: NodeTarget): Promise<NodeServeDec
   return {
     kind: "release",
     digest: releaseDigest,
-    cache: ours, // our own bytes get replaced; the operator's are streamed past
+    cache: ours, // our own bytes get replaced; the operator's are served from a temp copy
     releaseVersion,
   };
 }

@@ -1245,6 +1245,32 @@ describe("controlService", () => {
     expect(msgLine(r.err)).not.toContain("signed in at");
   });
 
+  // The GUI story claims someone needs to sign in at the display, which is
+  // true only of the "Domain does not support specified action" refusal. A
+  // near-miss that merely mentions a domain must not borrow the story.
+  test("darwin: a domain-word failure that is not the GUI-domain refusal gets the status pointer", async () => {
+    const s = stub({
+      platform: "darwin",
+      respond: (cmd) =>
+        cmd[0] === "plutil"
+          ? { code: 0, out: "true\n", err: "" }
+          : cmd[1] === "print"
+            ? { code: 0, out: "\tstate = running\n\tpid = 5150\n", err: "" }
+            : cmd[1] === "kickstart"
+              ? {
+                  code: 3,
+                  out: "",
+                  err: 'Could not find service "dev.subshell.client" in domain for uid: 1000\n',
+                }
+              : { code: 0, out: "", err: "" },
+    });
+    s.files.set(PLIST, "<key>AbandonProcessGroup</key><true/><key>RunAtLoad</key><true/>");
+    const r = await controlService(s.deps, "restart");
+    expect(r.code).toBe(1);
+    expect(msgLine(r.err)).toContain("subshell service status");
+    expect(msgLine(r.err)).not.toContain("signed in at");
+  });
+
   test("darwin: restart of a STOPPED job bootstraps it — kickstart needs a loaded job", async () => {
     const s = darwinServiceStub({ loaded: false });
     const r = await controlService(s.deps, "restart");
