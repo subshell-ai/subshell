@@ -1,6 +1,6 @@
 import * as Clipboard from "expo-clipboard";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Keyboard, KeyboardAvoidingView, Platform, Pressable, Text, View } from "react-native";
+import { Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, Text, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { DevicesStrip } from "@/components/devices-strip";
 import { KeyBar } from "@/components/key-bar";
@@ -111,6 +111,13 @@ export function LiveHost({
         // One bridge call for the whole backlog, not one per queued frame.
         const queued = queue.current.splice(0);
         if (queued.length) webview.current?.injectJavaScript(`${queued.join("; ")}; true;`);
+      }
+      if (m.type === "open" && typeof m.data === "string" && /^https?:\/\//i.test(m.data)) {
+        // The uri is pane output printed by whatever runs in the terminal,
+        // so it is untrusted: the page gates it to http(s) and the gate is
+        // repeated here, because this is the line the tap crosses into the
+        // device's own app handlers.
+        void Linking.openURL(m.data).catch(() => {});
       }
     },
     [sendInput, sendResize, readOnly],

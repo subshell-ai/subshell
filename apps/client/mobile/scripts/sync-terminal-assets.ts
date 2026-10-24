@@ -1,10 +1,15 @@
 /**
- * Regenerates assets/terminal.html — xterm, its CSS, the fit addon and the
- * unicode-graphemes addon inlined into one self-contained page (spec
- * §Rendering: "xterm ships as a local asset, never
- * a CDN <script>"; the WebView's opaque origin could not fetch anyway).
+ * Regenerates assets/terminal.html — xterm, its CSS, the fit,
+ * unicode-graphemes and web-links addons, and the shared `pane-url` core
+ * from @internal/subshell-protocol, all inlined into one self-contained page
+ * (spec §Rendering: "xterm ships as a local asset, never a CDN <script>"; the
+ * WebView's opaque origin could not fetch anyway). The pane-url module is the
+ * SAME source the web SPA and the mobile Log tab run — a tap means the same
+ * thing on every device — transpiled here (sync, so the byte-equality guard
+ * stays deterministic) and exposed as `window.PaneUrl`.
  *
- * Run after bumping @xterm/* in apps/client/mobile/package.json:
+ * Run after bumping @xterm/* in apps/client/mobile/package.json, or after
+ * changing packages/subshell-protocol/src/pane-url.ts:
  *   bun scripts/sync-terminal-assets.ts
  * and COMMIT the generated file (Metro serves it as a bundled asset).
  */
@@ -36,6 +41,33 @@ export function buildTerminalHtml(): string {
     join(ASSET_ROOT, "node_modules/@xterm/addon-unicode-graphemes/lib/addon-unicode-graphemes.js"),
     "utf8",
   );
+  const webLinks = readFileSync(join(ASSET_ROOT, "node_modules/@xterm/addon-web-links/lib/addon-web-links.js"), "utf8");
+  // The shared tap core, read through the workspace symlink. SOURCE rather
+  // than dist on purpose: the guard test builds the page without a prior
+  // turbo build, and the transform erases the types either way. The export
+  // list is derived from the same text, never hand-copied, so a new exported
+  // function reaches the global without anyone remembering; the sync
+  // transformSync output is byte-stable for a given input and Bun version.
+  const paneUrlTs = readFileSync(join(ASSET_ROOT, "node_modules/@internal/subshell-protocol/src/pane-url.ts"), "utf8");
+  const transpiled = new Bun.Transpiler({ loader: "ts" }).transformSync(paneUrlTs);
+  const paneUrlBody = transpiled.replace(/^export\s+/gm, "");
+  const paneUrlNames = [...paneUrlTs.matchAll(/^export (?:async\s+)?(?:function\s*\*?|const|let|class)\s+(\w+)/gm)].map(
+    (m) => m[1]!,
+  );
+  // The body-strip strips `export` from EVERY export line, so a value-export
+  // shape the name capture misses — `export { x }`, `export default`, a new
+  // keyword — would define the thing inside the closure but leave it out of
+  // `window.PaneUrl`, and the page would call undefined on a device. Count
+  // every non-type export and demand the capture saw them all: a shape that
+  // outruns the regex fails HERE, loudly, instead of going quiet on phones.
+  const valueExportLines = [...paneUrlTs.matchAll(/^export\s+(?!interface\b|type\b)/gm)].length;
+  if (valueExportLines !== paneUrlNames.length) {
+    throw new Error(
+      `pane-url.ts has ${valueExportLines} value exports but the shim named ${paneUrlNames.length} (${paneUrlNames.join(", ")}); ` +
+        "extend the name capture so every export reaches window.PaneUrl",
+    );
+  }
+  const paneUrlExports = paneUrlNames.join(", ");
 
   return `<!doctype html>
 <html>
@@ -53,6 +85,11 @@ export function buildTerminalHtml(): string {
     <script>${js}</script>
     <script>${fit}</script>
     <script>${graphemes}</script>
+    <script>${webLinks}</script>
+    <script>(() => {
+${paneUrlBody}
+      window.PaneUrl = { ${paneUrlExports} };
+    })();</script>
     <script>
       // Glue only (spec §Rendering). The page owns NO network.
       const post = (m) => { try { window.ReactNativeWebView.postMessage(JSON.stringify(m)); } catch (e) {} };
@@ -74,6 +111,15 @@ export function buildTerminalHtml(): string {
       // this page renders is laid out by it — the same posture the web
       // terminal takes.
       term.loadAddon(new UnicodeGraphemesAddon.UnicodeGraphemesAddon());
+      // URLs become links. On a phone this addon mostly supplies the hover
+      // underline for devices that DO have a pointer: xterm's gesture service
+      // suppresses the compatibility mouse events a touch tap needs, so the
+      // tap path below is the phone's route to a URL. Either route lands
+      // here, and the uri is pane output — untrusted — so the http(s) gate
+      // runs HERE as well as on the RN side before anything can open.
+      term.loadAddon(new WebLinksAddon.WebLinksAddon((_event, uri) => {
+        if (/^https?:\\/\\//i.test(uri)) post({ type: "open", data: uri });
+      }));
       term.open(host);
 
       // ---- touch ------------------------------------------------------
@@ -113,13 +159,57 @@ export function buildTerminalHtml(): string {
         }
       }, true);
 
-      // Tap = "I want to type here". Dispatched synchronously out of
-      // touchend, so the focus is still inside the user-gesture window iOS
-      // wants before it will show a keyboard (the native side also passes
+      // Where a tap landed, resolved through the SHARED pane-url core: the
+      // cell under the point (the measured .xterm-screen rect over
+      // dimensions.css.cell, viewportY for the client scroll), then the
+      // token walked along this buffer's own isWrapped seam chain. The web
+      // SPA runs the identical sequence in terminalUrlAtPoint — same core,
+      // so a wrapped URL opens whole here exactly as it does there.
+      const urlAt = (x, y) => {
+        const dims = term.dimensions;
+        const screen = host.querySelector(".xterm-screen");
+        if (!dims || !screen || !window.PaneUrl) return null;
+        const point = window.PaneUrl.cellAtPoint({
+          x,
+          y,
+          rect: screen.getBoundingClientRect(),
+          cellWidth: dims.css.cell.width,
+          cellHeight: dims.css.cell.height,
+          cols: term.cols,
+          rows: term.rows,
+        });
+        if (!point) return null;
+        const buffer = term.buffer.active;
+        const lineIndex = buffer.viewportY + point.row;
+        const bufferLine = buffer.getLine(lineIndex);
+        if (!bufferLine) return null;
+        const line = bufferLine.translateToString(true);
+        return window.PaneUrl.urlTokenAt({
+          line,
+          cells: window.PaneUrl.tapCellsOfLine(bufferLine, line),
+          col: point.col,
+          read: (offset) => {
+            const row = buffer.getLine(lineIndex + offset);
+            if (!row) return undefined;
+            return { text: row.translateToString(true), wrapped: row.isWrapped === true };
+          },
+        });
+      };
+
+      // Tap = "open this link", or "I want to type here" when nothing under
+      // the finger is one. Dispatched synchronously out of touchend, so the
+      // focus is still inside the user-gesture window iOS wants before it
+      // will show a keyboard (the native side also passes
       // keyboardDisplayRequiresUserAction={false}, which covers N.focus()).
       // A scroll, a long press and a touch on the scrollbar all dispatch
-      // something else and are deliberately not focus.
-      host.addEventListener("-xterm-gesturetap", () => { if (!readOnly) term.focus(); }, true);
+      // something else and are deliberately not focus. Link taps work in
+      // read-only copy mode too — reading a link is not input, which is the
+      // whole point of a tap that resolves before it focuses.
+      host.addEventListener("-xterm-gesturetap", () => {
+        const url = urlAt(lastX, lastY);
+        if (url) post({ type: "open", data: url });
+        else if (!readOnly) term.focus();
+      }, true);
 
       term.onData((d) => post({ type: "keys", data: d }));
       term.onResize(({ cols, rows }) => post({ type: "size", cols, rows }));

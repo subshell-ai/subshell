@@ -192,6 +192,22 @@ export {
   verifyCommand,
 } from "./node-signing.js";
 export { type NodeSystemSpecs, parseNodeSystemSpecs } from "./node-system-specs.js";
+// PURE module (no imports at all): safe in the Metro-consumed barrel, and it
+// is also inlined into the mobile app's bundled terminal page, which reads
+// its text through the sync script rather than importing through Metro.
+export {
+  type CellReadingLine,
+  cellAtPoint,
+  cellIndexAt,
+  findUrlsInLine,
+  stripTrailingJunk,
+  type TapCell,
+  type TapCellText,
+  type TapRow,
+  tapCellsOfLine,
+  type UrlSpan,
+  urlTokenAt,
+} from "./pane-url.js";
 export {
   CLI_SUFFIX,
   DEFAULT_DATABASE_PATH,
