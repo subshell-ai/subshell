@@ -35,7 +35,7 @@ import {
   resolveAddPosition,
 } from "@/lib/workspace-layout";
 import {
-  flushWorkspaceScreen,
+  flushWorkspacePreview,
   onWorkspacePreviewRequest,
   parseWorkspacePreviewId,
   previewPanelId,
@@ -250,7 +250,7 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
   );
 
   useEffect(() => {
-    if (ready) flushWorkspaceScreen();
+    if (ready) flushWorkspacePreview();
   }, [ready]);
 
   const setSearchAddon = useCallback((paneId: string, addon: SearchAddon | null) => {
@@ -408,7 +408,7 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
     // after `handleAdd`, the active panel's pane row exists only NOW, and
     // without this the header would sit on its workspace-name fallback.
     publishFocus();
-    flushWorkspaceScreen();
+    flushWorkspacePreview();
   }, [detail.panes, addPanel, publishFocus]);
 
   const { addPane, removePane, restartSubshell } = useWorkspacePaneMutations(detail.workspace.id);

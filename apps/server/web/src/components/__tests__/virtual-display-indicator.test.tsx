@@ -20,6 +20,6 @@ it("opens the display from an icon-only header shortcut", () => {
     />,
   );
   expect(screen.queryByText("Virtual display") === null).toBe(true);
-  fireEvent.click(screen.getByRole("button", { name: "Open virtual display" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open preview" }));
   expect(opened).toBe(1);
 });

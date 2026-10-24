@@ -26,7 +26,7 @@ let entries: readonly WorkspacePreviewEntry[] = [];
 let focused: string | null = null;
 const listeners = new Set<() => void>();
 const requests = new Set<(subshellId: string, view?: WorkspacePreviewTarget) => boolean>();
-let pendingScreen: string | null = null;
+let pendingPreview: string | null = null;
 function emit() {
   for (const listener of listeners) listener();
 }
@@ -62,16 +62,16 @@ export function requestWorkspacePreview(subshellId: string, view?: WorkspacePrev
 }
 export function onWorkspacePreviewRequest(request: (subshellId: string, view?: WorkspacePreviewTarget) => boolean) {
   requests.add(request);
-  flushWorkspaceScreen();
+  flushWorkspacePreview();
   return () => {
     requests.delete(request);
   };
 }
 
 /** Carries a header shortcut through navigation until its workspace is ready. */
-export function armWorkspaceScreen(subshellId: string) {
-  pendingScreen = subshellId;
+export function armWorkspacePreview(subshellId: string) {
+  pendingPreview = subshellId;
 }
-export function flushWorkspaceScreen() {
-  if (pendingScreen && requestWorkspacePreview(pendingScreen, { kind: "screen" })) pendingScreen = null;
+export function flushWorkspacePreview() {
+  if (pendingPreview && requestWorkspacePreview(pendingPreview)) pendingPreview = null;
 }
