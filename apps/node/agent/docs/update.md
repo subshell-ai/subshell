@@ -73,6 +73,19 @@ budget, and it is a belt: the plane pushes `set_allowed_dirs` on every accepted
 of the timer never firing is a stale ~70 MB `.previous`; the cost of it firing
 early is the rollback.
 
+**A restart that fails AFTER the swap is a report, not a refusal.** The
+keyboard path's `restart` is not an all-or-nothing gate: the swap is already
+done, and the manager's refusal to bounce is its own outcome. `applyUpdate`
+then returns `restarted: false` with a `note` that says all of it in order:
+the new binary IS installed, the running daemon is still the old one, the
+manager's own first line is the reason, and the two ways forward (`subshell
+service restart`, or stop and restart the running `subshell run`) are named.
+Bare-manager-line notes read as "the update failed", which on 2026-10-23 left
+a Mac Studio's operator standing next to an installed 2.3.1 trying to
+re-download it. The launchd domain cause (kickstart exit 125: a user's `gui/
+<uid>` agents need someone signed in at the display) gets its own sentence
+from `controlService`, which is where launchd's words are first-hand.
+
 **Refusals are the WIRE CONSTANTS, never sentences.** The plane matches
 `NodeRpcError.detail` by equality, so `applyUpdate` throws `UpdateRefused`
 carrying a `NODE_RESULT_*` string alongside the human message, and the executor

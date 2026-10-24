@@ -331,7 +331,13 @@ describe("POST /api/nodes/:id/update", () => {
   function goHeld(
     nodeId: string,
     protocolVersion: number = NODE_PROTOCOL_VERSION,
-    entry: Partial<{ agentVersion: string; os: string; arch: string; reason: HeldReason }> = {},
+    entry: Partial<{
+      agentVersion: string;
+      os: string;
+      arch: string;
+      reason: HeldReason;
+      runtime?: NodeRuntimeReport;
+    }> = {},
   ): ReturnType<typeof fakeSocket> {
     const sock = fakeSocket();
     const conn = attachConnection(nodeId, sock);
@@ -343,6 +349,18 @@ describe("POST /api/nodes/:id/update", () => {
       arch: entry.arch ?? "x64",
       onIdle: () => undefined,
     });
+    // A held socket that reached `ready` keeps what it reported: identity and
+    // runtime are persisted BEFORE the gate that holds the connection. A test
+    // passes `runtime` to stand in for exactly that frozen answer.
+    if (entry.runtime) {
+      conn.agent = {
+        dataDir: "/d",
+        capabilities: [],
+        hostname: "held-machine",
+        agentVersion: entry.agentVersion ?? "0.8.0",
+        runtime: entry.runtime,
+      };
+    }
     return sock;
   }
 
@@ -362,7 +380,10 @@ describe("POST /api/nodes/:id/update", () => {
     conn: "live" | "held" = "live",
     facts: NodeRuntimeReport | null = runtime,
   ): Promise<{ res: Response; cmd: Record<string, unknown> }> {
-    const sock = conn === "held" ? goHeld(nodeId) : goOnline(nodeId, facts);
+    const sock =
+      conn === "held"
+        ? goHeld(nodeId, NODE_PROTOCOL_VERSION, facts ? { runtime: facts } : {})
+        : goOnline(nodeId, facts);
     const record = conn === "held" ? getHeld(nodeId)?.conn : getLive(nodeId);
     if (!record) throw new Error("no connection record");
     const resP = req("POST", `/api/nodes/${nodeId}/update`, { cookie, body });
@@ -851,6 +872,102 @@ describe("POST /api/nodes/:id/update", () => {
     const state = readView().nodes[id];
     expect(state?.phase).toBe("failed");
     expect(state?.message).toContain("not running under a service manager");
+  });
+
+  it('names WHICH half of "not supervised" is true, from the runtime facts already in hand', async () => {
+    // Surfaced 2026-10-23: the bare constant gave the same sentence to three
+    // different machines — one with a definition installed whose daemon was
+    // started by hand, one with nothing installed at all, and a headless Mac
+    // whose launchd user-agent domain does not answer (nobody signed in at
+    // the display). The node's own `ready` already froze the answers into the
+    // report the plane holds; the refusal composes from those, never from
+    // anything fetched after the refusal. (The fixtures' `supervised: true`
+    // beside a spoken refusal is deliberately contradictory: wording is
+    // composed from the SERVICE block, and only the agent's answer decides
+    // the branch.)
+    useFakeRelease();
+
+    // A definition IS installed there, so the daemon answering did not start
+    // from it: the remedy is to bring it back under the manager.
+    const idA = await mkNode();
+    const a = await updateWithAnswer(idA, aliceCookie, {}, { ok: false, error: NODE_RESULT_NOT_SUPERVISED });
+    const msgA = ((await a.res.json()) as { message: string }).message;
+    expect(msgA).toContain("A service definition is installed there");
+    expect(msgA).toContain("subshell service install");
+    expect(msgA).toContain("subshell update");
+    expect(msgA).not.toContain("Nothing is installed");
+    expect(msgA).not.toContain("launchd");
+    resetNodeRegistryForTests();
+
+    // Nothing is installed at all, so nothing COULD restart anything.
+    const noneInstalled: NodeRuntimeReport = { ...runtime, service: { ...runtime.service, installed: false } };
+    const idB = await mkNode();
+    const b = await updateWithAnswer(
+      idB,
+      aliceCookie,
+      {},
+      { ok: false, error: NODE_RESULT_NOT_SUPERVISED },
+      "live",
+      noneInstalled,
+    );
+    const msgB = ((await b.res.json()) as { message: string }).message;
+    expect(msgB).toContain("Nothing is installed there");
+    expect(msgB).toContain("subshell service install");
+    resetNodeRegistryForTests();
+
+    // The Mac-Studio shape: a launchd job the manager cannot answer for.
+    const launchdUnknown: NodeRuntimeReport = {
+      ...runtime,
+      service: { ...runtime.service, manager: "launchd", state: "unknown", pid: null },
+    };
+    const idC = await mkNode();
+    const c = await updateWithAnswer(
+      idC,
+      aliceCookie,
+      {},
+      { ok: false, error: NODE_RESULT_NOT_SUPERVISED },
+      "live",
+      launchdUnknown,
+    );
+    const msgC = ((await c.res.json()) as { message: string }).message;
+    expect(msgC).toContain("A service definition is installed there");
+    expect(msgC).toContain("launchd is not answering");
+    expect(msgC).toContain("signed in at the machine's own display");
+    resetNodeRegistryForTests();
+
+    // No runtime report at all: say nothing beyond the bare fact rather than
+    // invent a shape for that machine.
+    const idD = await mkNode();
+    const d = await updateWithAnswer(
+      idD,
+      aliceCookie,
+      {},
+      { ok: false, error: NODE_RESULT_NOT_SUPERVISED },
+      "live",
+      null,
+    );
+    const msgD = ((await d.res.json()) as { message: string }).message;
+    expect(msgD).toContain("update it where it was started");
+    expect(msgD).not.toContain("subshell service install");
+    resetNodeRegistryForTests();
+
+    // The held arm: a refused old agent is exactly the machine an update gets
+    // pressed on, and its pre-gate `ready` carries the same facts — the
+    // enrichment reads the held record too, and the held case is the common
+    // one for the headless Mac.
+    const idE = await mkNode();
+    const e = await updateWithAnswer(
+      idE,
+      aliceCookie,
+      {},
+      { ok: false, error: NODE_RESULT_NOT_SUPERVISED },
+      "held",
+      launchdUnknown,
+    );
+    const msgE = ((await e.res.json()) as { message: string }).message;
+    expect(msgE).toContain("launchd is not answering");
+    expect(msgE).toContain("signed in at the machine's own display");
+    resetNodeRegistryForTests();
   });
 
   // ── the update tracker (design 2026-09-25) ────────────────────────────────

@@ -173,7 +173,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
       }
       try {
         const fetched = await fetchArtifact(params.target, { cache: decision.cache });
-        return new Response(fetched.stream, { headers });
+        return new Response(fetched.body(), { headers });
       } catch (error) {
         // A release that cannot be read is the same OUTCOME as an unpublished
         // build — the machine cannot install — so it is the same 404 rather than
@@ -227,7 +227,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
       // The air-gapped plane serves only what it holds. Nothing held: the
       // same 404 the installer path answers, which the node reports as a
       // download failure. Something held but not the release: the incoherent
-      // offer, refused with the remedy instead of being streamed to a node
+      // offer, refused with the remedy instead of being served to a node
       // that would refuse it after the download.
       return status(
         onDisk === null ? 404 : 409,
@@ -241,18 +241,23 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
     try {
       // Absent disk: cache the verified bytes, as the installer lazy fetch
       // always has (same `.fetched.json` semantics). Present but different:
-      // stream the release bytes THROUGH only, because the file there may be
-      // the operator's hand-published binary and is never overwritten here.
+      // serve the release bytes from their own temp copy, because the file
+      // there may be the operator's hand-published binary and is never
+      // overwritten here.
       const fetched = await fetchArtifact(params.target, { cache: onDisk === null });
       // The release the source serves NOW must be the release the COMMAND
       // named. The index's 15-minute TTL can carry a newer release past an
-      // outstanding token, and streaming those bytes against the command's
+      // outstanding token, and serving those bytes against the command's
       // digest would land the node in exactly the refusal this path exists to
       // prevent, one download later. So the comparison happens before the
-      // first byte is served, and a mismatch cancels the stream: nothing of
-      // the newer release reaches the node or the cache.
+      // first byte is served — and since the fetch verifies the whole file
+      // before this line runs (the "Update all" fan-out fix of 2026-10-23), a
+      // mismatch now stops with NO byte served: `dispose` removes the temp
+      // copy the fetch wrote, and where the fetch cached, the
+      // newer release stays on the shelf because it IS the release an
+      // installer would serve next — the retry fast-paths on it.
       if (fetched.digest !== expected) {
-        await fetched.stream.cancel().catch(() => {});
+        await fetched.dispose();
         // Two causes, two sentences: a STALE DISK file is the operator's
         // artifact problem (publish or hand update), but an EMPTY disk with
         // the index moved past the token is nothing anyone published; the
@@ -269,7 +274,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
           }),
         );
       }
-      return new Response(fetched.stream, { headers });
+      return new Response(fetched.body(), { headers });
     } catch (error) {
       getLogger().warn(`node artifacts: could not fetch ${params.target} from the release: ${errorText(error)}`);
       // The release could not be served. With nothing (or nothing readable)

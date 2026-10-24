@@ -670,7 +670,45 @@ describe("applyUpdate", () => {
       restartService: async () => ({ code: 1, out: "", err: "subshell: this would close 3 subshells\nuse --force" }),
     });
     expect(applied.restarted).toBe(false);
-    expect(applied.note).toBe("subshell: this would close 3 subshells");
+    // The note says ALL of it, in the order the person needs it: the swap
+    // landed, the running daemon is the OLD one, the manager's own words are
+    // the reason, and two ways forward are named. A bare manager line read
+    // like nothing had happened.
+    expect(applied.note).toContain("the new binary is installed");
+    expect(applied.note).toContain("this would close 3 subshells");
+    expect(applied.note).toContain("subshell service restart");
+    expect(await readFile(binary, "utf8")).toBe("NEXT");
+  });
+
+  it("the refused-restart note names the swap first — the Mac-Studio kickstart shape", async () => {
+    // Live incident 2026-10-23: `launchctl kickstart -k` answered 125 ("Domain
+    // does not support specified action") after a manual update had ALREADY
+    // replaced the binary. The operator read that as a failed update; the
+    // daemon was one restart away from the new version. The note must make
+    // the installed-and-standing-still state unmistakable.
+    const { binary, root, dataDir } = await installedNode();
+    pretendInstalledAt(binary);
+    const local = join(root, "next");
+    await writeFile(local, "NEXT");
+    const applied = await applyUpdate({
+      binaryDeps: NO_SERVICE_DEFINITION,
+      source: { kind: "file", path: local },
+      version: "0.9.3",
+      force: true,
+      restart: true,
+      origin: "cli",
+      dataDir,
+      probeVersion: async () => "0.9.3",
+      restartService: async () => ({
+        code: 1,
+        out: "",
+        err: 'subshell: launchctl kickstart -k failed (exit 125): Could not kickstart service "dev.subshell.client": 125: Domain does not support specified action',
+      }),
+    });
+    expect(applied.restarted).toBe(false);
+    expect(applied.note).toContain("the new binary is installed");
+    expect(applied.note).toContain("still runs");
+    expect(applied.note).toContain("launchctl kickstart -k failed (exit 125)");
     expect(await readFile(binary, "utf8")).toBe("NEXT");
   });
 });

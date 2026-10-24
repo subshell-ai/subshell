@@ -152,6 +152,12 @@ stopped. Start is `bootstrap` falling back to
 `kickstart -k`; restart is `kickstart -k` (a bare `kickstart` on a running job
 changes nothing); stop is `bootout` (KeepAlive undoes a mere kill), and on
 Linux `stop`, never `disable --now`: un-enabling is what uninstall is for.
+A `kickstart` that answers `Domain does not support specified action` (exit
+125) is the GUI-session half of the domain rule: `gui/<uid>` exists only while
+someone is signed in at the display, so an SSH-only operator gets that refusal
+and a hint to run `subshell run` by hand (measured on a Mac Studio,
+2026-10-23); the hint ships in the error line because launchd's own words
+name no remedy.
 
 **The pane guard is the reason those live here rather than in the caller.**
 This node's subshells run their tmux servers as CHILDREN of the daemon, so a
