@@ -78,6 +78,7 @@ export function AllSubshellsSection({
     <section aria-label="Subshells" className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex min-w-0 shrink-0 items-center gap-2">
         <Select
+          density="compact"
           value={groupBy}
           items={GROUP_OPTIONS}
           onValueChange={(value) => {
@@ -90,7 +91,7 @@ export function AllSubshellsSection({
             }
           }}
         >
-          <SelectTrigger aria-label="Group sidebar subshells by" className="h-7 min-w-0 flex-1 px-2 py-0.5 text-detail">
+          <SelectTrigger aria-label="Group sidebar subshells by" className="min-w-0 flex-1">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
