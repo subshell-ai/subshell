@@ -12,8 +12,7 @@ export function virtualDisplayReason(node: Node | null, readiness?: PreviewDispl
   if (node.previewEnabled !== true) return "Turn on Allow preview in this machine's node settings first.";
   if (!readiness) return "Checking virtual display requirements…";
   if (!readiness.supported) return "Virtual displays are available on Linux machines only.";
-  if (readiness.missing.length)
-    return `Install ${readiness.missing.join(", ")} on ${node.name || "this machine"}, then choose Recheck.`;
+  if (readiness.missing.length) return `Install ${readiness.missing.join(", ")} on ${node.name || "this machine"}.`;
   return undefined;
 }
 
@@ -61,7 +60,7 @@ export function VirtualDisplayField({
         checked={checked}
         disabled={Boolean(reason)}
         onCheckedChange={onChange}
-        aria-describedby={`${id}-hint`}
+        aria-describedby={reason ? `${id}-hint ${id}-reason` : `${id}-hint`}
       />
       <Label htmlFor={id}>Virtual display</Label>
     </div>
@@ -90,8 +89,14 @@ export function VirtualDisplayField({
         control
       )}
       <p id={`${id}-hint`} className="text-detail text-muted-foreground">
-        {reason ?? "Gives this subshell its own screen. Choose Preview in its workspace, then View screen."}
+        Gives browsers and other graphical apps launched in this subshell a screen, even without a physical monitor. See
+        and control them from Preview → View screen.
       </p>
+      {reason && (
+        <p id={`${id}-reason`} className="text-detail text-warning">
+          {reason}
+        </p>
+      )}
       {shouldCheck && !check.isFetching && (
         <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => void check.refetch()}>
           Recheck
