@@ -1,3 +1,5 @@
+import type { PreviewStreamFrame } from "@internal/subshell-protocol";
+import type { PreviewStreamSocket } from "@/services/preview-broker.js";
 import type { LiveWsSocket } from "@/ws/live-ws.js";
 
 /**
@@ -71,4 +73,31 @@ export function dropLiveSocketsFor(userId: string, reason = "role changed"): num
 /** Drops every record. Test seam only — @internal. */
 export function resetLiveRegistryForTests(): void {
   byUser.clear();
+}
+
+/**
+ * Serialize one preview frame and hand it to one socket.
+ *
+ * This is the delivery primitive the broker's fan-out calls per recipient, and
+ * the one place a `preview-stream` frame becomes bytes. It lives beside the
+ * registry that already owns "who is connected" so the serializer never needs
+ * to know about the broker and the broker never needs to know about sockets:
+ * `live-ws.ts` installs it at module init, and tests pass it to the broker's
+ * seam explicitly. The frame is stringified as-is; the broker already built it
+ * from a pane's screen, so the blob crosses untouched.
+ */
+export function sendPreviewStreamSocket(socket: PreviewStreamSocket, frame: PreviewStreamFrame): void {
+  socket.send(JSON.stringify(frame));
+}
+
+/**
+ * Send one frame to every socket in `sockets`.
+ *
+ * Production wires the per-socket function above (the broker checks each
+ * recipient's byte debt between sends and drops slow ones mid-fan-out), so
+ * this loop is for callers that already hold a settled audience rather than a
+ * reason to re-check it.
+ */
+export function sendToSockets(sockets: Iterable<PreviewStreamSocket>, frame: PreviewStreamFrame): void {
+  for (const socket of sockets) sendPreviewStreamSocket(socket, frame);
 }

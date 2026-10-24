@@ -10,6 +10,7 @@ import { DetailBackHeader } from "@/components/detail-back-header";
 import { EditableText } from "@/components/editable-text";
 import { HarnessSubagentTitle } from "@/components/harness-subagents";
 import { SubshellNotFoundCard } from "@/components/not-found-page";
+import { PreviewSection } from "@/components/preview/preview-section";
 import { InjectPromptDialog } from "@/components/prompts/inject-prompt-dialog";
 import { SplitSubshellButton } from "@/components/split-subshell-button";
 import { SshPaneLabels } from "@/components/ssh-pane-labels";
@@ -34,6 +35,7 @@ import { usePresets } from "@/hooks/use-presets";
 import { useSubshellData } from "@/hooks/use-subshell-data";
 import { useSubshellLog } from "@/hooks/use-subshell-log";
 import { useSubshellMutations } from "@/hooks/use-subshell-mutations";
+import { useSubshellPreview } from "@/hooks/use-subshell-preview";
 import { useSwipeNav } from "@/hooks/use-swipe-nav";
 import { useTrustNotices } from "@/hooks/use-trust-notices";
 import { invalidateAfterRename } from "@/hooks/use-workspaces";
@@ -87,6 +89,9 @@ function SubshellPage() {
   // What this subshell discloses and to whom (foreign node / shared). The
   // icons render always; the banner shows once per exposure.
   const trustNotices = useTrustNotices(subshell);
+  // What the pane currently offers to watch (pane-preview spec §7): the
+  // info poll, the three verbs, and the watch protocol's two halves.
+  const preview = useSubshellPreview(id, subshell);
   // The diagnostics HUD toggle (spec 2026-09-21 Wave C): a per-DEVICE,
   // per-subshell preference (lib/pane-diagnostics-pref), offered by the
   // actions menu and honoured by the terminal's overlay column. Re-read on
@@ -435,6 +440,11 @@ function SubshellPage() {
         )}
         {showPill && <StatusPill tone="warning">reconnecting…</StatusPill>}
       </div>
+
+      {/* Under the terminal, in the same column (spec §7). Needs a settled
+          row: a not-found card already returned, and previewing a row that
+          does not resolve would only poll a 404. */}
+      {subshell && <PreviewSection paneId={id} access={subshell.access} subshell={subshell} preview={preview} />}
 
       {/* The accessory key bar is an input affordance — a `view` grantee
           (spec §4.1) gets the reading half only: no byte keys, no image

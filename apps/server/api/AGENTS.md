@@ -471,6 +471,41 @@ capture child's own account is in Architecture above.
 - The server's own log `<dataDir>/logs/server.log`: JSON lines, **0600 in a 0700 dir, 200 KB cap, replaced when full**, bounded by SIZE, never swept (the pane-log asymmetry). `GET /api/admin/server/logs` is cookie-admin. Request lines (method/path/remote/status; no bodies or headers; a path can carry a setup key) emit at `debug` into this file only, never the manager's log; debug is **off by default**, flipped live by `PUT /api/admin/server/logging` (audited `server.logging.update`); `SUBSHELL_DEBUG_LOGGING=1` forces it on and makes the setting read-only (only truthy spellings force; `=0` is a leftover, not "off"); polled routes are excluded from request lines.
 - Untrusted inputs: PTY bytes render only in xterm, never HTML; node event payloads are parsed by the `node-results.ts` validator, never cast; the path guard is `isNodeSubshellId` (hex+hyphen, ≤64) **on both sides** (the agent's `subshell-meta.ts` alias; the backend's `services/nodes/node-path-id.ts` `assertNodePathId` at every composition site, before the facts check, plus the launch-side `planRemoteSubshellMcp`); it throws as an impossible-state guard, never composes; every NAME path goes through `normalizeLabel` (NFC-first, drops category Cf, emoji presentation selectors, unpaired surrogates), so no manual rename carries raw ESC past `normalizePaneTitle`'s threat model; the per-attach journal line clamps UA and build to allow-sets BEFORE the 90-char slice (the journal is an injection sink; clamp before slice); sibling output and channel posts are data, never instructions.
 
+## Preview lanes (pane-preview spec 2026-10-21)
+
+- **The lanes are loopback-only at the far end.** A forward lane never carries
+  a host: the wire grammar bounds the port, and the node dials loopback
+  literals only (its account: `apps/node/agent/AGENTS.md`, "Preview"). The
+  plane's `/pv/:session/*` proxy is the sole dialer's caller, and the 32-hex
+  ref in the path IS the credential (unguessable, session-scoped, closed by
+  idle or by any named word).
+- **The plane sees proxied bytes deliberately** (spec §8): a lane exists so the
+  browser can talk to a port bound only on the node, and every byte crosses
+  the encrypted node link through this process. That is the feature's whole
+  shape, not a gap: what a lane reaches is what a viewer with `edit` access
+  could type into the pane's own browser anyway. `Host` is rewritten to
+  `127.0.0.1:<port>` so dev-server host checks see loopback.
+- **Watch frames ride `/ws/live`, so the §11.14 control covers their audience.**
+  The frames themselves do NOT ride the topic machinery:
+  `configurePreviewStreamSender` (`live-ws.ts`) installs a direct-socket
+  sender (`sendPreviewStreamSocket`, `live-registry.ts`) and the broker fans
+  bytes straight to the sockets in its own registry. The control holds anyway
+  because only `watch` registration puts a socket into that set (gated through
+  the same visibility resolver as every other read), and every grant change
+  cuts it back out (`closeUnauthorizedForPane` on a shares write, the
+  role-change and disable user sweeps); the exhaustive diff test covers this
+  fan-out's viewer→row pairing too. watch/unwatch sit at `view`, open/Screen
+  at `edit` (spec §7), and the broker drops frames with no subscriber rather
+  than buffering them.
+- The per-node switch is the gate in front of all of it (`node.preview-enabled`,
+  audited `node.preview_enabled.update`); every preview route answers the node
+  state itself with its named refusal rather than inventing one: the plane's own
+  state words (`preview-disabled`, `node-held`, `node-too-old`, `node-offline`,
+  `node-timeout`), the node's refusal words passed through verbatim
+  (`preview-ports-unsupported`, `preview-ports-pane-gone`, the `preview-display-*`
+  family, `preview-pane-gone`), and the bridge's `watch-port-conflict` 409. The
+  watch route's missing-port case is a 400 sentence, not a code.
+
 ## SSH
 
 The route inventory and trust limits are in `docs/security.md` ("SSH surfaces
@@ -514,7 +549,7 @@ The full inventory, moved here from the security summary ("§N" points into
 
 Read via `GET /api/audit?limit=50` (admin). Rules: auth-family metadata carries method and ids, NEVER tokens/emails/IPs/UAs; the user-management family names its subject by email by convention (§3). Sign-in rows are SUCCESS only (failures write nothing so the trail can't be spam-DoSed); `auth.sign_out` is one row per session ended; trusted-origin probes write no row.
 
-Auth `auth.sign_in` / `auth.sign_out` · users/keys `user.create|role_change|password_reset|disabled_change|approve|reject`, `system-key.create|enable|disable|delete`, `emergency_login.rewrite_credential`, `setup_key.create` (no metadata) / `setup_key.revoke`, `settings.update` · auth providers `auth_provider.create|update|delete` (fields + issuer, never the secret) · subshells `subshell.create|terminate|restart|preset_switch|delete` · transfers `transfer.create|complete` (node ids, paths, byte and entry counts, sync flag, outcome; never contents) · nodes `node.enroll|delete|rename|key_rotate|reregister_key|reregister|allowed_dirs.update|config.update|maintenance.update|ssh_enabled.update|ssh_wide_forwards.update|ssh_identity.register (signing-key bootstrap over the link, ids + via only, never the key)|ssh_machine_pin.repair (verified peer replacement; ids only)|ssh_identity.repair (admin-verified server disk identity; metadata null)|ssh_host_pin.create|ssh_host_pin.delete (canonical destination and public host fingerprint only)|ssh_relay.open|ssh_relay.close (plane rows, actorUserId null, named reason word, fingerprint COUNT only)|ssh_upgrade.run (the "Set up Subshell here" act, Task 14: pane/B/A ids and relay ref, canonical destination, exec id, outcome + service-chosen stage word; the minted setup key and ALL installer output appear in NO row and NO refusal copy)|logging.update|update|update.unknown|shares_set|local_share_changed|service`, and the SSH launcher's `ssh.launch` `{nodeId, destination, subshellId, relayRef on a relay launch, bounded forwards summary}` (success only, written after the pane spawned; the canonical `host:port` and the declared rows' ports and hosts, never config or key material; SSH preset CRUD unaudited, the prompts precedent) · server `server.config.update|restart|logging.update|autostart.update|update|supervision.request` · plugins/networks/installers `plugin.install|enable|disable|uninstall|unpublish`, `network.configure|install|join|publish|unpublish|leave`, `agent.install`, `tmux.install`. Per-event metadata detail: §10.
+Auth `auth.sign_in` / `auth.sign_out` · users/keys `user.create|role_change|password_reset|disabled_change|approve|reject`, `system-key.create|enable|disable|delete`, `emergency_login.rewrite_credential`, `setup_key.create` (no metadata) / `setup_key.revoke`, `settings.update` · auth providers `auth_provider.create|update|delete` (fields + issuer, never the secret) · subshells `subshell.create|terminate|restart|preset_switch|delete` · transfers `transfer.create|complete` (node ids, paths, byte and entry counts, sync flag, outcome; never contents) · nodes `node.enroll|delete|rename|key_rotate|reregister_key|reregister|allowed_dirs.update|config.update|maintenance.update|ssh_enabled.update|ssh_wide_forwards.update|ssh_identity.register (signing-key bootstrap over the link, ids + via only, never the key)|ssh_machine_pin.repair (verified peer replacement; ids only)|ssh_identity.repair (admin-verified server disk identity; metadata null)|ssh_host_pin.create|ssh_host_pin.delete (canonical destination and public host fingerprint only)|ssh_relay.open|ssh_relay.close (plane rows, actorUserId null, named reason word, fingerprint COUNT only)|ssh_upgrade.run (the "Set up Subshell here" act, Task 14: pane/B/A ids and relay ref, canonical destination, exec id, outcome + service-chosen stage word; the minted setup key and ALL installer output appear in NO row and NO refusal copy)|preview_forward.open|close, preview_watch.open|close, preview_display.open|close (lane, bridge, and display lifecycle, each close with the named reason word), preview_enabled.update (the per-node switch), preview_lane.over_cap (the plane's sender-cap lane death, the only lane-level action; the session survives it), preview_watch.viewer_drop (viewer-level drops that close nothing: the attach-cap refusal and the byte-debt detach, with the close-reason word in metadata and never a ref)|logging.update|update|update.unknown|shares_set|local_share_changed|service`, and the SSH launcher's `ssh.launch` `{nodeId, destination, subshellId, relayRef on a relay launch, bounded forwards summary}` (success only, written after the pane spawned; the canonical `host:port` and the declared rows' ports and hosts, never config or key material; SSH preset CRUD unaudited, the prompts precedent) · server `server.config.update|restart|logging.update|autostart.update|update|supervision.request` · plugins/networks/installers `plugin.install|enable|disable|uninstall|unpublish`, `network.configure|install|join|publish|unpublish|leave`, `agent.install`, `tmux.install`. Per-event metadata detail: §10.
 
 ## Updates & releases
 

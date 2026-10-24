@@ -46,6 +46,14 @@ export interface NewSubshellFormValue {
   saveAsPreset?: boolean;
   /** The new preset's name; REQUIRED (trimmed) while `saveAsPreset` is checked. */
   presetName?: string;
+  /**
+   * "Virtual display" (pane-preview spec §7): launch the pane with an Xvfb
+   * screen it can be watched on. Optional on the type - an absent value is
+   * the untouched false, and an unchecked box sends NO `screen` field: the
+   * create route refuses an unsolicited `screen` default by turning every
+   * plain terminal into a display.
+   */
+  virtualDisplay?: boolean;
 }
 
 export function emptyNewSubshellForm(): NewSubshellFormValue {
@@ -152,6 +160,8 @@ export interface NewSubshellFormIds {
   savePreset: string;
   /** New-preset name input, shown while the box is checked */
   presetName: string;
+  /** "Virtual display" checkbox */
+  virtualDisplay: string;
 }
 
 /** The `picker-*` set every launch dialog gets by default. */
@@ -163,4 +173,5 @@ export const DIALOG_IDS: NewSubshellFormIds = {
   prompt: "picker-prompt-add",
   savePreset: "picker-save-as-preset",
   presetName: "picker-preset-name",
+  virtualDisplay: "picker-virtual-display",
 };

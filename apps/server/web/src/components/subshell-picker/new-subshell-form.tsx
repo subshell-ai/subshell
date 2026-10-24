@@ -413,6 +413,33 @@ export function NewSubshellForm({
           )}
         </div>
       )}
+
+      {/* Virtual display (pane-preview spec §7): an opt-in virtual screen the
+          pane can be watched on. Off by default, and an unchecked box sends
+          NO `screen` field at all - an always-sent default would silently
+          arm Xvfb for every plain terminal. The machine's preview switch must
+          be on; the create route refuses the launch and names the switch when
+          it is not, so offering the box costs nothing where preview is off.
+          Hidden on first run like the preset box: the wizard asks nothing it
+          cannot show. */}
+      {!firstRun && (
+        <div className="space-y-2 border-t pt-3">
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id={ids.virtualDisplay}
+              checked={value.virtualDisplay === true}
+              onChange={(e) => onChange({ ...value, virtualDisplay: e.target.checked })}
+              className="h-4 w-4 rounded border border-input bg-background accent-primary"
+            />
+            <Label htmlFor={ids.virtualDisplay}>Virtual display</Label>
+          </div>
+          <p className="text-detail text-muted-foreground">
+            Runs the pane on its own virtual screen you can watch in Preview. The machine's preview switch needs to be
+            on.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

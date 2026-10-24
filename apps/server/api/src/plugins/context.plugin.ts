@@ -39,6 +39,15 @@ export const REQUEST_LOG_IGNORE: (string | RegExp)[] = [
   // A node's log, polled once a second by whoever has that node's page open.
   // A regex because the id is in the path.
   /^\/api\/nodes\/[^/]+\/logs$/,
+  // The preview poll an open pane view runs (spec §7): the exact path, so
+  // the open/watch acts under it keep their request lines.
+  /^\/api\/subshells\/[^/]+\/preview$/,
+  // The /pv proxy: request lines carry the path, the path carries the
+  // 32-hex session ref, and the ref IS the credential (spec 2026-10-21
+  // §10). A debug request line here would log a live link into someone's
+  // pane port. Same class as the setup-key rule in the API AGENTS.md log
+  // notes: paths that wear secrets never ride the log.
+  /^\/pv\//,
   /^\/ws(\/|$)/,
   // Minted once per live-feed connect, and the feed RETRIES on a bounded
   // backoff (spec 2026-09-19 § 5) — so a tab whose session has gone while the

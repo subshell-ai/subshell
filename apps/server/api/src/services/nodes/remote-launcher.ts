@@ -2,8 +2,10 @@ import { buildSshConfigPath, type HarnessPlugin } from "@internal/pane-runtime";
 import {
   HARNESS_BINARY_PLACEHOLDER,
   type NodeCommandBody,
+  type NodePreviewScreenWire,
   type NodeProbeEntry,
   parseNodeCaptureResult,
+  parseNodeLaunchResult,
   parseNodeLogReadResult,
   parseNodePaneCursorResult,
   parseNodePaneSizeResult,
@@ -12,8 +14,11 @@ import {
   parseNodePromptDeliver,
   parseNodeStatDirResult,
 } from "@internal/subshell-protocol";
+import { HttpError } from "@/api/auth-guard.js";
 import type { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { getRequestlessContext } from "@/lib/context.js";
+import { screenLaunchRemedy } from "@/services/nodes/preview-refusals.js";
+import { getPreviewBroker } from "@/services/preview-broker.js";
 import { logger } from "@/utils/logger.js";
 import { detectOnNodeBestEffort, readAgentInventory } from "./inventory.js";
 import { LOG_TAIL_BYTES, tailLinesFromWindowText } from "./log-tail.js";
@@ -92,6 +97,13 @@ export interface RemoteLauncherDeps {
    * caught by the caller — the kick is total.
    */
   detect?: (nodeId: string) => void;
+  /**
+   * Ack-echo consumer for a screen launch (default
+   * `getPreviewBroker().onDisplayOpened`): when the node's `launch` ack names
+   * the display it allocated, that pairing is the preview broker's audit
+   * fact. Injected so a launcher test never opens the broker.
+   */
+  onDisplayOpened?: (nodeId: string, paneId: string, screen: NodePreviewScreenWire) => void;
 }
 
 /**
@@ -309,14 +321,43 @@ export class RemoteLauncher implements NodeLauncher {
       // `ssh: undefined` on a plain plan (the frame's parser refuses an
       // explicit-undefined optional; the mcp comment above is the precedent).
       ...(plan.ssh ? { ssh: { configPath: plan.ssh.configPath, fileContent: plan.ssh.fileContent } } : {}),
+      // The screen request (pane-preview §6). Conditional spread like ssh's:
+      // a plain launch's frame carries no member, byte-identical to the
+      // pre-preview wire the node's parser still requires.
+      ...(plan.screen ? { screen: plan.screen } : {}),
     };
+    let data: unknown;
     try {
-      await this.#send(cmd, LAUNCH_TIMEOUT_MS);
+      data = await this.#send(cmd, LAUNCH_TIMEOUT_MS);
     } catch (err) {
       if (err instanceof NodeRpcError && err.code === "failed" && BINARY_MISSING_RE.test(err.message)) {
         this.#kickDetect();
       }
+      // A screen the NODE refused: the node owns the refusal word, this
+      // mirror pairs it with the operator's remedy and renders a 400 that
+      // names both (the create path's preflight covers only the switch;
+      // platform, binaries, and a display that never came up are the node's
+      // to see). Unknown detail rethrows untouched, the established posture.
+      if (err instanceof NodeRpcError && err.code === "failed" && err.detail !== undefined) {
+        const remedy = screenLaunchRemedy(err.detail);
+        if (remedy !== null) throw new HttpError(400, remedy);
+      }
       throw err;
+    }
+    const ack = parseNodeLaunchResult(data);
+    if (ack === null) throw this.#malformed("launch");
+    if (ack.screen) {
+      // The display exists the moment the ack says so; the audit is a
+      // courtesy record and must not un-launch a live pane by throwing.
+      try {
+        (this.#deps.onDisplayOpened ?? ((n, p, s) => getPreviewBroker().onDisplayOpened(n, p, s)))(
+          this.#nodeId,
+          plan.id,
+          ack.screen,
+        );
+      } catch (err) {
+        logger.warn(`preview display audit failed for pane ${plan.id}: ${String(err)}`);
+      }
     }
   }
 

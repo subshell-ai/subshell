@@ -9,8 +9,10 @@ import {
   NODE_PROTOCOL_VERSION,
   type NodeEvent,
   type NodeMaintenanceWire,
+  type NodePreviewEnabledWire,
   type NodeRuntimeReport,
   type NodeSshEnabledWire,
+  parsePreviewFrame,
   parseRelayFrame,
   relayFrameRefIfOverCap,
   SeqTracker,
@@ -22,8 +24,10 @@ import { dispatchCommand } from "./commands/index.js";
 import {
   buildSubshellsReport,
   maybeReportMaintenance,
+  maybeReportPreviewEnabled,
   maybeReportSshEnabled,
   seedMaintenanceMemo,
+  seedPreviewEnabledMemo,
   seedSshEnabledMemo,
 } from "./commands/report.js";
 import { RelaySessions } from "./commands/ssh-relay.js";
@@ -40,6 +44,9 @@ import { binaryPayload, createLinkNegotiator, type LinkNegotiator, type LinkNego
 import { clearLock, writeLock } from "./lock.js";
 import { log } from "./log.js";
 import { createRetentionPass, PANE_LOG_RETENTION_PASS_MS, resolveLogRetention } from "./pane-log-retention.js";
+import { bridgeCloseAll } from "./preview/cdp-bridge.js";
+import { PreviewDisplays } from "./preview/display.js";
+import { PreviewForward, setActivePreviewForward } from "./preview/forward.js";
 import { createDaemonRelaySend } from "./relay-send.js";
 import { noteSweepScheduled } from "./retention-settings.js";
 import { type NodeRoute, NodeRouteSelector } from "./route-selection.js";
@@ -360,6 +367,7 @@ function readyEvent(
   runtime: NodeRuntimeReport | null,
   maintenance: NodeMaintenanceWire | undefined,
   sshEnabled: NodeSshEnabledWire | undefined,
+  previewEnabled: NodePreviewEnabledWire | undefined,
 ): Extract<NodeEvent, { type: "ready" }> {
   return {
     type: "ready",
@@ -414,6 +422,12 @@ function readyEvent(
     // its own mtime, so the plane can repair the file instead of holding a
     // silent disagreement until the next reconnect.
     ...(sshEnabled ? { sshEnabled } : {}),
+    // This machine's preview-switch mirror (pane-preview spec Task 3),
+    // carried exactly as the SSH one is: OMITTED when absent, and an
+    // UNREADABLE file carried as the refusal it acts on under its own mtime,
+    // so the plane can repair the file instead of holding a silent
+    // disagreement until the next reconnect.
+    ...(previewEnabled ? { previewEnabled } : {}),
   };
 }
 
@@ -501,6 +515,28 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   // from Task 7, the A responder) register into it by routing ref.
   const relaySessions = deps.relaySessions ?? new RelaySessions(log);
 
+  // The preview forward-lane registry (pane-preview spec 2026-10-21, Task 5):
+  // PER-DAEMON like the relay registry — a lane belongs to the plane's proxy
+  // request, but it may NOT outlive the link it was dialed on: `finish` sweeps
+  // it with `closeAll("node-dropped")` (the relay's survive reconnects by
+  // design; a raw TCP lane's peer is the proxy, which died with the socket).
+  // Production mechanics are the defaults: real net, unref'd real timers.
+  const previewForward = new PreviewForward();
+  // Publish it as the node-wide count source (`forwardCount()`) so callers
+  // that hold no instance still see the truth. The `preview_open` executors
+  // themselves count lanes through `ctx.previewForward` on BOTH rungs - the
+  // lane+bridge sum is one number read at one moment, and the context handle
+  // is the same object this call published. Cleared in the finally below,
+  // like the dashboard's restart hook.
+  setActivePreviewForward(previewForward);
+  // The virtual-display registry (pane-preview spec §5, Task 7): PER-DAEMON
+  // like its siblings. Displays deliberately do NOT die with the link the way
+  // lanes do: a pane keeps its screen across a reconnect (its terminal never
+  // blinked), and it is the pane's death - or the hourly sweep's census -
+  // that closes one. No publish-and-clear dance: nothing counts displays
+  // through a module handle; the ctx member is the only route.
+  const previewDisplays = new PreviewDisplays(config.dataDir);
+
   // PER-PROCESS executor context (spec §3.4/§7): built once, survives every
   // reconnect. `ws` is a STABLE wrapper routing to the CURRENT socket —
   // executors hold `ctx` across reconnects. The serial chain does NOT keep
@@ -526,6 +562,14 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       return (currentWs as unknown as { bufferedAmount?: number } | undefined)?.bufferedAmount;
     },
   };
+  // One pump, two byte legs (pane-preview Task 5): relay frames and preview
+  // lane events leave through the SAME deliver-or-throw path, so the sealed
+  // write, the size guard, and the throw the lane's slow-link accounting
+  // reads are one implementation. The pump reads the CURRENT socket and link
+  // through a getter, exactly like the stale-socket guard in `send` above: a
+  // frame sent after this socket died targets the new link if one exists, and
+  // throws if none does (acceptance (c)).
+  const laneSend = createDaemonRelaySend(() => ({ ws: currentWs, link }));
   const ctx: CommandContext = {
     config,
     tmux: deps.tmux ?? new TmuxRunner(),
@@ -544,8 +588,13 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
     // if one exists, and throws if none does (acceptance (c)).
     relay: {
       sessions: relaySessions,
-      sendRelayFrame: createDaemonRelaySend(() => ({ ws: currentWs, link })),
+      sendRelayFrame: laneSend,
     },
+    // The preview lane plumbing (pane-preview spec 2026-10-21, Task 5): the
+    // ref→lane registry plus its event leg, which IS the relay pump above.
+    previewForward,
+    sendPreviewEvent: laneSend,
+    previewDisplays,
     requestRestart: () => {
       // Deferred, because the daemon is the only sender of `result`: the
       // executor returns `{ ok: true }`, the frame leaves on this turn, and
@@ -666,6 +715,21 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
     });
   }, deps.retentionMs ?? PANE_LOG_RETENTION_PASS_MS);
   sshDirSweepTimer.unref?.();
+  // Orphaned virtual displays (spec §5, Task 7 Step 5): boot pass plus the
+  // same hourly beat, unref'd and fire-and-forget like the two above. The
+  // trust rule is in runDisplaySweep (module level, test-exported): the
+  // sweep runs ONLY on a census the meta store vouches for, because an
+  // empty-by-failure census would otherwise tear down every live display on
+  // the node. Skipping a pass costs an hour; a wrong pass kills live Xvfbs.
+  void runDisplaySweep(ctx, previewDisplays).catch((err: unknown) => {
+    log(`display sweep failed: ${err instanceof Error ? err.message : String(err)}`);
+  });
+  const displaySweepTimer = setInterval(() => {
+    void runDisplaySweep(ctx, previewDisplays).catch((err: unknown) => {
+      log(`display sweep failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  }, deps.retentionMs ?? PANE_LOG_RETENTION_PASS_MS);
+  displaySweepTimer.unref?.();
   // SERIAL command executor (spec §3.4): verified commands queue here so pane
   // effects land in arrival order across the whole daemon life — surviving
   // reconnects. A command verified pre-`seqTracker.reset` executing post-reset
@@ -1023,6 +1087,20 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       }
       return;
     }
+    // The `preview_data` lane frame is not a command either (pane-preview spec
+    // §4: the link authenticates the machine, so the byte legs skip per-frame
+    // signing), and it takes the SAME intake shape: recognized by `type`
+    // before the JWS path, parsed by the grammar, routed by ref. Malformed or
+    // over-cap candidates drop with a line, per the parser's own rule: the
+    // grammar refuses the over-cap blob quietly and lane lifecycle belongs to
+    // the lane (the SENDER-side over-cap guard, preview/forward.ts, is what
+    // spec §6 names a close; inbound over-cap is a plane bug and noise here).
+    if (typeof parsed === "object" && parsed !== null && (parsed as { type?: unknown }).type === "preview_data") {
+      const frame = parsePreviewFrame(parsed as object);
+      if (frame !== null) previewForward.ingestInboundFrame(frame);
+      else log("malformed preview frame dropped");
+      return;
+    }
     const jws = (parsed as { jws?: unknown } | undefined)?.jws;
     if (typeof jws !== "string") {
       send(ws, { type: "error", code: "verify", message: "malformed" });
@@ -1153,6 +1231,20 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
         // the reconnect loop dials again (the control plane re-`tail_start`s
         // on the new connection with its own cursors; spec §3.4).
         stopAllTails(ctx);
+        // The same rule for preview forward lanes (pane-preview Task 5): a
+        // lane's peer is this link's proxy lane, and a raw TCP lane must not
+        // outlive it. `closeAll` dials down every lane with one
+        // `preview_closed` each; the pump throws for those events (the link is
+        // gone) and `forward.ts` keeps the log record. The plane learns of the
+        // lanes' deaths from the dropped link itself.
+        previewForward.closeAll("node-dropped");
+        // The same rule for screencast bridges (pane-preview Task 6): the
+        // frames a bridge emits ride THIS link, and a continuous-repaint page
+        // would otherwise keep capturing and emitting forever on a machine
+        // whose plane link is gone. One `preview_closed` each, exactly as the
+        // lane sweep above; the pump throws for those too, and the bridge
+        // keeps the log record.
+        bridgeCloseAll("node-dropped");
         resolve(close);
       };
       // The per-socket link negotiator (spec 2026-09-24). It owns the wire
@@ -1235,7 +1327,16 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
         // The SSH mirror rides the same synchronous read + seed as the
         // maintenance one (spec 2026-10-07 §4.3): the value `ready` carries and
         // the memo that stops the first heartbeat repeating it are one read.
-        send(ws, readyEvent(config, sshRuntime, seedMaintenanceMemo(ctx), seedSshEnabledMemo(ctx)));
+        send(
+          ws,
+          readyEvent(
+            config,
+            sshRuntime,
+            seedMaintenanceMemo(ctx),
+            seedSshEnabledMemo(ctx),
+            seedPreviewEnabledMemo(ctx),
+          ),
+        );
         // Connect-time `subshells_report` (spec §3.3): re-projects the panes
         // that survived an agent restart so the control plane heals its rows.
         // Fire-and-forget with catch-log — a scan failure (junk meta, tmux
@@ -1315,6 +1416,11 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
           // and this tick is its ONLY mid-session path — there are no deaths
           // for it to ride ahead of, because an SSH flip kills no panes.
           maybeReportSshEnabled(ctx);
+          // The preview switch's belt (pane-preview spec Task 3): the same
+          // quiet shape, the same single mid-session path: a preview flip
+          // closes no panes here, so this tick is the only way the plane
+          // learns the mirror moved before the next reconnect.
+          maybeReportPreviewEnabled(ctx);
         }, heartbeatMs);
         // Periodic `inventory` push — the "every 5 min" leg of spec §7
         // (P3-T8c). The timer's lifecycle mirrors the heartbeat's — armed
@@ -1454,8 +1560,10 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   } finally {
     clearInterval(transferSweepTimer);
     clearInterval(sshDirSweepTimer);
+    clearInterval(displaySweepTimer);
     if (retentionTimer !== undefined) clearInterval(retentionTimer);
     registerRestart(null);
+    setActivePreviewForward(undefined);
     setDaemonState({ connected: false });
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
@@ -1465,6 +1573,56 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       /* best-effort */
     }
   }
+}
+
+/**
+ * One display-sweep pass with its trust gate (pane-preview Task 7, review
+ * round 1): take the census, and if the census cannot vouch for its own
+ * completeness, skip the pass entirely. `sweepOrphans([])` reaps every
+ * registered display whose pane the census omitted, so a wedged meta scan
+ * that reads as "zero panes" must never reach it - a skipped hourly pass
+ * costs an hour, a wrong pass kills live Xvfb's.
+ * @internal exported for the sweep-trust tests; the daemon calls it from its
+ * boot pass and hourly timer.
+ */
+export async function runDisplaySweep(ctx: CommandContext, displays: PreviewDisplays): Promise<void> {
+  const alive = await collectLivePaneIds(ctx);
+  if (alive === null) {
+    log("display sweep skipped: the subshell-meta scan did not complete (unknown is not dead)");
+    return;
+  }
+  await displays.sweepOrphans(alive);
+}
+
+/**
+ * The alive-pane census the display sweep needs: every meta record probed on
+ * its OWN socket with `hasSubshell` (the two-seam shape pane-log-retention
+ * runs - per-record, not a `list-panes` enumeration), where a probe that
+ * cannot answer counts the pane ALIVE. "Unknown is not dead" is the same rule
+ * the exit watcher's unreachable-counter exists for: a wedged tmux server
+ * must never turn an hourly sweep into a display massacre. The rule has two
+ * doors, not one: the PER-PANE probe failure counts the pane alive (null
+ * never fires for it), and a CENSUS-WIDE failure - a meta scan that did not
+ * complete, per `listComplete`'s `scanOk` - returns null, meaning "no
+ * answer", which runDisplaySweep skips rather than sweeps on. Dirs with no
+ * meta row cannot be probed at all and ride the sweep's one-hour launch
+ * floor.
+ */
+async function collectLivePaneIds(ctx: CommandContext): Promise<string[] | null> {
+  const scan = await ctx.meta.listComplete().catch((err: unknown) => {
+    log(`display census: meta scan threw: ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
+  });
+  if (!scan?.scanOk) return null; // cannot vouch for completeness: not a census, no matter how short
+  const alive = new Set<string>();
+  for (const m of scan.metas) {
+    try {
+      if (await ctx.tmux.hasSubshell(m.socket, m.subshellId)) alive.add(m.subshellId);
+    } catch {
+      alive.add(m.subshellId); // unknown is not dead
+    }
+  }
+  return [...alive];
 }
 
 /** Extra seams for {@link probeOnline}. */

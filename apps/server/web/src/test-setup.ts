@@ -8,7 +8,18 @@ import { afterEach } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 
 const WINDOW_URL = "http://localhost/";
-GlobalRegistrator.register({ url: WINDOW_URL });
+GlobalRegistrator.register({
+  url: WINDOW_URL,
+  // Never fetch an iframe's document. The preview panel's iframe carries a real
+  // `src` (/pv/<ref>/), and happy-dom would load it as a page: a request to the
+  // window URL's :80, refused, retried with backoff inside the window's own
+  // machinery - which starves every timer after it in the same process. Measured
+  // 2026-10-23: the serial CI run took 1.7 s locally just for the NEXT test's
+  // 430 ms fade timers and blew its budget outright on the hosted runner
+  // (banner test 29 s, twice). Element and `src` assertions are untouched:
+  // they read the attribute, not the loaded document.
+  settings: { disableIframePageLoading: true },
+});
 
 /**
  * Park the shared window's location back after EVERY test.
@@ -89,6 +100,38 @@ export function setFetchRouter(router: FetchRouter): void {
  */
 afterEach(() => {
   globalThis.fetch = fetchDelegator;
+});
+
+/**
+ * A CONSOLE.ERROR OBSERVER SLOT, installed here for the same reason the fetch
+ * delegator is: noVNC's logging module binds `console.error` at its own module
+ * evaluation (`core/util/logging.js` runs `Error = console.error.bind(window.
+ * console)` at import), so a test that swaps the global afterward never sees a
+ * line that already-bound module writes. This slot is in place before any test
+ * file imports novnc, and it forwards to the real function FIRST, then hands
+ * the args to the observer: an observer only watches, and a broken one can
+ * never swallow the line. That keeps the one case worth seeing on the
+ * terminal: an unexpected line from noVNC still prints while its test fails
+ * over it.
+ *
+ * The per-test reset mirrors the fetch and URL resets above: a mid-test throw
+ * must not walk an observer forward into the serial run's later files.
+ */
+type ConsoleErrorObserver = ((args: unknown[]) => void) | null;
+let consoleErrorObserver: ConsoleErrorObserver = null;
+const underlyingConsoleError = console.error.bind(console) as (...args: unknown[]) => void;
+console.error = (...args: unknown[]): void => {
+  underlyingConsoleError(...args);
+  consoleErrorObserver?.(args);
+};
+
+/** Watches (never swallows) `console.error` for the calling test. Cleared after every test. */
+export function setConsoleErrorObserver(observer: ConsoleErrorObserver): void {
+  consoleErrorObserver = observer;
+}
+
+afterEach(() => {
+  consoleErrorObserver = null;
 });
 
 const globals = globalThis as Record<string, unknown>;

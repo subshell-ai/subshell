@@ -31,6 +31,7 @@ import {
 import { loadNodeEncryptionKeys, nodeEncryptionPublicKey } from "@/services/nodes/node-encryption-keys.js";
 import { announceNodePresence, projectNodeOffline } from "@/services/nodes/node-presence-announce.js";
 import { bootstrapSshIdentityOnReady } from "@/services/nodes/ssh-identity.js";
+import { getPreviewBroker } from "@/services/preview-broker.js";
 import { logger } from "@/utils/logger.js";
 import { refireInputHoldsForNode } from "@/ws/input-hold.js";
 import { dispatchOutput, getNodeLifecycleHooks } from "./node-events.js";
@@ -48,7 +49,14 @@ import {
   releaseHeld,
 } from "./node-registry.js";
 import { binaryPayload, failConnPendings, resolveResult } from "./node-rpc.js";
-import { onNodeSocketClosed, onRelayFrame, onRelayFrameOverCap } from "./relay-frames.js";
+import {
+  onNodeSocketClosed,
+  onPreviewClosedReport,
+  onPreviewFrame,
+  onPreviewStreamEvent,
+  onRelayFrame,
+  onRelayFrameOverCap,
+} from "./relay-frames.js";
 import { nodeRouteTickets } from "./route-tickets.js";
 import { recordNodeDisconnect, recordNodeReady } from "./update-tracker.js";
 
@@ -1098,6 +1106,12 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       // cheap; everything slow lives in the push's own best-effort swallow.
       if (hooks) await hooks.onSshEnabled(nodeId, event.sshEnabled);
       else logger.debug(`node ws: ready from ${nodeId} with no lifecycle hook to reconcile ssh_enabled`);
+      // The preview mirror travels the same door (pane-preview spec Task 3)
+      // with the same decision behind it: the row is the record and never
+      // adopts, so the hook's whole cost is one read and at most one
+      // fire-and-forget push of the row's own value.
+      if (hooks) await hooks.onPreviewEnabled(nodeId, event.previewEnabled);
+      else logger.debug(`node ws: ready from ${nodeId} with no lifecycle hook to reconcile preview_enabled`);
       // The §4.3 signing bootstrap (spec 2026-10-08): an agent whose identity
       // record has no signing key is ASKED ONCE, and the answer files itself.
       // Fire-and-forget for the same reason the detect kick above is: the
@@ -1180,6 +1194,21 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       else logger.warn(`node ws: ssh_enabled from ${nodeId} with no lifecycle hook`);
       return;
     }
+    case "preview_enabled": {
+      const hooks = getNodeLifecycleHooks();
+      // The machine's preview mirror moved mid-session. With no node-side
+      // writer there is no keyboard flip to carry: what arrives here is a
+      // file that changed by other means (corruption, chiefly: it flips the
+      // node to REFUSED silently, and this frame is how the plane learns to
+      // push the repair now rather than at the next reconnect). Same hook as
+      // `ready`: a mid-session report and a connect-time state are the same
+      // disagreement, and one reconciler keeps them answering alike. The
+      // switch has no default arm, so an event type added here without one
+      // lands dead. This arm is the whole dispatch for this frame.
+      if (hooks) await hooks.onPreviewEnabled(nodeId, { on: event.on, changedAt: event.changedAt });
+      else logger.warn(`node ws: preview_enabled from ${nodeId} with no lifecycle hook`);
+      return;
+    }
     case "result": {
       // Connection-scoped settle: the frame can only resolve pendings on the
       // socket it arrived on (same record the close path drains). Fall back to
@@ -1202,6 +1231,31 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       // blob stays opaque right through here (§5.5) - Task 8's broker pairs
       // refs and shuttles; this is the routing seam, not the broker.
       onRelayFrame(nodeId, event);
+      return;
+    }
+    case "preview_data": {
+      // The preview lane leg (pane-preview spec §4). The same upstream facts
+      // the relay arm relies on hold here: the grammar validated shape and
+      // the PREVIEW_FRAME_MAX_BYTES cap (an over-cap blob answers
+      // `parsePreviewFrame` with null and never reaches this arm), the link
+      // is encrypted, the held/supersede guards ran. The blob stays opaque
+      // through here too: relay-frames' seam hands the frame to the broker's
+      // pump unopened; this is the routing seam, not the broker.
+      onPreviewFrame(nodeId, event);
+      return;
+    }
+    case "preview_stream": {
+      // One screencast frame; the broker fans it out to the pane's attached
+      // /ws/live sockets (spec §6) and drops slow viewers by byte debt
+      // (§9). Nothing about this frame reaches a viewer verbatim.
+      onPreviewStreamEvent(nodeId, event);
+      return;
+    }
+    case "preview_closed": {
+      // The node volunteering a death it observed (plan decision 3): a lane,
+      // or a bridge whose plane-side half must go down WITH it so the next
+      // watch re-opens a live one. The reason set is closed by the grammar.
+      onPreviewClosedReport(nodeId, event.ref, event.reason);
       return;
     }
   }
@@ -1280,6 +1334,19 @@ export async function handleNodeClose(deps: NodeWsDeps, ws: NodeWsSocket): Promi
     // the node is NOT gone. Fire-and-forget by contract (relay-frames owns
     // the swallow).
     onNodeSocketClosed(nodeId);
+    // The preview broker's twin of that witness (pane-preview Task 8): with
+    // the link gone, every session, lane, bridge, and display record riding
+    // this node is plane-side state against refs the node has forgotten, so
+    // the sweep closes them named `node-dropped` (audited, and wire-only for
+    // the refs that still exist: an offline node takes its own closes with
+    // it). Fire-and-forget like the relay's: a link drop must not block the
+    // close path, and an unhooked broker would leave stale lanes parked
+    // until the 15-minute idle sweep. The superseded branch below calls
+    // nothing, for the same reason the relay's witness does not: a
+    // replacement socket means the node is NOT gone.
+    void getPreviewBroker()
+      .closeAllForNode(nodeId, "node-dropped")
+      .catch((err: unknown) => logger.warn(`preview node-drop cut for ${nodeId} threw: ${String(err)}`));
     logger.debug(`node ws: ${nodeId} disconnected → offline`);
     return;
   }
