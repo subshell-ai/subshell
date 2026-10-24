@@ -23,3 +23,5 @@ Simplify the preview picker with clickable rows, distinct view icons, and port b
 Keep large preview pickers manageable with search, sorted ports, denser rows, and a bounded app list that leaves display and browser choices visible.
 
 Use compact rows for small preview lists too.
+
+Open the preview picker from the subshell header, removing the duplicate selector from viewer toolbars.
