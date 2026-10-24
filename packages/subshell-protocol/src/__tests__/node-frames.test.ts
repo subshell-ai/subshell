@@ -1917,16 +1917,17 @@ describe("preview lanes (arrived at protocol 23)", () => {
     expect(PREVIEW_CLOSE_REASONS).toHaveLength(9);
   });
 
-  it("the preview command census is hand-pinned, four types", () => {
-    // The SSH_COMMAND_TYPES tripwire again: a fifth preview command must be
+  it("the preview command census includes the display preflight", () => {
+    // The SSH_COMMAND_TYPES tripwire again: a new preview command must be
     // added HERE as well as to the dispatcher, or this fails.
     expect([...PREVIEW_COMMAND_TYPES].sort()).toEqual([
       "preview_close",
+      "preview_display_check",
       "preview_open",
       "preview_ports_get",
       "set_preview_enabled",
     ]);
-    expect(PREVIEW_COMMAND_TYPES).toHaveLength(4);
+    expect(PREVIEW_COMMAND_TYPES).toHaveLength(5);
     for (const type of PREVIEW_COMMAND_TYPES) {
       const body =
         type === "preview_open"
@@ -1935,7 +1936,9 @@ describe("preview lanes (arrived at protocol 23)", () => {
             ? { type, ref: REF, reason: "viewer-left" }
             : type === "preview_ports_get"
               ? { type, paneId: "p1" }
-              : { type, on: true, changedAt: "2026-10-22T00:00:00.000Z" };
+              : type === "preview_display_check"
+                ? { type }
+                : { type, on: true, changedAt: "2026-10-22T00:00:00.000Z" };
       expect(parseNodeCommandBody(JSON.stringify(body))).not.toBeNull();
     }
   });

@@ -1302,6 +1302,7 @@ export type NodeCommandBody =
   | PreviewOpenCommand
   | PreviewCloseCommand
   | PreviewPortsGetCommand
+  | { type: "preview_display_check" }
   | SetPreviewEnabledCommand;
 
 /**
@@ -1682,13 +1683,14 @@ export interface SetPreviewEnabledCommand {
 
 /**
  * The preview commands as a runtime list (the SSH_COMMAND_TYPES precedent):
- * the pinned census test iterates it, so a fifth preview command must be
+ * the pinned census test iterates it, so a new preview command must be
  * added HERE as well as to the dispatcher, or that test fails.
  */
 export const PREVIEW_COMMAND_TYPES = [
   "preview_open",
   "preview_close",
   "preview_ports_get",
+  "preview_display_check",
   "set_preview_enabled",
 ] as const;
 
@@ -2357,6 +2359,8 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       if (!isPreviewCloseReason(value.reason)) return null;
       return { type: "preview_close", ref: value.ref, reason: value.reason };
     }
+    case "preview_display_check":
+      return { type: "preview_display_check" };
     case "preview_ports_get":
       return isStr(value.paneId) ? { type: "preview_ports_get", paneId: value.paneId } : null;
     case "set_preview_enabled": {

@@ -170,6 +170,8 @@ export {
   type NodeStatDirResult,
   type NodeTreeManifestPage,
   type NodeWriteFileResult,
+  PREVIEW_DISPLAY_BINARIES,
+  type PreviewDisplayReadiness,
   parseNodeAgentLogSlice,
   parseNodeArchiveCreateResult,
   parseNodeArchiveExtractResult,
@@ -198,6 +200,7 @@ export {
   parseNodeStatDirResult,
   parseNodeTreeManifestPage,
   parseNodeWriteFileResult,
+  parsePreviewDisplayReadiness,
 } from "./node-results.js";
 export {
   type CommandClaims,

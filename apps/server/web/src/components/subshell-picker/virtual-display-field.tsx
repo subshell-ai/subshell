@@ -1,13 +1,19 @@
-import { Label, type Node } from "@internal/node-admin";
+import { apiFetch, Button, Label, type Node } from "@internal/node-admin";
+import { type PreviewDisplayReadiness, parsePreviewDisplayReadiness } from "@internal/subshell-protocol";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
-export function virtualDisplayReason(node: Node | null): string | undefined {
+export function virtualDisplayReason(node: Node | null, readiness?: PreviewDisplayReadiness): string | undefined {
   if (!node) return "Choose a machine first.";
   if (node.os !== "linux") return "Virtual displays are available on Linux machines only.";
   if (node.previewEnabled !== true) return "Turn on Allow preview in this machine's node settings first.";
+  if (!readiness) return "Checking virtual display requirements…";
+  if (!readiness.supported) return "Virtual displays are available on Linux machines only.";
+  if (readiness.missing.length)
+    return `Install ${readiness.missing.join(", ")} on ${node.name || "this machine"}, then choose Recheck.`;
   return undefined;
 }
 
@@ -24,7 +30,26 @@ export function VirtualDisplayField({
   onChange: (checked: boolean) => void;
   onLeave?: () => void;
 }) {
-  const reason = virtualDisplayReason(node);
+  const shouldCheck = Boolean(node && node.os === "linux" && node.previewEnabled === true);
+  const check = useQuery({
+    queryKey: ["preview-display-readiness", node?.id],
+    enabled: shouldCheck,
+    queryFn: async () => {
+      const data = parsePreviewDisplayReadiness(await apiFetch<unknown>(`/api/nodes/${node?.id}/preview-display`));
+      if (!data) throw new Error("Couldn't check virtual display requirements. Choose Recheck to try again.");
+      return data;
+    },
+    retry: false,
+    // Moving back to the form must not clear a display the user just selected.
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+  });
+  const reason =
+    shouldCheck && check.isFetching
+      ? "Checking virtual display requirements…"
+      : shouldCheck && check.isError
+        ? check.error.message
+        : virtualDisplayReason(node, check.data);
   // A machine change must not carry an unsupported display into the next launch.
   useEffect(() => {
     if (reason && checked) onChange(false);
@@ -42,7 +67,7 @@ export function VirtualDisplayField({
     </div>
   );
   return (
-    <div className="space-y-2 border-t pt-3">
+    <div className="flex flex-col gap-2 border-t pt-3">
       {reason ? (
         <Tooltip>
           <TooltipTrigger
@@ -65,9 +90,13 @@ export function VirtualDisplayField({
         control
       )}
       <p id={`${id}-hint`} className="text-detail text-muted-foreground">
-        {reason ??
-          "Gives this subshell its own screen. Choose Preview in its workspace, then View screen. The machine needs Xvfb, x11vnc, and xauth installed."}
+        {reason ?? "Gives this subshell its own screen. Choose Preview in its workspace, then View screen."}
       </p>
+      {shouldCheck && !check.isFetching && (
+        <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => void check.refetch()}>
+          Recheck
+        </Button>
+      )}
       {node && node.previewEnabled !== true && (
         <Link to="/nodes/$id" params={{ id: node.id }} onClick={onLeave} className="text-detail text-primary underline">
           Open node settings
