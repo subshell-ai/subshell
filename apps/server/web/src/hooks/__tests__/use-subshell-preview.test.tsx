@@ -53,12 +53,12 @@ function wire(opts: { watchStatus?: number; watchMessage?: string } = {}) {
       url: url.pathname,
       body: init?.body ? (JSON.parse(String(init.body)) as Call["body"]) : undefined,
     });
-    if (/^\/api\/subshells\/pane\d+\/preview$/.test(url.pathname) && method === "GET") {
+    if (/^\/api\/subshells\/pane\d+\/views$/.test(url.pathname) && method === "GET") {
       return Promise.resolve(
         new Response(JSON.stringify({ ports: [], cdpPort: 9333, screen: null, nodeEnabled: true })),
       );
     }
-    if (/^\/api\/subshells\/pane\d+\/preview\/watch$/.test(url.pathname)) {
+    if (/^\/api\/subshells\/pane\d+\/views\/browser\/watch$/.test(url.pathname)) {
       if (method === "POST" && opts.watchStatus && opts.watchStatus !== 200) {
         return Promise.resolve(
           new Response(JSON.stringify({ errId: "e", code: "CONFLICT", message: opts.watchMessage ?? "refused" }), {
@@ -82,7 +82,7 @@ function wire(opts: { watchStatus?: number; watchMessage?: string } = {}) {
     );
   }
   const hook = renderHook(() => useSubshellPreview(paneId, subshell), { wrapper: Wrapper });
-  const infoGets = () => calls.filter((c) => c.method === "GET" && c.url.endsWith("/preview")).length;
+  const infoGets = () => calls.filter((c) => c.method === "GET" && c.url.endsWith("/views")).length;
   const watchFrames = () => frames.filter((f) => f.type === "watch" && f.id === "pane1").length;
   return {
     calls,
@@ -122,7 +122,7 @@ describe("startWatch fires both halves", () => {
       await act(async () => {
         await h.result.current.startWatch(9333);
       });
-      const post = h.calls.find((c) => c.method === "POST" && c.url.endsWith("/preview/watch"));
+      const post = h.calls.find((c) => c.method === "POST" && c.url.endsWith("/views/browser/watch"));
       expect(post?.body).toEqual({ port: 9333 });
       expect(h.watchFrames()).toBe(1);
       expect(h.result.current.watching).toBe(true);
@@ -138,7 +138,7 @@ describe("startWatch fires both halves", () => {
       await act(async () => {
         await h.result.current.startWatch();
       });
-      const post = h.calls.find((c) => c.method === "POST" && c.url.endsWith("/preview/watch"));
+      const post = h.calls.find((c) => c.method === "POST" && c.url.endsWith("/views/browser/watch"));
       expect(post?.body).toEqual({});
     } finally {
       h.restore();
@@ -174,7 +174,7 @@ describe("stopWatch mirrors it", () => {
         await h.result.current.stopWatch();
       });
       expect(h.frames.filter((f) => f.type === "unwatch" && f.id === "pane1").length).toBe(1);
-      expect(h.calls.some((c) => c.method === "DELETE" && c.url.endsWith("/preview/watch"))).toBe(true);
+      expect(h.calls.some((c) => c.method === "DELETE" && c.url.endsWith("/views/browser/watch"))).toBe(true);
       expect(h.result.current.watching).toBe(false);
     } finally {
       h.restore();
@@ -190,7 +190,7 @@ describe("stopWatch mirrors it", () => {
       await act(async () => {
         h.unmount();
       });
-      expect(h.calls.some((c) => c.method === "DELETE" && c.url.endsWith("/preview/watch"))).toBe(true);
+      expect(h.calls.some((c) => c.method === "DELETE" && c.url.endsWith("/views/browser/watch"))).toBe(true);
       expect(h.frames.filter((f) => f.type === "unwatch").length).toBe(1);
     } finally {
       h.restore();
@@ -217,12 +217,14 @@ describe("pane navigation", () => {
       // A is released on both halves.
       expect(h.framesFor("unwatch", "pane1").length).toBe(1);
       await waitFor(() =>
-        expect(h.calls.some((c) => c.method === "DELETE" && c.url === "/api/subshells/pane1/preview/watch")).toBe(true),
+        expect(h.calls.some((c) => c.method === "DELETE" && c.url === "/api/subshells/pane1/views/browser/watch")).toBe(
+          true,
+        ),
       );
       // B is untouched: no frame, no bridge POST, and the surface reads false.
       expect(h.framesFor("watch", "pane2").length).toBe(0);
       expect(h.framesFor("unwatch", "pane2").length).toBe(0);
-      expect(h.calls.some((c) => c.url === "/api/subshells/pane2/preview/watch")).toBe(false);
+      expect(h.calls.some((c) => c.url === "/api/subshells/pane2/views/browser/watch")).toBe(false);
       expect(h.result.current.watching).toBe(false);
     } finally {
       h.restore();

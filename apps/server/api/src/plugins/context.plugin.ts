@@ -41,7 +41,7 @@ export const REQUEST_LOG_IGNORE: (string | RegExp)[] = [
   /^\/api\/nodes\/[^/]+\/logs$/,
   // The preview poll an open pane view runs (spec §7): the exact path, so
   // the open/watch acts under it keep their request lines.
-  /^\/api\/subshells\/[^/]+\/preview$/,
+  /^\/api\/subshells\/[^/]+\/views$/,
   // The /pv proxy: request lines carry the path, the path carries the
   // 32-hex session ref, and the ref IS the credential (spec 2026-10-21
   // §10). A debug request line here would log a live link into someone's

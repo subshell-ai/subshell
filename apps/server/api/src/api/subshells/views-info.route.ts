@@ -8,7 +8,7 @@ import { PREVIEW_PORTS_UNSUPPORTED } from "@/services/nodes/preview-refusals.js"
 import { getPreviewBroker } from "@/services/preview-broker.js";
 
 /**
- * `GET /api/subshells/:id/preview` (spec §6): what the pane currently offers
+ * `GET /api/subshells/:id/views` (spec §6): what the pane currently offers
  * to watch. The answer is ALWAYS this shape, never an error, because the
  * open pane view polls it: an unreachable node, a switched-off machine, a
  * platform without the ports scan, and a pane that is simply gone each read
@@ -87,12 +87,12 @@ function mapPortsFailure(err: unknown): { nodeEnabled: boolean; reason: string }
   return { nodeEnabled: false, reason: "preview-refused" };
 }
 
-export const previewInfoRoute = new Elysia()
+export const viewsInfoRoute = new Elysia()
   .use(contextPlugin)
   .use(authGuard)
   .use(apiModels)
   .get(
-    "/:id/preview",
+    "/:id/views",
     async ({ params, user, actor, apiKeyPermissions }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "read");
       const { row } = await gatePreview(user.id, params.id, "view", actor);
@@ -138,7 +138,7 @@ export const previewInfoRoute = new Elysia()
       },
       systemPermission: "subshells:read",
       detail: {
-        operationId: "getSubshellPreviewInfo",
+        operationId: "listSubshellViews",
         tags: ["subshells"],
         description:
           "What the pane currently offers to watch: listening ports, devtools port, virtual display, and whether its node can serve preview. Always answers, never errors, because the open pane view polls it",

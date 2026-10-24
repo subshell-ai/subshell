@@ -36,7 +36,7 @@ export interface PreviewScreen {
   rfbPort: number;
 }
 
-/** `GET /api/subshells/:id/preview`'s always-answering shape. */
+/** `GET /api/subshells/:id/views`'s always-answering shape. */
 export interface PreviewInfo {
   ports: PreviewPortRow[];
   cdpPort: number | null;
@@ -47,7 +47,7 @@ export interface PreviewInfo {
   reason?: string;
 }
 
-/** `POST /:id/preview/open`'s answer: the proxy path to point a frame at. */
+/** `POST /:id/views/open`'s answer: the proxy path to point a frame at. */
 export interface PreviewOpenResult {
   proxyBase: string;
 }
@@ -93,7 +93,7 @@ export function useSubshellPreview(id: string, subshell: SubshellView | undefine
     queryKey: previewInfoQueryKey(id),
     queryFn: async () => {
       lastFetchedAt.current = Date.now();
-      return apiFetch<PreviewInfo>(`/api/subshells/${encodeURIComponent(id)}/preview`);
+      return apiFetch<PreviewInfo>(`/api/subshells/${encodeURIComponent(id)}/views`);
     },
     // No row, no question: the page shows a not-found card until then.
     enabled: subshell !== undefined,
@@ -146,7 +146,7 @@ export function useSubshellPreview(id: string, subshell: SubshellView | undefine
     async (port?: number) => {
       setWatchError(null);
       try {
-        await apiFetch(`/api/subshells/${encodeURIComponent(id)}/preview/watch`, {
+        await apiFetch(`/api/subshells/${encodeURIComponent(id)}/views/browser/watch`, {
           method: "POST",
           // An absent port asks the route to fall back to the cached cdpPort.
           body: JSON.stringify(port === undefined ? {} : { port }),
@@ -172,7 +172,7 @@ export function useSubshellPreview(id: string, subshell: SubshellView | undefine
     setWatching(false);
     sendRef.current({ type: "unwatch", id });
     try {
-      await apiFetch(`/api/subshells/${encodeURIComponent(id)}/preview/watch`, { method: "DELETE" });
+      await apiFetch(`/api/subshells/${encodeURIComponent(id)}/views/browser/watch`, { method: "DELETE" });
     } catch {
       // Idempotent by contract, and a failure means the bridge's own idle
       // timer closes it. Nothing to tell the user: they stopped watching.
@@ -198,14 +198,16 @@ export function useSubshellPreview(id: string, subshell: SubshellView | undefine
       watchingRef.current = false;
       setWatching(false);
       sendRef.current({ type: "unwatch", id });
-      void apiFetch(`/api/subshells/${encodeURIComponent(id)}/preview/watch`, { method: "DELETE" }).catch(() => {});
+      void apiFetch(`/api/subshells/${encodeURIComponent(id)}/views/browser/watch`, { method: "DELETE" }).catch(
+        () => {},
+      );
     },
     [id],
   );
 
   const openPort = useCallback(
     (port: number) =>
-      apiFetch<PreviewOpenResult>(`/api/subshells/${encodeURIComponent(id)}/preview/open`, {
+      apiFetch<PreviewOpenResult>(`/api/subshells/${encodeURIComponent(id)}/views/open`, {
         method: "POST",
         body: JSON.stringify({ port }),
       }),

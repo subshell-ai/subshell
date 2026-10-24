@@ -208,11 +208,11 @@ export function useDeleteSetupKey() {
  * learns the value at its next connect - which is why the card never dims
  * the control for a node that is merely dark.
  */
-export function useSetPreviewEnabled() {
+export function useSetViewsEnabled() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ id, on }: { id: string; on: boolean }) =>
-      apiFetch(`/api/nodes/${encodeURIComponent(id)}/preview-enabled`, {
+      apiFetch(`/api/nodes/${encodeURIComponent(id)}/views-enabled`, {
         method: "PUT",
         body: JSON.stringify({ on }),
       }),

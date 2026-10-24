@@ -163,7 +163,7 @@ export function WatchViewer({
       <p data-preview-badge className="text-detail text-muted-foreground">
         {badgeRef.current}
         {stale && <span className="text-warning"> · No frame for a while. Still there?</span>}
-        {gone && <span> · The browser behind this preview is gone. No more frames will arrive.</span>}
+        {gone && <span> · The browser is no longer running. No more frames will arrive.</span>}
       </p>
     </div>
   );

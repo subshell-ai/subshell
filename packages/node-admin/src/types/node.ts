@@ -199,7 +199,7 @@ export interface Node {
    * access rules. Optional on the mirror because a payload cached by a client
    * older than the field must keep typechecking, and absent reads closed.
    */
-  previewEnabled?: boolean;
+  viewsEnabled?: boolean;
   /**
    * This node is connected but REFUSED — held open for exactly one
    * command and offline for every other purpose (spec 2026-09-15 §5.3).

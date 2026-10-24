@@ -112,7 +112,7 @@ keys with the specific `systemPermission` declared by each route. New keys carry
 versioned explicit grants; authGuard denies unannotated routes by default. The shared
 `nodeManagementGuard` denies legacy keys and subshell tokens; `loadNodeGate`
 limits bearer access to owned agent nodes, without shares or the local host.
-The read-only `GET /api/nodes/:id/preview-display` preflight also accepts subshell tokens, with the same owned-agent-node boundary enforced by `loadNodeGate`.
+The read-only `GET /api/nodes/:id/display-readiness` preflight also accepts subshell tokens, with the same owned-agent-node boundary enforced by `loadNodeGate`.
 Node lifecycle, server-address changes, and machine trust repair routes stay cookie-only. Setup-key
 creation still honors the enrollment setting. The accounting is `docs/security.md` §3 and the pins are
 `api/nodes/__tests__/nodes-list-bearer.test.ts` plus the admin-arm cell in
@@ -477,7 +477,7 @@ capture child's own account is in Architecture above.
 
 ## Preview lanes (pane-preview spec 2026-10-21)
 
-`GET /api/nodes/:id/preview-display` checks the selected machine’s display prerequisites without starting a display or requiring an existing subshell. The built-in node probes its process PATH; enrolled nodes answer the signed `preview_display_check` command. Only known binary names leave the machine. Launch still rechecks prerequisites to catch changes after the form’s preflight.
+`GET /api/nodes/:id/display-readiness` checks the selected machine’s display prerequisites without starting a display or requiring an existing subshell. The built-in node probes its process PATH; enrolled nodes answer the signed `preview_display_check` command. Only known binary names leave the machine. Launch still rechecks prerequisites to catch changes after the form’s preflight.
 
 The server's built-in node uses `preview/local-preview.ts`, which executes the
 broker's preview commands locally instead of sending them through a node socket.
@@ -952,3 +952,9 @@ retries if a revocation revision changes during the check, and a watch's final
 check must repeat view-only port restrictions after an edit-to-view downgrade.
 Preview transport senders check buffered bytes before sealing; a failed sealed
 write closes the link because secretstream frames cannot be skipped.
+
+Apps & screens REST resources use `/api/subshells/:id/views` (discovery),
+`/views/open`, and `/views/browser/watch`. Node responses map the stored
+`previewEnabled` flag to `viewsEnabled`; the setting is `/views-enabled` and
+the prerequisite probe is `/display-readiness`. Persisted grants, audit and node
+wire identifiers remain stable; see the naming section in the architecture guide.

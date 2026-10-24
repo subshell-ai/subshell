@@ -41,13 +41,13 @@ displays. A built-in preview does not need an enrolled daemon or a node socket.
 
 ## Discovery and launch
 
-`GET /api/subshells/:id/preview` requires view access and returns ports, the
+`GET /api/subshells/:id/views` requires view access and returns ports, the
 first discovered CDP port, display metadata, and availability reasons. The
 Linux runtime walks `/proc` from the subshell's tmux PID, joining descendant
 socket inodes with listener tables. The broker caches answers for five seconds.
 Discovery is a UI aid, not an allowlist for edit-authorized raw forwarding.
 
-Display preflight is separate: `GET /api/nodes/:id/preview-display` checks Linux
+Display preflight is separate: `GET /api/nodes/:id/display-readiness` checks Linux
 support and Xvfb, x11vnc, and xauth without launching anything. It can run before
 Preview is enabled; the launch gate separately enforces opt-in.
 Launch checks again. Each display gets an Xauthority file, Xvfb with TCP disabled,
@@ -81,7 +81,7 @@ viewer. The trusted server can read these bytes, unlike encrypted agent channels
 
 ## HTTP and WebSocket lanes
 
-An edit-authorized `POST /api/subshells/:id/preview/open` probes the node and
+An edit-authorized `POST /api/subshells/:id/views/open` probes the node and
 creates a session with a cryptographically random 128-bit reference. It returns
 `/pv/<ref>/`. That path is a bearer capability; later proxy requests do not use
 the viewer's browser cookie as their authorization boundary.
@@ -215,8 +215,8 @@ desktop split layout.
 
 ## MCP entry points
 
-The shared MCP server wraps the existing REST gates: `get_preview`,
-`open_preview`, and `watch_preview` use subshell preview routes;
+The shared MCP server wraps the existing REST gates: `list_subshell_views`,
+`open_subshell_view`, and `watch_subshell_browser` use subshell preview routes;
 `create_subshell.screen` passes display dimensions to the normal launch route.
 `exec_in_terminal` starts programs in the helper's inherited display environment.
 There is no separate MCP transport or authorization bypass, and these calls
@@ -230,6 +230,26 @@ enrolled nodes. Node detail/configuration and SSH retain their existing guards.
 Readiness distinguishes unknown/unavailable from unsupported or missing programs;
 a successful prerequisite probe does not guarantee permission or launch success.
 
-`open_preview` returns a secret relative capability path. App paths carry HTTP;
-display paths carry RFB over WebSocket, not an HTML viewer. `watch_preview` frames
+`open_subshell_view` returns a secret relative capability path. App paths carry HTTP;
+display paths carry RFB over WebSocket, not an HTML viewer. `watch_subshell_browser` frames
 remain on authorized live subscriptions rather than MCP tool responses.
+
+## Naming and compatibility
+
+The dashboard calls the feature **Apps & screens**. Public REST resources use
+`views`: discovery at `GET /api/subshells/:id/views`, opening at
+`POST /api/subshells/:id/views/open`, and browser-watch interest at
+`POST` or `DELETE /api/subshells/:id/views/browser/watch`. Node configuration
+uses `PUT /api/nodes/:id/views-enabled`; node responses expose `viewsEnabled`.
+Display prerequisites are `GET /api/nodes/:id/display-readiness`, requested by
+MCP `get_node` with the optional `check_display` argument.
+
+The original public preview endpoints and MCP tools were introduced on this
+unreleased branch, so they are renamed directly without duplicate aliases.
+The permission id `nodes:preview`, database `previewEnabled` columns, audit
+identifiers, signed node commands/frames, `/pv/` capability paths, and persisted
+`preview:` workspace panel ids keep their existing spelling. Those names carry
+stored state or transport compatibility; the API maps the database flag to
+`viewsEnabled`. They aren't alternative public discovery endpoints. The
+subshell `preview` field still means its recent terminal output, and website
+previews remain a useful description of the app viewer.

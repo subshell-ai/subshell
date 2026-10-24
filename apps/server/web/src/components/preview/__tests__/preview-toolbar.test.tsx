@@ -28,12 +28,12 @@ it("keeps secondary actions in More, including an actual browser-tab link", asyn
       })}
     />,
   );
-  expect(screen.queryByRole("menuitem", { name: "Close preview" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "More preview actions" }));
+  expect(screen.queryByRole("menuitem", { name: "Close view" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "More view actions" }));
   const link = await screen.findByRole("menuitem", { name: "Open in browser tab" });
   expect(link.getAttribute("href")).toBe("/pv/example/");
   expect(link.getAttribute("target")).toBe("_blank");
-  fireEvent.click(screen.getByRole("menuitem", { name: "Close preview" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Close view" }));
   expect(closed).toBe(1);
 });
 it("refreshes the current view and explains a pending selection", () => {
@@ -47,10 +47,10 @@ it("refreshes the current view and explains a pending selection", () => {
       })}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Refresh preview" }));
+  fireEvent.click(screen.getByRole("button", { name: "Refresh view" }));
   expect(refreshed).toBe(1);
   view.rerender(<PreviewToolbar {...props({ busy: true })} />);
-  expect(screen.getByRole("button", { name: "Refresh preview" }).getAttribute("aria-disabled")).toBe("true");
+  expect(screen.getByRole("button", { name: "Refresh view" }).getAttribute("aria-disabled")).toBe("true");
 });
 
 it("offers full screen in More and puts its exit directly in the toolbar", async () => {
@@ -65,11 +65,11 @@ it("offers full screen in More and puts its exit directly in the toolbar", async
     />,
   );
   expect(screen.queryByRole("button", { name: "Full screen" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "More preview actions" }));
+  fireEvent.click(screen.getByRole("button", { name: "More view actions" }));
   fireEvent.click(await screen.findByRole("menuitem", { name: "Full screen" }));
   expect(toggled).toBe(1);
   view.rerender(<PreviewToolbar {...props({ fullscreen: true })} />);
-  fireEvent.click(screen.getByRole("button", { name: "More preview actions" }));
+  fireEvent.click(screen.getByRole("button", { name: "More view actions" }));
   expect(screen.queryByRole("menuitem", { name: "Full screen" })).toBeNull();
   expect(screen.getByRole("button", { name: "Exit full screen" })).toBeTruthy();
 });
@@ -81,7 +81,7 @@ it("keeps secondary menu actions inside the fullscreen viewer", async () => {
   Object.defineProperty(document, "fullscreenElement", { configurable: true, value: host });
   try {
     render(<PreviewToolbar {...props({ fullscreen: true })} />);
-    fireEvent.click(screen.getByRole("button", { name: "More preview actions" }));
+    fireEvent.click(screen.getByRole("button", { name: "More view actions" }));
     expect(host.contains(await screen.findByRole("menuitem", { name: "Open in browser tab" }))).toBe(true);
   } finally {
     if (descriptor) Object.defineProperty(document, "fullscreenElement", descriptor);
@@ -99,11 +99,11 @@ it("offers maximize in More and restores directly from the toolbar", async () =>
     },
   };
   const view = render(<PreviewToolbar {...props({ workspace })} />);
-  fireEvent.click(screen.getByRole("button", { name: "More preview actions" }));
+  fireEvent.click(screen.getByRole("button", { name: "More view actions" }));
   fireEvent.click(await screen.findByRole("menuitem", { name: "Maximize pane" }));
   expect(toggled).toBe(1);
   view.rerender(<PreviewToolbar {...props({ workspace: { ...workspace, maximized: true } })} />);
-  fireEvent.click(screen.getByRole("button", { name: "More preview actions" }));
+  fireEvent.click(screen.getByRole("button", { name: "More view actions" }));
   expect(screen.queryByRole("menuitem", { name: "Maximize pane" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Restore pane" }));
   expect(toggled).toBe(2);

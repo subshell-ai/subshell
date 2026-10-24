@@ -16,11 +16,11 @@ test("preview documents isolate dashboard authority while modules, POST and WS k
   test.setTimeout(90000);
   const project = mkdtempSync(path.join(tmpdir(), "preview-browser-check-"));
   const nodes = await (await request.get("/api/nodes")).json();
-  const wasEnabled = nodes.nodes.find((node: { id: string }) => node.id === "local")?.previewEnabled;
+  const wasEnabled = nodes.nodes.find((node: { id: string }) => node.id === "local")?.viewsEnabled;
   let subshellId: string | undefined;
   try {
     writePreviewProject(project);
-    expect((await request.put("/api/nodes/local/preview-enabled", { data: { on: true } })).ok()).toBe(true);
+    expect((await request.put("/api/nodes/local/views-enabled", { data: { on: true } })).ok()).toBe(true);
     const launch = await request.post("/api/subshells", {
       data: { harnessId: "terminal", nodeId: "local", workingDir: project, name: "Preview browser check" },
     });
@@ -76,7 +76,7 @@ test("preview documents isolate dashboard authority while modules, POST and WS k
         process.kill(Number(readFileSync(pidFile, "utf8").trim()), "SIGTERM");
       } catch {}
     }
-    await request.put("/api/nodes/local/preview-enabled", { data: { on: Boolean(wasEnabled) } });
+    await request.put("/api/nodes/local/views-enabled", { data: { on: Boolean(wasEnabled) } });
     rmSync(project, { recursive: true, force: true });
   }
 });

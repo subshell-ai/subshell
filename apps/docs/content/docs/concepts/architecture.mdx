@@ -46,7 +46,7 @@ The server relays ciphertext, but terminal output and channel metadata have diff
 
 ## Preview apps and screens
 
-Preview brings a subshell's dev server, browser frames, or virtual display into
+Apps & screens brings a subshell's dev server, browser frames, or virtual display into
 the workspace. Your browser connects to the server; it doesn't need direct
 network access to the node's ports.
 
@@ -62,10 +62,17 @@ flowchart LR
   S -->|In-process adapter| L[Built-in node runtime]
 ```
 
-The server checks subshell access and the node's Preview setting before opening
+The server checks subshell access and the node's Apps & screens setting before opening
 a view. App forwarding and screen input need edit access. Watching browser
 frames needs view access; view-only shares are restricted to the browser
 discovered for their subshell.
+
+The REST resource is `/api/subshells/:id/views`. Clients open a connection at
+`/views/open` and start or stop browser watching at `/views/browser/watch`.
+Node responses expose `viewsEnabled`; node configuration uses `/views-enabled`,
+and display prerequisites use `/display-readiness`. The corresponding MCP tools
+are `list_subshell_views`, `open_subshell_view`, and `watch_subshell_browser`.
+See the [MCP tool reference](/mcp/tools#list_subshell_views) for their arguments.
 
 For app previews, the server creates a private capability URL and forwards each
 HTTP or WebSocket connection through a loopback-only lane on the execution

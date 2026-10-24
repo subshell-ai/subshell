@@ -8,7 +8,7 @@ import { detailIsNodeOff, PREVIEW_PANE_GONE } from "@/services/nodes/preview-ref
 import { getPreviewBroker, PreviewRefusal } from "@/services/preview-broker.js";
 
 /**
- * `POST /api/subshells/:id/preview/open` (spec §6): open one forward lane to
+ * `POST /api/subshells/:id/views/open` (spec §6): open one forward lane to
  * a pane port and hand out the proxy path. Forwarding a raw TCP lane is an
  * `edit` act; watching and reading are not. The ref is the proxy's only
  * secret, so it is minted here (the broker owns its whole lifecycle) and the
@@ -29,12 +29,12 @@ const PreviewOpenResponseSchema = t.Object({
   }),
 });
 
-export const previewOpenRoute = new Elysia()
+export const viewsOpenRoute = new Elysia()
   .use(contextPlugin)
   .use(authGuard)
   .use(apiModels)
   .post(
-    "/:id/preview/open",
+    "/:id/views/open",
     async ({ params, body, user, actor, apiKeyPermissions }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "write");
       const { row } = await gatePreview(user.id, params.id, "edit", actor);
@@ -42,7 +42,7 @@ export const previewOpenRoute = new Elysia()
       if (!nodeState.nodeEnabled) {
         // The info poll already said this; arriving here means the page was
         // stale (or the switch moved mid-click). Say the same thing as a 409.
-        throw new HttpError(409, `Preview is not available on that node right now (${nodeState.reason}).`);
+        throw new HttpError(409, `Apps & screens is not available on that node right now (${nodeState.reason}).`);
       }
       try {
         const { ref } = await getPreviewBroker().openForward({
@@ -69,13 +69,13 @@ export const previewOpenRoute = new Elysia()
             if (err.detail.startsWith(PREVIEW_PANE_GONE) || detailIsNodeOff(err.detail)) {
               throw new HttpError(409, err.detail);
             }
-            throw new HttpError(409, `That node refused the preview: ${err.detail}`);
+            throw new HttpError(409, `That node refused the view: ${err.detail}`);
           }
           if (err.code === "timeout") {
-            throw new HttpError(409, "The node did not answer the preview open in time. Try again in a moment.");
+            throw new HttpError(409, "The node did not answer the view request in time. Try again in a moment.");
           }
           // `unsupported`: the connected agent predates the preview command.
-          throw new HttpError(409, "That node's agent does not support preview yet. Update the node, then retry.");
+          throw new HttpError(409, "That node does not support apps and screens yet. Update the node, then retry.");
         }
         throw err;
       }
@@ -92,7 +92,7 @@ export const previewOpenRoute = new Elysia()
       },
       systemPermission: "subshells:execute",
       detail: {
-        operationId: "openSubshellPreview",
+        operationId: "openSubshellView",
         tags: ["subshells"],
         description:
           "Open a forward lane to one loopback port of the pane and return the proxy path. Needs edit: the raw lane is the pane's own protocol, not a rendered view",

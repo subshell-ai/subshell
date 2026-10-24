@@ -9,8 +9,8 @@ import { getPreviewBroker, PreviewRefusal } from "@/services/preview-broker.js";
 
 /**
  * The screencast watch doors, one file per resource rule: `POST
- * /api/subshells/:id/preview/watch` starts the pane's ONE screencast bridge,
- * `DELETE /api/subshells/:id/preview/watch` says "this viewer is done".
+ * /api/subshells/:id/views/browser/watch` starts the pane's ONE screencast bridge,
+ * `DELETE /api/subshells/:id/views/browser/watch` says "this viewer is done".
  * Watching is read-side (the node only ever sends devtools screencast
  * frames), so both doors sit at `view`, the same split `open` draws at
  * `edit`.
@@ -41,18 +41,18 @@ const PreviewWatchResponseSchema = t.Object({
   ok: t.Literal(true, { description: "The bridge is running (or, for DELETE, the viewer's interest is withdrawn)" }),
 });
 
-export const previewWatchRoute = new Elysia()
+export const browserWatchRoute = new Elysia()
   .use(contextPlugin)
   .use(authGuard)
   .use(apiModels)
   .post(
-    "/:id/preview/watch",
+    "/:id/views/browser/watch",
     async ({ params, body, user, actor, apiKeyPermissions }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "read");
       const { row, access } = await gatePreview(user.id, params.id, "view", actor);
       const nodeState = await previewNodeState(row.nodeId);
       if (!nodeState.nodeEnabled) {
-        throw new HttpError(409, `Preview is not available on that node right now (${nodeState.reason}).`);
+        throw new HttpError(409, `Apps & screens is not available on that node right now (${nodeState.reason}).`);
       }
       const broker = getPreviewBroker();
       let port = body.port;
@@ -132,12 +132,12 @@ export const previewWatchRoute = new Elysia()
             // The pre-gate cannot see a node that went slow after the page's
             // last info poll, and a timeout carries no status: left alone it
             // would render a 500. Mirrors open's timeout arm.
-            throw new HttpError(409, "The node did not answer the preview watch in time. Try again in a moment.");
+            throw new HttpError(409, "The node did not answer the browser watch in time. Try again in a moment.");
           }
           // `unsupported`: the connected agent predates the preview command
           // (a stale SPA POSTs a watch to an older node). Same remedy as
           // open's: update the node.
-          throw new HttpError(409, "That node's agent does not support preview yet. Update the node, then retry.");
+          throw new HttpError(409, "That node does not support apps and screens yet. Update the node, then retry.");
         }
         throw err;
       }
@@ -154,7 +154,7 @@ export const previewWatchRoute = new Elysia()
       },
       systemPermission: "subshells:read",
       detail: {
-        operationId: "startSubshellPreviewWatch",
+        operationId: "startSubshellBrowserWatch",
         tags: ["subshells"],
         description:
           "Start (or join) the pane's single screencast bridge. A missing port falls back to the cached cdpPort; with neither, the refusal says what is missing",
@@ -162,7 +162,7 @@ export const previewWatchRoute = new Elysia()
     },
   )
   .delete(
-    "/:id/preview/watch",
+    "/:id/views/browser/watch",
     async ({ params, user, actor, apiKeyPermissions }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "read");
       await gatePreview(user.id, params.id, "view", actor);
@@ -180,7 +180,7 @@ export const previewWatchRoute = new Elysia()
       },
       systemPermission: "subshells:read",
       detail: {
-        operationId: "stopSubshellPreviewWatch",
+        operationId: "stopSubshellBrowserWatch",
         tags: ["subshells"],
         description:
           "Withdraw this viewer's interest in the pane's screencast. Idempotent: no bridge open is a success, not a hunt",

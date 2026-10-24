@@ -7,11 +7,11 @@ import { apiModels } from "@/schema/index.js";
 import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 
 /** Read-only launch preflight. Machine actors may inspect owned enrolled nodes only, as in list_nodes; loadNodeGate never inherits shares or admin rights for them. */
-export const previewDisplayRoute = new Elysia()
+export const displayReadinessRoute = new Elysia()
   .use(authGuard)
   .use(apiModels)
   .get(
-    "/:id/preview-display",
+    "/:id/display-readiness",
     async ({ params, user, actor }) => {
       const gate = await loadNodeGate(user.id, params.id, actor);
       if (!gate) throw new HttpError(404, "Node not found");
@@ -48,7 +48,7 @@ export const previewDisplayRoute = new Elysia()
       },
       systemPermission: "nodes:read",
       detail: {
-        operationId: "getNodePreviewDisplay",
+        operationId: "getNodeDisplayReadiness",
         tags: ["nodes"],
         description: "Check virtual display prerequisites on this machine",
       },

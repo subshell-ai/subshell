@@ -108,7 +108,7 @@ export function PreviewToolbar({
           Exit full screen
         </Button>
       )}
-      <IconAction label="Refresh preview" disabled={busy} disabledReason={busyReason} onClick={onRefresh}>
+      <IconAction label="Refresh view" disabled={busy} disabledReason={busyReason} onClick={onRefresh}>
         <RefreshCw />
       </IconAction>
       {selected && (
@@ -119,7 +119,7 @@ export function PreviewToolbar({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                aria-label="More preview actions"
+                aria-label="More view actions"
                 disabled={busy}
                 disabledReason={busyReason}
               />
@@ -157,7 +157,7 @@ export function PreviewToolbar({
               )}
               <DropdownMenuItem onSelect={onDisconnect}>
                 <Unplug />
-                Close preview
+                Close view
               </DropdownMenuItem>
             </DropdownMenuGroup>
           </DropdownMenuContent>

@@ -13,12 +13,12 @@ import { setPreviewEnabled } from "@/services/nodes/preview-enabled.js";
 const PreviewEnabledBodySchema = t.Object({
   on: t.Boolean({
     description:
-      "Allow this machine's pane content to be watched (live preview and screencasts). Off by default. Owner only; admin on the control-plane host.",
+      "Allow authorized viewers to open apps, watch browsers, and control virtual displays on this machine. Off by default. Owner only; admin on the control-plane host.",
   }),
 });
 
 /**
- * `PUT /api/nodes/:id/preview-enabled` `{on}`: open or close pane preview on
+ * `PUT /api/nodes/:id/views-enabled` `{on}`: open or close pane preview on
  * one machine (pane-preview spec Task 3). Browser session or an API key
  * holding the `nodes:preview` grant.
  *
@@ -38,11 +38,11 @@ const PreviewEnabledBodySchema = t.Object({
  * Refusing would make the flag settable only while the machine is reachable,
  * which is backwards for a gate that exists to be closed.
  */
-export const setNodePreviewEnabledRoute = new Elysia()
+export const setNodeViewsEnabledRoute = new Elysia()
   .use(nodeManagementGuard)
   .use(apiModels)
   .put(
-    "/:id/preview-enabled",
+    "/:id/views-enabled",
     async ({ params, body, user, actor, status }) => {
       const gate = await loadNodeGate(user.id, params.id, actor);
       if (!gate) {
@@ -69,10 +69,10 @@ export const setNodePreviewEnabledRoute = new Elysia()
       },
       systemPermission: "nodes:preview",
       detail: {
-        operationId: "setNodePreviewEnabled",
+        operationId: "setNodeViewsEnabled",
         tags: ["nodes"],
         description:
-          "Allow or refuse pane preview on a node (owner only; admin on the control-plane host). Off by default; enabling lets authorized viewers watch this machine's pane content.",
+          "Enable or disable apps and screens on a node (owner only; admin on the control-plane host). Off by default; enabling lets authorized viewers watch this machine's pane content.",
       },
     },
   );

@@ -77,10 +77,10 @@ export async function recheckPreviewOpen(
   if (await accountDisabled(db, viewerId)) throw new HttpError(401, "Your account is no longer available.");
   const { row, access } = await gatePreview(viewerId, paneId, min, actor);
   if (row.nodeId !== nodeId || row.status !== "running" || row.alive !== 1) {
-    throw new HttpError(409, "This subshell is no longer running. Reopen Preview after restarting it.");
+    throw new HttpError(409, "This subshell is no longer running. Open Apps & screens after restarting it.");
   }
   if (!(await previewNodeState(nodeId)).nodeEnabled) {
-    throw new HttpError(409, "Preview is no longer available on this node.");
+    throw new HttpError(409, "Apps & screens is no longer available on this node.");
   }
   return access;
 }

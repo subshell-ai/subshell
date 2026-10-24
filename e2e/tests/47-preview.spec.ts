@@ -93,7 +93,7 @@ interface NodeRow {
   inventoryStale: boolean;
 }
 
-/** `GET /:id/preview` response (preview-info.route.ts). */
+/** `GET /:id/views` response (views-info.route.ts). */
 interface PreviewInfoBody {
   ports: { proto: "tcp" | "tcp6"; port: number; pid: number }[];
   cdpPort: number | null;
@@ -210,9 +210,9 @@ test("preview: real node + terminal pane serve the proxy round trip and the watc
     });
 
     // ── 2. The switch (spec §2): preview is fail-closed OFF per node, and
-    // `PUT /:id/preview-enabled {on}` is the one act that arms it. The node
+    // `PUT /:id/views-enabled {on}` is the one act that arms it. The node
     // holds the mirror; the plane gate is what the info route reads.
-    const arm = await request.put(`/api/nodes/${nodeId}/preview-enabled`, { data: { on: true } });
+    const arm = await request.put(`/api/nodes/${nodeId}/views-enabled`, { data: { on: true } });
     expect(arm.ok(), await arm.text()).toBe(true);
 
     // ── 3. The pane. A terminal harness so REST exec can type the servers
@@ -261,7 +261,7 @@ test("preview: real node + terminal pane serve the proxy round trip and the watc
       "the pane's servers never showed up in the ports scan",
       agent,
       async () => {
-        const res = await request.get(`/api/subshells/${paneId}/preview`);
+        const res = await request.get(`/api/subshells/${paneId}/views`);
         if (!res.ok()) return false;
         info = (await res.json()) as PreviewInfoBody;
         const found =
@@ -284,7 +284,7 @@ test("preview: real node + terminal pane serve the proxy round trip and the watc
     expect(info?.screenLost).toBeUndefined();
 
     // ── 6. Open a forward lane and fetch through the plane.
-    const opened = await request.post(`/api/subshells/${paneId}/preview/open`, { data: { port: HTTP_PORT } });
+    const opened = await request.post(`/api/subshells/${paneId}/views/open`, { data: { port: HTTP_PORT } });
     expect(opened.ok(), await opened.text()).toBe(true);
     const { proxyBase } = (await opened.json()) as { proxyBase: string };
     expect(proxyBase).toMatch(/^\/pv\/[0-9a-f]{32}\/$/);
@@ -315,7 +315,7 @@ test("preview: real node + terminal pane serve the proxy round trip and the watc
     // back to the cached cdpPort, and the node-side bridge must complete a
     // real CDP handshake against the pane's fake devtools port before the
     // 200 answers.
-    const watching = await request.post(`/api/subshells/${paneId}/preview/watch`, { data: {} });
+    const watching = await request.post(`/api/subshells/${paneId}/views/browser/watch`, { data: {} });
     expect(watching.ok(), await watching.text()).toBe(true);
     expect((await watching.json()) as { ok: boolean }).toEqual({ ok: true });
 
@@ -335,9 +335,9 @@ test("preview: real node + terminal pane serve the proxy round trip and the watc
     // (audited once, with its reason); the second changes nothing and still
     // answers ok. Frame delivery through `/ws/live` is deliberately NOT
     // asserted here: see the file header for who owns that half.
-    const stopped = await request.delete(`/api/subshells/${paneId}/preview/watch`);
+    const stopped = await request.delete(`/api/subshells/${paneId}/views/browser/watch`);
     expect(stopped.ok(), await stopped.text()).toBe(true);
-    const stoppedAgain = await request.delete(`/api/subshells/${paneId}/preview/watch`);
+    const stoppedAgain = await request.delete(`/api/subshells/${paneId}/views/browser/watch`);
     expect(stoppedAgain.ok(), await stoppedAgain.text()).toBe(true);
 
     await pollUntil("the watch bridge never audited its close", agent, async () => {

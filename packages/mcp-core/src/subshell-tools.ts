@@ -89,7 +89,7 @@ interface NodeHarnessWireRow {
 
 /** One node as GET /api/nodes answers it, bearer edition: only the fields the projection reads. */
 interface NodeWireRow {
-  previewEnabled?: boolean;
+  viewsEnabled?: boolean;
   sshEnabled?: boolean;
   sshWideForwards?: boolean;
   protocolVersion?: number | null;
@@ -133,7 +133,7 @@ export interface NodeHarnessView {
 
 /** One machine, projected to what an agent launches with. */
 export interface NodeView {
-  previewEnabled?: boolean;
+  viewsEnabled?: boolean;
   sshEnabled?: boolean;
   sshWideForwards?: boolean;
   protocolVersion?: number | null;
@@ -359,7 +359,7 @@ export async function listNodes(deps: ToolDeps): Promise<NodeView[]> {
     ...(r.os !== undefined ? { os: r.os } : {}),
     ...(r.arch !== undefined ? { arch: r.arch } : {}),
     ...(r.systemSpecs !== undefined ? { systemSpecs: r.systemSpecs } : {}),
-    ...(r.previewEnabled !== undefined ? { previewEnabled: r.previewEnabled } : {}),
+    ...(r.viewsEnabled !== undefined ? { viewsEnabled: r.viewsEnabled } : {}),
     ...(r.sshEnabled !== undefined ? { sshEnabled: r.sshEnabled } : {}),
     ...(r.sshWideForwards !== undefined ? { sshWideForwards: r.sshWideForwards } : {}),
     ...(r.protocolVersion !== undefined ? { protocolVersion: r.protocolVersion } : {}),

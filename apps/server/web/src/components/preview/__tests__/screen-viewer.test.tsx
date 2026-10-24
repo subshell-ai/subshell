@@ -462,7 +462,7 @@ it("opens a cached screen shortcut once under StrictMode, including in a phone w
     </StrictMode>,
   );
   await waitFor(() => expect(MockSocket.made.filter((socket) => socket.closed === 0)).toHaveLength(1));
-  expect(screen.queryByText("Screen preview") === null).toBe(true);
+  expect(screen.queryByText("Virtual display") === null).toBe(true);
   expect(ports).toEqual([5910]);
   expect(MockSocket.made.filter((socket) => socket.closed === 0)).toHaveLength(1);
 });

@@ -39,8 +39,8 @@ export const API_KEY_PERMISSION_GROUPS = [
       },
       {
         id: "nodes:preview",
-        label: "Preview panes",
-        description: "Turn pane preview on or off on a node.",
+        label: "Change apps and screens access",
+        description: "Enable or disable apps and screens on a node.",
       },
       {
         id: "nodes:ssh-wide-forwards",

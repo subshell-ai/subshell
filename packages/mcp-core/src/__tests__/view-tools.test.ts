@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { ApiError } from "../api-client.js";
-import { getNode, getPreview, openPreview, ScreenSchema, watchPreview } from "../preview-tools.js";
 import { createSubshell, listNodes } from "../subshell-tools.js";
 import type { ToolDeps } from "../tools.js";
+import { getNode, listSubshellViews, openSubshellView, ScreenSchema, watchSubshellBrowser } from "../view-tools.js";
 
 const node = {
   id: "linux-1",
@@ -33,7 +33,7 @@ function fixture(answer: (path: string, init?: { method?: string; body?: unknown
 describe("MCP preview discovery and launch", () => {
   it("preserves capability settings and honest harness health", async () => {
     const facts = {
-      previewEnabled: false,
+      viewsEnabled: false,
       sshEnabled: true,
       sshWideForwards: false,
       protocolVersion: 17,
@@ -64,14 +64,14 @@ describe("MCP preview discovery and launch", () => {
       id: node.id,
       virtualDisplay: { status: "missing-programs", missing: ["xauth"] },
     });
-    expect(calls.at(-1)?.path).toBe("/api/nodes/linux-1/preview-display");
-    expect(calls.every((c) => c.path === "/api/nodes" || c.path.endsWith("/preview-display"))).toBe(true);
+    expect(calls.at(-1)?.path).toBe("/api/nodes/linux-1/display-readiness");
+    expect(calls.every((c) => c.path === "/api/nodes" || c.path.endsWith("/display-readiness"))).toBe(true);
   });
   it("doesn't confuse unsupported, offline, or unchecked with ready", async () => {
     for (const [changes, args, status] of [
       [{ os: "darwin" }, {}, "unsupported"],
       [{ status: "offline" }, {}, "unavailable"],
-      [{}, { check_preview: false }, "unchecked"],
+      [{}, { check_display: false }, "unchecked"],
     ] as const) {
       const { deps, calls } = fixture(() => ({ nodes: [{ ...node, ...changes }] }));
       expect((await getNode(deps, { node: node.id, ...args })).virtualDisplay.status).toBe(status);
@@ -123,28 +123,28 @@ describe("MCP preview discovery and launch", () => {
         ? { proxyBase: "/preview/secret/" }
         : { nodeEnabled: true, screen: { display: ":90", rfbPort: 5900 }, ports: [] },
     );
-    await getPreview(deps, { subshell_id: "a/b" });
-    expect(calls[0].path).toBe("/api/subshells/a%2Fb/preview");
-    expect(await openPreview(deps, { subshell_id: "a/b", kind: "screen" })).toMatchObject({
+    await listSubshellViews(deps, { subshell_id: "a/b" });
+    expect(calls[0].path).toBe("/api/subshells/a%2Fb/views");
+    expect(await openSubshellView(deps, { subshell_id: "a/b", kind: "screen" })).toMatchObject({
       port: 5900,
       proxyBase: "/preview/secret/",
     });
     expect(calls.at(-1)?.body).toEqual({ port: 5900 });
-    await openPreview(deps, { subshell_id: "a/b", kind: "app", port: 3000 });
+    await openSubshellView(deps, { subshell_id: "a/b", kind: "app", port: 3000 });
     expect(calls.at(-1)?.body).toEqual({ port: 3000 });
   });
   it("doesn't open a capability for an absent display or absent app port", async () => {
     const { deps, calls } = fixture(() => ({ nodeEnabled: true, screen: null }));
-    await expect(openPreview(deps, { subshell_id: "x", kind: "screen" })).rejects.toThrow(
+    await expect(openSubshellView(deps, { subshell_id: "x", kind: "screen" })).rejects.toThrow(
       "no available virtual display",
     );
-    await expect(openPreview(deps, { subshell_id: "x", kind: "app" })).rejects.toThrow("require a port");
+    await expect(openSubshellView(deps, { subshell_id: "x", kind: "app" })).rejects.toThrow("require a port");
     expect(calls.every((c) => c.method === "GET")).toBe(true);
   });
   it("starts and stops browser interest through the existing API", async () => {
     const { deps, calls } = fixture(() => ({ ok: true }));
-    await watchPreview(deps, { subshell_id: "x", on: true, port: 9222 });
-    await watchPreview(deps, { subshell_id: "x", on: false });
+    await watchSubshellBrowser(deps, { subshell_id: "x", on: true, port: 9222 });
+    await watchSubshellBrowser(deps, { subshell_id: "x", on: false });
     expect(calls.map((c) => [c.method, c.body])).toEqual([
       ["POST", { port: 9222 }],
       ["DELETE", undefined],

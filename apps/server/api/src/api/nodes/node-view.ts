@@ -181,9 +181,9 @@ export const NodeViewSchema = t.Object({
     description:
       "Whether this machine may be used for Subshell SSH (outbound ssh and serving its keys). Opt-in per node, off by default on every row including the control-plane host; the launch gate refuses SSH here while false, whoever asks",
   }),
-  previewEnabled: t.Boolean({
+  viewsEnabled: t.Boolean({
     description:
-      "Whether this machine's pane content may be watched (live preview and screencasts). Opt-in per node, off by default on every row including the control-plane host; every preview door refuses here while false, whoever asks",
+      "Whether authorized viewers may open apps, watch browsers, and control virtual displays on this machine. Opt-in per node, off by default including the control-plane host; view operations are refused while false",
   }),
   sshWideForwards: t.Boolean({
     description:
@@ -487,7 +487,7 @@ function nodeViewBase(
     maintenanceAt: row.maintenanceAt,
     maintenanceSource: row.maintenanceSource,
     sshEnabled: row.sshEnabled === 1,
-    previewEnabled: row.previewEnabled === 1,
+    viewsEnabled: row.previewEnabled === 1,
     sshWideForwards: row.sshWideForwards === 1,
     // Read from the LIVE registry rather than the row, for the same reason
     // `runtime` is: being held is a fact about a socket that exists right now,

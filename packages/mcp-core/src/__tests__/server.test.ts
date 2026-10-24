@@ -129,9 +129,9 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
         "delete_subshell",
         "list_nodes",
         "get_node",
-        "get_preview",
-        "open_preview",
-        "watch_preview",
+        "list_subshell_views",
+        "open_subshell_view",
+        "watch_subshell_browser",
         "read_subshell_log",
         "send_to_subshell",
         // The terminal family (spec 2026-10-02): one command in a shell pane,
@@ -153,13 +153,16 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
 
   it("the schemas and descriptions carry the new addressing and steering surface", async () => {
     const byName = Object.fromEntries((await listTools()).map((t) => [t.name, t]));
+    expect(byName).not.toHaveProperty("get_preview");
+    expect(byName).not.toHaveProperty("open_preview");
+    expect(byName).not.toHaveProperty("watch_preview");
     const createProps = byName.create_subshell.inputSchema.properties as Record<string, unknown>;
     expect(createProps).toHaveProperty("node");
     expect(createProps).toHaveProperty("screen");
-    expect(byName.open_preview.inputSchema.type).toBe("object");
-    expect(byName.open_preview.inputSchema.properties.port.maximum).toBe(65535);
-    expect(byName.get_node.inputSchema.properties).toHaveProperty("check_preview");
-    expect(byName.watch_preview.inputSchema.required).toContain("on");
+    expect(byName.open_subshell_view.inputSchema.type).toBe("object");
+    expect(byName.open_subshell_view.inputSchema.properties.port.maximum).toBe(65535);
+    expect(byName.get_node.inputSchema.properties).toHaveProperty("check_display");
+    expect(byName.watch_subshell_browser.inputSchema.required).toContain("on");
     expect(JSON.stringify(createProps.working_dir)).toContain("TARGET NODE");
     // Launching is FROM a preset by default (spec 2026-09-29 ruling) since
     // spec 2026-10-01 §1 has ONE deliberate exception: a presetless launch of

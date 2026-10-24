@@ -46,7 +46,7 @@ try {
   });
   expect((await api.patch("/api/setup/progress", { data: { step: null } })).ok()).toBe(true);
   expect((await api.patch("/api/settings", { data: { instanceName: "Northstar Studio" } })).ok()).toBe(true);
-  expect((await api.put("/api/nodes/local/preview-enabled", { data: { on: true } })).ok()).toBe(true);
+  expect((await api.put("/api/nodes/local/views-enabled", { data: { on: true } })).ok()).toBe(true);
   const shellPreset = await post("/api/presets", {
     harnessId: "terminal",
     name: "Website development",
@@ -79,7 +79,7 @@ try {
   await expect
     .poll(
       async () => {
-        const r = await api.get(`/api/subshells/${server.id}/preview`);
+        const r = await api.get(`/api/subshells/${server.id}/views`);
         return (await r.json()).ports?.some((p: { port: number }) => p.port === 3000);
       },
       { timeout: 30000 },

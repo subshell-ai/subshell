@@ -17,7 +17,7 @@ export interface OpenPanelProps {
   onConnectionChange?: (state: PreviewConnection) => void;
   /** The forwarded port, for the title. */
   port: number;
-  /** The proxy path from `POST /preview/open`, ending in a slash. */
+  /** The proxy path from `POST /views/open`, ending in a slash. */
   proxyBase: string;
   /** Collapse the panel. The lane itself is the plane's to expire. */
   onClose: () => void;
@@ -52,7 +52,7 @@ export function OpenPanel({
               <ExternalLink className="size-3.5" aria-hidden />
               Open in new tab
             </a>
-            <Button variant="ghost" size="sm" aria-label="Close preview panel" onClick={onClose}>
+            <Button variant="ghost" size="sm" aria-label="Close view panel" onClick={onClose}>
               <X className="size-4" aria-hidden />
             </Button>
           </div>

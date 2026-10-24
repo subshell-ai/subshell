@@ -86,7 +86,7 @@ describe("virtual display preflight route", () => {
   });
   function get(id: string, authenticated = true) {
     return nodesRoutes.fetch(
-      new Request(`http://localhost:3080/api/nodes/${id}/preview-display`, {
+      new Request(`http://localhost:3080/api/nodes/${id}/display-readiness`, {
         headers: authenticated ? { cookie: `better-auth.session_token=${cookie}` } : {},
       }),
     );
@@ -97,10 +97,10 @@ describe("virtual display preflight route", () => {
     );
   }
   it("lets a real subshell key check only its owner's enrolled node", async () => {
-    expect((await bearerGet(`${nodeId}/preview-display`)).status).toBe(409);
-    expect((await bearerGet(`${foreignId}/preview-display`)).status).toBe(404);
-    expect((await bearerGet("local/preview-display")).status).toBe(404);
-    expect((await bearerGet(`${crypto.randomUUID()}/preview-display`)).status).toBe(404);
+    expect((await bearerGet(`${nodeId}/display-readiness`)).status).toBe(409);
+    expect((await bearerGet(`${foreignId}/display-readiness`)).status).toBe(404);
+    expect((await bearerGet("local/display-readiness")).status).toBe(404);
+    expect((await bearerGet(`${crypto.randomUUID()}/display-readiness`)).status).toBe(404);
   });
   it("doesn't widen management detail access", async () => {
     expect((await bearerGet(nodeId)).status).toBe(403);

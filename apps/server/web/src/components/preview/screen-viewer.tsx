@@ -6,7 +6,7 @@ import { installRfbBounds } from "@/lib/preview-rfb-bounds";
 
 /**
  * The Screen viewer: noVNC's RFB canvas over a pane's raw forward lane
- * (spec §6, §7). The lane came from `POST /preview/open` against the pane's
+ * (spec §6, §7). The lane came from `POST /views/open` against the pane's
  * `rfbPort`, and decision 6 made that session `raw`, so the bytes pumped
  * under the session's proxy path are plain RFB. The ref inside `proxyBase`
  * is the whole credential: the lane and the plane's grant check are the
@@ -51,13 +51,14 @@ export const SCREEN_CLOSE_LINES: Record<PreviewCloseReason, string> = {
   "slow-link": "This preview couldn't keep up with the pane's screen, so it closed.",
   "over-cap": "The pane's screen produced data bigger than a preview lane can carry, so this preview closed.",
   idle: "This preview sat unused, so it closed.",
-  revoked: "Your access to this subshell changed, so the preview closed.",
-  "not-cdp": "That port doesn't speak the protocol this preview needs.",
-  "target-gone": "The screen behind this preview stopped answering.",
+  revoked: "Your access to this subshell changed, so the view closed.",
+  "not-cdp": "That port doesn't support the virtual-display protocol.",
+  "target-gone": "The virtual display stopped answering.",
 };
 
 /** The line for a close that carried no word and was not ours to start. */
-export const LOST_LINK_LINE = "The preview link closed before it could finish. Open Screen again for a new one.";
+export const LOST_LINK_LINE =
+  "The display connection closed before it could finish. Open Virtual display again for a new one.";
 
 import type { PreviewConnection } from "./preview-toolbar";
 
@@ -66,7 +67,7 @@ export interface ScreenViewerProps {
   onConnectionChange?: (state: PreviewConnection) => void;
   /** The pane's virtual display, shown in the header. */
   display: string;
-  /** The proxy path from `POST /preview/open`, ending in a slash. Mount-scoped: the panel keys this viewer on it. */
+  /** The proxy path from `POST /views/open`, ending in a slash. Mount-scoped: the panel keys this viewer on it. */
   proxyBase: string;
   /** Collapse the panel. The socket closes with the unmount either way. */
   onClose: () => void;
@@ -156,7 +157,7 @@ export function ScreenViewer({
     >
       {!compact && (
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
-          <span className="font-strong text-label">Screen preview</span>
+          <span className="font-strong text-label">Virtual display</span>
           <span className="text-detail text-muted-foreground">Virtual display {display}</span>
           {endLine === null ? (
             <Button variant="outline" size="sm" onClick={handleDisconnect}>

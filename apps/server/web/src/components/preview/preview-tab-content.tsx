@@ -17,7 +17,7 @@ export function PreviewTabContent({
 }) {
   const subshell = useSubshellRow(subshellId);
   const preview = useSubshellPreview(subshellId, subshell);
-  if (!subshell) return <p className="p-3 text-detail text-muted-foreground">Loading preview…</p>;
+  if (!subshell) return <p className="p-3 text-detail text-muted-foreground">Loading view…</p>;
   return (
     <PreviewSection
       workspace={workspace}

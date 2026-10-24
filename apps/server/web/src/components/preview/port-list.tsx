@@ -23,7 +23,7 @@ import type { SubshellAccess } from "@/types/subshell";
 /** Why a `view` grantee cannot take the raw-lane act (spec §6: open is `edit`). */
 export const OPEN_VIEW_REASON = "Opening a forwarded port needs edit access to this subshell.";
 /** Why a `view` grantee cannot open the noVNC surface (spec §7: Screen is `edit`-gated). */
-export const SCREEN_VIEW_REASON = "Screen preview needs edit access to this subshell.";
+export const SCREEN_VIEW_REASON = "Virtual display needs edit access to this subshell.";
 
 /**
  * Why the phone layout disables Screen even at `edit` (spec §7's panel never

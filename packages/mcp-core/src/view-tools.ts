@@ -10,12 +10,12 @@ export const ScreenSchema = z
     height: z.number().int().min(320).max(4096),
   })
   .describe(
-    "Allocate a Linux virtual display at launch. Check get_node first; Preview must already be enabled and display programs installed.",
+    "Allocate a Linux virtual display at launch. Check get_node first; Apps & screens must already be enabled and display programs installed.",
   );
 
 export const GetNodeSchema = z.object({
   node: z.string().min(1).describe("Node ID or unambiguous name from list_nodes"),
-  check_preview: z
+  check_display: z
     .boolean()
     .optional()
     .describe("Check display prerequisites live (default true); false returns discovery facts only"),
@@ -26,7 +26,7 @@ export async function getNode(deps: ToolDeps, args: z.infer<typeof GetNodeSchema
   const id = await resolveNodeId(deps, args.node);
   const node = (await listNodes(deps)).find((n) => n.id === id);
   if (!node) throw new Error("subshell: node is no longer available; call list_nodes again");
-  if (args.check_preview === false) return { ...node, virtualDisplay: { status: "unchecked" } };
+  if (args.check_display === false) return { ...node, virtualDisplay: { status: "unchecked" } };
   if (node.os && node.os !== "linux")
     return {
       ...node,
@@ -42,7 +42,7 @@ export async function getNode(deps: ToolDeps, args: z.infer<typeof GetNodeSchema
     };
   try {
     const readiness = parsePreviewDisplayReadiness(
-      await deps.api.req(`/api/nodes/${encodeURIComponent(node.id)}/preview-display`),
+      await deps.api.req(`/api/nodes/${encodeURIComponent(node.id)}/display-readiness`),
     );
     if (!readiness) throw new Error("subshell: invalid display readiness response; update the server and retry");
     return {
@@ -61,7 +61,7 @@ export async function getNode(deps: ToolDeps, args: z.infer<typeof GetNodeSchema
   }
 }
 
-export const GetPreviewSchema = z.object({ subshell_id: z.string().min(1) });
+export const ListSubshellViewsSchema = z.object({ subshell_id: z.string().min(1) });
 interface PreviewInfo {
   ports: { proto: string; port: number; pid: number }[];
   cdpPort: number | null;
@@ -69,30 +69,30 @@ interface PreviewInfo {
   nodeEnabled: boolean;
   reason?: string;
 }
-export function getPreview(deps: ToolDeps, args: z.infer<typeof GetPreviewSchema>): Promise<PreviewInfo> {
-  return deps.api.req(`/api/subshells/${encodeURIComponent(args.subshell_id)}/preview`);
+export function listSubshellViews(deps: ToolDeps, args: z.infer<typeof ListSubshellViewsSchema>): Promise<PreviewInfo> {
+  return deps.api.req(`/api/subshells/${encodeURIComponent(args.subshell_id)}/views`);
 }
 
-export const OpenPreviewSchema = z.object({
+export const OpenSubshellViewSchema = z.object({
   subshell_id: z.string().min(1),
   kind: z.enum(["app", "screen"]),
   port: z.number().int().min(1).max(65535).optional().describe("Required for app previews; omit for screen previews"),
 });
-export async function openPreview(deps: ToolDeps, args: z.infer<typeof OpenPreviewSchema>) {
+export async function openSubshellView(deps: ToolDeps, args: z.infer<typeof OpenSubshellViewSchema>) {
   let port: number;
   if (args.kind === "screen") {
-    const info = await getPreview(deps, args);
+    const info = await listSubshellViews(deps, args);
     if (!info.nodeEnabled || !info.screen)
       throw new Error(
-        "subshell: this subshell has no available virtual display; check get_preview and launch with screen on a prepared Linux node",
+        "subshell: this subshell has no available virtual display; check list_subshell_views and launch with screen on a prepared Linux node",
       );
     port = info.screen.rfbPort;
   } else {
-    if (args.port === undefined) throw new Error("subshell: app previews require a port from get_preview");
+    if (args.port === undefined) throw new Error("subshell: app previews require a port from list_subshell_views");
     port = args.port;
   }
   const result = await deps.api.req<{ proxyBase: string }>(
-    `/api/subshells/${encodeURIComponent(args.subshell_id)}/preview/open`,
+    `/api/subshells/${encodeURIComponent(args.subshell_id)}/views/open`,
     { method: "POST", body: { port } },
   );
   return {
@@ -106,14 +106,14 @@ export async function openPreview(deps: ToolDeps, args: z.infer<typeof OpenPrevi
   };
 }
 
-export const WatchPreviewSchema = z.object({
+export const WatchSubshellBrowserSchema = z.object({
   subshell_id: z.string().min(1),
   on: z.boolean(),
   port: z.number().int().min(1).max(65535).optional(),
 });
-export function watchPreview(deps: ToolDeps, args: z.infer<typeof WatchPreviewSchema>) {
+export function watchSubshellBrowser(deps: ToolDeps, args: z.infer<typeof WatchSubshellBrowserSchema>) {
   return deps.api.req(
-    `/api/subshells/${encodeURIComponent(args.subshell_id)}/preview/watch`,
+    `/api/subshells/${encodeURIComponent(args.subshell_id)}/views/browser/watch`,
     args.on ? { method: "POST", body: args.port === undefined ? {} : { port: args.port } } : { method: "DELETE" },
   );
 }

@@ -4077,7 +4077,7 @@ subshell. Display allocation uses the normal launch checks. Returning a proxy
 capability makes it a secret in the MCP conversation, with the same bearer-link
 risk and revocation rules as browser-created capabilities.
 
-`GET /api/nodes/:id/preview-display` accepts subshell tokens for a read-only
+`GET /api/nodes/:id/display-readiness` accepts subshell tokens for a read-only
 prerequisite probe. `loadNodeGate` restricts machine actors to owned enrolled
 nodes, excluding shares, admin privilege inheritance, and the server host.
 Node management/detail and SSH guards are unchanged. Node discovery reports

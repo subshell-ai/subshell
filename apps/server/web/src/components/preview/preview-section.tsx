@@ -173,7 +173,7 @@ export function PreviewSection({
     } catch (err) {
       // The named refusal (the caps, the stale node answer) renders as asked.
       if (generation.current !== gen) return;
-      setOpenError(errMessage(err, "Couldn't open a preview lane to that port."));
+      setOpenError(errMessage(err, "Couldn't connect to that app."));
     } finally {
       if (generation.current === gen) setBusy(false);
     }
@@ -201,7 +201,7 @@ export function PreviewSection({
       preview.refresh();
     } catch (err) {
       if (generation.current !== gen) return;
-      setOpenError(errMessage(err, "Couldn't open a screen preview lane."));
+      setOpenError(errMessage(err, "Couldn't connect to the virtual display."));
     } finally {
       if (generation.current === gen) setBusy(false);
     }
@@ -339,7 +339,7 @@ export function PreviewSection({
 
       {fill && !selected && (busy || !info) && (
         <p role="status" className="p-3 text-detail text-muted-foreground">
-          {busy ? "Opening preview…" : "Checking available views…"}
+          {busy ? "Opening view…" : "Checking available views…"}
         </p>
       )}
 

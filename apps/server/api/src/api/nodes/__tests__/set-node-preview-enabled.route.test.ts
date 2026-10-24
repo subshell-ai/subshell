@@ -12,7 +12,7 @@ import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 /**
- * `PUT /api/nodes/:id/preview-enabled` (pane-preview spec Task 3): the
+ * `PUT /api/nodes/:id/views-enabled` (pane-preview spec Task 3): the
  * per-node preview switch, opt-in and off by default, cloned from the SSH
  * capability route it sits beside.
  *
@@ -67,7 +67,7 @@ describe("node preview-enabled route", () => {
     if (cookie) headers.cookie = `better-auth.session_token=${cookie}`;
     if (bearer) headers.authorization = `Bearer ${bearer}`;
     return nodesRoutes.fetch(
-      new Request(`http://localhost:3080/api/nodes/${nodeId}/preview-enabled`, {
+      new Request(`http://localhost:3080/api/nodes/${nodeId}/views-enabled`, {
         method: "PUT",
         headers,
         body: JSON.stringify({ on }),
@@ -137,14 +137,14 @@ describe("node preview-enabled route", () => {
       }),
     );
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { previewEnabled: boolean }).previewEnabled).toBe(false);
+    expect(((await res.json()) as { viewsEnabled: boolean }).viewsEnabled).toBe(false);
   });
 
   it("the owner turns it on, and the answer is the node view carrying the flag", async () => {
     const res = await put(NODE, ownerCookie, true);
     expect(res.status).toBe(200);
-    const view = (await res.json()) as { previewEnabled: boolean };
-    expect(view.previewEnabled).toBe(true);
+    const view = (await res.json()) as { viewsEnabled: boolean };
+    expect(view.viewsEnabled).toBe(true);
   });
 
   it("names the acting human and carries ONLY {on} in the audit row", async () => {
@@ -169,7 +169,7 @@ describe("node preview-enabled route", () => {
   it("turning it off lands on the row and the view", async () => {
     const res = await put(NODE, ownerCookie, false);
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { previewEnabled: boolean }).previewEnabled).toBe(false);
+    expect(((await res.json()) as { viewsEnabled: boolean }).viewsEnabled).toBe(false);
   });
 
   it("an edit grantee is refused: it is not their machine to widen", async () => {
@@ -197,7 +197,7 @@ describe("node preview-enabled route", () => {
     createdKeyIds.push(id);
 
     const res = await nodesRoutes.fetch(
-      new Request(`http://localhost:3080/api/nodes/${NODE}/preview-enabled`, {
+      new Request(`http://localhost:3080/api/nodes/${NODE}/views-enabled`, {
         method: "PUT",
         headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
         body: JSON.stringify({ on: true }),
@@ -270,6 +270,6 @@ describe("node preview-enabled route", () => {
     // to test on the shared host row; `afterAll` restores it.
     const res = await put(LOCAL_NODE_ID, adminCookie, true);
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { previewEnabled: boolean }).previewEnabled).toBe(true);
+    expect(((await res.json()) as { viewsEnabled: boolean }).viewsEnabled).toBe(true);
   });
 });

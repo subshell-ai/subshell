@@ -38,7 +38,7 @@ function node(over: Partial<NodeDetail> = {}): NodeDetail {
     maintenanceSource: null,
     sshEnabled: false,
     sshWideForwards: false,
-    previewEnabled: false,
+    viewsEnabled: false,
     held: null,
     ...over,
   } as NodeDetail;
@@ -55,7 +55,7 @@ function mount(n: NodeDetail) {
       url: url.pathname,
       body: init?.body ? (JSON.parse(String(init.body)) as Call["body"]) : undefined,
     });
-    return Promise.resolve(new Response(JSON.stringify({ ...n, previewEnabled: true })));
+    return Promise.resolve(new Response(JSON.stringify({ ...n, viewsEnabled: true })));
   }) as typeof fetch;
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const view = render(
@@ -74,7 +74,7 @@ afterEach(() => cleanup());
 
 describe("the Preview switch", () => {
   it("reflects the stored flag and asks the route when flipped", async () => {
-    const h = mount(node({ previewEnabled: false }));
+    const h = mount(node({ viewsEnabled: false }));
     try {
       const toggle = screen.getByRole("switch", { name: /allow apps and screens/i });
       // Cast-and-read, this repo's convention (Base UI wears aria-checked and
@@ -83,9 +83,9 @@ describe("the Preview switch", () => {
       expect(toggle.matches(":disabled, [aria-disabled=true]")).toBe(false);
       fireEvent.click(toggle);
       await waitFor(() =>
-        expect(h.calls.find((c) => c.method === "PUT" && c.url === "/api/nodes/node1/preview-enabled")).toBeTruthy(),
+        expect(h.calls.find((c) => c.method === "PUT" && c.url === "/api/nodes/node1/views-enabled")).toBeTruthy(),
       );
-      expect(h.calls.find((c) => c.method === "PUT" && c.url === "/api/nodes/node1/preview-enabled")?.body).toEqual({
+      expect(h.calls.find((c) => c.method === "PUT" && c.url === "/api/nodes/node1/views-enabled")?.body).toEqual({
         on: true,
       });
     } finally {
@@ -94,7 +94,7 @@ describe("the Preview switch", () => {
   });
 
   it("a checked switch mirrors the stored on-state", () => {
-    const h = mount(node({ previewEnabled: true }));
+    const h = mount(node({ viewsEnabled: true }));
     try {
       expect(screen.getByRole("switch", { name: /allow apps and screens/i }).getAttribute("aria-checked")).toBe("true");
     } finally {

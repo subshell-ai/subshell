@@ -28,8 +28,8 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/
 
 /**
  * The Task 9 authz matrix and shape contract for the preview REST surface:
- * `GET /api/subshells/:id/preview`, `POST /:id/preview/open`,
- * `POST /:id/preview/watch`, `DELETE /:id/preview/watch`, and the create
+ * `GET /api/subshells/:id/views`, `POST /:id/views/open`,
+ * `POST /:id/views/browser/watch`, `DELETE /:id/views/browser/watch`, and the create
  * path's gated `screen` field.
  *
  * The spine is the actor table, cloned from the ssh route suites: `view`
@@ -108,10 +108,10 @@ const jsonBody = async (res: Response) => (await res.json()) as Record<string, u
 
 /** The four preview doors, so the actor table reads as a table. */
 const DOORS = [
-  { label: "info", method: "GET", path: (id: string) => `/${id}/preview` },
-  { label: "open", method: "POST", path: (id: string) => `/${id}/preview/open`, body: { port: 3000 } },
-  { label: "watch", method: "POST", path: (id: string) => `/${id}/preview/watch`, body: { port: 9222 } },
-  { label: "watch stop", method: "DELETE", path: (id: string) => `/${id}/preview/watch` },
+  { label: "info", method: "GET", path: (id: string) => `/${id}/views` },
+  { label: "open", method: "POST", path: (id: string) => `/${id}/views/open`, body: { port: 3000 } },
+  { label: "watch", method: "POST", path: (id: string) => `/${id}/views/browser/watch`, body: { port: 9222 } },
+  { label: "watch stop", method: "DELETE", path: (id: string) => `/${id}/views/browser/watch` },
 ] as const;
 
 describe("preview REST surface (Task 9)", () => {
@@ -289,7 +289,7 @@ describe("preview REST surface (Task 9)", () => {
     attachLive();
     const pane = await directRow();
     await grantPane(pane, viewerId, "view");
-    const res = await call("POST", `/${pane}/preview/watch`, { cookie: viewerCookie, body: { port: 9333 } });
+    const res = await call("POST", `/${pane}/views/browser/watch`, { cookie: viewerCookie, body: { port: 9333 } });
     expect(res.status).toBe(403);
     expect((await errorBody(res)).message).toContain("browser discovered in this subshell");
   });
@@ -312,7 +312,7 @@ describe("preview REST surface (Task 9)", () => {
     });
     const pane = await directRow();
     await grantPane(pane, editorId, "edit");
-    const pending = call("POST", `/${pane}/preview/watch`, { cookie: editorCookie, body: { port: 9333 } });
+    const pending = call("POST", `/${pane}/views/browser/watch`, { cookie: editorCookie, body: { port: 9333 } });
     await started;
     await grantPane(pane, editorId, "view");
     await getPreviewBroker().closeUnauthorizedForPane(pane);
@@ -371,7 +371,7 @@ describe("preview REST surface (Task 9)", () => {
     createdKeyIds.push(created.id);
     // Pinned against the auth-guard-bearer.test.ts:167 precedent: the REST
     // guard is a 401 surface for node keys, never a 403 that leaks a route.
-    const res = await call("GET", `/${pane}/preview`, { bearer: created.key });
+    const res = await call("GET", `/${pane}/views`, { bearer: created.key });
     expect(res.status).toBe(401);
     const body = await errorBody(res);
     expect(body.code).toBe(BackendErrorCodes.INVALID_CREDENTIALS);
@@ -424,10 +424,10 @@ describe("preview REST surface (Task 9)", () => {
       },
     })) as unknown as { id: string; key: string };
     createdKeyIds.push(scoped.id);
-    const read = await call("GET", `/${pane}/preview`, { bearer: scoped.key });
+    const read = await call("GET", `/${pane}/views`, { bearer: scoped.key });
     expect(read.status).toBe(403);
     expect((await errorBody(read)).message).toMatch(/needs the subshells:read permission/);
-    const exec = await call("POST", `/${pane}/preview/open`, { bearer: scoped.key, body: { port: 3000 } });
+    const exec = await call("POST", `/${pane}/views/open`, { bearer: scoped.key, body: { port: 3000 } });
     expect(exec.status).toBe(403);
     expect((await errorBody(exec)).message).toMatch(/needs the subshells:execute permission/);
     // And with the permission it reaches, proving the branch was the gate.
@@ -440,7 +440,7 @@ describe("preview REST surface (Task 9)", () => {
     })) as unknown as { id: string; key: string };
     createdKeyIds.push(granted.id);
     await grantPane(pane, systemUserId, "edit");
-    const seen = await call("GET", `/${pane}/preview`, { bearer: granted.key });
+    const seen = await call("GET", `/${pane}/views`, { bearer: granted.key });
     expect(seen.status).toBe(200);
   });
 
@@ -451,7 +451,7 @@ describe("preview REST surface (Task 9)", () => {
   it("a healthy live pane answers the full shape", async () => {
     attachLive();
     const pane = await directRow();
-    const res = await call("GET", `/${pane}/preview`, { cookie: ownerCookie });
+    const res = await call("GET", `/${pane}/views`, { cookie: ownerCookie });
     expect(res.status).toBe(200);
     const body = await jsonBody(res);
     expect(body.nodeEnabled).toBe(true);
@@ -466,7 +466,7 @@ describe("preview REST surface (Task 9)", () => {
     attachLive();
     const pane = await directRow();
     sim.detach(); // the link is gone; the row still says running
-    const res = await call("GET", `/${pane}/preview`, { cookie: ownerCookie });
+    const res = await call("GET", `/${pane}/views`, { cookie: ownerCookie });
     expect(res.status).toBe(200);
     const body = await jsonBody(res);
     expect(body.nodeEnabled).toBe(false);
@@ -488,7 +488,7 @@ describe("preview REST surface (Task 9)", () => {
       onIdle: () => {},
     });
     expect(held).toBeDefined();
-    let body = await jsonBody(await call("GET", `/${pane}/preview`, { cookie: ownerCookie }));
+    let body = await jsonBody(await call("GET", `/${pane}/views`, { cookie: ownerCookie }));
     expect(body.nodeEnabled).toBe(false);
     expect(body.reason).toBe("node-held");
     // Swap the held record for the too-old gate: same door, different truth.
@@ -503,7 +503,7 @@ describe("preview REST surface (Task 9)", () => {
       arch: "x64",
       onIdle: () => {},
     });
-    body = await jsonBody(await call("GET", `/${pane}/preview`, { cookie: ownerCookie }));
+    body = await jsonBody(await call("GET", `/${pane}/views`, { cookie: ownerCookie }));
     expect(body.nodeEnabled).toBe(false);
     expect(body.reason).toBe("node-too-old");
   });
@@ -512,7 +512,7 @@ describe("preview REST surface (Task 9)", () => {
     const node = attachLive();
     const pane = await directRow();
     await nodes.setPreviewEnabled(nodeId, { on: false, changedAt: new Date().toISOString() });
-    const res = await call("GET", `/${pane}/preview`, { cookie: ownerCookie });
+    const res = await call("GET", `/${pane}/views`, { cookie: ownerCookie });
     expect(res.status).toBe(200);
     const body = await jsonBody(res);
     expect(body.nodeEnabled).toBe(false);
@@ -530,7 +530,7 @@ describe("preview REST surface (Task 9)", () => {
       preview_ports_get: () => new Error("preview-ports-unsupported"),
     });
     const pane = await directRow();
-    const res = await call("GET", `/${pane}/preview`, { cookie: ownerCookie });
+    const res = await call("GET", `/${pane}/views`, { cookie: ownerCookie });
     expect(res.status).toBe(200);
     const body = await jsonBody(res);
     expect(body.nodeEnabled).toBe(true);
@@ -554,7 +554,7 @@ describe("preview REST surface (Task 9)", () => {
         throw new NodeRpcError("unsupported", `node "${nodeId}" does not support preview_ports_get`, nodeId);
       },
     });
-    const res = await call("GET", `/${pane}/preview`, { cookie: ownerCookie });
+    const res = await call("GET", `/${pane}/views`, { cookie: ownerCookie });
     expect(res.status).toBe(200);
     const body = await jsonBody(res);
     expect(body.nodeEnabled).toBe(true);
@@ -577,7 +577,7 @@ describe("preview REST surface (Task 9)", () => {
         throw new NodeRpcError("failed", `node "${nodeId}" reported: something the wire did not name`, nodeId);
       },
     });
-    const body = await jsonBody(await call("GET", `/${pane}/preview`, { cookie: ownerCookie }));
+    const body = await jsonBody(await call("GET", `/${pane}/views`, { cookie: ownerCookie }));
     expect(body.nodeEnabled).toBe(false);
     expect(body.reason).toBe("node-refused (failed)");
     expect(body.ports).toEqual([]);
@@ -596,7 +596,7 @@ describe("preview REST surface (Task 9)", () => {
       }),
     });
     const pane = await directRow();
-    const body = await jsonBody(await call("GET", `/${pane}/preview`, { cookie: ownerCookie }));
+    const body = await jsonBody(await call("GET", `/${pane}/views`, { cookie: ownerCookie }));
     expect(body.screen).toBeNull();
     expect(body.screenLost).toBe("x11vnc");
     expect(body.ports).toEqual([{ proto: "tcp6", port: 8080, pid: 91 }]);
@@ -611,7 +611,7 @@ describe("preview REST surface (Task 9)", () => {
       }),
     });
     const pane = await directRow();
-    const body = await jsonBody(await call("GET", `/${pane}/preview`, { cookie: ownerCookie }));
+    const body = await jsonBody(await call("GET", `/${pane}/views`, { cookie: ownerCookie }));
     expect(body.screen).toEqual({ display: ":90", rfbPort: 5910 });
     expect(body.screenLost).toBeUndefined();
   });
@@ -624,7 +624,7 @@ describe("preview REST surface (Task 9)", () => {
     // that could die. The broker's spy (the wire) must stay untouched.
     const node = attachLive();
     const pane = await directRow({ status: "terminated" });
-    const res = await call("GET", `/${pane}/preview`, { cookie: ownerCookie });
+    const res = await call("GET", `/${pane}/views`, { cookie: ownerCookie });
     expect(res.status).toBe(200);
     const body = await jsonBody(res);
     expect(body.ports).toEqual([]);
@@ -643,7 +643,7 @@ describe("preview REST surface (Task 9)", () => {
   it("open hands out a proxyBase for the ref it minted", async () => {
     const node = attachLive();
     const pane = await directRow();
-    const res = await call("POST", `/${pane}/preview/open`, { cookie: ownerCookie, body: { port: 3000 } });
+    const res = await call("POST", `/${pane}/views/open`, { cookie: ownerCookie, body: { port: 3000 } });
     expect(res.status).toBe(200);
     const body = await jsonBody(res);
     expect(body.proxyBase).toMatch(/^\/pv\/[0-9a-f]{32}\/$/);
@@ -666,7 +666,7 @@ describe("preview REST surface (Task 9)", () => {
   ])("open refuses port %s at the schema", async (_label, port) => {
     const node = attachLive();
     const pane = await directRow();
-    const res = await call("POST", `/${pane}/preview/open`, {
+    const res = await call("POST", `/${pane}/views/open`, {
       cookie: ownerCookie,
       body: port === undefined ? {} : { port },
     });
@@ -678,18 +678,18 @@ describe("preview REST surface (Task 9)", () => {
   it("watch with no body defaults to the cached cdpPort, and stop is idempotent", async () => {
     const node = attachLive();
     const pane = await directRow();
-    const start = await call("POST", `/${pane}/preview/watch`, { cookie: ownerCookie, body: {} });
+    const start = await call("POST", `/${pane}/views/browser/watch`, { cookie: ownerCookie, body: {} });
     expect(start.status).toBe(200);
     expect(await jsonBody(start)).toEqual({ ok: true });
     const opens = node.cmdsOf("preview_open");
     expect(opens.length).toBe(1);
     expect(opens[0].kind).toBe("screencast");
     expect(opens[0].port).toBe(9222); // the ports answer's cdpPort
-    const stop = await call("DELETE", `/${pane}/preview/watch`, { cookie: ownerCookie });
+    const stop = await call("DELETE", `/${pane}/views/browser/watch`, { cookie: ownerCookie });
     expect(stop.status).toBe(200);
     expect(await jsonBody(stop)).toEqual({ ok: true });
     // The caller unsubscribed; a second stop is a no-op, not a 404 hunt.
-    const stop2 = await call("DELETE", `/${pane}/preview/watch`, { cookie: ownerCookie });
+    const stop2 = await call("DELETE", `/${pane}/views/browser/watch`, { cookie: ownerCookie });
     expect(stop2.status).toBe(200);
     expect(node.countOf("preview_close")).toBeGreaterThanOrEqual(1);
   });
@@ -699,7 +699,7 @@ describe("preview REST surface (Task 9)", () => {
       preview_ports_get: () => ({ ports: [], cdpPort: null, screen: null }),
     });
     const pane = await directRow();
-    const res = await call("POST", `/${pane}/preview/watch`, { cookie: ownerCookie, body: {} });
+    const res = await call("POST", `/${pane}/views/browser/watch`, { cookie: ownerCookie, body: {} });
     expect(res.status).toBe(400);
     const body = await errorBody(res);
     expect(body.message).toMatch(/cdpPort/i);
@@ -709,15 +709,15 @@ describe("preview REST surface (Task 9)", () => {
   it("watch naming a port the live bridge does not hold is 409, surfaced by name", async () => {
     attachLive();
     const pane = await directRow();
-    const first = await call("POST", `/${pane}/preview/watch`, { cookie: ownerCookie, body: { port: 3000 } });
+    const first = await call("POST", `/${pane}/views/browser/watch`, { cookie: ownerCookie, body: { port: 3000 } });
     expect(first.status).toBe(200);
     // The bridge exists on 3000; re-pointing the same pane's one bridge to
     // 4000 is the broker's `watch-port-conflict` refusal (Task 8 owns the
     // rule; the route owes it a named 409, not a bare 500).
-    const clash = await call("POST", `/${pane}/preview/watch`, { cookie: ownerCookie, body: { port: 4000 } });
+    const clash = await call("POST", `/${pane}/views/browser/watch`, { cookie: ownerCookie, body: { port: 4000 } });
     expect(clash.status).toBe(409);
     expect((await errorBody(clash)).message).toMatch(/watch-port-conflict/);
-    const stop = await call("DELETE", `/${pane}/preview/watch`, { cookie: ownerCookie });
+    const stop = await call("DELETE", `/${pane}/views/browser/watch`, { cookie: ownerCookie });
     expect(stop.status).toBe(200);
   });
 
@@ -725,7 +725,7 @@ describe("preview REST surface (Task 9)", () => {
     attachLive();
     const pane = await directRow();
     sim.detach();
-    const res = await call("POST", `/${pane}/preview/watch`, { cookie: ownerCookie, body: { port: 3000 } });
+    const res = await call("POST", `/${pane}/views/browser/watch`, { cookie: ownerCookie, body: { port: 3000 } });
     expect(res.status).toBe(409);
     const body = await errorBody(res);
     expect(body.message).toMatch(/offline|not connected|gone/i);
@@ -745,10 +745,10 @@ describe("preview REST surface (Task 9)", () => {
         throw new NodeRpcError("timeout", `node "${nodeId}" did not answer preview_open in time`, nodeId);
       },
     });
-    const res = await call("POST", `/${pane}/preview/watch`, { cookie: ownerCookie, body: { port: 3000 } });
+    const res = await call("POST", `/${pane}/views/browser/watch`, { cookie: ownerCookie, body: { port: 3000 } });
     expect(res.status).toBe(409);
     const body = await errorBody(res);
-    expect(body.message).toMatch(/did not answer the preview watch in time/);
+    expect(body.message).toMatch(/did not answer the browser watch in time/);
     expect(body.message).toMatch(/try again/i);
   });
 
@@ -763,10 +763,10 @@ describe("preview REST surface (Task 9)", () => {
         throw new NodeRpcError("unsupported", `node "${nodeId}" does not support preview_open`, nodeId);
       },
     });
-    const res = await call("POST", `/${pane}/preview/watch`, { cookie: ownerCookie, body: { port: 3000 } });
+    const res = await call("POST", `/${pane}/views/browser/watch`, { cookie: ownerCookie, body: { port: 3000 } });
     expect(res.status).toBe(409);
     const body = await errorBody(res);
-    expect(body.message).toMatch(/does not support preview yet/);
+    expect(body.message).toMatch(/does not support apps and screens yet/);
     expect(body.message).toMatch(/update the node/i);
   });
 
@@ -934,7 +934,7 @@ describe("preview REST surface (Task 9)", () => {
       nodeId,
       screen: { display: ":90", rfbPort: 5910 },
     });
-    const body = await jsonBody(await call("GET", `/${created}/preview`, { cookie: ownerCookie }));
+    const body = await jsonBody(await call("GET", `/${created}/views`, { cookie: ownerCookie }));
     expect(body.screen).toEqual({ display: ":90", rfbPort: 5910 });
     expect(body.screenLost).toBeUndefined();
   });
@@ -959,7 +959,7 @@ describe("preview REST surface (Task 9)", () => {
     attachLive({
       preview_ports_get: () => ({ ports: [], cdpPort: null, screen: null, screenLost: "x11vnc" }),
     });
-    const body = await jsonBody(await call("GET", `/${created}/preview`, { cookie: ownerCookie }));
+    const body = await jsonBody(await call("GET", `/${created}/views`, { cookie: ownerCookie }));
     expect(body.screen).toBeNull();
     expect(body.screenLost).toBe("x11vnc");
   });
@@ -974,7 +974,7 @@ describe("preview REST surface (Task 9)", () => {
     const token = await bearerFor(pane);
     // Start a watch so there IS bridge state to lose, then report the exit
     // exactly the pane's own reporter call would.
-    const start = await call("POST", `/${pane}/preview/watch`, { bearer: token, body: { port: 3000 } });
+    const start = await call("POST", `/${pane}/views/browser/watch`, { bearer: token, body: { port: 3000 } });
     expect(start.status).toBe(200);
     expect(getPreviewBroker().sessionForPane(pane)).not.toBeNull();
     const res = await call("POST", `/${pane}/exit`, { bearer: token, body: { exitCode: 0 } });

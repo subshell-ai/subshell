@@ -9,7 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 export function virtualDisplayReason(node: Node | null, readiness?: PreviewDisplayReadiness): string | undefined {
   if (!node) return "Choose a machine first.";
   if (node.os !== "linux") return "Virtual displays are available on Linux machines only.";
-  if (node.previewEnabled !== true) return "Turn on Allow apps and screens in this machine's node settings first.";
+  if (node.viewsEnabled !== true) return "Turn on Allow apps and screens in this machine's node settings first.";
   if (!readiness) return "Checking virtual display requirements…";
   if (!readiness.supported) return "Virtual displays are available on Linux machines only.";
   if (readiness.missing.length) {
@@ -31,12 +31,12 @@ export function VirtualDisplayField({
   onChange: (checked: boolean) => void;
   onLeave?: () => void;
 }) {
-  const shouldCheck = Boolean(node && node.os === "linux" && node.previewEnabled === true);
+  const shouldCheck = Boolean(node && node.os === "linux" && node.viewsEnabled === true);
   const check = useQuery({
     queryKey: ["preview-display-readiness", node?.id],
     enabled: shouldCheck,
     queryFn: async () => {
-      const data = parsePreviewDisplayReadiness(await apiFetch<unknown>(`/api/nodes/${node?.id}/preview-display`));
+      const data = parsePreviewDisplayReadiness(await apiFetch<unknown>(`/api/nodes/${node?.id}/display-readiness`));
       if (!data) throw new Error("Couldn't check virtual display requirements. Choose Recheck to try again.");
       return data;
     },
@@ -117,14 +117,16 @@ export function VirtualDisplayField({
           Recheck
         </Button>
       )}
-      {node && node.previewEnabled !== true && (
+      {node && node.viewsEnabled !== true && (
         <Link to="/nodes/$id" params={{ id: node.id }} onClick={onLeave} className="text-detail text-primary underline">
           Open node settings
         </Link>
       )}
-      {node && !node.canManage && node.previewEnabled !== true && (
+      {node && !node.canManage && node.viewsEnabled !== true && (
         <p className="text-detail text-warning">
-          {node.kind === "local" ? "An admin can enable preview." : "Only this node’s owner can enable preview."}
+          {node.kind === "local"
+            ? "An admin can enable Apps & screens."
+            : "Only this node’s owner can enable Apps & screens."}
         </p>
       )}
     </div>
