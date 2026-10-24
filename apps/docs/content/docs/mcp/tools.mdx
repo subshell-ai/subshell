@@ -19,7 +19,7 @@ Successful MCP responses contain JSON encoded in a text content block. Failures 
 | --- | --- |
 | `list_subshells` | List visible sessions and output previews. |
 | `get_subshell` | Inspect one session. |
-| `list_nodes` | List owned machines, harness health, and SSH/Preview settings. |
+| `list_nodes` | List owned machines, harness health, and SSH and Apps & screens settings. |
 | `get_node` | Inspect an owned machine and check display prerequisites. |
 | `get_preview` | Discover a subshell's apps, browser, and virtual display. |
 | `open_preview` | Create a private app or screen connection. |
@@ -76,7 +76,7 @@ Each harness row has `harnessId`, `name`, and `installed`, plus `version`, refus
 
 Pass `{ "node": "NODE_ID" }`, or an unambiguous node name. Returns the same fields as `list_nodes`, plus `virtualDisplay` readiness: `ready`, `missing-programs`, `unsupported`, or `unavailable`. A completed probe includes `supported` and `missing` program names. Pass `check_preview: false` to skip the live probe and return `unchecked`.
 
-A ready display check means its programs are present. Preview must also be enabled, the node must permit launches, and launch performs its own checks. Only the token owner's enrolled nodes are available; shares, admin status, and the server's built-in node don't widen this access.
+A ready display check means its programs are present. Apps & screens must also be enabled, the node must permit launches, and launch performs its own checks. Only the token owner's enrolled nodes are available; shares, admin status, and the server's built-in node don't widen this access.
 
 ## get_preview
 
@@ -86,13 +86,13 @@ Pass `{ "subshell_id": "SUBSHELL_ID" }`. Returns discovered `ports`, `cdpPort`, 
 
 For an app, pass `{ "subshell_id": "SUBSHELL_ID", "kind": "app", "port": 3000 }`. For a virtual display, pass `{ "subshell_id": "SUBSHELL_ID", "kind": "screen" }`; the tool uses that display's actual port.
 
-Returns `proxyBase`, a private capability path relative to the server URL, plus `kind`, `port`, and usage guidance. An app path serves HTTP; a screen path carries the viewer's WebSocket protocol and isn't a web page. The call doesn't launch a program or open a workspace tab. Use the dashboard's Preview picker to open tabs.
+Returns `proxyBase`, a private capability path relative to the server URL, plus `kind`, `port`, and usage guidance. An app path serves HTTP; a screen path carries the viewer's WebSocket protocol and isn't a web page. The call doesn't launch a program or open a workspace tab. Use the dashboard's Apps & screens picker to open tabs.
 
-Treat the complete link as a secret. Anyone holding it can use the connection while it's valid, and closing a tab doesn't revoke it. Delete temporary helper subshells when finished; see [Preview](/guides/preview#browser-compatibility-and-private-links).
+Treat the complete link as a secret. Anyone holding it can use the connection while it's valid, and closing a tab doesn't revoke it. Delete temporary helper subshells when finished; see [Apps & screens](/guides/preview#browser-compatibility-and-private-links).
 
 ## watch_preview
 
-Pass `{ "subshell_id": "SUBSHELL_ID", "on": true }`, optionally with a CDP `port`, to start browser screencast interest. Pass `on: false` to release it when finished. Frames go to authorized dashboard live subscriptions, not the MCP response. This doesn't provide mouse or keyboard input. The server applies the same ownership, Preview enablement, and port checks as it does for dashboard requests.
+Pass `{ "subshell_id": "SUBSHELL_ID", "on": true }`, optionally with a CDP `port`, to start browser screencast interest. Pass `on: false` to release it when finished. Frames go to authorized dashboard live subscriptions, not the MCP response. This doesn't provide mouse or keyboard input. The server applies the same ownership, Apps & screens enablement, and port checks as it does for dashboard requests.
 
 ## list_presets
 
@@ -114,7 +114,7 @@ The tool has two shapes. From a preset (the default) it launches saved settings;
 | `node` | Optional string | Node ID or unambiguous display name override. |
 | `working_dir` | Optional string | Absolute directory on that node. Omitted, a presetless terminal starts in the node's home. |
 | `prompt` | Optional string | Task text added to or replacing the preset prompt, or typed once a presetless shell settles. |
-| `screen` | Optional object | Allocate a Linux virtual display with integer `width` and `height`, each 320 to 4096. Check `get_node` first. This doesn't enable Preview or install programs. |
+| `screen` | Optional object | Allocate a Linux virtual display with integer `width` and `height`, each 320 to 4096. Check `get_node` first. This doesn't enable Apps & screens or install programs. |
 | `prompt_mode` | Optional enum | `append` by default, or `replace`. Needs a preset. |
 
 Returns `{ id, promptDelivered }`. Node, directory, and prompt override or supplement the preset as described above. The final composed prompt is limited to 20,000 characters.

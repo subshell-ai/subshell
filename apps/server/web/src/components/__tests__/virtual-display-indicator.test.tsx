@@ -20,7 +20,7 @@ it("opens the display from an icon-only header shortcut", () => {
     />,
   );
   expect(screen.queryByText("Virtual display") === null).toBe(true);
-  fireEvent.click(screen.getByRole("button", { name: "Open preview" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open app or screen" }));
   expect(opened).toBe(1);
 });
 
@@ -33,7 +33,7 @@ it("keeps the header picker available for subshells without a virtual display", 
       }}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Open preview" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open app or screen" }));
   expect(opened).toBe(1);
   expect(screen.queryByRole("img")).toBeNull();
 });

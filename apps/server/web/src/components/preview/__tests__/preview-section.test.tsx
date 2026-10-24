@@ -17,7 +17,7 @@ const VIEW_REASON = "Opening a forwarded port needs edit access to this subshell
 const SCREEN_VIEW_REASON = "Screen preview needs edit access to this subshell.";
 const SCREEN_PHONE_REASON =
   "View screen is available on larger screens. You can still watch browser frames on this phone.";
-const SWITCH_OFF_REASON = "Preview is switched off on this node. Its owner can turn it on in node settings.";
+const SWITCH_OFF_REASON = "Apps & screens is switched off on this node. Its owner can turn it on in node settings.";
 
 function controller(over: Partial<UseSubshellPreview> = {}): UseSubshellPreview {
   return {
@@ -361,7 +361,7 @@ it("fills a preview tab and resumes its selected app only once", async () => {
   );
   await screen.findByTitle("Preview of port 3000");
   expect(screen.queryByText("App preview") === null).toBe(true);
-  expect(screen.getByRole("region", { name: "Preview" }).className).toContain("h-full");
+  expect(screen.getByRole("region", { name: "Apps & screens" }).className).toContain("h-full");
   view.rerender(
     <PreviewSection
       paneId="pane1"

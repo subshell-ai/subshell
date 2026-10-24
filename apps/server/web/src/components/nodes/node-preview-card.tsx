@@ -23,7 +23,7 @@ export function NodePreviewCard({ node }: { node: NodeDetail }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Preview</CardTitle>
+        <CardTitle>Apps &amp; screens</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col items-start gap-3">
         <div className="flex items-center gap-4">
@@ -33,7 +33,7 @@ export function NodePreviewCard({ node }: { node: NodeDetail }) {
             disabled={!node.canManage || update.isPending}
             onCheckedChange={(on) => update.mutate({ id: node.id, on })}
           />
-          <Label htmlFor="node-preview-enabled">Allow preview</Label>
+          <Label htmlFor="node-preview-enabled">Allow apps and screens</Label>
         </div>
         {node.canManage ? (
           <p className="text-detail text-muted-foreground">

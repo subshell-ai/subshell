@@ -20,7 +20,7 @@ export function PreviewChooserDialog({ subshellId, onClose }: { subshellId: stri
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Open preview</DialogTitle>
+          <DialogTitle>Open app or screen</DialogTitle>
         </DialogHeader>
         {!info && <p className="text-detail text-muted-foreground">Checking available views…</p>}
         {preview.error && (
@@ -44,7 +44,7 @@ export function PreviewChooserDialog({ subshellId, onClose }: { subshellId: stri
         )}
         {info?.nodeEnabled && !info.reason && !info.ports.length && !info.screen && !info.cdpPort && (
           <p className="text-detail text-muted-foreground">
-            Nothing to preview yet. Start an app in this subshell to see it here.
+            No apps or screens yet. Start an app in this subshell to see it here.
           </p>
         )}
       </DialogContent>

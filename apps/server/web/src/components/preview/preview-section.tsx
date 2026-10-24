@@ -280,7 +280,7 @@ export function PreviewSection({
 
   return (
     <section
-      aria-label="Preview"
+      aria-label="Apps & screens"
       ref={sectionRef}
       className={cn(
         "flex min-h-0 shrink-0 flex-col bg-card",
@@ -311,7 +311,7 @@ export function PreviewSection({
         )
       ) : (
         <div className="flex shrink-0 flex-wrap items-center gap-3">
-          <h2 className="font-strong text-label">Preview</h2>
+          <h2 className="font-strong text-label">Apps &amp; screens</h2>
           <Button variant="ghost" size="sm" onClick={preview.refresh}>
             Refresh
           </Button>
@@ -399,7 +399,7 @@ export function PreviewSection({
         ))}
 
       {nothingToPreview && !initialView && (
-        <p className="text-detail text-muted-foreground">Nothing to preview yet. Ports the pane opens show up here.</p>
+        <p className="text-detail text-muted-foreground">No apps or screens yet. Ports the pane opens show up here.</p>
       )}
 
       {preview.watchError && (

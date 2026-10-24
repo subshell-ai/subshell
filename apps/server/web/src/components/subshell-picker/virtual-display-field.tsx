@@ -9,7 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 export function virtualDisplayReason(node: Node | null, readiness?: PreviewDisplayReadiness): string | undefined {
   if (!node) return "Choose a machine first.";
   if (node.os !== "linux") return "Virtual displays are available on Linux machines only.";
-  if (node.previewEnabled !== true) return "Turn on Allow preview in this machine's node settings first.";
+  if (node.previewEnabled !== true) return "Turn on Allow apps and screens in this machine's node settings first.";
   if (!readiness) return "Checking virtual display requirements…";
   if (!readiness.supported) return "Virtual displays are available on Linux machines only.";
   if (readiness.missing.length) {

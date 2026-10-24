@@ -31,7 +31,7 @@ describe("virtual display prerequisites", () => {
     expect(virtualDisplayReason(linux, ready)).toBeUndefined();
     expect(virtualDisplayReason(linux)).toContain("Checking");
     expect(virtualDisplayReason({ ...linux, os: "darwin" })).toContain("Linux");
-    expect(virtualDisplayReason({ ...linux, previewEnabled: false })).toContain("Allow preview");
+    expect(virtualDisplayReason({ ...linux, previewEnabled: false })).toContain("Allow apps and screens");
     expect(virtualDisplayReason(null)).toContain("Choose a machine");
     expect(virtualDisplayReason(linux, { supported: true, missing: ["x11vnc"] })).toContain(
       "Required virtual display programs are missing",

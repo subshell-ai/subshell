@@ -10,14 +10,14 @@ afterEach(() => {
 });
 it("hides the terminal's shortcut while its preview tab is open and restores it on close", () => {
   render(<WorkspacePreview subshell={{ id: "s1" } as SubshellView} active />);
-  expect(screen.getByRole("button", { name: "Preview" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Apps & screens" })).toBeTruthy();
   act(() =>
     publishWorkspacePreviews(
       [{ id: "preview:p1:screen", paneId: "p1", subshellId: "s1", workspaceId: "w1", view: { kind: "screen" } }],
       "preview:p1:screen",
     ),
   );
-  expect(screen.queryByRole("button", { name: "Preview" }) === null).toBe(true);
+  expect(screen.queryByRole("button", { name: "Apps & screens" }) === null).toBe(true);
   act(() => publishWorkspacePreviews([], null));
-  expect(screen.getByRole("button", { name: "Preview" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Apps & screens" })).toBeTruthy();
 });

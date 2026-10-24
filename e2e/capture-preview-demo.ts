@@ -99,7 +99,7 @@ try {
   const page = await context.newPage();
   page.setDefaultTimeout(20000);
   await page.goto(`/workspaces/${workspace.id}`);
-  await page.getByRole("button", { name: "Preview", exact: true }).click();
+  await page.getByRole("button", { name: "Apps & screens", exact: true }).click();
   await page.getByRole("button", { name: "Open app on port 3000" }).click();
   await expect(page.locator("iframe")).toBeVisible();
   const appFrame = page.frames().find((f) => f.url().includes("/pv/"));
@@ -216,7 +216,7 @@ try {
     await api.patch(`/api/subshells/${agent.id}/name`, { data: { name: "Build website" } });
     await tab("Dev server").click();
     await hold(1);
-    await page.getByRole("button", { name: "Open preview", exact: true }).click();
+    await page.getByRole("button", { name: "Open app or screen", exact: true }).click();
     await hold(2);
     mkdirSync(shots, { recursive: true });
     const dimensions: Record<string, { width: number; height: number }> = {};
@@ -252,7 +252,7 @@ try {
     await page.getByRole("button", { name: "More preview actions" }).click();
     await page.getByRole("menuitem", { name: "Close preview" }).click();
     await tab("Dev server").click();
-    await page.getByRole("button", { name: "Open preview", exact: true }).click();
+    await page.getByRole("button", { name: "Open app or screen", exact: true }).click();
     await hold(1);
     await page.getByRole("button", { name: "View screen" }).click();
     await expect(page.getByRole("button", { name: "Connected", exact: true })).toBeVisible();

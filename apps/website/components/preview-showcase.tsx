@@ -35,12 +35,6 @@ export function PreviewShowcase() {
       <p className="mt-2.5 text-center text-[12px] text-[var(--dimmer)]">
         Fix a filter, test it in the app preview, and view the browser running on the node.
       </p>
-      <a
-        href="/demos/website-preview.mp4"
-        className="mt-2 block text-center text-[12px] text-[var(--orchid)] underline underline-offset-4"
-      >
-        View the full-size demo
-      </a>
     </section>
   );
 }

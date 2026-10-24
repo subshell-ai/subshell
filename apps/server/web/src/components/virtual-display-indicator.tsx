@@ -21,7 +21,7 @@ export function VirtualDisplayIndicator({
   return (
     <Tooltip>
       <TooltipTrigger
-        aria-label="Open preview"
+        aria-label="Open app or screen"
         aria-haspopup="dialog"
         onClick={onOpen}
         className="inline-flex shrink-0 items-center text-primary"
@@ -32,7 +32,7 @@ export function VirtualDisplayIndicator({
           <Globe className="size-3.5" aria-hidden="true" />
         )}
       </TooltipTrigger>
-      <TooltipContent>{display ? "Virtual display enabled - click to activate" : "Open preview"}</TooltipContent>
+      <TooltipContent>{display ? "Virtual display enabled - click to activate" : "Open app or screen"}</TooltipContent>
     </Tooltip>
   );
 }

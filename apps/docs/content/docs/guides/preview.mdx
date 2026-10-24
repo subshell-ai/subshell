@@ -1,19 +1,19 @@
 ---
-title: "Preview"
+title: "Apps & screens"
 description: "Check websites beside your coding agent, open dev-server previews, and control a subshell's virtual display."
 ---
 
-Preview lets you check a website or graphical app alongside the agent building it.
+Apps & screens lets you check a website or graphical app alongside the agent building it.
 
-## Enable Preview on the machine
+## Enable apps and screens on the machine
 
-Preview is off by default. In the dashboard sidebar, open **Nodes**, select the
-machine running your subshell, and turn on **Allow preview** in its **Preview**
+Apps & screens is off by default. In the dashboard sidebar, open **Nodes**, select the
+machine running your subshell, and turn on **Allow apps and screens** in its **Apps & screens**
 card. The node owner can change this setting; an administrator manages it for
 the server's built-in node.
 
 You need edit access to open an app or control a virtual display. View access
-lets you discover available views and watch browser frames. Switching Preview
+lets you discover available views and watch browser frames. Switching Apps & screens
 off prevents new operations; it doesn't stop your subshell or immediately close
 an existing connection.
 
@@ -24,7 +24,7 @@ Client** while the subshell runs on a Linux node. The server's built-in node
 also works when the server runs on Linux.
 
 1. Open your server's dashboard on the Mac and
-   [enable Preview](#enable-preview-on-the-machine) for the Linux node.
+   [enable apps and screens](#enable-apps-and-screens-on-the-machine) for the Linux node.
 2. Launch your subshell on that node and start the project's dev server there.
 3. Follow [Check a website](#check-a-website) to open its app preview. For an
    interactive browser or GUI app, follow
@@ -43,15 +43,15 @@ doesn't add that support.
 
 1. Start your project's dev server inside a subshell. Keep it listening on
    loopback; you don't need to expose its port to your network.
-2. Choose **Preview** below the terminal, or use the preview icon in the
+2. Choose **Apps & screens** below the terminal, or use the Apps & screens icon in the
    subshell header. A window icon means the subshell has a virtual display;
    otherwise the header uses a globe.
-3. In **Open preview**, choose the **App** row for your dev server's port.
+3. In **Open app or screen**, choose the **App** row for your dev server's port.
 4. Check the site in the preview beside the terminal. Try navigation, forms,
    filters, and other interactions, then give your agent specific feedback.
 
 <figure className="docs-screenshot">
-  <ImageZoom src="/screenshots/preview-picker.png" alt="Open preview dialog with a website on port 3000 and a virtual display, each opened by selecting its row." width="1072" height="420" loading="lazy" decoding="async" unoptimized />
+  <ImageZoom src="/screenshots/preview-picker.png" alt="Open app or screen dialog with a website on port 3000 and a virtual display, each opened by selecting its row." width="1072" height="420" loading="lazy" decoding="async" unoptimized />
   <figcaption>Choose the dev-server port to check the website, or Virtual display to control a browser running on the node. Select the image to enlarge it.</figcaption>
 </figure>
 
@@ -80,7 +80,7 @@ The viewer toolbar has refresh and a **More preview actions** menu:
 - **Open in browser tab** opens an app preview in a separate browser tab.
 - **Close preview** closes the current viewer.
 
-Use the subshell header's preview icon to open another view. When there are
+Use the subshell header's Apps & screens icon to open another view. When there are
 more than six choices, the picker adds search and a scrollable app list with
 ports in numeric order. Browser and virtual-display choices stay above that list.
 
@@ -95,7 +95,7 @@ physical monitor. Launch a browser there when you need to check browser storage,
 login flows, or another graphical app.
 
 1. Install **Xvfb**, **x11vnc**, and **xauth** on the Linux machine running the
-   subshell, and enable Preview for that node.
+   subshell, and enable Apps & screens for that node.
 2. When launching a subshell, enable **Virtual display**. The form checks the
    selected machine and keeps the option disabled if requirements are missing.
    Missing programs show a **Set up virtual display** link to this guide.
@@ -132,7 +132,7 @@ same account. The calling agent can run on a Mac; the virtual display runs on
 the Linux node. Shared nodes and the server's built-in node aren't available
 through the subshell token's node discovery tools.
 
-1. Call `list_nodes` to choose an online node with `canLaunch: true`, Preview
+1. Call `list_nodes` to choose an online node with `canLaunch: true`, Apps & screens
    enabled, and an installed, working terminal harness. Call
    `get_node` with its ID to check display prerequisites. If anything is
    missing, follow [Linux setup](#use-a-virtual-display-on-linux) on that node.
@@ -153,7 +153,7 @@ through the subshell token's node discovery tools.
    ```
 
 4. Call `get_preview` with `subshell_id` to discover its views. In the dashboard,
-   select the helper's Preview action and open its app or virtual display.
+   select the helper's Apps & screens action and open its app or virtual display.
    Each opens in its own workspace tab. `open_preview` can create a private
    connection path for a client, but it doesn't open a dashboard tab or return
    a screenshot.

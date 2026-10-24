@@ -22,7 +22,7 @@ export function WorkspacePreview({ subshell, active }: { subshell: SubshellView;
         }}
         aria-expanded={false}
       >
-        Preview
+        Apps &amp; screens
       </Button>
     </div>
   );

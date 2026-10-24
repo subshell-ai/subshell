@@ -76,7 +76,7 @@ describe("the Preview switch", () => {
   it("reflects the stored flag and asks the route when flipped", async () => {
     const h = mount(node({ previewEnabled: false }));
     try {
-      const toggle = screen.getByRole("switch", { name: /allow preview/i });
+      const toggle = screen.getByRole("switch", { name: /allow apps and screens/i });
       // Cast-and-read, this repo's convention (Base UI wears aria-checked and
       // aria-disabled; there is no jest-dom dependency here).
       expect(toggle.getAttribute("aria-checked")).toBe("false");
@@ -96,7 +96,7 @@ describe("the Preview switch", () => {
   it("a checked switch mirrors the stored on-state", () => {
     const h = mount(node({ previewEnabled: true }));
     try {
-      expect(screen.getByRole("switch", { name: /allow preview/i }).getAttribute("aria-checked")).toBe("true");
+      expect(screen.getByRole("switch", { name: /allow apps and screens/i }).getAttribute("aria-checked")).toBe("true");
     } finally {
       h.restore();
     }
@@ -105,9 +105,9 @@ describe("the Preview switch", () => {
   it("a non-owner sees it disabled with the owner remedy", () => {
     const h = mount(node({ canManage: false, access: "edit" }));
     try {
-      expect(screen.getByRole("switch", { name: /allow preview/i }).matches(":disabled, [aria-disabled=true]")).toBe(
-        true,
-      );
+      expect(
+        screen.getByRole("switch", { name: /allow apps and screens/i }).matches(":disabled, [aria-disabled=true]"),
+      ).toBe(true);
       expect(screen.getByText(/only this node/i)).toBeTruthy();
     } finally {
       h.restore();

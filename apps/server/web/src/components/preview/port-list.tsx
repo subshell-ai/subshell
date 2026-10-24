@@ -40,7 +40,7 @@ export function nodeReasonLine(reason: string | undefined): string {
     case "preview-ports-unsupported":
       return "This machine doesn’t support automatic port discovery or browser watching. Virtual screens need Linux.";
     case "preview-disabled":
-      return "Preview is switched off on this node. Its owner can turn it on in node settings.";
+      return "Apps & screens is switched off on this node. Its owner can turn it on in node settings.";
     case "node-held":
       return "This node is held for one command right now. Preview waits until the hold ends.";
     case "node-too-old":
@@ -312,7 +312,7 @@ function CompactPreviewChoices({
           <Search className="pointer-events-none absolute top-2.5 left-3 size-4 text-muted-foreground" aria-hidden />
           <Input
             type="search"
-            aria-label="Find a preview"
+            aria-label="Find an app or screen"
             placeholder="Find a port or view…"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -349,7 +349,7 @@ function CompactPreviewChoices({
       {!large && special}
       {term && !apps.length && !screen && !browser && (
         <p role="status" className="py-3 text-detail text-muted-foreground">
-          No matching previews.
+          No matching apps or screens.
         </p>
       )}
       {!info.screen && info.screenLost !== undefined && (

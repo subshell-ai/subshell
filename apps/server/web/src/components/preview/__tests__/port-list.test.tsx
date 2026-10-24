@@ -33,13 +33,13 @@ it("finds a specific port in a large list and keeps display choices reachable", 
   );
   fireEvent.click(screen.getByRole("button", { name: "View screen" }));
   expect(screens).toBe(1);
-  const search = screen.getByRole("searchbox", { name: "Find a preview" });
+  const search = screen.getByRole("searchbox", { name: "Find an app or screen" });
   fireEvent.change(search, { target: { value: "10021" } });
   expect(screen.getAllByRole("button", { name: /^Open app/ })).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "Open app on port 10021" }));
   expect(opened).toEqual([10021]);
   fireEvent.change(search, { target: { value: "missing" } });
-  expect(screen.getByText("No matching previews.")).toBeTruthy();
+  expect(screen.getByText("No matching apps or screens.")).toBeTruthy();
   fireEvent.change(search, { target: { value: "screen" } });
   expect(screen.getByRole("button", { name: "View screen" })).toBeTruthy();
   fireEvent.change(search, { target: { value: "" } });
