@@ -28,18 +28,21 @@ export async function captureScreenshot(
   const height = contentHeight
     ? contentHeight + 2 * margin
     : Math.ceil(Math.max(a.y + a.height, b.y + b.height) - y + margin);
+  let pixels: { width: number; height: number } | undefined;
   try {
-    await page.screenshot({
+    const png = await page.screenshot({
       path: file,
       clip: { x, y, width, height },
       animations: "disabled",
       scale: "device",
       // This only isolates the photographed surface; its controls and content
       // are untouched. Every capture retains the application's page background.
-      style: `body * { visibility: hidden !important; }
-        [data-docs-capture], [data-docs-capture] * { visibility: visible !important; }
+      style: `body *:not([data-docs-capture]):not([data-docs-capture] *):not(:has([data-docs-capture])) { visibility: hidden !important; }
         ${contentHeight ? `[data-docs-capture] { clip-path: inset(0 0 calc(100% - ${contentHeight}px) 0); }` : ""}`,
     });
+    // Chromium clips captures at viewport edges. Report the bytes actually
+    // written, rather than dimensions that include an out-of-viewport margin.
+    pixels = { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
   } finally {
     await page.locator("[data-docs-capture]").evaluateAll((elements) => {
       for (const element of elements) element.removeAttribute("data-docs-capture");
@@ -47,6 +50,9 @@ export async function captureScreenshot(
     await lastElement?.dispose();
   }
   const scale = await page.evaluate(() => window.devicePixelRatio);
-  console.log(`${file}: ${width * scale} x ${height * scale} pixels (${width} x ${height} CSS)`);
-  return { width: width * scale, height: height * scale };
+  if (!pixels) throw new Error(`Screenshot produced no image: ${file}`);
+  console.log(
+    `${file}: ${pixels.width} x ${pixels.height} pixels (${pixels.width / scale} x ${pixels.height / scale} CSS)`,
+  );
+  return pixels;
 }

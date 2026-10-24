@@ -1,90 +1,131 @@
 ---
 title: "Preview"
-description: "Watch a pane's browser, open its dev servers in your own browser, and view a pane's virtual screen."
+description: "Check websites beside your coding agent, open dev-server previews, and control a subshell's virtual display."
 ---
 
-Preview shows you what a subshell's pane is producing beyond its text: a page a
-browser opened, a web server the pane started, or a screen running on the
-pane's own virtual display. Everything here reads from your dashboard. Nothing
-opens a new port on your machines.
+Preview lets you check a website or graphical app alongside the agent building it.
 
-## Before you start
+## Enable Preview on the machine
 
-Choose **Preview** below a subshell’s terminal to open the preview picker.
-Each app, browser watch, or virtual display opens in its own workspace tab,
-split to the right of the terminal.
-Drag tabs side by side to see several views together. Each open view also
-appears under its subshell in the sidebar; select that entry to return to it.
-Opening the same view again focuses its existing tab. Closing a preview leaves
-the subshell and its other previews running.
+Preview is off by default. In the dashboard sidebar, open **Nodes**, select the
+machine running your subshell, and turn on **Allow preview** in its **Preview**
+card. The node owner can change this setting; an administrator manages it for
+the server's built-in node.
 
-Use the preview icon in the subshell header to open the picker again. The
-viewer toolbar keeps refresh and the More menu, which contains **Full screen**,
-**Close preview**, and, for apps, **Open in browser tab**. Desktop previews also
-have **Maximize pane** in that menu. While maximized or in full screen,
-**Restore pane** or **Exit full screen** appears directly in the viewer toolbar.
+You need edit access to open an app or control a virtual display. View access
+lets you discover available views and watch browser frames. Switching Preview
+off prevents new operations; it doesn't stop your subshell or immediately close
+an existing connection.
 
-When there are more than six choices, use the search field to find a port or
-view. Apps appear in port order in a scrollable list; the virtual display and
-browser choices stay above it.
+## Check a website
 
-A window icon beside a subshell’s name in the sidebar means it has a virtual
-display. Click the window icon in its header to open the preview picker, then choose
-**Virtual display**. The display opens in a workspace tab and appears beneath the
-subshell in the sidebar.
+1. Start your project's dev server inside a subshell. Keep it listening on
+   loopback; you don't need to expose its port to your network.
+2. Choose **Preview** below the terminal, or use the preview icon in the
+   subshell header. A window icon means the subshell has a virtual display;
+   otherwise the header uses a globe.
+3. In **Open preview**, choose the **App** row for your dev server's port.
+4. Check the site in the preview beside the terminal. Try navigation, forms,
+   filters, and other interactions, then give your agent specific feedback.
 
-Preview is off until you turn it on for a node. Open the node's page, find the
-**Preview** card, and turn on **Allow preview**. Only the node's owner can
-change it (an admin can, on the server's own machine). Turning it off stops new
-previews; the machine keeps running its panes.
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/preview-picker.png" alt="Open preview dialog with a website on port 3000 and a virtual display, each opened by selecting its row." width="1072" height="420" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Choose the dev-server port to check the website, or Virtual display to control a browser running on the node. Select the image to enlarge it.</figcaption>
+</figure>
 
-The server’s own node supports Preview too. Its **Allow preview** setting
-is managed by an admin on the same Nodes page.
+Each app, browser watch, or display opens in its own workspace tab. On desktop,
+a new preview splits to the right of its terminal. Reopening the same view
+focuses its existing tab. Each open preview also appears beneath its subshell
+in the sidebar.
 
-Viewing needs at least view access to the subshell, and opening ports or
-screens needs edit access, same as typing into the pane does.
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/preview-workspace.png" alt="Codex's completed filter fix and passing tests beside a website preview showing the selected Brand category." width="1560" height="1280" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Check the actual interaction beside the agent's result. The Brand filter now shows one matching project. Select the image to enlarge it.</figcaption>
+</figure>
 
-## Open a port the pane opened
+## Arrange and refresh views
 
-When a pane starts a web server, the port shows up in the preview picker. Choose an **App** row and the app appears in a panel inside your
-dashboard, proxied to you as if it were local. Choose **Full screen** from the More menu for more
-room, or choose **Open in browser tab** from the More menu to use a separate browser tab. Choose a port the pane is
-actually listening on. Only ports the node reports can be opened.
+Drag preview tabs to keep several apps or screens visible together. Closing a
+preview leaves its subshell and other previews running. Hidden previews release
+their viewer connections and reopen when you select them again.
 
-## Watch a browser pane
+The viewer toolbar has refresh and a **More preview actions** menu:
 
-If the pane runs a browser with remote debugging turned on (Chrome and Chromium
-use `--remote-debugging-port` for it), the browser's port appears with a
-**Browser** row in the picker. Select it and the pane's browser pages stream into the panel as
-frames, so you can see what the agent is seeing. Close its preview tab when you're done. Watching is a live look, not a recording.
+- **Maximize pane** enlarges that workspace pane. **Restore pane** appears
+  directly in the toolbar while maximized.
+- **Full screen** uses your browser's fullscreen mode. **Exit full screen**
+  appears directly in the toolbar while active.
+- **Open in browser tab** opens an app preview in a separate browser tab.
+- **Close preview** closes the current viewer.
 
-## Screen, on Linux
+Use the subshell header's preview icon to open another view. When there are
+more than six choices, the picker adds search and a scrollable app list with
+ports in numeric order. Browser and virtual-display choices stay above that list.
 
-A pane launched with the **Virtual display** option gets its own screen on the
-node. In the preview picker, choose **Virtual display** and the pane's display appears
-in the panel, updating live. This needs the machine to have Xvfb, x11vnc, and
-xauth installed. The launch form checks the selected machine before enabling
-**Virtual display**. If any programs are missing, the checkbox stays disabled
-and names what to install on that machine. Install them, then choose **Recheck**
-to enable the option. If the machine can’t be reached, bring its node online and
-recheck.
+On a phone, previews use the workspace's tab strip without changing your desktop
+split layout. The standalone subshell page provides a link for opening an app
+in a separate browser tab.
 
-macOS nodes refuse the screen and browser-watch sides of preview the same way.
-The Preview section explains that automatic port discovery and browser
-watching aren’t supported there. Virtual displays are available on Linux only.
+## Use a virtual display on Linux
 
-## If an app rejects the proxied host
+A virtual display gives GUI programs in a subshell their own screen, without a
+physical monitor. Launch a browser there when you need to check browser storage,
+login flows, or another graphical app.
 
-The preview proxy rewrites the `Host` header to a loopback address with the
-pane's port, so dev-server host checks see a local request and normally pass.
-An app that still rejects the request is not patched around here, because
-silently rewriting headers would hide the app's own security check. Set the
-app's `allowedHosts`-style option to accept the address it reports instead.
+1. Install **Xvfb**, **x11vnc**, and **xauth** on the Linux machine running the
+   subshell, and enable Preview for that node.
+2. When launching a subshell, enable **Virtual display**. The form checks the
+   selected machine and keeps the option disabled if requirements are missing.
+   Install the named programs, then use **Recheck**. The button disappears once
+   the requirements pass.
+3. Launch your browser or GUI app from that subshell so it inherits the display
+   settings. Install the browser on the node separately if it isn't available.
+4. Use the window icon in the subshell header, then choose **Virtual display**.
+   You can see and control the screen in its own workspace tab.
 
-## On a phone
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/preview-display.png" alt="A development terminal beside the Northstar website running in the subshell's virtual-display browser." width="1560" height="1280" loading="lazy" decoding="async" unoptimized />
+  <figcaption>The virtual display shows the browser running on the node. Keyboard and pointer input require edit access. Select the image to enlarge it.</figcaption>
+</figure>
 
-On a phone, an **App** row opens its own workspace tab too. The More menu lets
-you open it in a separate browser tab. On the standalone subshell page, follow
-the prepared preview link instead. **Watch browser** still streams frames.
-**View screen** works in a workspace preview tab. The standalone subshell page
-needs a larger screen for this view.
+Virtual displays require Linux. Automatic port discovery and browser watching
+also rely on Linux's process information; the picker explains when a machine
+can't provide them. A macOS node doesn't gain a virtual display by installing
+the Linux display programs.
+
+A virtual display isn't a sandbox for the programs you run. They keep the
+execution account's permissions. Don't enable it on a host shared with untrusted
+local OS users; see [Preview security](/concepts/security#preview-security).
+
+## Watch browser frames
+
+If a subshell runs Chrome or Chromium with remote debugging enabled on loopback,
+the picker can show **Browser**. Select it to watch live frames of that browser.
+This view is a screencast; use **Virtual display** when you need keyboard and
+pointer control.
+
+A view-only share can watch the browser discovered for that subshell. It cannot
+select another browser port on the node. Close the preview tab when you're done.
+
+## Browser compatibility and private links
+
+App previews use an isolated browser document so the website's JavaScript can't
+read your dashboard's DOM, storage, or authenticated API responses. Target
+cookies stay in the preview's server-side cookie jar. Sites that need browser
+storage, service workers, JavaScript-managed cookies, or full browser login
+flows should be checked in the node's browser through **Virtual display**.
+
+The proxy preserves your app's paths rather than rewriting HTML or JavaScript.
+If a dev server assumes it's hosted at `/`, configure relative asset URLs or a
+matching base path. A target's strict content policy can also prevent embedding;
+the virtual display gives you the browser's normal website context.
+
+Preview rewrites the target's `Host` to loopback. An app that still refuses it
+needs its own host or origin configuration checked; Subshell doesn't rewrite
+all application security checks.
+
+Treat a preview URL as a private access link. Anyone who receives it can use it
+while its session remains valid, and closing a tab doesn't immediately revoke
+a copied link. The server can read forwarded bytes and browser frames. See
+[Preview security](/concepts/security#preview-security) for the trust boundaries
+and [Architecture](/concepts/architecture#preview-apps-and-screens) for the data path.
