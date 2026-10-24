@@ -21,7 +21,8 @@ export function VirtualDisplayIndicator({
   return (
     <Tooltip>
       <TooltipTrigger
-        aria-label="Open virtual display"
+        aria-label="Open preview"
+        aria-haspopup="dialog"
         onClick={onOpen}
         className="inline-flex shrink-0 items-center text-primary"
       >

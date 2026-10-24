@@ -14,6 +14,6 @@ Open workspace previews in draggable tabs with child entries beneath their subsh
 
 Mark subshells with virtual displays in sidebar rows and headers, and restore live display metadata after a server restart.
 
-Open a subshell’s virtual display directly in a workspace preview tab from its header’s window icon.
+Open the preview picker dialog from a subshell’s header window icon.
 
 Move preview choices into a dialog and consolidate each viewer’s controls into one toolbar, letting the viewer fill the tab. Distinguish virtual displays with a window icon while device sizing keeps its monitor icon.
