@@ -1,5 +1,22 @@
 # @internal/server
 
+## 2.6.4
+
+### Patch Changes
+
+- [#432](https://github.com/subshell-ai/subshell/pull/432) [`3af055c`](https://github.com/subshell-ai/subshell/commit/3af055c5c1d07d079eb540324e60f6ee194f7a4b) Thanks [@theogravity](https://github.com/theogravity)! - Take the fixes for advisories published 2026-10-23: undici 7.30.1 on the
+  server's Expo push path (EventSource memory DoS, and a subresource-integrity
+  bypass via non-lowercase algorithm tokens). The same date's fast-uri,
+  undici@8, and happy-dom hits are dev-time only (commit tooling, the e2e
+  container client, and the test DOM), so they are fixed too but ship nothing:
+  fast-uri 3.1.9 and undici 8.12.3 come in as root overrides, and the test
+  harness moves to @happy-dom/global-registrator 21.0.4, whose transition
+  support makes two popup unmounts land a tick later in tests, now awaited.
+
+- [#435](https://github.com/subshell-ai/subshell/pull/435) [`1ebe595`](https://github.com/subshell-ai/subshell/commit/1ebe5957484669e79dc5b4a32c0756d8d295c21d) Thanks [@theogravity](https://github.com/theogravity)! - Fix "Update all" handing every node but the first an empty download. When several machines asked at once, the shared fetch handed out one spent stream; each caller now opens its own read of the finished download, and a digest mismatch fails the fetch before any byte is served.
+  
+  Say more when an update refuses or stalls. The "not supervised" refusal now names whether a service definition exists on that machine and, for a launchd domain that needs someone signed in at the display, says so. When the swap lands but the restart is refused, the node reports the new binary as installed, shows the manager's own reason, and names the two ways to get it running.
+
 ## 2.6.3
 
 ### Patch Changes
