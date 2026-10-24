@@ -10,7 +10,12 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export type PreviewConnection = "connecting" | "connected" | "disconnected";
+export interface PreviewWorkspaceControls {
+  maximized: boolean;
+  onToggleMaximize: () => void;
+}
 export interface PreviewToolbarProps {
+  workspace?: PreviewWorkspaceControls;
   selected: string | null;
   onRefresh: () => void;
   onDisconnect: () => void;
@@ -25,6 +30,7 @@ export interface PreviewToolbarProps {
 
 /** One toolbar owns viewer actions, leaving the panel to the picture. */
 export function PreviewToolbar({
+  workspace,
   selected,
   onRefresh,
   onDisconnect,
@@ -116,6 +122,12 @@ export function PreviewToolbar({
             }
           >
             <DropdownMenuGroup>
+              {workspace && (
+                <DropdownMenuItem onSelect={workspace.onToggleMaximize}>
+                  {workspace.maximized ? <Minimize2 /> : <Maximize2 />}
+                  {workspace.maximized ? "Restore pane" : "Maximize pane"}
+                </DropdownMenuItem>
+              )}
               {fullscreenSupported ? (
                 fullscreenAction
               ) : (

@@ -3,7 +3,11 @@ import { Link } from "@tanstack/react-router";
 import { type JSX, useEffect, useMemo, useRef, useState } from "react";
 import { OpenPanel } from "@/components/preview/open-panel";
 import { nodeReasonLine, PortList } from "@/components/preview/port-list";
-import { type PreviewConnection, PreviewToolbar } from "@/components/preview/preview-toolbar";
+import {
+  type PreviewConnection,
+  PreviewToolbar,
+  type PreviewWorkspaceControls,
+} from "@/components/preview/preview-toolbar";
 import { ScreenViewer } from "@/components/preview/screen-viewer";
 import { WatchViewer } from "@/components/preview/watch-viewer";
 import { TrustNoticeBanner } from "@/components/trust-notice-banner";
@@ -32,6 +36,7 @@ import type { SubshellAccess, SubshellView } from "@/types/subshell";
 export type PreviewChoice = import("@internal/subshell-protocol").WorkspacePreviewTarget;
 
 export interface PreviewSectionProps {
+  workspace?: PreviewWorkspaceControls;
   onClose?: () => void;
   initialView?: PreviewChoice | null;
   onViewChange?: (choice: PreviewChoice | null) => void;
@@ -84,6 +89,7 @@ export function previewSharedNotice(subshell: SubshellView | undefined): TrustNo
 }
 
 export function PreviewSection({
+  workspace,
   paneId,
   access,
   subshell,
@@ -290,6 +296,7 @@ export function PreviewSection({
       {fill ? (
         (selected || initialView) && (
           <PreviewToolbar
+            workspace={workspace}
             selected={selected}
             busy={busy}
             connection={connection}

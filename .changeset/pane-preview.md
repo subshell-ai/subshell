@@ -27,3 +27,5 @@ Use compact rows for small preview lists too.
 Open the preview picker from the subshell header, removing the duplicate selector from viewer toolbars.
 
 Move full screen into the preview action menu, keeping that menu usable inside the fullscreen viewer.
+
+Open new previews in a split to the right of their terminal, and move workspace maximize and restore into the preview action menu.

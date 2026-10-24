@@ -234,15 +234,18 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
         const id = previewPanelId(pane.id, view);
         const existing = api.getPanel(id);
         if (existing) existing.api.setActive();
-        else
+        else {
+          api.exitMaximizedGroup();
+          api.getPanel(pane.id)?.api.setActive();
           api.addPanel<DockedPreviewParams>({
             id,
             component: "preview",
             title: `${workspacePreviewLabel(view)} · ${pane.subshellName}`,
             renderer: "always",
             params: { paneId: pane.id, view },
-            position: { referencePanel: pane.id, direction: "within" },
+            position: { referencePanel: pane.id, direction: "right" },
           });
+        }
         publishFocus();
         return true;
       }),

@@ -88,3 +88,21 @@ it("keeps the exit action inside the fullscreen viewer", async () => {
     host.remove();
   }
 });
+
+it("offers workspace maximize and restore in the preview action menu", async () => {
+  let toggled = 0;
+  const workspace = {
+    maximized: false,
+    onToggleMaximize: () => {
+      toggled += 1;
+    },
+  };
+  const view = render(<PreviewToolbar {...props({ workspace })} />);
+  fireEvent.click(screen.getByRole("button", { name: "More preview actions" }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Maximize pane" }));
+  expect(toggled).toBe(1);
+  view.rerender(<PreviewToolbar {...props({ workspace: { ...workspace, maximized: true } })} />);
+  fireEvent.click(screen.getByRole("button", { name: "More preview actions" }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Restore pane" }));
+  expect(toggled).toBe(2);
+});

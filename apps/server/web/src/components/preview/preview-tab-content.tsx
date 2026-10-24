@@ -1,4 +1,5 @@
 import { type PreviewChoice, PreviewSection } from "@/components/preview/preview-section";
+import type { PreviewWorkspaceControls } from "@/components/preview/preview-toolbar";
 import { useSubshellPreview } from "@/hooks/use-subshell-preview";
 import { useSubshellRow } from "@/hooks/use-subshell-row";
 
@@ -7,16 +8,19 @@ export function PreviewTabContent({
   subshellId,
   choice,
   onClose,
+  workspace,
 }: {
   subshellId: string;
   choice: PreviewChoice;
   onClose: () => void;
+  workspace?: PreviewWorkspaceControls;
 }) {
   const subshell = useSubshellRow(subshellId);
   const preview = useSubshellPreview(subshellId, subshell);
   if (!subshell) return <p className="p-3 text-detail text-muted-foreground">Loading preview…</p>;
   return (
     <PreviewSection
+      workspace={workspace}
       paneId={subshellId}
       access={subshell.access}
       subshell={subshell}

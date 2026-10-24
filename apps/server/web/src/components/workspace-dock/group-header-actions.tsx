@@ -4,10 +4,12 @@ import { Maximize2, Minimize2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { TranscriptSearch } from "@/components/transcript-search";
 import { useWorkspaceDockContext } from "@/components/workspace-dock/context";
+import { previewParentId } from "@/lib/workspace-preview";
 
 /**
  * `rightHeaderActionsComponent` for `<DockviewReact>`. Always shows the
- * maximize/restore toggle — the one pane action with no room in a small
+ * maximize/restore toggle for terminals; preview groups keep it in their
+ * viewer menu. It is the one pane action with no room in a small
  * pane's own title bar — and, once the group is maximized, the heavier
  * chrome the tiling spec reserves for one enlarged subshell at a time:
  * Close and the transcript finder. (Close replaced the old Terminate/Delete
@@ -43,6 +45,8 @@ export function GroupHeaderActions(props: IDockviewHeaderActionsProps) {
   // Null until the terminal has mounted (or once it's detached) — a Find
   // button wired to a missing addon would just silently do nothing.
   const search = pane ? (searchAddons.get(pane.id) ?? null) : null;
+
+  if (props.activePanel && previewParentId(props.activePanel.id)) return null;
 
   return (
     <div className="flex items-center gap-2 px-2">
