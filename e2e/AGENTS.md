@@ -204,3 +204,15 @@ pixel density. The helper hides unrelated UI and modal backdrops only during
 capture; the photographed controls and their content remain unchanged. Keep
 PNG dimensions at native resolution.
 The sites supply the same single border around each image, without extra padding.
+
+For the website-preview video and guide images, run
+`bun e2e/capture-preview-demo.ts` after building the SPA. It uses a disposable
+stack and sample website, records a real authenticated Codex CLI fixing category
+filters, and checks those filters through the app proxy before showing a real
+Linux virtual display. It requires `ffmpeg`, Xvfb, x11vnc, xauth, and Chrome.
+Authentication is copied to a temporary Codex home off camera and removed on
+cleanup. `--security-only` skips the agent and display, checking opaque browser
+isolation, modules, JSON POST, and WebSocket forwarding instead. Spec 48 runs
+those browser checks and immediate delete revocation in CI; spec 47 covers the
+enrolled-node proxy and watch handshake. Review the clip at desktop and phone
+sizes and keep the three guide image dimensions aligned with the PNG bytes.
