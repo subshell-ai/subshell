@@ -12,7 +12,10 @@ export function virtualDisplayReason(node: Node | null, readiness?: PreviewDispl
   if (node.previewEnabled !== true) return "Turn on Allow preview in this machine's node settings first.";
   if (!readiness) return "Checking virtual display requirements…";
   if (!readiness.supported) return "Virtual displays are available on Linux machines only.";
-  if (readiness.missing.length) return `Install ${readiness.missing.join(", ")} on ${node.name || "this machine"}.`;
+  if (readiness.missing.length) {
+    const programs = new Intl.ListFormat("en", { style: "long", type: "conjunction" }).format(readiness.missing);
+    return `To enable Virtual display on this Linux machine, install ${programs} on ${node.name || "this machine"}. ${readiness.missing.length > 1 ? "All listed programs are required." : "This program is required."}`;
+  }
   return undefined;
 }
 
