@@ -1,7 +1,14 @@
 import { describe, expect, it } from "bun:test";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { Terminal } from "@xterm/xterm";
-import { cellAtPoint, type TapCell, type TapCellText, tapCellsOfLine, urlTokenAt } from "@/lib/terminal-url-tap";
+import {
+  cellAtPoint,
+  type TapCell,
+  type TapCellText,
+  type TapRow,
+  tapCellsOfLine,
+  urlTokenAt,
+} from "@/lib/terminal-url-tap";
 
 /**
  * Two sources of cells feed these tests, and both matter:
@@ -17,22 +24,43 @@ import { cellAtPoint, type TapCell, type TapCellText, tapCellsOfLine, urlTokenAt
 
 const FAMILY = "\u{1F468}‍\u{1F469}‍\u{1F467}"; // 👨‍👩‍👧
 
-/** One tap at a CELL column, with the wrap facts the buffer would carry. */
+/**
+ * One tap at a CELL column, with the wrap facts the buffer would carry.
+ * Neighbours arrive through `read(offset)`, the way a real chain arrives: a
+ * URL can wrap across any number of rows, so the tap is told about rows, not
+ * about one neighbour each way. `above`/`below`/`wrappedFromAbove`/
+ * `wrapsToBelow` build that reader for the common two-row cases; `read`
+ * supplies the whole chain directly when a test needs more rows than that.
+ */
 function tap(
   line: string,
   col: number,
-  opts: { above?: string; below?: string; wrappedFromAbove?: boolean; wrapsToBelow?: boolean; cells?: TapCell[] } = {},
+  opts: {
+    read?: (offset: number) => TapRow | undefined;
+    above?: string;
+    below?: string;
+    wrappedFromAbove?: boolean;
+    wrapsToBelow?: boolean;
+    cells?: TapCell[];
+  } = {},
 ) {
-  const input: TapCellText = {
-    line,
-    cells: opts.cells ?? asciiCells(line),
-    col,
-    above: opts.above,
-    below: opts.below,
-    wrappedFromAbove: opts.wrappedFromAbove ?? false,
-    wrapsToBelow: opts.wrapsToBelow ?? false,
-  };
+  const read =
+    opts.read ??
+    ((offset: number): TapRow | undefined =>
+      offset === 0
+        ? { text: line, wrapped: opts.wrappedFromAbove ?? false }
+        : offset === 1 && opts.below !== undefined
+          ? { text: opts.below, wrapped: opts.wrapsToBelow ?? false }
+          : offset === -1 && opts.above !== undefined
+            ? { text: opts.above, wrapped: false }
+            : undefined);
+  const input: TapCellText = { line, cells: opts.cells ?? asciiCells(line), col, read };
   return urlTokenAt(input);
+}
+
+/** A row chain for `read(offset)`: keyed by offset, offset 0 is the tapped row. */
+function chain(rows: Record<number, TapRow>): (offset: number) => TapRow | undefined {
+  return (offset) => rows[offset];
 }
 
 /** The harness's own provider: one cell per code point, one column each. */
@@ -61,10 +89,10 @@ function tapBufferRow(term: Terminal, row: number, col: number): string | null {
     line: text,
     cells: tapCellsOfLine(line, text),
     col,
-    above: buffer.getLine(row - 1)?.translateToString(true),
-    below: buffer.getLine(row + 1)?.translateToString(true),
-    wrappedFromAbove: line.isWrapped === true,
-    wrapsToBelow: buffer.getLine(row + 1)?.isWrapped === true,
+    read: (offset) => {
+      const r = buffer.getLine(row + offset);
+      return r ? { text: r.translateToString(true), wrapped: r.isWrapped === true } : undefined;
+    },
   });
 }
 
@@ -110,6 +138,23 @@ describe("urlTokenAt (the tapped token, wrap-fact driven)", () => {
     expect(tap('open "https://example.com/path"', 6)).toBeNull(); // LEADING punctuation is not stripped
   });
 
+  it("drops the control notation a cat -v style dump trails the URL with", () => {
+    // `cat -v` renders a CR as the two characters "^M", and they glue onto
+    // the URL token at the whitespace model. The notation is display, not
+    // part of the address: a tap must open the URL, not a 404 with "^M"
+    // percent-encoded onto the end of it.
+    expect(tap("https://example.com/path^M", 4)).toBe("https://example.com/path");
+    expect(tap("https://example.com/path^M.", 4)).toBe("https://example.com/path"); // notation then prose period
+    expect(tap("https://example.com/path^J^M", 4)).toBe("https://example.com/path"); // two notations
+    // DEL's spelling `^?`: the `?` is also prose punctuation, so the pair
+    // must be read before the `?` is stripped and dissolves the notation.
+    expect(tap("https://example.com/path^?", 4)).toBe("https://example.com/path");
+    // A caret mid-token is data the program printed: only the TAIL is junk.
+    expect(tap("https://example.com/a^Mb", 4)).toBe("https://example.com/a^Mb");
+    // A bare caret at the end is not a control pair and stays.
+    expect(tap("https://example.com/path^", 4)).toBe("https://example.com/path^");
+  });
+
   it("a URL ending a line that did NOT wrap is complete, not continued", () => {
     // The next line starts an unrelated sentence; the buffer says the row
     // ended on a hard newline (wrapsToBelow false), so no join happens —
@@ -145,6 +190,73 @@ describe("urlTokenAt (the tapped token, wrap-fact driven)", () => {
         wrapsToBelow: true,
       }),
     ).toBe("https://ex.io/zero/seam/one/two");
+  });
+
+  it("a three-row wrap joins ALL rows when the tap sits on the head", () => {
+    // The seam-worth case from the field: a long URL soft-wraps down past a
+    // second seam, and the tap lands on the FIRST row. One row of lookahead
+    // returns a truncated URL that opens a dead page; the chain walk returns
+    // the whole token.
+    const rows = chain({
+      0: { text: "log: https://ex.io/zero", wrapped: false },
+      1: { text: "/seam/one", wrapped: true },
+      2: { text: "/two end", wrapped: true },
+    });
+    expect(tap("log: https://ex.io/zero", 5, { read: rows })).toBe("https://ex.io/zero/seam/one/two");
+  });
+
+  it("a three-row wrap joins ALL rows when the tap sits on the tail", () => {
+    const rows = chain({
+      [-2]: { text: "log: https://ex.io/zero", wrapped: false },
+      [-1]: { text: "/seam/one", wrapped: true },
+      0: { text: "/two end", wrapped: true },
+    });
+    expect(tap("/two end", 0, { read: rows })).toBe("https://ex.io/zero/seam/one/two");
+  });
+
+  it("the chain walk stops at a HARD newline mid-chain", () => {
+    // Row 2 does NOT record itself as a continuation, so the seam between 1
+    // and 2 is a real line break: the join stops at row 1's token.
+    const rows = chain({
+      0: { text: "log: https://ex.io/zero", wrapped: false },
+      1: { text: "/seam/one", wrapped: true },
+      2: { text: "/NOTpart end", wrapped: false },
+    });
+    expect(tap("log: https://ex.io/zero", 5, { read: rows })).toBe("https://ex.io/zero/seam/one");
+  });
+
+  it("a four-row wrap is walked whole from the row where the URL starts", () => {
+    const rows = chain({
+      0: { text: "get https://ex.io/a", wrapped: false },
+      1: { text: "/b", wrapped: true },
+      2: { text: "/c", wrapped: true },
+      3: { text: "/d done", wrapped: true },
+    });
+    expect(tap("get https://ex.io/a", 4, { read: rows })).toBe("https://ex.io/a/b/c/d");
+    // …and from the LAST content row upward: same chain, offsets rebased so 0
+    // is that row (offsets are relative to the tap, the way the buffer hands
+    // them over).
+    expect(
+      tap("/d done", 0, {
+        read: chain({
+          [-3]: { text: "get https://ex.io/a", wrapped: false },
+          [-2]: { text: "/b", wrapped: true },
+          [-1]: { text: "/c", wrapped: true },
+          0: { text: "/d done", wrapped: true },
+        }),
+      }),
+    ).toBe("https://ex.io/a/b/c/d");
+  });
+
+  it("a real buffer walk: one URL wrapped across THREE rows opens whole from every row", async () => {
+    // cols=20 forces the seams; the head, middle and tail rows must all
+    // answer with the full URL — this is the replay/screenshot case, where
+    // the viewer's buffer carries the seams and the tap must follow them.
+    const url = "https://ex.io/aaaa/bbbb/cccc/dddd/eeee/ffff";
+    const data = `go ${url} tail\r\n`;
+    expect(await bufferTap(data, 3, { cols: 20, row: 0 })).toBe(url);
+    expect(await bufferTap(data, 0, { cols: 20, row: 1 })).toBe(url);
+    expect(await bufferTap(data, 0, { cols: 20, row: 2 })).toBe(url);
   });
 
   it("a wrapped tail that trails punctuation still opens clean", () => {
@@ -282,7 +394,7 @@ describe("tapCellsOfLine (the buffer reader)", () => {
     const cells = tapCellsOfLine(line, text);
     expect(cells.at(-1)).toEqual({ char: "参", width: 2 });
     for (const col of [10, 11]) {
-      expect(urlTokenAt({ line: text, cells, col, wrappedFromAbove: false, wrapsToBelow: false })).toBeNull();
+      expect(urlTokenAt({ line: text, cells, col })).toBeNull();
     }
   });
 });

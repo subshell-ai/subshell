@@ -24,9 +24,14 @@ import type { IBufferLine, Terminal } from "@xterm/xterm";
  * - The wrap seam is a fact the buffer carries, not a guess from text
  *   length: `getLine(i).isWrapped`. A row whose trimmed text happens to fill
  *   the width after a HARD newline is not a continuation; treating it as one
- *   joins two unrelated lines. So the caller hands over `wrappedFromAbove`
- *   (this row's own isWrapped) and `wrapsToBelow` (the NEXT row's
- *   isWrapped) and no length stands in for either.
+ *   joins two unrelated lines. So the caller hands over a READER for the
+ *   rows around the tap — text and isWrapped per row, no length standing in
+ *   for either — and the token is extended along the whole CHAIN of seams.
+ *   A URL can wrap across any number of rows (an iPhone-width terminal puts
+ *   a GitHub release URL through three seams before it ends), and a lookup
+ *   that could only see one row each way opens a truncated URL from the head
+ *   row — which reads to the user as "the link is broken" far more often
+ *   than a tap landing mid-chain.
  *
  * The seam and a wide glyph, MEASURED 2026-09-26 on xterm 6.1.0-beta.304
  * (both providers; at input time and again through resizes): xterm never
@@ -162,8 +167,19 @@ function trailingToken(line: string): string | null {
 }
 
 /**
- * Inputs for one tap: the buffer text around it, the tapped row's MEASURED
- * CELLS, the tapped CELL, and the two wrap facts. Lines are as
+ * One row of the chain around a tap: the same trimmed text the tap itself
+ * reads, and the buffer's own fact of whether it continues the row above.
+ */
+export interface TapRow {
+  /** Row text as `translateToString(true)` yields it (trailing whitespace trimmed). */
+  text: string;
+  /** `getLine(index).isWrapped` — this row continues the row above it. */
+  wrapped: boolean;
+}
+
+/**
+ * Inputs for one tap: the tapped row's text, its MEASURED CELLS, the tapped
+ * CELL, and a READER for the rows around it. Texts are as
  * `translateToString(true)` yields them — trailing whitespace trimmed, which
  * together with the wrap flags makes the seam rules exact: a wrapped row's
  * trimmed text ends in the very glyph that owns the row's last cells, and a
@@ -178,89 +194,123 @@ export interface TapCellText {
   line: string;
   /** The tapped line's cells, measured by the provider that laid it out. */
   cells: TapCell[];
-  /** The line above, if it exists. */
-  above?: string;
-  /** The line below, if it exists. */
-  below?: string;
   /** Column of the tapped CELL within `line` (cells, not string units). */
   col: number;
-  /** `getLine(lineIndex).isWrapped` — this row continues the row above. */
-  wrappedFromAbove: boolean;
-  /** `getLine(lineIndex + 1).isWrapped` — this row runs on into the next. */
-  wrapsToBelow: boolean;
+  /**
+   * Rows around the tap, by OFFSET from the tapped row: `read(0)` is the
+   * tapped row itself, `read(-1)` the one above, `read(1)` the one below,
+   * and so on — the seam chain a token can run through has no fixed length.
+   * Returns undefined when no row exists at that offset. Without a reader
+   * nothing joins: the tap answers from the token alone.
+   */
+  read?: (offset: number) => TapRow | undefined;
 }
 
-function stripTrailingPunctuation(value: string): string {
+/** Safety cap on the seam walk: a real token spans a handful of rows, and a
+ * buffer-wide join is a bug elsewhere, not something a tap should follow. */
+const MAX_SEAM_ROWS = 64;
+
+/**
+ * Does `value` end on a control notation `cat -v` and friends paint: the two
+ * characters `^` plus the printable that stands for the control byte (CR
+ * becomes `^M`; the partner is the byte at +0x40, so 0x40..0x5F, with DEL
+ * the one exception, spelled `^?`)? A bare `^` at the end is not a pair and
+ * stays; a notation INSIDE the token is data the program printed, not a
+ * tail.
+ */
+function endsOnControlNotation(value: string, end: number): boolean {
+  if (end < 2 || value[end - 2] !== "^") return false;
+  const partner = value.charCodeAt(end - 1);
+  return (partner >= 0x40 && partner <= 0x5f) || partner === 0x3f;
+}
+
+/**
+ * Trim what a candidate can end on without it being part of the address:
+ * prose punctuation, and the `^X` control notation a `cat -v` style dump
+ * paints at line ends (a URL glued to a rendered CR must still open the
+ * URL). The two strip in a loop because they arrive in either order
+ * (`…^M.` from a sentence, `….^M` from a dump of a line ending in a period),
+ * and the notation is read FIRST each pass because DEL's `^?` partner is
+ * also punctuation: strip the `?` first and the pair dissolves into a stray
+ * caret.
+ */
+function stripTrailingJunk(value: string): string {
   let end = value.length;
-  while (end > 0 && TRAILING_STRIP.includes(value[end - 1]!)) end--;
+  for (;;) {
+    const before = end;
+    if (endsOnControlNotation(value, end)) {
+      end -= 2;
+    }
+    while (end > 0 && TRAILING_STRIP.includes(value[end - 1]!)) end--;
+    if (end === before) break;
+  }
   return value.slice(0, end);
 }
 
 function accept(candidate: string): string | null {
-  const stripped = stripTrailingPunctuation(candidate);
+  const stripped = stripTrailingJunk(candidate);
   return URL_RE.test(stripped) ? stripped : null;
 }
 
 /**
  * The URL the tapped cell belongs to, or null.
  *
- * Three shapes, in order: the token at the tap is itself the URL (extended
- * by the next row's first token when the wrap facts say the row ran on and
- * the token holds the seam); the token is the TAIL of a URL wrapped in from
- * above; the token is the HEAD of one continuing below. Punctuation trailing
- * the final candidate is stripped. Joining needs the BUFFER's wrap fact —
- * text that merely fills the width after a hard newline is never joined.
+ * The token under the tap is first grown to its FULL whitespace-delimited
+ * extent along the chain of buffer wrap seams: down while it owns the
+ * current row's right edge and the next row says it continues, up while it
+ * owns the current row's left edge and the row above it continues. What is
+ * left is judged: a URL opens, anything else (a plain word, prose glued
+ * across a seam, a candidate that was only URL-shaped until the walk
+ * swallowed what surrounds it) opens nothing. Punctuation trailing the
+ * final candidate is stripped. Joining needs the BUFFER's wrap fact — text
+ * that merely fills the width after a hard newline is never joined.
  *
- * @param text - the tapped line and its measured cells, the neighbours, the
- *               tapped cell, the wrap facts
+ * @param text - the tapped line, its measured cells, the tapped cell, and
+ *               the reader for the surrounding rows
  * @returns the URL to open, or null for a plain word, whitespace, or a cell
  *          past the text
  */
-export function urlTokenAt({
-  line,
-  cells,
-  col,
-  above,
-  below,
-  wrappedFromAbove,
-  wrapsToBelow,
-}: TapCellText): string | null {
+export function urlTokenAt({ line, cells, col, read }: TapCellText): string | null {
   const index = cellIndexAt(cells, col);
   if (index === null) return null;
   const hit = tokenAt(line, index);
   if (!hit) return null;
-  // A wrapped row's trimmed text ends at the seam, so "token reaches the
-  // text end" is exactly "token owns the last cell".
-  const holdsRightSeam = wrapsToBelow && hit.end === line.length - 1;
-  const holdsLeftSeam = wrappedFromAbove && hit.start === 0;
-  if (URL_RE.test(hit.token)) {
-    if (holdsRightSeam && below) {
-      const next = leadingToken(below);
-      if (next) return accept(hit.token + next);
+  let token = hit.token;
+  if (read) {
+    // Down the chain. A wrapped row's trimmed text ends at the seam, so
+    // "token reaches the text end" is exactly "token owns the last cell";
+    // the row below joining is exactly its own isWrapped.
+    let bottom = 0;
+    let ownsRightEdge = hit.end === line.length - 1;
+    while (ownsRightEdge && bottom < MAX_SEAM_ROWS) {
+      const next = read(bottom + 1);
+      if (!next?.wrapped) break;
+      const cont = leadingToken(next.text);
+      if (!cont) break;
+      token += cont;
+      bottom += 1;
+      // Keep walking only while the whole next row was this token; a row
+      // with a space past the seam holds a different word after it.
+      ownsRightEdge = cont.length === next.text.length;
     }
-    return accept(hit.token);
-  }
-  if (holdsLeftSeam && above) {
-    const prev = trailingToken(above);
-    if (prev) {
-      const joined = prev + hit.token;
-      if (URL_RE.test(joined)) {
-        if (holdsRightSeam && below) {
-          const next = leadingToken(below);
-          if (next) return accept(joined + next);
-        }
-        return accept(joined);
-      }
+    // Up the chain, mirrored: the token must own the CURRENT top row's left
+    // edge, and that row must record itself as continuing (its isWrapped is
+    // the seam between it and the row above).
+    let top = 0;
+    let ownsLeftEdge = hit.start === 0;
+    while (ownsLeftEdge && top > -MAX_SEAM_ROWS) {
+      const current = read(top);
+      if (!current?.wrapped) break;
+      const prev = read(top - 1);
+      if (!prev) break;
+      const cont = trailingToken(prev.text);
+      if (!cont) break;
+      token = cont + token;
+      top -= 1;
+      ownsLeftEdge = cont.length === prev.text.length;
     }
   }
-  if (holdsRightSeam && below) {
-    const next = leadingToken(below);
-    if (next) {
-      const joined = hit.token + next;
-      if (URL_RE.test(joined)) return accept(joined);
-    }
-  }
-  return null;
+  return accept(token);
 }
 
 /** Where a client point lands on the visible grid, in cells; null when it
@@ -292,9 +342,9 @@ export function cellAtPoint(input: {
  * ACTIVE viewport (`buffer.active.viewportY` shifts with the client scroll,
  * so a tap on a row paged up out of the prompt finds that row's own text),
  * the CELLS from that same line through `tapCellsOfLine` — the provider
- * that laid the row out is what the tap follows — and the WRAP FACTS from
- * `isWrapped` on this row and the one below, the buffer's own record of
- * where lines actually continue.
+ * that laid the row out is what the tap follows — and the seam CHAIN from
+ * `isWrapped` row by row outward, the buffer's own record of where lines
+ * actually continue.
  *
  * @param term - the live terminal
  * @param x - client-space X of the tap
@@ -323,10 +373,11 @@ export function terminalUrlAtPoint(term: Terminal, x: number, y: number): string
   return urlTokenAt({
     line,
     cells: tapCellsOfLine(bufferLine, line),
-    above: buffer.getLine(lineIndex - 1)?.translateToString(true),
-    below: buffer.getLine(lineIndex + 1)?.translateToString(true),
     col: point.col,
-    wrappedFromAbove: bufferLine.isWrapped === true,
-    wrapsToBelow: buffer.getLine(lineIndex + 1)?.isWrapped === true,
+    read: (offset) => {
+      const row = buffer.getLine(lineIndex + offset);
+      if (!row) return undefined;
+      return { text: row.translateToString(true), wrapped: row.isWrapped === true };
+    },
   });
 }

@@ -251,8 +251,9 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     expect(sim.cmdTypes()).toEqual(["probe", "log_read", "tail_start", "capture", "pane_cursor", "pane_size"]);
     expect(sim.cmdsOf("log_read")).toEqual([{ type: "log_read", subshellId: SID, fromByte: 0, maxBytes: 1 }]);
     // The capture carries the default replay line cap; the tail starts at the
-    // probed size (7): only bytes past the snapshot ever ship.
-    expect(sim.cmdsOf("capture")).toEqual([{ type: "capture", subshellId: SID, lines: 100 }]);
+    // probed size (7): only bytes past the snapshot ever ship. `join: true` is
+    // the seam join the viewer's linkifier and copies depend on.
+    expect(sim.cmdsOf("capture")).toEqual([{ type: "capture", subshellId: SID, lines: 100, join: true }]);
     expect(sim.cmdsOf("tail_start")).toEqual([
       { type: "tail_start", subshellId: SID, subId: expect.any(String), fromByte: 7 },
     ]);
@@ -312,7 +313,7 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     await setOwnerCap(2);
     await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams(), true);
     await until(() => sim.cmdTypes().includes("tail_start"), "tail at EOF");
-    expect(sim.cmdsOf("capture")).toEqual([{ type: "capture", subshellId: SID, lines: 2 }]);
+    expect(sim.cmdsOf("capture")).toEqual([{ type: "capture", subshellId: SID, lines: 2, join: true }]);
     expect((sim.cmdsOf("tail_start")[0] as { fromByte: number }).fromByte).toBe(12);
   });
 

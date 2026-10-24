@@ -84,7 +84,7 @@ attach, both under `journalctl --user -u subshell-server.service | grep "ws atta
 grid as the viewer found it vs. the exact bytes sent. **Off by default: the
 dumps are real screen contents, which can include secrets.**
 
-Four invariants on that path are load-bearing and easy to regress:
+Five invariants on that path are load-bearing and easy to regress:
 
 - Capture text (`replay`, pane-poll deltas) goes through
   `ws/capture-text.ts`; `capture-pane -p` emits **bare LFs**, and a bare LF
@@ -144,6 +144,25 @@ Four invariants on that path are load-bearing and easy to regress:
   fails fast, 2.5 s), or a tmux that could not answer a flag all stay
   silent rather than inventing an OFF that a poll re-send could deliver as
   a false clearing of live-learned state.
+- The REPLAY captures (attach replay, pane-poll source, and the debug dump
+  beside them) run `capture-pane -p -J -e`: the `-J` join keeps a soft wrap a
+  WRAP in the replayed buffer (`isWrapped` on the client) instead of a hard
+  newline, which is what makes a wrapped URL one link and keeps a copy of a
+  wrapped run one line. Everything else that reads a pane stays
+  grid-accurate WITHOUT `-J` (previews, the geometry probe capture, prompt
+  delivery, and every `LocalLauncher` default): those consumers COUNT rows,
+  and a joined row is not a row. The CUP arithmetic survives the join
+  because the pre-capture fit guarantees the capture is taken at the
+  client's own width, so the client re-wraps the joined text at exactly the
+  pane's breakpoints (measured on tmux 3.6: a content space sitting in the
+  last column of a wrapped row is the only character `-J` drops, and the
+  re-wrap restores the row count except at a seam whose dropped space left
+  the continuation a single cell wide, where the joined text re-wraps one
+  row shorter; a TRAILING blank is not dropped either). Over the wire this is the optional `join: true` on the `capture`
+  command: a plane that asks and an agent that answers, never a new frame
+  type, and an agent predating the key STRIPS it (the validator
+  reconstructs the body from known fields) and answers with the flattened
+  grid. Graceful degrade, so `NODE_PROTOCOL_VERSION` does not move.
 
 ## Node presence is an announcement too (moved from AGENTS.md "Architecture")
 

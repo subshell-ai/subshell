@@ -33,6 +33,7 @@ import {
   scrollbarReserve,
 } from "@/lib/terminal-geometry";
 import { isPasteChord } from "@/lib/terminal-keys";
+import { attachNativeCopyJoin } from "@/lib/terminal-native-copy";
 import {
   attachCopyModeShield,
   attachTouchScroll,
@@ -316,9 +317,11 @@ export interface SubshellTerminalProps {
    * Copy mode (issue #242, touch): typing yields to selecting. While true —
    * input is off (`disableStdin`, OR-ed with read-only), the gesture stack
    * stands down for one-finger touches so the browser's long-press owns the
-   * grid, and a clean tap opens the URL under the finger. The subshell PAGE
-   * passes it (the per-device preference behind the actions-menu toggle,
-   * offered on touch surfaces only); the workspace dock never does.
+   * grid, a clean tap opens the URL under the finger, and native copies are
+   * rebuilt from the buffer's wrap seams. Both hosts pass it: the subshell
+   * page from the instance-wide preference behind the actions-menu toggle,
+   * workspace panes from the per-pane toggle in the pane header
+   * (`SubshellPane` forwards it), each offered on touch surfaces only.
    */
   copyMode?: boolean;
   /** Extra buttons for the exited panel's action row (e.g. Edit preset). */
@@ -700,6 +703,13 @@ export function SubshellTerminal({
     // finger. Inert while the mode is off — which is why it can be attached
     // unconditionally and needs no lifecycle of its own beyond the terminal.
     const detachCopyShield = attachCopyModeShield(term, containerRef.current, () => copyModeRef.current);
+    // Copy mode's CLIPBOARD half (issue #242): the native selection the
+    // shield invites is exactly the selection xterm's seam-aware copy handler
+    // never sees, so the joined text gets rebuilt here at copy time from the
+    // buffer's wrap facts. Attached unconditionally: it acts only on copies
+    // xterm's own listener left un-prevented, which outside copy mode the
+    // `user-select` CSS never lets a native selection reach.
+    const detachNativeCopy = attachNativeCopyJoin(term, containerRef.current);
 
     // Shift+Enter must insert a newline at the harness prompt (Claude Code
     // reads ESC+CR — the very sequence its /terminal-setup keybinding emits
@@ -887,6 +897,7 @@ export function SubshellTerminal({
       detachWheelScroll();
       detachTouchKeyboard();
       detachCopyShield();
+      detachNativeCopy();
       if (vv) {
         vv.removeEventListener("resize", repairCursorVisibility);
         vv.removeEventListener("scroll", repairCursorVisibility);
@@ -1011,7 +1022,15 @@ export function SubshellTerminal({
     const term = termRef.current;
     if (!term) return;
     term.options.disableStdin = readOnly || copyMode;
-    if (copyMode) term.textarea?.blur();
+    if (copyMode) {
+      term.textarea?.blur();
+      // A selection xterm's own service still holds from before the mode
+      // would make xterm's copy handler answer a copy with STALE highlighted
+      // text — it prevents on `hasSelection()` alone, and the native
+      // copy-join listener defers to exactly that prevention. Clearing on
+      // entry leaves the mode's own selection as the only thing copyable.
+      term.clearSelection();
+    }
   }, [readOnly, copyMode, subshellId]);
 
   // Typed bytes from the caller's handles (key bar, custom keys) ride the same

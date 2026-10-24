@@ -166,7 +166,12 @@ export function createPanePollSource(options: PanePollSourceOptions): PaneSource
 
       const poll = async (): Promise<void> => {
         try {
-          const out = captureToTerminalText(await options.launcher.capture(options.socket, options.subshellId));
+          // Join like the replay: this stream is a viewer's BASE paint (no log
+          // file means no byte source), and flattened wraps would strand the
+          // same broken links and copied-in newlines the replay fix removes.
+          const out = captureToTerminalText(
+            await options.launcher.capture(options.socket, options.subshellId, undefined, true),
+          );
           if (out === last) return;
           const delta = out.startsWith(last) ? out.slice(last.length) : out;
           last = out;

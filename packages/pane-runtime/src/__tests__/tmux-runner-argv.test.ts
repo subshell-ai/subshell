@@ -423,6 +423,56 @@ echo "server exited unexpectedly" >&2; exit 1
       }
     });
 
+    it("capture-pane carries -J when asked to join, and not when it is a grid read", async () => {
+      // `-p` alone flattens every autowrap seam tmux recorded into a hard
+      // newline, and the attach replay draws the viewer's xterm as if the
+      // program itself had emitted it: a URL that soft-wrapped in the pane
+      // loses its link from the seam down, a wrapped command copies with
+      // newlines where the author typed none, and a clean tap opens a
+      // truncated URL. `-J` re-joins the wrapped rows, so a replay carries
+      // the same line structure the live pipe-pane bytes always had. It is
+      // OPT-IN because the preview cards WANT the flattened grid: they draw
+      // one row per line and clip, so a logical line longer than the card
+      // would lose its tail rather than re-wrap. Both shapes pinned
+      // verbatim, same style as the mode-query pin above.
+      const marks = join(tmpdir(), `subshell-capture-argv-${process.pid}-${Date.now()}.txt`);
+      const dir = mkdtempSync(join(tmpdir(), "subshell-cap-"));
+      const path = join(dir, "tmux-stub");
+      writeFileSync(
+        path,
+        "#!/bin/sh\n" +
+          'for a in "$@"; do\n' +
+          '  if [ "$a" = "display-message" ]; then echo "0:0:0:0:0"; exit 0; fi\n' +
+          `  if [ "$a" = "capture-pane" ]; then printf 'ARGV\\n' >> '${marks}'; printf '%s\\n' "$@" >> '${marks}'; echo grid; exit 0; fi\n` +
+          "done\nexit 0\n",
+        { mode: 0o755 },
+      );
+      try {
+        await new TmuxRunner(path).capturePane("sock", "s1", 200, true);
+        await new TmuxRunner(path).capturePane("sock", "s1");
+        const runs = (await Bun.file(marks).text()).split("ARGV\n").filter((b) => b.length > 0);
+        expect(runs).toHaveLength(2);
+        // Joined (attach replay): -J rides with the other flags.
+        expect(runs[0]!.trim().split("\n")).toEqual([
+          "-L",
+          "sock",
+          "capture-pane",
+          "-p",
+          "-J",
+          "-e",
+          "-t",
+          "s1",
+          "-S",
+          "-200",
+        ]);
+        // Grid (preview/probe): exactly the argv it had before this change.
+        expect(runs[1]!.trim().split("\n")).toEqual(["-L", "sock", "capture-pane", "-p", "-e", "-t", "s1"]);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+        rmSync(marks, { force: true });
+      }
+    });
+
     it("answers an all-off pane too: the l forms are the point", async () => {
       // Silence here would strand a poll-path client in a mode the app has
       // dropped; the full statement is idempotent no-ops for a fresh one.
