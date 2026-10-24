@@ -533,12 +533,6 @@ and the public guide aligned when adding a field or version.
 
 ## Preview in subshells
 
-Workspace panes expose Preview below their terminal. It opens on demand and
-releases watch subscriptions when hidden or moved to a background tab, while
-the terminal stays mounted. The standalone subshell route uses the same
-PreviewSection. App and screen viewers fill the available preview area, which
-can be resized or put into full screen without remounting the viewer. Phone
-app previews prepare a real new-tab link after the request, avoiding popup
-blocking. The launch form checks the selected machine's platform and Preview
-setting before offering Virtual display, and clears it when a new machine
-cannot support it. Before enabling the checkbox, a live machine check verifies Xvfb, x11vnc, and xauth on the selected node. Missing programs and failed checks disable the control with visible guidance and a Recheck action after installation.
+Workspace panes offer Preview as a separate workspace tab. Desktop previews use the same dockview layout as terminals, so tabs can be moved and split without rebuilding the terminal. Each preview has one parent pane and appears as a child entry under its subshell in the sidebar. Closing the preview leaves that pane and subshell running. Stored preview panels use `preview:<paneId>`; the server keeps them only while the parent pane is visible to the workspace owner. Hidden preview tabs release viewer subscriptions and reopen their selected view when shown again. Phone previews use their own entries in the flat tab strip and never overwrite the desktop layout.
+
+The standalone subshell route still uses PreviewSection. In a workspace tab the section fills the panel and selects one app, browser watch, or screen at a time. App and screen viewers fill their preview area and support full screen. Phone app previews prepare a real new-tab link after the request, avoiding popup blocking. The launch form checks the selected machine’s Linux support, Preview setting, and live Xvfb/x11vnc/xauth prerequisites before enabling Virtual display. Missing programs and failed checks show visible guidance and a Recheck action. A successful check hides Recheck.

@@ -77,11 +77,18 @@ export function pruneLayout(layout: unknown, livePaneIds: ReadonlySet<string>): 
   if (!isRecord(layout) || !isRecord(layout.panels) || !isRecord(layout.grid)) return null;
 
   const panelIds = Object.keys(layout.panels);
-  const survivors = panelIds.filter((id) => livePaneIds.has(id));
+  const allowed = (id: string) => livePaneIds.has(id) || (id.startsWith("preview:") && livePaneIds.has(id.slice(8)));
+  const survivors = panelIds.filter(allowed);
   if (survivors.length === 0) return null;
 
   const panels: Record<string, unknown> = {};
-  for (const id of survivors) panels[id] = (layout.panels as Record<string, unknown>)[id];
+  for (const id of survivors) {
+    const panel = (layout.panels as Record<string, unknown>)[id];
+    panels[id] =
+      id.startsWith("preview:") && isRecord(panel)
+        ? { ...panel, contentComponent: "preview", params: { paneId: id.slice(8) }, renderer: "always" }
+        : panel;
+  }
 
   // Prune the grid against the ids that actually survived into `panels`, not
   // against `livePaneIds`. The two differ for a view naming a live pane that
@@ -125,12 +132,12 @@ export function pruneLayout(layout: unknown, livePaneIds: ReadonlySet<string>): 
     const entries = layout[field];
     if (
       Array.isArray(entries) &&
-      entries.some((entry) => viewIdsInWindowEntry(entry).some((id) => !livePaneIds.has(id)))
+      entries.some((entry) => viewIdsInWindowEntry(entry).some((id) => !survivorSet.has(id)))
     ) {
       delete result[field];
     }
   }
-  if (viewIdsInEdgeGroups(layout.edgeGroups).some((id) => !livePaneIds.has(id))) {
+  if (viewIdsInEdgeGroups(layout.edgeGroups).some((id) => !survivorSet.has(id))) {
     delete result.edgeGroups;
   }
 

@@ -143,3 +143,7 @@ The `/workspaces` overview is gone. Both `/` and `/workspaces` use
 `WorkspaceLanding` to resume the last available workspace. The latter keeps
 the workspace sidebar available when none exist, so its selector can create
 one. The workspace header has no back link to an overview.
+
+## Preview tabs
+
+A subshell’s Preview control opens or focuses one preview tab beside its terminal. The tab uses dockview’s ordinary drag, split, and close controls. Its parent pane remains a terminal membership row; closing a preview never removes that row. Preview IDs are derived as `preview:<parentPaneId>` and are stored with the desktop layout. Server layout pruning removes them with deleted or inaccessible parents and binds renderer params back to the authorized parent. The sidebar reads the currently open preview entries and focuses the matching tab from a child row under the subshell. Phone previews are presentation state in the flat strip, preserving the rule that phones never write the desktop’s split layout.

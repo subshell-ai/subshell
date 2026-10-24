@@ -1,4 +1,7 @@
+import { Button } from "@internal/node-admin";
+import { Monitor } from "lucide-react";
 import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
+import { requestWorkspacePreview, useFocusedPreview, useWorkspacePreviews } from "@/lib/workspace-preview";
 import type { SubshellView } from "@/types/subshell";
 
 /** A real subshell row with its agent-created helpers nested below it. */
@@ -23,6 +26,10 @@ export function SubshellTreeRow({
   parentNodeId?: string;
   showMembership?: boolean;
 }) {
+  const previews = useWorkspacePreviews().filter(
+    (entry) => entry.subshellId === subshell.id && (!workspaceId || entry.workspaceId === workspaceId),
+  );
+  const focusedPreview = useFocusedPreview();
   const children = childrenByParent.get(subshell.id) ?? [];
   const labels = labelsFor(subshell);
   function containsFocus(id: string): boolean {
@@ -49,23 +56,44 @@ export function SubshellTreeRow({
         }
         onOpen={onOpen ? () => onOpen(subshell) : undefined}
       >
-        {children.length > 0 && (
-          <section className="ml-5 border-l pl-2" aria-label={`Subshells created by ${subshell.name}`}>
-            {children.map((child) => (
-              <SubshellTreeRow
-                key={child.id}
-                subshell={child}
-                childrenByParent={childrenByParent}
-                focusedId={focusedId}
-                labelsFor={labelsFor}
-                workspaceId={workspaceId}
-                memberIds={memberIds}
-                onOpen={onOpen}
-                parentNodeId={subshell.nodeId ?? "local"}
-                showMembership={showMembership}
-              />
-            ))}
-          </section>
+        {(previews.length > 0 || children.length > 0) && (
+          <>
+            {previews.length > 0 && (
+              <section className="ml-5 border-l pl-2" aria-label={`Previews for ${subshell.name}`}>
+                {previews.map((entry) => (
+                  <Button
+                    key={entry.id}
+                    variant={focusedPreview === entry.id ? "secondary" : "ghost"}
+                    size="sm"
+                    className="w-full justify-start"
+                    aria-current={focusedPreview === entry.id ? "page" : undefined}
+                    onClick={() => requestWorkspacePreview(subshell.id)}
+                  >
+                    <Monitor data-icon="inline-start" />
+                    Preview
+                  </Button>
+                ))}
+              </section>
+            )}
+            {children.length > 0 && (
+              <section className="ml-5 border-l pl-2" aria-label={`Subshells created by ${subshell.name}`}>
+                {children.map((child) => (
+                  <SubshellTreeRow
+                    key={child.id}
+                    subshell={child}
+                    childrenByParent={childrenByParent}
+                    focusedId={focusedId}
+                    labelsFor={labelsFor}
+                    workspaceId={workspaceId}
+                    memberIds={memberIds}
+                    onOpen={onOpen}
+                    parentNodeId={subshell.nodeId ?? "local"}
+                    showMembership={showMembership}
+                  />
+                ))}
+              </section>
+            )}
+          </>
         )}
       </SubshellRecentRow>
     </div>

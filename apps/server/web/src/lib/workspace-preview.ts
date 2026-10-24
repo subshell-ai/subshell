@@ -1,0 +1,59 @@
+import { useSyncExternalStore } from "react";
+
+export interface WorkspacePreviewEntry {
+  id: string;
+  paneId: string;
+  subshellId: string;
+  workspaceId: string;
+}
+export function previewPanelId(paneId: string): string {
+  return `preview:${paneId}`;
+}
+export function previewParentId(panelId: string): string | null {
+  return panelId.startsWith("preview:") ? panelId.slice(8) : null;
+}
+// Only the mounted workspace publishes entries. Desktop persistence stays in its
+// dock layout; this store connects that presentation to the sidebar.
+let entries: readonly WorkspacePreviewEntry[] = [];
+let focused: string | null = null;
+const listeners = new Set<() => void>();
+const requests = new Set<(subshellId: string) => boolean>();
+function emit() {
+  for (const listener of listeners) listener();
+}
+export function publishWorkspacePreviews(next: readonly WorkspacePreviewEntry[], activeId: string | null) {
+  if (JSON.stringify(entries) === JSON.stringify(next) && focused === activeId) return;
+  entries = next;
+  focused = activeId;
+  emit();
+}
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+export function useWorkspacePreviews() {
+  return useSyncExternalStore(
+    subscribe,
+    () => entries,
+    () => entries,
+  );
+}
+export function useFocusedPreview() {
+  return useSyncExternalStore(
+    subscribe,
+    () => focused,
+    () => focused,
+  );
+}
+export function requestWorkspacePreview(subshellId: string): boolean {
+  for (const request of requests) if (request(subshellId)) return true;
+  return false;
+}
+export function onWorkspacePreviewRequest(request: (subshellId: string) => boolean) {
+  requests.add(request);
+  return () => {
+    requests.delete(request);
+  };
+}

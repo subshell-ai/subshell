@@ -12,6 +12,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { WorkspaceTab, WorkspaceTabs } from "@/components/workspace-tabs";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import { requestWorkspacePaneFocus, resetWorkspaceFocusForTests } from "@/lib/workspace-focus";
+import { requestWorkspacePreview } from "@/lib/workspace-preview";
 import { setFetchRouter } from "@/test-setup";
 import type { WorkspaceDetail, WorkspacePaneRow } from "@/types/workspace";
 
@@ -213,4 +214,34 @@ describe("WorkspaceTabs: the active tab scrolls into view", () => {
       Element.prototype.scrollIntoView = original;
     }
   });
+});
+
+it("opens one phone preview tab and closes it without removing the subshell", async () => {
+  const deletes: string[] = [];
+  setFetchRouter((input, init) => {
+    const url = new URL(String(input), "http://localhost");
+    if (init?.method === "DELETE") deletes.push(url.pathname);
+    if (url.pathname === "/api/subshells") return Promise.resolve(new Response("[]"));
+    if (url.pathname === "/api/auth/ws-token") return Promise.resolve(new Response("{}", { status: 503 }));
+    return Promise.resolve(new Response("{}"));
+  });
+  try {
+    renderStrip();
+    await waitFor(() => expect(Boolean(document.querySelector("[data-terminal-controls-scroller]"))).toBe(true));
+    act(() => {
+      expect(requestWorkspacePreview("s-1")).toBe(true);
+    });
+    await screen.findByRole("button", { name: "s-1 · Preview" });
+    act(() => {
+      requestWorkspacePreview("s-1");
+    });
+    expect(screen.getAllByRole("button", { name: "s-1 · Preview" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Close preview for s-1" }));
+    expect(screen.queryByRole("button", { name: "s-1 · Preview" }) === null).toBe(true);
+    expect(document.querySelector('[data-pane-id="p0"]')).toBeTruthy();
+    expect(deletes).toEqual([]);
+  } finally {
+    cleanup();
+    setFetchRouter(null);
+  }
 });
