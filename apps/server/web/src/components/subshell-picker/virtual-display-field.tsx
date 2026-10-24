@@ -13,8 +13,7 @@ export function virtualDisplayReason(node: Node | null, readiness?: PreviewDispl
   if (!readiness) return "Checking virtual display requirements…";
   if (!readiness.supported) return "Virtual displays are available on Linux machines only.";
   if (readiness.missing.length) {
-    const programs = new Intl.ListFormat("en", { style: "long", type: "conjunction" }).format(readiness.missing);
-    return `To enable Virtual display on this Linux machine, install ${programs} on ${node.name || "this machine"}.`;
+    return "Required virtual display programs are missing on this machine.";
   }
   return undefined;
 }
@@ -52,6 +51,8 @@ export function VirtualDisplayField({
       : shouldCheck && check.isError
         ? check.error.message
         : virtualDisplayReason(node, check.data);
+  const needsSetup =
+    shouldCheck && !check.isFetching && !check.isError && check.data?.supported && check.data.missing.length > 0;
   // A machine change must not carry an unsupported display into the next launch.
   useEffect(() => {
     if (reason && checked) onChange(false);
@@ -97,7 +98,18 @@ export function VirtualDisplayField({
       </p>
       {reason && (
         <p id={`${id}-reason`} className="text-detail text-warning">
-          {reason}
+          {needsSetup ? (
+            <a
+              href="https://docs.subshell.sh/guides/preview#use-a-virtual-display-on-linux"
+              target="_blank"
+              rel="noreferrer"
+              className="underline"
+            >
+              Set up virtual display
+            </a>
+          ) : (
+            reason
+          )}
         </p>
       )}
       {shouldCheck && reason && !check.isFetching && (
