@@ -43,7 +43,7 @@ describe("virtual display prerequisites", () => {
     render(<VirtualDisplayField node={linux} id="display" checked={true} onChange={(value) => changes.push(value)} />, {
       wrapper,
     });
-    await screen.findByText(/Install Xvfb, x11vnc on Test machine, then choose Recheck/);
+    await screen.findByText(/Install Xvfb, x11vnc on Test machine\./);
     expect(screen.getByRole("checkbox").getAttribute("aria-disabled")).toBe("true");
     expect(changes).toContain(false);
     respond(ready);
