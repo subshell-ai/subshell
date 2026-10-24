@@ -34,7 +34,7 @@ describe("virtual display prerequisites", () => {
     expect(virtualDisplayReason({ ...linux, previewEnabled: false })).toContain("Allow preview");
     expect(virtualDisplayReason(null)).toContain("Choose a machine");
     expect(virtualDisplayReason(linux, { supported: true, missing: ["x11vnc"] })).toContain(
-      "Install x11vnc on Test machine",
+      "install x11vnc on Test machine. This program is required.",
     );
   });
   it("disables a missing display, explains the remedy, and enables it after rechecking", async () => {
@@ -43,7 +43,7 @@ describe("virtual display prerequisites", () => {
     render(<VirtualDisplayField node={linux} id="display" checked={true} onChange={(value) => changes.push(value)} />, {
       wrapper,
     });
-    await screen.findByText(/Install Xvfb, x11vnc on Test machine\./);
+    await screen.findByText(/install Xvfb and x11vnc on Test machine\. All listed programs are required\./);
     expect(screen.getByRole("checkbox").getAttribute("aria-disabled")).toBe("true");
     expect(changes).toContain(false);
     respond(ready);
@@ -76,6 +76,6 @@ describe("virtual display prerequisites", () => {
       </QueryClientProvider>,
     );
     expect(screen.getByRole("checkbox").getAttribute("aria-disabled")).toBe("true");
-    await screen.findByText(/Install xauth/);
+    await screen.findByText(/install xauth/);
   });
 });
