@@ -540,3 +540,5 @@ The standalone subshell route still uses PreviewSection. In a workspace tab the 
 Subshell list views carry `virtualDisplay` metadata for the sidebar and headers. The window indicator uses that shared row rather than starting per-row preview scans. Its icon-only header control opens the preview picker dialog; its tooltip says “Virtual display enabled - click to activate”. Remote display updates ride the existing batched liveness probe.
 
 Workspace previews consolidate the Open another preview shortcut, refresh, full screen, and secondary actions in one toolbar. Selected viewers omit their own headers and padding; the terminal’s Preview bar is hidden while its preview tab is open. Connection indicators reflect iframe loading, RFB connection events, or browser frame freshness.
+
+The preview picker uses compact rows, search, and a bounded app scroller when it has more than six choices. Browser and virtual display choices stay outside the app scroller. Ports are sorted and deduplicated before rendering.

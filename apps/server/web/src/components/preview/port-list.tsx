@@ -1,6 +1,6 @@
-import { Badge, Button } from "@internal/node-admin";
-import { AppWindow, ArrowRight, Eye, Globe, type LucideIcon } from "lucide-react";
-import type { JSX } from "react";
+import { Badge, Button, cn, Input } from "@internal/node-admin";
+import { AppWindow, ArrowRight, Eye, Globe, type LucideIcon, Search } from "lucide-react";
+import { type JSX, useState } from "react";
 import type { PreviewInfo } from "@/hooks/use-subshell-preview";
 import type { SubshellAccess } from "@/types/subshell";
 
@@ -112,40 +112,16 @@ export function PortList({
 
   if (compact)
     return (
-      <div className="flex flex-col gap-2">
-        {rows.map((row) => (
-          <PreviewOption
-            key={row.port}
-            icon={Globe}
-            label="App"
-            port={row.port}
-            action={`Open app on port ${row.port}`}
-            reason={openReason}
-            onClick={() => onOpen(row.port)}
-          />
-        ))}
-        {info.cdpPort != null && (
-          <PreviewOption
-            icon={Eye}
-            label="Browser"
-            action="Watch browser"
-            reason={watching ? "This browser is already being watched." : watchReason}
-            onClick={onWatch}
-          />
-        )}
-        {info.screen && (
-          <PreviewOption
-            icon={AppWindow}
-            label="Virtual display"
-            action="View screen"
-            reason={screenReason}
-            onClick={onScreen}
-          />
-        )}
-        {!info.screen && info.screenLost !== undefined && (
-          <p className="text-detail text-muted-foreground">Display stopped: {info.screenLost} exited</p>
-        )}
-      </div>
+      <CompactPreviewChoices
+        rows={rows}
+        info={info}
+        openReason={openReason}
+        screenReason={screenReason}
+        watchReason={watching ? "This browser is already being watched." : watchReason}
+        onOpen={onOpen}
+        onScreen={onScreen}
+        onWatch={onWatch}
+      />
     );
 
   return (
@@ -258,7 +234,9 @@ function PreviewOption({
   action,
   reason,
   onClick,
+  dense = false,
 }: {
+  dense?: boolean;
   icon: LucideIcon;
   label: string;
   port?: number;
@@ -269,14 +247,19 @@ function PreviewOption({
   return (
     <div className="flex flex-col gap-1">
       <Button
-        variant="outline"
-        className="h-auto w-full justify-start gap-3 px-3 py-3"
+        variant={dense ? "ghost" : "outline"}
+        className={cn("h-auto min-h-11 w-full justify-start gap-3 px-3", dense ? "py-2" : "py-3")}
         aria-label={action}
         disabled={Boolean(reason)}
         disabledReason={reason}
         onClick={onClick}
       >
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-primary">
+        <span
+          className={cn(
+            "flex shrink-0 items-center justify-center rounded-md bg-muted text-primary",
+            dense ? "size-7" : "size-9",
+          )}
+        >
           <Icon className="size-5" aria-hidden />
         </span>
         <span className="text-label">{label}</span>
@@ -284,6 +267,110 @@ function PreviewOption({
         <ArrowRight className="ml-auto size-4 shrink-0 text-muted-foreground" aria-hidden />
       </Button>
       {reason && <p className="text-detail text-muted-foreground">{reason}</p>}
+    </div>
+  );
+}
+
+function CompactPreviewChoices({
+  rows,
+  info,
+  openReason,
+  screenReason,
+  watchReason,
+  onOpen,
+  onScreen,
+  onWatch,
+}: {
+  rows: PreviewInfo["ports"];
+  info: PreviewInfo;
+  openReason?: string;
+  screenReason?: string;
+  watchReason?: string;
+  onOpen: (port: number) => void;
+  onScreen: () => void;
+  onWatch: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const large = rows.length + Number(Boolean(info.screen)) + Number(info.cdpPort != null) > 6 || query.length > 0;
+  const term = query.trim().toLowerCase();
+  const apps = [...rows].sort((a, b) => a.port - b.port).filter((row) => `app port ${row.port}`.includes(term));
+  const screen = info.screen && "virtual display screen".includes(term);
+  const browser = info.cdpPort != null && `browser watch ${info.cdpPort}`.includes(term);
+  const special = (
+    <>
+      {screen && (
+        <PreviewOption
+          dense={large}
+          icon={AppWindow}
+          label="Virtual display"
+          action="View screen"
+          reason={screenReason}
+          onClick={onScreen}
+        />
+      )}
+      {browser && (
+        <PreviewOption
+          dense={large}
+          icon={Eye}
+          label="Browser"
+          action="Watch browser"
+          reason={watchReason}
+          onClick={onWatch}
+        />
+      )}
+    </>
+  );
+  return (
+    <div className="flex min-h-0 flex-col gap-2">
+      {large && (
+        <div className="relative">
+          <Search className="pointer-events-none absolute top-2.5 left-3 size-4 text-muted-foreground" aria-hidden />
+          <Input
+            type="search"
+            aria-label="Find a preview"
+            placeholder="Find a port or view…"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            className="pl-9"
+          />
+        </div>
+      )}
+      {large && (screen || browser) && <div className="shrink-0 rounded-md border p-1">{special}</div>}
+      {large && (
+        <p role="status" className="text-detail text-muted-foreground">
+          {term ? `${apps.length} of ${rows.length} apps` : `${rows.length} apps`}
+        </p>
+      )}
+      {apps.length > 0 && (
+        <div
+          className={cn(
+            "flex flex-col",
+            large ? "max-h-[40dvh] gap-0.5 overflow-y-auto overscroll-contain rounded-md border p-1" : "gap-2",
+          )}
+        >
+          {apps.map((row) => (
+            <PreviewOption
+              key={row.port}
+              dense={large}
+              icon={Globe}
+              label="App"
+              port={row.port}
+              action={`Open app on port ${row.port}`}
+              reason={openReason}
+              onClick={() => onOpen(row.port)}
+            />
+          ))}
+        </div>
+      )}
+      {!large && special}
+      {term && !apps.length && !screen && !browser && (
+        <p role="status" className="py-3 text-detail text-muted-foreground">
+          No matching previews.
+        </p>
+      )}
+      {!info.screen && info.screenLost !== undefined && (
+        <p className="text-detail text-muted-foreground">Display stopped: {info.screenLost} exited</p>
+      )}
     </div>
   );
 }
