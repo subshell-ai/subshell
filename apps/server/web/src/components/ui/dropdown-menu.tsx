@@ -51,7 +51,17 @@ export function DropdownMenuContent({
             // focus ring around the whole menu box. The keyboard affordance
             // is the item's own data-highlighted background below — the box
             // ring is noise, the same call the item rows already make.
-            "min-w-[12rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground opacity-100 shadow-md outline-none transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0",
+            //
+            // max-h + overflow-y-auto clamp the popup to the viewport and let
+            // it scroll within that room — the same available-height pattern
+            // the Select and Combobox popups use. Without it a long menu (the
+            // subshell actions menu on a phone-shaped window) runs past the
+            // screen and its last items are unreachable, and a box taller
+            // than the viewport cannot flip either. The popup is the scroll
+            // container on purpose: Base UI's menu scrolls the highlighted
+            // item into view inside its popup, so keyboard nav works in a
+            // clamped menu too.
+            "max-h-[var(--available-height)] min-w-[12rem] overflow-y-auto overscroll-contain rounded-md border bg-popover p-1 text-popover-foreground opacity-100 shadow-md outline-none transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0",
             className,
           )}
           {...props}
