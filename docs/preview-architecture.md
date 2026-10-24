@@ -48,7 +48,8 @@ socket inodes with listener tables. The broker caches answers for five seconds.
 Discovery is a UI aid, not an allowlist for edit-authorized raw forwarding.
 
 Display preflight is separate: `GET /api/nodes/:id/preview-display` checks Linux
-support, Preview opt-in, and Xvfb, x11vnc, and xauth without launching anything.
+support and Xvfb, x11vnc, and xauth without launching anything. It can run before
+Preview is enabled; the launch gate separately enforces opt-in.
 Launch checks again. Each display gets an Xauthority file, Xvfb with TCP disabled,
 and a loopback x11vnc listener. The allocator skips host X sockets and lock files
 as well as its own data-directory locks. Readiness must observe both X and RFB.
@@ -210,3 +211,25 @@ desktop split layout.
   module loading, JSON POST, and WebSocket traffic in embedded and direct views.
 - `bun e2e/capture-preview-demo.ts` additionally records a real agent fixing a
   sample website, checks the result in Preview, and captures documentation images.
+
+
+## MCP entry points
+
+The shared MCP server wraps the existing REST gates: `get_preview`,
+`open_preview`, and `watch_preview` use subshell preview routes;
+`create_subshell.screen` passes display dimensions to the normal launch route.
+`exec_in_terminal` starts programs in the helper's inherited display environment.
+There is no separate MCP transport or authorization bypass, and these calls
+neither install prerequisites nor enable Preview nor mutate workspace tabs.
+
+`list_nodes` includes harness health, daemon protocol/version/hold, and SSH and
+Preview settings. `get_node` resolves through that same owner-only list and
+optionally calls display preflight. Only this read-only node preflight route
+additionally accepts subshell tokens, with `loadNodeGate` enforcing owned
+enrolled nodes. Node detail/configuration and SSH retain their existing guards.
+Readiness distinguishes unknown/unavailable from unsupported or missing programs;
+a successful prerequisite probe does not guarantee permission or launch success.
+
+`open_preview` returns a secret relative capability path. App paths carry HTTP;
+display paths carry RFB over WebSocket, not an HTML viewer. `watch_preview` frames
+remain on authorized live subscriptions rather than MCP tool responses.

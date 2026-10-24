@@ -125,6 +125,45 @@ pointer control.
 A view-only share can watch the browser discovered for that subshell. It cannot
 select another browser port on the node. Close the preview tab when you're done.
 
+## Launch a preview from another subshell
+
+An agent can use MCP to start a helper on another enrolled node owned by the
+same account. The calling agent can run on a Mac; the virtual display runs on
+the Linux node. Shared nodes and the server's built-in node aren't available
+through the subshell token's node discovery tools.
+
+1. Call `list_nodes` to choose an online node with `canLaunch: true`, Preview
+   enabled, and an installed, working terminal harness. Call
+   `get_node` with its ID to check display prerequisites. If anything is
+   missing, follow [Linux setup](#use-a-virtual-display-on-linux) on that node.
+2. Call `create_subshell` with the node ID and a display:
+
+   ```json
+   { "harness": "terminal", "node": "NODE_ID", "name": "Website check", "screen": { "width": 1280, "height": 800 } }
+   ```
+
+3. Use `exec_in_terminal` with the returned subshell ID to start your development
+   server and browser. Programs started there inherit `DISPLAY` and
+   `XAUTHORITY`. Keep long-running programs in the background so the command
+   can finish. For example, if Chromium is installed and your site is already
+   serving port 3000 on that node:
+
+   ```json
+   { "subshell_id": "SUBSHELL_ID", "command": "chromium http://127.0.0.1:3000 > browser.log 2>&1 &" }
+   ```
+
+4. Call `get_preview` with `subshell_id` to discover its views. In the dashboard,
+   select the helper's Preview action and open its app or virtual display.
+   Each opens in its own workspace tab. `open_preview` can create a private
+   connection path for a client, but it doesn't open a dashboard tab or return
+   a screenshot.
+5. Collect the results, then call `delete_subshell` to remove the temporary
+   helper and its history. Stop any `watch_preview` interest with `on: false`
+   when you finish watching.
+
+See the [MCP tool reference](/mcp/tools#get_node) for arguments and readiness
+fields, including harness health and SSH settings.
+
 ## Browser compatibility and private links
 
 App previews use an isolated browser document so the website's JavaScript can't
