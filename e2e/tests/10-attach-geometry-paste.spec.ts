@@ -10,9 +10,11 @@ test.use({ storageState: ADMIN_STATE });
  * (guards the 2026-09-01 "unjumbles over 10s / PWA can't paste images" report):
  *   1. attach a live subshell at a wide viewport and paint a long line;
  *   2. reopen the SAME subshell at a narrow viewport: the WS URL must carry
- *      cols/rows AND the `replay` frame the server ships must contain no
- *      row wider than the client's cols (wider rows are the jumble — xterm
- *      re-wraps them over the grid, and nothing repaints until a resize);
+ *      cols/rows, and the `replay` frame the server ships must arrive as the
+ *      pane's LOGICAL rows (the seam join carries a soft wrap inside one
+ *      line — a raw row may therefore be wider than the client, and xterm
+ *      wraps it cleanly) with a CARRIAGE RETURN at every row break —
+ *      CR-less breaks are the jumble, a staircase over the grid;
  *   3. fire an image `paste` at the focused terminal: the app must claim it
  *      before xterm sees it, upload the file, and inject the returned path.
  */
@@ -139,14 +141,17 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
   const replayFrame = (await subshellFrames(p2)).find((f) => f.data.includes('"replay"'));
   if (!replayFrame) throw new Error("no replay frame captured");
   const replay = JSON.parse(replayFrame.data) as { data: string };
-  const widest = Math.max(
-    ...stripAnsi(replay.data)
-      .split("\n")
-      .map((l) => l.replace(/\r$/, "").length),
-  );
-  // The user-visible failure: rows wider than the terminal arrive re-wrapped
-  // ("jumbled") and only self-correct on a manual resize.
-  expect(widest, `replay rows must fit ${cols} cols (widest was ${widest})`).toBeLessThanOrEqual(cols + 2);
+  // Since the seam join the replay carries LOGICAL rows: the wide-painted run
+  // arrives as ONE line — possibly far wider than this client's grid, which
+  // is exactly what the join is, and xterm wraps it cleanly on arrival. The
+  // pre-join wire flattened that run into separate hard rows, and THAT is
+  // what jumbled the grid. So pin the join, not the old row width: the run
+  // must survive unbroken, longer than any single row of this client.
+  const run = stripAnsi(replay.data).match(/A{200,}/);
+  expect(
+    run?.[0].length,
+    `the 240-char run must arrive as one logical line (cols=${cols}; a flattened capture breaks it at row width)`,
+  ).toBeGreaterThanOrEqual(240);
   expect(replay.data, "replay must carry the painted line").toContain("AAAA");
 
   // Every row break must carry a CARRIAGE RETURN. `capture-pane -p` emits
