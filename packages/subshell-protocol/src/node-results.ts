@@ -60,6 +60,8 @@ function isNonEmptyStr(value: unknown): value is string {
 
 /** One row of a `probe` batch result (spec §6.3 reconcile: has-session + exit + title + optional capture). */
 export interface NodeProbeEntry {
+  /** Current virtual display, when this node supports display status reporting. */
+  previewScreen?: NodePreviewScreenWire | null;
   /** subshell id this row describes */
   subshellId: string;
   /** True while the pane process is alive on the node */
@@ -87,6 +89,7 @@ export function parseNodeProbeEntries(data: unknown): NodeProbeEntry[] | null {
     if ("title" in e && !isStr(e.title)) return null;
     if ("command" in e && !isStr(e.command)) return null;
     if ("capture" in e && !isStr(e.capture)) return null;
+    if ("previewScreen" in e && e.previewScreen !== null && !parsePreviewScreenWire(e.previewScreen)) return null;
   }
   return data as unknown as NodeProbeEntry[];
 }

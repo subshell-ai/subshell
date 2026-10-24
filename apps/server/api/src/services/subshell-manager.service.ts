@@ -66,7 +66,7 @@ import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
 import { EMPTY_PRESET, parsePreset } from "@/services/preset-definition.js";
-import { closePreviewForPaneExit } from "@/services/preview-broker.js";
+import { closePreviewForPaneExit, getPreviewBroker } from "@/services/preview-broker.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
 import { sshCanonicalDestination } from "@/services/ssh-destination.js";
 import { sweepLocalSshDir } from "@/services/ssh-launch.service.js";
@@ -855,7 +855,7 @@ export class SubshellManagerService {
     const views: ReturnType<typeof toSubshellView>[] = [];
     for (const row of rows) {
       const preview = withPreviews ? await this.#preview(row) : [];
-      views.push(toSubshellView(row, row.status, preview, "owner", isNodeOffline(row.nodeId)));
+      views.push(toSubshellView(row, row.status, preview, "owner", isNodeOffline(row.nodeId), displayNameFor(row)));
     }
     return views;
   }
@@ -887,7 +887,14 @@ export class SubshellManagerService {
   async getSubshell(userId: string, id: string): Promise<ReturnType<typeof toSubshellView> | undefined> {
     const row = await this.#subshells.findById(id);
     if (!row || row.userId !== userId) return undefined;
-    return toSubshellView(row, row.status, await this.#preview(row), "owner", isNodeOffline(row.nodeId));
+    return toSubshellView(
+      row,
+      row.status,
+      await this.#preview(row),
+      "owner",
+      isNodeOffline(row.nodeId),
+      displayNameFor(row),
+    );
   }
 
   /**
@@ -1590,6 +1597,7 @@ export class SubshellManagerService {
   /** The classic local sweep loop (verbatim pre-§6.3 body, crash branch folded into {@link #applyDeath}). */
   async #reconcileLocalRows(rows: SubshellTable[], now: string): Promise<void> {
     for (const row of rows) {
+      observeDisplayStatus(LOCAL_NODE_ID, row.id, getLocalPreviewRuntime().displays.getFor(row.id));
       // A manual restart owns this row right now: it is parked (alive:0, no
       // pane) mid-kill→respawn and is about to come back on its own. Sweeping
       // it here would revoke the token #reviveRow just issued, stamp a false
@@ -1738,6 +1746,7 @@ export class SubshellManagerService {
             // The agent answers ONLY for the ids it supervises; no entry is
             // the same no-evidence class as an offline node — skip, don't kill.
             if (!entry) continue;
+            if (entry.previewScreen !== undefined) observeDisplayStatus(nodeId, row.id, entry.previewScreen);
             if (!entry.alive) {
               await this.#applyDeath(row, { exitCode: entry.exitCode, endedAt: now });
               continue;
@@ -2412,10 +2421,12 @@ export function toSubshellView(
    * and read false.
    */
   nodeOffline = false,
+  virtualDisplay: string | null = null,
 ) {
   const sshSummary = row.ssh !== null ? sshPaneSummary(row.ssh) : null;
   return {
     id: row.id,
+    virtualDisplay: status === "running" && row.alive === 1 ? virtualDisplay : null,
     presetId: row.presetId,
     harnessId: row.harnessId,
     nodeId: row.nodeId,
@@ -2495,4 +2506,17 @@ export function sshPaneSummary(raw: string | null): { destination: string; forwa
   // its place, and a header is not where a stored-row bug gets surfaced.
   const forwards = column.declaredForwards === undefined ? [] : parseSshForwardRows(column.declaredForwards);
   return { destination, forwards };
+}
+
+/** Cheap metadata read: remote displays arrive on the existing batched probe. */
+function displayNameFor(row: { id: string; nodeId: string }): string | null {
+  if (row.nodeId === LOCAL_NODE_ID) return getLocalPreviewRuntime().displays.getFor(row.id)?.display ?? null;
+  return getPreviewBroker().displayForPane(row.id)?.screen.display ?? null;
+}
+
+function observeDisplayStatus(nodeId: string, id: string, screen: { display: string; rfbPort: number } | null): void {
+  const broker = getPreviewBroker();
+  const before = broker.displayForPane(id);
+  broker.observeDisplay(nodeId, id, screen);
+  if ((before?.screen.display ?? null) !== (screen?.display ?? null)) publishLive({ kind: "subshell.changed", id });
 }

@@ -480,7 +480,7 @@ export class PreviewDisplays {
       try {
         const st = lstatSync(path); // never follow a symlink planted beside our layout
         if (!st.isDirectory()) continue;
-        if (st.mtimeMs > now - ORPHAN_SSH_DIR_MIN_AGE_MS) continue; // launch write->meta window
+        const young = st.mtimeMs > now - ORPHAN_SSH_DIR_MIN_AGE_MS;
         if (!(await pathAllowed(path, [this.dataDir]))) {
           this.say(`preview display sweep: refusing ${path} (outside the data dir)`);
           continue;
@@ -515,6 +515,7 @@ export class PreviewDisplays {
           this.say(`preview display :${displayNumber}: rehydrated for live pane ${name}`);
           continue;
         }
+        if (young) continue; // Protect incomplete launches and unseen panes from orphan deletion.
         this.teardown(
           {
             paneId: name,

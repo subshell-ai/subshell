@@ -69,6 +69,7 @@ export function subshellRowTooltip(
     `Agent: ${agentLabel}`,
     presetLabel ? `Preset: ${presetLabel}` : undefined,
     `Status: ${INDICATOR_LABEL[subshellIndicator(subshell)]}`,
+    subshell.virtualDisplay ? `Display: Virtual display ${subshell.virtualDisplay}` : undefined,
     subshell.workingDir ? `Directory: ${subshell.workingDir}` : undefined,
   ];
   return lines.filter((line): line is string => line !== undefined).join("\n");

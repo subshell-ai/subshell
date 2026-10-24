@@ -9,6 +9,7 @@ import { useWorkspaceSidebarDrag } from "@/components/sidebar/workspace-sidebar-
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDot } from "@/components/subshell-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { VirtualDisplayIndicator } from "@/components/virtual-display-indicator";
 import { useCloseSubshellLanding } from "@/hooks/use-close-subshell-landing";
 import { useHarnessSubagents, useSelectHarnessAgent } from "@/hooks/use-harness-subagents";
 import { filedWorkspaceFor, useOpenPaneAsTab } from "@/hooks/use-open-pane-as-tab";
@@ -232,6 +233,7 @@ export function SubshellRecentRow({
           <span className="min-w-0 flex-1">
             <span className="flex min-w-0 items-center gap-1.5">
               <span className="truncate">{subshell.name}</span>
+              <VirtualDisplayIndicator display={subshell.virtualDisplay} compact />
               {inActiveWorkspace && (
                 <span role="img" aria-label="In active workspace" className="flex shrink-0 text-muted-foreground">
                   <LayoutDashboard className="size-3.5" aria-hidden="true" />

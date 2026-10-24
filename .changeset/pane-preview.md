@@ -11,3 +11,5 @@ Preview also works on the server’s built-in node. Virtual displays check the m
 Check virtual display prerequisites before launch, disable the checkbox when programs are missing, and let users recheck after installing them.
 
 Open workspace previews in draggable tabs with child entries beneath their subshells in the sidebar. Preview tabs fill their panels, retain one selected view at a time, and close without removing the terminal.
+
+Mark subshells with virtual displays in sidebar rows and headers, and restore live display metadata after a server restart.
