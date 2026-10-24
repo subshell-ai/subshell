@@ -1,5 +1,13 @@
 # @internal/server
 
+## 2.6.5
+
+### Patch Changes
+
+- [#436](https://github.com/subshell-ai/subshell/pull/436) [`d030a08`](https://github.com/subshell-ai/subshell/commit/d030a08b8e5331c416ff72e5244c85ce8ab4f725) Thanks [@theogravity](https://github.com/theogravity)! - SSH destinations whose config sets `SendEnv` or `SetEnv` now connect instead of failing with an unsupported-setting error. Ubuntu's default `/etc/ssh/ssh_config` ships `SendEnv LANG LC_*`, so every default-configured machine was refused over a setting Subshell never carries anyway: environment never rides a Subshell SSH link. These settings are now dropped at normalization; everything that could change what a connection is (ProxyCommand, tunnels, forwards, remote/local commands) still refuses by name.
+
+- [#438](https://github.com/subshell-ai/subshell/pull/438) [`daf97f1`](https://github.com/subshell-ai/subshell/commit/daf97f16052f0acd808ee2af9b9b60df408b00bd) Thanks [@theogravity](https://github.com/theogravity)! - A printed URL that wraps across terminal rows now behaves as one link, even after a page reload or on a phone. Attach replays carry the pane's soft wraps as seams instead of flattening them into hard newlines, so clicking (or tapping in copy mode) any row of a wrapped link opens the whole URL, and copying text over a wrapped line pastes one line with no newline spliced into the middle of it.
+
 ## 2.6.4
 
 ### Patch Changes
