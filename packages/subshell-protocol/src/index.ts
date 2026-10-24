@@ -441,3 +441,10 @@ export type {
 } from "./ssh-results.js";
 export { MAX_UPLOAD_BYTES } from "./uploads.js";
 export { MIN_NODE_VERSION, nodeVersionSupported, semverLt } from "./versions.js";
+
+export {
+  parseWorkspacePreviewId,
+  type WorkspacePreviewTarget,
+  workspacePreviewId,
+  workspacePreviewLabel,
+} from "./workspace-preview.js";

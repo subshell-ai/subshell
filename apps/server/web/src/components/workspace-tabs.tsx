@@ -4,7 +4,7 @@ import { X } from "lucide-react";
 import { type JSX, useEffect, useRef, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
 import { PaneFocusHeader } from "@/components/pane-focus-header";
-import type { PreviewChoice } from "@/components/preview/preview-section";
+import { PreviewChooserDialog } from "@/components/preview/preview-chooser-dialog";
 import { PreviewTabContent } from "@/components/preview/preview-tab-content";
 import { SubshellDot } from "@/components/subshell-dot";
 import { SubshellPane } from "@/components/subshell-pane";
@@ -17,9 +17,11 @@ import { onWorkspacePaneFocusRequest, setWorkspaceFocusedId, takePaneFocusOnArri
 import { panelIdsInLayout } from "@/lib/workspace-layout";
 import {
   onWorkspacePreviewRequest,
+  parseWorkspacePreviewId,
   previewPanelId,
   previewParentId,
   publishWorkspacePreviews,
+  workspacePreviewLabel,
 } from "@/lib/workspace-preview";
 import type { SplitIntent } from "@/lib/workspace-split-intent";
 import type { SplitDirection, WorkspaceDetail, WorkspacePaneRow } from "@/types/workspace";
@@ -138,24 +140,31 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
   const navigate = useNavigate();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [previewRequests, setPreviewRequests] = useState<Record<string, number>>({});
-  const [previewChoices, setPreviewChoices] = useState<Record<string, PreviewChoice | null>>({});
+  const [chooserId, setChooserId] = useState<string | null>(null);
   const [previewIds, setPreviewIds] = useState<string[]>(() =>
     panelIdsInLayout(detail.workspace.layout).filter((id) => previewParentId(id)),
   );
-  const previewPanes = detail.panes.filter((pane) => previewIds.includes(previewPanelId(pane.id)));
-  const selectedPreview = previewPanes.find((pane) => previewPanelId(pane.id) === selectedId);
+  const previewPanes = previewIds.flatMap((id) => {
+    const parsed = parseWorkspacePreviewId(id);
+    const pane = detail.panes.find((row) => row.id === parsed?.paneId);
+    return pane && parsed ? [{ ...pane, id, paneId: pane.id, view: parsed.view }] : [];
+  });
+  const selectedPreview = previewPanes.find((pane) => pane.id === selectedId);
+  function closePreview(id: string, paneId: string) {
+    setPreviewIds((ids) => ids.filter((entry) => entry !== id));
+    if (selectedId === id) setSelectedId(paneId);
+  }
   useEffect(
     () =>
       onWorkspacePreviewRequest((subshellId, view) => {
         const pane = detail.panes.find((row) => row.subshellId === subshellId);
         if (!pane) return false;
-        const id = previewPanelId(pane.id);
-        setPreviewIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
-        if (view === "screen") {
-          setPreviewChoices((choices) => ({ ...choices, [pane.id]: { kind: "screen" } }));
-          setPreviewRequests((requests) => ({ ...requests, [pane.id]: (requests[pane.id] ?? 0) + 1 }));
+        if (!view) {
+          setChooserId(subshellId);
+          return true;
         }
+        const id = previewPanelId(pane.id, view);
+        setPreviewIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
         setSelectedId(id);
         return true;
       }),
@@ -164,12 +173,13 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
   useEffect(() => {
     publishWorkspacePreviews(
       previewPanes.map((pane) => ({
-        id: previewPanelId(pane.id),
-        paneId: pane.id,
+        id: pane.id,
+        paneId: pane.paneId,
+        view: pane.view,
         subshellId: pane.subshellId,
         workspaceId: detail.workspace.id,
       })),
-      selectedPreview ? previewPanelId(selectedPreview.id) : null,
+      selectedPreview?.id ?? null,
     );
   }, [previewPanes, selectedPreview, detail.workspace.id]);
   useEffect(() => () => publishWorkspacePreviews([], null), []);
@@ -178,7 +188,10 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
   // Falls back to the first pane whenever `selectedId` doesn't name a pane
   // that still exists — including the moment the poll removes whichever pane
   // was selected — without needing a separate effect to "clamp" it.
-  const selected = selectedPreview ?? detail.panes.find((p) => p.id === selectedId) ?? detail.panes[0];
+  const selected =
+    (selectedPreview && detail.panes.find((pane) => pane.id === selectedPreview.paneId)) ??
+    detail.panes.find((p) => p.id === selectedId) ??
+    detail.panes[0];
 
   // Publish the selected tab as the dock's equivalent focus, so the rail rings
   // one tab in the narrow presentation too (the dock owns this on wide ones).
@@ -326,6 +339,7 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
 
   return (
     <>
+      {chooserId && <PreviewChooserDialog subshellId={chooserId} onClose={() => setChooserId(null)} />}
       <PaneFocusHeader
         fallbackName={detail.workspace.name}
         panes={detail.panes}
@@ -387,26 +401,19 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
             />
           ))}
           {previewPanes.map((pane) => (
-            <div
-              key={previewPanelId(pane.id)}
-              data-pane-id={previewPanelId(pane.id)}
-              className="flex shrink-0 items-center border-b-2"
-            >
+            <div key={pane.id} data-pane-id={pane.id} className="flex shrink-0 items-center border-b-2">
               <Button
                 variant={selectedPreview?.id === pane.id ? "secondary" : "ghost"}
                 aria-current={selectedPreview?.id === pane.id}
                 className="min-h-9 px-4"
-                onClick={() => setSelectedId(previewPanelId(pane.id))}
+                onClick={() => setSelectedId(pane.id)}
               >
-                {pane.subshellName} · Preview
+                {workspacePreviewLabel(pane.view)} · {pane.subshellName}
               </Button>
               <ExplainedButton
                 type="button"
-                aria-label={`Close preview for ${pane.subshellName}`}
-                onClick={() => {
-                  setPreviewIds((ids) => ids.filter((id) => id !== previewPanelId(pane.id)));
-                  if (selectedId === previewPanelId(pane.id)) setSelectedId(pane.id);
-                }}
+                aria-label={`Close ${workspacePreviewLabel(pane.view)} for ${pane.subshellName}`}
+                onClick={() => closePreview(pane.id, pane.paneId)}
               >
                 <X className="size-4" />
               </ExplainedButton>
@@ -417,12 +424,10 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
           {selectedPreview && (
             <div className="absolute inset-0">
               <PreviewTabContent
-                key={`${selectedPreview.id}:${previewRequests[selectedPreview.id] ?? 0}`}
+                key={selectedPreview.id}
                 subshellId={selectedPreview.subshellId}
-                choice={previewChoices[selectedPreview.id]}
-                onViewChange={(choice) =>
-                  setPreviewChoices((choices) => ({ ...choices, [selectedPreview.id]: choice }))
-                }
+                choice={selectedPreview.view}
+                onClose={() => closePreview(selectedPreview.id, selectedPreview.paneId)}
               />
             </div>
           )}

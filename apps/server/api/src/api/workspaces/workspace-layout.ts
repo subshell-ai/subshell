@@ -1,3 +1,4 @@
+import { parseWorkspacePreviewId } from "@internal/subshell-protocol";
 /**
  * dockview's serialized layout. Treated as opaque apart from the panel and
  * group references we prune or repair (`panels`, `grid`, `activeGroup`,
@@ -77,16 +78,17 @@ export function pruneLayout(layout: unknown, livePaneIds: ReadonlySet<string>): 
   if (!isRecord(layout) || !isRecord(layout.panels) || !isRecord(layout.grid)) return null;
 
   const panelIds = Object.keys(layout.panels);
-  const allowed = (id: string) => livePaneIds.has(id) || (id.startsWith("preview:") && livePaneIds.has(id.slice(8)));
+  const allowed = (id: string) => livePaneIds.has(id) || livePaneIds.has(parseWorkspacePreviewId(id)?.paneId ?? "");
   const survivors = panelIds.filter(allowed);
   if (survivors.length === 0) return null;
 
   const panels: Record<string, unknown> = {};
   for (const id of survivors) {
     const panel = (layout.panels as Record<string, unknown>)[id];
+    const preview = parseWorkspacePreviewId(id);
     panels[id] =
-      id.startsWith("preview:") && isRecord(panel)
-        ? { ...panel, contentComponent: "preview", params: { paneId: id.slice(8) }, renderer: "always" }
+      preview && isRecord(panel)
+        ? { ...panel, contentComponent: "preview", params: preview, renderer: "always" }
         : panel;
   }
 

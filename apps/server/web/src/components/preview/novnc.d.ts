@@ -6,7 +6,7 @@
  */
 declare module "@novnc/novnc" {
   /** One RFB connection to a VNC server, rendered inside `target`. */
-  export default class RFB {
+  export default class RFB extends EventTarget {
     /**
      * A WebSocket `channel` is spoken to directly: RFB attaches its own
      * listeners to it and never opens a socket of its own, which is how the

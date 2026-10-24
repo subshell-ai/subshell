@@ -23,7 +23,11 @@ import { subscribePreview } from "@/lib/preview-bus";
 /** What the §7 rule counts: no frame this long and the canvas is stale. */
 export const STALE_MS = 5_000;
 
+import type { PreviewConnection } from "./preview-toolbar";
+
 export interface WatchViewerProps {
+  compact?: boolean;
+  onConnectionChange?: (state: PreviewConnection) => void;
   /** The pane whose screencast this canvas paints. */
   paneId: string;
   /** The pane's browser quit mid-watch (the info poll says `cdpPort: null`). */
@@ -43,10 +47,14 @@ export function WatchViewer({
   paneId,
   gone = false,
   onStop,
+  compact = false,
+  onConnectionChange,
   staleMs = STALE_MS,
   tickMs = 1_000,
 }: WatchViewerProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const connectionRef = useRef(onConnectionChange);
+  connectionRef.current = onConnectionChange;
   const [frame, setFrame] = useState<PreviewStreamFrame | null>(null);
   const lastSeqRef = useRef(0);
   /** Arrival clock stamps, newest last; the age and rate read this, nothing else. */
@@ -108,6 +116,16 @@ export function WatchViewer({
   const now = Date.now();
   const ageMs = Math.max(0, now - lastSeenRef.current);
   const stale = ageMs >= staleMs;
+  const connection: PreviewConnection = gone
+    ? "disconnected"
+    : !frame
+      ? "connecting"
+      : stale
+        ? "disconnected"
+        : "connected";
+  useEffect(() => {
+    connectionRef.current?.(connection);
+  }, [connection]);
   if (!stale) {
     const stamps = arrivalsRef.current;
     const span = stamps.length > 1 ? (stamps[stamps.length - 1] - stamps[0]) / 1_000 : 0;
@@ -117,14 +135,16 @@ export function WatchViewer({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col items-start gap-2">
-      <div className="flex w-full items-center justify-between gap-3">
-        <span className="font-strong text-label">Live browser frame</span>
-        {onStop && (
-          <Button variant="outline" size="sm" onClick={onStop}>
-            Stop
-          </Button>
-        )}
-      </div>
+      {!compact && (
+        <div className="flex w-full items-center justify-between gap-3">
+          <span className="font-strong text-label">Live browser frame</span>
+          {onStop && (
+            <Button variant="outline" size="sm" onClick={onStop}>
+              Stop
+            </Button>
+          )}
+        </div>
+      )}
       <canvas
         ref={canvasRef}
         data-preview-canvas=""

@@ -1,4 +1,4 @@
-import { Button } from "@internal/node-admin";
+import { Button, cn } from "@internal/node-admin";
 import type { PreviewCloseReason } from "@internal/subshell-protocol";
 import RFB from "@novnc/novnc";
 import { type JSX, useEffect, useRef, useState } from "react";
@@ -58,7 +58,11 @@ export const SCREEN_CLOSE_LINES: Record<PreviewCloseReason, string> = {
 /** The line for a close that carried no word and was not ours to start. */
 export const LOST_LINK_LINE = "The preview link closed before it could finish. Open Screen again for a new one.";
 
+import type { PreviewConnection } from "./preview-toolbar";
+
 export interface ScreenViewerProps {
+  compact?: boolean;
+  onConnectionChange?: (state: PreviewConnection) => void;
   /** The pane's virtual display, shown in the header. */
   display: string;
   /** The proxy path from `POST /preview/open`, ending in a slash. Mount-scoped: the panel keys this viewer on it. */
@@ -67,7 +71,13 @@ export interface ScreenViewerProps {
   onClose: () => void;
 }
 
-export function ScreenViewer({ display, proxyBase, onClose }: ScreenViewerProps): JSX.Element {
+export function ScreenViewer({
+  display,
+  proxyBase,
+  onClose,
+  compact = false,
+  onConnectionChange,
+}: ScreenViewerProps): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   // True only when the USER chose to leave (the Disconnect path). pv-ws never
@@ -79,8 +89,11 @@ export function ScreenViewer({ display, proxyBase, onClose }: ScreenViewerProps)
   // lives, and a ref set there would outlive the socket it was meant to mark.
   const leftRef = useRef(false);
   const [endLine, setEndLine] = useState<string | null>(null);
+  const connectionRef = useRef(onConnectionChange);
+  connectionRef.current = onConnectionChange;
 
   useEffect(() => {
+    connectionRef.current?.("connecting");
     const ws = new WebSocket(tunnelUrl(proxyBase));
     wsRef.current = ws;
     // This effect's own disposal flag. Its close (a real unmount, or
@@ -91,6 +104,7 @@ export function ScreenViewer({ display, proxyBase, onClose }: ScreenViewerProps)
     let disposed = false;
     const onSocketClose = (event: CloseEvent): void => {
       if (disposed) return;
+      connectionRef.current?.("disconnected");
       if (leftRef.current) setEndLine(SCREEN_CLOSE_LINES["viewer-left"]);
       else {
         // Every protocol word has a line; anything else on the close (junk,
@@ -105,6 +119,9 @@ export function ScreenViewer({ display, proxyBase, onClose }: ScreenViewerProps)
     const host = hostRef.current;
     const rfb = host ? new RFB(host, ws) : undefined;
     if (rfb) {
+      rfb.addEventListener?.("connect", () => {
+        if (!disposed) connectionRef.current?.("connected");
+      });
       // Fit the pane's screen to the panel, take keyboard focus on click,
       // and scroll rather than clip whatever the pane drew outside the box.
       rfb.scaleViewport = true;
@@ -129,24 +146,37 @@ export function ScreenViewer({ display, proxyBase, onClose }: ScreenViewerProps)
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2 rounded-md border border-border bg-background p-3">
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
-        <span className="font-strong text-label">Screen preview</span>
-        <span className="text-detail text-muted-foreground">Virtual display {display}</span>
-        {endLine === null ? (
-          <Button variant="outline" size="sm" onClick={handleDisconnect}>
-            Disconnect
-          </Button>
-        ) : (
-          <Button variant="outline" size="sm" onClick={onClose}>
-            Close
-          </Button>
-        )}
-      </div>
+    <div
+      className={cn(
+        "flex min-h-0 flex-1 flex-col bg-background",
+        !compact && "gap-2 rounded-md border border-border p-3",
+      )}
+    >
+      {!compact && (
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
+          <span className="font-strong text-label">Screen preview</span>
+          <span className="text-detail text-muted-foreground">Virtual display {display}</span>
+          {endLine === null ? (
+            <Button variant="outline" size="sm" onClick={handleDisconnect}>
+              Disconnect
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" onClick={onClose}>
+              Close
+            </Button>
+          )}
+        </div>
+      )}
       {endLine !== null ? (
         <p className="text-detail text-muted-foreground">{endLine}</p>
       ) : (
-        <div ref={hostRef} className="min-h-0 w-full flex-1 overflow-auto rounded border border-border bg-background" />
+        <div
+          ref={hostRef}
+          className={cn(
+            "min-h-0 w-full flex-1 overflow-auto bg-background",
+            !compact && "rounded border border-border",
+          )}
+        />
       )}
     </div>
   );
