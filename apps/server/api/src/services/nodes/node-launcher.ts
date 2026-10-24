@@ -115,8 +115,12 @@ export interface NodeLauncher {
    * prepends up to that many rows of the pane's own (reflowed, rendered)
    * history — the attach-time replay ships the grid PLUS history in one clean
    * paint, instead of re-playing raw log bytes over the grid.
+   *
+   * `joinWrapped` re-joins rows the pane soft-wrapped into logical lines
+   * (tmux `-J`): the attach replay passes it, so a wrapped URL or command
+   * keeps its seams; preview callers leave it off and want the grid.
    */
-  capture(socket: string, id: string, scrollbackLines?: number): Promise<string>;
+  capture(socket: string, id: string, scrollbackLines?: number, joinWrapped?: boolean): Promise<string>;
   /** Propagates client geometry to the pane. */
   resize(socket: string, id: string, cols: number, rows: number): Promise<void>;
   /**

@@ -179,6 +179,21 @@ describe("parseNodeCommandBody", () => {
     expect(parseNodeCommandBody({ type: "capture", subshellId: "s", lines: 0 })).toBeNull();
     expect(parseNodeCommandBody({ type: "capture", subshellId: "s", lines: 1.5 })).toBeNull();
     expect(parseNodeCommandBody({ type: "capture", subshellId: "s", lines: "100" })).toBeNull();
+    // `join: true` asks the agent to re-join soft-wrap seams (attach replay);
+    // the key is optional, and any other spelling is garbage refused outright.
+    expect(parseNodeCommandBody({ type: "capture", subshellId: "s", join: true })).toEqual({
+      type: "capture",
+      subshellId: "s",
+      join: true,
+    });
+    expect(parseNodeCommandBody({ type: "capture", subshellId: "s", lines: 100, join: true })).toEqual({
+      type: "capture",
+      subshellId: "s",
+      lines: 100,
+      join: true,
+    });
+    expect(parseNodeCommandBody({ type: "capture", subshellId: "s", join: false })).toBeNull();
+    expect(parseNodeCommandBody({ type: "capture", subshellId: "s", join: 1 })).toBeNull();
   });
 
   it("accepts input/resize/terminate/ping and checks their required fields", () => {

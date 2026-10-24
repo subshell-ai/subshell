@@ -120,10 +120,10 @@ export async function execPaneCursor(ctx: CommandContext, cmd: Cmd<"pane_cursor"
   return { ok: true, data: await ctx.tmux.paneCursor(socket, cmd.subshellId) };
 }
 
-/** `capture` (spec §6.3): the pane's screen as a bare string (contract: `parseNodeCaptureResult`). Optional `lines` prepends reflowed history rows (attach replay). */
+/** `capture` (spec §6.3): the pane's screen as a bare string (contract: `parseNodeCaptureResult`). Optional `lines` prepends reflowed history rows (attach replay); optional `join` re-joins soft-wrapped rows so a replay keeps the live line structure (the agent's TmuxRunner answers without it when the command predates the field). */
 export async function execCapture(ctx: CommandContext, cmd: Cmd<"capture">): Promise<CommandResult> {
   const socket = await resolveSocket(ctx, cmd.subshellId);
-  return { ok: true, data: await ctx.tmux.capturePane(socket, cmd.subshellId, cmd.lines) };
+  return { ok: true, data: await ctx.tmux.capturePane(socket, cmd.subshellId, cmd.lines, cmd.join === true) };
 }
 
 /**

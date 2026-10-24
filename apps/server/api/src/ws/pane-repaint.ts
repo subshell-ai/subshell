@@ -262,13 +262,19 @@ export async function nudgePaneForRepaint(
   }
 }
 /**
- * Capture the replay grid (+ the last `cap` reflowed history rows). `null`
+ * Capture the replay content (+ the last `cap` reflowed history rows). `null`
  * when the capture fails (pane gone). One capture is all it takes now the
  * attach streams gap-free from the join point: a snapshot that races an
  * animating frame self-corrects via the byte stream the client is guaranteed
  * to receive. (The old stable-grid poll raced diff-renderers' animation
  * cadence and bought latency, not correctness.) Shared with the remote
  * relay — identical paint there.
+ *
+ * Captures here always JOIN (`joinWrapped`): every caller feeds an xterm, and
+ * a flattened capture draws soft-wrapped lines as hard breaks — links die at
+ * the seam, copies carry newlines the program never printed. The forensics
+ * read is a human-facing dump, where logical lines read better too. Previews
+ * want the grid and capture through a different call, never this one.
  */
 export async function captureStable(
   launcher: NodeLauncher,
@@ -277,7 +283,7 @@ export async function captureStable(
   cap: number,
 ): Promise<string | null> {
   try {
-    return await launcher.capture(socket, id, cap);
+    return await launcher.capture(socket, id, cap, true);
   } catch {
     return null;
   }

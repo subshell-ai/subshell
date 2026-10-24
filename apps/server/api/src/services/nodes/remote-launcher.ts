@@ -392,13 +392,17 @@ export class RemoteLauncher implements NodeLauncher {
    * reflowed history rows when asked) as a bare string. The field is optional
    * on the wire: an agent predating it strips the unknown key and answers
    * with the visible grid only — a graceful degrade to the old replay.
+   * `joinWrapped` rides the same rule as `lines`: optional `join`, stripped by
+   * an old agent, which then answers with the flattened grid.
    */
-  async capture(_socket: string, id: string, scrollbackLines?: number): Promise<string> {
-    const data = await this.#send(
-      scrollbackLines && scrollbackLines > 0
-        ? { type: "capture", subshellId: id, lines: scrollbackLines }
-        : { type: "capture", subshellId: id },
-    );
+  async capture(_socket: string, id: string, scrollbackLines?: number, joinWrapped?: boolean): Promise<string> {
+    const withLines = scrollbackLines && scrollbackLines > 0 ? { lines: scrollbackLines } : {};
+    const data = await this.#send({
+      type: "capture",
+      subshellId: id,
+      ...withLines,
+      ...(joinWrapped ? { join: true } : {}),
+    });
     const text = parseNodeCaptureResult(data);
     if (text === null) throw this.#malformed("capture");
     return text;

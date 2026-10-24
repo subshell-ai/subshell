@@ -27,10 +27,17 @@ import { SSH_CONFIG_FILE_MAX_BYTES, SSH_PATH_MAX_CHARS, SSH_RELAY_FRAME_MAX_BYTE
  * per feature, a fallback path per check, and a second meaning for every
  * null. Refusing the mismatch outright is one comparison and no dead ends.
  *
- * Bump this whenever a frame changes, additive or not, and release both
- * sides. SERVER FIRST: an agent that leads the server is refused and its node
- * goes offline, while an agent that lags is refused just as clearly — the
- * Nodes page names it either way.
+ * Bump this whenever a frame changes, and release both sides. One carve-out
+ * practice has established: a purely optional payload key whose OLD-side
+ * validator strips it by reconstruction does not bump, because an agent that
+ * never learns the key answers in exactly the shape the key turns off and
+ * the new behavior simply never appears on that node. `capture` gained
+ * `lines` (#431) and then `join` (the replay seam) this way. A bump on such
+ * a key holds every lagging agent at the
+ * gate to gain nothing the degrade does not already give. SERVER FIRST: an
+ * agent that leads the server is refused and its node goes offline, while an
+ * agent that lags is refused just as clearly — the Nodes page names it
+ * either way.
  *
  * **The numbering restarted at 1 on 2026-09-09 and 1 → 2 was the first real
  * bump (phase 3, the registry).** The protocol had reached 6 under a
@@ -869,6 +876,14 @@ export type NodeCommandBody =
       subshellId: string;
       /** Optional scrollback budget for the capture; absent means the visible grid only. */
       lines?: number;
+      /**
+       * `join`: re-join the rows the pane soft-wrapped (tmux `-J`), so an
+       * attach replay keeps the line structure the live bytes had (wrapped
+       * URLs link, wrapped commands copy whole). Absent means the flattened
+       * grid — the preview shape. An agent predating the field strips the
+       * unknown key and answers with the grid, which is the pre-fix replay.
+       */
+      join?: true;
     }
   | {
       /**
@@ -1802,12 +1817,15 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
     case "capture": {
       if (!isStr(value.subshellId)) return null;
       // Optional positive int or absent; an agent that is given none answers
-      // with the visible grid only.
+      // with the visible grid only. Optional `join` is the literal `true` or
+      // absent — anything else is a malformed frame, not a "false".
+      if ("join" in value && value.join !== true) return null;
+      const join = "join" in value ? ({ join: true } as const) : {};
       if ("lines" in value) {
         if (!isInt(value.lines) || (value.lines as number) <= 0) return null;
-        return { type: "capture", subshellId: value.subshellId, lines: value.lines as number };
+        return { type: "capture", subshellId: value.subshellId, lines: value.lines as number, ...join };
       }
-      return { type: "capture", subshellId: value.subshellId };
+      return { type: "capture", subshellId: value.subshellId, ...join };
     }
     case "input":
       return isStr(value.subshellId) && isStr(value.data) ? (value as unknown as NodeCommandBody) : null;

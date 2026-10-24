@@ -829,9 +829,30 @@ export class TmuxRunner {
    * bytes carry no LF, so they ride the front of row 1 through the
    * capture→terminal CRLF normalization untouched, and a consumer that
    * strips ANSI still sees the plain grid.
+   *
+   * `joinWrapped` adds `-J`, which re-joins rows tmux soft-wrapped into
+   * logical lines. The attach replay wants it: plain `-p` flattens every
+   * autowrap seam into a hard newline, and the replay draws the viewer's
+   * xterm as if the program itself had emitted it — a soft-wrapped URL
+   * loses its link from the seam down, a wrapped command copies with
+   * newlines the author never typed, and a clean tap opens a truncated URL.
+   * With `-J` the replay carries the same line structure the live pipe-pane
+   * bytes always had, and long lines still land at ANY geometry because the
+   * client's xterm re-wraps them to its own width. The grid shape is the
+   * default because the OTHER callers are previews: they draw one row per
+   * line and clip, so a logical line longer than the card would lose its
+   * tail rather than re-wrap. `-J` needs tmux 3.0+, below this package's
+   * measured 3.4 floor: a pane on older tmux fails the joined capture
+   * outright, which surfaces through the attach's existing capture-failure
+   * path rather than as a silently flattened replay.
    */
-  async capturePane(socket: string, subshellName: string, scrollbackLines?: number): Promise<string> {
-    const args = ["-L", socket, "capture-pane", "-p", "-e", "-t", subshellName];
+  async capturePane(
+    socket: string,
+    subshellName: string,
+    scrollbackLines?: number,
+    joinWrapped?: boolean,
+  ): Promise<string> {
+    const args = ["-L", socket, "capture-pane", "-p", ...(joinWrapped ? ["-J"] : []), "-e", "-t", subshellName];
     if (scrollbackLines && scrollbackLines > 0) args.push("-S", `-${scrollbackLines}`);
     // The modes are read BEFORE the capture because that is the kinder stale
     // case, not an honest one: a flip inside the gap is re-announced by the

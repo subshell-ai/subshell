@@ -198,7 +198,22 @@ describe("command executors (spec §7)", () => {
     });
     // S1's socket comes from the recorded meta ("recorded-sock", seeded by
     // the terminate test on the same dataDir) — the resolveSocket precedence.
-    expect(argsOf(tmux, "capturePane")).toEqual([["recorded-sock", S1, 100]]);
+    // The trailing false is the seam-join flag: a command without `join` is
+    // a grid read.
+    expect(argsOf(tmux, "capturePane")).toEqual([["recorded-sock", S1, 100, false]]);
+  });
+
+  it("capture forwards the seam-join request as capturePane's fourth argument", async () => {
+    const { ctx, tmux } = makeCtx({ capturePane: () => "screen" }, []);
+    expect(await dispatchCommand(ctx, { type: "capture", subshellId: S1, lines: 100, join: true })).toEqual({
+      ok: true,
+      data: "screen",
+    });
+    expect(argsOf(tmux, "capturePane")).toEqual([["recorded-sock", S1, 100, true]]);
+    // Absent key is a grid read: the boolean is false, not undefined, so the
+    // runner's argv stays the pre-join shape exactly.
+    expect(await dispatchCommand(ctx, { type: "capture", subshellId: S1 })).toEqual({ ok: true, data: "screen" });
+    expect(argsOf(tmux, "capturePane")[1]).toEqual(["recorded-sock", S1, undefined, false]);
   });
 
   it("pane_size answers the pane's real grid, in the shape the server parses", async () => {

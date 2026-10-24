@@ -606,6 +606,19 @@ describe("capture / resize / sendInput / pressEnter", () => {
     expect(h.calls).toEqual([{ cmd: { type: "capture", subshellId: "s1" }, timeoutMs: 10_000 }]);
   });
 
+  it("capture sends optional `lines` and the seam-join request only when asked", async () => {
+    const h = makeHarness();
+    // A grid read carries neither key (the preview shape).
+    h.answer("capture", "screen");
+    await h.launcher.capture("sock", "s1", undefined, false);
+    expect(h.calls[0]?.cmd).toEqual({ type: "capture", subshellId: "s1" });
+    // The attach replay asks for both; `join: true` is the whole spelling —
+    // an old agent strips the unknown key and answers the flattened grid.
+    h.answer("capture", "screen");
+    await h.launcher.capture("sock", "s1", 200, true);
+    expect(h.calls[1]?.cmd).toEqual({ type: "capture", subshellId: "s1", lines: 200, join: true });
+  });
+
   it("resize and sendInput ride verbatim", async () => {
     const h = makeHarness();
     await h.launcher.resize("sock", "s1", 120, 40);
