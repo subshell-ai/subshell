@@ -105,7 +105,7 @@ describe("the embedded pane-url core", () => {
     const line = "go https://example.com/a";
     const cells = [...line].map((char) => ({ char, width: 1 }));
     // A tap on a plain word (nothing to open) and on the URL itself.
-    expect(call("urlTokenAt")({ line, cells, col: 2 })).toBe(urlTokenAt({ line, cells, col: 2 }));
+    expect(call("urlTokenAt")({ line, cells, col: 0 })).toBe(urlTokenAt({ line, cells, col: 0 }));
     expect(call("urlTokenAt")({ line, cells, col: 5 })).toBe(urlTokenAt({ line, cells, col: 5 }));
     // The seam walk this feature turns on: a URL wrapped across two buffer
     // rows must come back WHOLE from the embedded copy, exactly as from the
