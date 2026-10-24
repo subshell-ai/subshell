@@ -223,10 +223,15 @@ CDP discovery refuses HTTP redirects, caps discovery JSON at 256 KiB, and
 requires the returned WebSocket to stay on the requested loopback port.
 
 Raw preview payloads are capped at 256 KiB per frame, lane buffering and queued
-TCP writes to the target at 1 MiB each,
+TCP writes to the target and preview traffic queued on the encrypted link at
+1 MiB each,
 active forward lanes at four per subshell, and active lanes plus bridges at
 16 per node. The queue admits eight waiting lanes per subshell. Browser watches
 run at 1–5 fps, with five buffered frames and at most eight subscribers.
+Screencast dimensions are capped at 8,192 per axis and 16,777,216 pixels;
+the browser also checks encoded image headers before decoding them. The server
+retains at most 64 forwarding capabilities and admits at most 32 pending
+preview opens per node, independently of active lane capacity.
 
 Forward sessions expire after 15 minutes without traffic. Individual lanes and
 bridges have a four-hour maximum lifetime. Close reasons include `viewer-left`,

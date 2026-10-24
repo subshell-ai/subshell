@@ -101,7 +101,15 @@ export const previewWatchRoute = new Elysia()
           paneId: params.id,
           nodeId: row.nodeId,
           port,
-          authorize: () => recheckPreviewOpen(user.id, params.id, row.nodeId, "view", actor),
+          authorize: async () => {
+            const currentAccess = await recheckPreviewOpen(user.id, params.id, row.nodeId, "view", actor);
+            if (currentAccess === "view" && (await broker.getPorts(row.nodeId, params.id)).cdpPort !== port) {
+              throw new HttpError(
+                403,
+                "View access can only watch the browser discovered in this subshell. Ask its owner to check the browser setup.",
+              );
+            }
+          },
         });
         return { ok: true } as const;
       } catch (err) {

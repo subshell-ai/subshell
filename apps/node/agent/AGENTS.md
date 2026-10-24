@@ -477,3 +477,10 @@ WebSocket URL must retain the requested loopback port; pending handshakes count
 toward capacity and must cancel their discovery fetch when closed or timed out.
 Forwarding must bound the target socket's queued writes as well as outgoing
 preview frames; a target that stops reading cannot grow the daemon's heap.
+
+
+Preview transport checks its WebSocket queue before sealing; an undeliverable
+forward frame closes the lane instead of dropping TCP bytes. The display
+runtime verifies saved PIDs against the executable and this display's
+Xauthority argument before rehydration or signalling. CDP frames use numeric
+session acknowledgements and bounded dimensions before emitting images.

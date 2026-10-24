@@ -23,6 +23,33 @@ function fakeLink(up = true): RelaySendState["link"] {
 }
 
 describe("createDaemonRelaySend", () => {
+  it("refuses preview bytes before sealing when the transport queue is full", () => {
+    let sealed = 0;
+    let sent = 0;
+    const send = createDaemonRelaySend(() => ({
+      ws: {
+        bufferedAmount: 1_048_576,
+        readyState: 1,
+        send: () => {
+          sent++;
+        },
+      },
+      link: {
+        established: () => true,
+        session: () => ({
+          sealFrame: () => {
+            sealed++;
+            return new Uint8Array();
+          },
+        }),
+      },
+    }));
+    expect(() => send({ type: "preview_data", ref: "a".repeat(32), dir: "out", blob: "QUJD" })).toThrow(
+      /buffer budget/,
+    );
+    expect(sealed).toBe(0);
+    expect(sent).toBe(0);
+  });
   it("seals the JSON frame and writes a Buffer onto the live link", () => {
     const sealed: (string | Buffer)[] = [];
     const relaySend = createDaemonRelaySend(() => ({
@@ -71,4 +98,21 @@ describe("createDaemonRelaySend", () => {
     expect(() => giant({ ...frame, blob: "A".repeat(NODE_MAX_FRAME_BYTES) })).toThrow(/exceeds/);
     expect(sealed).toHaveLength(0); // no seal, no ratchet step spent on a doomed frame
   });
+});
+
+it("closes the preview transport when writing a sealed frame throws", () => {
+  let closed = false;
+  const send = createDaemonRelaySend(() => ({
+    ws: {
+      send: () => {
+        throw new Error("write failed");
+      },
+      close: () => {
+        closed = true;
+      },
+    },
+    link: { established: () => true, session: () => ({ sealFrame: () => new Uint8Array([1]) }) },
+  }));
+  expect(() => send({ type: "preview_closed", ref: "a".repeat(32), reason: "idle" })).toThrow("write failed");
+  expect(closed).toBe(true);
 });

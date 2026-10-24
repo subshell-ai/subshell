@@ -152,6 +152,92 @@ disabled accounts before socket closure, bounded authorization retries, a
 stalled TCP writer, and uncertain replies across all three open paths. The
 earlier audits' scope and accepted trust boundaries still apply.
 
+## Preview authorization and allocation audit: 2026-10-24
+
+The next pass found and fixed five more issues:
+
+1. **High: an edit-to-view downgrade could preserve an arbitrary watch port
+   during an open.** The publication check required view access but did not
+   repeat the view-only port restriction. It now checks the discovered CDP
+   port against current access, and repeats authorization when a share sweep
+   overtakes an asynchronous permission read. Tests hold both the node reply
+   and a permission read across the downgrade.
+
+2. **Medium availability: image metadata and decoder inputs could request
+   excessive allocations in the dashboard.** Screencast dimensions and encoded
+   sizes are checked at the runtime, protocol, broker, and browser boundaries.
+   The browser checks JPEG frame headers before image decoding. The noVNC
+   integration also bounds framebuffer, cursor, and rectangle dimensions,
+   queued rendering, and embedded JPEG/PNG dimensions. It refuses animated
+   PNGs and the unused H.264 path. Clipboard messages, which ScreenViewer
+   does not expose, are consumed within a byte budget without decompressing
+   extended clipboard data. Real-class regressions pin the noVNC integration
+   to the installed 1.7 API. These guards limit allocations; they do not claim
+   to sandbox browser codecs or prevent an authorized execution program from
+   using CPU.
+
+3. **Medium availability: the encrypted node transport could queue preview
+   traffic outside the lane limits.** Both senders now check the WebSocket's
+   buffered bytes before sealing. Refusal leaves encryption state untouched;
+   a failed write after sealing closes the connection rather than continuing
+   a secretstream with a missing frame. A TCP forward closes on its first
+   undeliverable output instead of silently skipping bytes.
+
+4. **Medium availability: inactive capabilities and pending opens had no
+   independent capacity limit.** The broker now admits 64 retained forward
+   capabilities and 32 pending opens per node, counting reservations before
+   any await. Its discovery cache holds at most 512 entries and checks node
+   identity as well as pane identity. Existing lane and bridge limits remain
+   independent. This bounds retained state, not overall authenticated API
+   request rate.
+
+5. **Medium availability: display cleanup trusted saved PIDs.** A reused PID
+   could be signalled as an old display child. Rehydration, liveness checks,
+   and teardown now verify the executable name and this display's exact
+   Xauthority argument through Linux procfs. A mismatched process is never
+   signalled. This is a stale-process guard, not isolation from malicious code
+   running under the same OS account; the process can still exit between the
+   check and signal.
+
+The same pass corrected screencast acknowledgements to echo CDP's numeric
+session identifier. That correctness fix keeps real browser captures flowing
+while their images pass through the new guards.
+
+### Final pass and verification
+
+After the fixes, another pass reviewed REST and live-socket authorization,
+publication and subscription races, bearer capabilities and revocation, proxy
+headers/cookies/origins, HTTP and WebSocket framing, both encrypted-link send
+queues, discovery and CDP destination validation, browser decoding, display
+process ownership, and retained resource budgets. It found no additional high-
+or medium-severity issues within the preview threat model in §11.15.
+
+The affected server, node, web, protocol, and shared-runtime suites passed,
+as did all 56 type/build dependency tasks and 170 documentation tests.
+The aggregate run exposed a frontend-build/test race; the affected server
+suite passed on its own after the build. Three Chromium scenarios covered
+setup/login, enrolled-node previews, and embedded/direct browser isolation.
+A real Chromium screencast emitted 12 accepted frames across repeated
+repaints, and the updated noVNC integration rendered a real 1280×800 x11vnc
+screen through the built-in node. Real PNG and JPEG captures passed the
+encoded-image guards. The manual test login was checked through Vite on 5174.
+This is the stopping point for this targeted audit, not a guarantee that no
+vulnerabilities exist outside the reviewed paths or accepted trust model.
+
+### Dependency audit outside the preview runtime
+
+The lockfile audit also reports two existing high advisories in Expo tooling:
+[node-forge signature verification](https://github.com/advisories/GHSA-86w9-cpqp-85rv)
+and [Zod collection validation](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5).
+The affected versions are node-forge 1.4.0 through `@expo/cli` and
+`@expo/code-signing-certificates`, and Zod 3.25.76 through `@expo/cli`.
+They are not dependencies of the shipped preview runtime. The preview's
+server and web validation use Zod 4.6.6. The forge advisory lists no patched
+version at review time; replacing Expo's Zod 3 dependency with Zod 4 needs a
+separate compatibility review. These remain dependency follow-ups, so the
+repository-wide dependency audit is not clean. They are not counted as
+resolved preview findings.
+
 ## Targeted code audit: 2026-10-21
 
 This pass reviewed authentication and scoped credentials, node enrollment and

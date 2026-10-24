@@ -1,4 +1,4 @@
-import type { PreviewStreamFrame } from "@internal/subshell-protocol";
+import { type PreviewStreamFrame, previewImageSizeAllowed } from "@internal/subshell-protocol";
 
 /**
  * The pane-keyed screencast bus between the ONE live socket and the viewers.
@@ -40,6 +40,7 @@ export function subscribePreview(paneId: string, cb: (frame: PreviewStreamFrame)
  * uncaught error there costs every frame after it, for every pane.
  */
 export function publishPreviewFrame(frame: PreviewStreamFrame): void {
+  if (!previewImageSizeAllowed(frame.w, frame.h, frame.blob)) return;
   const set = byPane.get(frame.id);
   if (!set) return;
   for (const cb of [...set]) {

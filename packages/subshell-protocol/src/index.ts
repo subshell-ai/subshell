@@ -252,6 +252,12 @@ export {
   presetLaunchRequirementsMet,
 } from "./preset-prompt.js";
 export {
+  PREVIEW_IMAGE_MAX_DIMENSION,
+  PREVIEW_IMAGE_MAX_PIXELS,
+  previewDimensionsAllowed,
+  previewImageSizeAllowed,
+} from "./preview-image.js";
+export {
   DEFAULT_RELEASE_API,
   hostReleaseTarget,
   newestRelease,

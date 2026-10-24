@@ -4113,6 +4113,8 @@ screen. Do not enable displays on hosts shared with untrusted local users.
 Agents and GUI applications retain their normal execution-account permissions.
 The allocator skips X sockets and X lock files owned by other data directories;
 a concurrent bind can still fail closed rather than reusing their screen.
+Rehydration and teardown verify saved PIDs against the executable and the
+display's Xauthority argument before trusting or signalling them.
 
 **Capabilities need protection beyond application logs.** `/pv/` paths are
 excluded from request logs and full references are absent from preview audit
@@ -4125,6 +4127,8 @@ restart await preview teardown before stopping the old pane, independently of
 its exit hook. Opens waiting for node acknowledgement are included in those
 sweeps and in share, account, and node revocation; the route's current
 account/access and pane/node availability are checked again before publication.
+An edit-to-view downgrade also repeats the discovered-port restriction, and
+permission reads overtaken by a sweep must be repeated.
 Explicit lifecycle actions also sweep after retiring the old row, covering
 opens that arrived during the stop. Individual lanes and bridges
 also receive best-effort teardown when an open reply times out or is malformed.
@@ -4136,9 +4140,15 @@ required rather than relying on closing a tab or switching Preview off.
 
 Resource limits bound active lanes, queued requests, frame sizes, stream byte
 debt, and screencast rate; they are not general API rate limiting. Session maps
-and cookie jars are in server memory. Proxy queues, unread lane bytes, target TCP write queues,
+and cookie jars are in server memory. Per node, retained forward capabilities
+are capped at 64 and pending opens at 32; discovery caching holds 512 entries. Proxy queues, unread lane bytes, target TCP write queues,
 browser WS debt, and assembled WS messages have a 1 MiB ceiling; chunked HTTP
-bodies stream without holding whole chunks. Jars retain at most 128 cookies
+bodies stream without holding whole chunks. Preview sends check the encrypted
+link's buffered bytes before sealing, and failed sealed writes close the link.
+Image dimensions are bounded at 8,192 per axis and 16,777,216 pixels. JPEG/PNG
+headers are checked before browser decoding; noVNC also bounds its render
+queue and consumes unused clipboard messages without decompression. Optional
+H.264 and animated PNG decoding are refused. Jars retain at most 128 cookies
 and 64 KiB, with a 4 KiB per-cookie limit. Untrusted execution programs can
 consume host resources. The existing trusted-instance and OS-account posture
 still applies.

@@ -1,4 +1,4 @@
-import { NODE_MAX_FRAME_BYTES, type RelayFrame } from "@internal/subshell-protocol";
+import { NODE_MAX_FRAME_BYTES, PREVIEW_LANE_BUFFER_MAX_BYTES, type RelayFrame } from "@internal/subshell-protocol";
 import { binaryPayload } from "./link-crypto.js";
 import type { PreviewLaneEvent } from "./preview/forward.js";
 
@@ -30,7 +30,14 @@ export interface RelaySendLink {
 
 /** The live facts at send time: the CURRENT socket (or none) and its link (or none). */
 export interface RelaySendState {
-  ws?: { send(data: string | Buffer): unknown } | undefined;
+  ws?:
+    | {
+        send(data: string | Buffer): unknown;
+        close?(code?: number, reason?: string): void;
+        readonly bufferedAmount?: number;
+        readonly readyState?: number;
+      }
+    | undefined;
   link?: RelaySendLink | undefined;
 }
 
@@ -53,6 +60,26 @@ export function createDaemonRelaySend(getState: () => RelaySendState): (frame: R
     if (size > NODE_MAX_FRAME_BYTES) {
       throw new Error(`relay send refused: frame ${size}B exceeds the ${NODE_MAX_FRAME_BYTES}B link cap`);
     }
-    ws.send(binaryPayload(session.sealFrame(payload)));
+    if (frame.type !== "relay") {
+      if (ws.readyState !== undefined && ws.readyState !== 1) throw new Error("preview transport is not open");
+      // Reserve space for the secretstream header and tag before sealing:
+      // a rejected frame must not advance the link's encryption state.
+      if ((ws.bufferedAmount ?? 0) + size + 128 > PREVIEW_LANE_BUFFER_MAX_BYTES) {
+        throw new Error("preview transport exceeded its buffer budget");
+      }
+    }
+    try {
+      ws.send(binaryPayload(session.sealFrame(payload)));
+    } catch (err) {
+      // Once sealed, the frame cannot be skipped on this secretstream.
+      if (frame.type !== "relay") {
+        try {
+          ws.close?.(1011, "preview transport write failed");
+        } catch {
+          /* already closed */
+        }
+      }
+      throw err;
+    }
   };
 }

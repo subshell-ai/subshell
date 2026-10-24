@@ -166,6 +166,7 @@ function makeDeps(over: DepOverrides = {}) {
     },
     xSocketReady: () => over.xSocketReady ?? true,
     displayOccupied: () => false,
+    matchesProcess: () => true,
     ...(over.readyBudgetMs === undefined ? {} : { readyBudgetMs: over.readyBudgetMs }),
   };
   const spawns = (): Array<Extract<DepCall, { kind: "spawn" }>> =>
@@ -214,6 +215,16 @@ const portsCmd = { type: "preview_ports_get", paneId: PANE } as Cmd<"preview_por
 /* ------------------------------------------------------------------ */
 
 describe("PreviewDisplays.openFor", () => {
+  it("does not signal a recorded PID that now belongs to another process", async () => {
+    const h = makeDeps();
+    let matches = true;
+    h.deps.matchesProcess = () => matches;
+    const displays = new PreviewDisplays(onDir("reused-display-pid"), h.deps);
+    await displays.openFor(PANE, { width: 1280, height: 800 });
+    matches = false;
+    displays.closeFor(PANE);
+    expect(h.killPids()).toEqual([]);
+  });
   it("skips display numbers used outside this data directory", async () => {
     const { deps } = makeDeps();
     deps.displayOccupied = (number) => number === 90 || number === 91;

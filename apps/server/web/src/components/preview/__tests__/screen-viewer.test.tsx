@@ -7,6 +7,7 @@ import { nodeReasonLine, SCREEN_VIEW_REASON } from "@/components/preview/port-li
 import { PreviewSection } from "@/components/preview/preview-section";
 import { SCREEN_CLOSE_LINES, ScreenViewer } from "@/components/preview/screen-viewer";
 import type { PreviewInfo, UseSubshellPreview } from "@/hooks/use-subshell-preview";
+import { installRfbBounds } from "@/lib/preview-rfb-bounds";
 import { setConsoleErrorObserver } from "@/test-setup";
 
 /**
@@ -37,6 +38,16 @@ const novncSnapshot = { ...novncReal };
 const realWebSocket = globalThis.WebSocket;
 
 class MockRFB {
+  _FBU = { width: 0, height: 0, encoding: 0 };
+  _resize() {}
+  _handleRect() {
+    return true;
+  }
+  _fail() {
+    this.disconnect();
+    return false;
+  }
+  _display = { _renderQ: [], imageRect() {} };
   static builds: MockRFB[] = [];
   scaleViewport = false;
   focusOnClick = false;
@@ -472,4 +483,85 @@ it("reports the RFB connection state instead of treating an allocated lane as co
   expect(states.at(-1)).toBe("connected");
   act(() => MockSocket.made[0].dispatchClose(1006, ""));
   expect(states.at(-1)).toBe("disconnected");
+});
+
+describe("real noVNC allocation guards", () => {
+  function bounded() {
+    const instance = new novncSnapshot.default(
+      document.createElement("div"),
+      new PatchProbeChannel() as unknown as WebSocket,
+    );
+    const rfb = instance as unknown as {
+      _FBU: { width: number; height: number; encoding: number };
+      _resize(w: number, h: number): void;
+      _handleRect(): boolean;
+      _fbWidth: number;
+      _fail(message: string): false;
+      _handleServerCutText(): boolean;
+      _sock: { rQwait(...args: unknown[]): boolean; rQskipBytes(n: number): void; rQshift32(): number };
+      _display: {
+        _renderQ: { width: number; height: number }[];
+        _drawCtx: { getImageData?: () => unknown; putImageData?: () => void };
+        _targetCtx: { drawImage?: () => void };
+        imageRect(x: number, y: number, w: number, h: number, mime: string, bytes: Uint8Array): void;
+      };
+    };
+    rfb._display._drawCtx.getImageData = () => null;
+    rfb._display._drawCtx.putImageData = () => {};
+    rfb._display._targetCtx.drawImage = () => {};
+    const failures: string[] = [];
+    rfb._fail = (message) => {
+      failures.push(message);
+      return false;
+    };
+    installRfbBounds(instance);
+    return { rfb, failures };
+  }
+  it("keeps ordinary resizing and rejects an oversized framebuffer before canvas allocation", () => {
+    const { rfb, failures } = bounded();
+    rfb._resize(1280, 800);
+    expect(rfb._fbWidth).toBe(1280);
+    rfb._resize(65535, 65535);
+    expect(rfb._fbWidth).toBe(1280);
+    expect(failures).toHaveLength(1);
+  });
+  it("rejects cursor/data allocations and unsupported video, while allowing empty pseudo rectangles", () => {
+    for (const encoding of [-239, 7, 50]) {
+      const { rfb, failures } = bounded();
+      rfb._FBU = { width: 65535, height: 65535, encoding };
+      expect(rfb._handleRect()).toBe(false);
+      expect(failures).toHaveLength(1);
+    }
+    const { rfb, failures } = bounded();
+    rfb._FBU = { width: 0, height: 0, encoding: -224 };
+    expect(rfb._handleRect()).toBe(true);
+    expect(failures).toHaveLength(0);
+  });
+  it("bounds a single update's render queue before another rectangle decodes", () => {
+    const { rfb, failures } = bounded();
+    rfb._display._renderQ.push({ width: 8192, height: 4096 });
+    rfb._FBU = { width: 1, height: 1, encoding: 7 };
+    expect(rfb._handleRect()).toBe(false);
+    expect(failures).toHaveLength(1);
+  });
+  it("skips clipboard bytes without reaching extended-clipboard decompression", () => {
+    const { rfb, failures } = bounded();
+    const skips: number[] = [];
+    rfb._sock.rQwait = () => false;
+    rfb._sock.rQshift32 = () => 0xfffffff0;
+    rfb._sock.rQskipBytes = (n) => {
+      skips.push(n);
+    };
+    expect(rfb._handleServerCutText()).toBe(true);
+    expect(skips).toEqual([3, 16]);
+    rfb._sock.rQshift32 = () => 0x7fffffff;
+    expect(rfb._handleServerCutText()).toBe(false);
+    expect(failures).toHaveLength(1);
+  });
+  it("checks encoded image dimensions even when the rectangle claims to be small", () => {
+    const { rfb, failures } = bounded();
+    const oversizedJpeg = new Uint8Array([255, 216, 255, 192, 0, 11, 8, 255, 255, 255, 255, 1, 1, 17, 0, 255, 217]);
+    rfb._display.imageRect(0, 0, 10, 10, "image/jpeg", oversizedJpeg);
+    expect(failures).toHaveLength(1);
+  });
 });

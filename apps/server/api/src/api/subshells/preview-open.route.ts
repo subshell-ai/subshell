@@ -50,7 +50,9 @@ export const previewOpenRoute = new Elysia()
           paneId: params.id,
           nodeId: row.nodeId,
           port: body.port,
-          authorize: () => recheckPreviewOpen(user.id, params.id, row.nodeId, "edit", actor),
+          authorize: async () => {
+            await recheckPreviewOpen(user.id, params.id, row.nodeId, "edit", actor);
+          },
         });
         return { proxyBase: `/pv/${ref}/` };
       } catch (err) {

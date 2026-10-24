@@ -542,3 +542,12 @@ Subshell list views carry `virtualDisplay` metadata for the sidebar and headers.
 Workspace previews consolidate refresh, full screen, and secondary actions in one toolbar. Selected viewers omit their own headers and padding; the terminal’s Preview bar is hidden while its preview tab is open. Connection indicators reflect iframe loading, RFB connection events, or browser frame freshness. Preview groups put Maximize pane in their viewer action menu and show Restore pane directly in the toolbar while maximized. Full screen follows the same pattern: enter through the menu, exit from the toolbar. They omit the duplicate group-header button. The dock adapter subscribes to maximize and group-change events and reads the current group when toggling, so moving a preview keeps its actions bound to the right group.
 
 The preview picker always uses compact rows, adding search and a bounded app scroller when it has more than six choices. Browser and virtual display choices stay outside the app scroller. Ports are sorted and deduplicated before rendering.
+
+
+Preview images are untrusted decoder inputs. `lib/preview-jpeg.ts` checks
+JPEG dimensions before `Image`; `lib/preview-rfb-bounds.ts` installs the
+framebuffer, rectangle, render-queue, and embedded-image guards immediately
+after constructing noVNC. It consumes unused clipboard messages without
+extended-clipboard decompression. The adapter uses the pinned noVNC 1.7
+private surface, covered against the real class; preserve these guards when
+upgrading noVNC. Never rely only on a frame's claimed width and height.

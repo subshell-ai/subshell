@@ -1,4 +1,8 @@
-import { NODE_MAX_FRAME_BYTES, type PreviewDataFrame } from "@internal/subshell-protocol";
+import {
+  NODE_MAX_FRAME_BYTES,
+  PREVIEW_LANE_BUFFER_MAX_BYTES,
+  type PreviewDataFrame,
+} from "@internal/subshell-protocol";
 import { getLive } from "@/services/nodes/node-registry.js";
 import { binaryPayload } from "@/services/nodes/node-rpc.js";
 
@@ -42,9 +46,22 @@ export function sendPreviewFrameOverNodeSocket(nodeId: string, frame: PreviewDat
   if (Buffer.byteLength(payload) > NODE_MAX_FRAME_BYTES) {
     throw new PreviewSendError(nodeId, `frame exceeds ${NODE_MAX_FRAME_BYTES} bytes`);
   }
+  if ((conn.ws.getBufferedAmount?.() ?? 0) + Buffer.byteLength(payload) + 128 > PREVIEW_LANE_BUFFER_MAX_BYTES) {
+    throw new PreviewSendError(nodeId, "preview transport exceeded its buffer budget");
+  }
   try {
-    conn.ws.send(binaryPayload(conn.link.sealFrame(payload)));
+    const sent = conn.ws.send(binaryPayload(conn.link.sealFrame(payload)));
+    if (sent === 0) {
+      // A sealed frame cannot be skipped in the secretstream. Reconnect
+      // instead of attempting subsequent traffic with divergent key state.
+      throw new Error("socket dropped the sealed frame");
+    }
   } catch (err) {
+    try {
+      conn.ws.close(1011, "preview transport dropped a frame");
+    } catch {
+      /* already closed */
+    }
     throw new PreviewSendError(nodeId, `socket send failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }

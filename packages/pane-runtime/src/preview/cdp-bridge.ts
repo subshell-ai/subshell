@@ -6,6 +6,7 @@ import {
   PREVIEW_WATCH_FRAMES_BUFFERED,
   PREVIEW_WATCH_JPEG_QUALITY,
   type PreviewCloseReason,
+  previewDimensionsAllowed,
 } from "@internal/subshell-protocol";
 import { fetchCdpJson } from "./cdp-http.js";
 import { type LaneTimers, realTimers } from "./forward.js";
@@ -457,7 +458,8 @@ function onSocketMessage(bridge: Bridge, raw: string | Buffer): void {
   }
   if (msg?.method !== "Page.screencastFrame") return; // command results and other events are not frames
   const params = msg.params ?? {};
-  const sessionId = typeof params.sessionId === "string" ? params.sessionId : "";
+  const sessionId = params.sessionId;
+  if (typeof sessionId !== "number" || !Number.isSafeInteger(sessionId) || sessionId < 0) return;
   try {
     bridge.ws?.send(JSON.stringify({ id: bridge.nextId++, method: "Page.screencastFrameAck", params: { sessionId } }));
   } catch (err: unknown) {
@@ -477,8 +479,8 @@ function onSocketMessage(bridge: Bridge, raw: string | Buffer): void {
   const meta = (params.metadata ?? {}) as { deviceWidth?: unknown; deviceHeight?: unknown };
   const w = meta.deviceWidth;
   const h = meta.deviceHeight;
-  if (!Number.isInteger(w) || (w as number) <= 0 || !Number.isInteger(h) || (h as number) <= 0) {
-    bridge.say(`preview bridge ${bridge.ref.slice(0, 8)}…: frame metadata had no positive dims, dropped`);
+  if (!previewDimensionsAllowed(w, h)) {
+    bridge.say(`preview bridge ${bridge.ref.slice(0, 8)}…: frame dimensions outside the preview budget, dropped`);
     return;
   }
   // Throttle: `Math.ceil(1000 / fps)` between emissions, extras dropped (the

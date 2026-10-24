@@ -1,6 +1,7 @@
 import { BASE64_RE, isBool, isInt, isNum, isRecord, isStr, isStrArray, isStringMap } from "./guards.js";
 import type { JsonValue } from "./json.js";
 import { type NodeSystemSpecs, parseNodeSystemSpecs } from "./node-system-specs.js";
+import { previewImageSizeAllowed } from "./preview-image.js";
 import { isSshFingerprint, parseSshNodeCommandBody, type SshNodeCommandBody } from "./ssh-frames.js";
 import {
   PREVIEW_FPS_GRAMMAR_MAX,
@@ -2495,16 +2496,14 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
       // parsePreviewFrame beside the type it narrows.
       return parsePreviewFrame(value);
     case "preview_stream": {
-      // One screencast frame on its way to the plane's fan-out (Task 8). No
-      // blob cap here beyond strict base64: the frame ceiling is what bounds
-      // a link frame, and PREVIEW_FRAME_MAX_BYTES is the LANE's quota, not
-      // the bridge's. `seq` starts where a counter starts; dims are positive
-      // because a zero-pixel frame is not a screen.
+      // Bound compressed bytes and canvas dimensions independently: a small
+      // JPEG can still request a large decoded allocation in the dashboard.
       if (!isStr(value.ref) || !PREVIEW_REF_RE.test(value.ref)) return null;
       if (!isInt(value.seq) || (value.seq as number) < 0) return null;
-      if (!isInt(value.w) || (value.w as number) <= 0 || !isInt(value.h) || (value.h as number) <= 0) return null;
+      if (!previewImageSizeAllowed(value.w, value.h, value.blob)) return null;
       if (!isInt(value.ts) || (value.ts as number) < 0) return null;
       if (!isStr(value.blob) || value.blob.length === 0 || !BASE64_RE.test(value.blob)) return null;
+      if (base64RawLength(value.blob) > PREVIEW_FRAME_MAX_BYTES) return null;
       return {
         type: "preview_stream",
         ref: value.ref,

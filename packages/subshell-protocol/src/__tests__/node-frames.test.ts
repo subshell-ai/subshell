@@ -2029,6 +2029,10 @@ describe("preview link frames and events (arrived at protocol 23)", () => {
   });
 
   it("the screencast event parses and refuses junk", () => {
+    const image = { type: "preview_stream", ref: REF, seq: 1, w: 800, h: 600, ts: 123, blob: "AAA=" };
+    expect(parseNodeEvent({ ...image, w: 65535, h: 65535 })).toBeNull();
+    expect(parseNodeEvent({ ...image, w: 8192, h: 8192 })).toBeNull();
+    expect(parseNodeEvent({ ...image, blob: Buffer.alloc(PREVIEW_FRAME_MAX_BYTES + 1).toString("base64") })).toBeNull();
     expect(parseNodeEvent({ type: "preview_stream", ref: REF, seq: 1, w: 800, h: 600, ts: 123, blob: "AAA=" })).toEqual(
       {
         type: "preview_stream",
