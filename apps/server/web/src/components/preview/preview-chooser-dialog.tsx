@@ -1,5 +1,5 @@
 import { nodeReasonLine, PortList } from "@/components/preview/port-list";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useSubshellPreview } from "@/hooks/use-subshell-preview";
 import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { requestWorkspacePreview, type WorkspacePreviewTarget } from "@/lib/workspace-preview";
@@ -21,10 +21,6 @@ export function PreviewChooserDialog({ subshellId, onClose }: { subshellId: stri
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Open preview</DialogTitle>
-          <DialogDescription>
-            {subshell?.name ? `${subshell.name}. ` : ""}Each view opens in its own workspace tab. Drag tabs side by side
-            to see them together.
-          </DialogDescription>
         </DialogHeader>
         {!info && <p className="text-detail text-muted-foreground">Checking available views…</p>}
         {preview.error && (

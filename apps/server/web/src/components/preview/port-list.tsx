@@ -1,5 +1,5 @@
 import { Badge, Button } from "@internal/node-admin";
-import { AppWindow } from "lucide-react";
+import { AppWindow, ArrowRight, Eye, Globe, type LucideIcon } from "lucide-react";
 import type { JSX } from "react";
 import type { PreviewInfo } from "@/hooks/use-subshell-preview";
 import type { SubshellAccess } from "@/types/subshell";
@@ -108,7 +108,45 @@ export function PortList({
   // Watch must explain itself like its siblings, not sit mute.
   const watchReason = busy ? "Opening the selected view…" : info.nodeEnabled ? undefined : nodeReasonLine(info.reason);
 
-  if (rows.length === 0 && info.screen === null && info.screenLost === undefined) return null;
+  if (rows.length === 0 && info.cdpPort === null && info.screen === null && info.screenLost === undefined) return null;
+
+  if (compact)
+    return (
+      <div className="flex flex-col gap-2">
+        {rows.map((row) => (
+          <PreviewOption
+            key={row.port}
+            icon={Globe}
+            label="App"
+            port={row.port}
+            action={`Open app on port ${row.port}`}
+            reason={openReason}
+            onClick={() => onOpen(row.port)}
+          />
+        ))}
+        {info.cdpPort != null && (
+          <PreviewOption
+            icon={Eye}
+            label="Browser"
+            action="Watch browser"
+            reason={watching ? "This browser is already being watched." : watchReason}
+            onClick={onWatch}
+          />
+        )}
+        {info.screen && (
+          <PreviewOption
+            icon={AppWindow}
+            label="Virtual display"
+            action="View screen"
+            reason={screenReason}
+            onClick={onScreen}
+          />
+        )}
+        {!info.screen && info.screenLost !== undefined && (
+          <p className="text-detail text-muted-foreground">Display stopped: {info.screenLost} exited</p>
+        )}
+      </div>
+    );
 
   return (
     <div className="flex flex-col gap-1">
@@ -208,6 +246,44 @@ export function PortList({
           <span className="text-detail text-muted-foreground">Display stopped: {info.screenLost} exited</span>
         </div>
       )}
+    </div>
+  );
+}
+
+/** One focus target per choice, with its unavailable reason visible on touch too. */
+function PreviewOption({
+  icon: Icon,
+  label,
+  port,
+  action,
+  reason,
+  onClick,
+}: {
+  icon: LucideIcon;
+  label: string;
+  port?: number;
+  action: string;
+  reason?: string;
+  onClick: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <Button
+        variant="outline"
+        className="h-auto w-full justify-start gap-3 px-3 py-3"
+        aria-label={action}
+        disabled={Boolean(reason)}
+        disabledReason={reason}
+        onClick={onClick}
+      >
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-primary">
+          <Icon className="size-5" aria-hidden />
+        </span>
+        <span className="text-label">{label}</span>
+        {port !== undefined && <Badge variant="secondary">{port}</Badge>}
+        <ArrowRight className="ml-auto size-4 shrink-0 text-muted-foreground" aria-hidden />
+      </Button>
+      {reason && <p className="text-detail text-muted-foreground">{reason}</p>}
     </div>
   );
 }
