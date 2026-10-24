@@ -51,7 +51,23 @@ export function buildTerminalHtml(): string {
   const paneUrlTs = readFileSync(join(ASSET_ROOT, "node_modules/@internal/subshell-protocol/src/pane-url.ts"), "utf8");
   const transpiled = new Bun.Transpiler({ loader: "ts" }).transformSync(paneUrlTs);
   const paneUrlBody = transpiled.replace(/^export\s+/gm, "");
-  const paneUrlExports = [...paneUrlTs.matchAll(/^export (?:function|const) (\w+)/gm)].map((m) => m[1]!).join(", ");
+  const paneUrlNames = [...paneUrlTs.matchAll(/^export (?:async\s+)?(?:function\s*\*?|const|let|class)\s+(\w+)/gm)].map(
+    (m) => m[1]!,
+  );
+  // The body-strip strips `export` from EVERY export line, so a value-export
+  // shape the name capture misses — `export { x }`, `export default`, a new
+  // keyword — would define the thing inside the closure but leave it out of
+  // `window.PaneUrl`, and the page would call undefined on a device. Count
+  // every non-type export and demand the capture saw them all: a shape that
+  // outruns the regex fails HERE, loudly, instead of going quiet on phones.
+  const valueExportLines = [...paneUrlTs.matchAll(/^export\s+(?!interface\b|type\b)/gm)].length;
+  if (valueExportLines !== paneUrlNames.length) {
+    throw new Error(
+      `pane-url.ts has ${valueExportLines} value exports but the shim named ${paneUrlNames.length} (${paneUrlNames.join(", ")}); ` +
+        "extend the name capture so every export reaches window.PaneUrl",
+    );
+  }
+  const paneUrlExports = paneUrlNames.join(", ");
 
   return `<!doctype html>
 <html>
