@@ -156,20 +156,20 @@ export function PreviewSection({
     };
   }, [paneId]);
 
-  async function handleOpen(port: number): Promise<void> {
+  async function handleOpen(port: number, serviceId?: string): Promise<void> {
     resumed.current = true;
     const gen = generation.current;
     setOpenError(null);
     setBusy(true);
     setConnection("connecting");
     try {
-      const { proxyBase } = await preview.openPort(port);
+      const { proxyBase } = await preview.openPort(port, serviceId);
       if (generation.current !== gen) return;
       setScreenSession(null);
       if (preview.watching) await preview.stopWatch();
       if (generation.current !== gen) return;
       setOpen({ port, proxyBase });
-      onViewChange?.({ kind: "app", port });
+      onViewChange?.(serviceId ? { kind: "service", serviceId, port } : { kind: "app", port });
     } catch (err) {
       // The named refusal (the caps, the stale node answer) renders as asked.
       if (generation.current !== gen) return;
@@ -240,6 +240,7 @@ export function PreviewSection({
     } else if (screenSession) void handleScreen();
     else if (preview.watching) void handleWatch();
     else if (initialView?.kind === "app") void handleOpen(initialView.port);
+    else if (initialView?.kind === "service") void handleOpen(initialView.port, initialView.serviceId);
     else if (initialView?.kind === "screen") void handleScreen();
     else if (initialView?.kind === "browser") void handleWatch();
     preview.refresh();
@@ -248,7 +249,8 @@ export function PreviewSection({
   const reopen = useRef({ handleOpen, handleScreen, startWatch: handleWatch });
   reopen.current = { handleOpen, handleScreen, startWatch: handleWatch };
   useEffect(() => {
-    if (resumed.current || !initialView || !info?.nodeEnabled || info.reason) return;
+    if (resumed.current || !initialView || !info?.nodeEnabled || (info.reason && initialView.kind !== "service"))
+      return;
     if (initialView.kind === "screen" && !info.screen) return;
     // Wait until mount effects settle, so StrictMode's replay cannot consume
     // the shortcut while invalidating its in-flight viewer request.
@@ -257,6 +259,7 @@ export function PreviewSection({
       if (cancelled || resumed.current) return;
       resumed.current = true;
       if (initialView.kind === "app") void reopen.current.handleOpen(initialView.port);
+      else if (initialView.kind === "service") void reopen.current.handleOpen(initialView.port, initialView.serviceId);
       else if (initialView.kind === "screen") void reopen.current.handleScreen();
       else void reopen.current.startWatch();
     });

@@ -51,12 +51,12 @@ the workspace. Your browser connects to the server; it doesn't need direct
 network access to the node's ports.
 
 ```mermaid
-%% The dashboard authenticates to the server. App HTTP and WebSocket traffic use a capability URL and a loopback tunnel; CDP JPEG frames return through the authorized live feed. The built-in node uses the same runtime in process.
+%% The dashboard authenticates to the server. App HTTP and WebSocket traffic use a capability URL and a node-side tunnel; CDP JPEG frames return through the authorized live feed. The built-in node uses the same runtime in process.
 flowchart LR
   B[Dashboard browser] -->|Open preview with user access| S[Server preview broker]
   B -->|HTTP or WS capability URL| P[Server preview proxy]
   P <-->|Encrypted preview lanes| N[Node runtime]
-  N <-->|Loopback HTTP or RFB| A[Dev server or virtual display]
+  N <-->|HTTP/S service or loopback RFB| A[Dev server or virtual display]
   N -->|CDP JPEG frames| S
   S -->|Authorized live feed| B
   S -->|In-process adapter| L[Built-in node runtime]
@@ -75,7 +75,7 @@ are `list_subshell_views`, `open_subshell_view`, and `watch_subshell_browser`.
 See the [MCP tool reference](/mcp/tools#list_subshell_views) for their arguments.
 
 For app previews, the server creates a private capability URL and forwards each
-HTTP or WebSocket connection through a loopback-only lane on the execution
+HTTP or WebSocket connection through a lane to loopback or the saved service destination on the execution
 machine. Proxied documents have an opaque browser origin so website scripts
 don't inherit dashboard authority. Target cookies stay in a server-side jar.
 The server's built-in node uses the same discovery, forwarding, CDP, and display

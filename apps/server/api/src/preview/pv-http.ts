@@ -1,3 +1,4 @@
+import { serviceAuthority } from "@internal/subshell-protocol";
 import { Elysia } from "elysia";
 import { HttpError } from "@/api/auth-guard.js";
 import { LaneDuplex } from "@/preview/lane-duplex.js";
@@ -236,7 +237,7 @@ async function proxyRequest(request: Request, sessionRef: string, rest: string):
 
   const url = new URL(request.url);
   const headers: [string, string][] = [
-    ["host", `127.0.0.1:${session.port}`],
+    ["host", serviceAuthority(session.service?.host ?? "127.0.0.1", session.port)],
     ["connection", "close"],
   ];
   for (const [name, value] of request.headers) {

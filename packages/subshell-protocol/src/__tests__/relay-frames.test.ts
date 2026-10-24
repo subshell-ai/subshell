@@ -32,13 +32,13 @@ const good = {
   blob: b64OfRawLength(1024),
 } as const;
 
-describe("NODE_PROTOCOL_VERSION 23 (current bump: the preview surface)", () => {
+describe("NODE_PROTOCOL_VERSION 24 (current bump: saved HTTP(S) services)", () => {
   it("pins the current version so a stale build cannot ride the exact-match gate", () => {
     // Every capability added since relay frames (20) depends on this number:
     // the plane and the agent only speak on an EXACT match, so a binary that
     // never learned the preview surface (23) is refused BEFORE any frame is
     // accepted. Never half-relay.
-    expect(NODE_PROTOCOL_VERSION).toBe(23);
+    expect(NODE_PROTOCOL_VERSION).toBe(24);
   });
 });
 

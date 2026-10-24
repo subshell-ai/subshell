@@ -19,7 +19,7 @@ sequenceDiagram
   S->>S: Resolve subshell access and node opt-in
   S->>N: preview_ports_get / preview_open
   N->>N: Check opt-in, pane liveness, and resource caps
-  N->>A: Connect to loopback
+  N->>A: Connect to loopback or saved service
   N-->>S: Result and preview_data / preview_stream
   S-->>B: Capability URL or authorized JPEG stream
   B->>S: HTTP or WebSocket under /pv/session/
@@ -60,14 +60,14 @@ or server data, and startup/liveness reconciliation restores or removes it.
 Private Xauthority files authenticate X11 clients; they do not authenticate the
 loopback RFB port. See the local-user limitation in the security model.
 
-## Protocol 23
+## Protocol 24
 
 | Command or frame | Purpose |
 | --- | --- |
 | `set_preview_enabled { on, changedAt }` | Signed mirror of the server's node opt-in. Closing is separate. |
 | `preview_display_check` | Report platform and display prerequisites before a subshell exists. |
 | `preview_ports_get { paneId }` | Discover the subshell's listeners, CDP port, and display. |
-| `preview_open { ref, kind, paneId, port, lifetimeMs, fps? }` | Open `forward` TCP bytes or a `screencast` CDP bridge. There is no host field. |
+| `preview_open { ref, kind, paneId, port, lifetimeMs, fps?, service? }` | Open `forward` TCP bytes or a `screencast` CDP bridge. An optional `service: { host, protocol }` selects an explicit HTTP(S) destination for forward lanes only. |
 | `preview_close { ref, reason }` | Release a lane or bridge; an unknown reference closes idempotently. |
 | `preview_data { ref, dir, blob }` | Base64 TCP bytes; `in` goes toward the node and `out` toward the server. Ordering comes from the link. |
 | `preview_stream` | JPEG frame with bridge reference, sequence, dimensions, and capture metadata. |
@@ -79,6 +79,26 @@ expiration, signature, and replay checks. Established node traffic uses the
 existing encrypted transport; preview is not a second listener exposed to the
 viewer. The trusted server can read these bytes, unlike encrypted agent channels.
 
+## Saved services
+
+`GET/POST /api/subshells/:id/services` lists and saves destinations; `DELETE
+/api/subshells/:id/services/:serviceId` removes one. SQLite stores up to 100 unique
+host/port/protocol combinations per subshell, with cascading deletion. Read access
+uses the subshell view gate; mutations require edit access. Machine credentials
+retain the owner-only boundary. Saving never starts a process or dials a host.
+
+Opening with `{ serviceId }` looks up the immutable destination under that subshell,
+checks node opt-in and pane liveness, and forces HTTP mode. Every per-request lane
+uses that same destination, including WebSockets. DNS and TLS run on the node;
+TLS certificate and hostname checks stay enabled. Protocol 24 prevents older nodes
+from silently ignoring a destination and falling back to plaintext loopback.
+
+Removal cancels pending opens and revokes sessions for that saved ID; authorization
+rechecks also check that it still exists. Closing a workspace tab preserves the
+saved row. Workspace IDs carry the service ID and a display port, but only the
+server-side row determines the dial destination. Port discovery and a Linux
+virtual display are not prerequisites for manual HTTP(S) services.
+
 ## HTTP and WebSocket lanes
 
 An edit-authorized `POST /api/subshells/:id/views/open` probes the node and
@@ -88,7 +108,7 @@ the viewer's browser cookie as their authorization boundary.
 
 Each HTTP request uses a fresh lane. The server strips dashboard cookies,
 HTTP authorization, API keys, and known edge-identity headers,
-sets `Host` to loopback, frames the HTTP request over the lane, and releases it
+sets `Host` to the saved destination (loopback for automatic views), frames the HTTP request over the lane, and releases it
 when the response completes or the browser aborts. It does not retry partial
 writes. Root-relative redirects are prefixed with the session path; HTML and
 JavaScript asset URLs are not rewritten.

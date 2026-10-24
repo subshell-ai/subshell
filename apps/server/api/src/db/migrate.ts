@@ -60,6 +60,7 @@ import * as crossAgentGuidanceMigration from "@/db/migrations/0059-cross-agent-g
 import * as subshellParentMigration from "@/db/migrations/0060-subshell-parent.js";
 import * as nodeSystemSpecsMigration from "@/db/migrations/0061-node-system-specs.js";
 import * as nodePreviewEnabledMigration from "@/db/migrations/0062-node-preview-enabled.js";
+import * as subshellServicesMigration from "@/db/migrations/0063-subshell-services.js";
 import * as dropSshGrantsMigration from "./migrations/0053-drop-ssh-grants.js";
 import * as presetSharingMigration from "./migrations/0057-preset-sharing.js";
 
@@ -179,6 +180,7 @@ export async function runMigrations(): Promise<void> {
           "0060-subshell-parent": subshellParentMigration,
           "0061-node-system-specs": nodeSystemSpecsMigration,
           "0062-node-preview-enabled": nodePreviewEnabledMigration,
+          "0063-subshell-services": subshellServicesMigration,
         };
       },
     },

@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useSubshellPreview } from "@/hooks/use-subshell-preview";
 import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { requestWorkspacePreview, type WorkspacePreviewTarget } from "@/lib/workspace-preview";
+import { SavedServices } from "./saved-services";
 
 export function PreviewChooserDialog({ subshellId, onClose }: { subshellId: string; onClose: () => void }) {
   const subshell = useSubshellRow(subshellId);
@@ -18,7 +19,7 @@ export function PreviewChooserDialog({ subshellId, onClose }: { subshellId: stri
         if (!value) onClose();
       }}
     >
-      <DialogContent>
+      <DialogContent className="max-h-[85dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Open app or screen</DialogTitle>
         </DialogHeader>
@@ -43,9 +44,25 @@ export function PreviewChooserDialog({ subshellId, onClose }: { subshellId: stri
           />
         )}
         {info?.nodeEnabled && !info.reason && !info.ports.length && !info.screen && !info.cdpPort && (
-          <p className="text-detail text-muted-foreground">
-            No apps or screens yet. Start an app in this subshell to see it here.
-          </p>
+          <p className="text-detail text-muted-foreground">No apps or screens discovered in this subshell.</p>
+        )}
+        {subshell && (
+          <SavedServices
+            subshellId={subshellId}
+            canEdit={subshell.access !== "view"}
+            openReason={
+              subshell.access === "view"
+                ? "Opening a service needs edit access to this subshell."
+                : subshell.status !== "running" || !subshell.alive
+                  ? "Restart this subshell to open its saved services."
+                  : !info?.nodeEnabled
+                    ? info
+                      ? nodeReasonLine(info.reason)
+                      : "Checking this node…"
+                    : undefined
+            }
+            onOpen={open}
+          />
         )}
       </DialogContent>
     </Dialog>

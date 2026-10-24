@@ -1,3 +1,4 @@
+import type { ServiceTarget } from "@internal/subshell-protocol";
 import {
   type NodeCommandBody,
   type NodeEvent,
@@ -138,6 +139,8 @@ export interface PreviewLane {
  * the pane's one screencast bridge (`kind: "screencast"`).
  */
 export interface PreviewSession {
+  service?: ServiceTarget;
+  serviceId?: string;
   /** The 32-hex session ref (for forward, the PROBE ref: minted from the CSPRNG, this is the credential). */
   ref: string;
   /** Which preview surface this session fronts. */
@@ -179,6 +182,8 @@ export interface PreviewSession {
 
 /** The verbs the routes, the ws feed, and the sweeps call (Tasks 9-11). */
 interface PreviewOpenInput {
+  service?: ServiceTarget;
+  serviceId?: string;
   viewerUserId: string;
   paneId: string;
   nodeId: string;
@@ -194,6 +199,7 @@ interface PendingPreviewOpen extends PreviewOpenInput {
 }
 
 export interface PreviewBroker {
+  removeService(paneId: string, serviceId: string): Promise<void>;
   /** Changes at every revocation, invalidating access reads already in flight. */
   streamAccessRevision(): number;
   openForward(input: PreviewOpenInput): Promise<{ ref: string }>;
@@ -633,6 +639,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
         kind: "forward",
         paneId: session.paneId,
         port: session.port,
+        service: session.service,
         lifetimeMs: PREVIEW_LIFETIME_MAX_MS,
       });
     } catch (err) {
@@ -829,13 +836,20 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
   }
 
   const broker: PreviewBroker = {
+    async removeService(paneId, serviceId) {
+      streamAccessRevision++;
+      for (const op of opening) if (op.paneId === paneId && op.serviceId === serviceId) op.cancelled = "revoked";
+      for (const session of [...sessionsByRef.values()]) {
+        if (session.paneId === paneId && session.serviceId === serviceId) await closeForwardSession(session, "revoked");
+      }
+    },
     streamAccessRevision: () => streamAccessRevision,
     async openForward(input) {
       return withOpening(input, "forward", async (op) => {
         const { viewerUserId, paneId, nodeId, port } = input;
         await authorizeOpening(op);
         const ref = mintRef();
-        const mode = await resolveMode(nodeId, paneId, port);
+        const mode = input.service ? "http" : await resolveMode(nodeId, paneId, port);
         checkOpening(op);
         // The PROBE open (spec §5): validates the node will serve this pane at
         // all, and the refusal path records nothing and opens nothing. Every
@@ -848,6 +862,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
           kind: "forward",
           paneId,
           port,
+          service: input.service,
           lifetimeMs: PREVIEW_LIFETIME_MAX_MS,
         });
         await sendPreviewClose(nodeId, ref, op.cancelled ?? "viewer-left");
@@ -859,6 +874,8 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
           paneId,
           nodeId,
           port,
+          service: input.service,
+          serviceId: input.serviceId,
           createdBy: viewerUserId,
           createdAt: deps.nowMs(),
           lanes: new Map(),

@@ -201,7 +201,7 @@ Key rotation replaces the node credential and clears the server-side encryption 
 
 ## Preview transport
 
-Preview uses protocol 23's existing signed-command and encrypted-frame paths.
+Apps & screens uses protocol 24's existing signed-command and encrypted-frame paths.
 It does not open an inbound public port on the node. The server's built-in node
 runs the same preview primitives in process rather than sending node commands.
 
@@ -210,7 +210,7 @@ runs the same preview primitives in process rather than sending node commands.
 | `set_preview_enabled` | Apply the server-owned opt-in flag and change timestamp. |
 | `preview_display_check` | Check Linux display support and required binaries before launch. |
 | `preview_ports_get` | Report listeners under a subshell's process tree, its CDP port, and display metadata. |
-| `preview_open` | Start a loopback TCP forward or CDP screencast for a subshell, port, reference, and bounded lifetime. |
+| `preview_open` | Start a loopback TCP forward or CDP screencast for a subshell, port, reference, and bounded lifetime. Forward lanes may include `service: { host, protocol }` for a saved HTTP(S) destination. |
 | `preview_data` | Carry capped base64 bytes toward the node (`in`) or server (`out`). |
 | `preview_stream` | Carry sequenced JPEG browser frames and dimensions. |
 | `preview_close` / `preview_closed` | Request or report teardown with a named reason. |

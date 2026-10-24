@@ -297,6 +297,19 @@ test("preview: real node + terminal pane serve the proxy round trip and the watc
     expect(proxied.headers()["set-cookie"]).toBeUndefined();
     expect(proxied.headers()["content-security-policy"]).toContain("sandbox");
 
+    // A saved destination crosses the signed node command without requiring a display.
+    const saved = await request.post(`/api/subshells/${paneId}/services`, {
+      data: { host: "127.0.0.1", port: HTTP_PORT, protocol: "http" },
+    });
+    expect(saved.ok(), await saved.text()).toBe(true);
+    const serviceId = (await saved.json()).id;
+    const manual = await request.post(`/api/subshells/${paneId}/views/open`, { data: { serviceId } });
+    expect(manual.ok(), await manual.text()).toBe(true);
+    const manualPath = (await manual.json()).proxyBase;
+    expect(await request.get(manualPath).then((response) => response.text())).toBe("ok");
+    expect((await request.delete(`/api/subshells/${paneId}/services/${serviceId}`)).ok()).toBe(true);
+    expect((await request.get(manualPath)).status()).toBe(404);
+
     // The session's audit pair lands with the lane, and the row says which
     // kind without ever naming the ref (refs never ride audit metadata).
     await pollUntil("the forward session never audited its open", agent, async () => {

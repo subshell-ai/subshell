@@ -239,6 +239,6 @@ describe("ssh_key_bridge: a closed gate or maintenance destroys live signing, no
 });
 
 /** Follows each protocol bump: the exact-match gate refuses stale binaries outright. */
-it("NODE_PROTOCOL_VERSION is 23 (current bump: the preview surface)", () => {
-  expect(NODE_PROTOCOL_VERSION).toBe(23);
+it("NODE_PROTOCOL_VERSION is 24 (current bump: saved HTTP(S) services)", () => {
+  expect(NODE_PROTOCOL_VERSION).toBe(24);
 });

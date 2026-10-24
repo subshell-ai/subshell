@@ -6,6 +6,7 @@ import { apiModels } from "@/schema/index.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { detailIsNodeOff, PREVIEW_PANE_GONE } from "@/services/nodes/preview-refusals.js";
 import { getPreviewBroker, PreviewRefusal } from "@/services/preview-broker.js";
+import { getService } from "@/services/subshell-services.js";
 
 /**
  * `POST /api/subshells/:id/views/open` (spec §6): open one forward lane to
@@ -15,13 +16,16 @@ import { getPreviewBroker, PreviewRefusal } from "@/services/preview-broker.js";
  * route ships nothing but `/pv/<ref>/` for the SPA to point a browser at.
  */
 
-const PreviewOpenBodySchema = t.Object({
-  port: t.Integer({
-    minimum: 1,
-    maximum: 65_535,
-    description: "Loopback port inside the pane's machine to forward (the node dials loopback only)",
+const PreviewOpenBodySchema = t.Union([
+  t.Object({
+    port: t.Integer({
+      minimum: 1,
+      maximum: 65_535,
+      description: "Loopback port inside the pane's machine to forward (the node dials loopback only)",
+    }),
   }),
-});
+  t.Object({ serviceId: t.String({ format: "uuid" }) }),
+]);
 
 const PreviewOpenResponseSchema = t.Object({
   proxyBase: t.String({
@@ -44,13 +48,17 @@ export const viewsOpenRoute = new Elysia()
         // stale (or the switch moved mid-click). Say the same thing as a 409.
         throw new HttpError(409, `Apps & screens is not available on that node right now (${nodeState.reason}).`);
       }
+      const service = "serviceId" in body ? await getService(params.id, body.serviceId) : undefined;
       try {
         const { ref } = await getPreviewBroker().openForward({
           viewerUserId: user.id,
           paneId: params.id,
           nodeId: row.nodeId,
-          port: body.port,
+          port: service?.port ?? ("port" in body ? body.port : 0),
+          service: service ? { host: service.host, protocol: service.protocol } : undefined,
+          serviceId: service?.id,
           authorize: async () => {
+            if (service) await getService(params.id, service.id);
             await recheckPreviewOpen(user.id, params.id, row.nodeId, "edit", actor);
           },
         });
@@ -95,7 +103,7 @@ export const viewsOpenRoute = new Elysia()
         operationId: "openSubshellView",
         tags: ["subshells"],
         description:
-          "Open a forward lane to one loopback port of the pane and return the proxy path. Needs edit: the raw lane is the pane's own protocol, not a rendered view",
+          "Open a loopback port or saved serviceId and return its private proxy path. Requires edit access. Saved services use their stored host and HTTP/HTTPS protocol.",
       },
     },
   );

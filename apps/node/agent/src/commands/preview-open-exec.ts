@@ -101,6 +101,7 @@ export async function execPreviewOpen(
     forward.openLane({
       ref: cmd.ref,
       port: cmd.port,
+      service: cmd.service,
       paneId: cmd.paneId,
       lifetimeMs: cmd.lifetimeMs,
       hooks: { emit: (ev) => send(ev) },

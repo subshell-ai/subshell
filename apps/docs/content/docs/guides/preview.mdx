@@ -17,7 +17,7 @@ lets you discover available views and watch browser frames. Switching Apps & scr
 off prevents new operations; it doesn't stop your subshell or immediately close
 an existing connection.
 
-## Use Preview from a Mac
+## Use Apps & screens from a Mac
 
 You can view and control previews from your Mac in a browser or **Subshell
 Client** while the subshell runs on a Linux node. The server's built-in node
@@ -35,7 +35,7 @@ virtual display. Your Mac doesn't need those programs or its own node to view
 that screen.
 
 If the subshell runs directly on macOS, the picker cannot automatically discover
-its app ports or browser. Virtual displays require Linux, and Apps & screens does not
+its app ports or browser. Use **Add service** to connect to a web service by port on macOS. Virtual displays require Linux, and Apps & screens does not
 capture native Mac app windows. Installing the Linux display programs on a Mac
 doesn't add that support.
 
@@ -64,6 +64,35 @@ in the sidebar.
   <ImageZoom src="/screenshots/preview-workspace.png" alt="Codex's completed filter fix and passing tests beside a website preview showing the selected Brand category." width="1560" height="1280" loading="lazy" decoding="async" unoptimized />
   <figcaption>Check the actual interaction beside the agent's result. The Brand filter now shows one matching project. Select the image to enlarge it.</figcaption>
 </figure>
+
+## Add a service started elsewhere
+
+A virtual display isn't required for web services. The **Apps & screens** button
+below the terminal and the globe icon in the subshell header open the same dialog,
+even when the subshell has no display.
+
+1. Open **Apps & screens**, then choose **Add service** under **Saved services**.
+2. Enter the service's **Port** and choose **HTTP** or **HTTPS**. You can add a name
+   to make it easier to recognize.
+3. Leave **Host** under **Advanced** as `localhost` for a service on the subshell's
+   node. For a service on another machine, enter a hostname or IP that the node can
+   reach. Hostnames resolve on the node, not on the device viewing the dashboard.
+4. Choose **Save service**, then select the saved row to open its workspace tab.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/add-service.png" alt="Add service form with a port, HTTP protocol, optional name, and collapsed Advanced host setting." width="512" height="534" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Save a connection to a web service without creating a virtual display.</figcaption>
+</figure>
+
+This also works for web services running on a macOS node, where automatic port
+discovery isn't available. The subshell must be running and its node must have
+Apps & screens enabled. HTTPS requires a certificate the node trusts and whose
+name matches the host; Subshell doesn't bypass certificate checks.
+
+Saved connections stay with the subshell across reloads and closed tabs. Use the
+remove button beside a saved row to delete the connection and disconnect its open
+views. Removing a connection doesn't stop the service. You need edit access to
+add, open, or remove connections; people with view access can see the list.
 
 ## Arrange and refresh views
 

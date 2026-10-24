@@ -1,4 +1,6 @@
-import { connect as netConnect } from "node:net";
+import { isIP, connect as netConnect } from "node:net";
+import { connect as tlsConnect } from "node:tls";
+import type { ServiceTarget } from "@internal/subshell-protocol";
 import {
   type NodeEvent,
   PREVIEW_FRAME_MAX_BYTES,
@@ -24,8 +26,8 @@ import {
  *
  * Three things make a forward lane different from a relay session, and the
  * command's gate ladder owns all three, so nothing here re-decides them:
- * there is no host on the wire (the grammar bounds the port, the dials are
- * loopback literals only), pane liveness is a command-time check, and the
+ * the grammar bounds the destination (loopback unless an explicit saved
+ * HTTP(S) service is supplied), pane liveness is a command-time check, and the
  * node-side budget is the SHARED lane+bridge counter (Task 6): the open
  * executor sums the node-wide {@link PreviewForward.laneCount} with the
  * bridge registry's count before either mechanism starts, keeping the node to
@@ -64,8 +66,8 @@ export interface LaneTimers {
 
 /** The mechanics a caller (or a test) can replace. Production passes none. */
 export interface LaneDeps {
-  /** Defaults to the real `net.connect`; loopback literals only, whatever it dials. */
-  connect?: (options: { host: string; port: number }) => LaneSocket;
+  /** Defaults to TCP or certificate-verified TLS for an explicit HTTPS service. */
+  connect?: (options: { host: string; port: number; protocol?: "http" | "https"; servername?: string }) => LaneSocket;
   now?: () => number;
   /** Defaults to global timers UNREF'd — a lane timer must never hold the daemon (or a test) open. */
   timer?: LaneTimers;
@@ -90,6 +92,7 @@ export interface LaneHooks {
 
 /** One `openLane` call: everything the command's verified body carries. */
 export interface OpenLaneArgs {
+  service?: ServiceTarget;
   ref: string;
   port: number;
   paneId: string;
@@ -100,6 +103,7 @@ export interface OpenLaneArgs {
 }
 
 interface Lane {
+  service?: ServiceTarget;
   ref: string;
   paneId: string;
   port: number;
@@ -116,7 +120,15 @@ interface Lane {
 }
 
 /** The real dial: net's own connect, which the retry posture below wraps. */
-const realConnect: NonNullable<LaneDeps["connect"]> = (options) => netConnect(options);
+const realConnect: NonNullable<LaneDeps["connect"]> = (options) =>
+  options.protocol === "https"
+    ? tlsConnect({
+        host: options.host,
+        port: options.port,
+        servername: isIP(options.servername ?? options.host) ? undefined : (options.servername ?? options.host),
+        rejectUnauthorized: true,
+      })
+    : netConnect(options);
 
 /**
  * Real timers, unref'd: the watch-tick doctrine — a 15-minute idle arm must
@@ -157,6 +169,7 @@ export class PreviewForward {
     }
     const now = args.deps?.now ?? this.defaults.now ?? Date.now;
     const lane: Lane = {
+      service: args.service,
       ref: args.ref,
       paneId: args.paneId,
       port: args.port,
@@ -253,10 +266,14 @@ export class PreviewForward {
 
   /** Dial loopback v4 first; ONE v6 retry; both failures are `target-gone`. */
   private dial(lane: Lane, v6: boolean): void {
-    const host = v6 ? "::1" : "127.0.0.1";
+    const host = lane.service && lane.service.host !== "localhost" ? lane.service.host : v6 ? "::1" : "127.0.0.1";
     let socket: LaneSocket;
     try {
-      socket = lane.connect({ host, port: lane.port });
+      socket = lane.connect({
+        host,
+        port: lane.port,
+        ...(lane.service ? { protocol: lane.service.protocol, servername: lane.service.host } : {}),
+      });
     } catch (err: unknown) {
       this.dialFailed(lane, v6, err);
       return;
@@ -306,7 +323,7 @@ export class PreviewForward {
 
   private dialFailed(lane: Lane, v6: boolean, err: unknown): void {
     if (this.lanes.get(lane.ref) !== lane) return;
-    if (!v6) {
+    if (!v6 && (!lane.service || lane.service.host === "localhost")) {
       // The one retry is not a second attempt at a different SERVICE — loopback
       // v4 and v6 are the same host, and a server bound to only one family is
       // routine. The lane's budget timers, not a dial timeout, bound the total.

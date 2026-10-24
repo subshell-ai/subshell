@@ -2,6 +2,7 @@ import { BASE64_RE, isBool, isInt, isNum, isRecord, isStr, isStrArray, isStringM
 import type { JsonValue } from "./json.js";
 import { type NodeSystemSpecs, parseNodeSystemSpecs } from "./node-system-specs.js";
 import { previewImageSizeAllowed } from "./preview-image.js";
+import { normalizeServiceHost, type ServiceTarget } from "./service-target.js";
 import { isSshFingerprint, parseSshNodeCommandBody, type SshNodeCommandBody } from "./ssh-frames.js";
 import {
   PREVIEW_FPS_GRAMMAR_MAX,
@@ -214,8 +215,12 @@ import {
  * close-reason set includes `target-gone` (plan decision 3). An agent below
  * 23 understands none of it, and the exact-match gate is what refuses pairing
  * before any of it is sent.
+ *
+ * **23 -> 24:** forward lanes may carry an explicit saved HTTP(S) destination.
+ * Older nodes would silently discard it and dial plaintext loopback, so the
+ * exact-match handshake must reject them before any service is opened.
  */
-export const NODE_PROTOCOL_VERSION = 23;
+export const NODE_PROTOCOL_VERSION = 24;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an
@@ -1618,13 +1623,15 @@ export type PreviewLaneKind = "forward" | "screencast";
 
 /** Opens one preview lane inside the pane's node. */
 export interface PreviewOpenCommand {
+  /** Explicit saved browser service; omitted for loopback TCP and CDP. */
+  service?: ServiceTarget;
   type: "preview_open";
   /** Opaque lane ref: 32 lowercase hex, also the proxy path secret family. */
   ref: string;
   kind: PreviewLaneKind;
   /** Attribution + liveness check on the node, never a routing target. */
   paneId: string;
-  /** Dial target (forward) or devtools port (screencast). The node dials loopback only. */
+  /** Dial target (forward) or loopback devtools port (screencast). */
   port: number;
   /** Screencast only; the open EXECUTOR branch defaults an absent fps and the bridge clamps it to [1, 5]. Forward forbids it. */
   fps?: number;
@@ -2328,6 +2335,18 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
         (value.lifetimeMs as number) > PREVIEW_LIFETIME_MAX_MS
       )
         return null;
+      if ("service" in value) {
+        const service = value.service as ServiceTarget | null;
+        if (
+          value.kind !== "forward" ||
+          !service ||
+          typeof service !== "object" ||
+          typeof service.host !== "string" ||
+          normalizeServiceHost(service.host) !== service.host ||
+          (service.protocol !== "http" && service.protocol !== "https")
+        )
+          return null;
+      }
       if (value.kind === "forward" && "fps" in value) return null;
       if (
         "fps" in value &&
@@ -2339,6 +2358,14 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
           type: "preview_open",
           ref: value.ref,
           kind: "forward",
+          ...("service" in value
+            ? {
+                service: {
+                  host: (value.service as ServiceTarget).host,
+                  protocol: (value.service as ServiceTarget).protocol,
+                },
+              }
+            : {}),
           paneId: value.paneId,
           port: value.port as number,
           lifetimeMs: value.lifetimeMs as number,

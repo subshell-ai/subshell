@@ -1305,6 +1305,25 @@ describe("concurrency: synchronous reservations and the one-bridge-per-pane edge
 });
 
 describe("revocation during a preview open", () => {
+  it("removing a saved service cancels its pending open before a late node acknowledgement", async () => {
+    const h = makeHarness({ hold: (cmd) => cmd.type === "preview_open" });
+    const b = getPreviewBroker();
+    const service = { host: "example.com", protocol: "https" } as const;
+    const opening = b
+      .openForward({ viewerUserId: "u-race", paneId: PANE, nodeId: NODE, port: 443, serviceId: "saved", service })
+      .then(
+        () => "opened",
+        () => "refused",
+      );
+    await settle();
+    expect(h.held).toHaveLength(1);
+    const command = cmds(h, "preview_open")[0];
+    expect(command?.service).toEqual(service);
+    await b.removeService(PANE, "saved");
+    releaseHeld(h);
+    expect(await opening).toBe("refused");
+    expect(b.sessionFor(command.ref)).toBeNull();
+  });
   for (const kind of ["forward", "screencast"] as const) {
     for (const revoke of ["pane", "node", "account", "share"] as const) {
       it(`${revoke} revocation cancels a pending ${kind} before its late acknowledgement`, async () => {

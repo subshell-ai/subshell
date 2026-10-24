@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Duplex } from "node:stream";
-import { PREVIEW_LANE_BUFFER_MAX_BYTES } from "@internal/subshell-protocol";
+import { PREVIEW_LANE_BUFFER_MAX_BYTES, serviceAuthority } from "@internal/subshell-protocol";
 import { readLaneHead } from "@/preview/lane-wire.js";
 // Bun 1.4.2 ships a BUILT-IN module named `ws` that shadows the pinned
 // dependency for any import of the bare name (measured: its `Sender`
@@ -85,6 +85,7 @@ export interface LaneWsHandle {
 export interface LaneWsInit {
   /** The port the node dials; it rides the `Host` header only. */
   port: number;
+  host?: string;
   /** Origin-form path + query, proxy prefix already stripped. */
   path: string;
   /** The browser-derived headers worth forwarding (origin, subprotocols). */
@@ -129,7 +130,7 @@ export async function openLaneWebSocket(duplex: Duplex, init: LaneWsInit): Promi
   const key = randomBytes(16).toString("base64");
   const lines = [
     `GET ${init.path} HTTP/1.1`,
-    `host: 127.0.0.1:${init.port}`,
+    `host: ${serviceAuthority(init.host ?? "127.0.0.1", init.port)}`,
     "connection: upgrade",
     "upgrade: websocket",
   ];

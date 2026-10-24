@@ -38,7 +38,7 @@ export const SCREEN_PHONE_REASON =
 export function nodeReasonLine(reason: string | undefined): string {
   switch (reason) {
     case "preview-ports-unsupported":
-      return "This machine doesn’t support automatic port discovery or browser watching. Virtual screens need Linux.";
+      return "This machine doesn’t support automatic port discovery or browser watching. Add a service by port instead. Virtual screens need Linux.";
     case "preview-disabled":
       return "Apps & screens is switched off on this node. Its owner can turn it on in node settings.";
     case "node-held":

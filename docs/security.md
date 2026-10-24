@@ -1065,9 +1065,9 @@ consequences are:
   verified files, rather than treating missing trust as first use.
 - **Preview lanes carry pane bytes to the plane on purpose (pane-preview spec
   2026-10-21), accounted here the way the relay lanes are.** A forward lane
-  dials a port bound only to the node's loopback (the wire grammar bounds the
-  port and there is no host on the wire), and the plane's proxy rewrites
-  `Host` to loopback so the pane's dev server sees a local browser; the
+  dials loopback by default, or an explicit saved HTTP(S) destination from the node.
+  Protocol 24 carries a validated host and protocol for that destination; TLS
+  certificate checks stay enabled. The plane rewrites `Host` to the destination; the
   session's 32-hex ref inside the `/pv/` path is the credential. The
   screencast bridge dials CDP on the node's loopback, so frames ride the
   encrypted node link like any other node event. The plane therefore sees
@@ -4114,7 +4114,14 @@ a strict target policy can still prevent an embedded app from working.
 **The server and node remain trusted endpoints.** Remote bytes cross the
 established encrypted node link, but the server decrypts and proxies them. This
 is not end-to-end encryption between the viewer and the website. Each dial uses
-loopback literals and a bounded port, with no host supplied by a browser. Port
+loopback literals and a bounded port by default. Saved services deliberately extend
+this to a hostname or IP and HTTP/HTTPS, chosen by an edit-authorized user and
+stored under the subshell. This grants network reach from that node, including
+private networks, at the same shell-equivalent authority as terminal input. Hosts
+cannot contain credentials, paths, or header text. TLS remains certificate-verified;
+the proxy never follows redirects server-side. Deleting a saved entry cancels
+pending opens and revokes its capabilities without stopping the service. Saves
+and removals are audited without capability URLs. Port
 discovery is not a security allowlist for an edit-authorized forward: shell
 editors can already contact the execution account's local services. View-only
 browser watches do not receive that authority and cannot select arbitrary ports.

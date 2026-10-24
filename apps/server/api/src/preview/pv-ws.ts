@@ -241,6 +241,7 @@ export function previewWsRoute(options: { preAckMaxBytes?: number } = {}) {
       };
       const jarCookie = jarCookieHeader(t.session.cookieJar);
       const redial = openLaneWebSocket(duplex, {
+        host: t.session.service?.host,
         port: t.port,
         path: `/${t.rest}${t.search}`,
         headers: jarCookie ? [...t.forward, ["cookie", jarCookie]] : t.forward,

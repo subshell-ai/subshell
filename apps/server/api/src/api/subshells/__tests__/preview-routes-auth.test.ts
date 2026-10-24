@@ -246,6 +246,53 @@ describe("preview REST surface (Task 9)", () => {
   /* the actor table                                                  */
   /* ---------------------------------------------------------------- */
 
+  it("saves external services without a display, deduplicates, scopes IDs, and revokes on removal", async () => {
+    attachLive();
+    const pane = await directRow();
+    const other = await directRow();
+    const input = { host: "EXAMPLE.COM", port: 443, protocol: "https", name: "Docs" };
+    const saved = await call("POST", `/${pane}/services`, { cookie: ownerCookie, body: input });
+    expect(saved.status).toBe(200);
+    const service = (await saved.json()) as { id: string; host: string };
+    expect(service.host).toBe("example.com");
+    const duplicate = await call("POST", `/${pane}/services`, { cookie: ownerCookie, body: input });
+    expect(((await duplicate.json()) as { id: string }).id).toBe(service.id);
+    const list = await call("GET", `/${pane}/services`, { cookie: ownerCookie });
+    expect(((await list.json()) as { id: string }[]).map((row) => row.id)).toEqual([service.id]);
+    expect(
+      (await call("POST", `/${other}/views/open`, { cookie: ownerCookie, body: { serviceId: service.id } })).status,
+    ).toBe(404);
+    const opened = await call("POST", `/${pane}/views/open`, { cookie: ownerCookie, body: { serviceId: service.id } });
+    expect(opened.status).toBe(200);
+    const { proxyBase } = (await opened.json()) as { proxyBase: string };
+    const ref = proxyBase.split("/")[2];
+    expect(getPreviewBroker().sessionFor(ref)?.service).toEqual({ host: "example.com", protocol: "https" });
+    expect(getPreviewBroker().sessionFor(ref)?.mode).toBe("http");
+    expect((await call("DELETE", `/${pane}/services/${service.id}`, { cookie: ownerCookie })).status).toBe(200);
+    expect(getPreviewBroker().sessionFor(ref)).toBeNull();
+    expect(
+      (await call("POST", `/${pane}/views/open`, { cookie: ownerCookie, body: { serviceId: service.id } })).status,
+    ).toBe(404);
+    expect(await call("GET", `/${pane}/services`, { cookie: ownerCookie }).then((r) => r.json())).toEqual([]);
+  });
+
+  it("requires edit for saved service mutations, hides foreign services, and rejects URL hosts", async () => {
+    const pane = await directRow();
+    await grantPane(pane, viewerId, "view");
+    const body = { port: 3000, protocol: "http" };
+    expect((await call("GET", `/${pane}/services`, { cookie: viewerCookie })).status).toBe(200);
+    expect((await call("POST", `/${pane}/services`, { cookie: viewerCookie, body })).status).toBe(403);
+    expect((await call("DELETE", `/${pane}/services/missing`, { cookie: viewerCookie })).status).toBe(403);
+    expect((await call("GET", `/${pane}/services`, { cookie: foreignCookie })).status).toBe(404);
+    expect(
+      (await call("POST", `/${pane}/services`, { cookie: ownerCookie, body: { ...body, host: "http://example.com" } }))
+        .status,
+    ).toBe(400);
+    const saved = await call("POST", `/${pane}/services`, { cookie: ownerCookie, body });
+    expect(saved.status).toBe(200);
+    expect(((await saved.json()) as { host: string }).host).toBe("localhost");
+  });
+
   it("the owner reaches all four doors", async () => {
     attachLive();
     const pane = await directRow();

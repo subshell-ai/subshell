@@ -249,11 +249,12 @@ mirror, which SUCCEEDS everywhere including mac), and the display gate inside
 `launch` (3c/5a: platform, then switch, then the registry; the allocation
 precedes tmux so the refusal fails the launch with its named reason).
 
-- **The loopback invariant is absolute.** A lane's wire grammar carries no
-  host, only a bounded port, and the dials are loopback literals only; the
-  screencast bridge likewise dials CDP on `127.0.0.1` and refuses a
-  `webSocketDebuggerUrl` whose host is not loopback. This machine never
-  proxies to an address someone typed.
+- **Automatic views and CDP stay on loopback.** Protocol 24 also permits a
+  validated `service: { host, protocol }` on forward lanes for manually saved
+  browser services. DNS and certificate-verified HTTPS run on this node.
+  Explicit hosts never fall back to another host; localhost retains the IPv4/IPv6
+  retry. Screencasts reject the service field and still require a loopback CDP
+  WebSocket on the requested port.
 - **Xvfb, x11vnc and xauth are optional runtime dependencies.** A
   non-Linux machine refuses by platform (`preview-display-unsupported`); a
   Linux machine missing one of the binaries refuses

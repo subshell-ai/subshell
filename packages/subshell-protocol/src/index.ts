@@ -291,6 +291,7 @@ export {
   releaseAssetNames,
   SUBSHELL_REPO_SLUG,
 } from "./releases.js";
+export { normalizeServiceHost, type ServiceTarget, serviceAuthority } from "./service-target.js";
 export {
   DEFAULT_GRID,
   DEFAULT_SIZING,
@@ -447,7 +448,6 @@ export type {
 } from "./ssh-results.js";
 export { MAX_UPLOAD_BYTES } from "./uploads.js";
 export { MIN_NODE_VERSION, nodeVersionSupported, semverLt } from "./versions.js";
-
 export {
   parseWorkspacePreviewId,
   type WorkspacePreviewTarget,

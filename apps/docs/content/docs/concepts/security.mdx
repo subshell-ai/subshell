@@ -92,7 +92,7 @@ but isn't an emergency close for existing connections.
 
 The server sees forwarded website bytes and browser frames. The node link is
 encrypted, but this is not end-to-end encryption from your browser to the app.
-Preview dials loopback rather than exposing the dev server on the network.
+Automatically discovered apps use loopback. Saved services can reach an explicit host from the node, with edit access and node opt-in required. HTTPS connections validate the destination certificate on the node. Saving a service does not expose a new public listener.
 Edit access retains the execution account's authority over its local services;
 port discovery isn't an OS isolation boundary.
 

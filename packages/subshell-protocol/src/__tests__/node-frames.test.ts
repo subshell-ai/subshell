@@ -418,7 +418,7 @@ describe("parseNodeCommandBody", () => {
     // mirrors a per-machine owner switch, and a launch may carry a `screen`
     // request. A pre-23 agent understands none of it, and the exact-match gate
     // refuses pairing before any of it is sent.
-    expect(NODE_PROTOCOL_VERSION).toBe(23);
+    expect(NODE_PROTOCOL_VERSION).toBe(24);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {

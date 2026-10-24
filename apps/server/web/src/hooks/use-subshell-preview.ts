@@ -62,7 +62,7 @@ export interface UseSubshellPreview {
   watching: boolean;
   /** The refused watch, named (e.g. a `watch-port-conflict`), or null. */
   watchError: string | null;
-  openPort: (port: number) => Promise<PreviewOpenResult>;
+  openPort: (port: number, serviceId?: string) => Promise<PreviewOpenResult>;
   startWatch: (port?: number) => Promise<void>;
   stopWatch: () => Promise<void>;
   /** Ask for a fresh info answer, throttled to one request per window. */
@@ -222,10 +222,10 @@ export function useSubshellPreview(id: string, subshell: SubshellView | undefine
   );
 
   const openPort = useCallback(
-    (port: number) =>
+    (port: number, serviceId?: string) =>
       apiFetch<PreviewOpenResult>(`/api/subshells/${encodeURIComponent(id)}/views/open`, {
         method: "POST",
-        body: JSON.stringify({ port }),
+        body: JSON.stringify(serviceId ? { serviceId } : { port }),
       }),
     [id],
   );
