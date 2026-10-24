@@ -49,6 +49,7 @@ describe("virtual display prerequisites", () => {
     respond(ready);
     fireEvent.click(screen.getByRole("button", { name: "Recheck" }));
     await waitFor(() => expect(screen.getByRole("checkbox").getAttribute("aria-disabled")).not.toBe("true"));
+    expect(screen.queryByRole("button", { name: "Recheck" })).toBeNull();
   });
   it("fails closed when a check fails and recovers on recheck", async () => {
     respond({ message: "Bring this node online, then recheck." }, 409);
@@ -58,6 +59,7 @@ describe("virtual display prerequisites", () => {
     respond(ready);
     fireEvent.click(screen.getByRole("button", { name: "Recheck" }));
     await waitFor(() => expect(screen.getByRole("checkbox").getAttribute("aria-disabled")).not.toBe("true"));
+    expect(screen.queryByRole("button", { name: "Recheck" })).toBeNull();
   });
   it("doesn't reuse another machine's successful check", async () => {
     respond(ready);
@@ -69,6 +71,7 @@ describe("virtual display prerequisites", () => {
       </QueryClientProvider>,
     );
     await waitFor(() => expect(screen.getByRole("checkbox").getAttribute("aria-disabled")).not.toBe("true"));
+    expect(screen.queryByRole("button", { name: "Recheck" })).toBeNull();
     respond({ supported: true, missing: ["xauth"] });
     view.rerender(
       <QueryClientProvider client={client}>
