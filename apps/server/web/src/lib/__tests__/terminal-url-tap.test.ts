@@ -1,6 +1,4 @@
 import { describe, expect, it } from "bun:test";
-import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
-import { Terminal } from "@xterm/xterm";
 import {
   cellAtPoint,
   type TapCell,
@@ -8,7 +6,9 @@ import {
   type TapRow,
   tapCellsOfLine,
   urlTokenAt,
-} from "@/lib/terminal-url-tap";
+} from "@internal/subshell-protocol";
+import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
+import { Terminal } from "@xterm/xterm";
 
 /**
  * Two sources of cells feed these tests, and both matter:

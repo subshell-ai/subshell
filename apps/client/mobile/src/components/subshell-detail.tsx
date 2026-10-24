@@ -5,6 +5,7 @@ import { Alert, FlatList, Pressable, RefreshControl, Text, View } from "react-na
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { confirmAction } from "@/components/confirm-action";
 import { LiveHost } from "@/components/live-host";
+import { LogLine } from "@/components/log-line";
 import { PromptModal } from "@/components/prompt-modal";
 import { SUBSHELLS_KEY } from "@/hooks/query-keys";
 import { useSubshellData } from "@/hooks/use-subshell-data";
@@ -162,9 +163,10 @@ export function SubshellDetail({ subshellId, onBack }: { subshellId: string; onB
         <FlatList
           data={log.data?.lines ?? []}
           renderItem={({ item }) => (
-            <Text style={{ ...font("detail"), color: colors.fg, fontFamily: "Menlo", paddingHorizontal: 12 }}>
-              {item.length > 0 ? item : " "}
-            </Text>
+            <LogLine
+              line={item}
+              style={{ ...font("detail"), color: colors.fg, fontFamily: "Menlo", paddingHorizontal: 12 }}
+            />
           )}
           refreshControl={
             <RefreshControl

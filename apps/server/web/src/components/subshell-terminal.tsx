@@ -628,8 +628,8 @@ export function SubshellTerminal({
     // exactly this addon. Loaded before `open`, before any pane data lands
     // (the WS attaches in a later effect), so every row in the buffer is
     // laid out by it; copy-mode tap hit-testing reads those same cells
-    // (tapCellsOfLine in lib/terminal-url-tap), render and tap sharing one
-    // width truth.
+    // (tapCellsOfLine in @internal/subshell-protocol pane-url), render and
+    // tap sharing one width truth.
     term.loadAddon(new UnicodeGraphemesAddon());
     // URLs in pane output become links (issue #242), opened ONLY with
     // ctrl/cmd held (measured 2026-09-26 in the installed bundles: core
