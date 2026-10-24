@@ -44,6 +44,50 @@ MCP runs beside the agent as a stdio child, using the pane's scoped identity. It
 
 The server relays ciphertext, but terminal output and channel metadata have different security properties.
 
+## Preview apps and screens
+
+Preview brings a subshell's dev server, browser frames, or virtual display into
+the workspace. Your browser connects to the server; it doesn't need direct
+network access to the node's ports.
+
+```mermaid
+%% The dashboard authenticates to the server. App HTTP and WebSocket traffic use a capability URL and a loopback tunnel; CDP JPEG frames return through the authorized live feed. The built-in node uses the same runtime in process.
+flowchart LR
+  B[Dashboard browser] -->|Open preview with user access| S[Server preview broker]
+  B -->|HTTP or WS capability URL| P[Server preview proxy]
+  P <-->|Encrypted preview lanes| N[Node runtime]
+  N <-->|Loopback HTTP or RFB| A[Dev server or virtual display]
+  N -->|CDP JPEG frames| S
+  S -->|Authorized live feed| B
+  S -->|In-process adapter| L[Built-in node runtime]
+```
+
+The server checks subshell access and the node's Preview setting before opening
+a view. App forwarding and screen input need edit access. Watching browser
+frames needs view access; view-only shares are restricted to the browser
+discovered for their subshell.
+
+For app previews, the server creates a private capability URL and forwards each
+HTTP or WebSocket connection through a loopback-only lane on the execution
+machine. Proxied documents have an opaque browser origin so website scripts
+don't inherit dashboard authority. Target cookies stay in a server-side jar.
+The server's built-in node uses the same discovery, forwarding, CDP, and display
+runtime through an in-process adapter.
+
+Browser watches use Chrome DevTools Protocol to emit JPEG frames. Virtual
+displays use Linux Xvfb and a loopback x11vnc listener; the workspace renders
+and controls that RFB stream with noVNC. These are separate from the agent's
+terminal stream and from encrypted agent-to-agent channels. The trusted server
+can read preview bytes and frames.
+
+Each app port, browser watch, and display is a separate workspace tab with a
+parent subshell. Desktop previews initially split to the right. The phone tab
+strip leaves the desktop split layout unchanged. Saved layouts retain only
+previews whose parent pane is still authorized and present.
+
+See [Preview](/guides/preview), [Preview transport](/reference/node-protocol#preview-transport),
+and [Preview security](/concepts/security#preview-security).
+
 ## See also
 
 [MCP and agent communication](/mcp), [Access model](/concepts/access), and [Security model](/concepts/security).

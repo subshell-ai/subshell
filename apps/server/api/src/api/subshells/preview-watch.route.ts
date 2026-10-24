@@ -49,13 +49,31 @@ export const previewWatchRoute = new Elysia()
     "/:id/preview/watch",
     async ({ params, body, user, actor, apiKeyPermissions }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "read");
-      const { row } = await gatePreview(user.id, params.id, "view", actor);
+      const { row, access } = await gatePreview(user.id, params.id, "view", actor);
       const nodeState = await previewNodeState(row.nodeId);
       if (!nodeState.nodeEnabled) {
         throw new HttpError(409, `Preview is not available on that node right now (${nodeState.reason}).`);
       }
       const broker = getPreviewBroker();
       let port = body.port;
+      if (access === "view") {
+        let discovered: number | null;
+        try {
+          discovered = (await broker.getPorts(row.nodeId, params.id)).cdpPort;
+        } catch {
+          throw new HttpError(
+            409,
+            "The subshell's browser could not be checked. Try again when its node is available.",
+          );
+        }
+        if (discovered === null || (port !== undefined && port !== discovered)) {
+          throw new HttpError(
+            403,
+            "View access can only watch the browser discovered in this subshell. Ask its owner to check the browser setup.",
+          );
+        }
+        port = discovered;
+      }
       if (port === undefined) {
         // The cached ports answer is the fallback; a failure here is mapped,
         // because the caller asked the pane, not the cache, what to watch.

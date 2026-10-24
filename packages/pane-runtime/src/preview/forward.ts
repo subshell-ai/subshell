@@ -150,7 +150,9 @@ export class PreviewForward {
    */
   openLane(args: OpenLaneArgs): void {
     if (this.lanes.has(args.ref)) {
-      args.hooks.log?.(`preview lane ${args.ref}: open for an already-registered ref, keeping the live lane`);
+      args.hooks.log?.(
+        `preview lane ${args.ref.slice(0, 8)}…: open for an already-registered ref, keeping the live lane`,
+      );
       return;
     }
     const now = args.deps?.now ?? this.defaults.now ?? Date.now;
@@ -172,7 +174,7 @@ export class PreviewForward {
     };
     this.lanes.set(lane.ref, lane);
     lane.say(
-      `preview lane ${lane.ref}: opened for pane ${lane.paneId} at ${new Date(now()).toISOString()} (dialing port ${lane.port})`,
+      `preview lane ${lane.ref.slice(0, 8)}…: opened for pane ${lane.paneId} at ${new Date(now()).toISOString()} (dialing port ${lane.port})`,
     );
     this.arm(lane, "idle");
     this.arm(lane, "lifetime");
@@ -191,7 +193,7 @@ export class PreviewForward {
     const lane = this.lanes.get(ref);
     if (!lane) return { closed: false };
     this.remove(lane);
-    lane.say(`preview lane ${ref}: closed by the plane (${reason})`);
+    lane.say(`preview lane ${ref.slice(0, 8)}…: closed by the plane (${reason})`);
     return { closed: true };
   }
 
@@ -216,7 +218,7 @@ export class PreviewForward {
       // The dialed target died under the write: the socket is gone, the lane
       // follows it. (The `error`/`end` handlers race this on a real socket;
       // the lane-presence guard makes first death win.)
-      lane.say(`preview lane ${lane.ref}: inbound write failed (${String(err)}), closing target-gone`);
+      lane.say(`preview lane ${lane.ref.slice(0, 8)}…: inbound write failed (${String(err)}), closing target-gone`);
       this.die(lane, "target-gone");
     }
   }
@@ -270,7 +272,7 @@ export class PreviewForward {
         return;
       }
       up = true;
-      lane.say(`preview lane ${lane.ref}: connected (${host}:${lane.port})`);
+      lane.say(`preview lane ${lane.ref.slice(0, 8)}…: connected (${host}:${lane.port})`);
       this.touch(lane);
     });
     socket.on("data", (chunk) => {
@@ -304,7 +306,7 @@ export class PreviewForward {
       // The one retry is not a second attempt at a different SERVICE — loopback
       // v4 and v6 are the same host, and a server bound to only one family is
       // routine. The lane's budget timers, not a dial timeout, bound the total.
-      lane.say(`preview lane ${lane.ref}: 127.0.0.1:${lane.port} refused (${String(err)}), retrying ::1`);
+      lane.say(`preview lane ${lane.ref.slice(0, 8)}…: 127.0.0.1:${lane.port} refused (${String(err)}), retrying ::1`);
       // Release the refused socket before the retry overwrites `lane.socket`:
       // its guaranteed `close` would otherwise find the lane live (the retry
       // is in flight) and `remove` would destroy the ::1 dial through the
@@ -355,7 +357,7 @@ export class PreviewForward {
       lane.pendingBytes += chunk.length;
       if (lane.pendingBytes > lane.laneBufferMaxBytes) {
         lane.say(
-          `preview lane ${lane.ref}: ${lane.pendingBytes}B undeliverable (budget ${lane.laneBufferMaxBytes}B), closing slow-link (${String(err)})`,
+          `preview lane ${lane.ref.slice(0, 8)}…: ${lane.pendingBytes}B undeliverable (budget ${lane.laneBufferMaxBytes}B), closing slow-link (${String(err)})`,
         );
         this.die(lane, "slow-link");
       }
@@ -393,14 +395,14 @@ export class PreviewForward {
   private die(lane: Lane, reason: PreviewCloseReason): void {
     if (this.lanes.get(lane.ref) !== lane) return;
     this.remove(lane);
-    lane.say(`preview lane ${lane.ref}: closing (${reason})`);
+    lane.say(`preview lane ${lane.ref.slice(0, 8)}…: closing (${reason})`);
     try {
       lane.hooks.emit({ type: "preview_closed", ref: lane.ref, reason });
     } catch (err: unknown) {
       // Expected exactly once: the link-drop sweep closes lanes whose link is
       // already gone. The plane reads that link drop itself; the event is the
       // courtesy, and the agent log keeps the record.
-      lane.say(`preview lane ${lane.ref}: preview_closed (${reason}) undeliverable: ${String(err)}`);
+      lane.say(`preview lane ${lane.ref.slice(0, 8)}…: preview_closed (${reason}) undeliverable: ${String(err)}`);
     }
   }
 

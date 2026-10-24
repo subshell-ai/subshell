@@ -1000,6 +1000,9 @@ export class SubshellManagerService {
           throw new Error("Preset access was removed. Choose another preset before restarting this subshell.");
         }
       }
+      // Revoke capabilities before stopping the old process: the exit hook may
+      // arrive after its token is revoked, and a restart keeps the same row id.
+      await getPreviewBroker().closeForPane(source.id, "pane-gone");
       if (source.alive === 1 && source.tmuxSocket) {
         // killSubshell swallows "already gone"; the tree dies with its baked
         // key, which #reviveRow then rotates off the same row anyway.
@@ -1111,6 +1114,7 @@ export class SubshellManagerService {
   async terminateSubshell(userId: string, id: string): Promise<boolean> {
     const row = await this.#subshells.findById(id);
     if (!row || row.userId !== userId) return false;
+    await getPreviewBroker().closeForPane(id, "pane-gone");
     let killUnverified = false;
     if (row.tmuxSocket) {
       // Kill on the node the row lives on (row-based launcher, spec §6.3).
@@ -1201,6 +1205,7 @@ export class SubshellManagerService {
   async deleteSubshell(userId: string, id: string): Promise<boolean> {
     const row = await this.#subshells.findById(id);
     if (!row || row.userId !== userId) return false;
+    await getPreviewBroker().closeForPane(id, "pane-gone");
     const launcher = this.#launcherFor(row.nodeId);
     if (row.tmuxSocket) {
       // Kill the pane even if it is already dead; try/catch so a missing

@@ -11,10 +11,10 @@ test.use({ storageState: ADMIN_STATE });
 
 /**
  * Pane preview at the API level (spec 2026-10-21 §6, Task 14 Step 1): a REAL
- * enrolled node (the `local` row answers preview RPCs `offline`, so nothing
- * here works without one), a terminal pane whose `bun -e` script is both the
+ * enrolled node, exercising the remote encrypted transport rather than the
+ * built-in runtime; a terminal pane whose `bun -e` script is both the
  * dev server and the fake CDP endpoint, and the whole proxy round trip
- * through `/pv/<ref>/` (body bytes and the cookie jar's path rewrite) over
+ * through `/pv/<ref>/` (body bytes and the cookie jar's browser isolation) over
  * REST + the lane. No browser page is involved: this spec is the `request`
  * fixture end to end.
  *
@@ -55,7 +55,7 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 /**
  * The pane's one command, typed verbatim through `POST /:id/exec`. Two
  * loopback `Bun.serve`s: the HTTP server (body `ok` plus a `set-cookie` so
- * the jar rewrite is observable on the proxied response) and the CDP fake
+ * browser cookie isolation is observable on the proxied response) and the CDP fake
  * the watch bridge can actually shake hands with: `/json/version` answers
  * the `Browser` field that makes the ports scan call it CDP, `/json/list`
  * carries a `page` target whose `webSocketDebuggerUrl` is loopback, and the
@@ -288,17 +288,14 @@ test("preview: real node + terminal pane serve the proxy round trip and the watc
     expect(opened.ok(), await opened.text()).toBe(true);
     const { proxyBase } = (await opened.json()) as { proxyBase: string };
     expect(proxyBase).toMatch(/^\/pv\/[0-9a-f]{32}\/$/);
-    const ref = proxyBase.slice("/pv/".length, -1);
 
     const proxied = await request.get(proxyBase);
     expect(proxied.ok(), await proxied.text()).toBe(true);
     expect(await proxied.text()).toBe("ok");
-    // The jar rewrite, observed on the response (§6): the target's cookie
-    // comes back wearing the session's proxy path, so the browser's cookie
-    // store never spills plane-wide.
-    const setCookie = proxied.headers()["set-cookie"] ?? "";
-    expect(setCookie).toContain("t=1");
-    expect(setCookie).toContain(`Path=/pv/${ref}/`);
+    // Upstream cookies stay in the server-side session jar. A preview must
+    // never write into the dashboard browser's cookie store.
+    expect(proxied.headers()["set-cookie"]).toBeUndefined();
+    expect(proxied.headers()["content-security-policy"]).toContain("sandbox");
 
     // The session's audit pair lands with the lane, and the row says which
     // kind without ever naming the ref (refs never ride audit metadata).

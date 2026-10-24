@@ -1,5 +1,75 @@
 # Security follow-ups and audit history
 
+## Preview feature audit: 2026-10-24
+
+This targeted review followed the discovery, open/watch, HTTP/WS proxy,
+broker, local runtime, enrolled-node runtime, and workspace-layout paths.
+It found and corrected six issues across browser isolation, authorization,
+credential handling, lifecycle, diagnostics, and display allocation:
+
+1. **High: website JavaScript shared the dashboard origin.** App iframes lacked
+   a sandbox and direct preview documents had no response-enforced isolation.
+   A malicious website could access dashboard DOM/storage and make authenticated
+   API requests as the person checking it. App viewers now use an opaque-origin
+   iframe sandbox, and every proxied response enforces the sandbox for direct
+   tabs too. Target cookies stay in the server jar, preview responses cannot set
+   dashboard cookies, and no-referrer/no-store policies reduce link retention.
+   Preview-only CORS and `Origin: null` WS handling preserve modules, fetch,
+   and HMR-style tunnels without trusting that origin on dashboard endpoints.
+
+2. **High: a view grantee could choose another browser port.** The watch route
+   accepted an explicit CDP port with only view access to any shared subshell
+   on that node. A guessed port could expose another subshell's browser frames.
+   View-only requests now have to match the CDP port discovered for their own
+   shared subshell. Owners and edit grantees retain explicit-port support,
+   consistent with their existing shell authority. The REST regression verifies
+   refusal before opening a bridge.
+
+3. **Medium availability: display allocation ignored other data directories.**
+   Each runtime started at `:90` with locks in its own data directory. A second
+   isolated server collided with a display already running on this host, then
+   failed the readiness budget. Allocation now skips existing host X sockets
+   and X lock files; a unit regression covers externally occupied numbers.
+   Xauthority prevented the observed collision from becoming screen access.
+
+4. **Medium: runtime diagnostics printed complete preview references.** The
+   initial forward probe used the future browser capability reference, so a
+   runtime log line could disclose a usable link secret. Forward and CDP
+   lifecycle diagnostics now retain only an eight-character correlation prefix.
+   Reverse-proxy and browser-history retention remain operator concerns.
+
+5. **High: proxy headers could cross the dashboard trust boundary.** Browser
+   HTTP authorization and known edge-identity headers could reach a dev server;
+   upstream origin-wide headers such as `Clear-Site-Data` could affect dashboard
+   state. The HTTP proxy now strips these credentials and forwarded identity,
+   along with target storage-clearing, HTTP-authentication, HSTS, and Alt-Svc
+   response headers. Regressions verify both directions. Custom authentication
+   headers outside the recognized families still need operator review.
+
+6. **Medium: explicit subshell stops relied on the exit hook for revocation.**
+   Deleting a subshell could leave its capability registered after the row was
+   gone; a real browser regression observed a 500 instead of a revoked-link 404.
+   Existing connections also needed teardown independent of the exit hook.
+   Terminate, delete, and restart now await broker teardown before stopping the
+   old pane. Unit tests cover all three actions, owner checks, and ordering;
+   the Chromium regression verifies deletion immediately invalidates the URL.
+
+The real-Chromium check in `e2e/capture-preview-demo.ts --security-only` verifies
+embedded and direct preview documents against a disposable server: opaque
+origins, blocked parent/storage/cookie/API reads and service-worker registration, and working ES modules, JSON POST
+preflights, and application WebSockets. The same checks run in CI through
+`e2e/tests/48-preview-browser-isolation.spec.ts`. Unit tests cover proxy headers and cookie
+separation, foreign and opaque WS origins, watch-port authorization, reference
+ownership, revocation, caps, and saved-layout parent binding. The capture also
+exercises real dev-server forwarding and Linux virtual-display rendering.
+
+This is a source audit and targeted regression pass, not an independent
+penetration test. Native macOS behavior, other browsers, all framework-specific
+HMR/login flows, reverse-proxy log retention, and mutually untrusted local OS
+users were not exhaustively tested. Accepted bearer-link, loopback RFB,
+execution-account, cookie-jar, and resource-usage limits are stated in
+[security §11.15](security.md#1115-preview-apps-browsers-and-virtual-displays).
+
 ## Targeted code audit: 2026-10-21
 
 This pass reviewed authentication and scoped credentials, node enrollment and

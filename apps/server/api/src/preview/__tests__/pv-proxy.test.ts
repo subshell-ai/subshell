@@ -145,9 +145,10 @@ interface TargetSeen {
   url: string;
   host: string | null;
   cookie: string | null;
+  identity: (string | null)[];
   body: string;
 }
-let lastSeen: TargetSeen = { method: "", url: "", host: null, cookie: null, body: "" };
+let lastSeen: TargetSeen = { method: "", url: "", host: null, cookie: null, identity: [], body: "" };
 let targetPort = 0;
 let target: Bun.Server<{ path: string }> | undefined;
 
@@ -186,6 +187,14 @@ beforeAll(async () => {
         url: url.pathname + url.search,
         host: req.headers.get("host"),
         cookie: req.headers.get("cookie"),
+        identity: [
+          "authorization",
+          "x-api-key",
+          "cf-access-jwt-assertion",
+          "x-auth-request-user",
+          "x-forwarded-user",
+          "forwarded",
+        ].map((name) => req.headers.get(name)),
         body: req.method === "GET" || req.method === "HEAD" ? "" : await req.text(),
       };
       if (url.pathname === "/echo") {
@@ -196,6 +205,10 @@ beforeAll(async () => {
           headers: [
             ["set-cookie", "sid=9; Path=/deep; HttpOnly; Max-Age=60"],
             ["set-cookie", "theme=dark; Path=/app; Domain=example.com; Secure"],
+            ["clear-site-data", '"cookies", "storage"'],
+            ["www-authenticate", 'Basic realm="dashboard"'],
+            ["strict-transport-security", "max-age=31536000"],
+            ["alt-svc", 'h3=":443"'],
           ],
         });
       }
@@ -278,7 +291,7 @@ async function openSession(port: number): Promise<string> {
 beforeEach(() => {
   fake = makeFakeNode();
   freshBroker(fake);
-  lastSeen = { method: "", url: "", host: null, cookie: null, body: "" };
+  lastSeen = { method: "", url: "", host: null, cookie: null, identity: [], body: "" };
 });
 
 afterEach(() => {
@@ -358,21 +371,52 @@ async function probeUpgrade(port: number, path: string, origin?: string): Promis
 /* ------------------------------------------------------------------ */
 
 describe("pv-http: the same-origin rewrite", () => {
-  it("forces Path on every Set-Cookie and preserves the other attributes", async () => {
+  it("keeps target cookies out of the dashboard browser and isolates preview documents", async () => {
     const ref = await openSession(targetPort);
     const res = await proxyFetch(`/pv/${ref}/cookie`);
-    expect(res.status).toBe(200);
+    expect(res.headers.getSetCookie()).toEqual([]);
+    for (const name of ["clear-site-data", "www-authenticate", "strict-transport-security", "alt-svc"]) {
+      expect(res.headers.get(name)).toBeNull();
+    }
+    expect(res.headers.get("content-security-policy")).toContain("sandbox allow-scripts");
+    expect(res.headers.get("content-security-policy")).not.toContain("allow-same-origin");
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    expect(res.headers.get("access-control-allow-credentials")).toBe("false");
+    expect(res.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(res.headers.get("cache-control")).toBe("no-store");
     expect(await res.text()).toBe("ok");
-    const cookies = res.headers.getSetCookie();
-    expect(cookies).toHaveLength(2);
-    expect(cookies[0]).toContain("sid=9");
-    expect(cookies[0]).toContain(`Path=/pv/${ref}/`);
-    expect(cookies[0]).not.toContain("Path=/deep");
-    expect(cookies[0]).toContain("HttpOnly");
-    expect(cookies[0]).toContain("Max-Age=60");
-    expect(cookies[1]).toContain("theme=dark");
-    expect(cookies[1]).toContain(`Path=/pv/${ref}/`);
-    expect(cookies[1]).toContain("Secure");
+  });
+
+  it("does not forward dashboard or edge authentication to the dev server", async () => {
+    const ref = await openSession(targetPort);
+    const res = await proxyFetch(`/pv/${ref}/echo`, {
+      headers: {
+        authorization: "Bearer dashboard-secret",
+        "x-api-key": "dashboard-key",
+        "cf-access-jwt-assertion": "edge-jwt",
+        "x-auth-request-user": "private-user",
+        "x-forwarded-user": "private-user",
+        forwarded: "for=192.0.2.1",
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as TargetSeen).identity).toEqual([null, null, null, null, null, null]);
+  });
+
+  it("answers opaque-origin preflights without dialing the target", async () => {
+    const ref = await openSession(targetPort);
+    const res = await proxyFetch(`/pv/${ref}/echo`, {
+      method: "OPTIONS",
+      headers: {
+        origin: "null",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "content-type",
+      },
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers.get("access-control-allow-headers")).toBe("content-type");
+    expect(["*", "null"]).toContain(res.headers.get("access-control-allow-origin") ?? "");
+    expect(fake.dialOrder).toHaveLength(0);
   });
 
   it("never forwards the browser's Cookie; the jarred cookie rides a fresh lane's request", async () => {
@@ -383,7 +427,7 @@ describe("pv-http: the same-origin rewrite", () => {
     expect(first.status).toBe(200);
     expect(((await first.json()) as TargetSeen).cookie).toBeNull();
     const setOne = await proxyFetch(`/pv/${ref}/cookie`);
-    expect(setOne.headers.getSetCookie().length).toBe(2);
+    expect(setOne.headers.getSetCookie()).toEqual([]);
     // Request two on the SAME session: no Cookie header, but the jar carries
     // the pairs. And it rode a FRESH lane: each of the four proxy requests
     // dialed its own, so a lane quietly reused between requests fails here
@@ -432,7 +476,7 @@ describe("pv-http: the same-origin rewrite", () => {
     const report = res.headers.get("content-security-policy-report-only") ?? "";
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain("img-src *");
-    expect(csp).not.toContain("frame-ancestors");
+    expect(csp).toContain("frame-ancestors 'self'");
     expect(report).toContain("default-src 'self'");
     expect(report).toContain("script-src 'self'");
     expect(report).not.toContain("frame-ancestors");
@@ -517,9 +561,10 @@ describe("pv-ws: the upgrade gates", () => {
   });
   afterAll(() => stop?.());
 
-  it("refuses a cross-site Origin and passes the plane origin, a registry origin, and a missing Origin", async () => {
+  it("refuses a cross-site Origin and passes the plane origin, an opaque origin, a registry origin, and a missing Origin", async () => {
     const ref = await openSession(targetPort);
     const planeOrigin = originRegistry().current()[0];
+    expect((await probeUpgrade(proxyPort, `/pv/${ref}/hmr`, "null")).status).toBe(101);
     expect(await probeUpgrade(proxyPort, `/pv/${ref}/hmr`, "http://203.0.113.66:9999")).toMatchObject({ status: 403 });
     originRegistry().setPluginOrigins(PLUGIN, [DOC_ORIGIN]);
     expect((await probeUpgrade(proxyPort, `/pv/${ref}/hmr`, planeOrigin)).status).toBe(101);
