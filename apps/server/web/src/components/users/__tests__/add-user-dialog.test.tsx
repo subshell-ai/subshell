@@ -227,11 +227,17 @@ describe("AddUserDialog on close", () => {
     fillForm();
     expect((document.getElementById("new-user-password") as HTMLInputElement).value).toBe("correct-horse-battery");
 
+    // Boolean polls, deliberately: the dialog leaves through its exit
+    // transition (happy-dom 21 drives transitions, so the first check fails
+    // by design), and `toBeNull()`/`not.toBeNull()` on a failed wait make
+    // bun serialize the whole happy-dom node graph into the error — on
+    // 1.4.4 that serialization starves the poll it is waiting on (47 s on
+    // CI). A boolean compare()s a primitive and costs nothing.
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(document.getElementById("new-user-password")).toBeNull());
+    await waitFor(() => expect(document.getElementById("new-user-password") === null).toBe(true));
 
     fireEvent.click(screen.getByRole("button", { name: "Reopen" }));
-    await waitFor(() => expect(document.getElementById("new-user-password")).not.toBeNull());
+    await waitFor(() => expect(document.getElementById("new-user-password") !== null).toBe(true));
     for (const id of ["new-user-name", "new-user-email", "new-user-password", "new-user-password-confirm"]) {
       expect((document.getElementById(id) as HTMLInputElement).value, id).toBe("");
     }
