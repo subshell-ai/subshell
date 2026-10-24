@@ -60,7 +60,7 @@ export function WatchViewer({
 
   useEffect(() => {
     lastSeenRef.current = Date.now();
-    arrivalsRef.current = [lastSeenRef.current];
+    arrivalsRef.current = [];
     // The seq high-water mark is per-bridge, so it starts over with the pane:
     // a survived number from another pane's canvas would silently drop this
     // one's first frames. (The arrival clock above resets with the same line
@@ -116,7 +116,7 @@ export function WatchViewer({
   }
 
   return (
-    <div className="flex flex-col items-start gap-2">
+    <div className="flex min-h-0 flex-1 flex-col items-start gap-2">
       <div className="flex w-full items-center justify-between gap-3">
         <span className="font-strong text-label">Live browser frame</span>
         {onStop && (
@@ -130,7 +130,7 @@ export function WatchViewer({
         data-preview-canvas=""
         data-seq={frame?.seq ?? 0}
         data-bytes={frame?.blob.length ?? 0}
-        className="max-h-[50vh] w-full max-w-full rounded border border-border bg-background object-contain"
+        className="min-h-0 w-full max-w-full flex-1 rounded border border-border bg-background object-contain"
       />
       {/* One detail line for every clock reading, and it freezes while stale:
           a ticking age under a dead stream reads live, which is the exact lie

@@ -466,3 +466,9 @@ CLI main behind `import.meta.main` so tests import the pure publish/build logic
 without building or spawning; `src/service.ts` needs no such guard: it is
 side-effect-free by DI design (everything arrives through `ServiceDeps`; the CLI
 entry lives in `cli.ts`).
+
+Preview's machine-local implementations live in
+`packages/pane-runtime/src/preview/` so the control-plane host and enrolled
+nodes use the same discovery, forward, CDP, and display lifecycle code. The
+agent's `preview/` modules preserve its logging and file-backed opt-in gate.
+Build the shared runtime before testing changes through these wrappers.

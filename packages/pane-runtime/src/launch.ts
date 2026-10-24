@@ -37,9 +37,10 @@ export function buildHarnessCommand(
   mcp?: McpRegistration,
   harnessSession?: { id: string; mode: "start" | "resume" },
   reporter?: ReporterSpec,
+  extraEnv?: Record<string, string>,
 ): string {
   const argv = harness.buildCommand({ binary, cwd, preset, subshellName, mcp, harnessSession, reporter });
-  return assembleHarnessCommand(argv, preset, subshellEnv, mcp?.env);
+  return assembleHarnessCommand(argv, preset, subshellEnv, mcp?.env, extraEnv);
 }
 
 /**

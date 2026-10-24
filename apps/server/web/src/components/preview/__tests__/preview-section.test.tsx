@@ -16,7 +16,7 @@ import type { SubshellAccess, SubshellView } from "@/types/subshell";
 const VIEW_REASON = "Opening a forwarded port needs edit access to this subshell.";
 const SCREEN_VIEW_REASON = "Screen preview needs edit access to this subshell.";
 const SCREEN_PHONE_REASON =
-  "Screen preview needs the panel, and phones do not have one. Watch still streams frames here.";
+  "View screen is available on larger screens. You can still watch browser frames on this phone.";
 const SWITCH_OFF_REASON = "Preview is switched off on this node. Its owner can turn it on in node settings.";
 
 function controller(over: Partial<UseSubshellPreview> = {}): UseSubshellPreview {
@@ -109,12 +109,12 @@ describe("gated controls explain themselves", () => {
     // Cast-and-read, this repo's convention: no jest-dom dependency; the
     // disabled-with-reason trio lives on `aria-disabled` + `aria-description`
     // (ExplainedButton).
-    const open = screen.getAllByRole("button", { name: "Open" })[0];
+    const open = screen.getAllByRole("button", { name: "Open app" })[0];
     expect(open.matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(open.getAttribute("aria-description")).toBe(VIEW_REASON);
-    const watch = screen.getByRole("button", { name: "Watch" });
+    const watch = screen.getByRole("button", { name: "Watch browser" });
     expect(watch.matches(":disabled, [aria-disabled=true]")).toBe(false);
-    const showScreen = screen.getByRole("button", { name: "Screen" });
+    const showScreen = screen.getByRole("button", { name: "View screen" });
     expect(showScreen.matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(showScreen.getAttribute("aria-description")).toBe(SCREEN_VIEW_REASON);
   });
@@ -126,7 +126,7 @@ describe("gated controls explain themselves", () => {
 
   it("the disabled Watch explains itself the way Open and Screen do", () => {
     mount({ info: info({ nodeEnabled: false, reason: "preview-disabled" }) });
-    const watch = screen.getByRole("button", { name: "Watch" });
+    const watch = screen.getByRole("button", { name: "Watch browser" });
     expect(watch.matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(watch.getAttribute("aria-description")).toBe(SWITCH_OFF_REASON);
   });
@@ -135,7 +135,7 @@ describe("gated controls explain themselves", () => {
 describe("Open (edit unlocks it)", () => {
   it("edit opens the panel hosting the proxy iframe and a new-tab link with the proxy href", async () => {
     const { view } = mount({ access: "edit", info: info() });
-    fireEvent.click(screen.getAllByRole("button", { name: "Open" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Open app" })[0]);
     await waitFor(() => expect(view.container.querySelector("iframe")).not.toBeNull());
     expect(view.container.querySelector("iframe")?.getAttribute("src")).toBe("/pv/ref1/");
     const link = screen.getByRole("link", { name: /open in new tab/i });
@@ -144,7 +144,7 @@ describe("Open (edit unlocks it)", () => {
 
   it("the panel closes again", async () => {
     const { view } = mount({ access: "edit", info: info() });
-    fireEvent.click(screen.getAllByRole("button", { name: "Open" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Open app" })[0]);
     await waitFor(() => expect(view.container.querySelector("iframe")).not.toBeNull());
     fireEvent.click(screen.getByRole("button", { name: /close/i }));
     expect(view.container.querySelector("iframe")).toBeNull();
@@ -241,7 +241,7 @@ describe("Watch verbs drive both halves through the controller", () => {
         },
       },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Watch" }));
+    fireEvent.click(screen.getByRole("button", { name: "Watch browser" }));
     await waitFor(() => expect(asked).toBe(9333));
   });
 
@@ -259,14 +259,14 @@ describe("the screen row", () => {
     // One render contract (round-14 MINOR): the row always carries the button;
     // edit clears its reason, and no hint text replaces it.
     expect(screen.getByText("Virtual display :90")).toBeTruthy();
-    const button = screen.getByRole("button", { name: "Screen" });
+    const button = screen.getByRole("button", { name: "View screen" });
     expect(button.matches(":disabled, [aria-disabled=true]")).toBe(false);
   });
 
   it("screenLost reads as the loss line, with no Screen control", () => {
     mount({ info: info({ ports: [], cdpPort: null, screenLost: "x11vnc" }) });
     expect(screen.getByText("Display stopped: x11vnc exited")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Screen" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "View screen" })).toBeNull();
   });
 });
 
@@ -281,34 +281,20 @@ describe("phone layouts trade the panel, never Watch", () => {
       info: info({ screen: { display: ":90", rfbPort: 5900 } }),
       isPhone: true,
     });
-    const showScreen = screen.getByRole("button", { name: "Screen" });
+    const showScreen = screen.getByRole("button", { name: "View screen" });
     expect(showScreen.matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(showScreen.getAttribute("aria-description")).toBe(SCREEN_PHONE_REASON);
-    const watch = screen.getByRole("button", { name: "Watch" });
+    const watch = screen.getByRole("button", { name: "Watch browser" });
     expect(watch.matches(":disabled, [aria-disabled=true]")).toBe(false);
   });
 
-  it("Open on a phone never renders the panel; it hands the proxy to a new tab. Watch still paints", async () => {
-    const opened: string[] = [];
-    const originalOpen = window.open;
-    window.open = ((url?: string) => {
-      if (url) opened.push(url);
-      return null;
-    }) as typeof window.open;
-    try {
-      const { view } = mount({
-        access: "edit",
-        info: info(),
-        controller: { watching: true },
-        isPhone: true,
-      });
-      fireEvent.click(screen.getAllByRole("button", { name: "Open" })[0]);
-      await waitFor(() => expect(opened).toEqual(["/pv/ref1/"]));
-      expect(view.container.querySelector("iframe")).toBeNull();
-      expect(view.container.querySelector("[data-preview-canvas]")).not.toBeNull();
-    } finally {
-      window.open = originalOpen;
-    }
+  it("prepares a real link on phones so a slow request cannot become a blocked popup", async () => {
+    const { view } = mount({ access: "edit", info: info(), isPhone: true });
+    fireEvent.click(screen.getAllByRole("button", { name: "Open app" })[0]);
+    const link = await screen.findByRole("link", { name: "Open port 3000 in new tab" });
+    expect(link.getAttribute("href")).toBe("/pv/ref1/");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(view.container.querySelector("iframe")).toBeNull();
   });
 });
 
@@ -343,5 +329,13 @@ describe("the shared-pane banner variant", () => {
   it("says nothing when the pane is private", () => {
     mount({ info: info(), subshell: row({ shareCount: 0 }) });
     expect(screen.queryByText(/shared/i)).toBeNull();
+  });
+});
+
+describe("unsupported discovery", () => {
+  it("explains the platform limit instead of promising ports will appear", () => {
+    mount({ info: info({ ports: [], cdpPort: null, nodeEnabled: true, reason: "preview-ports-unsupported" }) });
+    expect(screen.getByText(/doesn’t support automatic port discovery/)).toBeTruthy();
+    expect(screen.queryByText(/Nothing to preview yet/)).toBeNull();
   });
 });

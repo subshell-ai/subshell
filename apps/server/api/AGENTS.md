@@ -476,6 +476,17 @@ capture child's own account is in Architecture above.
 
 ## Preview lanes (pane-preview spec 2026-10-21)
 
+The server's built-in node uses `preview/local-preview.ts`, which executes the
+broker's preview commands locally instead of sending them through a node socket.
+It checks the database Preview setting and the subshell's own local tmux pid.
+Both paths use the discovery, forwarding, CDP bridge, and virtual display
+primitives in `packages/pane-runtime/src/preview/`. The local launcher allocates
+screens before starting tmux and applies DISPLAY/XAUTHORITY above preset env.
+Its kill and failed-launch paths release displays; the death transition and
+minute display sweep cover exits and server restarts. Local bytes and browser
+frames return to the same broker, so proxy access, caps, revocation, and audit
+rules apply equally to both paths.
+
 - **The lanes are loopback-only at the far end.** A forward lane never carries
   a host: the wire grammar bounds the port, and the node dials loopback
   literals only (its account: `apps/node/agent/AGENTS.md`, "Preview"). The

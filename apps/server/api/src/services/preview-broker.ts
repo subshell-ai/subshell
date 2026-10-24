@@ -20,7 +20,9 @@ import {
 import { db } from "@/db/index.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { type Access, accessAtLeast, loadSubshellAccess } from "@/lib/subshell-access.js";
+import { getLocalPreviewRuntime, sweepLocalPreviewDisplays } from "@/preview/local-preview.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
 import { sendCommand } from "@/services/nodes/node-rpc.js";
 import { sendPreviewFrameOverNodeSocket } from "@/services/nodes/preview-frames.js";
@@ -243,8 +245,23 @@ let accessRepos: { subshells: SubshellsRepository; shares: SubshellSharesReposit
 function productionDeps(): PreviewBrokerDeps {
   return {
     nowMs: () => Date.now(),
-    send: (nodeId, cmd) => sendCommand(nodeId, cmd),
-    linkSend: (nodeId, frame) => sendPreviewFrameOverNodeSocket(nodeId, frame),
+    send: async (nodeId, cmd) => {
+      if (nodeId !== LOCAL_NODE_ID) return sendCommand(nodeId, cmd);
+      await sweepLocalPreviewDisplays();
+      return getLocalPreviewRuntime().execute(cmd, (event) => {
+        const broker = getPreviewBroker();
+        if (event.type === "preview_data") broker.onNodeLaneFrame(LOCAL_NODE_ID, event);
+        else if (event.type === "preview_stream") broker.onStreamEvent(LOCAL_NODE_ID, event);
+        else
+          void broker
+            .onNodeReportedClose(LOCAL_NODE_ID, event.ref, event.reason)
+            .catch((err: unknown) => getLogger().warn(`Local preview teardown failed: ${String(err)}`));
+      });
+    },
+    linkSend: (nodeId, frame) => {
+      if (nodeId === LOCAL_NODE_ID) getLocalPreviewRuntime().forward.ingestInboundFrame(frame);
+      else sendPreviewFrameOverNodeSocket(nodeId, frame);
+    },
     // The repos are built directly (not through getRequestlessContext) so
     // this module never sits in the context <-> services import circle, and
     // once — they are stateless over `db`, and building them per ask was

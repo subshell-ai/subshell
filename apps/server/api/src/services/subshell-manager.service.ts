@@ -33,6 +33,7 @@ import type { SubshellTable, SubshellUpdate } from "@/db/types/subshells.db-type
 import { getRequestlessContext } from "@/lib/context.js";
 import { presetAccess } from "@/lib/preset-access.js";
 import type { Access } from "@/lib/subshell-access.js";
+import { getLocalPreviewRuntime } from "@/preview/local-preview.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
 import { publishLive } from "@/services/live-bus.js";
 // Value cycle with `lockdown.js` (it imports THIS module for the kill loop):
@@ -1805,6 +1806,7 @@ export class SubshellManagerService {
     // a subshell that will never come back has its MCP token revoked here.
     // "Never" means opted out OR the backoff limit was exhausted (the
     // sweep gives up at that count, so the bearer would linger otherwise).
+    if (fresh.nodeId === LOCAL_NODE_ID) getLocalPreviewRuntime().displays.closeFor(fresh.id);
     const restarted = await this.maybeAutoRestart(fresh);
     // The ssh config dir is a pane artifact like the preview cache and the idle
     // tmux server below: it dies with the pane, HERE, in the ONE shared
