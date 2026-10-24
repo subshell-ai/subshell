@@ -68,9 +68,9 @@ export function PreviewToolbar({
         if (fullscreenSupported) onFullscreen();
       }}
     >
-      {fullscreen ? <Minimize2 /> : <Maximize2 />}
+      <Maximize2 />
       <span className="flex flex-col">
-        <span>{fullscreen ? "Exit full screen" : "Full screen"}</span>
+        <span>Full screen</span>
         {!fullscreenSupported && (
           <span className="text-detail text-muted-foreground">Your browser doesn't support full screen.</span>
         )}
@@ -95,6 +95,18 @@ export function PreviewToolbar({
           </TooltipTrigger>
           <TooltipContent>{status}</TooltipContent>
         </Tooltip>
+      )}
+      {workspace?.maximized && (
+        <Button variant="ghost" size="sm" onClick={workspace.onToggleMaximize}>
+          <Minimize2 className="size-4" aria-hidden />
+          Restore pane
+        </Button>
+      )}
+      {fullscreen && (
+        <Button variant="ghost" size="sm" onClick={onFullscreen}>
+          <Minimize2 className="size-4" aria-hidden />
+          Exit full screen
+        </Button>
       )}
       <IconAction label="Refresh preview" disabled={busy} disabledReason={busyReason} onClick={onRefresh}>
         <RefreshCw />
@@ -122,20 +134,21 @@ export function PreviewToolbar({
             }
           >
             <DropdownMenuGroup>
-              {workspace && (
+              {workspace && !workspace.maximized && (
                 <DropdownMenuItem onSelect={workspace.onToggleMaximize}>
-                  {workspace.maximized ? <Minimize2 /> : <Maximize2 />}
-                  {workspace.maximized ? "Restore pane" : "Maximize pane"}
+                  <Maximize2 />
+                  Maximize pane
                 </DropdownMenuItem>
               )}
-              {fullscreenSupported ? (
-                fullscreenAction
-              ) : (
-                <Tooltip>
-                  <TooltipTrigger render={fullscreenAction} />
-                  <TooltipContent>Your browser doesn't support full screen.</TooltipContent>
-                </Tooltip>
-              )}
+              {!fullscreen &&
+                (fullscreenSupported ? (
+                  fullscreenAction
+                ) : (
+                  <Tooltip>
+                    <TooltipTrigger render={fullscreenAction} />
+                    <TooltipContent>Your browser doesn't support full screen.</TooltipContent>
+                  </Tooltip>
+                ))}
               {appUrl && (
                 <DropdownMenuItem render={<a href={appUrl} target="_blank" rel="noreferrer" />}>
                   <ExternalLink />

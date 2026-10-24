@@ -29,3 +29,5 @@ Open the preview picker from the subshell header, removing the duplicate selecto
 Move full screen into the preview action menu, keeping that menu usable inside the fullscreen viewer.
 
 Open new previews in a split to the right of their terminal, and move workspace maximize and restore into the preview action menu.
+
+Show restore and exit controls directly in preview toolbars while maximized or in full screen.

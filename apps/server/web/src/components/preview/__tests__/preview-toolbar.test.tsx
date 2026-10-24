@@ -53,7 +53,7 @@ it("refreshes the current view and explains a pending selection", () => {
   expect(screen.getByRole("button", { name: "Refresh preview" }).getAttribute("aria-disabled")).toBe("true");
 });
 
-it("moves full screen into More and changes the action while full screen is active", async () => {
+it("offers full screen in More and puts its exit directly in the toolbar", async () => {
   let toggled = 0;
   const view = render(
     <PreviewToolbar
@@ -70,10 +70,11 @@ it("moves full screen into More and changes the action while full screen is acti
   expect(toggled).toBe(1);
   view.rerender(<PreviewToolbar {...props({ fullscreen: true })} />);
   fireEvent.click(screen.getByRole("button", { name: "More preview actions" }));
-  expect(await screen.findByRole("menuitem", { name: "Exit full screen" })).toBeTruthy();
+  expect(screen.queryByRole("menuitem", { name: "Full screen" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Exit full screen" })).toBeTruthy();
 });
 
-it("keeps the exit action inside the fullscreen viewer", async () => {
+it("keeps secondary menu actions inside the fullscreen viewer", async () => {
   const host = document.createElement("section");
   document.body.append(host);
   const descriptor = Object.getOwnPropertyDescriptor(document, "fullscreenElement");
@@ -81,7 +82,7 @@ it("keeps the exit action inside the fullscreen viewer", async () => {
   try {
     render(<PreviewToolbar {...props({ fullscreen: true })} />);
     fireEvent.click(screen.getByRole("button", { name: "More preview actions" }));
-    expect(host.contains(await screen.findByRole("menuitem", { name: "Exit full screen" }))).toBe(true);
+    expect(host.contains(await screen.findByRole("menuitem", { name: "Open in browser tab" }))).toBe(true);
   } finally {
     if (descriptor) Object.defineProperty(document, "fullscreenElement", descriptor);
     else Reflect.deleteProperty(document, "fullscreenElement");
@@ -89,7 +90,7 @@ it("keeps the exit action inside the fullscreen viewer", async () => {
   }
 });
 
-it("offers workspace maximize and restore in the preview action menu", async () => {
+it("offers maximize in More and restores directly from the toolbar", async () => {
   let toggled = 0;
   const workspace = {
     maximized: false,
@@ -103,6 +104,7 @@ it("offers workspace maximize and restore in the preview action menu", async () 
   expect(toggled).toBe(1);
   view.rerender(<PreviewToolbar {...props({ workspace: { ...workspace, maximized: true } })} />);
   fireEvent.click(screen.getByRole("button", { name: "More preview actions" }));
-  fireEvent.click(await screen.findByRole("menuitem", { name: "Restore pane" }));
+  expect(screen.queryByRole("menuitem", { name: "Maximize pane" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Restore pane" }));
   expect(toggled).toBe(2);
 });
