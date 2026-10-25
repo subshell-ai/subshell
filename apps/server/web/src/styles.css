@@ -278,8 +278,8 @@ body {
 }
 
 /* The same threshold guards the app's own form fields on touch: the shared
-   input style is 13px, which would zoom login/search/dialog fields the same
-   way. Desktop keeps its 13px; phones get Apple's no-zoom size (which is
+   input style is 14px, which would zoom login/search/dialog fields the same
+   way. Desktop keeps its 14px; phones get Apple's no-zoom size (which is
    also the accessibility-correct touch size). */
 @media (pointer: coarse) {
   input,

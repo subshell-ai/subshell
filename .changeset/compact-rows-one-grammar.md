@@ -1,9 +1,7 @@
 ---
 "@internal/server": patch
-"@internal/node": patch
-"@internal/desktop-client": patch
 ---
 
-Use consistent compact sizing for picker dropdowns, action menus, and context menus: 13px text, 2px vertical padding, and 28px minimum rows. Apply the same row sizing to directory and SSH destination lists.
+Menus and pickers share one row density now. Action-menu rows tightened from 36px to 32px, and every picker sizes its popup list to its own control: full-size pickers keep the same 32px rows the menus use, and the sidebar's compact workspace and grouping pickers open compact lists that fit their triggers instead of a popup bigger than the control that opened it.
 
-Align single-line inputs, closed pickers, standard buttons, and segmented groups to the sidebar’s 28px height. Touch text inputs retain their anti-zoom font size.
+Use 13px text, 2px vertical padding, and 28px minimum rows for action-menu items.

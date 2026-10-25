@@ -1,7 +1,6 @@
 import { Menu } from "@base-ui/react/menu";
 import { cn } from "@internal/node-admin";
 import type { JSX } from "react";
-import { POPUP_ROW_DENSITY } from "@/components/ui/popup-row";
 
 /**
  * Dropdown menu on Base UI's `Menu` parts (migrated from Radix
@@ -89,8 +88,8 @@ export function DropdownMenuItem({ className, onSelect, onClick, ...props }: Dro
     <Menu.Item
       data-slot="menu-item"
       className={cn(
-        POPUP_ROW_DENSITY,
-        "relative flex cursor-default select-none items-center gap-2 rounded-sm px-2 outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50",
+        // Keep action menus compact while retaining a 28px pointer target.
+        "relative flex min-h-7 cursor-default select-none items-center gap-2 rounded-sm px-2 py-0.5 text-detail outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50",
         className,
       )}
       onClick={(event) => {

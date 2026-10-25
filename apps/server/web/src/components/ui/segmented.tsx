@@ -44,7 +44,17 @@ export interface SegmentedProps<T extends string> {
    * design-system.md "Tab groups are content-sized").
    */
   fill?: boolean;
-  /** @deprecated All segmented controls now use the compact height. */
+  /**
+   * Opt-in vertical density: merges `h-6` onto every option button.
+   *
+   * The shared `size="sm"` table (h-8 around 16px icons) is the
+   * one-size-fits-most default and is what every consumer renders today —
+   * `false` (the default) stays byte-identical. `true` halves the air to the
+   * 24px box the rail's cell grid already works in (operator ask 2026-09-25:
+   * reduce the padding on the buttons by half). Horizontal padding is NOT
+   * touched: width changes were rejected twice; `h-6` wins over the
+   * variant's `h-8` because `cn` is tailwind-merge, not string concat.
+   */
   dense?: boolean;
   disabled?: boolean;
   disabledReason?: string;
@@ -71,12 +81,13 @@ export function Segmented<T extends string>({
   onChange,
   className,
   fill = true,
+  dense = false,
   disabled = false,
   disabledReason,
 }: SegmentedProps<T>) {
   return (
     <fieldset
-      className={cn("flex min-w-0 items-center rounded-md border p-px", !fill && "w-fit", className)}
+      className={cn("flex min-w-0 items-center rounded-md border p-0.5", !fill && "w-fit", className)}
       aria-label={ariaLabel}
     >
       {options.map((option) => {
@@ -85,8 +96,15 @@ export function Segmented<T extends string>({
           disabled,
           disabledReason,
           size: "sm",
-          // A 24px button plus the group border and inset matches 28px fields.
-          className: cn("h-6 min-w-0", fill && "flex-1"),
+          // Under `fill`, every option takes an EQUAL share of the group, which
+          // is what makes it read as a switch between named states rather than
+          // buttons parked in a pill (2026-09-18). Without it the container is
+          // `w-fit` and the options size to their words — the page-tab shape
+          // (2026-09-25). `min-w-0` so a long label shrinks within its share
+          // instead of pushing the group past its container. `dense` swaps
+          // the sm height for the rail's 24px (twMerge resolves it against
+          // the variant's h-8; horizontal px stays — see the prop's JSDoc).
+          className: cn("min-w-0", fill && "flex-1", dense && "h-6"),
           variant: value === option.value ? "default" : "ghost",
           "aria-pressed": value === option.value,
           "aria-label": option.ariaLabel,

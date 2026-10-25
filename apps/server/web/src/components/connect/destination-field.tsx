@@ -2,7 +2,6 @@ import { cn, Input } from "@internal/node-admin";
 import type { JSX } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { ComboboxOption } from "@/components/ui/combobox";
-import { POPUP_ROW_DENSITY } from "@/components/ui/popup-row";
 import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 
 /**
@@ -149,10 +148,7 @@ export function DestinationField({
                   onClick={() => pick(option)}
                   aria-label={option.label}
                   aria-describedby={option.reason ? `${id}-${encodeURIComponent(option.value)}-detail` : undefined}
-                  className={cn(
-                    POPUP_ROW_DENSITY,
-                    "flex w-full flex-col items-start justify-center rounded-sm px-2 text-left hover:bg-accent",
-                  )}
+                  className="flex w-full flex-col items-start rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
                 >
                   <span className="truncate">{option.label}</span>
                   {option.reason ? (

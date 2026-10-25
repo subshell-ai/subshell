@@ -1,8 +1,6 @@
 import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox";
-import { cn } from "@internal/node-admin";
 import { Fragment, type JSX, type ReactNode, useRef, useState } from "react";
 import type { PickerDensity } from "@/components/ui/picker-density";
-import { POPUP_ROW_DENSITY } from "@/components/ui/popup-row";
 
 /** One row in a {@link SearchableSelect} list. */
 export interface ComboboxOption {
@@ -85,7 +83,7 @@ export interface SearchableSelectProps {
   onSearchChange?: (query: string) => void;
   /** Maximum search input length, matching the resource API. */
   maxLength?: number;
-  /** Size the input; popup rows use the shared menu sizing. */
+  /** Pair the field and the popup rows' size; see picker-density.tsx. */
   density?: PickerDensity;
 }
 
@@ -198,12 +196,12 @@ export function SearchableSelect({
           const scroller = anchor?.closest('[data-slot="dialog-content"] > div') ?? document.scrollingElement;
           if (scroller) scrollerRef.current = { el: scroller, top: scroller.scrollTop };
         }}
-        // Compact fields fit the sidebar; popup rows share the menu density.
-        className={cn(
-          "flex w-full items-center whitespace-nowrap rounded-md border border-input bg-transparent shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
-          "h-7 py-0.5 text-detail",
-          density === "compact" ? "px-2" : "px-3",
-        )}
+        // The field and its rows are sized as one pair (picker-density.tsx):
+        // a compact field opens a compact list, never the full-size one.
+        className={
+          "flex w-full items-center whitespace-nowrap rounded-md border border-input bg-transparent shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50" +
+          (density === "compact" ? "h-7 px-2 py-0.5 text-detail" : "h-9 px-3 py-2 text-sm")
+        }
       />
       <ComboboxPrimitive.Portal>
         <ComboboxPrimitive.Positioner align="start" sideOffset={4} className="isolate z-50">
@@ -240,10 +238,10 @@ export function SearchableSelect({
                     <ComboboxPrimitive.Item
                       value={option}
                       disabled={option.disabled ?? false}
-                      className={cn(
-                        "relative flex w-full cursor-default select-none items-center rounded-sm px-2 outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50",
-                        POPUP_ROW_DENSITY,
-                      )}
+                      className={
+                        "relative flex w-full cursor-default select-none items-center rounded-sm px-2 outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50" +
+                        (density === "compact" ? "py-1 text-detail" : "py-1.5 text-sm")
+                      }
                     >
                       {option.icon !== undefined && (
                         <span aria-hidden className="mr-2 flex shrink-0 items-center">
