@@ -31,7 +31,7 @@ For a node with `subshell` on PATH, a standard registration has this shape:
 }
 ```
 
-Use `subshell-server` or the displayed absolute executable where that is the resolved host command. The child process inherits the pane's identity environment.
+Use `subshell-server` or the displayed absolute executable where that is the resolved host command. The MCP host must forward the pane's identity environment to the child process. Codex requires an explicit `env_vars` allowlist; see [MCP troubleshooting](/mcp/troubleshooting#codex-starts-but-subshell-mcp-fails) if its registration omits that list.
 
 ## Verify
 

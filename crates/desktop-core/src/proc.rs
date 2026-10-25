@@ -367,6 +367,14 @@ mod tests {
     // it blocked on a full pipe while we blocked on wait.
     #[test]
     fn a_child_larger_than_the_pipe_buffer_is_not_a_timeout() {
+        // Resolve the lazy login-PATH probe BEFORE the clock starts. `run`
+        // fills that OnceLock on first use, so whichever test reaches it
+        // first pays the whole probe chain (dscl, then the user's login
+        // shell, each bounded at PROBE_TIMEOUT). On a loaded shared runner
+        // that chain alone overran this budget: CI measured 8.09 s with the
+        // functional asserts below still green, because the drain itself was
+        // never the slow part.
+        login_path();
         let started = Instant::now();
         let r = run(
             &[
@@ -391,6 +399,9 @@ mod tests {
     // `timed_out: false` — the deadline provably did nothing.
     #[test]
     fn a_backgrounded_descendant_cannot_outlive_the_deadline() {
+        // Same clock trap as the pipe-buffer test: the first `run` of the
+        // process pays the login-PATH probe, and this budget is 4 s.
+        login_path();
         let started = Instant::now();
         let r = run(
             &["/bin/sh".into(), "-c".into(), "(sleep 8) & echo started; exit 0".into()],
