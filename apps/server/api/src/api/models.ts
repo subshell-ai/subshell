@@ -55,6 +55,7 @@ export const PresetSchema = t.Object({
   settingsJson: t.Union([t.String({ description: "JSON settings object" }), t.Null()]),
   configIsolation: t.Number({ description: "1 = isolated config sources" }),
   restartOnExit: t.Number({ description: "1 = new subshells auto-restart on exit" }),
+  enabled: t.Number({ description: "1 = offered; 0 = hidden from pickers and refused at launch" }),
   crossCommNotes: t.Optional(t.Nullable(t.String({ description: "User-authored guidance for calling agents" }))),
   crossCommEnabled: t.Number({ description: "1 = cross-subshell comms (MCP) enabled for this preset" }),
   nodeId: t.Nullable(

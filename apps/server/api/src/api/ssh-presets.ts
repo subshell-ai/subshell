@@ -100,6 +100,10 @@ export const SshPresetSchema = t.Object({
   forwards: t.Array(SshForwardRowInputSchema, {
     description: "Declared port forwards, empty when the preset stores none",
   }),
+  // Explicit here, NOT inside SshPresetFields: the create/update bodies spread
+  // that block, and `enabled` is deliberately not a PUT-able field - the
+  // PATCH toggle route is the only flag write path (spec 2026-10-24).
+  enabled: t.Number({ description: "1 = offered; 0 = hidden from pickers and refused at launch" }),
   createdAt: t.String({ description: "Creation timestamp" }),
   updatedAt: t.String({ description: "Last update timestamp" }),
 });

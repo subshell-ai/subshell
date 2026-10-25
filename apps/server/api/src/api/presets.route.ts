@@ -248,6 +248,16 @@ const UpdatePresetBodySchema = t.Object(
   { additionalProperties: false },
 );
 
+/**
+ * `PATCH /:id` body - the ONLY flag write path for `enabled` (spec 2026-10-24).
+ * PUT never carries it on purpose: the SSH half of PUT insists on the complete
+ * fields, and letting a settings save speak about the switch would silently
+ * re-offer a preset the owner had switched off. A toggle is its own act.
+ */
+const SetPresetEnabledBodySchema = t.Object({
+  enabled: t.Boolean({ description: "true = offer the preset; false = hide it and refuse launches" }),
+});
+
 /** The keys `PUT /:id` applies — mirrors {@link UpdatePresetBodySchema}. */
 const UPDATE_PRESET_KEYS = new Set([
   "name",
@@ -655,6 +665,51 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
         tags: ["presets"],
         description:
           "Updates an owned or edit-shared preset (cookie session only); the harness is fixed at create and any field a PUT cannot apply is refused",
+      },
+    },
+  )
+  .patch(
+    "/:id",
+    async ({ params, body, user, actor }) => {
+      if (actor !== "cookie") {
+        throw new PresetError("forbidden", "Sign in through the dashboard to manage presets", 403);
+      }
+      // One id space for both kinds, so the SSH table is asked first - exactly
+      // the resolution order PUT uses. The toggle never re-resolves the SSH
+      // destination: it writes the flag and returns the stored row.
+      const sshRepo = new SshPresetsRepository(db);
+      const sshExisting = await sshRepo.findById(params.id);
+      if (sshExisting) {
+        const access = await presetAccess(db, "ssh", sshExisting, user.id);
+        if (access === "none") throw new PresetError("not_found", "Preset not found");
+        if (access === "view") throw new PresetError("forbidden", "You need edit access to change this preset.", 403);
+        const updated = await sshRepo.update(params.id, { enabled: body.enabled ? 1 : 0 });
+        return { ...sshPresetView(updated), access, ownerName: await presetOwnerName(db, sshExisting.userId) };
+      }
+      const repo = new PresetsRepository(db);
+      const existing = await repo.findById(params.id);
+      if (!existing) throw new PresetError("not_found", "Preset not found");
+      const access = await presetAccess(db, "agent", existing, user.id);
+      if (access === "none") throw new PresetError("not_found", "Preset not found");
+      if (access === "view") throw new PresetError("forbidden", "You need edit access to change this preset.", 403);
+      const updated = await repo.update(params.id, { enabled: body.enabled ? 1 : 0 });
+      if (!updated) throw new PresetError("not_found", "Preset not found");
+      return { ...updated, kind: "agent" as const, access, ownerName: await presetOwnerName(db, existing.userId) };
+    },
+    {
+      body: SetPresetEnabledBodySchema,
+      response: {
+        200: t.Union([PresetSchema, SshPresetSchema]),
+        400: "ApiErrorResponse",
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+        404: "ApiErrorResponse",
+      },
+      detail: {
+        operationId: "setPresetEnabled",
+        tags: ["presets"],
+        description:
+          "Toggles whether a preset is offered (browser sessions only); owner or edit-shared, for agent and SSH presets alike",
       },
     },
   )

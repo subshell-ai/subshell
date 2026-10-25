@@ -8,7 +8,9 @@ import { ensureSystemUser } from "@/auth/system-user.js";
 import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
+import { PresetSharesRepository } from "@/db/repositories/preset-shares.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
+import { SshPresetsRepository } from "@/db/repositories/ssh-presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
@@ -18,9 +20,9 @@ import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
 /**
- * Preset WRITES (POST /, PUT /:id, DELETE /:id) are cookie-only; reads stay
- * open to every authenticated actor (the agent toolset only ever GETs the
- * list — list_presets).
+ * Preset WRITES (POST /, PUT /:id, PATCH /:id, DELETE /:id) are cookie-only;
+ * reads stay open to every authenticated actor (the agent toolset only ever
+ * GETs the list — list_presets).
  *
  * The regression these pin: a bearer key could create/update/delete the
  * owner's presets, and preset.env OUTRANKS the SUBSHELL_* credential layer when
@@ -423,6 +425,7 @@ describe("preset writes carry the launch fields (spec 2026-09-29)", () => {
         "crossCommEnabled",
         "crossCommNotes",
         "description",
+        "enabled",
         "envJson",
         "flagsJson",
         "harnessId",
@@ -892,5 +895,196 @@ describe("preset availability is the instance store (list + create)", () => {
     );
     expect(res.status).toBe(400);
     expect(((await res.json()) as { message: string }).message).toBe("Unknown harness: no-such-plugin");
+  });
+});
+
+/**
+ * The enable switch (spec 2026-10-24): `PATCH /api/presets/:id` is the ONE
+ * flag write path for `enabled` - PUT never speaks about it, so a settings
+ * save can never silently re-offer a preset the owner switched off. Same
+ * cookie gate as every other preset WRITE, a foreign or absent id answers
+ * 404, and a view-share answers 403. Both kinds share the one id space, so
+ * SSH rows resolve first, exactly as PUT does. A disabled row stays LISTED to
+ * its owner: the switch hides it from pickers and refuses it at launch, not
+ * from the editor that has to re-enable it.
+ */
+describe("PATCH /api/presets/:id (the enabled switch)", () => {
+  const password = "enable-pass-1234";
+  const ownerEmail = `enable-${crypto.randomUUID()}@subshell.local`;
+  const viewerEmail = `enable-viewer-${crypto.randomUUID()}@subshell.local`;
+  const presets = new PresetsRepository(db);
+  const sshPresets = new SshPresetsRepository(db);
+  const shares = new PresetSharesRepository(db);
+  const pluginState = new PluginStateRepository(db);
+  let ownerId: string;
+  let ownerCookie: string;
+  let viewerId: string;
+  let viewerCookie: string;
+  let subshellKey: string;
+  let subshellId: string;
+  const createdKeyIds: string[] = [];
+  const createdPresetIds: string[] = [];
+  const createdSshIds: string[] = [];
+
+  async function seedAgentPreset(name: string): Promise<string> {
+    const id = (
+      await presets.create({
+        id: crypto.randomUUID(),
+        userId: ownerId,
+        harnessId: "claude-code",
+        name,
+        description: null,
+        envJson: null,
+        flagsJson: null,
+        settingsJson: null,
+        configIsolation: 0,
+        restartOnExit: 0,
+      })
+    ).id;
+    createdPresetIds.push(id);
+    return id;
+  }
+
+  async function patchPreset(id: string, cookie: string, body: unknown): Promise<Response> {
+    return app.fetch(authedRequest(`/api/presets/${id}`, cookie, { method: "PATCH", body: JSON.stringify(body) }));
+  }
+
+  /** PATCH with a bearer credential (the `list_presets` actor must stay read-only). */
+  async function bearerPatch(id: string, key: string, body: unknown): Promise<Response> {
+    return app.fetch(
+      new Request(`http://localhost:3080/api/presets/${id}`, {
+        method: "PATCH",
+        headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+  }
+
+  beforeAll(async () => {
+    process.env.CLAUDE_PATH = TRUE_BINARY;
+    await setupAuthTables();
+    ownerId = await new UsersRepository(db).createUser({
+      email: ownerEmail,
+      name: ownerEmail,
+      passwordHash: await hashPassword(password),
+      role: "user",
+    });
+    viewerId = await new UsersRepository(db).createUser({
+      email: viewerEmail,
+      name: viewerEmail,
+      passwordHash: await hashPassword(password),
+      role: "user",
+    });
+    ownerCookie = await signIn(ownerEmail, password);
+    viewerCookie = await signIn(viewerEmail, password);
+    // The list read filters to harnesses the INSTANCE store offers; pin that
+    // state here rather than trust sibling-suite residue (the storegate
+    // suite's own beforeAll pattern).
+    await installLocalPlugin("claude-code");
+    await pluginState.clear("claude-code");
+
+    subshellId = crypto.randomUUID();
+    await new SubshellsRepository(db).create({
+      id: subshellId,
+      userId: ownerId,
+      presetId: "p",
+      harnessId: "claude-code",
+      name: "enable-bearer",
+      workingDir: "/tmp",
+      tmuxSocket: null,
+    });
+    subshellKey = await issueSubshellToken(subshellId, ownerId);
+    const keyRow = await new SubshellsRepository(db).findById(subshellId);
+    if (keyRow?.apiKeyId) createdKeyIds.push(keyRow.apiKeyId);
+  });
+
+  afterAll(async () => {
+    for (const id of createdPresetIds) await presets.delete(id);
+    for (const id of createdSshIds) await sshPresets.delete(id);
+    await db.deleteFrom("subshells").where("id", "=", subshellId).execute();
+    for (const kid of createdKeyIds) authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [kid]);
+    await db.deleteFrom("userMeta").where("userId", "in", [ownerId, viewerId]).execute();
+    await deleteUserByEmailOrId(ownerEmail);
+    await deleteUserByEmailOrId(viewerEmail);
+    delete process.env.CLAUDE_PATH;
+  });
+
+  it("cookie owner toggles their own agent preset off; the list still shows it, disabled", async () => {
+    const id = await seedAgentPreset("enable-off");
+    const res = await patchPreset(id, ownerCookie, { enabled: false });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { enabled: number; kind: string; access: string; ownerName: string };
+    expect(body.enabled).toBe(0);
+    expect(body.kind).toBe("agent");
+    expect(body.access).toBe("owner");
+    expect(body.ownerName).toBeTruthy();
+    expect((await presets.findById(id))?.enabled).toBe(0);
+
+    // Disabled is hidden from PICKERS and refused at launch (Task 4), never
+    // from the owner's own list: the editor must still read and re-enable it.
+    const list = await app.fetch(authedRequest("/api/presets", ownerCookie));
+    expect(list.status).toBe(200);
+    const row = ((await list.json()) as { id: string; enabled: number }[]).find((p) => p.id === id);
+    expect(row, "a disabled preset stays listed to its owner").toBeDefined();
+    expect(row?.enabled).toBe(0);
+  });
+
+  it("a view-share cannot toggle (403, the edit-access message); the row stays offered", async () => {
+    const id = await seedAgentPreset("enable-viewshare");
+    await shares.replace("agent", id, [{ granteeUserId: viewerId, permission: "view" }], ownerId);
+    const res = await patchPreset(id, viewerCookie, { enabled: false });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { message: string }).message).toBe("You need edit access to change this preset.");
+    expect((await presets.findById(id))?.enabled).toBe(1);
+  });
+
+  it("a bearer token cannot toggle (403, the sign-in message); the row stays offered", async () => {
+    const id = await seedAgentPreset("enable-bearer");
+    const res = await bearerPatch(id, subshellKey, { enabled: false });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { message: string }).message).toBe("Sign in through the dashboard to manage presets");
+    expect((await presets.findById(id))?.enabled).toBe(1);
+  });
+
+  it("an SSH preset toggles through the same route (200, the ssh view comes back)", async () => {
+    const now = new Date().toISOString();
+    const id = crypto.randomUUID();
+    createdSshIds.push(id);
+    await sshPresets.create({
+      id,
+      userId: ownerId,
+      name: "enable-ssh",
+      description: null,
+      nodeId: null,
+      destination: "example.test:22",
+      alias: null,
+      resolutionAlias: null,
+      authentication: "connecting",
+      keyHome: null,
+      fingerprints: null,
+      forwards: null,
+      enabled: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const res = await patchPreset(id, ownerCookie, { enabled: false });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { kind: string; enabled: number; access: string };
+    expect(body.kind).toBe("ssh");
+    expect(body.enabled).toBe(0);
+    expect(body.access).toBe("owner");
+    expect((await sshPresets.findById(id))?.enabled).toBe(0);
+  });
+
+  it("a non-boolean enabled is 400 (schema validation), and nothing lands", async () => {
+    const id = await seedAgentPreset("enable-badtype");
+    const res = await patchPreset(id, ownerCookie, { enabled: "yes" });
+    expect(res.status).toBe(400);
+    expect((await presets.findById(id))?.enabled).toBe(1);
+  });
+
+  it("an absent id answers 404 like a foreign one", async () => {
+    const res = await patchPreset(crypto.randomUUID(), ownerCookie, { enabled: false });
+    expect(res.status).toBe(404);
   });
 });

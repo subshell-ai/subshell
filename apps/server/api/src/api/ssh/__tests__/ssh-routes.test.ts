@@ -1477,7 +1477,10 @@ describe("SSH preset CRUD", () => {
       const duplicate = await save(body("ssh CANONICAL"));
       expect(duplicate.status).toBe(409);
       const changed: Record<string, unknown> = { ...row, name: "SSH renamed" };
-      const { kind, id, userId, createdAt, updatedAt, access, ownerName, ...update } = changed;
+      // `enabled` drops out with the view-only fields: PUT's complete-fields
+      // body never speaks about the switch (the PATCH route is its only write
+      // path), and the transform refuses it as an unknown property.
+      const { kind, id, userId, createdAt, updatedAt, access, ownerName, enabled, ...update } = changed;
       const count = scripted.cmdsOf("ssh_resolve_config").length;
       scripted.detach();
       const edited = await sshFetch(`/api/presets/${id}`, { method: "PUT", cookie: ownerCookie, body: update });
