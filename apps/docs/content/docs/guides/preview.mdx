@@ -147,6 +147,8 @@ login flows, or another graphical app.
   <figcaption>The virtual display shows the browser running on the node. Keyboard and pointer input require edit access. Select the image to enlarge it.</figcaption>
 </figure>
 
+Restarting a subshell recreates its virtual display at the same size. The node must still allow virtual displays; if it doesn’t, a manual restart is refused before stopping the current subshell.
+
 A virtual display isn't a sandbox for the programs you run. They keep the
 execution account's permissions. Don't enable it on a host shared with untrusted
 local OS users; see [Preview security](/concepts/security#preview-security).

@@ -376,6 +376,14 @@ async function probeUpgrade(port: number, path: string, origin?: string): Promis
 /* ------------------------------------------------------------------ */
 
 describe("pv-http: the same-origin rewrite", () => {
+  it("preserves escaped characters in the target request path", async () => {
+    const ref = await openSession(targetPort);
+    const res = await proxyFetch(`/pv/${ref}/asset%20name%2Fpart?name=a%20b`);
+    expect(res.status).toBe(200);
+    await res.text();
+    expect(lastSeen?.url).toBe("/asset%20name%2Fpart?name=a%20b");
+  });
+
   it("keeps target cookies out of the dashboard browser and isolates preview documents", async () => {
     const ref = await openSession(targetPort);
     const res = await proxyFetch(`/pv/${ref}/cookie`);

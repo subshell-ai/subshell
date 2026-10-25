@@ -4052,17 +4052,16 @@ them, through a request filtered by the ordinary visible-set read, so an id
 the viewer cannot see is absent from the answer rather than refused, and ids
 stay unprobeable.
 
-## 11.15 Preview apps, browsers, and virtual displays
+## 11.15 Web previews and virtual displays
 
 
-Apps/browser access and virtual displays have independent opt-in permissions per
+Web-preview access and virtual displays have independent opt-in permissions per
 node, including the built-in node. The node owner controls them; an administrator
 controls the built-in node. The server checks the corresponding database setting
 before opening a preview or creating a display, and enrolled nodes check the
 corresponding signed mirror field. The transport runs when either feature is
 allowed; that transport allowance alone does not authorize the other feature.
-Migration preserves grants from the previous combined setting; new nodes default
-both permissions off.
+New nodes default both permissions off.
 Turning it off prevents new operations. It does not drain existing lanes,
 terminate a subshell, or stop graphical programs.
 
@@ -4130,6 +4129,7 @@ and removals are audited without capability URLs. Port
 discovery is not a security allowlist for an edit-authorized forward: shell
 editors can already contact the execution account's local services. View-only
 browser watches do not receive that authority and cannot select arbitrary ports.
+Live-feed sockets receive frames only for their user’s authorized REST watch registration, not merely because they subscribe to a pane. An edit-to-view downgrade removes registrations for browsers outside the pane’s discovered port.
 Discovery is cached for five seconds, so it is not a durable OS process-isolation
 claim against a machine capable of rebinding its ports. CDP discovery refuses
 redirects and bounds JSON at 256 KiB; the returned WebSocket must retain the

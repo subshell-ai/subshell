@@ -912,6 +912,27 @@ describe("preview REST surface (Task 9)", () => {
     createdSubshellIds.push(String(created.id));
   });
 
+  it("preserves display dimensions on restart and refuses a disabled display before killing the pane", async () => {
+    await makeLaunchable({ kill: ok });
+    const response = await call("POST", "", {
+      cookie: ownerCookie,
+      body: await createBody({ name: "display restart", screen: { width: 1440, height: 900 } }),
+    });
+    expect(response.status).toBe(200);
+    const id = String((await jsonBody(response)).id);
+    createdSubshellIds.push(id);
+    expect((await subshells.findById(id))?.screenConfig).toBe(JSON.stringify({ width: 1440, height: 900 }));
+    await nodes.setPreviewEnabled(nodeId, { on: false, feature: "display", changedAt: new Date().toISOString() });
+    const refused = await call("POST", `/${id}/restart`, { cookie: ownerCookie });
+    expect(refused.status).toBe(409);
+    expect(sim.countOf("kill")).toBe(0);
+    await nodes.setPreviewEnabled(nodeId, { on: true, feature: "display", changedAt: new Date().toISOString() });
+    const restarted = await call("POST", `/${id}/restart`, { cookie: ownerCookie });
+    expect(restarted.status).toBe(200);
+    expect(sim.cmdsOf("launch").at(-1)?.screen).toEqual({ width: 1440, height: 900 });
+    expect(sim.countOf("launch")).toBe(2);
+  });
+
   it("apps can stay enabled while virtual-display launches are refused", async () => {
     await makeLaunchable();
     await nodes.setPreviewEnabled(nodeId, { on: false, feature: "display", changedAt: new Date().toISOString() });

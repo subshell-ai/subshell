@@ -7,6 +7,7 @@ import {
   PREVIEW_FORWARD_SESSIONS_PER_PANE,
   PREVIEW_FRAME_MAX_BYTES,
   PREVIEW_IDLE_MS,
+  PREVIEW_LANE_BUFFER_MAX_BYTES,
   PREVIEW_LANE_QUEUE_MAX,
   PREVIEW_LIFETIME_MAX_MS,
   PREVIEW_STREAM_DEBT_MAX,
@@ -132,6 +133,9 @@ export interface PreviewLane {
   sessionRef: string;
   /** Live subscribers; each connection adds and removes its own. */
   subscribers: Set<PreviewLaneCallback>;
+  /** A target may send its greeting before the browser upgrade finishes. */
+  buffered: Uint8Array[];
+  bufferedBytes: number;
 }
 
 /**
@@ -629,7 +633,13 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
    */
   async function mintLane(session: PreviewSession): Promise<{ laneRef: string }> {
     const laneRef = mintRef();
-    const lane: PreviewLane = { ref: laneRef, sessionRef: session.ref, subscribers: new Set() };
+    const lane: PreviewLane = {
+      ref: laneRef,
+      sessionRef: session.ref,
+      subscribers: new Set(),
+      buffered: [],
+      bufferedBytes: 0,
+    };
     session.lanes.set(laneRef, lane);
     lanesByRef.set(laneRef, { lane, session, pending: true });
     try {
@@ -913,8 +923,17 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
 
     subscribeLane(laneRef, cb) {
       const rec = lanesByRef.get(laneRef);
-      if (!rec) return () => {};
+      if (!rec) {
+        cb({ closed: "target-gone" });
+        return () => {};
+      }
       rec.lane.subscribers.add(cb);
+      const buffered = rec.lane.buffered.splice(0);
+      rec.lane.bufferedBytes = 0;
+      for (const bytes of buffered) {
+        if (!rec.lane.subscribers.has(cb)) break;
+        cb({ bytes });
+      }
       return () => {
         rec.lane.subscribers.delete(cb);
       };
@@ -1201,7 +1220,14 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
         // revocation closes `revoked`, not `viewer-left` (the audit names
         // what actually ended it).
         for (const viewer of [...session.viewers.keys()]) {
-          if (!accessAtLeast(await access(viewer), "view")) session.viewers.delete(viewer);
+          const permission = await access(viewer);
+          if (!accessAtLeast(permission, "view")) session.viewers.delete(viewer);
+          else if (permission === "view") {
+            // An editor could have selected a different browser on this node.
+            // A downgrade must enforce the same port restriction as a new watch.
+            const discovered = await broker.getPorts(session.nodeId, paneId).catch(() => null);
+            if (discovered?.cdpPort !== session.port) session.viewers.delete(viewer);
+          }
         }
         if (session.viewers.size === 0) await closeWatchBridge(session, "revoked", true);
       }
@@ -1238,6 +1264,9 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
         blob: ev.blob,
       };
       for (const [socketKey, entry] of [...map]) {
+        // Socket subscription alone never authorizes a browser port. The REST
+        // watch registration checks node settings and view-only discovery.
+        if (!session.viewers.has(entry.holderUserId)) continue;
         // The METHOD (never a property) over the raw socket, read through the
         // adapter's `?? 0`: spec §9 drops slow VIEWERS, never the bridge.
         const debt = entry.socket.getBufferedAmount?.() ?? 0;
@@ -1270,6 +1299,22 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
       if (frame.dir !== "out") return; // the plane owns the `in` leg; a node pushing one is nonsense
       rec.session.lastActivity = deps.nowMs();
       const bytes = new Uint8Array(Buffer.from(frame.blob, "base64"));
+      if (bytes.byteLength === 0) return;
+      if (rec.lane.subscribers.size === 0) {
+        // Also bound chunk overhead when a target sends many tiny frames.
+        if (
+          rec.lane.buffered.length >= 256 ||
+          rec.lane.bufferedBytes + bytes.byteLength > PREVIEW_LANE_BUFFER_MAX_BYTES
+        ) {
+          void removeLane(rec, "slow-link", true).catch((err: unknown) =>
+            deps.log(`preview buffered lane close failed: ${String(err)}`),
+          );
+          return;
+        }
+        rec.lane.buffered.push(bytes);
+        rec.lane.bufferedBytes += bytes.byteLength;
+        return;
+      }
       for (const cb of rec.lane.subscribers) {
         try {
           cb({ bytes });

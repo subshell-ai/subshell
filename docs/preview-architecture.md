@@ -4,7 +4,7 @@ Preview connects a browser to a subshell's dev server, browser frames, or
 virtual display through the server. The current implementation is shared by
 enrolled nodes and the server's built-in node. User procedures live in the
 [Preview guide](../apps/docs/content/docs/guides/preview.mdx); the threat model
-and audit findings live in [security §11.15](security.md#1115-preview-apps-browsers-and-virtual-displays)
+and audit findings live in [security §11.15](security.md#1115-web-previews-and-virtual-displays)
 and [the preview audit](security-actionable.md#preview-feature-audit-2026-10-24).
 
 ## Components and boundaries
@@ -266,13 +266,12 @@ MCP `get_node` with the optional `check_display` argument.
 
 The original public preview endpoints and MCP tools were introduced on this
 unreleased branch, so they are renamed directly without duplicate aliases.
-The permission id `nodes:preview`, database `previewEnabled` columns, audit
+The permission id `nodes:preview`, database timestamp columns, audit
 identifiers, signed node commands/frames, `/pv/` capability paths, and persisted
 `preview:` workspace panel ids keep their existing spelling. Those names carry
-stored state or transport compatibility; the API maps the database flag to
-`webPreviewsEnabled`. Virtual displays use the independent `virtualDisplayEnabled`
+stored state or transport compatibility; the web-preview permission uses `webPreviewsEnabled` in both the database model and API. Virtual displays use the independent `virtualDisplayEnabled`
 column and node-view field. The existing `/views-enabled` write accepts
-`feature: "web-previews" | "display"` (omitted means apps), with the same ownership gate.
+`feature: "web-previews" | "display"` (omitted means web previews), with the same ownership gate.
 The signed mirror's `on` is the transport allowance (either feature enabled);
 `webPreviewsOn` and `displayOn` narrow it when the permissions differ. Legacy mirrors
 without those fields retain the combined meaning, and reconciliation compares
@@ -280,3 +279,7 @@ both permissions. Launching a screen checks the display permission, while app
 and browser opens check the apps permission. These aren't alternative public discovery endpoints. The
 subshell `preview` field still means its recent terminal output, and website
 previews remain a useful description of the app viewer.
+
+Virtual-display dimensions are retained in `subshells.screenConfig`. Manual and automatic restarts recreate the requested display after checking the current node permission; a manual restart refuses before stopping the existing pane when displays are disabled.
+
+Forward lanes buffer target greetings until the proxy subscribes, bounded by the lane byte budget and 256 chunks. A subscriber attaching after its lane closed receives an immediate closed event.

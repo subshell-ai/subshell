@@ -928,7 +928,7 @@ host-pins API remains available for explicit operator recovery. See the SSH trus
 accounting in `docs/security.md` §6.
 
 Preview browser boundaries are documented in [Preview architecture](../../../docs/preview-architecture.md)
-and [security §11.15](../../../docs/security.md#1115-preview-apps-browsers-and-virtual-displays).
+and [security §11.15](../../../docs/security.md#1115-web-previews-and-virtual-displays).
 Proxied documents require a response CSP sandbox without `allow-same-origin`,
 plus the workspace iframe sandbox. Keep upstream cookies in the broker jar;
 never write them to the dashboard browser. Only capability-bound preview CORS
@@ -955,6 +955,6 @@ write closes the link because secretstream frames cannot be skipped.
 
 Web previews & screens REST resources use `/api/subshells/:id/views` (discovery),
 `/views/open`, and `/views/browser/watch`. Node responses map the stored
-`previewEnabled` flag to `webPreviewsEnabled`; the setting is `/views-enabled` and
+`webPreviewsEnabled` flag directly; the setting is `/views-enabled` and
 the prerequisite probe is `/display-readiness`. Persisted grants, audit and node
 wire identifiers remain stable; see the naming section in the architecture guide.

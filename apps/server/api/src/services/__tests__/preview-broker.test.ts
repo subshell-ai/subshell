@@ -6,6 +6,7 @@ import {
   type NodePreviewScreenWire,
   PREVIEW_FRAME_MAX_BYTES,
   PREVIEW_IDLE_MS,
+  PREVIEW_LANE_BUFFER_MAX_BYTES,
   PREVIEW_LANE_QUEUE_MAX,
   PREVIEW_LIFETIME_MAX_MS,
   PREVIEW_STREAM_DEBT_MAX,
@@ -57,6 +58,7 @@ interface Harness {
 }
 
 interface FakeSeams {
+  cdpPort?: number;
   ack?: (cmd: NodeCommandBody) => unknown;
   /** Name the commands whose ack parks until the test releases/refuses it. */
   hold?: (cmd: NodeCommandBody) => boolean;
@@ -90,7 +92,7 @@ function makeHarness(over: FakeSeams = {}): Harness {
           case "preview_close":
             return { ref: cmd.ref, closed: true };
           case "preview_ports_get":
-            return { ports: [], cdpPort: null, screen: null };
+            return { ports: [], cdpPort: over.cdpPort ?? null, screen: null };
           default:
             throw new Error(`preview broker test: unexpected command ${cmd.type}`);
         }
@@ -508,7 +510,46 @@ describe("lane pools: the per-pane cap, the queue, the close", () => {
     expect(await auditRows("node.preview_forward.close")).toHaveLength(0);
   });
 
-  it("subscribeLane unsubscribes by the returned function; an unknown lane's subscribe is a noop", async () => {
+  it("retains target greetings until the proxy subscribes, without replaying them twice", async () => {
+    makeHarness();
+    const { ref } = await broker().openForward({ viewerUserId: "u-open", paneId: PANE, nodeId: NODE, port: 5910 });
+    const { laneRef } = await broker().openLaneForConnection(ref);
+    for (const text of ["RFB ", "003.008\n"]) {
+      broker().onNodeLaneFrame(NODE, {
+        type: "preview_data",
+        ref: laneRef,
+        dir: "out",
+        blob: Buffer.from(text).toString("base64"),
+      });
+    }
+    const chunks: string[] = [];
+    broker().subscribeLane(laneRef, (event) => {
+      if ("bytes" in event) chunks.push(Buffer.from(event.bytes).toString());
+    });
+    expect(chunks.join("")).toBe("RFB 003.008\n");
+    const replay: unknown[] = [];
+    broker().subscribeLane(laneRef, (event) => replay.push(event));
+    expect(replay).toEqual([]);
+  });
+
+  it("closes rather than retaining unbounded data before the proxy subscribes", async () => {
+    makeHarness();
+    const { ref } = await broker().openForward({ viewerUserId: "u-open", paneId: PANE, nodeId: NODE, port: 5910 });
+    const { laneRef } = await broker().openLaneForConnection(ref);
+    for (let n = 0; n <= PREVIEW_LANE_BUFFER_MAX_BYTES; n += PREVIEW_FRAME_MAX_BYTES) {
+      broker().onNodeLaneFrame(NODE, {
+        type: "preview_data",
+        ref: laneRef,
+        dir: "out",
+        blob: Buffer.alloc(PREVIEW_FRAME_MAX_BYTES).toString("base64"),
+      });
+    }
+    const events: unknown[] = [];
+    broker().subscribeLane(laneRef, (event) => events.push(event));
+    expect(events).toEqual([{ closed: "target-gone" }]);
+  });
+
+  it("subscribeLane unsubscribes by the returned function and ends a missing lane immediately", async () => {
     makeHarness();
     const { ref } = await broker().openForward({ viewerUserId: "u-open", paneId: PANE, nodeId: NODE, port: 8080 });
     const { laneRef } = await broker().openLaneForConnection(ref);
@@ -521,11 +562,12 @@ describe("lane pools: the per-pane cap, the queue, the close", () => {
     off();
     broker().onNodeLaneFrame(NODE, { type: "preview_data", ref: laneRef, dir: "out", blob: "AQ==" });
     expect(count).toBe(1);
-    const late = broker().subscribeLane(GHOST_REF, () => {
+    const late = broker().subscribeLane(GHOST_REF, (event) => {
+      expect(event).toEqual({ closed: "target-gone" });
       count += 1;
     });
     late();
-    expect(count).toBe(1);
+    expect(count).toBe(2);
   });
 
   it("lane callbacks never cross duplexes: one session's two lanes pump independently", async () => {
@@ -694,9 +736,31 @@ describe("watch bridges: one per pane, refcounted, idempotent", () => {
 });
 
 describe("stream sockets: the attach cap, the keying, the byte debt", () => {
+  it("never delivers another viewer's browser to a socket without a watch registration", async () => {
+    const h = makeHarness();
+    await broker().startWatch({ viewerUserId: "u-editor", paneId: PANE, nodeId: NODE, port: 9333 });
+    broker().attachStream(PANE, "unregistered", "u-viewer", fakeSocket());
+    broker().onStreamEvent(NODE, streamEvent(String(bridgeFor(PANE)?.ref), 1));
+    expect(h.delivered).toEqual([]);
+  });
+
+  it("revokes a downgraded editor watching a port outside the subshell's discovered browser", async () => {
+    const h = makeHarness({ accessFor: async (user) => (user === "u-editor" ? "view" : "owner") });
+    await broker().startWatch({ viewerUserId: "u-editor", paneId: PANE, nodeId: NODE, port: 9333 });
+    await broker().startWatch({ viewerUserId: "u-owner", paneId: PANE, nodeId: NODE, port: 9333 });
+    const denied = fakeSocket();
+    const owner = fakeSocket();
+    broker().attachStream(PANE, "downgraded", "u-editor", denied);
+    broker().attachStream(PANE, "owner", "u-owner", owner);
+    await broker().closeUnauthorizedForPane(PANE);
+    broker().onStreamEvent(NODE, streamEvent(String(bridgeFor(PANE)?.ref), 1));
+    expect(h.delivered.map((delivery) => delivery.socket)).toEqual([owner]);
+    expect(bridgeFor(PANE)?.viewers.has("u-editor")).toBe(false);
+  });
+
   it("eight attach; the ninth is refused at attach with a viewer_drop audit while eight keep streaming", async () => {
     const h = makeHarness();
-    await broker().startWatch({ viewerUserId: "u-a", paneId: PANE, nodeId: NODE, port: 9222 });
+    await broker().startWatch({ viewerUserId: "u-holder", paneId: PANE, nodeId: NODE, port: 9222 });
     const bridge = String(bridgeFor(PANE)?.ref);
     const sockets = Array.from({ length: PREVIEW_WATCH_SUBSCRIBERS_MAX }, () => fakeSocket());
     for (let i = 0; i < PREVIEW_WATCH_SUBSCRIBERS_MAX; i += 1) {
@@ -1032,7 +1096,7 @@ describe("closeUnauthorizedForPane: the recompute, one case per transition", () 
   }
 
   it("an edit->view DOWNGRADE closes the grantee's forward session (lanes in, revoked) and keeps their watch streaming", async () => {
-    const h = makeHarness({ accessFor: accessMap({ "u-owner@p1": "owner", "u-grantee@p1": "view" }) });
+    const h = makeHarness({ cdpPort: 9222, accessFor: accessMap({ "u-owner@p1": "owner", "u-grantee@p1": "view" }) });
     const fwd = await broker().openForward({ viewerUserId: "u-grantee", paneId: "p1", nodeId: NODE, port: 8080 });
     await broker().openLaneForConnection(fwd.ref);
     await broker().startWatch({ viewerUserId: "u-grantee", paneId: "p1", nodeId: NODE, port: 9222 });

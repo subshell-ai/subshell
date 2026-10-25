@@ -68,7 +68,7 @@ penetration test. Native macOS behavior, other browsers, all framework-specific
 HMR/login flows, reverse-proxy log retention, and mutually untrusted local OS
 users were not exhaustively tested. Accepted bearer-link, loopback RFB,
 execution-account, cookie-jar, and resource-usage limits are stated in
-[security §11.15](security.md#1115-preview-apps-browsers-and-virtual-displays).
+[security §11.15](security.md#1115-web-previews-and-virtual-displays).
 
 ## Preview follow-up audit: 2026-10-24
 

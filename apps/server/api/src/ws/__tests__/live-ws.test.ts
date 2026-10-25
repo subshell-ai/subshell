@@ -420,7 +420,7 @@ function fakePreviewNode(accessFor?: LiveWsDeps["accessFor"]): { commands: NodeC
 /** The pane's live screencast bridge, built the way the REST watch path builds it. */
 async function openBridge(paneId: string, nodeId = "n-fake"): Promise<string> {
   const broker = getPreviewBroker();
-  await broker.startWatch({ viewerUserId: "u-holder", paneId, nodeId, port: 9222 });
+  await broker.startWatch({ viewerUserId: "u1", paneId, nodeId, port: 9222 });
   const ref = broker.sessionForPane(paneId)?.ref;
   if (!ref) throw new Error(`bridge for ${paneId} did not stand`);
   return ref;
@@ -672,7 +672,7 @@ describe("/ws/live watch subscriptions", () => {
     const broker = getPreviewBroker();
     const quiet: string[] = [];
     for (let i = 0; i < PREVIEW_WATCH_SUBSCRIBERS_MAX; i += 1) {
-      expect(broker.attachStream("p-1", `fill-${i}`, "u-holder", { send: (d) => quiet.push(d) })).toEqual({ ok: true });
+      expect(broker.attachStream("p-1", `fill-${i}`, "u1", { send: (d) => quiet.push(d) })).toEqual({ ok: true });
     }
     const d = deps();
     const { ws, closeWs, sent, closed } = fakeSocket({ token: "good" });

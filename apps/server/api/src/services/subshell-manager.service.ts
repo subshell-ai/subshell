@@ -22,6 +22,7 @@ import {
   type SshConnectionSnapshotWire,
   type SshForwardWire,
 } from "@internal/subshell-protocol";
+import { HttpError } from "@/api/auth-guard.js";
 import { harnessUsable } from "@/api/harness-utils.js";
 import { intersectSystemPermissions } from "@/auth/system-key-permissions.js";
 import type { PresetsRepository } from "@/db/repositories/presets.repository.js";
@@ -62,6 +63,7 @@ import {
   previewCacheGet,
   previewCachePut,
 } from "@/services/nodes/preview-cache.js";
+import { getVirtualDisplayEnabled } from "@/services/nodes/preview-enabled.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
@@ -579,6 +581,7 @@ export class SubshellManagerService {
       // The relay pane's key home, recorded with the row (migration 0052):
       // immutable thereafter, and no direct pane carries it.
       keyHomeNodeId: ssh?.keyHomeNodeId ?? null,
+      ...(screen ? { screenConfig: JSON.stringify(screen) } : {}),
     });
 
     if (workspaceId !== undefined) {
@@ -991,6 +994,7 @@ export class SubshellManagerService {
       return existing; // same owner, already restarting — join it
     }
     const run = (async (): Promise<{ id: string; tmuxSocket: string } | null> => {
+      await this.#screenForRestart(source);
       // Recheck here as well as in the service so a direct manager call or a
       // revoked grant cannot stop a live pane before discovering the refusal.
       const nextPresetId = swapPresetTo === undefined ? source.presetId : swapPresetTo;
@@ -1446,6 +1450,7 @@ export class SubshellManagerService {
       systemKeyPermissions = null,
     }: { backoffCount: number; systemKeyPermissions?: ApiKeyPermission[] | null },
   ): Promise<boolean> {
+    const screen = await this.#screenForRestart(row);
     // A NULL `presetId` is not a missing preset — it is a presetless launch
     // (spec 2026-09-13 §4), and it revives as exactly what it was created
     // as: EMPTY_PRESET. Only a NON-NULL reference whose row vanished throws.
@@ -1525,6 +1530,7 @@ export class SubshellManagerService {
       harnessSession,
       reporter,
       bestEffortLog: true,
+      ...(screen ? { screen } : {}),
     });
     // Conditional revival: a terminate that landed after the pre-spawn
     // check (between it and this write) must not resurrect the row — the
@@ -1556,6 +1562,39 @@ export class SubshellManagerService {
       return false;
     }
     return true;
+  }
+
+  async #screenForRestart(row: SubshellTable): Promise<{ width: number; height: number } | undefined> {
+    if (!row.screenConfig) return undefined;
+    if (!(await getVirtualDisplayEnabled(row.nodeId))) {
+      throw new HttpError(
+        409,
+        "Virtual displays are disabled on this node. Enable Allow virtual displays in node settings before restarting this subshell.",
+      );
+    }
+    const invalid = () =>
+      new HttpError(
+        409,
+        "This subshell's saved display settings are invalid. Start a new subshell with a virtual display.",
+      );
+    let screen: { width: number; height: number };
+    try {
+      screen = JSON.parse(row.screenConfig);
+    } catch {
+      throw invalid();
+    }
+    if (
+      !screen ||
+      !Number.isInteger(screen.width) ||
+      !Number.isInteger(screen.height) ||
+      screen.width < 320 ||
+      screen.width > 4096 ||
+      screen.height < 320 ||
+      screen.height > 4096
+    ) {
+      throw invalid();
+    }
+    return { width: screen.width, height: screen.height };
   }
 
   /**

@@ -277,6 +277,7 @@ describe("preview-stream reaches EXACTLY the view-+ holders that sent watch (the
       send: async (_nodeId: string, cmd: NodeCommandBody): Promise<unknown> => {
         if (cmd.type === "preview_open") return { ref: cmd.ref, subscribers: 1 };
         if (cmd.type === "preview_close") return { ref: cmd.ref, closed: true };
+        if (cmd.type === "preview_ports_get") return { ports: [], cdpPort: 9222, screen: null };
         return {};
       },
       sendToSockets: sendPreviewStreamSocket,
@@ -300,6 +301,9 @@ describe("preview-stream reaches EXACTLY the view-+ holders that sent watch (the
   });
 
   it("after watch, the sockets that receive frames are EXACTLY the view-+ holders that watched", async () => {
+    for (const viewerUserId of [pvEditId, pvViewId]) {
+      await getPreviewBroker().startWatch({ viewerUserId, paneId: pvPaneId, nodeId: PV_NODE, port: 9222 });
+    }
     const owner = await openFeed(pvOwnerId);
     const ownerSibling = await openFeed(pvOwnerId); // second tab of the same holder, never watches
     const editor = await openFeed(pvEditId);
@@ -338,6 +342,7 @@ describe("preview-stream reaches EXACTLY the view-+ holders that sent watch (the
   });
 
   it("stops frames to a socket whose grant is removed mid-stream while the socket itself lives", async () => {
+    await getPreviewBroker().startWatch({ viewerUserId: pvViewId, paneId: pvPaneId, nodeId: PV_NODE, port: 9222 });
     const owner = await openFeed(pvOwnerId);
     const viewer = await openFeed(pvViewId);
     await watchPane(owner.ws, pvPaneId);
@@ -357,6 +362,7 @@ describe("preview-stream reaches EXACTLY the view-+ holders that sent watch (the
   });
 
   it("keeps stream frames flowing through an edit-to-view downgrade (watch is what view buys)", async () => {
+    await getPreviewBroker().startWatch({ viewerUserId: pvEditId, paneId: pvPaneId, nodeId: PV_NODE, port: 9222 });
     const editor = await openFeed(pvEditId);
     await watchPane(editor.ws, pvPaneId);
     getPreviewBroker().onStreamEvent(PV_NODE, pvStreamEvent(1));
