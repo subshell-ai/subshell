@@ -141,7 +141,7 @@ describe("CodexPlugin", () => {
     expect(cmd).toEqual(["/usr/bin/codex"]);
   });
 
-  it("mcpRegistration: -c overrides carry TOML-quoted command and args", () => {
+  it("mcpRegistration: -c overrides carry TOML-quoted command, args and env_vars", () => {
     const reg = plugin.mcpRegistration?.(bunLaunch, "/data/sess.json");
     // Wiring rides the argv, not the env — CODEX_HOME (which holds the user's
     // auth.json) is deliberately never touched.

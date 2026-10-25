@@ -23,7 +23,7 @@ Codex uses `env_vars` to explicitly forward environment variables to stdio MCP s
 
 For an affected installation:
 
-1. On the node where Codex runs, edit `~/.codex/config.toml` under the execution account. Add the following key to the existing `[mcp_servers.subshell]` table, or add the table if it doesn't exist. Keep any existing command and arguments.
+1. On the node where Codex runs, edit `~/.codex/config.toml` under the execution account. Add the following key to the existing `[mcp_servers.subshell]` table, or create the table if it doesn't exist. Keep any existing command and arguments; a complete registration block lives in [MCP configuration](/mcp/configure).
 
    ```toml
    [mcp_servers.subshell]
