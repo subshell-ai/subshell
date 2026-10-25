@@ -51,7 +51,7 @@ Discovery is a UI aid, not an allowlist for edit-authorized raw forwarding.
 
 `PreviewDisplays` applies the node permission and chooses a bundled
 `VirtualDisplayProvider`. `virtual_display_provider` is stored on the node row,
-rendered as **Display provider** beside **Allow virtual displays**, and mirrored
+rendered as **Default display provider** beside **Allow virtual displays**, and mirrored
 through the signed `set_preview_enabled` command as `displayProvider`. Changing
 the selection affects new displays. The runtime finds existing displays through
 their owning provider and reconciles every registered provider after restart.
@@ -312,6 +312,6 @@ and browser opens check the apps permission. These aren't alternative public dis
 subshell `preview` field still means its recent terminal output, and website
 previews remain a useful description of the app viewer.
 
-Virtual-display dimensions are retained in `subshells.screenConfig`. Manual and automatic restarts recreate the requested display after checking the current node permission; a manual restart refuses before stopping the existing pane when displays are disabled.
+Virtual-display dimensions and the resolved provider are retained in `subshells.screenConfig`. `nodes.virtualDisplayProviders` stores the enabled set; `virtualDisplayProvider` names its default. The signed mirror carries both. A launch can request any enabled provider; omission resolves the default once, before persistence. Manual and automatic restarts retain the saved provider and recheck policy. A manual restart refuses before stopping the existing pane if the feature or provider is disabled. Presets store an optional display request in `screenConfig`; an explicit null on creation overrides that preset without a display. Readiness accepts an optional provider ID and never allocates resources.
 
 Forward lanes buffer target greetings until the proxy subscribes, bounded by the lane byte budget and 256 chunks. A subscriber attaching after its lane closed receives an immediate closed event.

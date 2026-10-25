@@ -2,6 +2,7 @@ import type {
   NodePreviewScreenLost,
   NodePreviewScreenWire,
   PreviewDisplayReadiness,
+  VirtualDisplayRequest,
 } from "@internal/subshell-protocol";
 
 export const PREVIEW_DISPLAY_UNSUPPORTED = "preview-display-unsupported";
@@ -29,11 +30,11 @@ export interface DisplaySweepResult {
  */
 export interface VirtualDisplayRuntime {
   /** Read-only prerequisites for this backend on the current machine. */
-  readiness(): PreviewDisplayReadiness | Promise<PreviewDisplayReadiness>;
+  readiness(provider?: string): PreviewDisplayReadiness | Promise<PreviewDisplayReadiness>;
   /** Public descriptor of an allocated display; contains no launch secrets. */
   getFor(paneId: string): PreviewScreenHandle | null;
   /** Allocate or return the pane's existing display. */
-  openFor(paneId: string, size: { width: number; height: number }): Promise<PreviewScreenHandle>;
+  openFor(paneId: string, size: VirtualDisplayRequest): Promise<PreviewScreenHandle>;
   /** Local environment overrides for launching apps on this display. */
   launchEnv(paneId: string): Record<string, string>;
   /** Component lost while the pane stayed alive; cleared on close or allocation. */

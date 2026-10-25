@@ -13,6 +13,7 @@ export class PreviewDisplays extends RuntimePreviewDisplays {
     super(dataDir, {
       ...options,
       isEnabled: () => getVirtualDisplayEnabled(dataDir),
+      getEnabledProviderIds: () => getPreviewEnabled(dataDir)?.displayProviders ?? [DEFAULT_VIRTUAL_DISPLAY_PROVIDER],
       getProviderId: () => getPreviewEnabled(dataDir)?.displayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER,
       log,
     });

@@ -166,6 +166,7 @@ describe("setPreviewEnabled: write, audit, push, one function", () => {
         {
           type: "set_preview_enabled",
           displayProvider: "xvfb-x11vnc",
+          displayProviders: ["xvfb-x11vnc"],
           on: true,
           webPreviewsOn: true,
           displayOn: false,
@@ -190,6 +191,7 @@ describe("setPreviewEnabled: write, audit, push, one function", () => {
         {
           type: "set_preview_enabled",
           displayProvider: "xvfb-x11vnc",
+          displayProviders: ["xvfb-x11vnc"],
           on: false,
           changedAt: stamped(row?.previewEnabledAt),
         },
@@ -256,6 +258,7 @@ describe("reconcilePreviewEnabled: decide, push the row, write nothing", () => {
       expect(pushes[1]).toEqual({
         type: "set_preview_enabled",
         displayProvider: "xvfb-x11vnc",
+        displayProviders: ["xvfb-x11vnc"],
         on: true,
         webPreviewsOn: true,
         displayOn: false,
@@ -283,6 +286,7 @@ describe("reconcilePreviewEnabled: decide, push the row, write nothing", () => {
         {
           type: "set_preview_enabled",
           displayProvider: "xvfb-x11vnc",
+          displayProviders: ["xvfb-x11vnc"],
           on: true,
           webPreviewsOn: true,
           displayOn: false,
@@ -291,6 +295,7 @@ describe("reconcilePreviewEnabled: decide, push the row, write nothing", () => {
         {
           type: "set_preview_enabled",
           displayProvider: "xvfb-x11vnc",
+          displayProviders: ["xvfb-x11vnc"],
           on: true,
           webPreviewsOn: true,
           displayOn: false,
@@ -393,6 +398,7 @@ it("reconciles provider selection independently of the permissions", () => {
     displayOn: true,
     changedAt: row.previewEnabledAt,
     displayProvider: "xvfb-x11vnc",
+    displayProviders: ["xvfb-x11vnc"],
   };
   expect(decidePreviewEnabled(row, reported)).toBe("push-plane");
   expect(decidePreviewEnabled(row, { ...reported, displayProvider: "native-example" })).toBe("noop");

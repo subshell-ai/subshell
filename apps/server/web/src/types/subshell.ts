@@ -1,3 +1,4 @@
+import type { VirtualDisplayRequest } from "@internal/subshell-protocol";
 /**
  * Shared subshell view model (mirrors the backend toSubshellView shape).
  */
@@ -21,6 +22,7 @@ export type SubshellAccess = "owner" | "edit" | "view";
  * A subshell as seen by the operator UX (home cards + terminal page).
  */
 export interface SubshellView {
+  screen?: VirtualDisplayRequest | null;
   /** Display metadata rides the ordinary subshell list, without per-row preview scans. */
   virtualDisplay?: string | null;
   /** Unique identifier (UUID) */

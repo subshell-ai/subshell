@@ -1,4 +1,5 @@
 import type { Node } from "@internal/node-admin";
+import { parseStoredVirtualDisplayRequest } from "@internal/subshell-protocol";
 import { useEffect, useMemo, useRef } from "react";
 import {
   emptyNewSubshellForm,
@@ -248,6 +249,14 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
     let next: NewSubshellFormValue = { ...emptyNewSubshellForm(), presetId: preset.id, harnessId: preset.harnessId };
     if (preset.nodeId !== null) next = { ...next, nodeId: preset.nodeId };
     if (preset.workingDir !== null) next = { ...next, workingDir: preset.workingDir };
+    const display = preset.screenConfig ? parseStoredVirtualDisplayRequest(preset.screenConfig) : null;
+    if (display)
+      next = {
+        ...next,
+        virtualDisplay: true,
+        displayProvider: display.provider,
+        displaySize: { width: display.width, height: display.height },
+      };
     const blocks = wireToPresetBlocks(preset.promptBlocks);
     if (blocks.length > 0) next = { ...next, promptBlocks: blocks };
     // The pair rule (2026-09-20): a directory is a claim about ONE machine,

@@ -1,4 +1,5 @@
 import { t } from "elysia";
+import { VirtualDisplayRequestSchema } from "@/schema/virtual-display.js";
 
 /**
  * One declared port forward as the pane header shows it (spec 2026-10-15):
@@ -38,6 +39,9 @@ export const UserInfoSchema = t.Object({
 });
 
 export const PresetSchema = t.Object({
+  screenConfig: t.Optional(
+    t.Nullable(t.String({ description: "JSON virtual display launch request; null means no display" })),
+  ),
   ownerName: t.Optional(t.String({ description: "Preset owner display name" })),
   access: t.Optional(
     t.Union([t.Literal("owner"), t.Literal("edit"), t.Literal("view")], {
@@ -67,6 +71,7 @@ export const PresetSchema = t.Object({
 });
 
 export const SubshellSchema = t.Object({
+  screen: t.Nullable(VirtualDisplayRequestSchema),
   virtualDisplay: t.Nullable(
     t.String({ description: "The subshell’s known virtual display, or null when none is available" }),
   ),

@@ -6,6 +6,11 @@ import type { ToolDeps } from "./tools.js";
 
 export const ScreenSchema = z
   .object({
+    provider: z
+      .string()
+      .regex(/^[a-z][a-z0-9-]{0,63}$/)
+      .optional()
+      .describe("Enabled provider ID from get_node; omitted uses the node default"),
     width: z.number().int().min(320).max(4096),
     height: z.number().int().min(320).max(4096),
   })
@@ -15,6 +20,11 @@ export const ScreenSchema = z
 
 export const GetNodeSchema = z.object({
   node: z.string().min(1).describe("Node ID or unambiguous name from list_nodes"),
+  provider: z
+    .string()
+    .regex(/^[a-z][a-z0-9-]{0,63}$/)
+    .optional()
+    .describe("Check this provider; omitted checks the node default"),
   check_display: z
     .boolean()
     .optional()
@@ -37,13 +47,21 @@ export async function getNode(deps: ToolDeps, args: z.infer<typeof GetNodeSchema
     };
   try {
     const readiness = parsePreviewDisplayReadiness(
-      await deps.api.req(`/api/nodes/${encodeURIComponent(node.id)}/display-readiness`),
+      await deps.api.req(
+        `/api/nodes/${encodeURIComponent(node.id)}/display-readiness${args.provider ? `?provider=${encodeURIComponent(args.provider)}` : ""}`,
+      ),
     );
     if (!readiness) throw new Error("subshell: invalid display readiness response; update the server and retry");
     return {
       ...node,
       virtualDisplay: {
         ...readiness,
+        provider: args.provider ?? node.virtualDisplayProvider ?? "xvfb-x11vnc",
+        enabled:
+          node.virtualDisplayEnabled === true &&
+          (node.virtualDisplayProviders ?? [node.virtualDisplayProvider ?? "xvfb-x11vnc"]).includes(
+            args.provider ?? node.virtualDisplayProvider ?? "xvfb-x11vnc",
+          ),
         status: !readiness.supported ? "unsupported" : readiness.missing.length ? "missing-programs" : "ready",
       },
     };

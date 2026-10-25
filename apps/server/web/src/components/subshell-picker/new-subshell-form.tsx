@@ -2,7 +2,7 @@ import type { Node } from "@internal/node-admin";
 import { Input, Label } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import type { JSX } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ListLoadError } from "@/components/list-load-error";
 import { PromptStackSection } from "@/components/prompts/prompt-stack-section";
 import { LaunchCommandPreview } from "@/components/subshell-picker/launch-command-preview";
@@ -20,6 +20,7 @@ import { type ComboboxOption, SearchableSelect } from "@/components/ui/combobox"
 import { RequiredMark } from "@/components/ui/required-mark";
 import { WorkingDirField } from "@/components/working-dir-field";
 import { type InstancePluginRow, useInstancePlugins } from "@/hooks/use-instance-plugins";
+import { useNodeDisplayReadiness } from "@/hooks/use-node-display-readiness";
 import { useNodes } from "@/hooks/use-nodes";
 import { usePresets } from "@/hooks/use-presets";
 import { useRecentPaths } from "@/hooks/use-recent-paths";
@@ -125,6 +126,15 @@ export function NewSubshellForm({
   const { data: recent } = useRecentPaths(value.nodeId);
 
   const { data: nodeData, isPending: nodesPending } = useNodes();
+  const displayCheck = useNodeDisplayReadiness(
+    nodeData?.nodes?.find((n) => n.id === value.nodeId) ?? null,
+    value.displayProvider,
+  );
+  const displayUnavailable = value.virtualDisplay ? displayCheck.reason : undefined;
+  useEffect(() => {
+    if (value.displayUnavailable !== displayUnavailable) onChange({ ...value, displayUnavailable });
+  }, [displayUnavailable, value, onChange]);
+
   // A well-formed registry response is `{ nodes: [...] }`; anything else
   // (an error body, an older stub) leaves the current pick untouched.
   const nodes = Array.isArray(nodeData?.nodes) ? nodeData.nodes : null;
@@ -373,6 +383,8 @@ export function NewSubshellForm({
         <VirtualDisplayField
           node={selectedNode}
           id={ids.virtualDisplay}
+          provider={value.displayProvider}
+          onProviderChange={(displayProvider) => onChange({ ...value, displayProvider })}
           checked={value.virtualDisplay === true}
           onChange={(virtualDisplay) => onChange({ ...value, virtualDisplay })}
           onLeave={onLeave}

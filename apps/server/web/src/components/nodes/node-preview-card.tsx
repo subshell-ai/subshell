@@ -8,10 +8,9 @@ import {
   type NodeDetail,
   Switch,
 } from "@internal/node-admin";
-import { DEFAULT_VIRTUAL_DISPLAY_PROVIDER, VIRTUAL_DISPLAY_PROVIDERS } from "@internal/subshell-protocol";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSetViewsEnabled } from "@/hooks/use-nodes";
+import { NodeDisplayProviders } from "./node-display-providers";
 import { NodeViewReadiness } from "./node-view-readiness";
 
 /**
@@ -98,44 +97,18 @@ function NodePreviewFeatureCard({ node, feature }: { node: NodeDetail; feature: 
         {display ? (
           <>
             {enabled && (
-              <div className="flex w-full flex-col gap-2">
-                <Label htmlFor={`${id}-provider`}>Display provider</Label>
-                <Select
-                  items={VIRTUAL_DISPLAY_PROVIDERS.map((provider) => ({ value: provider.id, label: provider.name }))}
-                  value={node.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER}
-                  disabled={Boolean(disabledReason)}
-                  onValueChange={(provider) => {
-                    if (provider && provider !== node.virtualDisplayProvider)
-                      update.mutate({ id: node.id, on: enabled, feature: "display", provider });
-                  }}
-                >
-                  <SelectTrigger id={`${id}-provider`} disabledReason={disabledReason}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {VIRTUAL_DISPLAY_PROVIDERS.map((provider) => (
-                        <SelectItem key={provider.id} value={provider.id}>
-                          {provider.name}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                <p className="text-detail text-muted-foreground">
-                  {
-                    VIRTUAL_DISPLAY_PROVIDERS.find(
-                      (provider) => provider.id === (node.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER),
-                    )?.description
-                  }
-                  {" Changes apply to new virtual displays. Existing displays keep running."}
-                </p>
-              </div>
+              <NodeDisplayProviders
+                node={node}
+                disabledReason={disabledReason}
+                onChange={(providers, provider) =>
+                  update.mutate({ id: node.id, on: enabled, feature: "display", providers, provider })
+                }
+              />
             )}
             <p className="text-detail text-warning">
               Each virtual display uses extra memory and CPU. Web previews don’t need one.
             </p>
-            <NodeViewReadiness node={node} />
+            {!enabled && <NodeViewReadiness node={node} />}
           </>
         ) : (
           <p className="text-detail text-muted-foreground">

@@ -54,6 +54,9 @@ export interface NewSubshellFormValue {
    * plain terminal into a display.
    */
   virtualDisplay?: boolean;
+  displayProvider?: string;
+  displayUnavailable?: string;
+  displaySize?: { width: number; height: number };
 }
 
 export function emptyNewSubshellForm(): NewSubshellFormValue {
@@ -64,12 +67,14 @@ export function emptyNewSubshellForm(): NewSubshellFormValue {
 export function canSubmit(value: NewSubshellFormValue): boolean {
   // A checked "Save as preset" without a name is an unnamed promise; the
   // field is required exactly while the box is checked (ruling 2026-09-30).
+  if (value.virtualDisplay && value.displayUnavailable) return false;
   const presetNamed = value.saveAsPreset !== true || (value.presetName ?? "").trim() !== "";
   return Boolean(value.harnessId) && Boolean(value.workingDir.trim()) && Boolean(value.nodeId) && presetNamed;
 }
 
 /** Explain the same requirements that prevent a launch. */
 export function launchDisabledReason(value: NewSubshellFormValue): string | undefined {
+  if (value.virtualDisplay && value.displayUnavailable) return value.displayUnavailable;
   if (!value.harnessId) return "Choose an agent or shell first.";
   if (!value.nodeId) return "Choose a node first.";
   if (!value.workingDir.trim()) return "Choose a working directory first.";

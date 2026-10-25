@@ -1,9 +1,10 @@
 import { Button, Label, type Node } from "@internal/node-admin";
+import { DEFAULT_VIRTUAL_DISPLAY_PROVIDER } from "@internal/subshell-protocol";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useNodeDisplayReadiness } from "@/hooks/use-node-display-readiness";
+import { DisplayProviderPicker } from "./display-provider-picker";
 
 export function VirtualDisplayField({
   node,
@@ -11,28 +12,25 @@ export function VirtualDisplayField({
   checked,
   onChange,
   onLeave,
+  provider,
+  onProviderChange,
 }: {
   node: Node | null;
   id: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
   onLeave?: () => void;
+  provider?: string;
+  onProviderChange?: (provider: string | undefined) => void;
 }) {
-  const { check, reason, needsSetup, shouldCheck } = useNodeDisplayReadiness(node);
-  const previousNode = useRef(node?.id);
-  // Revalidating the same machine must not discard the user's selection.
-  // A different machine or a completed refusal does invalidate it.
-  useEffect(() => {
-    const changedNode = previousNode.current !== node?.id;
-    previousNode.current = node?.id;
-    if (checked && (changedNode || (reason && !check.isFetching))) onChange(false);
-  }, [node?.id, reason, check.isFetching, checked, onChange]);
+  const { check, reason, needsSetup, shouldCheck } = useNodeDisplayReadiness(node, provider);
+  const providers = node?.virtualDisplayProviders ?? [DEFAULT_VIRTUAL_DISPLAY_PROVIDER];
   const control = (
     <div className="flex items-center gap-3">
       <Checkbox
         id={id}
         checked={checked}
-        disabled={Boolean(reason)}
+        disabled={Boolean(reason) && !checked}
         onCheckedChange={onChange}
         aria-describedby={reason ? `${id}-hint ${id}-cost ${id}-reason` : `${id}-hint ${id}-cost`}
       />
@@ -61,6 +59,15 @@ export function VirtualDisplayField({
         </Tooltip>
       ) : (
         control
+      )}
+      {onProviderChange && (providers.length > 1 || provider !== undefined) && (
+        <DisplayProviderPicker
+          id={`${id}-provider`}
+          value={provider}
+          onChange={onProviderChange}
+          providers={providers}
+          defaultProvider={node?.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER}
+        />
       )}
       <p id={`${id}-hint`} className="text-detail text-muted-foreground">
         Run graphical apps on a machine without a monitor.

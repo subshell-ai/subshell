@@ -26,6 +26,7 @@ import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import {
   getAnyPreviewEnabled,
+  getEnabledDisplayProviders,
   getVirtualDisplayEnabled,
   getVirtualDisplayProvider,
   getWebPreviewsEnabled,
@@ -44,6 +45,7 @@ export interface LocalPreviewDeps {
   bridge?: BridgeDeps;
   displayProvider?: VirtualDisplayProvider;
   getDisplayProviderId?: () => string | Promise<string>;
+  getEnabledProviderIds?: () => string[] | Promise<string[]>;
   log?: (line: string) => void;
 }
 
@@ -57,6 +59,7 @@ export class LocalPreviewRuntime {
     this.displays = new PreviewDisplays(deps.dataDir, {
       provider: deps.displayProvider,
       getProviderId: deps.getDisplayProviderId,
+      getEnabledProviderIds: deps.getEnabledProviderIds,
       isEnabled: deps.displayEnabled ?? deps.enabled,
       log: deps.log,
     });
@@ -158,6 +161,7 @@ export function getLocalPreviewRuntime(): LocalPreviewRuntime {
     runtime = new LocalPreviewRuntime({
       dataDir: SUBSHELL_SERVER_DATA_DIR,
       getDisplayProviderId: () => getVirtualDisplayProvider(LOCAL_NODE_ID),
+      getEnabledProviderIds: () => getEnabledDisplayProviders(LOCAL_NODE_ID),
       enabled: () => getAnyPreviewEnabled(LOCAL_NODE_ID),
       webPreviewsEnabled: () => getWebPreviewsEnabled(LOCAL_NODE_ID),
       displayEnabled: () => getVirtualDisplayEnabled(LOCAL_NODE_ID),

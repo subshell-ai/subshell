@@ -200,7 +200,7 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
   // gates again for its own sake; this block is the launch-side "refuse
   // before the record", which is the half reviewers flagged.
   if (cmd.screen) {
-    if (ctx.previewDisplays && !(await ctx.previewDisplays.readiness()).supported)
+    if (ctx.previewDisplays && !(await ctx.previewDisplays.readiness(cmd.screen.provider)).supported)
       return { ok: false, error: PREVIEW_DISPLAY_UNSUPPORTED };
     if (!getVirtualDisplayEnabled(ctx.config.dataDir)) return { ok: false, error: PREVIEW_NODE_OFF };
     if (!ctx.previewDisplays) {

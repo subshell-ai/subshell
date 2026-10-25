@@ -132,11 +132,13 @@ login flows, or another graphical app.
 
 1. Install **Xvfb**, **x11vnc**, and **xauth** on the Linux machine running the
    subshell. In **Nodes**, select that machine and turn on **Allow virtual displays**.
-   Choose **Xvfb + VNC** under **Display provider**. This is currently the only
-   bundled provider, and it requires Linux. The requirements check uses your
-   selected provider.
+   Enable **Allow Xvfb + VNC** and select it as the **Default display provider**.
+   This is currently the only bundled provider, and it requires Linux.
+   Each provider has its own enable switch and requirements check.
 2. When launching a subshell, enable **Virtual display**. The form checks the
-   selected machine and keeps the option disabled if requirements are missing.
+   selected machine. If more than one provider is enabled, choose one under
+   **Display provider**, or keep **Node default**. Missing requirements prevent
+   launch until you resolve them or turn off Virtual display.
    Missing programs show a **Set up virtual display** link to this guide.
    After installing the prerequisites, use **Recheck**. The button disappears
    once the requirements pass.
@@ -150,7 +152,17 @@ login flows, or another graphical app.
   <figcaption>The virtual display shows the browser running on the node. Keyboard and pointer input require edit access. Select the image to enlarge it.</figcaption>
 </figure>
 
-Changing the node’s provider affects new virtual displays; existing displays keep running. Restarting a subshell recreates its virtual display at the same size using the selected provider. The node must still allow virtual displays; if it doesn’t, a manual restart is refused before stopping the current subshell.
+Changing the node’s default affects new subshells that use **Node default**. Each
+subshell saves the provider it actually uses, so restarting keeps the same
+provider and display size. Disabling a provider leaves existing displays
+running, but prevents new displays and restarts that need it. A manual restart
+is refused before stopping the current subshell.
+
+Presets can save a specific provider or follow the node default. Loading a
+preset keeps its display choice visible even when the node cannot support it.
+Choose another enabled provider or turn off Virtual display to continue.
+Enabling providers in node settings starts no display processes; resources
+are allocated when you launch a subshell with Virtual display.
 
 A virtual display isn't a sandbox for the programs you run. They keep the
 execution account's permissions. Don't enable it on a host shared with untrusted
@@ -175,12 +187,14 @@ through the subshell token's node discovery tools.
 
 1. Call `list_nodes` to choose an online node with `canLaunch: true`, virtual displays
    enabled, and an installed, working terminal harness. Call
-   `get_node` with its ID to check display prerequisites. If anything is
+   `get_node` with its ID to check the default provider, or include `provider`
+   to check another enabled choice. Confirm `virtualDisplay.enabled` is true
+   and its status is `ready`. If anything is
    missing, follow [Linux setup](#use-a-virtual-display-on-linux) on that node.
 2. Call `create_subshell` with the node ID and a display:
 
    ```json
-   { "harness": "terminal", "node": "NODE_ID", "name": "Website check", "screen": { "width": 1280, "height": 800 } }
+   { "harness": "terminal", "node": "NODE_ID", "name": "Website check", "screen": { "width": 1280, "height": 800, "provider": "xvfb-x11vnc" } }
    ```
 
 3. Use `exec_in_terminal` with the returned subshell ID to start your development

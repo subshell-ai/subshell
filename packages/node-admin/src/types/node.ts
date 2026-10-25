@@ -204,6 +204,7 @@ export interface Node {
   virtualDisplayEnabled?: boolean;
   /** Provider selected for new virtual displays on this node. */
   virtualDisplayProvider?: string;
+  virtualDisplayProviders?: string[];
   /**
    * This node is connected but REFUSED — held open for exactly one
    * command and offline for every other purpose (spec 2026-09-15 §5.3).

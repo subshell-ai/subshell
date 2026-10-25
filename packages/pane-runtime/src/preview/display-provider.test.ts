@@ -89,6 +89,39 @@ describe("display provider contract", () => {
     expect(displays.getFor(a)).toBeNull();
     expect(displays.getFor(b)).toBeNull();
   });
+  it("allows per-subshell choices while enforcing live provider policy", async () => {
+    const first = new ExampleProvider("first", 6001);
+    const second = new ExampleProvider("second", 6002);
+    let allowed = [first.id, second.id];
+    const displays = new PreviewDisplays("/unused", {
+      providers: [first, second],
+      getProviderId: () => first.id,
+      getEnabledProviderIds: () => allowed,
+      isEnabled: () => true,
+    });
+    const a = crypto.randomUUID();
+    const b = crypto.randomUUID();
+    await displays.openFor(a, { ...size, provider: second.id });
+    await displays.openFor(b, size);
+    expect(displays.getFor(a)?.viewer.port).toBe(6002);
+    expect(displays.getFor(b)?.viewer.port).toBe(6001);
+    second.requirements = { supported: true, missing: ["Permission"] };
+    expect(await displays.readiness(second.id)).toEqual(second.requirements);
+    expect(await displays.readiness()).toEqual(first.requirements);
+    await expect(displays.openFor(a, { ...size, provider: first.id })).rejects.toThrow("provider-conflict");
+    allowed = [first.id];
+    await expect(displays.openFor(crypto.randomUUID(), { ...size, provider: second.id })).rejects.toThrow(
+      "provider-disabled",
+    );
+    expect(second.allocations).toBe(1);
+    expect(displays.getFor(a)).not.toBeNull();
+    await displays.closeFor(a);
+    expect(displays.getFor(a)).toBeNull();
+    await expect(displays.openFor(crypto.randomUUID(), { ...size, provider: "unknown" })).rejects.toThrow(
+      "preview-display-unsupported",
+    );
+    expect(first.allocations).toBe(1);
+  });
   it("refuses unknown providers without falling back to another backend", async () => {
     const provider = new ExampleProvider("example", 6000);
     const displays = new PreviewDisplays("/unused", {

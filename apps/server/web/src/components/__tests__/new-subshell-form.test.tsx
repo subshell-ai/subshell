@@ -603,6 +603,13 @@ describe("NewSubshellForm preset row", () => {
     }
   });
 
+  it("blocks a requested display until its selected provider is ready", () => {
+    const form = { harnessId: "terminal", nodeId: "local", workingDir: "/tmp", presetId: null, promptBlocks: [] };
+    expect(canSubmit({ ...form, virtualDisplay: true, displayUnavailable: "This provider is disabled." })).toBe(false);
+    expect(canSubmit({ ...form, virtualDisplay: false, displayUnavailable: "This provider is disabled." })).toBe(true);
+    expect(canSubmit({ ...form, virtualDisplay: true })).toBe(true);
+  });
+
   it("canSubmit: a checked Save-as-preset without a name never submits", () => {
     const base = { harnessId: "claude-code", presetId: null, workingDir: "/x", nodeId: "local", promptBlocks: [] };
     expect(canSubmit({ ...base })).toBe(true);

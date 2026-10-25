@@ -66,6 +66,7 @@ import * as presetSharingMigration from "./migrations/0057-preset-sharing.js";
 import * as nodeVirtualDisplayEnabledMigration from "./migrations/0064-node-virtual-display-enabled.js";
 import * as subshellScreenConfigMigration from "./migrations/0065-subshell-screen-config.js";
 import * as nodeDisplayProviderMigration from "./migrations/0066-node-display-provider.js";
+import * as displayProviderChoicesMigration from "./migrations/0067-display-provider-choices.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -187,6 +188,7 @@ export async function runMigrations(): Promise<void> {
           "0064-node-virtual-display-enabled": nodeVirtualDisplayEnabledMigration,
           "0065-subshell-screen-config": subshellScreenConfigMigration,
           "0066-node-display-provider": nodeDisplayProviderMigration,
+          "0067-display-provider-choices": displayProviderChoicesMigration,
         };
       },
     },

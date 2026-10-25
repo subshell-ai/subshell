@@ -9,6 +9,8 @@
  * (multi-user ready).
  */
 export interface PresetTable {
+  /** Optional JSON display request; omitted provider follows the node default. */
+  screenConfig?: string | null;
   /** Unique preset id (uuid) */
   id: string;
   /** Owning user id (better-auth user id) */

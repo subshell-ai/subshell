@@ -32,6 +32,7 @@ export function execSetPreviewEnabled(ctx: CommandContext, cmd: Cmd<"set_preview
     changedAt: cmd.changedAt,
     ...(cmd.webPreviewsOn === undefined ? {} : { webPreviewsOn: cmd.webPreviewsOn }),
     ...(cmd.displayProvider === undefined ? {} : { displayProvider: cmd.displayProvider }),
+    ...(cmd.displayProviders === undefined ? {} : { displayProviders: cmd.displayProviders }),
     ...(cmd.displayOn === undefined ? {} : { displayOn: cmd.displayOn }),
   });
   return { ok: true };

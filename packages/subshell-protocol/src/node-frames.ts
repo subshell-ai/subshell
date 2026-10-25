@@ -1,4 +1,9 @@
-import { isDisplayProviderId } from "./display-providers.js";
+import {
+  isDisplayProviderId,
+  parseDisplayProviderIds,
+  parseVirtualDisplayRequest,
+  type VirtualDisplayRequest,
+} from "./display-providers.js";
 import { BASE64_RE, isBool, isInt, isNum, isRecord, isStr, isStrArray, isStringMap } from "./guards.js";
 import type { JsonValue } from "./json.js";
 import { type NodeSystemSpecs, parseNodeSystemSpecs } from "./node-system-specs.js";
@@ -864,8 +869,8 @@ export type NodeCommandBody =
       cols?: number;
       /** Initial terminal geometry */
       rows?: number;
-      /** Allocates a virtual display and starts the pane on it. Linux only; a machine with the switch off refuses before spawning (spec §4). */
-      screen?: { width: number; height: number };
+      /** Allocates a virtual display and starts the pane on it. The selected provider must be enabled and ready before spawning. */
+      screen?: VirtualDisplayRequest;
       /**
        * Revive parity (phase-2): when true the agent downgrades a log-attach
        * failure (subshells-dir mkdir + pipe-pane) to a logged note and still
@@ -1309,7 +1314,7 @@ export type NodeCommandBody =
   | PreviewOpenCommand
   | PreviewCloseCommand
   | PreviewPortsGetCommand
-  | { type: "preview_display_check" }
+  | { type: "preview_display_check"; provider?: string }
   | SetPreviewEnabledCommand;
 
 /**
@@ -1372,6 +1377,8 @@ export function parseNodeSshEnabled(value: unknown): NodeSshEnabledWire | null {
 export interface NodePreviewEnabledWire {
   /** Provider used for new virtual displays; absent selects the bundled default. */
   displayProvider?: string;
+  /** Providers allowed for new allocations, independently of the feature switch. */
+  displayProviders?: string[];
   /** Independent feature permissions; absent fields retain the legacy combined switch. */
   webPreviewsOn?: boolean;
   displayOn?: boolean;
@@ -1385,6 +1392,7 @@ export interface NodePreviewEnabledWire {
 export function parseNodePreviewEnabled(value: unknown): NodePreviewEnabledWire | null {
   if (!isRecord(value) || !isBool(value.on) || !isStr(value.changedAt)) return null;
   if (value.displayProvider !== undefined && !isDisplayProviderId(value.displayProvider)) return null;
+  if (value.displayProviders !== undefined && !parseDisplayProviderIds(value.displayProviders)) return null;
   const webPreviewsOn = value.webPreviewsOn;
   if (
     (webPreviewsOn !== undefined && !isBool(webPreviewsOn)) ||
@@ -1396,6 +1404,7 @@ export function parseNodePreviewEnabled(value: unknown): NodePreviewEnabledWire 
     changedAt: value.changedAt,
     ...(webPreviewsOn === undefined ? {} : { webPreviewsOn: webPreviewsOn as boolean }),
     ...(value.displayProvider === undefined ? {} : { displayProvider: value.displayProvider as string }),
+    ...(value.displayProviders === undefined ? {} : { displayProviders: value.displayProviders as string[] }),
     ...(value.displayOn === undefined ? {} : { displayOn: value.displayOn as boolean }),
   };
 }
@@ -2065,15 +2074,7 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       // serve it is execution's question (the owner switch), not the
       // grammar's. 320..4096: a smaller screen cannot host a terminal plus a
       // browser, a larger one no viewer can usefully watch.
-      if ("screen" in value) {
-        const screen = value.screen;
-        if (
-          !isRecord(screen) ||
-          !(isInt(screen.width) && (screen.width as number) >= 320 && (screen.width as number) <= 4096) ||
-          !(isInt(screen.height) && (screen.height as number) >= 320 && (screen.height as number) <= 4096)
-        )
-          return null;
-      }
+      if ("screen" in value && !parseVirtualDisplayRequest(value.screen)) return null;
       if ("bestEffortLog" in value && !isBool(value.bestEffortLog)) return null;
       // Server-built argv and its resolve rule (inversion spec §5): REQUIRED
       // since protocol 3. The node holds no plugin and builds nothing itself,
@@ -2405,7 +2406,11 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       return { type: "preview_close", ref: value.ref, reason: value.reason };
     }
     case "preview_display_check":
-      return { type: "preview_display_check" };
+      if (value.provider !== undefined && !isDisplayProviderId(value.provider)) return null;
+      return {
+        type: "preview_display_check",
+        ...(value.provider === undefined ? {} : { provider: value.provider as string }),
+      };
     case "preview_ports_get":
       return isStr(value.paneId) ? { type: "preview_ports_get", paneId: value.paneId } : null;
     case "set_preview_enabled": {

@@ -19,8 +19,11 @@ import {
   normalizeLabel,
   parseNodeProbeEntries,
   parseSshForwardRows,
+  parseStoredVirtualDisplayRequest,
+  parseVirtualDisplayRequest,
   type SshConnectionSnapshotWire,
   type SshForwardWire,
+  type VirtualDisplayRequest,
 } from "@internal/subshell-protocol";
 import { HttpError } from "@/api/auth-guard.js";
 import { harnessUsable } from "@/api/harness-utils.js";
@@ -51,6 +54,7 @@ import {
   subshellMcpEnv,
 } from "@/services/mcp-launch.js";
 import { probeReporterLaunch } from "@/services/mcp-resolve.js";
+import { resolveNodeDisplayRequest } from "@/services/nodes/display-selection.js";
 import { launcherFor } from "@/services/nodes/launcher-registry.js";
 import { LocalLauncher } from "@/services/nodes/local-launcher.js";
 import { type LogCursorRequest, readLogCursor } from "@/services/nodes/log-tail.js";
@@ -63,7 +67,6 @@ import {
   previewCacheGet,
   previewCachePut,
 } from "@/services/nodes/preview-cache.js";
-import { getVirtualDisplayEnabled } from "@/services/nodes/preview-enabled.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
@@ -479,7 +482,7 @@ export class SubshellManagerService {
      * it. The service preflighted the node's Preview switch before arriving
      * here, so no row exists unless the plane already said yes.
      */
-    screen?: { width: number; height: number };
+    screen?: VirtualDisplayRequest;
   }): Promise<{ id: string; tmuxSocket: string; apiKey: string; promptDelivered: boolean }> {
     if (subshellId !== undefined && !/^[a-zA-Z0-9_-]{1,64}$/.test(subshellId)) {
       throw new Error("createSubshell: subshellId is outside the id grammar");
@@ -500,6 +503,7 @@ export class SubshellManagerService {
     }
 
     const targetNode = nodeId ?? LOCAL_NODE_ID;
+    if (screen) screen = await resolveNodeDisplayRequest(targetNode, screen);
     const launcher = this.#launcherFor(targetNode);
     const realPath = await launcher.validateWorkingDir(workingDir);
     await assertDirAllowed(targetNode, realPath);
@@ -1564,37 +1568,20 @@ export class SubshellManagerService {
     return true;
   }
 
-  async #screenForRestart(row: SubshellTable): Promise<{ width: number; height: number } | undefined> {
+  async #screenForRestart(row: SubshellTable): Promise<VirtualDisplayRequest | undefined> {
     if (!row.screenConfig) return undefined;
-    if (!(await getVirtualDisplayEnabled(row.nodeId))) {
-      throw new HttpError(
-        409,
-        "Virtual displays are disabled on this node. Enable Allow virtual displays in node settings before restarting this subshell.",
-      );
+    let screen: VirtualDisplayRequest | null;
+    try {
+      screen = parseVirtualDisplayRequest(JSON.parse(row.screenConfig));
+    } catch {
+      screen = null;
     }
-    const invalid = () =>
-      new HttpError(
+    if (!screen)
+      throw new HttpError(
         409,
         "This subshell's saved display settings are invalid. Start a new subshell with a virtual display.",
       );
-    let screen: { width: number; height: number };
-    try {
-      screen = JSON.parse(row.screenConfig);
-    } catch {
-      throw invalid();
-    }
-    if (
-      !screen ||
-      !Number.isInteger(screen.width) ||
-      !Number.isInteger(screen.height) ||
-      screen.width < 320 ||
-      screen.width > 4096 ||
-      screen.height < 320 ||
-      screen.height > 4096
-    ) {
-      throw invalid();
-    }
-    return { width: screen.width, height: screen.height };
+    return resolveNodeDisplayRequest(row.nodeId, screen, 409);
   }
 
   /**
@@ -2427,6 +2414,7 @@ function normalizePaneTitle(raw: string): string {
 
 export function toSubshellView(
   row: {
+    screenConfig?: string | null;
     id: string;
     userId: string;
     presetId: string | null;
@@ -2475,6 +2463,7 @@ export function toSubshellView(
   const sshSummary = row.ssh !== null ? sshPaneSummary(row.ssh) : null;
   return {
     id: row.id,
+    screen: parseStoredVirtualDisplayRequest(row.screenConfig),
     virtualDisplay: status === "running" && row.alive === 1 ? virtualDisplay : null,
     presetId: row.presetId,
     harnessId: row.harnessId,

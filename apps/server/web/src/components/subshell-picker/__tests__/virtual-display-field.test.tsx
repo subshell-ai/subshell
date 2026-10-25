@@ -44,21 +44,61 @@ describe("virtual display prerequisites", () => {
   it("disables a missing display, explains the remedy, and enables it after rechecking", async () => {
     respond({ supported: true, missing: ["Xvfb", "x11vnc"] });
     const changes: boolean[] = [];
-    render(<VirtualDisplayField node={linux} id="display" checked={true} onChange={(value) => changes.push(value)} />, {
-      wrapper,
-    });
+    render(
+      <VirtualDisplayField node={linux} id="display" checked={false} onChange={(value) => changes.push(value)} />,
+      {
+        wrapper,
+      },
+    );
     const guide = await screen.findByRole("link", { name: "Set up virtual display" });
     expect(guide.getAttribute("href")).toBe("https://docs.subshell.sh/guides/preview#use-a-virtual-display-on-linux");
     expect(guide.getAttribute("target")).toBe("_blank");
     expect(guide.closest(".text-warning")).not.toBeNull();
     expect(screen.queryByText(/install Xvfb/)).toBeNull();
     expect(screen.getByRole("checkbox").getAttribute("aria-disabled")).toBe("true");
-    expect(changes).toContain(false);
+    expect(changes).toEqual([]);
     respond(ready);
     fireEvent.click(screen.getByRole("button", { name: "Recheck" }));
     await waitFor(() => expect(screen.getByRole("checkbox").getAttribute("aria-disabled")).not.toBe("true"));
     expect(screen.queryByRole("button", { name: "Recheck" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Set up virtual display" })).toBeNull();
+  });
+  it("preserves an unavailable preset display and lets the user opt out", async () => {
+    respond({ supported: true, missing: ["Xvfb"] });
+    const changes: boolean[] = [];
+    render(<VirtualDisplayField node={linux} id="display" checked onChange={(v) => changes.push(v)} />, { wrapper });
+    await screen.findByRole("link", { name: "Set up virtual display" });
+    expect(changes).toEqual([]);
+    expect(screen.getByRole("checkbox").getAttribute("aria-disabled")).not.toBe("true");
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(changes).toEqual([false]);
+  });
+  it("offers multiple enabled providers and checks the selected provider", async () => {
+    const paths: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      paths.push(String(input));
+      return new Response(JSON.stringify(ready));
+    }) as typeof fetch;
+    const changes: (string | undefined)[] = [];
+    render(
+      <VirtualDisplayField
+        node={{ ...linux, virtualDisplayProviders: ["xvfb-x11vnc", "native-example"] }}
+        provider="native-example"
+        onProviderChange={(p) => changes.push(p)}
+        id="display"
+        checked
+        onChange={() => {}}
+      />,
+      { wrapper },
+    );
+    await waitFor(() => expect(paths.some((p) => p.endsWith("?provider=native-example"))).toBe(true));
+    fireEvent.click(screen.getByRole("combobox", { name: "Display provider" }));
+    const option = await screen.findByRole("option", { name: "Xvfb + VNC" });
+    fireEvent.pointerDown(option);
+    fireEvent.pointerUp(option);
+    fireEvent.click(option);
+    expect(changes).toEqual(["xvfb-x11vnc"]);
+    expect(virtualDisplayReason({ ...linux, virtualDisplayProviders: [] }, ready, "xvfb-x11vnc")).toContain("disabled");
   });
   it("fails closed when a check fails and recovers on recheck", async () => {
     respond({ message: "Bring this node online, then recheck." }, 409);

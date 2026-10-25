@@ -2,9 +2,17 @@ import { Button, type NodeDetail } from "@internal/node-admin";
 import { useNodeDisplayReadiness } from "@/hooks/use-node-display-readiness";
 
 /** Explain machine prerequisites beside the switch that permits these features. */
-export function NodeViewReadiness({ node }: { node: NodeDetail }) {
-  const { check, reason, needsSetup, shouldCheck } = useNodeDisplayReadiness(node);
-  if (!node.virtualDisplayEnabled) {
+export function NodeViewReadiness({
+  node,
+  provider,
+  inspect = false,
+}: {
+  node: NodeDetail;
+  provider?: string;
+  inspect?: boolean;
+}) {
+  const { check, reason, needsSetup, shouldCheck } = useNodeDisplayReadiness(node, provider, inspect);
+  if (!node.virtualDisplayEnabled && !inspect) {
     return <p className="text-detail text-muted-foreground">Virtual displays are disabled on this node.</p>;
   }
   return (

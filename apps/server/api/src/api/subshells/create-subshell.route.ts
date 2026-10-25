@@ -3,6 +3,7 @@ import { Elysia, t } from "elysia";
 import { authGuard, HttpError, requirePerm } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
+import { VirtualDisplayRequestSchema } from "@/schema/virtual-display.js";
 
 const CreateSubshellBodySchema = t.Object({
   harnessId: t.String({ minLength: 1, description: "Harness plugin id to launch" }),
@@ -34,26 +35,7 @@ const CreateSubshellBodySchema = t.Object({
         "Workspace to file the new subshell in: a tab row is written for it beside the launch. 404 when it is not the caller's (or absent). Omitted = the pane starts ungrouped",
     }),
   ),
-  screen: t.Optional(
-    t.Object(
-      {
-        width: t.Integer({
-          minimum: 320,
-          maximum: 4096,
-          description: "Virtual display width in pixels the node allocates for this pane",
-        }),
-        height: t.Integer({
-          minimum: 320,
-          maximum: 4096,
-          description: "Virtual display height in pixels the node allocates for this pane",
-        }),
-      },
-      {
-        description:
-          "Ask the node's selected provider for a virtual display for this subshell. Refused when virtual displays are disabled or the provider's requirements aren't met",
-      },
-    ),
-  ),
+  screen: t.Optional(t.Nullable(VirtualDisplayRequestSchema)),
 });
 
 /** Shared with restart (same response shape). */

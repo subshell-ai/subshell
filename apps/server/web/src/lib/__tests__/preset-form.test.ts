@@ -35,6 +35,15 @@ const baseRow: PresetRow = {
   updatedAt: "2026-09-13T00:00:00.000Z",
 };
 
+it("preserves a preset's provider and size through editing, and can clear the display", () => {
+  const screen = { width: 1440, height: 900, provider: "native-example" };
+  const form = presetFormFromRow({ ...baseRow, screenConfig: JSON.stringify(screen) });
+  expect(form.screen).toEqual(screen);
+  expect(toPresetPayload(form).screen).toEqual(screen);
+  expect(toPresetUpdatePayload(form).screen).toEqual(screen);
+  expect(toPresetUpdatePayload({ ...form, screen: null }).screen).toBeNull();
+});
+
 describe("emptyPresetForm", () => {
   it("returns one blank row per section, with auto-restart already on", () => {
     expect(emptyPresetForm()).toEqual({

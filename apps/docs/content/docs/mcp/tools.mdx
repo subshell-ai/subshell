@@ -70,13 +70,13 @@ Arguments: `{}`. Returns an array of owned nodes with `id`, `name`, `kind`, `sta
 
 Each harness row has `harnessId`, `name`, and `installed`, plus `version`, refusal `reason`, `broken`, `restartRequired`, and `checkedAt` when reported. A `broken` plugin can't launch even if its binary is installed. `restartRequired` concerns the server's loaded plugin, not the harness binary. `inventoryStale` identifies cached detection. Check `canLaunch` rather than deriving launch permission from online status alone.
 
-`webPreviewsEnabled` reports permission for web previews; `virtualDisplayEnabled` reports permission for virtual displays. These fields, `sshEnabled`, and `sshWideForwards` report configuration, not live readiness. `protocolVersion`, `agentVersion`, and `held` describe the daemon connection when reported. Missing fields from older servers mean unknown, not disabled. Subshell SSH still requires a browser session; these tools don't grant SSH access or change node settings.
+`webPreviewsEnabled` reports permission for web previews; `virtualDisplayEnabled` reports permission for virtual displays. `virtualDisplayProviders` lists enabled provider IDs, and `virtualDisplayProvider` names the default. These fields, `sshEnabled`, and `sshWideForwards` report configuration, not live readiness. `protocolVersion`, `agentVersion`, and `held` describe the daemon connection when reported. Missing fields from older servers mean unknown, not disabled. Subshell SSH still requires a browser session; these tools don't grant SSH access or change node settings.
 
 ## get_node
 
-Pass `{ "node": "NODE_ID" }`, or an unambiguous node name. Returns the same fields as `list_nodes`, plus `virtualDisplay` readiness: `ready`, `missing-programs`, `unsupported`, or `unavailable`. A completed probe includes `supported` and `missing` program names. Pass `check_display: false` to skip the live probe and return `unchecked`.
+Pass `{ "node": "NODE_ID" }`, or an unambiguous node name. Returns the same fields as `list_nodes`, plus `virtualDisplay` readiness: `ready`, `missing-programs`, `unsupported`, or `unavailable`. A completed probe includes `supported`, unmet `missing` requirements, the checked `provider`, and `enabled` for that provider’s node permission. Pass `provider` to check a specific choice; otherwise the node default is checked. Pass `check_display: false` to skip the live probe and return `unchecked`.
 
-A ready display check means its programs are present. Web previews & screens must also be enabled, the node must permit launches, and launch performs its own checks. Only the token owner's enrolled nodes are available; shares, admin status, and the server's built-in node don't widen this access.
+A ready display check means its requirements are met. Virtual displays and the chosen provider must also be enabled, the node must permit launches, and launch performs its own checks. Only the token owner's enrolled nodes are available; shares, admin status, and the server's built-in node don't widen this access.
 
 ## list_subshell_views
 
@@ -114,7 +114,7 @@ The tool has two shapes. From a preset (the default) it launches saved settings;
 | `node` | Optional string | Node ID or unambiguous display name override. |
 | `working_dir` | Optional string | Absolute directory on that node. Omitted, a presetless terminal starts in the node's home. |
 | `prompt` | Optional string | Task text added to or replacing the preset prompt, or typed once a presetless shell settles. |
-| `screen` | Optional object | Allocate a Linux virtual display with integer `width` and `height`, each 320 to 4096. Check `get_node` first. This doesn't enable Web previews & screens or install programs. |
+| `screen` | Optional object or null | Allocate a virtual display with integer `width` and `height`, each 320 to 4096, and an optional enabled `provider` ID. Omitting the provider uses the node default. Omitting `screen` inherits the preset’s display; `null` opts out. Check `get_node` first. This doesn’t enable providers or install programs. |
 | `prompt_mode` | Optional enum | `append` by default, or `replace`. Needs a preset. |
 
 Returns `{ id, promptDelivered }`. Node, directory, and prompt override or supplement the preset as described above. The final composed prompt is limited to 20,000 characters.

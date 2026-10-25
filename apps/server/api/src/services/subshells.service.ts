@@ -9,7 +9,13 @@ import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 import type { AttentionKind } from "@internal/mcp-core";
 import { allHarnesses, getHarness, tmuxSocketFor } from "@internal/pane-runtime";
 import type { ApiKeyPermission } from "@internal/subshell-protocol";
-import { joinPresetPrompt, NODE_RESULT_MAINTENANCE, parsePresetPromptBlocks } from "@internal/subshell-protocol";
+import {
+  joinPresetPrompt,
+  NODE_RESULT_MAINTENANCE,
+  parsePresetPromptBlocks,
+  parseVirtualDisplayRequest,
+  type VirtualDisplayRequest,
+} from "@internal/subshell-protocol";
 import type { GuardActor } from "@/api/auth-guard.js";
 import { HttpError } from "@/api/auth-guard.js";
 import { harnessUsable } from "@/api/harness-utils.js";
@@ -518,7 +524,7 @@ export class SubshellsService extends BaseService {
      * The plane checks the node's permission before any row, token, or RPC;
      * the node checks the provider's requirements before allocating resources.
      */
-    screen?: { width: number; height: number };
+    screen?: VirtualDisplayRequest | null;
   }): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
     // Lockdown is the FIRST question the instance asks of every create
     // (operator ask 2026-09-24): it answers valid bodies and invalid ones
@@ -649,7 +655,20 @@ export class SubshellsService extends BaseService {
     // node's Task 7 gate stays the authority for every fact the plane's row
     // cannot hold (platform, binaries). Placed in the service rather than
     // the launcher so a refused create never creates a pane at all.
-    if (screen !== undefined && !(await getVirtualDisplayEnabled(resolvedNodeId))) {
+    if (screen === undefined && presetRow?.screenConfig) {
+      try {
+        screen = parseVirtualDisplayRequest(JSON.parse(presetRow.screenConfig));
+      } catch {
+        screen = null;
+      }
+      if (!screen)
+        throw new SubshellCreateError(
+          "bad_request",
+          "This preset’s display settings are invalid. Edit the preset before launching.",
+          400,
+        );
+    }
+    if (screen && !(await getVirtualDisplayEnabled(resolvedNodeId))) {
       throw new SubshellCreateError(
         "bad_request",
         "Virtual displays are disabled on this node. Enable Allow virtual displays in node settings, or launch without a virtual display.",
@@ -705,7 +724,7 @@ export class SubshellsService extends BaseService {
         ...(extraPaneEnv !== undefined ? { extraPaneEnv } : {}),
         ...(subshellId !== undefined ? { subshellId } : {}),
         ...(workspaceId !== undefined ? { workspaceId } : {}),
-        ...(screen !== undefined ? { screen } : {}),
+        ...(screen ? { screen } : {}),
       })
       .catch(rethrowLaunchRefusal);
     // Feed the picker's Recents (and the new-subshell form's pre-fill) from

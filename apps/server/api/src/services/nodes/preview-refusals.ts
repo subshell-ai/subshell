@@ -50,6 +50,10 @@ export function detailIsNodeOff(detail: string): boolean {
  * node's own words ride along so the operator can grep them.
  */
 export const SCREEN_LAUNCH_REMEDIES: Readonly<Record<string, string>> = {
+  "preview-display-provider-disabled":
+    "This display provider is disabled on the node. Enable it in node settings, or choose another provider for a new subshell.",
+  "preview-display-provider-conflict":
+    "This subshell already has a display from a different provider. Start a new subshell to use another provider.",
   "preview-node-off":
     "Virtual displays are disabled on this node. Turn on Allow virtual displays in node settings, then launch again.",
   [PREVIEW_DISPLAY_UNSUPPORTED]:

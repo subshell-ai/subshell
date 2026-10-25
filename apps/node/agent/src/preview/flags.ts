@@ -62,6 +62,7 @@ export type PreviewEnabledRead =
       webPreviewsOn?: boolean;
       displayOn?: boolean;
       displayProvider?: string;
+      displayProviders?: string[];
       /** The stored stamp, verbatim: `ready.previewEnabled` is built from it. */
       changedAt: string;
     }
@@ -90,13 +91,14 @@ export function readPreviewEnabled(dataDir: string): PreviewEnabledRead {
   try {
     const state = parseNodePreviewEnabled(JSON.parse(readFileSync(file, "utf8")));
     if (!state) throw new SyntaxError("not a preview-enabled state");
-    return state.on || state.displayProvider !== undefined
+    return state.on || state.displayProvider !== undefined || state.displayProviders !== undefined
       ? {
           kind: state.on ? "on" : "off",
           changedAt: state.changedAt,
           ...(state.webPreviewsOn === undefined ? {} : { webPreviewsOn: state.webPreviewsOn }),
           ...(state.displayOn === undefined ? {} : { displayOn: state.displayOn }),
           ...(state.displayProvider === undefined ? {} : { displayProvider: state.displayProvider }),
+          ...(state.displayProviders === undefined ? {} : { displayProviders: state.displayProviders }),
         }
       : { kind: "absent" };
   } catch (err) {
@@ -148,6 +150,7 @@ export function reportablePreviewEnabled(read: PreviewEnabledRead): NodePreviewE
       ...(read.webPreviewsOn === undefined ? {} : { webPreviewsOn: read.webPreviewsOn }),
       ...(read.displayOn === undefined ? {} : { displayOn: read.displayOn }),
       ...(read.displayProvider === undefined ? {} : { displayProvider: read.displayProvider }),
+      ...(read.displayProviders === undefined ? {} : { displayProviders: read.displayProviders }),
     };
   if (read.kind === "unreadable" && read.changedAt) return { on: false, changedAt: read.changedAt };
   return undefined;

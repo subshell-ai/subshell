@@ -1,4 +1,5 @@
 import type { HarnessPlugin, McpRegistration, PresetDefinition, ReporterSpec } from "@internal/pane-runtime";
+import type { VirtualDisplayRequest } from "@internal/subshell-protocol";
 
 /** One harness start, structured (spec 2026-08-31 §6.3). */
 export interface LaunchPlan {
@@ -64,7 +65,7 @@ export interface LaunchPlan {
    * The local launcher uses the same provider contract on the server.
    * Absent on every plain launch.
    */
-  screen?: { width: number; height: number };
+  screen?: VirtualDisplayRequest;
 }
 
 /**

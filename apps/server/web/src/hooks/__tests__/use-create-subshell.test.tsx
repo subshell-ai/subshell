@@ -432,24 +432,24 @@ describe("the virtual-display launch option (task 12)", () => {
     }
   });
 
-  it("an unchecked box sends no screen field at all: an absent option is not a default", async () => {
+  it("an unchecked box clears any display inherited from a preset", async () => {
     const m = mockFetch();
     try {
       await launch({ ...BASE });
       const launchPost = m.calls.find((c) => c.url === "/api/subshells" && c.method === "POST");
-      expect("screen" in (launchPost?.body ?? {})).toBe(false);
+      expect(launchPost?.body?.screen).toBeNull();
     } finally {
       m.restore();
       setCurrentWorkspace(null);
     }
   });
 
-  it("an explicitly false box sends no screen field either", async () => {
+  it("an explicitly false box clears the preset display", async () => {
     const m = mockFetch();
     try {
       await launch({ ...BASE, virtualDisplay: false });
       const launchPost = m.calls.find((c) => c.url === "/api/subshells" && c.method === "POST");
-      expect("screen" in (launchPost?.body ?? {})).toBe(false);
+      expect(launchPost?.body?.screen).toBeNull();
     } finally {
       m.restore();
       setCurrentWorkspace(null);

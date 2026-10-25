@@ -42,6 +42,8 @@ describe("MCP preview discovery and launch", () => {
     const facts = {
       webPreviewsEnabled: false,
       virtualDisplayEnabled: true,
+      virtualDisplayProvider: "xvfb-x11vnc",
+      virtualDisplayProviders: ["xvfb-x11vnc", "native-example"],
       sshEnabled: true,
       sshWideForwards: false,
       protocolVersion: 17,
@@ -73,7 +75,7 @@ describe("MCP preview discovery and launch", () => {
     expect(await getNode(deps, { node: node.id })).toMatchObject({
       webPreviewsEnabled: true,
       virtualDisplayEnabled: false,
-      virtualDisplay: { status: "ready" },
+      virtualDisplay: { status: "ready", enabled: false },
     });
     const views = fixture(() => ({
       nodeEnabled: true,
@@ -89,6 +91,17 @@ describe("MCP preview discovery and launch", () => {
     });
   });
 
+  it("reports a requested provider's policy separately from its readiness", async () => {
+    const { deps, calls } = fixture((path) =>
+      path === "/api/nodes"
+        ? { nodes: [{ ...node, virtualDisplayEnabled: true, virtualDisplayProviders: ["xvfb-x11vnc"] }] }
+        : { supported: true, missing: [] },
+    );
+    expect(await getNode(deps, { node: node.id, provider: "native-example" })).toMatchObject({
+      virtualDisplay: { provider: "native-example", enabled: false, status: "ready" },
+    });
+    expect(calls.at(-1)?.path).toBe("/api/nodes/linux-1/display-readiness?provider=native-example");
+  });
   it("checks requirements through the owner read surface, never management detail", async () => {
     const { deps, calls } = fixture((path) =>
       path === "/api/nodes" ? { nodes: [node] } : { supported: true, missing: ["xauth"] },
@@ -150,9 +163,12 @@ describe("MCP preview discovery and launch", () => {
         harness: "terminal",
         preset,
         node: node.id,
-        screen: { width: 1280, height: 800 },
+        screen: { width: 1280, height: 800, provider: "native-example" },
       });
-      expect(calls.at(-1)?.body).toMatchObject({ nodeId: node.id, screen: { width: 1280, height: 800 } });
+      expect(calls.at(-1)?.body).toMatchObject({
+        nodeId: node.id,
+        screen: { width: 1280, height: 800, provider: "native-example" },
+      });
     }
     expect(ScreenSchema.safeParse({ width: 100000, height: 800 }).success).toBe(false);
   });

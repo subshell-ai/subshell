@@ -8,6 +8,7 @@ import { ensureSystemUser } from "@/auth/system-user.js";
 import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
@@ -219,7 +220,13 @@ describe("preview REST surface (Task 9)", () => {
     systemUserId = await ensureSystemUser();
     await nodes.create({ id: nodeId, ownerUserId: ownerId, name: "Preview Node", kind: "agent" });
     await nodes.setPreviewEnabled(nodeId, { on: true, changedAt: new Date().toISOString() });
-    await nodes.setPreviewEnabled(nodeId, { on: true, feature: "display", changedAt: new Date().toISOString() });
+    await nodes.setPreviewEnabled(nodeId, {
+      on: true,
+      feature: "display",
+      provider: "xvfb-x11vnc",
+      providers: ["xvfb-x11vnc"],
+      changedAt: new Date().toISOString(),
+    });
   });
 
   afterAll(async () => {
@@ -241,7 +248,13 @@ describe("preview REST surface (Task 9)", () => {
     resetNodeRegistryForTests();
     resetForTests();
     await nodes.setPreviewEnabled(nodeId, { on: true, changedAt: new Date().toISOString() });
-    await nodes.setPreviewEnabled(nodeId, { on: true, feature: "display", changedAt: new Date().toISOString() });
+    await nodes.setPreviewEnabled(nodeId, {
+      on: true,
+      feature: "display",
+      provider: "xvfb-x11vnc",
+      providers: ["xvfb-x11vnc"],
+      changedAt: new Date().toISOString(),
+    });
   });
 
   /* ---------------------------------------------------------------- */
@@ -907,7 +920,7 @@ describe("preview REST surface (Task 9)", () => {
     expect(res.status).toBe(200);
     const launches = sim.cmdsOf("launch");
     expect(launches.length).toBe(1);
-    expect(launches[0].screen).toEqual({ width: 1280, height: 800 });
+    expect(launches[0].screen).toEqual({ width: 1280, height: 800, provider: "xvfb-x11vnc" });
     const created = await jsonBody(res);
     createdSubshellIds.push(String(created.id));
   });
@@ -921,15 +934,33 @@ describe("preview REST surface (Task 9)", () => {
     expect(response.status).toBe(200);
     const id = String((await jsonBody(response)).id);
     createdSubshellIds.push(id);
-    expect((await subshells.findById(id))?.screenConfig).toBe(JSON.stringify({ width: 1440, height: 900 }));
+    expect((await subshells.findById(id))?.screenConfig).toBe(
+      JSON.stringify({ width: 1440, height: 900, provider: "xvfb-x11vnc" }),
+    );
     await nodes.setPreviewEnabled(nodeId, { on: false, feature: "display", changedAt: new Date().toISOString() });
     const refused = await call("POST", `/${id}/restart`, { cookie: ownerCookie });
     expect(refused.status).toBe(409);
     expect(sim.countOf("kill")).toBe(0);
-    await nodes.setPreviewEnabled(nodeId, { on: true, feature: "display", changedAt: new Date().toISOString() });
+    await nodes.setPreviewEnabled(nodeId, {
+      on: true,
+      feature: "display",
+      provider: "xvfb-x11vnc",
+      providers: ["xvfb-x11vnc"],
+      changedAt: new Date().toISOString(),
+    });
+    await db.updateTable("nodes").set({ virtualDisplayProviders: "[]" }).where("id", "=", nodeId).execute();
+    const providerOff = await call("POST", `/${id}/restart`, { cookie: ownerCookie });
+    expect(providerOff.status).toBe(409);
+    expect((await errorBody(providerOff)).message).toContain("provider is disabled");
+    expect(sim.countOf("kill")).toBe(0);
+    await db
+      .updateTable("nodes")
+      .set({ virtualDisplayProvider: "future-provider", virtualDisplayProviders: JSON.stringify(["xvfb-x11vnc"]) })
+      .where("id", "=", nodeId)
+      .execute();
     const restarted = await call("POST", `/${id}/restart`, { cookie: ownerCookie });
     expect(restarted.status).toBe(200);
-    expect(sim.cmdsOf("launch").at(-1)?.screen).toEqual({ width: 1440, height: 900 });
+    expect(sim.cmdsOf("launch").at(-1)?.screen).toEqual({ width: 1440, height: 900, provider: "xvfb-x11vnc" });
     expect(sim.countOf("launch")).toBe(2);
   });
 
@@ -952,8 +983,61 @@ describe("preview REST surface (Task 9)", () => {
       body: await createBody({ name: "display only", screen: { width: 1280, height: 800 } }),
     });
     expect(res.status).toBe(200);
-    expect(sim.cmdsOf("launch")[0].screen).toEqual({ width: 1280, height: 800 });
+    expect(sim.cmdsOf("launch")[0].screen).toEqual({ width: 1280, height: 800, provider: "xvfb-x11vnc" });
     createdSubshellIds.push(String((await jsonBody(res)).id));
+  });
+
+  it("rejects disabled and unknown provider choices before writing or launching", async () => {
+    await makeLaunchable();
+    const count = await paneCount(ownerId);
+    for (const provider of ["future-provider", "xvfb-x11vnc"]) {
+      await db.updateTable("nodes").set({ virtualDisplayProviders: "[]" }).where("id", "=", nodeId).execute();
+      const res = await call("POST", "", {
+        cookie: ownerCookie,
+        body: await createBody({ screen: { width: 1280, height: 800, provider } }),
+      });
+      expect(res.status).toBe(400);
+      expect((await errorBody(res)).message).toContain("provider");
+      expect(sim.countOf("launch")).toBe(0);
+      expect(await paneCount(ownerId)).toBe(count);
+    }
+  });
+
+  it("inherits a preset display, honors explicit opt-out, and pins the actual choice", async () => {
+    await makeLaunchable();
+    const presets = new PresetsRepository(db);
+    const presetId = crypto.randomUUID();
+    const screen = { width: 1440, height: 900, provider: "xvfb-x11vnc" };
+    await presets.create({
+      id: presetId,
+      userId: ownerId,
+      harnessId: "claude-code",
+      name: "Display preset",
+      description: null,
+      envJson: null,
+      flagsJson: null,
+      settingsJson: null,
+      configIsolation: 0,
+      screenConfig: JSON.stringify(screen),
+    });
+    try {
+      for (const optOut of [false, true]) {
+        const res = await call("POST", "", {
+          cookie: ownerCookie,
+          body: await createBody({ presetId, ...(optOut ? { screen: null } : {}) }),
+        });
+        expect(res.status).toBe(200);
+        const id = String((await jsonBody(res)).id);
+        createdSubshellIds.push(id);
+        expect(sim.cmdsOf("launch").at(-1)?.screen).toEqual(optOut ? undefined : screen);
+        expect((await subshells.findById(id))?.screenConfig).toBe(optOut ? null : JSON.stringify(screen));
+        expect((await jsonBody(await call("GET", `/${id}`, { cookie: ownerCookie }))).screen).toEqual(
+          optOut ? null : screen,
+        );
+      }
+    } finally {
+      await presets.delete(presetId);
+    }
   });
 
   it("a plain launch carries no screen member at all", async () => {

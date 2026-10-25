@@ -176,7 +176,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     {
       title: "Get node",
       description:
-        "Inspect an owned node by ID or name, including harness detection, SSH and Web previews & screens settings, protocol capabilities, launch restrictions, and a live virtual-display prerequisite check. Display ready means its programs are installed, not that virtual displays are enabled or launch is permitted. This does not enable features or grant SSH access; Subshell SSH requires a browser session.",
+        "Inspect an owned node by ID or name, including harness detection, SSH and Web previews & screens settings, protocol capabilities, launch restrictions, and a live virtual-display prerequisite check. Includes enabled providers and the default. Pass provider to check another choice. Display ready means its requirements are met; virtualDisplay.enabled separately reports whether node policy allows that choice. This does not enable features or grant SSH access; Subshell SSH requires a browser session.",
       inputSchema: GetNodeSchema,
     },
     guard((args: z.infer<typeof GetNodeSchema>) => getNode(deps, args)),
@@ -246,7 +246,11 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
             .describe(
               "Beside preset: an assert, must equal the preset's harness. Without preset: required, and only a plain terminal harness is accepted",
             ),
-          screen: ScreenSchema.optional(),
+          screen: ScreenSchema.nullable()
+            .optional()
+            .describe(
+              "Display size and optional enabled provider. Omit to inherit the preset, or pass null to launch without its display.",
+            ),
           name: z.string().optional(),
           working_dir: z
             .string()
@@ -295,7 +299,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
         node?: string;
         prompt?: string;
         prompt_mode?: "append" | "replace";
-        screen?: { width: number; height: number };
+        screen?: { width: number; height: number; provider?: string } | null;
       }) =>
         createSubshell(deps, {
           name,

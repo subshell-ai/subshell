@@ -1,5 +1,9 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
-import { VIRTUAL_DISPLAY_PROVIDERS } from "@internal/subshell-protocol";
+import {
+  DEFAULT_VIRTUAL_DISPLAY_PROVIDER,
+  storedDisplayProviderIds,
+  VIRTUAL_DISPLAY_PROVIDERS,
+} from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { ForbiddenError, HttpError } from "@/api/auth-guard.js";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
@@ -12,6 +16,13 @@ import { apiModels } from "@/schema/index.js";
 import { setPreviewEnabled } from "@/services/nodes/preview-enabled.js";
 
 const PreviewEnabledBodySchema = t.Object({
+  providers: t.Optional(
+    t.Array(t.String({ minLength: 1, maxLength: 64, description: "Enabled provider identifier" }), {
+      maxItems: 32,
+      uniqueItems: true,
+      description: "Providers allowed for new virtual displays",
+    }),
+  ),
   provider: t.Optional(
     t.String({ minLength: 1, maxLength: 64, description: "Bundled provider for new virtual displays on this node" }),
   ),
@@ -60,7 +71,21 @@ export const setNodeViewsEnabledRoute = new Elysia()
         (body.feature !== "display" || !VIRTUAL_DISPLAY_PROVIDERS.some((p) => p.id === body.provider))
       )
         throw new HttpError(400, "Choose an available virtual display provider.");
-      await setPreviewEnabled(gate.row.id, user.id, body.on, body.feature, body.provider);
+      let providers: string[] | undefined;
+      let provider = body.provider;
+      if (body.providers !== undefined && body.feature !== "display")
+        throw new HttpError(400, "Provider settings apply only to virtual displays.");
+      if (body.feature === "display") {
+        providers = body.providers ?? storedDisplayProviderIds(gate.row.virtualDisplayProviders);
+        if (providers.some((id) => !VIRTUAL_DISPLAY_PROVIDERS.some((p) => p.id === id)))
+          throw new HttpError(400, "Choose available virtual display providers.");
+        provider ??= gate.row.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER;
+        if (providers.length && !providers.includes(provider)) {
+          if (body.provider) throw new HttpError(400, "The default display provider must be enabled on this node.");
+          provider = providers[0];
+        }
+      }
+      await setPreviewEnabled(gate.row.id, user.id, body.on, body.feature, provider, providers);
       // Re-read rather than patching the gate's snapshot: the service wrote
       // the row, and the view must render what is stored, not what this
       // handler believes it asked for.

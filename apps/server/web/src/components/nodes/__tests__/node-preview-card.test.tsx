@@ -214,11 +214,11 @@ it("apps need no display prerequisites and display has its own switch", async ()
 it("shows the provider selector when virtual displays are enabled", async () => {
   const h = mount(node({ virtualDisplayEnabled: true, virtualDisplayProvider: "xvfb-x11vnc" }));
   try {
-    const picker = screen.getByRole("combobox", { name: "Display provider" });
+    const picker = screen.getByRole("combobox", { name: "Default display provider" });
     expect(picker.textContent).toContain("Xvfb + VNC");
     fireEvent.click(picker);
     expect(await screen.findByRole("option", { name: "Xvfb + VNC" })).toBeTruthy();
-    expect(screen.getByText(/Changes apply to new virtual displays/)).toBeTruthy();
+    expect(screen.getByText(/Existing subshells keep their saved provider/)).toBeTruthy();
   } finally {
     h.restore();
   }

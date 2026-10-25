@@ -118,6 +118,8 @@ export interface NodeTable {
   virtualDisplayEnabled: number;
   /** Backend selected for new displays; existing displays retain their provider. */
   virtualDisplayProvider?: string;
+  /** JSON array of providers allowed for new displays. */
+  virtualDisplayProviders?: string;
   /**
    * ISO 8601 of the write that last changed {@link webPreviewsEnabled} (the
    * wire's `changedAt`), or null when the flag was never written. The stamp

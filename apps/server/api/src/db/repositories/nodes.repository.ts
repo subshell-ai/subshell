@@ -317,6 +317,7 @@ export class NodesRepository extends BaseRepository {
       on: boolean;
       feature?: "web-previews" | "display";
       provider?: string;
+      providers?: string[];
       /** ISO 8601 of the write that produced `on`. Never re-stamped on relay. */
       changedAt: string;
     },
@@ -328,6 +329,7 @@ export class NodesRepository extends BaseRepository {
           ? {
               virtualDisplayEnabled: state.on ? 1 : 0,
               ...(state.provider ? { virtualDisplayProvider: state.provider } : {}),
+              ...(state.providers ? { virtualDisplayProviders: JSON.stringify(state.providers) } : {}),
             }
           : { webPreviewsEnabled: state.on ? 1 : 0 }),
         previewEnabledAt: state.changedAt,

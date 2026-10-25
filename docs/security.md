@@ -4061,7 +4061,12 @@ controls the built-in node. The server checks the corresponding database setting
 before opening a preview or creating a display, and enrolled nodes check the
 corresponding signed mirror field. The transport runs when either feature is
 allowed; that transport allowance alone does not authorize the other feature.
-New nodes default both permissions off.
+New nodes default both permissions off. The owner also controls the enabled
+display providers and the default. These values travel in the signed mirror.
+Launch checks the requested provider against the enabled set on both the
+server and the node before allocation; unknown providers never fall back to
+another implementation. A subshell pins its provider when created. Changing
+the default cannot switch an existing subshell’s provider on restart.
 Turning it off prevents new operations. It does not drain existing lanes,
 terminate a subshell, or stop graphical programs.
 

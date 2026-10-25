@@ -69,6 +69,7 @@ describe("node preview-enabled route", () => {
     bearer?: string,
     feature?: "web-previews" | "display",
     provider?: string,
+    providers?: string[],
   ) {
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (cookie) headers.cookie = `better-auth.session_token=${cookie}`;
@@ -77,7 +78,7 @@ describe("node preview-enabled route", () => {
       new Request(`http://localhost:3080/api/nodes/${nodeId}/views-enabled`, {
         method: "PUT",
         headers,
-        body: JSON.stringify({ on, feature, provider }),
+        body: JSON.stringify({ on, feature, provider, providers }),
       }),
     );
   }
@@ -289,6 +290,26 @@ describe("node preview-enabled route", () => {
     expect(await displayOff.json()).toMatchObject({ webPreviewsEnabled: true, virtualDisplayEnabled: false });
     expect((await put(NODE, otherCookie, true, undefined, "display")).status).toBe(404);
     expect((await put(NODE, adminCookie, true, undefined, "display")).status).toBe(403);
+  });
+  it("persists allowed providers, allows none, and rejects invalid policy without writing", async () => {
+    const off = await put(NODE, ownerCookie, true, undefined, "display", undefined, []);
+    expect(off.status).toBe(200);
+    expect(await off.json()).toMatchObject({ virtualDisplayEnabled: true, virtualDisplayProviders: [] });
+    for (const invalid of [["unknown-provider"], ["xvfb-x11vnc", "xvfb-x11vnc"]]) {
+      const response = await put(NODE, ownerCookie, true, undefined, "display", undefined, invalid);
+      expect([400, 422]).toContain(response.status);
+    }
+    expect((await put(NODE, editorCookie, true, undefined, "display", undefined, ["xvfb-x11vnc"])).status).toBe(403);
+    expect((await put(NODE, ownerCookie, true, undefined, "web-previews", undefined, ["xvfb-x11vnc"])).status).toBe(
+      400,
+    );
+    const row = await db.selectFrom("nodes").selectAll().where("id", "=", NODE).executeTakeFirstOrThrow();
+    expect(row.virtualDisplayProviders).toBe("[]");
+    const on = await put(NODE, ownerCookie, true, undefined, "display", "xvfb-x11vnc", ["xvfb-x11vnc"]);
+    expect(await on.json()).toMatchObject({
+      virtualDisplayProviders: ["xvfb-x11vnc"],
+      virtualDisplayProvider: "xvfb-x11vnc",
+    });
   });
   it("stores the provider with display permission and rejects unknown or unauthorized choices", async () => {
     const result = await put(NODE, ownerCookie, true, undefined, "display", "xvfb-x11vnc");

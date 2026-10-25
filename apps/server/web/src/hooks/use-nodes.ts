@@ -216,15 +216,17 @@ export function useSetViewsEnabled() {
       on,
       feature,
       provider,
+      providers,
     }: {
       id: string;
       on: boolean;
       feature?: "web-previews" | "display";
       provider?: string;
+      providers?: string[];
     }) =>
       apiFetch(`/api/nodes/${encodeURIComponent(id)}/views-enabled`, {
         method: "PUT",
-        body: JSON.stringify({ on, feature, provider }),
+        body: JSON.stringify({ on, feature, provider, providers }),
       }),
     onSuccess: async (_data, { id }) => {
       await Promise.all([

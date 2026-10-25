@@ -1,5 +1,11 @@
-import type { NodeSystemSpecs } from "@internal/subshell-protocol";
-import { isPresetCrossCommReady, joinPresetPrompt, parsePresetPromptBlocks } from "@internal/subshell-protocol";
+import {
+  isPresetCrossCommReady,
+  joinPresetPrompt,
+  type NodeSystemSpecs,
+  parsePresetPromptBlocks,
+  parseStoredVirtualDisplayRequest,
+  type VirtualDisplayRequest,
+} from "@internal/subshell-protocol";
 import type { ToolDeps } from "./tools.js";
 
 /**
@@ -12,6 +18,7 @@ import type { ToolDeps } from "./tools.js";
 /** One subshell as the API sends it: the fields the projection reads. The server row carries more (UI fields an agent has no surface for: shares, pushes, backoff, bell); they are dropped, never passed through. */
 interface SubshellWireRow {
   virtualDisplay?: string | null;
+  screen?: VirtualDisplayRequest | null;
   id: string;
   name: string;
   harnessId: string;
@@ -32,6 +39,7 @@ interface SubshellWireRow {
 /** The honest projection list_subshells and get_subshell answer with (spec 2026-09-25 MCP DX). */
 export interface SubshellView {
   virtualDisplay?: string | null;
+  screen?: VirtualDisplayRequest | null;
   id: string;
   name: string;
   harnessId: string;
@@ -66,6 +74,7 @@ function toSubshellView(row: SubshellWireRow): SubshellView {
     workingDir: row.workingDir,
     preview: row.preview,
     ...(row.virtualDisplay !== undefined ? { virtualDisplay: row.virtualDisplay } : {}),
+    ...(row.screen !== undefined ? { screen: row.screen } : {}),
     waitingSince: row.waitingSince,
     exitCode: row.exitCode,
     access: row.access,
@@ -92,6 +101,7 @@ interface NodeWireRow {
   webPreviewsEnabled?: boolean;
   virtualDisplayEnabled?: boolean;
   virtualDisplayProvider?: string;
+  virtualDisplayProviders?: string[];
   sshEnabled?: boolean;
   sshWideForwards?: boolean;
   protocolVersion?: number | null;
@@ -138,6 +148,7 @@ export interface NodeView {
   webPreviewsEnabled?: boolean;
   virtualDisplayEnabled?: boolean;
   virtualDisplayProvider?: string;
+  virtualDisplayProviders?: string[];
   sshEnabled?: boolean;
   sshWideForwards?: boolean;
   protocolVersion?: number | null;
@@ -171,6 +182,7 @@ export interface NodeView {
 
 /** A preset row, or a harness-catalog entry (see `listPresets`). */
 export interface PresetRow {
+  screen?: VirtualDisplayRequest | null;
   /** User-authored guidance for choosing a preset. */
   crossCommNotes?: string | null;
   /** Saved launch defaults, when supplied by the server. */
@@ -199,6 +211,7 @@ export interface PresetRow {
 
 /** One preset row as GET /api/presets sends it (the launch trio rides every bearer row; envJson is redacted server-side). */
 interface PresetsWireRow {
+  screenConfig?: string | null;
   crossCommNotes?: string | null;
   id: string;
   name: string;
@@ -333,15 +346,18 @@ export async function listPresets(deps: ToolDeps): Promise<PresetRow[]> {
     deps.api.req<PresetsWireRow[]>("/api/presets"),
     deps.api.req<{ plugins: PluginWireRow[] }>("/api/plugins"),
   ]);
-  const presets = rows.map(({ id, name, harnessId, crossCommEnabled, crossCommNotes, nodeId, workingDir }) => ({
-    id,
-    name,
-    harnessId,
-    ...(crossCommNotes !== undefined ? { crossCommNotes } : {}),
-    ...(nodeId !== undefined ? { nodeId } : {}),
-    ...(workingDir !== undefined ? { workingDir } : {}),
-    crossCommReady: isPresetCrossCommReady({ crossCommEnabled, nodeId, workingDir }),
-  }));
+  const presets = rows.map(
+    ({ id, name, harnessId, crossCommEnabled, crossCommNotes, nodeId, workingDir, screenConfig }) => ({
+      id,
+      name,
+      harnessId,
+      ...(crossCommNotes !== undefined ? { crossCommNotes } : {}),
+      ...(nodeId !== undefined ? { nodeId } : {}),
+      ...(workingDir !== undefined ? { workingDir } : {}),
+      ...(screenConfig ? { screen: parseStoredVirtualDisplayRequest(screenConfig) } : {}),
+      crossCommReady: isPresetCrossCommReady({ crossCommEnabled, nodeId, workingDir }),
+    }),
+  );
   const catalog = plugins
     .filter((p) => (p.type === "agent-harness" || p.type === "terminal") && p.installed && p.enabled)
     .map((p) => ({ id: p.id, name: p.name, harnessId: p.id, catalogOnly: true as const }));
@@ -365,6 +381,7 @@ export async function listNodes(deps: ToolDeps): Promise<NodeView[]> {
     ...(r.systemSpecs !== undefined ? { systemSpecs: r.systemSpecs } : {}),
     ...(r.webPreviewsEnabled !== undefined ? { webPreviewsEnabled: r.webPreviewsEnabled } : {}),
     ...(r.virtualDisplayProvider !== undefined ? { virtualDisplayProvider: r.virtualDisplayProvider } : {}),
+    ...(r.virtualDisplayProviders !== undefined ? { virtualDisplayProviders: r.virtualDisplayProviders } : {}),
     ...(r.virtualDisplayEnabled !== undefined ? { virtualDisplayEnabled: r.virtualDisplayEnabled } : {}),
     ...(r.sshEnabled !== undefined ? { sshEnabled: r.sshEnabled } : {}),
     ...(r.sshWideForwards !== undefined ? { sshWideForwards: r.sshWideForwards } : {}),
@@ -433,7 +450,7 @@ export async function createSubshell(
     /** "append" (default) or "replace"; only read when `prompt` is given. */
     promptMode?: "append" | "replace";
     node?: string;
-    screen?: { width: number; height: number };
+    screen?: VirtualDisplayRequest | null;
   },
 ): Promise<{ id: string; promptDelivered: boolean }> {
   // The presetless path (spec 2026-10-01 §1): the operator ruling kept the
