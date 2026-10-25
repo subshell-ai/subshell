@@ -2,7 +2,7 @@ import type { Node } from "@internal/node-admin";
 import { Input, Label } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import type { JSX } from "react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ListLoadError } from "@/components/list-load-error";
 import { PromptStackSection } from "@/components/prompts/prompt-stack-section";
 import { LaunchCommandPreview } from "@/components/subshell-picker/launch-command-preview";
@@ -126,18 +126,10 @@ export function NewSubshellForm({
   const { data: recent } = useRecentPaths(value.nodeId);
 
   const { data: nodeData, isPending: nodesPending } = useNodes();
-  const displayCheck = useNodeDisplayReadiness(
-    nodeData?.nodes?.find((n) => n.id === value.nodeId) ?? null,
-    value.displayProvider,
-  );
-  const displayUnavailable = value.virtualDisplay ? displayCheck.reason : undefined;
-  useEffect(() => {
-    if (value.displayUnavailable !== displayUnavailable) onChange({ ...value, displayUnavailable });
-  }, [displayUnavailable, value, onChange]);
-
-  // A well-formed registry response is `{ nodes: [...] }`; anything else
-  // (an error body, an older stub) leaves the current pick untouched.
+  // Unanswered or malformed data cannot invalidate a held selection.
   const nodes = Array.isArray(nodeData?.nodes) ? nodeData.nodes : null;
+  const selectedNode: Node | null = (nodes ?? []).find((n) => n.id === value.nodeId) ?? null;
+  const displayCheck = useNodeDisplayReadiness(selectedNode, value.displayProvider);
 
   // The ONE effect (prior-launch node+dir → re-home → seed → agent)
   // and `applyPreset`, choosing a preset's explicit act (select + prefill its
@@ -153,9 +145,14 @@ export function NewSubshellForm({
     subshells,
     subshellsPending,
     firstRun,
+    displayCheck: {
+      nodeId: value.nodeId,
+      provider: value.displayProvider,
+      reason: displayCheck.reason,
+      unavailable: displayCheck.unavailable,
+    },
   });
 
-  const selectedNode: Node | null = (nodes ?? []).find((n) => n.id === value.nodeId) ?? null;
   const selectedAgent: InstancePluginRow | undefined = (plugins ?? []).find((p) => p.id === value.harnessId);
   const agentName = selectedAgent?.name ?? value.harnessId;
   const selectedPreset = presets.find((preset) => preset.id === value.presetId && preset.harnessId === value.harnessId);
@@ -202,7 +199,8 @@ export function NewSubshellForm({
   const agentOptions = buildAgentOptions(plugins ?? [], selectedNode);
   // An unmade pick ("" ) never matches a row id, so selectedNode is already
   // null there — nothing extra to guard.
-  const nodeOptions = buildNodeOptions(targets, selectedAgent ?? null);
+  // A node change may clear an incompatible agent. Keep those nodes selectable.
+  const nodeOptions = buildNodeOptions(targets, null);
 
   // Honest dead-ends (spec §1): the pick stands, the pair cannot — say what
   // to fix and link there. Gate on LOADED, not non-empty: a loaded-zero list
@@ -218,7 +216,8 @@ export function NewSubshellForm({
     plugins !== undefined &&
     !isOfflineAgent(selectedNode) &&
     agentOptions.every((o) => o.disabled);
-  const noNodeHere = nodes !== null && selectedAgent !== undefined && nodeOptions.every((o) => o.disabled);
+  const noNodeHere =
+    nodes !== null && selectedAgent !== undefined && buildNodeOptions(targets, selectedAgent).every((o) => o.disabled);
 
   // Nowhere to launch: the form has no question to ask, so it asks none and
   // says what to do instead. The caller's submit is already dead — `canSubmit`
@@ -300,8 +299,15 @@ export function NewSubshellForm({
           options={agentOptions}
           // The preset belongs to the agent, so a new agent drops the pick
           // (the copy's fields stay - they are the form's now).
-          onValueChange={(harnessId) => harnessId !== "" && onChange({ ...value, harnessId, presetId: null })}
+          onValueChange={(harnessId) =>
+            harnessId !== "" && onChange({ ...value, harnessId, presetId: null, harnessResetReason: undefined })
+          }
         />
+        {value.harnessResetReason && (
+          <p role="status" className="text-detail text-warning">
+            {value.harnessResetReason}
+          </p>
+        )}
         {noAgentHere && selectedNode ? (
           <p id={`${ids.agent}-no-agent`} className="text-detail text-muted-foreground">
             {"Nothing installed on "}
@@ -379,14 +385,19 @@ export function NewSubshellForm({
         addButtonId={ids.prompt}
       />
 
+      {!firstRun && value.displayResetReason && (
+        <p role="status" className="text-detail text-warning">
+          {value.displayResetReason}
+        </p>
+      )}
       {!firstRun && (
         <VirtualDisplayField
           node={selectedNode}
           id={ids.virtualDisplay}
           provider={value.displayProvider}
-          onProviderChange={(displayProvider) => onChange({ ...value, displayProvider })}
+          onProviderChange={(displayProvider) => onChange({ ...value, displayProvider, displayResetReason: undefined })}
           checked={value.virtualDisplay === true}
-          onChange={(virtualDisplay) => onChange({ ...value, virtualDisplay })}
+          onChange={(virtualDisplay) => onChange({ ...value, virtualDisplay, displayResetReason: undefined })}
           onLeave={onLeave}
         />
       )}

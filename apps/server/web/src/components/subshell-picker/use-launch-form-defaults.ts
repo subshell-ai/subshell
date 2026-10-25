@@ -39,6 +39,8 @@ export interface LaunchFormDefaults {
   subshellsPending: boolean;
   /** The setup assistant's first launch: hides the Preset row, so the copy tier stands down */
   firstRun: boolean;
+  /** Readiness belongs to this exact node/provider pair, never a prior render. */
+  displayCheck: { nodeId: string; provider?: string; reason?: string; unavailable: boolean };
 }
 
 /**
@@ -59,6 +61,9 @@ export interface LaunchFormActions {
 export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActions {
   const { value, onChange, nodes, nodesPending, plugins, presetRows, recent, subshells, subshellsPending, firstRun } =
     args;
+  const { displayCheck } = args;
+  const displayReviewNodeRef = useRef<string | null>(null);
+  const agentDefaultBlockedRef = useRef(false);
 
   // The full default launch reads the newest prior subshell — data the ONE
   // live-fed list already holds, so no new request. ONE selector with the
@@ -140,6 +145,8 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
     // above): drop the carried-over path and re-arm the seed, so the new
     // machine's own most-recent-else-home fills when its query answers.
     if (next.nodeId !== dirNodeRef.current) {
+      displayReviewNodeRef.current = next.virtualDisplay ? next.nodeId : null;
+      next = { ...next, harnessResetReason: undefined, displayResetReason: undefined };
       dirNodeRef.current = next.nodeId;
       if (next.workingDir !== "") next = { ...next, workingDir: "" };
       prefillDoneRef.current = false;
@@ -175,6 +182,45 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
         if (fallback && next.workingDir === "") next = { ...next, workingDir: fallback };
       }
     }
+    const heldNode = nodes?.find((n) => n.id === next.nodeId) ?? null;
+    if (next.harnessId && heldNode && plugins !== undefined) {
+      const option = buildAgentOptions(plugins, heldNode).find((o) => o.value === next.harnessId);
+      if (!option || option.disabled) {
+        // Replacing an agent also changes which program receives the prompt.
+        // Leave that decision to the user instead of silently picking another.
+        const name = plugins.find((p) => p.id === next.harnessId)?.name ?? "The selected agent";
+        agentDefaultBlockedRef.current = true;
+        next = {
+          ...next,
+          harnessId: "",
+          presetId: null,
+          harnessResetReason: `${name} can't run on ${heldNode.name}. Choose another agent.`,
+        };
+      }
+    }
+    if (!next.virtualDisplay) displayReviewNodeRef.current = null;
+    const currentDisplayCheck = displayCheck.nodeId === next.nodeId && displayCheck.provider === next.displayProvider;
+    if (displayReviewNodeRef.current === next.nodeId && currentDisplayCheck) {
+      if (displayCheck.unavailable) {
+        displayReviewNodeRef.current = null;
+        next = {
+          ...next,
+          virtualDisplay: false,
+          displayProvider: undefined,
+          displaySize: undefined,
+          displayResetReason: `Virtual display was turned off. ${displayCheck.reason}`,
+        };
+      } else if (!displayCheck.reason) {
+        displayReviewNodeRef.current = null;
+      }
+    }
+    const displayUnavailable = next.virtualDisplay
+      ? currentDisplayCheck
+        ? displayCheck.reason
+        : "Checking virtual display requirements…"
+      : undefined;
+    if (next.displayUnavailable !== displayUnavailable) next = { ...next, displayUnavailable };
+
     // Default agent, when the user has not chosen one. Reads the same disabled
     // set the dropdown renders — computed against the row this pass holds, so
     // even a same-pass re-home cannot select an agent the server would refuse.
@@ -188,6 +234,7 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
     // not answered, and the fill stays armed for a later success, the same
     // gate-the-answered-not-the-value rule as the pre-fill above.
     if (
+      !agentDefaultBlockedRef.current &&
       next.harnessId === "" &&
       plugins !== undefined &&
       nodes !== null &&
@@ -215,6 +262,7 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
     // pending→ERROR transition changes no data value, and without the flag
     // this effect would never re-run to see that the gate stayed shut.
   }, [
+    displayCheck,
     recent,
     nodes,
     nodesPending,
@@ -242,6 +290,7 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
   // with.
   function applyPreset(preset: PresetRow | null): void {
     priorLaunchAppliedRef.current = true;
+    displayReviewNodeRef.current = null;
     if (preset === null) {
       onChange({ ...value, presetId: null });
       return;

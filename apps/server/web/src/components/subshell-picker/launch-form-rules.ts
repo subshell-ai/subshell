@@ -56,6 +56,9 @@ export interface NewSubshellFormValue {
   virtualDisplay?: boolean;
   displayProvider?: string;
   displayUnavailable?: string;
+  /** Explain automatic corrections until the person makes a new choice. */
+  harnessResetReason?: string;
+  displayResetReason?: string;
   displaySize?: { width: number; height: number };
 }
 

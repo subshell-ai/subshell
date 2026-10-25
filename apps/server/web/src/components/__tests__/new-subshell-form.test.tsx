@@ -695,7 +695,7 @@ describe("NewSubshellForm honest hints", () => {
     }
   });
 
-  it("chosen agent runnable on no visible node → the mirror hint", async () => {
+  it("clears an agent that cannot run on the chosen node and explains the correction", async () => {
     const restore = mockFetch([ENROLLED_INCOMPAT], [CLAUDE]);
     try {
       await renderForm({
@@ -705,7 +705,7 @@ describe("NewSubshellForm honest hints", () => {
         nodeId: "a3",
         promptBlocks: [],
       });
-      expect(await screen.findByText(/No available node can run Claude Code/)).toBeDefined();
+      expect(await screen.findByText(/Claude Code can.t run on studio|Claude Code can.t run on node/)).toBeDefined();
     } finally {
       restore();
     }
@@ -1307,7 +1307,7 @@ describe("preset prefill of the launch fields (spec 2026-09-29)", () => {
   it("a preset fills the agent it belongs to (the row leads the form)", async () => {
     const pi = plugin({ id: "pi", name: "Pi", type: "agent-harness" });
     const restore = mockFetch(
-      [LOCAL, ENROLLED_ONLINE],
+      [{ ...LOCAL, harnesses: [CLAUDE_ON, { harnessId: "pi", name: "Pi", installed: true }] }, ENROLLED_ONLINE],
       [CLAUDE, pi],
       [preset({ id: "p-pi", harnessId: "pi", name: "Pi one" })],
     );

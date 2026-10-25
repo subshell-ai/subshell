@@ -60,5 +60,12 @@ export function useNodeDisplayReadiness(node: Node | null, provider?: string, in
           );
   const needsSetup =
     shouldCheck && !check.isFetching && !check.isError && check.data?.supported && check.data.missing.length > 0;
-  return { check, reason, needsSetup, shouldCheck };
+  // A failed or pending probe is unknown, so it must not erase a user's choice.
+  const unavailable = Boolean(
+    node &&
+      (node.virtualDisplayEnabled !== true ||
+        !allowed ||
+        (!check.isFetching && check.isSuccess && (!check.data.supported || check.data.missing.length > 0))),
+  );
+  return { check, reason, needsSetup, shouldCheck, unavailable };
 }
