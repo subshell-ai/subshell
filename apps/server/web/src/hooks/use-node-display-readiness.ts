@@ -11,19 +11,19 @@ export function virtualDisplayReason(
   readiness?: PreviewDisplayReadiness,
   provider?: string,
 ): string | undefined {
-  if (!node) return "Choose a machine first.";
+  if (!node) return "Choose a node first.";
   if (node.virtualDisplayEnabled !== true)
-    return "Turn on Allow virtual displays in this machine's node settings first.";
+    return "Turn on Allow virtual displays in the selected node's settings first.";
   if (
     !(node.virtualDisplayProviders ?? [DEFAULT_VIRTUAL_DISPLAY_PROVIDER]).includes(
       provider ?? node.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER,
     )
   )
-    return "This display provider is disabled on the node. Enable it in node settings or choose another provider.";
+    return "This display provider is disabled on the selected node. Enable it in node settings or choose another provider.";
   if (!readiness) return "Checking virtual display requirements…";
-  if (!readiness.supported) return "The selected virtual display provider does not support this machine.";
+  if (!readiness.supported) return "This virtual display provider does not support the selected node.";
   if (readiness.missing.length) {
-    return "Virtual display requirements are missing on this machine.";
+    return "Virtual display requirements are missing on the selected node.";
   }
   return undefined;
 }

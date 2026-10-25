@@ -207,8 +207,8 @@ runs the same preview primitives in process rather than sending node commands.
 
 | Message | Purpose |
 | --- | --- |
-| `set_preview_enabled` | Apply server-owned preview permissions, `displayProvider`, and the change timestamp. `on` enables the transport; optional `webPreviewsOn` and `displayOn` distinguish web-preview access from virtual displays. When omitted, each inherits `on` for compatibility. |
-| `preview_display_check` | Check the selected display provider’s support and unmet requirements before launch. |
+| `set_preview_enabled` | Apply server-owned preview permissions, the default `displayProvider`, the allowed `displayProviders` set, and the change timestamp. `on` enables the transport; optional `webPreviewsOn` and `displayOn` distinguish web-preview access from virtual displays. When omitted, each inherits `on` for compatibility. |
+| `preview_display_check` | Check an optional `provider` or the node default for support and unmet requirements before launch; this never allocates a display. |
 | `preview_ports_get` | Report listeners under a subshell's process tree, its CDP port, and display metadata. |
 | `preview_open` | Start a loopback TCP forward or CDP screencast for a subshell, port, reference, and bounded lifetime. Forward lanes may include `service: { host, protocol }` for a saved HTTP(S) destination. |
 | `preview_data` | Carry capped base64 bytes toward the node (`in`) or server (`out`). |
@@ -218,8 +218,17 @@ runs the same preview primitives in process rather than sending node commands.
 Display metadata contains an opaque `display` identifier and a `viewer` connection,
 currently `{ protocol: "vnc", port }`. Provider launch credentials stay on the
 node. An unknown provider is unsupported; it never silently selects another.
+Provider IDs match `^[a-z][a-z0-9-]{0,63}$`; the allowed set contains at most
+32 unique IDs. An empty set permits no allocations even when the feature is on.
 
-A forward command contains a port, not an arbitrary hostname. Frame references
+The launch command accepts `screen: { width, height, provider? }`, with integer
+dimensions from 320 through 4,096 pixels per axis. The server resolves an omitted
+provider from the node default and persists it before launch. Restarts reuse
+that saved choice and recheck current permission. Both the server and enrolled
+node refuse a disabled provider before allocation. Readiness can succeed while
+the feature or provider is disabled; it reports prerequisites, not permission.
+
+A forward command targets loopback unless it carries a validated saved-service destination. Frame references
 are bound to the authenticated node on receipt. The server's HTTP/WS proxy
 uses separate per-connection lanes beneath a browser capability URL, and browser
 watch frames are delivered only to authorized live-feed subscriptions.

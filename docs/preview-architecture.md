@@ -50,10 +50,13 @@ Discovery is a UI aid, not an allowlist for edit-authorized raw forwarding.
 ### Display providers and viewer protocols
 
 `PreviewDisplays` applies the node permission and chooses a bundled
-`VirtualDisplayProvider`. `virtual_display_provider` is stored on the node row,
-rendered as **Default display provider** beside **Allow virtual displays**, and mirrored
-through the signed `set_preview_enabled` command as `displayProvider`. Changing
-the selection affects new displays. The runtime finds existing displays through
+`VirtualDisplayProvider`. The node row stores an enabled set in
+`virtual_display_providers` and a default in `virtual_display_provider`. Node
+settings render a switch and prerequisites for each provider, plus **Default
+display provider**. The signed `set_preview_enabled` command carries both as
+`displayProviders` and `displayProvider`. Each launch may request an enabled
+provider; omission resolves the node default once, before persistence. Changing
+the default affects new subshells using that default. The runtime finds existing displays through
 their owning provider and reconciles every registered provider after restart.
 Unknown provider identifiers fail closed instead of falling back to Linux.
 
@@ -63,15 +66,28 @@ it describes the selected backend's programs or permissions. The requirements
 list contains bounded strings, not a shared enum of Linux executable names.
 The launchers consume `launchEnv()` without constructing X11 variables.
 Those values stay on the machine and never enter the screen descriptor.
+Providers are trusted, statically bundled code with the host process's privileges;
+the interface is an extension boundary, not a sandbox.
+
+The runtime orders opens and closes per subshell. A second provider cannot
+allocate while the first is pending, and cleanup waits for allocation before
+releasing resources. It rechecks the feature flag and enabled provider set
+after asynchronous readiness and before allocation. Providers must bound their
+waits, roll back partial allocations, and complete cleanup before its promise
+resolves. Cleanup remains available when a provider is disabled.
 
 `XvfbDisplayProvider` is the first backend. It creates private Xauthority files,
 Xvfb with TCP disabled, and loopback x11vnc listeners. Its records live under
 `display-providers/xvfb-x11vnc/displays/` in the data directory. It verifies
 process identity before recovery or signalling and skips occupied X display
-numbers. Both X and RFB must answer before allocation succeeds.
+numbers. RFB ports are reserved before asynchronous probing so concurrent
+launches cannot select the same candidate. Both X and RFB must answer before
+allocation succeeds, and the RFB listener's socket inode must belong to the
+spawned x11vnc PID on IPv4 loopback. Recovery repeats that ownership check;
+a responding port alone is insufficient.
 
 The public descriptor is `{ display, viewer: { protocol: "vnc", port } }`.
-`display` is an opaque provider identifier, not necessarily an X display number.
+`display` is an opaque display identifier, not necessarily an X display number.
 Only loopback connections and implemented viewer protocols are accepted. The
 web client's `ScreenViewer` dispatches to `VncScreenViewer`; noVNC-specific
 connection, input, and framebuffer handling lives in that adapter. The broker
@@ -96,8 +112,9 @@ loopback RFB port. See the local-user limitation in the security model.
 
 | Command or frame | Purpose |
 | --- | --- |
-| `set_preview_enabled { on, displayProvider, changedAt }` | Signed mirror of the server's node opt-in. Closing is separate. |
-| `preview_display_check` | Report platform and display prerequisites before a subshell exists. |
+| `set_preview_enabled { on, webPreviewsOn?, displayOn?, displayProvider, displayProviders, changedAt }` | Signed mirror of independent feature permissions, default provider, and allowed providers. Closing is separate. |
+| `preview_display_check { provider? }` | Report prerequisites for the requested provider or node default without allocating. |
+| `launch { screen?: { width, height, provider? }, ... }` | Allocate a display through an enabled provider; the server resolves and persists the provider before sending the launch. |
 | `preview_ports_get { paneId }` | Discover the subshell's listeners, CDP port, and display. |
 | `preview_open { ref, kind, paneId, port, lifetimeMs, fps?, service? }` | Open `forward` TCP bytes or a `screencast` CDP bridge. An optional `service: { host, protocol }` selects an explicit HTTP(S) destination for forward lanes only. |
 | `preview_close { ref, reason }` | Release a lane or bridge; an unknown reference closes idempotently. |
@@ -269,7 +286,8 @@ desktop split layout.
 
 The shared MCP server wraps the existing REST gates: `list_subshell_views`,
 `open_subshell_view`, and `watch_subshell_browser` use subshell preview routes;
-`create_subshell.screen` passes display dimensions to the normal launch route.
+`create_subshell.screen` passes display dimensions and an optional provider to the
+normal launch route. Omitting `screen` inherits a preset request; `null` opts out.
 `exec_in_terminal` starts programs in the helper's inherited display environment.
 There is no separate MCP transport or authorization bypass, and these calls
 neither install prerequisites nor enable Preview nor mutate workspace tabs.
@@ -279,8 +297,10 @@ Preview settings. `get_node` resolves through that same owner-only list and
 optionally calls display preflight. Only this read-only node preflight route
 additionally accepts subshell tokens, with `loadNodeGate` enforcing owned
 enrolled nodes. Node detail/configuration and SSH retain their existing guards.
-Readiness distinguishes unknown/unavailable from unsupported or missing programs;
-a successful prerequisite probe does not guarantee permission or launch success.
+`get_node.provider` selects which provider to probe. Its `virtualDisplay.enabled`
+combines the node flag and provider membership, separately from prerequisite
+`status`. Readiness distinguishes unknown/unavailable from unsupported or missing
+programs; a successful probe does not guarantee permission or launch success.
 
 `open_subshell_view` returns a secret relative capability path. App paths carry HTTP;
 display paths carry RFB over WebSocket, not an HTML viewer. `watch_subshell_browser` frames
@@ -308,10 +328,21 @@ The signed mirror's `on` is the transport allowance (either feature enabled);
 `webPreviewsOn` and `displayOn` narrow it when the permissions differ. Legacy mirrors
 without those fields retain the combined meaning, and reconciliation compares
 both permissions. Launching a screen checks the display permission, while app
-and browser opens check the apps permission. These aren't alternative public discovery endpoints. The
+and browser opens check the web-preview permission. These aren't alternative public discovery endpoints. The
 subshell `preview` field still means its recent terminal output, and website
 previews remain a useful description of the app viewer.
 
+## Saved display choices and launch forms
+
 Virtual-display dimensions and the resolved provider are retained in `subshells.screenConfig`. `nodes.virtualDisplayProviders` stores the enabled set; `virtualDisplayProvider` names its default. The signed mirror carries both. A launch can request any enabled provider; omission resolves the default once, before persistence. Manual and automatic restarts retain the saved provider and recheck policy. A manual restart refuses before stopping the existing pane if the feature or provider is disabled. Presets store an optional display request in `screenConfig`; an explicit null on creation overrides that preset without a display. Readiness accepts an optional provider ID and never allocates resources.
+
+Changing nodes in the launch form reconciles the directory and harness against
+the selected node. An unavailable harness and its copied preset selection are
+cleared; the form does not silently choose a replacement agent. A confirmed
+unavailable display is unchecked and explained inside the Virtual display
+section. Pending or failed probes preserve the selection and block launch;
+late results from another node or provider cannot change the current form.
+Explicitly applying a preset retains its display intent for the user to resolve.
+See [launch-form guidance](../apps/server/web/docs/home-launch-guidance.md).
 
 Forward lanes buffer target greetings until the proxy subscribes, bounded by the lane byte budget and 256 chunks. A subscriber attaching after its lane closed receives an immediate closed event.

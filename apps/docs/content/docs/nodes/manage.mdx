@@ -30,6 +30,17 @@ In the server dashboard, open **Settings** → **Nodes**, select a machine, and 
 - **Allow web previews** lets authorized viewers open web apps and saved services, and watch browsers in any subshell on that node. See [Web previews & screens](/guides/preview#check-a-website).
 - **Allow virtual displays** lets subshells request a screen for graphical apps on a machine without a monitor. Each display uses extra memory and CPU; web previews don't need one. See [Use a virtual display on Linux](/guides/preview#use-a-virtual-display-on-linux) for requirements and setup.
 
+Under **Allow virtual displays**, enable the providers you want this node to
+use and choose a **Default display provider**. Each enabled provider can be
+selected when starting a subshell. **Xvfb + VNC** is currently the only bundled
+provider and requires Linux. The card checks requirements on the selected node,
+which may be a different machine from the one displaying the dashboard.
+
+Changing the default doesn't change existing subshells: their restarts retain
+the saved provider. Disabling a provider prevents new allocations and restarts
+that need it, while existing displays keep running. Enabling a provider starts
+no processes until a subshell requests a display.
+
 The switches work independently. Both are off by default. The cards explain when a feature is disabled or required display programs are missing. Turning either setting off blocks new operations without stopping existing subshells or immediately closing existing connections.
 
 ## Names and ownership

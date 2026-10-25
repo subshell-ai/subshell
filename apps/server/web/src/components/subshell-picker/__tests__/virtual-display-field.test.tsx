@@ -33,10 +33,10 @@ describe("virtual display prerequisites", () => {
     expect(virtualDisplayReason(linux, ready)).toBeUndefined();
     expect(virtualDisplayReason(linux)).toContain("Checking");
     expect(virtualDisplayReason({ ...linux, os: "darwin" }, { supported: false, missing: [] })).toContain(
-      "does not support this machine",
+      "does not support the selected node",
     );
     expect(virtualDisplayReason({ ...linux, virtualDisplayEnabled: false })).toContain("Allow virtual displays");
-    expect(virtualDisplayReason(null)).toContain("Choose a machine");
+    expect(virtualDisplayReason(null)).toContain("Choose a node");
     expect(virtualDisplayReason(linux, { supported: true, missing: ["x11vnc"] })).toContain(
       "Virtual display requirements are missing",
     );

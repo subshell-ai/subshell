@@ -17,7 +17,7 @@ class ExampleProvider implements VirtualDisplayProvider {
     readonly id: string,
     readonly port: number,
   ) {}
-  readiness() {
+  readiness(): PreviewDisplayReadiness | Promise<PreviewDisplayReadiness> {
     return this.requirements;
   }
   getFor(id: string) {
@@ -47,6 +47,59 @@ class ExampleProvider implements VirtualDisplayProvider {
 const size = { width: 1280, height: 800 };
 
 describe("display provider contract", () => {
+  it("refuses policy revoked while asynchronous readiness is pending", async () => {
+    for (const permission of ["feature", "provider"] as const) {
+      const provider = new ExampleProvider("example", 6000);
+      const entered = Promise.withResolvers<void>();
+      const ready = Promise.withResolvers<PreviewDisplayReadiness>();
+      let enabled = true;
+      let allowed = [provider.id];
+      provider.readiness = () => {
+        entered.resolve();
+        return ready.promise;
+      };
+      const displays = new PreviewDisplays("/unused", {
+        provider,
+        isEnabled: () => enabled,
+        getEnabledProviderIds: () => allowed,
+      });
+      const pending = displays.openFor(crypto.randomUUID(), size);
+      const result = pending.catch((error: unknown) => error);
+      await entered.promise;
+      if (permission === "feature") enabled = false;
+      else allowed = [];
+      ready.resolve({ supported: true, missing: [] });
+      expect(await result).toBeInstanceOf(Error);
+      expect(String(await result)).toContain(permission === "feature" ? "preview-node-off" : "provider-disabled");
+      expect(provider.allocations).toBe(0);
+    }
+  });
+
+  it("orders competing providers and cleanup behind an in-flight allocation", async () => {
+    const first = new ExampleProvider("first", 6001);
+    const second = new ExampleProvider("second", 6002);
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const open = first.openFor.bind(first);
+    first.openFor = async (id: string) => {
+      entered.resolve();
+      await release.promise;
+      return open(id);
+    };
+    const displays = new PreviewDisplays("/unused", { providers: [first, second], isEnabled: () => true });
+    const id = crypto.randomUUID();
+    const pending = displays.openFor(id, { ...size, provider: first.id });
+    await entered.promise;
+    const competing = displays.openFor(id, { ...size, provider: second.id });
+    const result = competing.catch((error: unknown) => error);
+    const close = displays.closeFor(id);
+    release.resolve();
+    await pending;
+    expect(String(await result)).toContain("provider-conflict");
+    await close;
+    expect(second.allocations).toBe(0);
+    expect(displays.getFor(id)).toBeNull();
+  });
   it("uses provider launch settings without putting credentials on the wire", async () => {
     const provider = new ExampleProvider("native-example", 6000);
     const displays = new PreviewDisplays("/unused", { provider, isEnabled: () => true });

@@ -488,8 +488,12 @@ session acknowledgements and bounded dimensions before emitting images.
 
 Virtual display providers implement the shared lifecycle contract in
 `packages/pane-runtime/src/preview/display-provider.ts`. The signed preview
-settings mirror selects the provider for new displays; existing allocations
-remain owned by their original provider. Recovery sweeps every bundled provider,
+settings mirror carries the allowed providers and their default. The launch
+request names its saved provider, and the runtime checks both the feature flag
+and allowed set before allocation, including after asynchronous readiness.
+Existing allocations remain owned by their original provider. Per-subshell
+opens and closes are ordered, and Xvfb allocation and recovery verify that the
+loopback RFB socket belongs to the recorded x11vnc child. Recovery sweeps every bundled provider,
 each restricted to its own state and verified process identities. The node
 launcher uses the provider's local environment and returns only the public
 viewer descriptor. See [the provider architecture](../../../docs/preview-architecture.md#display-providers-and-viewer-protocols).

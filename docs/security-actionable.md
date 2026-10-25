@@ -1,5 +1,38 @@
 # Security follow-ups and audit history
 
+## Display provider refactor audit: 2026-10-25
+
+This review covered the provider registry, Xvfb lifecycle, signed node settings,
+node configuration and readiness authorization, persisted launch/restart choices,
+presets, viewer descriptors, and MCP reporting. It found and corrected:
+
+1. **Medium: concurrent allocations could publish the same RFB port.** Both
+   launches could probe a free port before either x11vnc process bound it. The
+   answering listener could then satisfy readiness for both displays. Candidates
+   are now reserved before probing, and allocation and recovery verify that the
+   IPv4 loopback listener's socket inode belongs to the intended x11vnc PID.
+   Regressions reproduce concurrent selection, a foreign responding listener,
+   and refusal to recover a record pointing at someone else's listener.
+2. **Medium: asynchronous readiness could outlive permission.** The runtime
+   checked the feature and provider settings before awaiting readiness, then
+   allocated without checking again. It now rechecks both settings before
+   allocation. Tests revoke each independently while readiness is pending and
+   assert that no allocation occurs.
+3. **Low: provider operations could overlap for one subshell.** Concurrent opens
+   could each observe no owner, and a close could finish before an asynchronous
+   provider published its allocation. Per-subshell operation ordering now makes
+   later opens observe the owner and makes cleanup wait for the pending work.
+   The regression overlaps two providers and a close, then checks that the
+   competing provider never allocates and no display remains.
+
+The follow-up review retained the existing trust model: bundled providers are
+trusted host code; node owners control allowed providers, and subshell agents
+cannot change node settings. Readiness and MCP capability reports grant no
+permission. Defaults are resolved before persistence, restarts retain that
+provider, and disabled settings leave existing displays running. The no-password
+loopback RFB and local OS-user limitations remain documented in
+[security §11.15](security.md#1115-web-previews-and-virtual-displays).
+
 ## Preview feature audit: 2026-10-24
 
 This targeted review followed the discovery, open/watch, HTTP/WS proxy,

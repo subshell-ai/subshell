@@ -37,6 +37,7 @@ export function createDisplayProviders(dataDir: string, log?: (line: string) => 
 /** Applies host policy around a provider without depending on its display system. */
 export class PreviewDisplays implements VirtualDisplayRuntime {
   private readonly providers: Map<string, VirtualDisplayProvider>;
+  private readonly operations = new Map<string, Promise<void>>();
 
   constructor(
     dataDir: string,
@@ -80,8 +81,10 @@ export class PreviewDisplays implements VirtualDisplayRuntime {
     return null;
   }
   /** Each provider only removes resources in its own namespace. */
-  async closeFor(paneId: string) {
-    await Promise.all([...this.providers.values()].map(async (provider) => provider.closeFor(paneId)));
+  closeFor(paneId: string) {
+    return this.forPane(paneId, async () => {
+      await Promise.all([...this.providers.values()].map(async (provider) => provider.closeFor(paneId)));
+    });
   }
   /** Recover all bundled providers, including displays created before a switch. */
   async sweepOrphans(alivePaneIds: string[]) {
@@ -96,9 +99,33 @@ export class PreviewDisplays implements VirtualDisplayRuntime {
   }
 
   /** Refuse before a provider can allocate anything; cleanup remains available. */
-  async openFor(paneId: string, size: VirtualDisplayRequest) {
+  openFor(paneId: string, size: VirtualDisplayRequest) {
+    return this.forPane(paneId, () => this.allocate(paneId, size));
+  }
+
+  /** An asynchronous provider cannot gain a second owner or outlive a close. */
+  private forPane<T>(paneId: string, action: () => Promise<T>): Promise<T> {
+    const result = (this.operations.get(paneId) ?? Promise.resolve()).then(action);
+    const done = result.then(
+      () => {},
+      () => {},
+    );
+    this.operations.set(paneId, done);
+    void done.then(() => {
+      if (this.operations.get(paneId) === done) this.operations.delete(paneId);
+    });
+    return result;
+  }
+
+  private async assertAllowed(provider?: VirtualDisplayProvider) {
     if ((await this.options.isEnabled?.()) !== true)
       throw new Error("preview-node-off: turn on Allow virtual displays in this node's settings");
+    const allowed = await this.options.getEnabledProviderIds?.();
+    if (provider && allowed && !allowed.includes(provider.id)) throw new Error("preview-display-provider-disabled");
+  }
+
+  private async allocate(paneId: string, size: VirtualDisplayRequest) {
+    await this.assertAllowed();
     if (!isNodeSubshellId(paneId)) throw new Error("invalid subshell id");
     if (![size.width, size.height].every((n) => Number.isInteger(n) && n >= 320 && n <= 4096))
       throw new Error(`${PREVIEW_DISPLAY_NOT_READY}: invalid display dimensions`);
@@ -107,12 +134,14 @@ export class PreviewDisplays implements VirtualDisplayRuntime {
     if (existing && size.provider && existing.id !== size.provider)
       throw new Error("preview-display-provider-conflict");
     const provider = existing ?? (await this.selected(size.provider));
-    const allowed = await this.options.getEnabledProviderIds?.();
-    if (provider && allowed && !allowed.includes(provider.id)) throw new Error("preview-display-provider-disabled");
+    await this.assertAllowed(provider);
     const readiness = await provider?.readiness();
     if (!provider || !readiness?.supported) throw new Error(PREVIEW_DISPLAY_UNSUPPORTED);
     if (readiness.missing.length)
       throw new Error(`${PREVIEW_DISPLAY_MISSING_REQUIREMENTS}: ${readiness.missing.join(", ")}`);
+    // Readiness can await an OS permission prompt or a remote helper. A node
+    // setting changed during that wait must apply before any resources start.
+    await this.assertAllowed(provider);
     return provider.openFor(paneId, size);
   }
 }

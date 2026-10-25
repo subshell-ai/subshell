@@ -174,6 +174,15 @@ function makeDeps(over: DepOverrides = {}) {
     xSocketReady: () => over.xSocketReady ?? true,
     displayOccupied: () => false,
     matchesProcess: () => true,
+    ownsRfbListener: (pid, port) =>
+      alivePids.has(pid) &&
+      busy.has(port) &&
+      calls.some(
+        (call) =>
+          call.kind === "spawn" &&
+          call.child.pid === pid &&
+          call.argv[call.argv.indexOf("-rfbport") + 1] === String(port),
+      ),
     ...(over.readyBudgetMs === undefined ? {} : { readyBudgetMs: over.readyBudgetMs }),
   };
   const spawns = (): Array<Extract<DepCall, { kind: "spawn" }>> =>
@@ -229,7 +238,7 @@ describe("PreviewDisplays.openFor", () => {
     const displays = new PreviewDisplays(onDir("reused-display-pid"), h.deps);
     await displays.openFor(PANE, { width: 1280, height: 800 });
     matches = false;
-    displays.closeFor(PANE);
+    await displays.closeFor(PANE);
     expect(h.killPids()).toEqual([]);
   });
   it("skips display numbers used outside this data directory", async () => {
@@ -238,7 +247,7 @@ describe("PreviewDisplays.openFor", () => {
     const displays = new PreviewDisplays(onDir("external-display"), deps);
     const screen = await displays.openFor(PANE, { width: 1280, height: 800 });
     expect(screen.display).toBe(":92");
-    displays.closeFor(PANE);
+    await displays.closeFor(PANE);
   });
   it("allocates :90/5910 with the EXACT argv and ORDER, 0700 dir, 0600 files, incremental display.json", async () => {
     const dataDir = onDir("happy");
@@ -345,6 +354,40 @@ describe("PreviewDisplays.openFor", () => {
     const reg = new PreviewDisplays(dataDir, deps);
     const r = await reg.openFor(PANE, { width: 640, height: 480 });
     expect(r).toEqual({ display: ":90", viewer: { protocol: "vnc", port: 5911 } });
+  });
+
+  it("concurrent allocations never publish the same viewer port", async () => {
+    const dataDir = onDir("concurrent-ports");
+    const d = makeDeps();
+    const reg = new PreviewDisplays(dataDir, d.deps);
+    const ids = [crypto.randomUUID(), crypto.randomUUID()];
+    try {
+      const screens = await Promise.all(ids.map((id) => reg.openFor(id, { width: 1280, height: 800 })));
+      expect(new Set(screens.map((screen) => screen.viewer.port)).size).toBe(2);
+    } finally {
+      await Promise.all(ids.map((id) => reg.closeFor(id)));
+    }
+  });
+
+  it("refuses a responding RFB port owned by another process", async () => {
+    const dataDir = onDir("foreign-rfb-listener");
+    const d = makeDeps({ readyBudgetMs: 200 });
+    const reg = new PreviewDisplays(dataDir, { ...d.deps, ownsRfbListener: () => false });
+    await expect(reg.openFor(PANE, { width: 1280, height: 800 })).rejects.toThrow(PREVIEW_DISPLAY_NOT_READY);
+    expect(reg.getFor(PANE)).toBeNull();
+    expect(d.killPids()).toHaveLength(2);
+    expect(existsSync(xauthorityPath(dataDir, PANE))).toBe(false);
+  });
+
+  it("does not recover a display whose saved port belongs to another process", async () => {
+    const dataDir = onDir("foreign-rfb-recovery");
+    const d = makeDeps();
+    const original = new PreviewDisplays(dataDir, d.deps);
+    await original.openFor(PANE, { width: 1280, height: 800 });
+    const restarted = new PreviewDisplays(dataDir, { ...d.deps, ownsRfbListener: () => false });
+    expect((await restarted.sweepOrphans([PANE])).rehydrated).toBe(0);
+    expect(restarted.getFor(PANE)).toBeNull();
+    await original.closeFor(PANE);
   });
 
   it("a missing x11vnc refuses naming it, and leaves no lock and no dir behind", async () => {
@@ -458,7 +501,7 @@ describe("the child-exit watch", () => {
     const reg = new PreviewDisplays(dataDir, deps);
     await reg.openFor(PANE, { width: 640, height: 480 });
 
-    reg.closeFor(PANE);
+    await reg.closeFor(PANE);
     spawns()[0]?.child.fireExit();
     spawns()[1]?.child.fireExit();
     await flush();
@@ -659,7 +702,9 @@ describe("pane death and the orphan sweep", () => {
     // with the rfb sockets that survived re-verified (5910 and 5911 still
     // occupied) and GONE's 5912 refusing - the cgroup took it.
     shared.busy.delete(5912);
-    shared.alivePids.clear(); // the restart took every child process down with it
+    shared.alivePids.clear();
+    // Only LIVE's children survived; the other records point at dead processes.
+    for (const call of shared.spawns().slice(0, 2)) shared.alivePids.add(call.child.pid);
     const reg2 = new PreviewDisplays(dataDir, shared.deps);
     expect(reg2.getFor(LIVE)).toBeNull();
 
@@ -755,7 +800,7 @@ describe("review round 1: what the sweep sees", () => {
     await flush();
     expect(reg.lostFor(PANE)).toBe("x11vnc");
 
-    reg.closeFor(PANE); // a late death report or plane close hits the unregistered belt
+    await reg.closeFor(PANE); // a late death report or plane close hits the unregistered belt
     expect(reg.lostFor(PANE)).toBeNull(); // the belt path must clear the marker too
   });
 

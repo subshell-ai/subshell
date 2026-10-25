@@ -4067,6 +4067,12 @@ Launch checks the requested provider against the enabled set on both the
 server and the node before allocation; unknown providers never fall back to
 another implementation. A subshell pins its provider when created. Changing
 the default cannot switch an existing subshell’s provider on restart.
+The provider runtime rechecks feature permission and provider membership after
+asynchronous readiness, immediately before allocation. Opens and closes are
+ordered per subshell so competing providers cannot both acquire it and cleanup
+cannot finish ahead of a pending allocation. Providers are trusted bundled
+code running with the host's privileges, not a plugin sandbox. Their local
+launch environment never enters public display descriptors.
 Turning it off prevents new operations. It does not drain existing lanes,
 terminate a subshell, or stop graphical programs.
 
@@ -4148,8 +4154,15 @@ screen. Do not enable displays on hosts shared with untrusted local users.
 Agents and GUI applications retain their normal execution-account permissions.
 The allocator skips X sockets and X lock files owned by other data directories;
 a concurrent bind can still fail closed rather than reusing their screen.
-Rehydration and teardown verify saved PIDs against the executable and the
-display's Xauthority argument before trusting or signalling them.
+RFB candidates are reserved before asynchronous port probes, so concurrent
+allocations cannot choose the same port in one runtime. Allocation and recovery
+also join the loopback listener's socket inode to the x11vnc process's open file
+descriptors; another process answering on the candidate port cannot establish
+readiness. Unreadable process state refuses recovery. Rehydration and teardown
+verify saved PIDs against the executable and the display's Xauthority argument
+before trusting or signalling them. These checks prevent accidental cross-display
+routing; they don't change the local-user limitation or promise protection
+against a hostile OS account rebinding a port after a check.
 
 **Capabilities need protection beyond application logs.** `/pv/` paths are
 excluded from request logs and full references are absent from preview audit

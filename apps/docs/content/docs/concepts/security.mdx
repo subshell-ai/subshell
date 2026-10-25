@@ -71,8 +71,10 @@ Sharing a node is a separate decision: even a view grant on a node permits the r
 
 ### Preview security
 
-Preview is opt-in for each execution machine. App forwarding and virtual-screen
-input need edit access to the subshell. View access permits browser-frame
+Web previews and virtual displays have separate opt-in settings on each node.
+The node owner also controls which display providers are allowed. A successful
+requirements check doesn't enable a feature or grant permission. App forwarding
+and virtual-screen input need edit access to the subshell. View access permits browser-frame
 watching, restricted to the browser discovered for that shared subshell.
 
 Forwarded websites run in an opaque-origin browser sandbox, including when

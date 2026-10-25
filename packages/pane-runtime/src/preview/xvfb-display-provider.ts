@@ -22,6 +22,7 @@ import {
   PREVIEW_DISPLAY_NOT_READY,
   PREVIEW_DISPLAY_UNSUPPORTED,
 } from "./display-provider.js";
+import { ownsDisplayListener } from "./display-socket.js";
 
 const ORPHAN_SSH_DIR_MIN_AGE_MS = 60 * 60 * 1000;
 
@@ -111,6 +112,8 @@ export interface XvfbDisplayDeps {
   kill?: (pid: number, signal?: number | string) => void;
   /** Verify a recorded PID still runs this display's child before reusing or signalling it. */
   matchesProcess?: (pid: number, binary: "Xvfb" | "x11vnc", authPath: string) => boolean;
+  /** The loopback RFB listener must belong to this display's VNC process. */
+  ownsRfbListener?: (pid: number, port: number) => boolean;
   /** Does `/tmp/.X11-unix/X<NN>` exist? Its own seam because `-nolisten tcp` leaves no port to bind-probe. */
   xSocketReady?: (displayNumber: number) => boolean;
   /** Skip display numbers already used by another server or node data directory. */
@@ -233,6 +236,7 @@ export class XvfbDisplayProvider implements VirtualDisplayProvider {
   readonly dataDir: string;
   private readonly defaults: XvfbDisplayDeps;
   private readonly entries = new Map<string, DisplayEntry>();
+  private readonly reservedPorts = new Set<number>();
   /** paneId -> the binary that died mid-pane; memory-only by the header's reason. */
   private readonly lost = new Map<string, NodePreviewScreenLost>();
 
@@ -291,6 +295,7 @@ export class XvfbDisplayProvider implements VirtualDisplayProvider {
     const auth = xauthorityPath(this.dataDir, paneId);
     let xvfbChild: DisplayChild | undefined;
     let vncChild: DisplayChild | undefined;
+    let rfbPort = 0;
     try {
       // The lock's CONTENT names the holder - a human reading `.display-91.lock`
       // mid-incident wants the pane, and the sweep pairs dir-to-lock anyway.
@@ -320,14 +325,14 @@ export class XvfbDisplayProvider implements VirtualDisplayProvider {
       );
       writeRecord(paneDir, { display, xvfbPid: xvfbChild.pid });
 
-      const rfbPort = await this.chooseRfbPort(d);
+      rfbPort = await this.chooseRfbPort(d);
       vncChild = d.spawn(
         [vncBin, "-display", display, "-auth", auth, "-localhost", "-forever", "-shared", "-rfbport", String(rfbPort)],
         { logPath: vncLog },
       );
       writeRecord(paneDir, { display, rfbPort, xvfbPid: xvfbChild.pid, x11vncPid: vncChild.pid });
 
-      await this.awaitReady(displayNumber, rfbPort, d);
+      await this.awaitReady(displayNumber, rfbPort, vncChild.pid, d);
 
       const entry: DisplayEntry = {
         paneId,
@@ -354,7 +359,7 @@ export class XvfbDisplayProvider implements VirtualDisplayProvider {
           paneId,
           display,
           displayNumber,
-          rfbPort: 0,
+          rfbPort,
           xvfbPid: xvfbChild?.pid ?? 0,
           x11vncPid: vncChild?.pid ?? 0,
           sweptAfter: 0, // never registered; the census floor is not its question
@@ -399,7 +404,7 @@ export class XvfbDisplayProvider implements VirtualDisplayProvider {
           paneId,
           display: `:${displayNumber}`,
           displayNumber,
-          rfbPort: 0,
+          rfbPort: intOf(rec?.rfbPort),
           xvfbPid: intOf(rec?.xvfbPid),
           x11vncPid: intOf(rec?.x11vncPid),
           sweptAfter: 0, // belt teardown, not a registered entry
@@ -506,8 +511,10 @@ export class XvfbDisplayProvider implements VirtualDisplayProvider {
           Number.isInteger(displayNumber) &&
           displayNumber > 0 &&
           Number.isInteger(rec?.rfbPort) &&
+          d.ownsRfbListener(intOf(rec?.x11vncPid), Number(rec?.rfbPort)) &&
           (await d.bindProbe(Number(rec?.rfbPort)));
         if (childrenAnswer && rec) {
+          this.reservedPorts.add(Number(rec.rfbPort));
           this.entries.set(name, {
             paneId: name,
             display: `:${displayNumber}`,
@@ -601,6 +608,7 @@ export class XvfbDisplayProvider implements VirtualDisplayProvider {
         ((pid: number, signal: number | string = "SIGTERM") => process.kill(pid, signal as NodeJS.Signals | 0)),
       xSocketReady: d.xSocketReady ?? socketExists,
       matchesProcess: d.matchesProcess ?? matchesDisplayProcess,
+      ownsRfbListener: d.ownsRfbListener ?? ownsDisplayListener,
       displayOccupied:
         d.displayOccupied ?? ((number: number) => socketExists(number) || existsSync(`/tmp/.X${number}-lock`)),
       readyBudgetMs: d.readyBudgetMs ?? DEFAULT_READY_BUDGET_MS,
@@ -626,7 +634,16 @@ export class XvfbDisplayProvider implements VirtualDisplayProvider {
   /** Bind-probe upward from 5910; the first FREE port wins (a busy one is somebody's server). */
   private async chooseRfbPort(d: ReturnType<XvfbDisplayProvider["deps"]>): Promise<number> {
     for (let port = RFB_PORT_MIN; port < RFB_PORT_MIN + RFB_PORT_PROBES; port++) {
-      if (!(await d.bindProbe(port))) return port;
+      if (this.reservedPorts.has(port)) continue;
+      // Reserve before yielding: another launch can probe before x11vnc binds.
+      this.reservedPorts.add(port);
+      try {
+        if (!(await d.bindProbe(port))) return port;
+      } catch (error) {
+        this.reservedPorts.delete(port);
+        throw error;
+      }
+      this.reservedPorts.delete(port);
     }
     throw new Error(`${PREVIEW_DISPLAY_NOT_READY}: no free rfb port from ${RFB_PORT_MIN}`);
   }
@@ -635,11 +652,12 @@ export class XvfbDisplayProvider implements VirtualDisplayProvider {
   private async awaitReady(
     displayNumber: number,
     rfbPort: number,
+    vncPid: number,
     d: ReturnType<XvfbDisplayProvider["deps"]>,
   ): Promise<void> {
     const start = d.now();
     for (;;) {
-      if (d.xSocketReady(displayNumber) && (await d.bindProbe(rfbPort))) return;
+      if (d.xSocketReady(displayNumber) && (await d.bindProbe(rfbPort)) && d.ownsRfbListener(vncPid, rfbPort)) return;
       if (d.now() - start >= d.readyBudgetMs) {
         throw new Error(
           `${PREVIEW_DISPLAY_NOT_READY}: display :${displayNumber} / rfb ${rfbPort} not answering within ${d.readyBudgetMs}ms`,
@@ -673,6 +691,7 @@ export class XvfbDisplayProvider implements VirtualDisplayProvider {
   private teardown(entry: DisplayEntry, paneDir: string, lockPath: string): void {
     this.killGuarded(entry.xvfbPid, "Xvfb", join(paneDir, "Xauthority"));
     this.killGuarded(entry.x11vncPid, "x11vnc", join(paneDir, "Xauthority"));
+    this.reservedPorts.delete(entry.rfbPort);
     try {
       rmSync(paneDir, { recursive: true, force: true });
     } catch (err: unknown) {

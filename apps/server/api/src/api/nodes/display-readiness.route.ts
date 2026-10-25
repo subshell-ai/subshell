@@ -31,10 +31,10 @@ export const displayReadinessRoute = new Elysia()
           throw new HttpError(
             409,
             error.code === "unsupported"
-              ? "Update Subshell on this machine, then recheck virtual display requirements."
+              ? "Update Subshell on the selected node, then recheck virtual display requirements."
               : error.code === "offline"
-                ? "Couldn't reach this machine. Bring its node online, then recheck virtual display requirements."
-                : "Couldn't check this machine. Make sure its node is online and up to date, then choose Recheck.",
+                ? "Couldn't reach the selected node. Bring it online, then recheck virtual display requirements."
+                : "Couldn't check the selected node. Make sure it is online and up to date, then choose Recheck.",
           );
         }
         throw error;
@@ -44,7 +44,7 @@ export const displayReadinessRoute = new Elysia()
       query: t.Object({ provider: t.Optional(DisplayProviderIdSchema) }),
       response: {
         200: t.Object({
-          supported: t.Boolean({ description: "Whether the selected display provider supports this machine" }),
+          supported: t.Boolean({ description: "Whether the selected display provider supports the selected node" }),
           missing: t.Array(t.String({ minLength: 1, maxLength: 128, description: "An unmet provider requirement" }), {
             maxItems: 32,
             description: "Programs, permissions, or other prerequisites needed by the provider",
@@ -60,7 +60,7 @@ export const displayReadinessRoute = new Elysia()
       detail: {
         operationId: "getNodeDisplayReadiness",
         tags: ["nodes"],
-        description: "Check virtual display prerequisites on this machine",
+        description: "Check virtual display prerequisites on the selected node",
       },
     },
   );

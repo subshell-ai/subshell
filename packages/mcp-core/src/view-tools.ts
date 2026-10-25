@@ -15,7 +15,7 @@ export const ScreenSchema = z
     height: z.number().int().min(320).max(4096),
   })
   .describe(
-    "Allocate a virtual display using the node’s display provider at launch. Check get_node first; virtual displays must already be enabled and the provider’s requirements met.",
+    "Allocate a virtual display using an enabled provider at launch; omit provider to use the node default. Check get_node first; virtual displays must already be enabled and the provider’s requirements met.",
   );
 
 export const GetNodeSchema = z.object({

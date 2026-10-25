@@ -148,7 +148,7 @@ describe("node view prerequisites", () => {
     try {
       const guide = await screen.findByRole("link", { name: "Set up virtual display" });
       expect(guide.getAttribute("href")).toBe("https://docs.subshell.sh/guides/preview#use-a-virtual-display-on-linux");
-      expect(screen.getByText("Virtual display requirements are missing on this machine.")).toBeTruthy();
+      expect(screen.getByText("Virtual display requirements are missing on the selected node.")).toBeTruthy();
       expect(screen.getByRole("switch", { name: /allow virtual displays/i }).getAttribute("aria-checked")).toBe("true");
       readiness.body = { supported: true, missing: [] };
       fireEvent.click(screen.getByRole("button", { name: "Recheck" }));
@@ -166,9 +166,7 @@ describe("node view prerequisites", () => {
     });
     try {
       expect(screen.getByText(/Automatic app discovery and browser watching require Linux/)).toBeTruthy();
-      expect(
-        await screen.findByText("The selected virtual display provider does not support this machine."),
-      ).toBeTruthy();
+      expect(await screen.findByText("This virtual display provider does not support the selected node.")).toBeTruthy();
     } finally {
       h.restore();
     }

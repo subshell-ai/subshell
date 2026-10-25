@@ -46,10 +46,9 @@ export function previewEnabledPath(dataDir: string): string {
  * `on` is the only kind that permits, and it carries the stamp because
  * `ready.previewEnabled` must be buildable from what was written. A file that
  * parses to `{ on: false, changedAt }` and a file that does not exist give the
- * SAME answer to every reader (refuse; and the plane's row already says off,
- * so there is nothing to report), and no node-side writer exists whose stamp
- * anyone would later reconcile, so the off file reads as `absent` while its
- * bytes stay on disk. `unreadable` refuses too, but unlike the other two it
+ * same permission answer (refuse). An off file that retains provider settings
+ * reports `off` so the plane can reconcile those settings too; a legacy off
+ * file without them reads as `absent`. `unreadable` refuses too, but unlike the other two it
  * says so: the answer it produces may match a quiet row, and when the row says
  * on it is a disagreement the plane can only repair if it hears about it.
  */
