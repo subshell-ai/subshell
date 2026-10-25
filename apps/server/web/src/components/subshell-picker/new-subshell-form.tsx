@@ -369,6 +369,16 @@ export function NewSubshellForm({
         addButtonId={ids.prompt}
       />
 
+      {!firstRun && (
+        <VirtualDisplayField
+          node={selectedNode}
+          id={ids.virtualDisplay}
+          checked={value.virtualDisplay === true}
+          onChange={(virtualDisplay) => onChange({ ...value, virtualDisplay })}
+          onLeave={onLeave}
+        />
+      )}
+
       {/* Save as preset (operator ruling 2026-09-30, replacing the picker's
           `+`): the launch you just assembled can be kept, as a NEW preset
           holding the agent, machine, directory and prompts as filled here.
@@ -413,16 +423,6 @@ export function NewSubshellForm({
             </div>
           )}
         </div>
-      )}
-
-      {!firstRun && (
-        <VirtualDisplayField
-          node={selectedNode}
-          id={ids.virtualDisplay}
-          checked={value.virtualDisplay === true}
-          onChange={(virtualDisplay) => onChange({ ...value, virtualDisplay })}
-          onLeave={onLeave}
-        />
       )}
     </div>
   );
