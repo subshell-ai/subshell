@@ -67,6 +67,14 @@ exact-pin rule.
 native build works at the repo's pins. Don't "fix" them by guessing; the real
 constraint is the one below.
 
+**Forge carries a security patch.** `patches/node-forge@1.4.0.patch` applies
+the nested DigestAlgorithm validation proposed in
+[digitalbazaar/forge#1152](https://github.com/digitalbazaar/forge/pull/1152).
+No patched release is published yet. The dependency security tests exercise
+Expo’s installed copies under Node, rejecting malformed signatures and
+checking valid signatures and certificates. Replace the patch and remove its
+audit exception when upstream publishes a fixed release.
+
 **Expo CLI uses the root Zod override.** `@expo/cli>zod` pins 4.6.7 because
 Expo 57 still requests Zod 3, which is covered by GHSA-mrhx-c7xc-m3w5.
 Its plugin manifest, plugin output, and MCP command schemas were checked with

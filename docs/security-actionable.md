@@ -226,17 +226,25 @@ vulnerabilities exist outside the reviewed paths or accepted trust model.
 
 ### Dependency audit outside the preview runtime
 
-The lockfile audit also reports two existing high advisories in Expo tooling:
+The two Expo-tooling advisories found during review have been addressed:
+[Zod collection validation](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5)
+no longer appears after updating all resolutions to 4.6.7, including a scoped
+Expo CLI override with schema compatibility checks.
+
 [node-forge signature verification](https://github.com/advisories/GHSA-86w9-cpqp-85rv)
-and [Zod collection validation](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5).
-The affected versions are node-forge 1.4.0 through `@expo/cli` and
-`@expo/code-signing-certificates`, and Zod 3.25.76 through `@expo/cli`.
-They are not dependencies of the shipped preview runtime. The preview's
-server and web validation use Zod 4.6.6. The forge advisory lists no patched
-version at review time; replacing Expo's Zod 3 dependency with Zod 4 needs a
-separate compatibility review. These remain dependency follow-ups, so the
-repository-wide dependency audit is not clean. They are not counted as
-resolved preview findings.
+has no published fixed release as of 2026-10-25. The tracked Bun patch for
+1.4.0 backports the nested DigestAlgorithm element-count validation proposed
+in [upstream PR #1152](https://github.com/digitalbazaar/forge/pull/1152).
+The regression test reproduces acceptance of malformed signatures without
+the patch, confirms rejection with it, and checks valid signatures and
+certificates through the same installed Forge used by Expo CLI and
+`@expo/code-signing-certificates`. These are mobile build/dev dependencies,
+not dependencies of the shipped preview runtime.
+
+The version-based audit still reports Forge 1.4.0; its exception now records
+the tested mitigation. Replace the patch and remove the exception once a
+fixed upstream release is available. This does not claim that Forge has no
+other vulnerabilities.
 
 ## Targeted code audit: 2026-10-21
 
