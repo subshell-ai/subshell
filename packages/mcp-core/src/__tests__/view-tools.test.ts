@@ -38,6 +38,29 @@ function fixture(answer: (path: string, init?: { method?: string; body?: unknown
 }
 
 describe("MCP preview discovery and launch", () => {
+  it("reports local helper consent as unmet even when the node enables BetterDisplay", async () => {
+    const missing = ["Enable Virtual Display Helper in the desktop app on this node (macOS 14 or later)"];
+    const { deps, calls } = fixture((path) =>
+      path === "/api/nodes"
+        ? {
+            nodes: [
+              {
+                ...node,
+                os: "darwin",
+                virtualDisplayEnabled: true,
+                virtualDisplayProvider: "betterdisplay",
+                virtualDisplayProviders: ["betterdisplay"],
+              },
+            ],
+          }
+        : { supported: true, missing },
+    );
+    expect(await getNode(deps, { node: node.id, provider: "betterdisplay" })).toMatchObject({
+      virtualDisplay: { enabled: true, provider: "betterdisplay", status: "missing-programs", missing },
+    });
+    expect(calls.every((call) => call.method === "GET")).toBe(true);
+    expect(calls.at(-1)?.path).toBe(`/api/nodes/${node.id}/display-readiness?provider=betterdisplay`);
+  });
   it("preserves capability settings and honest harness health", async () => {
     const facts = {
       webPreviewsEnabled: false,

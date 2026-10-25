@@ -194,3 +194,7 @@ docker/dl/
 # this directory is never read. The `**/` prefix matters: a pattern with an
 # interior slash is anchored to the .gitignore's own directory.
 **/.tanstack/tmp/
+
+# Built and signed by each desktop build script; never launched during build.
+apps/client/desktop/src-tauri/resources/Subshell Display Helper.app/
+apps/server/desktop/src-tauri/resources/Subshell Display Helper.app/

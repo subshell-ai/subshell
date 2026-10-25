@@ -1,6 +1,11 @@
 /** Bundled display choices. Add implementations to pane-runtime's registry too. */
 export const VIRTUAL_DISPLAY_PROVIDERS = [
   { id: "xvfb-x11vnc", name: "Xvfb + VNC", description: "Private Linux displays using Xvfb and x11vnc." },
+  {
+    id: "betterdisplay",
+    name: "BetterDisplay",
+    description: "macOS virtual screens using BetterDisplay and the opt-in Subshell Display Helper.",
+  },
 ] as const;
 export const DEFAULT_VIRTUAL_DISPLAY_PROVIDER = "xvfb-x11vnc";
 

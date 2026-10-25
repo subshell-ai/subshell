@@ -88,7 +88,7 @@ settings, recovery, and cleanup. Node owners enable providers and choose a
 default; each subshell can request an enabled provider and saves that choice
 for restarts. Both the server and the node enforce the selection.
 
-The only bundled provider today is **Xvfb + VNC** on Linux. It creates a private
+The Linux provider is **Xvfb + VNC**. It creates a private
 Xvfb display and loopback x11vnc listener; a separate VNC viewer adapter renders
 and controls the RFB stream with noVNC. Other providers can reuse that viewer
 if they expose VNC. Providers are bundled with Subshell, rather than installed
@@ -96,6 +96,12 @@ through the harness-plugin manager. Local launch credentials stay on the node;
 the server receives only the display identifier and viewer connection. These are separate from the agent's
 terminal stream and from encrypted agent-to-agent channels. The trusted server
 can read preview bytes and frames.
+
+On macOS, **BetterDisplay** creates a virtual screen and the opt-in **Subshell
+Display Helper** captures it through ScreenCaptureKit. A local VNC bridge
+reuses the same authenticated viewer path. Both desktop apps include the
+helper; only its native settings panel can enable it or request macOS
+permissions. See [macOS display helper setup](/nodes/manage#macos-display-helper).
 
 Each app port, browser watch, and display is a separate workspace tab with a
 parent subshell. Desktop previews initially split to the right. The phone tab

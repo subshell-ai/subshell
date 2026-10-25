@@ -760,3 +760,28 @@ cleanly (`curl -f` hands bash nothing, so nothing runs, but nothing installs
 either). The tripwire is `scripts/cli-e2e/published-release.sh`
 step 1, which fetches both scripts from the site and `cmp`s them against the
 checkout, naming the remedy when they differ.
+
+## Bundled macOS display helper
+
+Both desktop Cargo build scripts compile `native/display-helper` for the target
+architecture and sign its standalone app before Tauri assembles the outer
+bundle. `tauri.macos.conf.json` places it under `Contents/Helpers` through the
+macOS files mapping. Release builds require the existing
+`APPLE_SIGNING_IDENTITY`; debug builds may use ad-hoc signing, but those builds
+must not replace a user's permission-approved helper. The production bundle ID
+is `dev.subshell.display-helper`, shared by both desktop apps and distinct from
+the experimental probe.
+
+The helper has its own `Info.plist` version, which must increase when its code
+changes. Both apps reuse the newest installed helper; neither may downgrade it
+or replace it while running. The native installer checks code signatures,
+versions, and code hashes, then copies atomically under a shared lock. Bundle
+smoke checks verify its identity and hardened runtime without launching it.
+Outer app signing/notarization follows the existing pipeline. No npm package
+or additional publishing credential is introduced.
+
+The test router treats native helper sources as inputs to both desktop builds.
+The macOS test job runs native consent/IPC tests and the Rust checks, while
+Linux continues to check the shared runtime and provider tests. Native tests
+use temporary preferences and sockets and never open permission prompts.
+See [helper architecture](macos-display-helper.md) for activation boundaries.

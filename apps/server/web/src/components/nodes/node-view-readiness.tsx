@@ -1,4 +1,5 @@
 import { Button, type NodeDetail } from "@internal/node-admin";
+import { DisplayMissingRequirements } from "@/components/display-missing-requirements";
 import { useNodeDisplayReadiness } from "@/hooks/use-node-display-readiness";
 
 /** Explain machine prerequisites beside the switch that permits these features. */
@@ -22,7 +23,11 @@ export function NodeViewReadiness({
       </p>
       {needsSetup && (
         <a
-          href="https://docs.subshell.sh/guides/preview#use-a-virtual-display-on-linux"
+          href={
+            provider === "betterdisplay"
+              ? "https://docs.subshell.sh/nodes/manage#macos-display-helper"
+              : "https://docs.subshell.sh/guides/preview#use-a-virtual-display-on-linux"
+          }
           target="_blank"
           rel="noreferrer"
           className="text-detail text-warning underline"
@@ -30,6 +35,7 @@ export function NodeViewReadiness({
           Set up virtual display
         </a>
       )}
+      {needsSetup && <DisplayMissingRequirements missing={check.data?.missing} />}
       {shouldCheck && reason && !check.isFetching && (
         <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => void check.refetch()}>
           Recheck

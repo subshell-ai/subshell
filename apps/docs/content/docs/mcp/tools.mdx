@@ -76,6 +76,12 @@ Each harness row has `harnessId`, `name`, and `installed`, plus `version`, refus
 
 Pass `{ "node": "NODE_ID" }`, or an unambiguous node name. Returns the same fields as `list_nodes`, plus `virtualDisplay` readiness: `ready`, `missing-programs`, `unsupported`, or `unavailable`. A completed probe includes `supported`, unmet `missing` requirements, the checked `provider`, and `enabled` for that provider’s node permission. Pass `provider` to check a specific choice; otherwise the node default is checked. Pass `check_display: false` to skip the live probe and return `unchecked`.
 
+For BetterDisplay on macOS, `enabled` describes node policy, not local helper
+consent. `missing-programs` can include a disabled helper or missing macOS
+permissions as well as missing software; read the `missing` list. MCP cannot
+enable the helper or grant those permissions. Follow
+[macOS helper setup](/nodes/manage#macos-display-helper) on that node.
+
 A ready display check means its requirements are met. Virtual displays and the chosen provider must also be enabled, the node must permit launches, and launch performs its own checks. Only the token owner's enrolled nodes are available; shares, admin status, and the server's built-in node don't widen this access.
 
 ## list_subshell_views

@@ -1,6 +1,7 @@
 import { Button, Label, type Node } from "@internal/node-admin";
 import { DEFAULT_VIRTUAL_DISPLAY_PROVIDER } from "@internal/subshell-protocol";
 import { Link } from "@tanstack/react-router";
+import { DisplayMissingRequirements } from "@/components/display-missing-requirements";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useNodeDisplayReadiness } from "@/hooks/use-node-display-readiness";
@@ -91,7 +92,7 @@ export function VirtualDisplayField({
         <p id={`${id}-reason`} className="text-detail text-warning">
           {needsSetup ? (
             <a
-              href="https://docs.subshell.sh/guides/preview#use-a-virtual-display-on-linux"
+              href="https://docs.subshell.sh/nodes/manage#apps-browsers-and-virtual-displays"
               target="_blank"
               rel="noreferrer"
               className="underline"
@@ -103,6 +104,7 @@ export function VirtualDisplayField({
           )}
         </p>
       )}
+      {needsSetup && <DisplayMissingRequirements missing={check.data?.missing} />}
       {shouldCheck && reason && !check.isFetching && (
         <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => void check.refetch()}>
           Recheck

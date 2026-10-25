@@ -7,6 +7,8 @@ enrolled nodes and the server's built-in node. User procedures live in the
 and audit findings live in [security §11.15](security.md#1115-web-previews-and-virtual-displays)
 and [the preview audit](security-actionable.md#preview-feature-audit-2026-10-24).
 
+Public developer guides explain [web preview architecture](../apps/docs/content/docs/developers/web-preview-architecture.mdx) and [how to develop and extend previews](../apps/docs/content/docs/developers/web-preview-development.mdx).
+
 ## Components and boundaries
 
 ```mermaid
@@ -48,6 +50,8 @@ socket inodes with listener tables. The broker caches answers for five seconds.
 Discovery is a UI aid, not an allowlist for edit-authorized raw forwarding.
 
 ### Display providers and viewer protocols
+
+Public developer guides cover [virtual display architecture](../apps/docs/content/docs/developers/virtual-display-architecture.mdx) and [implementing a provider](../apps/docs/content/docs/developers/virtual-display-provider.mdx), including a runnable Linux example.
 
 `PreviewDisplays` applies the node permission and chooses a bundled
 `VirtualDisplayProvider`. The node row stores an enabled set in
@@ -100,7 +104,13 @@ label to `VIRTUAL_DISPLAY_PROVIDERS`. The registry test pins their agreement.
 A backend exposing VNC reuses the existing viewer and authenticated transport.
 Another protocol needs a validated connection descriptor and renderer/transport
 support. These are statically bundled providers, not installable harness or
-network plugins. No macOS provider ships yet.
+network plugins. `BetterDisplayProvider` adds macOS virtual screens with a
+separately enabled native capture/input helper and a local RFB bridge. Both
+desktop apps bundle the same helper. See [macOS helper architecture](macos-display-helper.md)
+for consent, signing, ownership, recovery, and shared-desktop limitations. The
+[BetterDisplay experiment](betterdisplay-experiment.md) records the original
+prototype evidence; it is not a description of the production permission identity.
+The [BetterDisplay integration protocol](../apps/docs/content/docs/developers/betterdisplay-protocol.mdx) specifies the helper messages and RFB subset.
 
 Provider contract tests exercise a non-X11 backend, selection changes, readiness,
 permission refusal, and cleanup while disabled. The Xvfb regression suite retains
