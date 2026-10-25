@@ -838,7 +838,7 @@ describe("NewSubshellForm prior-launch defaults", () => {
     };
   }
 
-  it("opens on the newest row's full launch: node, dir, agent AND preset", async () => {
+  it("uses the newest node, directory and agent without restoring its preset", async () => {
     const PI_NODE = node({ id: "a1", name: "mac mini", harnesses: [PI_ON] });
     const restore = mockFetch(
       [LOCAL, PI_NODE],
@@ -850,7 +850,8 @@ describe("NewSubshellForm prior-launch defaults", () => {
     try {
       const { latest } = await renderForm();
       await waitFor(() => expect(latest().harnessId).toBe("pi"));
-      expect(latest().presetId).toBe("p-pi");
+      expect(latest().presetId).toBeNull();
+      expect(screen.queryByText(/Settings copied from/)).toBeNull();
       expect(latest().nodeId).toBe("a1");
       // The copied directory outranks the recents seed — the row's own dir is
       // the answer, not the node's generic most-recent path.

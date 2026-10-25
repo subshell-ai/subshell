@@ -62,7 +62,7 @@ import { buildAgentOptions, buildNodeOptions, launchableNodes } from "@/lib/subs
  * and the row would have nothing to offer.
  *
  * **It opens on your last launch** (operator rule, 2026-09-25): node,
- * directory, agent and preset pre-fill from the newest prior subshell, once,
+ * directory and agent pre-fill from the newest prior subshell, once,
  * while the form is still untouched — and choosing a preset re-applies from
  * ITS stored launch trio (spec 2026-09-29-preset-launch-fields). Both are
  * defaults, never constraints: every field stays re-pickable, and the form's
@@ -129,7 +129,7 @@ export function NewSubshellForm({
   // (an error body, an older stub) leaves the current pick untouched.
   const nodes = Array.isArray(nodeData?.nodes) ? nodeData.nodes : null;
 
-  // The ONE effect (prior-launch node+dir → re-home → seed → agent+preset)
+  // The ONE effect (prior-launch node+dir → re-home → seed → agent)
   // and `applyPreset`, choosing a preset's explicit act (select + prefill its
   // launch trio), which cancels a pending auto-default.
   const { applyPreset } = useLaunchFormDefaults({
