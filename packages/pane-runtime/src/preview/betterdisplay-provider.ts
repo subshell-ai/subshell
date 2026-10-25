@@ -82,8 +82,10 @@ export class BetterDisplayProvider implements VirtualDisplayProvider {
     );
   }
   async readiness(): Promise<PreviewDisplayReadiness> {
+    return this.checkReadiness((this.supported() && (await this.status())) || null);
+  }
+  private async checkReadiness(status: HelperStatus | null): Promise<PreviewDisplayReadiness> {
     if (!this.supported()) return { supported: false, missing: [] };
-    const status = await this.status();
     if (!status?.enabled)
       return {
         supported: true,
@@ -111,9 +113,9 @@ export class BetterDisplayProvider implements VirtualDisplayProvider {
       throw new Error(`${PREVIEW_DISPLAY_NOT_READY}: Open BetterDisplay on the selected node`);
     return this.deps.run ?? commandRunner(status.betterDisplayExecutable);
   }
-  private directory(id: string) {
+  private directory(id: string, root = this.root) {
     if (!isNodeSubshellId(id)) throw new Error("Invalid subshell identity");
-    return join(this.root, id);
+    return join(root, id);
   }
   private save(id: string, journal: Journal) {
     const directory = this.directory(id);
@@ -121,10 +123,10 @@ export class BetterDisplayProvider implements VirtualDisplayProvider {
     writeFileSync(staging, JSON.stringify(journal), { mode: 0o600 });
     renameSync(staging, join(directory, "display.json"));
   }
-  private load(id: string): Journal | null {
+  private load(id: string, root = this.root): Journal | null {
     let text: string;
     try {
-      const directory = this.directory(id);
+      const directory = this.directory(id, root);
       if (!lstatSync(directory).isDirectory()) throw new Error("Invalid display journal directory");
       const file = join(directory, "display.json");
       const stat = lstatSync(file);
@@ -187,12 +189,20 @@ export class BetterDisplayProvider implements VirtualDisplayProvider {
     let journal: Journal | undefined;
     try {
       if (!this.supported()) throw new Error("preview-display-unsupported");
-      const readiness = await this.readiness();
+      const status = await this.status();
+      const readiness = await this.checkReadiness(status);
       if (readiness.missing.length)
         throw new Error(`preview-display-missing-requirements: ${readiness.missing.join(", ")}`);
       if (![size.width, size.height].every((n) => Number.isInteger(n) && n >= 320 && n <= 4096))
         throw new Error("Invalid display dimensions");
-      const run = await this.runner();
+      if (!status?.betterDisplayExecutable) throw new Error(PREVIEW_DISPLAY_NOT_READY);
+      const run = this.deps.run ?? commandRunner(status.betterDisplayExecutable);
+      const previous = this.load(id);
+      if (previous) {
+        if (previous.pid !== process.pid && this.alive(previous.pid))
+          throw new Error(`${PREVIEW_DISPLAY_NOT_READY}: Another process owns this display`);
+        await this.cleanup(id, previous);
+      }
       mkdirSync(this.root, { recursive: true, mode: 0o700 });
       mkdirSync(this.directory(id), { mode: 0o700 });
       createdDirectory = true;
@@ -244,12 +254,21 @@ export class BetterDisplayProvider implements VirtualDisplayProvider {
     }
     this.entries.set(id, { display, bridge });
   }
-  private async cleanup(id: string, journal: Journal) {
+  private async cleanup(id: string, journal: Journal, root = this.root) {
     const run = await this.runner();
     const display = journal.display ?? (await inspectDisplay(run, journal.name));
-    if (!display && journal.phase === "creating") throw new Error("Display creation hasn't been reconciled");
+    if (!display && journal.phase === "creating") {
+      // A timed-out CLI mutation may finish later. Retain its unique selector
+      // separately so retries and close aren't held hostage by that uncertainty.
+      if (root === this.root) {
+        const pending = `${this.root}-pending`;
+        mkdirSync(pending, { recursive: true, mode: 0o700 });
+        renameSync(this.directory(id), this.directory(randomUUID(), pending));
+      }
+      return;
+    }
     if (display) await removeDisplay(run, display);
-    rmSync(this.directory(id), { recursive: true });
+    rmSync(this.directory(id, root), { recursive: true });
   }
   closeFor(id: string) {
     return this.forPane(id, async () => {
@@ -266,6 +285,21 @@ export class BetterDisplayProvider implements VirtualDisplayProvider {
   async sweepOrphans(alivePaneIds: string[]): Promise<DisplaySweepResult> {
     const counts = { reaped: 0, rehydrated: 0, locksFreed: 0 };
     if (!this.supported()) return counts;
+    const pending = `${this.root}-pending`;
+    try {
+      for (const id of readdirSync(pending)) {
+        if (!isNodeSubshellId(id)) continue;
+        try {
+          const journal = this.load(id, pending);
+          if (journal && (journal.pid === process.pid || !this.alive(journal.pid)))
+            await this.cleanup(id, journal, pending);
+        } catch {
+          this.deps.log?.("BetterDisplay delayed creation cleanup is pending.");
+        }
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
     let ids: string[];
     try {
       ids = readdirSync(this.root);
@@ -281,8 +315,16 @@ export class BetterDisplayProvider implements VirtualDisplayProvider {
           if (!journal || (journal.pid !== process.pid && this.alive(journal.pid))) return;
           if (alivePaneIds.includes(id) && journal.display && (await this.readiness()).missing.length === 0) {
             const current = await inspectDisplay(await this.runner(), journal.name);
+            if (!current) {
+              rmSync(this.directory(id), { recursive: true });
+              this.lost.set(
+                id,
+                "The virtual display is no longer available on this node. Restart the subshell to create one.",
+              );
+              counts.reaped++;
+              return;
+            }
             if (
-              !current ||
               current.UUID.toLowerCase() !== journal.display.UUID.toLowerCase() ||
               current.tagID !== journal.display.tagID
             )
@@ -296,6 +338,10 @@ export class BetterDisplayProvider implements VirtualDisplayProvider {
             counts.reaped++;
           } else this.lost.set(id, "Display helper isn't available on this node");
         } catch {
+          this.lost.set(
+            id,
+            "The virtual display couldn't be recovered. Check BetterDisplay and the helper on this node.",
+          );
           this.deps.log?.("BetterDisplay recovery is pending; its ownership journal was retained.");
         }
       });

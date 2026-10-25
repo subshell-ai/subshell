@@ -86,8 +86,8 @@ final class DisplayInput {
             release(); throw HelperFailure.message("Too many held keys. Release the keys and try again.")
         }
         let code = Self.keyCode(symbol: symbol)
-        if down { keys[symbol] = code } else { keys.removeValue(forKey: symbol) }
         guard let event = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: down) else { return }
+        if down { keys[symbol] = code } else { keys.removeValue(forKey: symbol) }
         var flags: CGEventFlags = []
         for (symbols, flag) in [([UInt32(0xffe1), 0xffe2], CGEventFlags.maskShift),
                                 ([0xffe3, 0xffe4], .maskControl), ([0xffe9, 0xffea], .maskAlternate),

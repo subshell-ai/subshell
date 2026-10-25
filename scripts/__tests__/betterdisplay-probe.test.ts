@@ -33,7 +33,7 @@ describe("BetterDisplay experiment ownership", () => {
     expect(() => parseIdentifiers(JSON.stringify(Array(65).fill(display)))).toThrow();
   });
 
-  test("refuses physical displays, ambiguous matches, malformed IDs and foreign names", () => {
+  test("refuses physical displays, ambiguous matches, malformed IDs and foreign names", async () => {
     for (const invalid of [
       { ...display, deviceType: "Display" },
       { ...display, name: "Someone else's display" },
@@ -44,46 +44,46 @@ describe("BetterDisplay experiment ownership", () => {
       { ...display, displayID: 6 },
     ])
       expect(() => ownedDisplay(invalid, name)).toThrow();
-    expect(() => inspectDisplay(() => `${JSON.stringify(display)},${JSON.stringify(display)}`, name)).toThrow();
-    expect(() => inspectDisplay(() => "", "")).toThrow();
+    await expect(inspectDisplay(() => `${JSON.stringify(display)},${JSON.stringify(display)}`, name)).rejects.toThrow();
+    await expect(inspectDisplay(() => "", "")).rejects.toThrow();
     expect(() => probeName("-identifiers")).toThrow();
   });
 
-  test("checks the postcondition instead of treating exit zero as successful creation", () => {
+  test("checks the postcondition instead of treating exit zero as successful creation", async () => {
     const calls: string[][] = [];
     const run: Run = (args) => {
       calls.push(args);
       return args[0] === "get" ? withoutProbe : "";
     };
-    expect(() => createDisplay(run, name)).toThrow("didn't create");
+    await expect(createDisplay(run, name)).rejects.toThrow("didn't create");
     expect(calls.some((args) => args[0] === "create")).toBe(true);
     expect(calls.some((args) => args[0] === "discard")).toBe(false);
   });
 
-  test("confirms absence using the full inventory; a failed name lookup isn't absence", () => {
-    const result = inspectDisplay((args) => {
+  test("confirms absence using the full inventory; a failed name lookup isn't absence", async () => {
+    const result = await inspectDisplay((args) => {
       expect(args).toEqual(["get", "-identifiers"]);
       return withoutProbe;
     }, name);
     expect(result).toBeNull();
-    expect(() => inspectDisplay(() => "", name)).toThrow("inventory");
-    expect(() => inspectDisplay(() => "{}", name)).toThrow("unrecognized");
+    await expect(inspectDisplay(() => "", name)).rejects.toThrow("inventory");
+    await expect(inspectDisplay(() => "{}", name)).rejects.toThrow("unrecognized");
   });
 
-  test("refuses to mutate an existing name", () => {
+  test("refuses to mutate an existing name", async () => {
     const calls: string[][] = [];
-    expect(() =>
+    await expect(
       createDisplay((args) => {
         calls.push(args);
         return JSON.stringify(display);
       }, name),
-    ).toThrow(ExistingProbeDisplayError);
+    ).rejects.toThrow(ExistingProbeDisplayError);
     expect(calls.map((args) => args[0])).toEqual(["get"]);
   });
 
-  test("removes exactly the verified resource, then confirms it disappeared", () => {
+  test("removes exactly the verified resource, then confirms it disappeared", async () => {
     const calls: string[][] = [];
-    removeDisplay((args) => {
+    await removeDisplay((args) => {
       calls.push(args);
       return calls.length === 1 ? JSON.stringify(display) : withoutProbe;
     }, display);
@@ -91,35 +91,35 @@ describe("BetterDisplay experiment ownership", () => {
     expect(calls.map((args) => args[0])).toEqual(["get", "discard", "get"]);
   });
 
-  test("never discards after a failed query or stale identity", () => {
+  test("never discards after a failed query or stale identity", async () => {
     for (const output of [
       "not JSON",
       JSON.stringify({ ...display, tagID: "4" }),
       JSON.stringify({ ...display, UUID: "7B25533E-892C-434B-86ED-197E3E075691" }),
     ]) {
       const calls: string[][] = [];
-      expect(() =>
+      await expect(
         removeDisplay((args) => {
           calls.push(args);
           return output;
         }, display),
-      ).toThrow();
+      ).rejects.toThrow();
       expect(calls.map((args) => args[0])).toEqual(["get"]);
     }
-    expect(() =>
+    await expect(
       removeDisplay(() => {
         throw new Error("timeout");
       }, display),
-    ).toThrow("timeout");
+    ).rejects.toThrow("timeout");
   });
 
-  test("removal is idempotent but reports an unsuccessful discard", () => {
+  test("removal is idempotent but reports an unsuccessful discard", async () => {
     const calls: string[][] = [];
-    removeDisplay((args) => {
+    await removeDisplay((args) => {
       calls.push(args);
       return withoutProbe;
     }, display);
     expect(calls.map((args) => args[0])).toEqual(["get"]);
-    expect(() => removeDisplay(() => JSON.stringify(display), display)).toThrow("still reports");
+    await expect(removeDisplay(() => JSON.stringify(display), display)).rejects.toThrow("still reports");
   });
 });

@@ -201,3 +201,34 @@ Validation passed: 574 pane-runtime tests, 17 node-card and launch-form tests,
 documentation build and 127-page export verification. Runtime lint retained
 17 existing warnings. This pass changed only native error text and didn't
 rerun macOS native tests; the signed-release validation gap above remains.
+
+
+## PR feedback follow-up
+
+Uncertain creation records move to `betterdisplay-displays-pending` after a
+successful inventory shows no matching screen. They remain available for
+cleanup if a delayed creation appears, but don't block a new allocation or
+closing the subshell. A vanished created display removes the stale active
+journal and reports a lost reason. Failed or ambiguous inventory still keeps
+ownership records. The experimental probe shares the production CLI guards,
+with a separate `Subshell-Probe-` namespace.
+
+JPEG encoding uses a serial worker and one retained frame per capture. Busy
+encoders drop incoming frames. Permission and identity checks remain before
+encoding and before sending the result; the idle timer supplements those
+checks. Moving the expensive encode off the main actor keeps settings and
+control requests responsive without weakening revocation.
+
+`native/display-helper/Info.plist` owns the helper's independent version for
+both desktop apps. After its first release, bump both version fields whenever
+shipping helper changes. Release installers only replace an older helper
+version; equal-version bundles retain the installed copy even if their hashes
+differ. Development builds may refresh equal-version content by hash. Never
+use either desktop app's independently advancing version for this shared app.
+
+The RFB clipboard limit stays at 64 KiB: the screen viewer doesn't call
+noVNC's `clipboardPasteFrom`, and clipboard sharing isn't supported. Oversized
+messages close that viewer rather than expanding the untrusted input budget.
+SetPixelFormat remains supported because the bundled noVNC sends it during
+initialization. It now validates full-depth true-color formats while accepting
+the byte and channel orders that don't affect Tight JPEG decoding.

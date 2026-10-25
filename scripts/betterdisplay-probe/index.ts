@@ -45,7 +45,7 @@ try {
     const name = probeName(randomUUID());
     save({ name, phase: "creating" });
     try {
-      const display = createDisplay(run, name);
+      const display = await createDisplay(run, name);
       save({ ...display, phase: "created" });
       console.log(JSON.stringify(display, null, 2));
     } catch (error) {
@@ -65,7 +65,7 @@ try {
       throw new Error("The probe journal doesn't contain a display name.");
     }
     validateName(record.name);
-    const current = inspectDisplay(run, record.name);
+    const current = await inspectDisplay(run, record.name);
     if (operation === "inspect") {
       console.log(JSON.stringify(current, null, 2));
     } else {
@@ -79,7 +79,7 @@ try {
           "Creation is still unconfirmed. Keep the journal and check again after BetterDisplay has finished processing.",
         );
       }
-      if (current) removeDisplay(run, record.phase === "creating" ? current : ownedDisplay(record, record.name));
+      if (current) await removeDisplay(run, record.phase === "creating" ? current : ownedDisplay(record, record.name));
       save({ ...record, phase: "removed" });
       console.log("The probe display is gone.");
     }

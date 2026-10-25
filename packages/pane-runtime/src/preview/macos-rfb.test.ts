@@ -186,3 +186,19 @@ test("only the controlling viewer releases held input on disconnect", async () =
   controller.destroy();
   await waitFor(() => releases() === 2);
 });
+
+test("accepts noVNC's pixel format and rejects unsupported reduced-depth formats", async () => {
+  const f = await fakeHelper();
+  const bridge = new MacOSRfb(1280, 800, { uuid: "test", name: "test" }, f.path);
+  cleanup.push(() => bridge.stop());
+  await bridge.start();
+  const viewer = await readyViewer(bridge);
+  const format = Buffer.from([0, 0, 0, 0, 32, 24, 0, 1, 0, 255, 0, 255, 0, 255, 0, 8, 16, 0, 0, 0]);
+  viewer.write(Buffer.concat([format, Buffer.from([4, 1, 0, 0, 0, 0, 0, 97])]));
+  await waitFor(() => f.requests.some((r) => r.op === "key"));
+  expect(viewer.destroyed).toBe(false);
+  format[4] = 16;
+  format[5] = 16;
+  viewer.write(format);
+  await waitFor(() => viewer.destroyed);
+});

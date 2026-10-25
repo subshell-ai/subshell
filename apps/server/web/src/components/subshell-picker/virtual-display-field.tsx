@@ -1,6 +1,7 @@
 import { Button, Label, type Node } from "@internal/node-admin";
 import { DEFAULT_VIRTUAL_DISPLAY_PROVIDER } from "@internal/subshell-protocol";
 import { Link } from "@tanstack/react-router";
+import { DisplayMissingRequirements } from "@/components/display-missing-requirements";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useNodeDisplayReadiness } from "@/hooks/use-node-display-readiness";
@@ -103,13 +104,7 @@ export function VirtualDisplayField({
           )}
         </p>
       )}
-      {needsSetup && (
-        <ul aria-label="Missing requirements on this node" className="list-disc pl-4 text-detail text-warning">
-          {check.data?.missing.map((requirement) => (
-            <li key={requirement}>{requirement}</li>
-          ))}
-        </ul>
-      )}
+      {needsSetup && <DisplayMissingRequirements missing={check.data?.missing} />}
       {shouldCheck && reason && !check.isFetching && (
         <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => void check.refetch()}>
           Recheck

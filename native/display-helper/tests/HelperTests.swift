@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import CoreVideo
 
 func request(_ path: String, _ line: String) throws -> [String: Any]? {
     let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -66,6 +67,18 @@ struct HelperTests {
         } catch {
             precondition(stops == 2, "Stop must run again after asynchronous startup completes")
         }
+        // Synthetic pixels exercise the worker without screen-capture permission.
+        var buffer: CVPixelBuffer?
+        precondition(CVPixelBufferCreate(kCFAllocatorDefault, 320, 320,
+            kCVPixelFormatType_32BGRA, nil, &buffer) == kCVReturnSuccess)
+        let encoded: Data? = await withCheckedContinuation { continuation in
+            DisplayFrameEncoder().encode(buffer!) { jpeg in
+                precondition(!Thread.isMainThread, "JPEG encoding must not block settings or RPC")
+                continuation.resume(returning: jpeg)
+            }
+        }
+        precondition(encoded?.prefix(2) == Data([0xff, 0xd8]))
+        precondition(encoded?.suffix(2) == Data([0xff, 0xd9]))
         let directory = URL(fileURLWithPath: "/tmp/sh-helper-test-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         let listener = HelperListener(directory: directory)

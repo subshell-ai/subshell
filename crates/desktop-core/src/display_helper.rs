@@ -121,10 +121,16 @@ fn replacement_needed(bundled: &Path, bundled_version: &str, installed: &Path) -
     }
     verify(installed)?;
     let installed_version = version(installed)?;
-    if crate::version::version_lt(bundled_version, &installed_version) {
+    if !may_replace_version(bundled_version, &installed_version, cfg!(debug_assertions)) {
         return Ok(false);
     }
     Ok(bundled_version != installed_version || code_hash(bundled)? != code_hash(installed)?)
+}
+
+// Helper versions are shared by both apps and advance independently of either
+// app's release version. Equal-version release bundles must never flip-flop.
+fn may_replace_version(bundled: &str, installed: &str, development: bool) -> bool {
+    crate::version::version_lt(installed, bundled) || (development && bundled == installed)
 }
 
 /// Called only from a native menu selection. Opening settings does not enable
@@ -195,6 +201,15 @@ pub fn open_settings(resource_dir: &Path, home: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
+
+    #[test]
+    fn release_updates_require_a_newer_shared_helper_version() {
+        assert!(!may_replace_version("1.0.0", "1.0.0", false));
+        assert!(!may_replace_version("1.0.0", "1.0.1", false));
+        assert!(may_replace_version("1.0.1", "1.0.0", false));
+        assert!(may_replace_version("1.0.0", "1.0.0", true));
+        assert!(!may_replace_version("1.0.0", "1.0.1", true));
+    }
 
     #[test]
     fn another_install_or_running_helper_blocks_replacement() {

@@ -186,9 +186,10 @@ describe("node view prerequisites", () => {
       body: { supported: false, missing: [] },
     });
     try {
+      expect(screen.queryByRole("group", { name: "Xvfb + VNC display provider" })).toBeNull();
       expect(screen.getByText(/Automatic app discovery and browser watching require Linux/)).toBeTruthy();
       expect(
-        await within(screen.getByRole("group", { name: "Xvfb + VNC display provider" })).findByText(
+        await within(screen.getByRole("group", { name: "BetterDisplay display provider" })).findByText(
           "This virtual display provider does not support the selected node.",
         ),
       ).toBeTruthy();
@@ -249,11 +250,51 @@ it("apps need no display prerequisites and display has its own switch", async ()
 it("shows the provider selector when virtual displays are enabled", async () => {
   const h = mount(node({ virtualDisplayEnabled: true, virtualDisplayProvider: "xvfb-x11vnc" }));
   try {
+    expect(screen.queryByRole("group", { name: "BetterDisplay display provider" })).toBeNull();
+    expect(screen.queryByText(/On this node's Mac/)).toBeNull();
     const picker = screen.getByRole("combobox", { name: "Default display provider" });
     expect(picker.textContent).toContain("Xvfb + VNC");
     fireEvent.click(picker);
     expect(await screen.findByRole("option", { name: "Xvfb + VNC" })).toBeTruthy();
     expect(screen.getByText(/Existing subshells keep their saved provider/)).toBeTruthy();
+  } finally {
+    h.restore();
+  }
+});
+
+it("enabling BetterDisplay chooses a supported default on a Mac with legacy Linux settings", async () => {
+  const h = mount(
+    node({
+      os: "darwin",
+      virtualDisplayEnabled: true,
+      virtualDisplayProviders: ["xvfb-x11vnc"],
+      virtualDisplayProvider: "xvfb-x11vnc",
+    }),
+  );
+  try {
+    fireEvent.click(screen.getByRole("checkbox", { name: "Allow BetterDisplay" }));
+    await waitFor(() => expect(h.calls.some((c) => c.method === "PUT")).toBe(true));
+    expect(h.calls.find((c) => c.method === "PUT")?.body).toEqual({
+      on: true,
+      feature: "display",
+      providers: ["xvfb-x11vnc", "betterdisplay"],
+      provider: "betterdisplay",
+    });
+    expect(screen.getByRole("link", { name: "Setup instructions" }).getAttribute("href")).toContain(
+      "#macos-display-helper",
+    );
+  } finally {
+    h.restore();
+  }
+});
+
+it("explains when no bundled provider supports the node", () => {
+  const h = mount(node({ os: "win32", virtualDisplayEnabled: true }));
+  try {
+    expect(screen.getByText("No bundled virtual display provider supports this node's operating system.")).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: "Allow BetterDisplay" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "Allow Xvfb + VNC" })).toBeNull();
+    expect(h.calls).toHaveLength(0);
   } finally {
     h.restore();
   }

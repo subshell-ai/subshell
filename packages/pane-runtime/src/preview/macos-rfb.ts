@@ -138,7 +138,20 @@ class Viewer {
         } else throw new Error("Unsupported RFB request");
         if (this.buffer.length < size) return;
         const message = this.take(size);
-        if (type === 2) {
+        if (type === 0) {
+          // Tight JPEG is independent of byte order and channel order, but
+          // this bridge doesn't support indexed or reduced-depth formats.
+          const shifts = [...message.subarray(14, 17)].sort((a, b) => a - b);
+          if (
+            message[4] !== 32 ||
+            message[5] !== 24 ||
+            message[6] > 1 ||
+            message[7] !== 1 ||
+            [8, 10, 12].some((offset) => message.readUInt16BE(offset) !== 255) ||
+            shifts.join(",") !== "0,8,16"
+          )
+            throw new Error("Unsupported pixel format");
+        } else if (type === 2) {
           this.tight = false;
           for (let offset = 4; offset < size; offset += 4) if (message.readInt32BE(offset) === 7) this.tight = true;
           if (!this.tight) throw new Error("The viewer needs Tight JPEG support");
@@ -156,7 +169,7 @@ class Viewer {
             throw new Error("Invalid pointer event");
           this.bridge.input({ op: "pointer", mask: message[1], x, y }, this);
         }
-        // Clipboard messages are consumed but never access the host clipboard.
+        // Bounded clipboard messages are discarded; oversized payloads close the viewer.
       }
     }
   }

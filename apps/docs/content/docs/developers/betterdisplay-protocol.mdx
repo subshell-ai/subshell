@@ -90,7 +90,10 @@ Removal first checks the current name, UUID, and tag ID against the journal,
 then sends the qualified discard and verifies absence. Never send an
 unqualified `discard`: it removes all virtual screens. A command failure isn't
 proof of absence. A timed-out creation retains its journal even if the screen
-isn't visible yet, since BetterDisplay might complete the request later.
+isn't visible yet, since BetterDisplay might complete the request later. The
+provider moves that record into a separate pending-cleanup directory so it
+doesn't block retries or closing the subshell. Recovery checks those records
+for late-created screens and removes only verified matches.
 
 Provider CLI calls time out after five seconds and bound stdout/stderr through
 `execFile`'s 128 KiB limit. The helper independently queries inventory before
@@ -197,6 +200,10 @@ ten seconds after acceptance. Socket I/O is nonblocking. Oversized buffers,
 malformed JSON, invalid fields, or rate excess close the connection. Limits
 apply to buffered bytes, so a batch of valid messages can still exceed them.
 
+JPEG encoding runs on a private serial worker with one frame in flight per
+capture. Additional frames are dropped while it is busy. Before encoding and
+again before sending a completed frame, the helper verifies access.
+
 Each frame and input event rechecks consent, permissions, and selected-screen
 identity. An additional one-second timer checks idle captures. Disable closes
 connections and releases input immediately. A native startup that finishes
@@ -226,7 +233,8 @@ The supported negotiation is deliberately narrow:
 The bridge consumes SetPixelFormat, SetEncodings, FramebufferUpdateRequest,
 KeyEvent, PointerEvent, and ClientCutText. It doesn't implement raw pixel
 encoding or clipboard transfer. Clipboard messages are bounded and discarded;
-SetPixelFormat doesn't change JPEG encoding. Unknown message types or a
+SetPixelFormat accepts 32-bit, 24-depth true-color formats with eight bits per
+channel; byte order and channel order don't affect JPEG encoding. Unknown message types or a
 SetEncodings list without Tight close the viewer.
 
 There are at most eight viewers per bridge. Handshakes have a ten-second

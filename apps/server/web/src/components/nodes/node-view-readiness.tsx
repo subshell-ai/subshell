@@ -1,4 +1,5 @@
 import { Button, type NodeDetail } from "@internal/node-admin";
+import { DisplayMissingRequirements } from "@/components/display-missing-requirements";
 import { useNodeDisplayReadiness } from "@/hooks/use-node-display-readiness";
 
 /** Explain machine prerequisites beside the switch that permits these features. */
@@ -34,13 +35,7 @@ export function NodeViewReadiness({
           Set up virtual display
         </a>
       )}
-      {needsSetup && (
-        <ul aria-label="Missing requirements on this node" className="list-disc pl-4 text-detail text-warning">
-          {check.data?.missing.map((requirement) => (
-            <li key={requirement}>{requirement}</li>
-          ))}
-        </ul>
-      )}
+      {needsSetup && <DisplayMissingRequirements missing={check.data?.missing} />}
       {shouldCheck && reason && !check.isFetching && (
         <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => void check.refetch()}>
           Recheck

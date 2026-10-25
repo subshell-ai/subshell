@@ -71,6 +71,21 @@ function fixture() {
     failCreation() {
       failedCreate = true;
     },
+    allowCreation() {
+      failedCreate = false;
+    },
+    disappear() {
+      display = undefined;
+    },
+    appear(name: string) {
+      display = {
+        name,
+        UUID: "abcdef01-2345-4567-89ab-abcdef012345",
+        tagID: "42",
+        displayID: "99",
+        deviceType: "VirtualScreen",
+      };
+    },
     changeIdentity() {
       if (display) display.tagID = "43";
     },
@@ -120,7 +135,18 @@ test("uncertain creation keeps its journal for late BetterDisplay completion", a
   const f = fixture();
   f.failCreation();
   await expect(f.provider.openFor(pane, { width: 1280, height: 800 })).rejects.toThrow("timeout");
-  expect(readdirSync(join(f.directory, "betterdisplay-displays", pane))).toContain("display.json");
+  expect(readdirSync(join(f.directory, "betterdisplay-displays"))).toEqual([]);
+  const pending = join(f.directory, "betterdisplay-displays-pending");
+  const [id] = readdirSync(pending);
+  if (!id) throw new Error("Missing delayed creation journal");
+  const journal = JSON.parse(readFileSync(join(pending, id, "display.json"), "utf8"));
+  await f.provider.closeFor(pane);
+  f.allowCreation();
+  await f.provider.openFor(pane, { width: 1280, height: 800 });
+  await f.provider.closeFor(pane);
+  f.appear(journal.name);
+  await f.provider.sweepOrphans([]);
+  expect(readdirSync(pending)).toEqual([]);
 });
 test("helper disconnect removes the viewer without killing the subshell", async () => {
   const f = fixture();
@@ -183,4 +209,30 @@ test("closing waits for allocation before removing its owned display", async () 
   expect(f.stops).toBe(1);
   expect(f.provider.getFor(pane)).toBeNull();
   expect(readdirSync(join(f.directory, "betterdisplay-displays"))).toEqual([]);
+});
+
+test("recovery reports a vanished display, removes its stale journal, and allows retry", async () => {
+  const f = fixture();
+  await f.provider.openFor(pane, { width: 1280, height: 800 });
+  f.disappear();
+  const recovered = new BetterDisplayProvider(f.directory, f.deps);
+  expect((await recovered.sweepOrphans([pane])).reaped).toBe(1);
+  expect(recovered.lostFor(pane)).toContain("no longer available");
+  expect(readdirSync(join(f.directory, "betterdisplay-displays"))).toEqual([]);
+  await recovered.openFor(pane, { width: 1280, height: 800 });
+  expect(recovered.lostFor(pane)).toBeNull();
+  await recovered.closeFor(pane);
+});
+
+test("allocation reuses its readiness status without a second helper handshake", async () => {
+  const f = fixture();
+  const status = f.deps.status;
+  let probes = 0;
+  f.deps.status = async () => {
+    probes++;
+    return status();
+  };
+  await f.provider.openFor(pane, { width: 1280, height: 800 });
+  expect(probes).toBe(1);
+  await f.provider.closeFor(pane);
 });

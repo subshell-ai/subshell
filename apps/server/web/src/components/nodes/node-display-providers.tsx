@@ -15,10 +15,13 @@ export function NodeDisplayProviders({
 }) {
   const enabled = node.virtualDisplayProviders ?? [DEFAULT_VIRTUAL_DISPLAY_PROVIDER];
   const current = node.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER;
-  const choices = VIRTUAL_DISPLAY_PROVIDERS.filter((p) => enabled.includes(p.id));
+  const providers = VIRTUAL_DISPLAY_PROVIDERS.filter((p) =>
+    p.id === "betterdisplay" ? node.os === "darwin" : node.os === "linux",
+  );
+  const choices = providers.filter((p) => enabled.includes(p.id));
   return (
     <div className="flex w-full flex-col gap-4">
-      {VIRTUAL_DISPLAY_PROVIDERS.map((p) => {
+      {providers.map((p) => {
         const id = `node-display-provider-${p.id}`;
         const control = (
           <Checkbox
@@ -27,7 +30,8 @@ export function NodeDisplayProviders({
             disabled={Boolean(disabledReason)}
             onCheckedChange={(on) => {
               const next = on ? [...enabled, p.id] : enabled.filter((id) => id !== p.id);
-              onChange(next, next.includes(current) ? current : next[0]);
+              const supported = next.filter((id) => providers.some((p) => p.id === id));
+              onChange(next, supported.includes(current) ? current : supported[0]);
             }}
           />
         );
@@ -89,7 +93,7 @@ export function NodeDisplayProviders({
           <Label htmlFor="node-default-display-provider">Default display provider</Label>
           <Select
             items={choices.map((p) => ({ value: p.id, label: p.name }))}
-            value={current}
+            value={choices.some((p) => p.id === current) ? current : null}
             disabled={Boolean(disabledReason)}
             onValueChange={(p) => {
               if (p && p !== current) onChange(enabled, p);
@@ -110,7 +114,11 @@ export function NodeDisplayProviders({
           </Select>
         </div>
       ) : (
-        <p className="text-detail text-warning">Enable a provider before starting a subshell with a virtual display.</p>
+        <p className="text-detail text-warning">
+          {providers.length
+            ? "Enable a provider before starting a subshell with a virtual display."
+            : "No bundled virtual display provider supports this node's operating system."}
+        </p>
       )}
       <p className="text-detail text-muted-foreground">
         New subshells use the default unless you choose another enabled provider. Existing subshells keep their saved

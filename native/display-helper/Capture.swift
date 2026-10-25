@@ -12,7 +12,8 @@ final class DisplayCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     private let allowed: () -> Bool
     private let frame: (Data) -> Void
     private let lost: (String) -> Void
-    private let context = CIContext(options: [.cacheIntermediates: false])
+    private let encoder = DisplayFrameEncoder()
+    private var encoding = false
     private var stream: SCStream?
     private var stopped = false
     private var permissionTimer: Timer?
@@ -72,11 +73,25 @@ final class DisplayCapture: NSObject, SCStreamOutput, SCStreamDelegate {
             guard CVPixelBufferGetWidth(pixelBuffer) == width, CVPixelBufferGetHeight(pixelBuffer) == height else {
                 stop(); lost("The virtual display's dimensions changed."); return
             }
-            let image = CIImage(cvPixelBuffer: pixelBuffer)
-            guard let cgImage = context.createCGImage(image, from: image.extent),
-                  let jpeg = NSBitmapImageRep(cgImage: cgImage).representation(using: .jpeg, properties: [.compressionFactor: 0.7]),
-                  jpeg.count <= 0x3f_ffff else { stop(); lost("The display frame exceeded its limit."); return }
-            frame(jpeg)
+            // Keep one frame in flight per capture. Slow encoding drops frames
+            // instead of accumulating buffers or blocking Disable and local RPC.
+            guard !encoding else { return }
+            encoding = true
+            encoder.encode(pixelBuffer) { [weak self] jpeg in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.encoding = false
+                    guard !self.stopped else { return }
+                    guard self.allowed(), CGPreflightScreenCaptureAccess(), AXIsProcessTrusted(),
+                          (try? currentDisplay(uuid: self.uuid)) == self.displayID else {
+                        self.stop(); self.lost("Display access ended."); return
+                    }
+                    guard let jpeg else {
+                        self.stop(); self.lost("The display frame couldn't be encoded within its limit."); return
+                    }
+                    self.frame(jpeg)
+                }
+            }
         }
     }
 
@@ -107,5 +122,33 @@ func startCaptureWhileAllowed(start: () async throws -> Void, stop: () async -> 
     guard allowed() else {
         await stop()
         throw HelperFailure.message("Display access ended while capture was starting.")
+    }
+}
+
+
+// ScreenCaptureKit hands out immutable completed buffers. Retain one until the
+// serial encoder finishes; no queue mutates its pixel storage.
+private final class DisplayFramePixels: @unchecked Sendable {
+    let buffer: CVPixelBuffer
+    init(_ buffer: CVPixelBuffer) { self.buffer = buffer }
+}
+
+// The context is used only on this private serial queue, never on the UI queue.
+final class DisplayFrameEncoder: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "dev.subshell.display-helper.jpeg", qos: .userInitiated)
+    private let context = CIContext(options: [.cacheIntermediates: false])
+
+    func encode(_ buffer: CVPixelBuffer, completion: @escaping @Sendable (Data?) -> Void) {
+        let pixels = DisplayFramePixels(buffer)
+        queue.async {
+            let jpeg: Data? = autoreleasepool {
+                let image = CIImage(cvPixelBuffer: pixels.buffer)
+                guard let cgImage = self.context.createCGImage(image, from: image.extent),
+                      let jpeg = NSBitmapImageRep(cgImage: cgImage).representation(using: .jpeg, properties: [.compressionFactor: 0.7]),
+                      jpeg.count <= 0x3f_ffff else { return nil }
+                return jpeg
+            }
+            completion(jpeg)
+        }
     }
 }
