@@ -138,7 +138,7 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
       case "preview_close":
         return execPreviewClose(ctx, cmd);
       case "preview_display_check":
-        return { ok: true, data: { ...previewDisplayReadiness() } };
+        return { ok: true, data: { ...(await (ctx.previewDisplays?.readiness() ?? previewDisplayReadiness())) } };
       case "preview_ports_get":
         return await execPreviewPorts(ctx, cmd);
       case "prompt_deliver":

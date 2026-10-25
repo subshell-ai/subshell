@@ -38,7 +38,10 @@ describe("the server's machine-local preview runtime", () => {
       ["forward", 5910, true, false, "virtual-display-disabled"],
     ] as const) {
       const runtime = setup({ webPreviewsEnabled: async () => apps, displayEnabled: async () => display });
-      const screen = spyOn(runtime.displays, "getFor").mockReturnValue({ display: ":90", rfbPort: 5910 });
+      const screen = spyOn(runtime.displays, "getFor").mockReturnValue({
+        display: ":90",
+        viewer: { protocol: "vnc", port: 5910 },
+      });
       try {
         await expect(
           runtime.execute({ type: "preview_open", kind, port, paneId: id, ref, lifetimeMs: 60000 }, () => {}),

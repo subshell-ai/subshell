@@ -91,6 +91,7 @@ interface NodeHarnessWireRow {
 interface NodeWireRow {
   webPreviewsEnabled?: boolean;
   virtualDisplayEnabled?: boolean;
+  virtualDisplayProvider?: string;
   sshEnabled?: boolean;
   sshWideForwards?: boolean;
   protocolVersion?: number | null;
@@ -136,6 +137,7 @@ export interface NodeHarnessView {
 export interface NodeView {
   webPreviewsEnabled?: boolean;
   virtualDisplayEnabled?: boolean;
+  virtualDisplayProvider?: string;
   sshEnabled?: boolean;
   sshWideForwards?: boolean;
   protocolVersion?: number | null;
@@ -362,6 +364,7 @@ export async function listNodes(deps: ToolDeps): Promise<NodeView[]> {
     ...(r.arch !== undefined ? { arch: r.arch } : {}),
     ...(r.systemSpecs !== undefined ? { systemSpecs: r.systemSpecs } : {}),
     ...(r.webPreviewsEnabled !== undefined ? { webPreviewsEnabled: r.webPreviewsEnabled } : {}),
+    ...(r.virtualDisplayProvider !== undefined ? { virtualDisplayProvider: r.virtualDisplayProvider } : {}),
     ...(r.virtualDisplayEnabled !== undefined ? { virtualDisplayEnabled: r.virtualDisplayEnabled } : {}),
     ...(r.sshEnabled !== undefined ? { sshEnabled: r.sshEnabled } : {}),
     ...(r.sshWideForwards !== undefined ? { sshWideForwards: r.sshWideForwards } : {}),

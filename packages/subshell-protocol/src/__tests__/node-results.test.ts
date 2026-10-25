@@ -363,7 +363,11 @@ describe("preview results (protocol 23)", () => {
       parseNodePreviewPortsResult({ ports: [{ proto: "tcp6", port: 3000, pid: 7 }], cdpPort: 9222, screen: null }),
     ).not.toBeNull();
     expect(
-      parseNodePreviewPortsResult({ ports: [], cdpPort: null, screen: { display: ":1", rfbPort: 5901 } }),
+      parseNodePreviewPortsResult({
+        ports: [],
+        cdpPort: null,
+        screen: { display: ":1", viewer: { protocol: "vnc", port: 5901 } },
+      }),
     ).not.toBeNull();
     // screenLost rides ONLY with a null screen: the answer says the display
     // died and there is nothing left to report, never both at once.
@@ -377,11 +381,11 @@ describe("preview results (protocol 23)", () => {
       parseNodePreviewPortsResult({
         ports,
         cdpPort: null,
-        screen: { display: ":1", rfbPort: 5901 },
+        screen: { display: ":1", viewer: { protocol: "vnc", port: 5901 } },
         screenLost: "x11vnc",
       }),
     ).toBeNull();
-    expect(parseNodePreviewPortsResult({ ports, cdpPort: null, screen: null, screenLost: "desktop" })).toBeNull();
+    expect(parseNodePreviewPortsResult({ ports, cdpPort: null, screen: null, screenLost: "" })).toBeNull();
     expect(
       parseNodePreviewPortsResult({ ports: [{ proto: "udp", port: 53, pid: 1 }], cdpPort: null, screen: null }),
     ).toBeNull();
@@ -390,9 +394,19 @@ describe("preview results (protocol 23)", () => {
     ).toBeNull();
     expect(parseNodePreviewPortsResult({ ports, cdpPort: null })).toBeNull(); // screen is required and nullable, not absent
     expect(parseNodePreviewPortsResult({ ports, cdpPort: 0, screen: null })).toBeNull();
-    expect(parseNodePreviewPortsResult({ ports, cdpPort: null, screen: { display: "", rfbPort: 5901 } })).toBeNull();
     expect(
-      parseNodePreviewPortsResult({ ports, cdpPort: null, screen: { display: ":1", rfbPort: 70_000 } }),
+      parseNodePreviewPortsResult({
+        ports,
+        cdpPort: null,
+        screen: { display: "", viewer: { protocol: "vnc", port: 5901 } },
+      }),
+    ).toBeNull();
+    expect(
+      parseNodePreviewPortsResult({
+        ports,
+        cdpPort: null,
+        screen: { display: ":1", viewer: { protocol: "vnc", port: 70_000 } },
+      }),
     ).toBeNull();
   });
 
@@ -403,12 +417,21 @@ describe("preview results (protocol 23)", () => {
     expect(parseNodeLaunchResult(undefined)).toEqual({});
     expect(parseNodeLaunchResult(null)).toEqual({});
     expect(parseNodeLaunchResult({})).toEqual({});
-    expect(parseNodeLaunchResult({ screen: { display: ":1", rfbPort: 5901 } })).toEqual({
-      screen: { display: ":1", rfbPort: 5901 },
+    expect(parseNodeLaunchResult({ screen: { display: ":1", viewer: { protocol: "vnc", port: 5901 } } })).toEqual({
+      screen: { display: ":1", viewer: { protocol: "vnc", port: 5901 } },
     });
     expect(parseNodeLaunchResult({ screen: { display: ":1" } })).toBeNull();
-    expect(parseNodeLaunchResult({ screen: { display: ":1", rfbPort: 0 } })).toBeNull();
+    expect(parseNodeLaunchResult({ screen: { display: ":1", viewer: { protocol: "vnc", port: 0 } } })).toBeNull();
     expect(parseNodeLaunchResult({ screen: "yes" })).toBeNull();
     expect(parseNodeLaunchResult("screen")).toBeNull();
   });
+});
+
+it("accepts opaque display identifiers and rejects unknown viewer protocols", () => {
+  const screen = { display: "native-monitor-123", viewer: { protocol: "vnc" as const, port: 6001 } };
+  expect(parseNodeLaunchResult({ screen })).toEqual({ screen });
+  expect(
+    parseNodeLaunchResult({ screen: { ...screen, viewer: { protocol: "unimplemented", port: 6001 } } }),
+  ).toBeNull();
+  expect(parseNodeLaunchResult({ screen: { ...screen, viewer: { protocol: "vnc", port: 0 } } })).toBeNull();
 });

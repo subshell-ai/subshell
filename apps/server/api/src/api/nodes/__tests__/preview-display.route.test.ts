@@ -111,7 +111,7 @@ describe("virtual display preflight route", () => {
   it("checks the built-in host even before Preview is enabled", async () => {
     const response = await get("local");
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(previewDisplayReadiness());
+    expect(await response.json()).toEqual(await previewDisplayReadiness());
   });
   it("keeps missing nodes private", async () => {
     expect((await get(crypto.randomUUID())).status).toBe(404);

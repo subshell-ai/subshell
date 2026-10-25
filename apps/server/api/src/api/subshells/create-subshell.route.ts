@@ -50,7 +50,7 @@ const CreateSubshellBodySchema = t.Object({
       },
       {
         description:
-          "Ask the node for a virtual display (Xvfb + screencast bridge) for this pane. Refused before the launch when the node's Preview switch is off, and by the node itself when its platform or binaries cannot host one",
+          "Ask the node's selected provider for a virtual display for this subshell. Refused when virtual displays are disabled or the provider's requirements aren't met",
       },
     ),
   ),

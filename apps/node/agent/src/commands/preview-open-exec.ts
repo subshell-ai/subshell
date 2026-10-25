@@ -83,7 +83,7 @@ export async function execPreviewOpen(
   if (getPreviewEnabled(ctx.config.dataDir)?.on !== true) return { ok: false, error: PREVIEW_NODE_OFF };
   if (cmd.kind !== "forward" && cmd.kind !== "screencast") return { ok: false, error: "unsupported" };
   const isScreen =
-    cmd.kind === "forward" && !cmd.service && ctx.previewDisplays?.getFor(cmd.paneId)?.rfbPort === cmd.port;
+    cmd.kind === "forward" && !cmd.service && ctx.previewDisplays?.getFor(cmd.paneId)?.viewer.port === cmd.port;
   if (isScreen ? !getVirtualDisplayEnabled(ctx.config.dataDir) : !getWebPreviewsEnabled(ctx.config.dataDir)) {
     return { ok: false, error: isScreen ? "virtual-display-disabled" : PREVIEW_NODE_OFF };
   }

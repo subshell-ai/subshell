@@ -27,6 +27,7 @@ export {
   normalizeAllowedDir,
   normalizeAllowedDirs,
 } from "./dir-allowlist.js";
+export * from "./display-providers.js";
 export {
   BRACKETED_PASTE_END,
   BRACKETED_PASTE_START,
@@ -147,6 +148,7 @@ export {
 } from "./node-frames.js";
 export {
   type DetectResultWire,
+  type DisplayViewerConnection,
   FS_LS_MAX_ENTRIES,
   type NodeAgentLogSlice,
   type NodeArchiveCreateResult,
@@ -170,7 +172,6 @@ export {
   type NodeStatDirResult,
   type NodeTreeManifestPage,
   type NodeWriteFileResult,
-  PREVIEW_DISPLAY_BINARIES,
   type PreviewDisplayReadiness,
   parseNodeAgentLogSlice,
   parseNodeArchiveCreateResult,

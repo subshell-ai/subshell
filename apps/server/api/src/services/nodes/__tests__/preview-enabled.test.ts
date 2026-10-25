@@ -165,6 +165,7 @@ describe("setPreviewEnabled: write, audit, push, one function", () => {
       expect(scripted.cmdsOf("set_preview_enabled")).toEqual([
         {
           type: "set_preview_enabled",
+          displayProvider: "xvfb-x11vnc",
           on: true,
           webPreviewsOn: true,
           displayOn: false,
@@ -186,7 +187,12 @@ describe("setPreviewEnabled: write, audit, push, one function", () => {
       expect(row?.previewEnabledAt).not.toBeNull();
       await settle();
       expect(scripted.cmdsOf("set_preview_enabled")).toEqual([
-        { type: "set_preview_enabled", on: false, changedAt: stamped(row?.previewEnabledAt) },
+        {
+          type: "set_preview_enabled",
+          displayProvider: "xvfb-x11vnc",
+          on: false,
+          changedAt: stamped(row?.previewEnabledAt),
+        },
       ]);
     } finally {
       scripted.detach();
@@ -249,6 +255,7 @@ describe("reconcilePreviewEnabled: decide, push the row, write nothing", () => {
       expect(pushes).toHaveLength(2);
       expect(pushes[1]).toEqual({
         type: "set_preview_enabled",
+        displayProvider: "xvfb-x11vnc",
         on: true,
         webPreviewsOn: true,
         displayOn: false,
@@ -273,8 +280,22 @@ describe("reconcilePreviewEnabled: decide, push the row, write nothing", () => {
       await reconcilePreviewEnabled(nodeId, undefined);
       await settle();
       expect(scripted.cmdsOf("set_preview_enabled")).toEqual([
-        { type: "set_preview_enabled", on: true, webPreviewsOn: true, displayOn: false, changedAt },
-        { type: "set_preview_enabled", on: true, webPreviewsOn: true, displayOn: false, changedAt },
+        {
+          type: "set_preview_enabled",
+          displayProvider: "xvfb-x11vnc",
+          on: true,
+          webPreviewsOn: true,
+          displayOn: false,
+          changedAt,
+        },
+        {
+          type: "set_preview_enabled",
+          displayProvider: "xvfb-x11vnc",
+          on: true,
+          webPreviewsOn: true,
+          displayOn: false,
+          changedAt,
+        },
       ]);
       expect((await auditFor(nodeId)).length).toBe(auditsBefore); // pushes are not acts; only flips audit
     } finally {
@@ -357,4 +378,22 @@ it("keeps apps and display permissions independent across writes and reconciliat
   } finally {
     scripted.detach();
   }
+});
+
+it("reconciles provider selection independently of the permissions", () => {
+  const row = {
+    webPreviewsEnabled: 0,
+    virtualDisplayEnabled: 1,
+    virtualDisplayProvider: "native-example",
+    previewEnabledAt: "2026-10-25T00:00:00Z",
+  };
+  const reported = {
+    on: true,
+    webPreviewsOn: false,
+    displayOn: true,
+    changedAt: row.previewEnabledAt,
+    displayProvider: "xvfb-x11vnc",
+  };
+  expect(decidePreviewEnabled(row, reported)).toBe("push-plane");
+  expect(decidePreviewEnabled(row, { ...reported, displayProvider: "native-example" })).toBe("noop");
 });

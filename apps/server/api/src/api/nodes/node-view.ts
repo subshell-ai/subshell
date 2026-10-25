@@ -1,5 +1,6 @@
 import { readSystemSpecs } from "@internal/pane-runtime";
 import {
+  DEFAULT_VIRTUAL_DISPLAY_PROVIDER,
   type NodeSshFingerprintReport,
   parseNodeSshFingerprintReport,
   parseNodeSystemSpecs,
@@ -181,6 +182,7 @@ export const NodeViewSchema = t.Object({
     description:
       "Whether this machine may be used for Subshell SSH (outbound ssh and serving its keys). Opt-in per node, off by default on every row including the control-plane host; the launch gate refuses SSH here while false, whoever asks",
   }),
+  virtualDisplayProvider: t.String({ description: "Provider selected for new virtual displays" }),
   virtualDisplayEnabled: t.Boolean({
     description: "Whether this node permits virtual displays. Each subshell must explicitly request one.",
   }),
@@ -492,6 +494,7 @@ function nodeViewBase(
     sshEnabled: row.sshEnabled === 1,
     webPreviewsEnabled: row.webPreviewsEnabled === 1,
     virtualDisplayEnabled: row.virtualDisplayEnabled === 1,
+    virtualDisplayProvider: row.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER,
     sshWideForwards: row.sshWideForwards === 1,
     // Read from the LIVE registry rather than the row, for the same reason
     // `runtime` is: being held is a fact about a socket that exists right now,

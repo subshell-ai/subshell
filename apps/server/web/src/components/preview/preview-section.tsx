@@ -110,7 +110,9 @@ export function PreviewSection({
   const [busy, setBusy] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [connection, setConnection] = useState<PreviewConnection>("connecting");
-  const [screenSession, setScreenSession] = useState<{ display: string; proxyBase: string } | null>(null);
+  const [screenSession, setScreenSession] = useState<{ display: string; protocol: "vnc"; proxyBase: string } | null>(
+    null,
+  );
   const sectionRef = useRef<HTMLElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
   useEffect(() => {
@@ -189,12 +191,12 @@ export function PreviewSection({
     setBusy(true);
     setConnection("connecting");
     try {
-      const { proxyBase } = await preview.openPort(info.screen.rfbPort);
+      const { proxyBase } = await preview.openPort(info.screen.viewer.port);
       if (generation.current !== gen) return;
       setOpen(null);
       if (preview.watching) await preview.stopWatch();
       if (generation.current !== gen) return;
-      setScreenSession({ display: info.screen.display, proxyBase });
+      setScreenSession({ display: info.screen.display, protocol: info.screen.viewer.protocol, proxyBase });
       onViewChange?.({ kind: "screen" });
       // A fresh session is exactly when the info poll should be re-asked:
       // its own throttle still rules (spec §7).
@@ -471,6 +473,7 @@ export function PreviewSection({
           compact={fill}
           onConnectionChange={setConnection}
           display={screenSession.display}
+          protocol={screenSession.protocol}
           proxyBase={screenSession.proxyBase}
           onClose={() => {
             onViewChange?.(null);

@@ -1,3 +1,4 @@
+import { isDisplayProviderId } from "./display-providers.js";
 import { BASE64_RE, isBool, isInt, isNum, isRecord, isStr, isStrArray, isStringMap } from "./guards.js";
 import type { JsonValue } from "./json.js";
 import { type NodeSystemSpecs, parseNodeSystemSpecs } from "./node-system-specs.js";
@@ -1369,6 +1370,8 @@ export function parseNodeSshEnabled(value: unknown): NodeSshEnabledWire | null {
  * with the plane's value pushed down.
  */
 export interface NodePreviewEnabledWire {
+  /** Provider used for new virtual displays; absent selects the bundled default. */
+  displayProvider?: string;
   /** Independent feature permissions; absent fields retain the legacy combined switch. */
   webPreviewsOn?: boolean;
   displayOn?: boolean;
@@ -1381,6 +1384,7 @@ export interface NodePreviewEnabledWire {
 /** A {@link NodePreviewEnabledWire}, or null when the value is not one. */
 export function parseNodePreviewEnabled(value: unknown): NodePreviewEnabledWire | null {
   if (!isRecord(value) || !isBool(value.on) || !isStr(value.changedAt)) return null;
+  if (value.displayProvider !== undefined && !isDisplayProviderId(value.displayProvider)) return null;
   const webPreviewsOn = value.webPreviewsOn;
   if (
     (webPreviewsOn !== undefined && !isBool(webPreviewsOn)) ||
@@ -1391,6 +1395,7 @@ export function parseNodePreviewEnabled(value: unknown): NodePreviewEnabledWire 
     on: value.on,
     changedAt: value.changedAt,
     ...(webPreviewsOn === undefined ? {} : { webPreviewsOn: webPreviewsOn as boolean }),
+    ...(value.displayProvider === undefined ? {} : { displayProvider: value.displayProvider as string }),
     ...(value.displayOn === undefined ? {} : { displayOn: value.displayOn as boolean }),
   };
 }
@@ -1697,12 +1702,8 @@ export interface PreviewPortsGetCommand {
 }
 
 /** The per-machine owner switch, plane sole author. Mirrors set_ssh_enabled's shape (decision 5). */
-export interface SetPreviewEnabledCommand {
-  webPreviewsOn?: boolean;
-  displayOn?: boolean;
+export interface SetPreviewEnabledCommand extends NodePreviewEnabledWire {
   type: "set_preview_enabled";
-  on: boolean;
-  changedAt: string;
 }
 
 /**

@@ -1,4 +1,5 @@
 import { apiFetch, errMessage } from "@internal/node-admin";
+import type { NodePreviewScreenWire } from "@internal/subshell-protocol";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveSubshellsFeed } from "@/hooks/use-live-subshells-feed";
@@ -31,10 +32,7 @@ export interface PreviewPortRow {
 }
 
 /** The pane's virtual display, when it has one. */
-export interface PreviewScreen {
-  display: string;
-  rfbPort: number;
-}
+export type PreviewScreen = NodePreviewScreenWire;
 
 /** `GET /api/subshells/:id/views`'s always-answering shape. */
 export interface PreviewInfo {
@@ -42,7 +40,7 @@ export interface PreviewInfo {
   cdpPort: number | null;
   screen: PreviewScreen | null;
   /** Which display process died since launch; only meaningful beside `screen: null`. */
-  screenLost?: "Xvfb" | "x11vnc";
+  screenLost?: string;
   nodeEnabled: boolean;
   webPreviewsEnabled?: boolean;
   virtualDisplayEnabled?: boolean;

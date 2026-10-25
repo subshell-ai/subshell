@@ -147,7 +147,7 @@ async function metadataOf(action: string): Promise<Record<string, unknown>[]> {
   return rows.map((r) => JSON.parse(String(r.metadataJson)) as Record<string, unknown>);
 }
 
-const SCREEN: NodePreviewScreenWire = { display: ":7", rfbPort: 5900 };
+const SCREEN: NodePreviewScreenWire = { display: ":7", viewer: { protocol: "vnc", port: 5900 } };
 
 function portsAnswer(over: Partial<NodePreviewPortsResult> = {}): NodePreviewPortsResult {
   return { ports: [{ proto: "tcp", port: 8080, pid: 11 }], cdpPort: 9222, screen: null, ...over };
@@ -1075,7 +1075,7 @@ describe("display memory: onDisplayOpened / onDisplayClosed", () => {
     broker().onDisplayOpened(NODE, PANE, SCREEN);
     const opens = await metadataOf("node.preview_display.open");
     expect(opens).toHaveLength(1);
-    expect(opens[0]).toEqual({ paneId: PANE, nodeId: NODE, display: ":7", rfbPort: 5900 });
+    expect(opens[0]).toEqual({ paneId: PANE, nodeId: NODE, display: ":7", viewer: { protocol: "vnc", port: 5900 } });
 
     await broker().onDisplayClosed(PANE, "pane-gone");
     const closes = await metadataOf("node.preview_display.close");

@@ -33,8 +33,14 @@ const PreviewPortSchema = t.Object({
 });
 
 const PreviewScreenSchema = t.Object({
-  display: t.String({ description: "X display the pane's virtual screen runs on (for example :90)" }),
-  rfbPort: t.Integer({ description: "Loopback RFB (VNC) port the screencast bridge reads from" }),
+  display: t.String({ description: "Provider display identifier (for example :90)" }),
+  viewer: t.Object(
+    {
+      protocol: t.Literal("vnc", { description: "Viewer protocol served by the provider" }),
+      port: t.Integer({ minimum: 1, maximum: 65535, description: "Provider viewer port on the node's loopback" }),
+    },
+    { description: "Viewer connection for the allocated display" },
+  ),
 });
 
 const PreviewInfoResponseSchema = t.Object({
@@ -46,7 +52,8 @@ const PreviewInfoResponseSchema = t.Object({
     description: "The pane's virtual display when it has one, or null (never a guess)",
   }),
   screenLost: t.Optional(
-    t.Union([t.Literal("Xvfb"), t.Literal("x11vnc")], {
+    t.String({
+      maxLength: 128,
       description: "Set only beside screen null: which display process died since the pane launched",
     }),
   ),

@@ -106,9 +106,15 @@ describe("MCP preview discovery and launch", () => {
       [{ status: "offline" }, {}, "unavailable"],
       [{}, { check_display: false }, "unchecked"],
     ] as const) {
-      const { deps, calls } = fixture(() => ({ nodes: [{ ...node, ...changes }] }));
+      const { deps, calls } = fixture((path) =>
+        path === "/api/nodes" ? { nodes: [{ ...node, ...changes }] } : { supported: false, missing: [] },
+      );
       expect((await getNode(deps, { node: node.id, ...args })).virtualDisplay.status).toBe(status);
-      expect(calls.every((c) => c.path === "/api/nodes")).toBe(true);
+      expect(
+        calls.every(
+          (c) => c.path === "/api/nodes" || (status === "unsupported" && c.path.endsWith("/display-readiness")),
+        ),
+      ).toBe(true);
     }
   });
   it("propagates permission failures and rejects malformed readiness", async () => {
@@ -154,7 +160,7 @@ describe("MCP preview discovery and launch", () => {
     const { deps, calls } = fixture((path) =>
       path.endsWith("/open")
         ? { proxyBase: "/preview/secret/" }
-        : { nodeEnabled: true, screen: { display: ":90", rfbPort: 5900 }, ports: [] },
+        : { nodeEnabled: true, screen: { display: ":90", viewer: { protocol: "vnc", port: 5900 } }, ports: [] },
     );
     await listSubshellViews(deps, { subshell_id: "a/b" });
     expect(calls[0].path).toBe("/api/subshells/a%2Fb/views");

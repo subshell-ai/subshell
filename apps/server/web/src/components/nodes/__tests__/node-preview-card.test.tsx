@@ -148,7 +148,7 @@ describe("node view prerequisites", () => {
     try {
       const guide = await screen.findByRole("link", { name: "Set up virtual display" });
       expect(guide.getAttribute("href")).toBe("https://docs.subshell.sh/guides/preview#use-a-virtual-display-on-linux");
-      expect(screen.getByText("Required virtual display programs are missing on this machine.")).toBeTruthy();
+      expect(screen.getByText("Virtual display requirements are missing on this machine.")).toBeTruthy();
       expect(screen.getByRole("switch", { name: /allow virtual displays/i }).getAttribute("aria-checked")).toBe("true");
       readiness.body = { supported: true, missing: [] };
       fireEvent.click(screen.getByRole("button", { name: "Recheck" }));
@@ -160,12 +160,15 @@ describe("node view prerequisites", () => {
     }
   });
 
-  it("explains unsupported features while keeping saved services available", () => {
-    const h = mount(node({ webPreviewsEnabled: true, virtualDisplayEnabled: true, os: "darwin" }));
+  it("explains unsupported features while keeping saved services available", async () => {
+    const h = mount(node({ webPreviewsEnabled: true, virtualDisplayEnabled: true, os: "darwin" }), {
+      body: { supported: false, missing: [] },
+    });
     try {
       expect(screen.getByText(/Automatic app discovery and browser watching require Linux/)).toBeTruthy();
-      expect(screen.getByText("Virtual displays are available on Linux machines only.")).toBeTruthy();
-      expect(h.calls).toHaveLength(0);
+      expect(
+        await screen.findByText("The selected virtual display provider does not support this machine."),
+      ).toBeTruthy();
     } finally {
       h.restore();
     }
@@ -203,6 +206,19 @@ it("apps need no display prerequisites and display has its own switch", async ()
     fireEvent.click(display);
     await waitFor(() => expect(h.calls.some((c) => c.method === "PUT")).toBe(true));
     expect(h.calls.find((c) => c.method === "PUT")?.body).toEqual({ on: true, feature: "display" });
+  } finally {
+    h.restore();
+  }
+});
+
+it("shows the provider selector when virtual displays are enabled", async () => {
+  const h = mount(node({ virtualDisplayEnabled: true, virtualDisplayProvider: "xvfb-x11vnc" }));
+  try {
+    const picker = screen.getByRole("combobox", { name: "Display provider" });
+    expect(picker.textContent).toContain("Xvfb + VNC");
+    fireEvent.click(picker);
+    expect(await screen.findByRole("option", { name: "Xvfb + VNC" })).toBeTruthy();
+    expect(screen.getByText(/Changes apply to new virtual displays/)).toBeTruthy();
   } finally {
     h.restore();
   }

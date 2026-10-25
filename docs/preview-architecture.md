@@ -47,16 +47,48 @@ Linux runtime walks `/proc` from the subshell's tmux PID, joining descendant
 socket inodes with listener tables. The broker caches answers for five seconds.
 Discovery is a UI aid, not an allowlist for edit-authorized raw forwarding.
 
-Display preflight is separate: `GET /api/nodes/:id/display-readiness` checks Linux
-support and Xvfb, x11vnc, and xauth without launching anything. It can run before
-Preview is enabled; the launch gate separately enforces opt-in.
-Launch checks again. Each display gets an Xauthority file, Xvfb with TCP disabled,
-and a loopback x11vnc listener. The allocator skips host X sockets and lock files
-as well as its own data-directory locks. Readiness must observe both X and RFB.
+### Display providers and viewer protocols
 
-The launcher supplies `DISPLAY` and `XAUTHORITY` to the subshell. Agents and GUI
-programs started there inherit them. Display metadata persists beside the node
-or server data, and startup/liveness reconciliation restores or removes it.
+`PreviewDisplays` applies the node permission and chooses a bundled
+`VirtualDisplayProvider`. `virtual_display_provider` is stored on the node row,
+rendered as **Display provider** beside **Allow virtual displays**, and mirrored
+through the signed `set_preview_enabled` command as `displayProvider`. Changing
+the selection affects new displays. The runtime finds existing displays through
+their owning provider and reconciles every registered provider after restart.
+Unknown provider identifiers fail closed instead of falling back to Linux.
+
+A provider implements readiness, allocation, public screen lookup, local launch
+environment, loss reporting, cleanup, and recovery. Readiness may be asynchronous;
+it describes the selected backend's programs or permissions. The requirements
+list contains bounded strings, not a shared enum of Linux executable names.
+The launchers consume `launchEnv()` without constructing X11 variables.
+Those values stay on the machine and never enter the screen descriptor.
+
+`XvfbDisplayProvider` is the first backend. It creates private Xauthority files,
+Xvfb with TCP disabled, and loopback x11vnc listeners. Its records live under
+`display-providers/xvfb-x11vnc/displays/` in the data directory. It verifies
+process identity before recovery or signalling and skips occupied X display
+numbers. Both X and RFB must answer before allocation succeeds.
+
+The public descriptor is `{ display, viewer: { protocol: "vnc", port } }`.
+`display` is an opaque provider identifier, not necessarily an X display number.
+Only loopback connections and implemented viewer protocols are accepted. The
+web client's `ScreenViewer` dispatches to `VncScreenViewer`; noVNC-specific
+connection, input, and framebuffer handling lives in that adapter. The broker
+uses the registered viewer port for raw forwarding and the existing permission
+checks. Display lookup remains usable without Linux process-tree discovery.
+
+To add a backend, implement `VirtualDisplayProvider`, give its records a private
+provider namespace, add its factory to `createDisplayProviders`, and add its
+label to `VIRTUAL_DISPLAY_PROVIDERS`. The registry test pins their agreement.
+A backend exposing VNC reuses the existing viewer and authenticated transport.
+Another protocol needs a validated connection descriptor and renderer/transport
+support. These are statically bundled providers, not installable harness or
+network plugins. No macOS provider ships yet.
+
+Provider contract tests exercise a non-X11 backend, selection changes, readiness,
+permission refusal, and cleanup while disabled. The Xvfb regression suite retains
+its process ownership, rollback, recovery, and launch-environment checks.
 Private Xauthority files authenticate X11 clients; they do not authenticate the
 loopback RFB port. See the local-user limitation in the security model.
 
@@ -64,7 +96,7 @@ loopback RFB port. See the local-user limitation in the security model.
 
 | Command or frame | Purpose |
 | --- | --- |
-| `set_preview_enabled { on, changedAt }` | Signed mirror of the server's node opt-in. Closing is separate. |
+| `set_preview_enabled { on, displayProvider, changedAt }` | Signed mirror of the server's node opt-in. Closing is separate. |
 | `preview_display_check` | Report platform and display prerequisites before a subshell exists. |
 | `preview_ports_get { paneId }` | Discover the subshell's listeners, CDP port, and display. |
 | `preview_open { ref, kind, paneId, port, lifetimeMs, fps?, service? }` | Open `forward` TCP bytes or a `screencast` CDP bridge. An optional `service: { host, protocol }` selects an explicit HTTP(S) destination for forward lanes only. |

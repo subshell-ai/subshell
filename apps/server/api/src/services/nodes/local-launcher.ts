@@ -7,14 +7,12 @@ import {
   enforceMode,
   exitHookFor,
   type HarnessPlugin,
-  type PreviewDisplays,
   paneEnvFor,
   TmuxRunner,
+  type VirtualDisplayRuntime,
   validateWorkingDir,
-  xauthorityPath,
 } from "@internal/pane-runtime";
 import { HttpError } from "@/api/auth-guard.js";
-import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { getLocalPreviewRuntime, sweepLocalPreviewDisplays } from "@/preview/local-preview.js";
 import { probePaneLogLaunch } from "@/services/mcp-resolve.js";
@@ -28,9 +26,9 @@ import { subshellLogDir, subshellLogPath, subshellSshConfigPath } from "./subshe
 /** Today's exact tmux/fs behavior behind the launcher seam (spec §6.3). */
 export class LocalLauncher implements NodeLauncher {
   readonly #tmux: TmuxRunner;
-  readonly #displayOverride?: PreviewDisplays;
+  readonly #displayOverride?: VirtualDisplayRuntime;
 
-  constructor(deps: { tmux?: TmuxRunner; displays?: PreviewDisplays } = {}) {
+  constructor(deps: { tmux?: TmuxRunner; displays?: VirtualDisplayRuntime } = {}) {
     this.#displayOverride = deps.displays;
     this.#tmux = deps.tmux ?? new TmuxRunner();
     // The log dir must exist before ANY pipe-pane: tmux runs `cat >> <path>`
@@ -66,11 +64,14 @@ export class LocalLauncher implements NodeLauncher {
   async launch(plan: LaunchPlan): Promise<void> {
     let displayEnv: Record<string, string> | undefined;
     if (plan.screen) {
+      let allocated = false;
       try {
         if (!this.#displayOverride) await sweepLocalPreviewDisplays();
-        const display = await this.#displays().openFor(plan.id, plan.screen);
-        displayEnv = { DISPLAY: display.display, XAUTHORITY: xauthorityPath(SUBSHELL_SERVER_DATA_DIR, plan.id) };
+        await this.#displays().openFor(plan.id, plan.screen);
+        allocated = true;
+        displayEnv = this.#displays().launchEnv(plan.id);
       } catch (err) {
+        if (allocated) await this.#displays().closeFor(plan.id);
         const remedy = err instanceof Error ? screenLaunchRemedy(err.message) : null;
         if (remedy) throw new HttpError(400, remedy);
         throw err;
@@ -83,12 +84,12 @@ export class LocalLauncher implements NodeLauncher {
         if (screen) getPreviewBroker().onDisplayOpened(LOCAL_NODE_ID, plan.id, screen);
       }
     } catch (err) {
-      if (plan.screen) this.#displays().closeFor(plan.id);
+      if (plan.screen) await this.#displays().closeFor(plan.id);
       throw err;
     }
   }
 
-  #displays(): PreviewDisplays {
+  #displays(): VirtualDisplayRuntime {
     return this.#displayOverride ?? getLocalPreviewRuntime().displays;
   }
 
@@ -203,13 +204,13 @@ export class LocalLauncher implements NodeLauncher {
    */
   async terminate(socket: string, id: string): Promise<void> {
     this.#tmux.run(["-L", socket, "kill-session", "-t", id], {});
-    this.#displays().closeFor(id);
+    await this.#displays().closeFor(id);
   }
 
   /** Kills the subshell, swallowing "already gone" (TmuxRunner.killSubshell semantics). */
   async killSubshell(socket: string, id: string): Promise<void> {
     this.#tmux.killSubshell(socket, id);
-    this.#displays().closeFor(id);
+    await this.#displays().closeFor(id);
   }
 
   /** Unlinks the dead server's socket file on THIS host. See {@link NodeLauncher.cleanSocket}. */

@@ -1,4 +1,4 @@
-import type { TmuxRunner } from "@internal/pane-runtime";
+import type { TmuxRunner, VirtualDisplayRuntime } from "@internal/pane-runtime";
 import type {
   JsonValue,
   NodeCommandBody,
@@ -10,7 +10,6 @@ import type {
   RelayFrame,
 } from "@internal/subshell-protocol";
 import type { NodeConfig } from "../config.js";
-import type { PreviewDisplays } from "../preview/display.js";
 import type { PreviewForward, PreviewLaneEvent } from "../preview/forward.js";
 import type { ServiceDeps } from "../service.js";
 import type { SubshellMetaStore } from "../subshell-meta.js";
@@ -153,8 +152,7 @@ export interface CommandContext {
    */
   sendPreviewEvent?: (ev: PreviewLaneEvent) => void;
   /**
-   * The virtual-display registry (pane-preview spec §5, Task 7): the
-   * per-daemon `Xvfb` + `x11vnc` allocation the `launch` frame's `screen`
+   * The virtual-display registry: the provider allocation the `launch` frame's `screen`
    * path opens into, the ports arm reads for its `screen` half, and the
    * death report closes. OPTIONAL by the same fake-compiling reason as
    * {@link previewForward}; the real daemon always provides it. The launch
@@ -163,7 +161,7 @@ export interface CommandContext {
    * bug), while the ports arm answers `screen: null` without it, which is
    * exactly the pre-Task-7 behavior every fake keeps.
    */
-  previewDisplays?: PreviewDisplays;
+  previewDisplays?: VirtualDisplayRuntime;
   /**
    * The panes supervised for natural death, keyed by subshellId →
    * {@link WatcherRegistration} (socket + registration token + unreachable

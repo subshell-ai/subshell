@@ -93,7 +93,9 @@ function makeFakeNode(): FakeNode {
         return {
           ports: [],
           cdpPort: null,
-          screen: fake.reportScreenRfbPort ? { display: ":7", rfbPort: fake.reportScreenRfbPort } : null,
+          screen: fake.reportScreenRfbPort
+            ? { display: ":7", viewer: { protocol: "vnc", port: fake.reportScreenRfbPort } }
+            : null,
         };
       }
       throw new Error(`pv proxy fake node: unexpected command ${cmd.type}`);

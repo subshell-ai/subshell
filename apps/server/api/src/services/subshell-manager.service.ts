@@ -11,7 +11,7 @@ import {
   TmuxTimeoutError,
   tmuxSocketFor,
 } from "@internal/pane-runtime";
-import type { ApiKeyPermission } from "@internal/subshell-protocol";
+import type { ApiKeyPermission, NodePreviewScreenWire } from "@internal/subshell-protocol";
 import {
   dirAllowed,
   type NodeEvent,
@@ -1864,7 +1864,7 @@ export class SubshellManagerService {
     // a subshell that will never come back has its MCP token revoked here.
     // "Never" means opted out OR the backoff limit was exhausted (the
     // sweep gives up at that count, so the bearer would linger otherwise).
-    if (fresh.nodeId === LOCAL_NODE_ID) getLocalPreviewRuntime().displays.closeFor(fresh.id);
+    if (fresh.nodeId === LOCAL_NODE_ID) await getLocalPreviewRuntime().displays.closeFor(fresh.id);
     const restarted = await this.maybeAutoRestart(fresh);
     // The ssh config dir is a pane artifact like the preview cache and the idle
     // tmux server below: it dies with the pane, HERE, in the ONE shared
@@ -2563,7 +2563,7 @@ function displayNameFor(row: { id: string; nodeId: string }): string | null {
   return getPreviewBroker().displayForPane(row.id)?.screen.display ?? null;
 }
 
-function observeDisplayStatus(nodeId: string, id: string, screen: { display: string; rfbPort: number } | null): void {
+function observeDisplayStatus(nodeId: string, id: string, screen: NodePreviewScreenWire | null): void {
   const broker = getPreviewBroker();
   const before = broker.displayForPane(id);
   broker.observeDisplay(nodeId, id, screen);

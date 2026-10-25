@@ -47,7 +47,7 @@ export interface NewSubshellFormValue {
   /** The new preset's name; REQUIRED (trimmed) while `saveAsPreset` is checked. */
   presetName?: string;
   /**
-   * "Virtual display" (pane-preview spec §7): launch the pane with an Xvfb
+   * "Virtual display" (pane-preview spec §7): launch the pane with a virtual
    * screen it can be watched on. Optional on the type - an absent value is
    * the untouched false, and an unchecked box sends NO `screen` field: the
    * create route refuses an unsolicited `screen` default by turning every

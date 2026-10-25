@@ -1,25 +1,28 @@
 import { apiFetch, type Node } from "@internal/node-admin";
-import { type PreviewDisplayReadiness, parsePreviewDisplayReadiness } from "@internal/subshell-protocol";
+import {
+  DEFAULT_VIRTUAL_DISPLAY_PROVIDER,
+  type PreviewDisplayReadiness,
+  parsePreviewDisplayReadiness,
+} from "@internal/subshell-protocol";
 import { useQuery } from "@tanstack/react-query";
 
 export function virtualDisplayReason(node: Node | null, readiness?: PreviewDisplayReadiness): string | undefined {
   if (!node) return "Choose a machine first.";
-  if (node.os !== "linux") return "Virtual displays are available on Linux machines only.";
   if (node.virtualDisplayEnabled !== true)
     return "Turn on Allow virtual displays in this machine's node settings first.";
   if (!readiness) return "Checking virtual display requirements…";
-  if (!readiness.supported) return "Virtual displays are available on Linux machines only.";
+  if (!readiness.supported) return "The selected virtual display provider does not support this machine.";
   if (readiness.missing.length) {
-    return "Required virtual display programs are missing on this machine.";
+    return "Virtual display requirements are missing on this machine.";
   }
   return undefined;
 }
 
 /** Share the machine check and refusal reasons between node settings and launch. */
 export function useNodeDisplayReadiness(node: Node | null) {
-  const shouldCheck = Boolean(node && node.os === "linux" && node.virtualDisplayEnabled === true);
+  const shouldCheck = Boolean(node && node.virtualDisplayEnabled === true);
   const check = useQuery({
-    queryKey: ["preview-display-readiness", node?.id],
+    queryKey: ["preview-display-readiness", node?.id, node?.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER],
     enabled: shouldCheck,
     queryFn: async () => {
       const data = parsePreviewDisplayReadiness(await apiFetch<unknown>(`/api/nodes/${node?.id}/display-readiness`));

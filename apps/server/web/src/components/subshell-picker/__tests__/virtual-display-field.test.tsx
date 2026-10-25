@@ -29,14 +29,16 @@ function respond(body: unknown, status = 200) {
 }
 
 describe("virtual display prerequisites", () => {
-  it("requires Linux, enabled preview, and a completed machine check", () => {
+  it("requires an enabled display and a completed provider check", () => {
     expect(virtualDisplayReason(linux, ready)).toBeUndefined();
     expect(virtualDisplayReason(linux)).toContain("Checking");
-    expect(virtualDisplayReason({ ...linux, os: "darwin" })).toContain("Linux");
+    expect(virtualDisplayReason({ ...linux, os: "darwin" }, { supported: false, missing: [] })).toContain(
+      "does not support this machine",
+    );
     expect(virtualDisplayReason({ ...linux, virtualDisplayEnabled: false })).toContain("Allow virtual displays");
     expect(virtualDisplayReason(null)).toContain("Choose a machine");
     expect(virtualDisplayReason(linux, { supported: true, missing: ["x11vnc"] })).toContain(
-      "Required virtual display programs are missing",
+      "Virtual display requirements are missing",
     );
   });
   it("disables a missing display, explains the remedy, and enables it after rechecking", async () => {
@@ -94,7 +96,7 @@ describe("virtual display prerequisites", () => {
 
 it("preserves a selected display while revalidating the same machine", async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData(["preview-display-readiness", linux.id], ready);
+  client.setQueryData(["preview-display-readiness", linux.id, "xvfb-x11vnc"], ready);
   let resolve!: (response: Response) => void;
   globalThis.fetch = (() =>
     new Promise<Response>((r) => {

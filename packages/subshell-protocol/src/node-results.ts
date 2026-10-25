@@ -783,22 +783,26 @@ function isExecStreamStr(value: unknown): value is string {
 /* preview (pane-preview spec 2026-10-21 §4)                            */
 /* ------------------------------------------------------------------ */
 
-/** The virtual display a node allocated: named on the launch ack, reported again by the ports walk. */
-export interface NodePreviewScreenWire {
-  /** X display name the node allocated (e.g. `:98`; the allocator never goes below `:90`). */
+/** Transport descriptor, independent of the display backend that created it. */
+export type DisplayViewerConnection = { protocol: "vnc"; port: number };
+
+/** The allocated display, named on the launch ack and reported by the ports walk. */
+export type NodePreviewScreenWire = {
+  /** Provider's display identifier; opaque to the server and viewer. */
   display: string;
-  /** rfb (VNC) port the node started for this display. */
-  rfbPort: number;
-}
+  /** Connection on the node's loopback interface, never an arbitrary host. */
+  viewer: DisplayViewerConnection;
+};
 
-/** Which half of the screen machinery died after the display came up (spec §9; Task 7's child-exit watch is the only writer). */
-export type NodePreviewScreenLost = "Xvfb" | "x11vnc";
+/** Bounded provider component name, such as Xvfb or a native capture helper. */
+export type NodePreviewScreenLost = string;
 
-/** A display pair is complete or it is not an answer: a half-named screen is worse than none. */
 function parsePreviewScreenWire(value: unknown): NodePreviewScreenWire | null {
-  if (!isRecord(value) || !isNonEmptyStr(value.display)) return null;
-  if (!isInt(value.rfbPort) || (value.rfbPort as number) < 1 || (value.rfbPort as number) > 65_535) return null;
-  return { display: value.display, rfbPort: value.rfbPort as number };
+  if (!isRecord(value) || !isNonEmptyStr(value.display) || value.display.length > 256) return null;
+  const viewer = value.viewer;
+  if (!isRecord(viewer) || viewer.protocol !== "vnc") return null;
+  if (!isInt(viewer.port) || (viewer.port as number) < 1 || (viewer.port as number) > 65_535) return null;
+  return { display: value.display, viewer: { protocol: "vnc", port: viewer.port as number } };
 }
 
 /**
@@ -911,7 +915,7 @@ export function parseNodePreviewPortsResult(data: unknown): NodePreviewPortsResu
     // The pairing is law (spec §9): the marker reports the ABSENCE of a
     // screen, so an answer carrying both claims both.
     if (screen !== null) return null;
-    if (data.screenLost !== "Xvfb" && data.screenLost !== "x11vnc") return null;
+    if (!isNonEmptyStr(data.screenLost) || data.screenLost.length > 128) return null;
   }
   return {
     ports,
@@ -948,11 +952,10 @@ export function parseNodeLaunchResult(data: unknown): NodeLaunchResult | null {
   return { screen };
 }
 
-/** Programs required for a subshell's private Linux display. Paths never leave the machine. */
-export const PREVIEW_DISPLAY_BINARIES = ["Xvfb", "x11vnc", "xauth"] as const;
 export interface PreviewDisplayReadiness {
   supported: boolean;
-  missing: (typeof PREVIEW_DISPLAY_BINARIES)[number][];
+  /** Missing provider prerequisites, including program or permission names. */
+  missing: string[];
 }
 
 /** An unknown or malformed node reply must never enable the launch checkbox. */
@@ -960,6 +963,10 @@ export function parsePreviewDisplayReadiness(value: unknown): PreviewDisplayRead
   if (!value || typeof value !== "object") return null;
   const data = value as Record<string, unknown>;
   if (typeof data.supported !== "boolean" || !Array.isArray(data.missing)) return null;
-  if (!data.missing.every((name) => PREVIEW_DISPLAY_BINARIES.includes(name))) return null;
+  if (
+    data.missing.length > 32 ||
+    !data.missing.every((name) => typeof name === "string" && name.length > 0 && name.length <= 128)
+  )
+    return null;
   return { supported: data.supported, missing: [...new Set(data.missing)] };
 }

@@ -4,34 +4,10 @@
 "@internal/docs": patch
 ---
 
-Add pane preview. Nodes carry an opt-in Preview switch, and workspace panes and the subshell page grow a Preview section for what a pane offers to watch. Ports the pane listens on can be opened through the server's own proxy, no new ports on the machine. A browser running inside a pane with remote debugging can be watched as live frames. A pane launched with a virtual display gets its own Xvfb screen (Linux nodes with Xvfb, x11vnc, and xauth installed), viewable live and inputtable. Unsupported machines refuse by name instead of half-serving. A screen watched over a plain http address keeps the console quiet: noVNC's TLS warning is about connections it opens itself, and here the page hands it the socket.
+Add web previews, browser watching, saved web services, and virtual displays to subshell workspaces. Open each view in its own draggable tab beside the terminal, move it between splits, or use full screen. Closing a preview leaves its terminal and sibling views running.
 
-Preview also works on the server’s built-in node. Virtual displays check the machine’s platform and Preview setting before launch, phone app previews use a new-tab link, and viewers can use full screen without reloading the app.
+Node settings independently control web previews and virtual displays. Enabling web previews makes them available to the node’s subshells. Virtual displays are requested at launch, use the node’s selected provider, and check prerequisites before starting. Xvfb + VNC is the initial provider and requires Linux with Xvfb, x11vnc, and xauth. Provider changes apply to new displays; existing displays keep running. The server’s built-in node uses the same runtime as enrolled nodes.
 
-Check virtual display prerequisites before launch, disable the checkbox when programs are missing, and let users recheck after installing them.
+Expose feature permissions, display-provider selection, prerequisites, and view controls through MCP. The UI explains disabled features and links to setup documentation. Preview choices use compact rows with plain port numbers, and phone previews preserve the desktop workspace layout.
 
-Open workspace previews in draggable tabs with child entries beneath their subshells in the sidebar. Preview tabs fill their panels, open each app port, browser watch, and virtual display independently, and close without removing the terminal.
-
-Mark subshells with virtual displays in sidebar rows and headers, and restore live display metadata after a server restart.
-
-Open the preview picker dialog from a subshell’s header window icon.
-
-Move preview choices into a dialog and consolidate each viewer’s controls into one toolbar, letting the viewer fill the tab. Distinguish virtual displays with a window icon while device sizing keeps its monitor icon.
-
-Simplify the preview picker with clickable rows, distinct view icons, and port badges, without introductory text.
-
-Keep large preview pickers manageable with search, sorted ports, denser rows, and a bounded app list that leaves display and browser choices visible.
-
-Use compact rows for small preview lists too.
-
-Use picker-sized rows with smaller labels, plain icons, and unbadged port numbers for apps, screens, and saved services.
-
-Open the preview picker from the subshell header, removing the duplicate selector from viewer toolbars.
-
-Move full screen into the preview action menu, keeping that menu usable inside the fullscreen viewer.
-
-Open new previews in a split to the right of their terminal, and move workspace maximize and restore into the preview action menu.
-
-Show restore and exit controls directly in preview toolbars while maximized or in full screen.
-
-Isolate app previews from dashboard browser authority, keep target cookies in the server, strip dashboard credentials and origin-wide target policy headers, restrict view-only browser watches to their subshell’s discovered browser port, and revoke previews before stopping or restarting a subshell. Avoid occupied host display numbers and redact preview capability references in runtime diagnostics.
+Isolate web-preview scripts from dashboard credentials and browser storage, restrict viewers to authorized resources, and revoke views when access changes or subshells stop. Keep target cookies on the server, bound transport buffers and image dimensions, verify display process ownership before cleanup, and redact preview capability references from diagnostics.

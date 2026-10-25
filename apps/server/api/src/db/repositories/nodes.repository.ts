@@ -316,6 +316,7 @@ export class NodesRepository extends BaseRepository {
       /** True = this machine's panes may be watched. */
       on: boolean;
       feature?: "web-previews" | "display";
+      provider?: string;
       /** ISO 8601 of the write that produced `on`. Never re-stamped on relay. */
       changedAt: string;
     },
@@ -324,7 +325,10 @@ export class NodesRepository extends BaseRepository {
       .updateTable("nodes")
       .set({
         ...(state.feature === "display"
-          ? { virtualDisplayEnabled: state.on ? 1 : 0 }
+          ? {
+              virtualDisplayEnabled: state.on ? 1 : 0,
+              ...(state.provider ? { virtualDisplayProvider: state.provider } : {}),
+            }
           : { webPreviewsEnabled: state.on ? 1 : 0 }),
         previewEnabledAt: state.changedAt,
         updatedAt: new Date().toISOString(),

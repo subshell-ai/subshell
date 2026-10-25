@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { type DisplayChild, type XvfbDisplayDeps as DisplayDeps, XvfbDisplayProvider } from "@internal/pane-runtime";
 import { HARNESS_BINARY_PLACEHOLDER, type NodeEvent, parseNodePreviewPortsResult } from "@internal/subshell-protocol";
 import type { Cmd, CommandContext } from "../commands/context.js";
 import { execLaunch } from "../commands/launch.js";
@@ -20,16 +21,22 @@ import { runExitWatchTick } from "../commands/report.js";
 import type { NodeConfig } from "../config.js";
 import { runDisplaySweep } from "../daemon.js";
 import {
-  type DisplayChild,
-  type DisplayDeps,
-  PREVIEW_DISPLAY_MISSING_BINARIES,
+  PreviewDisplays as NodePreviewDisplays,
+  PREVIEW_DISPLAY_MISSING_REQUIREMENTS,
   PREVIEW_DISPLAY_NOT_READY,
   PREVIEW_DISPLAY_UNSUPPORTED,
-  PreviewDisplays,
-  xauthorityPath,
 } from "../preview/display.js";
 import { setPreviewEnabled } from "../preview/flags.js";
 import { SubshellMetaStore } from "../subshell-meta.js";
+
+class PreviewDisplays extends NodePreviewDisplays {
+  constructor(dataDir: string, deps: DisplayDeps = {}) {
+    super(dataDir, { provider: new XvfbDisplayProvider(dataDir, deps) });
+  }
+}
+function xauthorityPath(dataDir: string, paneId: string) {
+  return join(dataDir, "display-providers", "xvfb-x11vnc", "displays", paneId, "Xauthority");
+}
 
 /**
  * Virtual displays (pane-preview spec §5, Task 7): the Xvfb + x11vnc pair a
@@ -235,14 +242,14 @@ describe("PreviewDisplays.openFor", () => {
   });
   it("allocates :90/5910 with the EXACT argv and ORDER, 0700 dir, 0600 files, incremental display.json", async () => {
     const dataDir = onDir("happy");
-    const displaysRoot = join(dataDir, "displays");
+    const displaysRoot = join(dataDir, "display-providers", "xvfb-x11vnc", "displays");
     const paneDir = join(displaysRoot, PANE);
     const auth = xauthorityPath(dataDir, PANE);
     const { deps, calls, spawns } = makeDeps();
     const reg = new PreviewDisplays(dataDir, deps);
 
     const r = await reg.openFor(PANE, { width: 1280, height: 1024 });
-    expect(r).toEqual({ display: ":90", rfbPort: 5910 });
+    expect(r).toEqual({ display: ":90", viewer: { protocol: "vnc", port: 5910 } });
 
     // THE load-bearing assertion (the plan's earlier xauth line measured
     // broken while staying green): xauth `add` fires FIRST, then Xvfb, then
@@ -304,13 +311,13 @@ describe("PreviewDisplays.openFor", () => {
     // The lock ties the NUMBER, the dir carries the pane: the pairing the
     // sweep reads off the layout.
     expect(existsSync(join(displaysRoot, ".display-90.lock"))).toBe(true);
-    expect(reg.getFor(PANE)).toEqual({ display: ":90", rfbPort: 5910 });
+    expect(reg.getFor(PANE)).toEqual({ display: ":90", viewer: { protocol: "vnc", port: 5910 } });
     expect(reg.lostFor(PANE)).toBeNull();
   });
 
   it("a taken lockfile pushes the allocation to :91", async () => {
     const dataDir = onDir("taken-lock");
-    const displaysRoot = join(dataDir, "displays");
+    const displaysRoot = join(dataDir, "display-providers", "xvfb-x11vnc", "displays");
     mkdirSync(displaysRoot, { recursive: true });
     writeFileSync(join(displaysRoot, ".display-90.lock"), "", { mode: 0o600 });
     const { deps, spawns } = makeDeps();
@@ -337,7 +344,7 @@ describe("PreviewDisplays.openFor", () => {
     const { deps } = makeDeps({ busyRfbPorts: new Set([5910]) });
     const reg = new PreviewDisplays(dataDir, deps);
     const r = await reg.openFor(PANE, { width: 640, height: 480 });
-    expect(r).toEqual({ display: ":90", rfbPort: 5911 });
+    expect(r).toEqual({ display: ":90", viewer: { protocol: "vnc", port: 5911 } });
   });
 
   it("a missing x11vnc refuses naming it, and leaves no lock and no dir behind", async () => {
@@ -345,10 +352,10 @@ describe("PreviewDisplays.openFor", () => {
     const { deps, spawns } = makeDeps({ which: { x11vnc: null } });
     const reg = new PreviewDisplays(dataDir, deps);
     await expect(reg.openFor(PANE, { width: 640, height: 480 })).rejects.toThrow(
-      `${PREVIEW_DISPLAY_MISSING_BINARIES}: x11vnc`,
+      `${PREVIEW_DISPLAY_MISSING_REQUIREMENTS}: x11vnc`,
     );
     expect(spawns()).toHaveLength(0);
-    const root = join(dataDir, "displays");
+    const root = join(dataDir, "display-providers", "xvfb-x11vnc", "displays");
     expect(existsSync(join(root, PANE))).toBe(false);
     expect(existsSync(join(root, ".display-90.lock"))).toBe(false);
   });
@@ -363,8 +370,8 @@ describe("PreviewDisplays.openFor", () => {
     expect(spawns()).toHaveLength(2);
     const pids = spawns().map((s) => s.child.pid);
     expect(pids.every((p) => killPids().includes(p))).toBe(true);
-    expect(existsSync(join(dataDir, "displays", PANE))).toBe(false);
-    expect(existsSync(join(dataDir, "displays", ".display-90.lock"))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", PANE))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", ".display-90.lock"))).toBe(false);
     expect(reg.getFor(PANE)).toBeNull();
   });
 
@@ -377,7 +384,7 @@ describe("PreviewDisplays.openFor", () => {
     const reg = new PreviewDisplays(dataDir, deps);
     await expect(reg.openFor(PANE, { width: 640, height: 480 })).rejects.toThrow(PREVIEW_DISPLAY_NOT_READY);
     expect(killPids().length).toBe(2);
-    expect(existsSync(join(dataDir, "displays", PANE))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", PANE))).toBe(false);
   });
 
   it.skipIf(process.platform === "linux")(
@@ -433,8 +440,8 @@ describe("the child-exit watch", () => {
     expect(reg.getFor(PANE)).toBeNull();
     // The same teardown closeFor runs: the lock unlinked, the dir reaped.
     expect(killPids().length).toBeGreaterThan(0);
-    expect(existsSync(join(dataDir, "displays", PANE))).toBe(false);
-    expect(existsSync(join(dataDir, "displays", ".display-90.lock"))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", PANE))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", ".display-90.lock"))).toBe(false);
     // The pane's row is untouched: its terminal keeps streaming on a dead
     // DISPLAY, which is spec §9's posture.
     expect(await store.get(PANE)).toBeDefined();
@@ -459,8 +466,8 @@ describe("the child-exit watch", () => {
     expect(reg.lostFor(PANE)).toBeNull(); // a deliberate close is not a loss
     const pids = spawns().map((s) => s.child.pid);
     expect(pids.every((p) => killPids().includes(p))).toBe(true);
-    expect(existsSync(join(dataDir, "displays", PANE))).toBe(false);
-    expect(existsSync(join(dataDir, "displays", ".display-90.lock"))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", PANE))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", ".display-90.lock"))).toBe(false);
   });
 });
 
@@ -478,7 +485,11 @@ describe("the preview_ports_get executor reads the display registry", () => {
     const res = await execPreviewPorts(portsCtx(dataDir, reg), portsCmd, passthroughScan(seen));
     expect(res).toEqual({ ok: true, data: { ports: [], cdpPort: null, screen: r } });
     const parsed = parseNodePreviewPortsResult(res.ok ? res.data : null);
-    expect(parsed).toEqual({ ports: [], cdpPort: null, screen: { display: ":90", rfbPort: 5910 } });
+    expect(parsed).toEqual({
+      ports: [],
+      cdpPort: null,
+      screen: { display: ":90", viewer: { protocol: "vnc", port: 5910 } },
+    });
     expect(parsed?.screenLost).toBeUndefined();
   });
 
@@ -532,9 +543,9 @@ describe("the preview switch, off", () => {
     mkdirSync(dataDir, { recursive: true }); // mirror file deliberately absent
     const { deps, calls } = makeDeps();
     const reg = new PreviewDisplays(dataDir, deps);
-    await expect(reg.openFor(PANE, { width: 640, height: 480 })).rejects.toThrow(PREVIEW_NODE_OFF);
+    await expect(reg.openFor(PANE, { width: 640, height: 480 })).rejects.toThrow("preview-node-off");
     expect(calls).toHaveLength(0);
-    expect(existsSync(join(dataDir, "displays"))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays"))).toBe(false);
   });
 
   it("the launch.screen path refuses naming the switch with the same voice, before the meta record", async () => {
@@ -549,7 +560,7 @@ describe("the preview switch, off", () => {
     expect(calls).toHaveLength(0); // neither did a display
     expect(events).toHaveLength(0);
     expect(await ctx.meta.get(PANE)).toBeUndefined(); // refused BEFORE the meta record
-    expect(existsSync(join(dataDir, "displays"))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays"))).toBe(false);
   });
 });
 
@@ -581,8 +592,8 @@ describe("pane death and the orphan sweep", () => {
     await runExitWatchTick(ctx);
 
     expect(pids.every((p) => killPids().includes(p))).toBe(true);
-    expect(existsSync(join(dataDir, "displays", ".display-90.lock"))).toBe(false);
-    expect(existsSync(join(dataDir, "displays", PANE))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", ".display-90.lock"))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", PANE))).toBe(false);
     expect(reg.getFor(PANE)).toBeNull();
     expect(await ctx.meta.get(PANE)).toBeUndefined(); // the death itself still reported
   });
@@ -601,8 +612,8 @@ describe("pane death and the orphan sweep", () => {
     expect(r.reaped).toBe(1);
     expect(reg.getFor(PANE)).toBeNull();
     expect(pids.every((p) => killPids().includes(p))).toBe(true);
-    expect(existsSync(join(dataDir, "displays", PANE))).toBe(false);
-    expect(existsSync(join(dataDir, "displays", ".display-90.lock"))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", PANE))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", ".display-90.lock"))).toBe(false);
   });
 
   it("the restart trio: a live pane's dir rehydrates, a dead pane's dir is reaped, and a live pane whose recorded children are gone is reaped, not rehydrated", async () => {
@@ -625,7 +636,9 @@ describe("pane death and the orphan sweep", () => {
 
     // The DEAD record BEFORE the restart wipes the process world: the sweep
     // must at least PROBE its pids (a dead pid is skipped, never SIGTERM'd).
-    const deadRecord = JSON.parse(readFileSync(join(dataDir, "displays", DEAD, "display.json"), "utf8")) as {
+    const deadRecord = JSON.parse(
+      readFileSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", DEAD, "display.json"), "utf8"),
+    ) as {
       xvfbPid: number;
       x11vncPid: number;
     };
@@ -634,12 +647,12 @@ describe("pane death and the orphan sweep", () => {
     // here is about crashes, not races, and the ssh sweep's floor rule is
     // cloned verbatim.
     ageOut(
-      join(dataDir, "displays", LIVE),
-      join(dataDir, "displays", DEAD),
-      join(dataDir, "displays", GONE),
-      join(dataDir, "displays", ".display-90.lock"),
-      join(dataDir, "displays", ".display-91.lock"),
-      join(dataDir, "displays", ".display-92.lock"),
+      join(dataDir, "display-providers", "xvfb-x11vnc", "displays", LIVE),
+      join(dataDir, "display-providers", "xvfb-x11vnc", "displays", DEAD),
+      join(dataDir, "display-providers", "xvfb-x11vnc", "displays", GONE),
+      join(dataDir, "display-providers", "xvfb-x11vnc", "displays", ".display-90.lock"),
+      join(dataDir, "display-providers", "xvfb-x11vnc", "displays", ".display-91.lock"),
+      join(dataDir, "display-providers", "xvfb-x11vnc", "displays", ".display-92.lock"),
     );
 
     // The cleared in-memory registry: a NEW instance over the same data dir,
@@ -654,21 +667,21 @@ describe("pane death and the orphan sweep", () => {
 
     // LIVE: children alive, so the registry entry comes back from
     // display.json and the ports-style read answers again.
-    expect(reg2.getFor(LIVE)).toEqual({ display: ":90", rfbPort: 5910 });
-    expect(existsSync(join(dataDir, "displays", LIVE))).toBe(true);
-    expect(existsSync(join(dataDir, "displays", ".display-90.lock"))).toBe(true);
+    expect(reg2.getFor(LIVE)).toEqual({ display: ":90", viewer: { protocol: "vnc", port: 5910 } });
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", LIVE))).toBe(true);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", ".display-90.lock"))).toBe(true);
 
     // DEAD: reaped, dir and lock gone.
     expect(reg2.getFor(DEAD)).toBeNull();
-    expect(existsSync(join(dataDir, "displays", DEAD))).toBe(false);
-    expect(existsSync(join(dataDir, "displays", ".display-91.lock"))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", DEAD))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", ".display-91.lock"))).toBe(false);
 
     // GONE: pane alive but children dead -> REAP, not rehydrate. Installing a
     // record for a dead socket would strand the Screen affordance and aim
     // every later openFor at `preview-display-not-ready` forever.
     expect(reg2.getFor(GONE)).toBeNull();
-    expect(existsSync(join(dataDir, "displays", GONE))).toBe(false);
-    expect(existsSync(join(dataDir, "displays", ".display-92.lock"))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", GONE))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", ".display-92.lock"))).toBe(false);
 
     expect(r.reaped).toBe(2);
     expect(r.rehydrated).toBe(1);
@@ -694,7 +707,7 @@ describe("review round 1: what the sweep sees", () => {
     await original.openFor(PANE, { width: 640, height: 480 });
     const restarted = new PreviewDisplays(dataDir, shared.deps);
     await restarted.sweepOrphans([PANE]);
-    expect(restarted.getFor(PANE)).toEqual({ display: ":90", rfbPort: 5910 });
+    expect(restarted.getFor(PANE)).toEqual({ display: ":90", viewer: { protocol: "vnc", port: 5910 } });
   });
 
   it("a rehydrated entry whose recorded child dies is probed, marked lost, and reaped by the next sweep", async () => {
@@ -703,14 +716,14 @@ describe("review round 1: what the sweep sees", () => {
     const reg = new PreviewDisplays(dataDir, shared.deps);
     await reg.openFor(PANE, { width: 640, height: 480 });
     const [xvfbPid, vncPid] = shared.spawns().map((s) => s.child.pid);
-    ageOut(join(dataDir, "displays", PANE));
+    ageOut(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", PANE));
 
     // The daemon restart: a fresh instance over the same data dir, rfb still
     // answering, both recorded pids still alive -> the entry rehydrates.
     const reg2 = new PreviewDisplays(dataDir, shared.deps);
     expect(reg2.getFor(PANE)).toBeNull();
     await reg2.sweepOrphans([PANE]);
-    expect(reg2.getFor(PANE)).toEqual({ display: ":90", rfbPort: 5910 });
+    expect(reg2.getFor(PANE)).toEqual({ display: ":90", viewer: { protocol: "vnc", port: 5910 } });
 
     // x11vnc dies of natural causes afterwards. THIS process has no child
     // handle to watch, so only the sweep's signal-0 probe can notice - and
@@ -720,8 +733,8 @@ describe("review round 1: what the sweep sees", () => {
 
     expect(reg2.getFor(PANE)).toBeNull(); // deregistered
     expect(reg2.lostFor(PANE)).toBe("x11vnc"); // named, like the exit watch would
-    expect(existsSync(join(dataDir, "displays", PANE))).toBe(false); // dir reaped
-    expect(existsSync(join(dataDir, "displays", ".display-90.lock"))).toBe(false); // lock freed
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", PANE))).toBe(false); // dir reaped
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", ".display-90.lock"))).toBe(false); // lock freed
     expect(shared.killPids()).toContain(xvfbPid); // the surviving Xvfb is not orphaned
     expect(shared.probes()).toContain(vncPid); // it was the probe that saw the death
 
@@ -755,14 +768,14 @@ describe("review round 1: what the sweep sees", () => {
     // The census raced the launch: the meta row lands after the scan read it,
     // so "absent from this census" is not yet "dead".
     await reg.sweepOrphans([]);
-    expect(reg.getFor(PANE)).toEqual({ display: ":90", rfbPort: 5910 });
-    expect(existsSync(join(dataDir, "displays", PANE))).toBe(true);
+    expect(reg.getFor(PANE)).toEqual({ display: ":90", viewer: { protocol: "vnc", port: 5910 } });
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", PANE))).toBe(true);
 
     advanceClock(61_000); // past the one-minute fresh-entry floor
     await reg.sweepOrphans([]);
     expect(reg.getFor(PANE)).toBeNull();
-    expect(existsSync(join(dataDir, "displays", PANE))).toBe(false);
-    expect(existsSync(join(dataDir, "displays", ".display-90.lock"))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", PANE))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", ".display-90.lock"))).toBe(false);
   });
 
   it("a meta scan that did not complete skips the whole sweep (a live display survives)", async () => {
@@ -776,9 +789,9 @@ describe("review round 1: what the sweep sees", () => {
     // ENOTDIR-is-emptiness side is pinned in subshell-meta.test.ts.)
     ctx.meta = { listComplete: async () => ({ metas: [], scanOk: false }) } as unknown as SubshellMetaStore;
     await runDisplaySweep(ctx, reg);
-    expect(reg.getFor(PANE)).toEqual({ display: ":90", rfbPort: 5910 });
-    expect(existsSync(join(dataDir, "displays", PANE))).toBe(true);
-    expect(existsSync(join(dataDir, "displays", ".display-90.lock"))).toBe(true);
+    expect(reg.getFor(PANE)).toEqual({ display: ":90", viewer: { protocol: "vnc", port: 5910 } });
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", PANE))).toBe(true);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", ".display-90.lock"))).toBe(true);
   });
 
   it("a TRUSTED empty census still reaps a registered display (the legitimate cleanup direction)", async () => {
@@ -791,7 +804,7 @@ describe("review round 1: what the sweep sees", () => {
     ctx.meta = { listComplete: async () => ({ metas: [], scanOk: true }) } as unknown as SubshellMetaStore;
     await runDisplaySweep(ctx, reg);
     expect(reg.getFor(PANE)).toBeNull();
-    expect(existsSync(join(dataDir, "displays", PANE))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", PANE))).toBe(false);
   });
 });
 
@@ -831,7 +844,7 @@ describe("the launch.screen path", () => {
           },
         }),
       );
-      expect(res).toEqual({ ok: true, data: { screen: { display: ":90", rfbPort: 5910 } } });
+      expect(res).toEqual({ ok: true, data: { screen: { display: ":90", viewer: { protocol: "vnc", port: 5910 } } } });
     } finally {
       // disarm the real exit watcher execLaunch armed, before its first tick
       ctx.watchers.clear();
@@ -859,11 +872,11 @@ describe("the launch.screen path", () => {
     const reg = new PreviewDisplays(dataDir, deps);
     const { ctx, calls } = makeLaunchCtx(dataDir, reg);
     await expect(execLaunch(ctx, launchCmd({ screen: { width: 640, height: 480 } }))).rejects.toThrow(
-      `${PREVIEW_DISPLAY_MISSING_BINARIES}: Xvfb`,
+      `${PREVIEW_DISPLAY_MISSING_REQUIREMENTS}: Xvfb`,
     );
     expect(calls.some((c) => c.method === "newSubshell")).toBe(false);
     expect(await ctx.meta.get(PANE)).toBeUndefined(); // meta recorded, then forgotten
-    expect(existsSync(join(dataDir, "displays", PANE))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", PANE))).toBe(false);
   });
 });
 

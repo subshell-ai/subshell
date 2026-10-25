@@ -1,16 +1,20 @@
-import { type DisplayDeps, PreviewDisplays as RuntimePreviewDisplays } from "@internal/pane-runtime";
+import { type PreviewDisplayOptions, PreviewDisplays as RuntimePreviewDisplays } from "@internal/pane-runtime";
+import { DEFAULT_VIRTUAL_DISPLAY_PROVIDER } from "@internal/subshell-protocol";
 import { log } from "../log.js";
-import { getVirtualDisplayEnabled } from "./flags.js";
+import { getPreviewEnabled, getVirtualDisplayEnabled } from "./flags.js";
 
-export type { DisplayChild, DisplayDeps, DisplaySweepResult } from "@internal/pane-runtime";
 export {
-  PREVIEW_DISPLAY_MISSING_BINARIES,
+  PREVIEW_DISPLAY_MISSING_REQUIREMENTS,
   PREVIEW_DISPLAY_NOT_READY,
   PREVIEW_DISPLAY_UNSUPPORTED,
-  xauthorityPath,
 } from "@internal/pane-runtime";
 export class PreviewDisplays extends RuntimePreviewDisplays {
-  constructor(dataDir: string, deps: DisplayDeps = {}) {
-    super(dataDir, { ...deps, isEnabled: () => getVirtualDisplayEnabled(dataDir), log });
+  constructor(dataDir: string, options: Pick<PreviewDisplayOptions, "provider"> = {}) {
+    super(dataDir, {
+      ...options,
+      isEnabled: () => getVirtualDisplayEnabled(dataDir),
+      getProviderId: () => getPreviewEnabled(dataDir)?.displayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER,
+      log,
+    });
   }
 }

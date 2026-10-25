@@ -56,11 +56,12 @@ export function previewEnabledPath(dataDir: string): string {
 export type PreviewEnabledRead =
   /** Nothing permits here: no file, or a file that says off. */
   | { kind: "absent" }
-  /** The mirror parsed and says yes: panes here may be watched. */
+  /** Parsed settings, including the selected provider while both features are off. */
   | {
-      kind: "on";
+      kind: "on" | "off";
       webPreviewsOn?: boolean;
       displayOn?: boolean;
+      displayProvider?: string;
       /** The stored stamp, verbatim: `ready.previewEnabled` is built from it. */
       changedAt: string;
     }
@@ -89,12 +90,13 @@ export function readPreviewEnabled(dataDir: string): PreviewEnabledRead {
   try {
     const state = parseNodePreviewEnabled(JSON.parse(readFileSync(file, "utf8")));
     if (!state) throw new SyntaxError("not a preview-enabled state");
-    return state.on
+    return state.on || state.displayProvider !== undefined
       ? {
-          kind: "on",
+          kind: state.on ? "on" : "off",
           changedAt: state.changedAt,
           ...(state.webPreviewsOn === undefined ? {} : { webPreviewsOn: state.webPreviewsOn }),
           ...(state.displayOn === undefined ? {} : { displayOn: state.displayOn }),
+          ...(state.displayProvider === undefined ? {} : { displayProvider: state.displayProvider }),
         }
       : { kind: "absent" };
   } catch (err) {
@@ -139,12 +141,13 @@ function mtimeOf(file: string): string | undefined {
  * unreadable
  */
 export function reportablePreviewEnabled(read: PreviewEnabledRead): NodePreviewEnabledWire | undefined {
-  if (read.kind === "on")
+  if (read.kind === "on" || read.kind === "off")
     return {
-      on: true,
+      on: read.kind === "on",
       changedAt: read.changedAt,
       ...(read.webPreviewsOn === undefined ? {} : { webPreviewsOn: read.webPreviewsOn }),
       ...(read.displayOn === undefined ? {} : { displayOn: read.displayOn }),
+      ...(read.displayProvider === undefined ? {} : { displayProvider: read.displayProvider }),
     };
   if (read.kind === "unreadable" && read.changedAt) return { on: false, changedAt: read.changedAt };
   return undefined;

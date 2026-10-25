@@ -14,7 +14,7 @@ import { DIR_REFUSED_MESSAGE, launchDirAllowed, readAllowedDirs } from "../allow
 import { log } from "../log.js";
 import { readMaintenance, reportableMaintenance } from "../maintenance.js";
 import { pathAllowed, realpathRoots } from "../path-policy.js";
-import { PREVIEW_DISPLAY_UNSUPPORTED, xauthorityPath } from "../preview/display.js";
+import { PREVIEW_DISPLAY_UNSUPPORTED } from "../preview/display.js";
 import { getVirtualDisplayEnabled } from "../preview/flags.js";
 import type { PreviewScreenHandle } from "../preview/ports.js";
 import { selfInvocation } from "../self-invoke.js";
@@ -200,7 +200,8 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
   // gates again for its own sake; this block is the launch-side "refuse
   // before the record", which is the half reviewers flagged.
   if (cmd.screen) {
-    if (process.platform !== "linux") return { ok: false, error: PREVIEW_DISPLAY_UNSUPPORTED };
+    if (ctx.previewDisplays && !(await ctx.previewDisplays.readiness()).supported)
+      return { ok: false, error: PREVIEW_DISPLAY_UNSUPPORTED };
     if (!getVirtualDisplayEnabled(ctx.config.dataDir)) return { ok: false, error: PREVIEW_NODE_OFF };
     if (!ctx.previewDisplays) {
       return { ok: false, error: "preview display registry unavailable in this daemon context" };
@@ -237,15 +238,9 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
     if (cmd.screen && ctx.previewDisplays) {
       screenHandle = await ctx.previewDisplays.openFor(cmd.subshellId, cmd.screen);
     }
-    // The node-allocated pane env: DISPLAY/XAUTHORITY for a screen pane's
-    // virtual display, named here as the deliberate addition to the chain
-    // the SUBSHELL_* credentials are - it rides ABOVE the preset in
-    // paneEnvFor because it describes a resource this machine minted FOR
-    // this pane. `xauthorityPath` is the same byte-derived path display.ts
-    // minted the cookie into; the two must agree or the pane cannot connect.
-    const displayEnv = screenHandle
-      ? { DISPLAY: screenHandle.display, XAUTHORITY: xauthorityPath(ctx.config.dataDir, cmd.subshellId) }
-      : undefined;
+    // Provider-owned launch settings stay on the node; only the public screen
+    // descriptor is returned in the acknowledgement.
+    const displayEnv = screenHandle ? ctx.previewDisplays?.launchEnv(cmd.subshellId) : undefined;
     const paneCmd = assembleHarnessCommand(argv, preset, cmd.subshellEnv, mcpPaneEnv, displayEnv);
     // The pane reports its OWN death to the control plane, through the same
     // builder the plane's local launcher uses (spec 2026-09-19 §4.3). It needs
@@ -270,7 +265,7 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
     // Roll back in the order things were created: a display this launch
     // opened but never got a pane for is closed FIRST (its pids are ours),
     // then the meta record goes as it always has.
-    if (screenHandle) ctx.previewDisplays?.closeFor(cmd.subshellId);
+    if (screenHandle) await ctx.previewDisplays?.closeFor(cmd.subshellId);
     await ctx.meta.forget(cmd.subshellId); // nothing spawned — no orphan root for the policy
     throw err; // dispatcher answers {ok:false}; mirrors LocalLauncher's throw path
   }

@@ -151,7 +151,7 @@ export interface PreviewSession {
   kind: "forward" | "screencast";
   /**
    * Discriminator for the proxy (decision 6): `raw` when the port is the
-   * pane's registered screen `rfbPort` (bytes are RFB, no HTTP parsing),
+   * pane's registered screen `viewer.port` (bytes are RFB, no HTTP parsing),
    * `http` otherwise. Screencast bridges set `http` (they have no leg).
    */
   mode: "http" | "raw";
@@ -827,7 +827,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
   async function resolveMode(nodeId: string, paneId: string, port: number): Promise<"http" | "raw"> {
     try {
       const answer = await broker.getPorts(nodeId, paneId);
-      if (answer.screen && answer.screen.rfbPort === port) return "raw";
+      if (answer.screen && answer.screen.viewer.port === port) return "raw";
       // The screen exists but is not this port: `http`, decided (the memory
       // cannot disagree upward, and on the mac leg there is no memory).
       if (answer.screen) return "http";
@@ -837,7 +837,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
       );
     }
     const memory = displaysByPane.get(paneId);
-    if (memory && memory.screen.rfbPort === port) return "raw";
+    if (memory && memory.screen.viewer.port === port) return "raw";
     return "http";
   }
 

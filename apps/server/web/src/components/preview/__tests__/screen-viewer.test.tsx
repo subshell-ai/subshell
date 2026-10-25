@@ -141,7 +141,7 @@ function info(over: Partial<PreviewInfo> = {}): PreviewInfo {
   return {
     ports: [],
     cdpPort: null,
-    screen: { display: ":90", rfbPort: 5901 },
+    screen: { display: ":90", viewer: { protocol: "vnc", port: 5901 } },
     nodeEnabled: true,
     ...over,
   };
@@ -164,7 +164,7 @@ function controller(over: Partial<UseSubshellPreview> = {}): UseSubshellPreview 
 
 describe("the viewer owns the socket", () => {
   it("mounts one WebSocket at the session's tunnel root and hands the SOCKET to RFB", () => {
-    render(<ScreenViewer display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />);
+    render(<ScreenViewer protocol="vnc" display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />);
     expect(MockSocket.made).toHaveLength(1);
     expect(MockSocket.made[0].url).toBe(tunnelUrl("/pv/ref1/"));
     expect(MockRFB.builds).toHaveLength(1);
@@ -178,7 +178,7 @@ describe("the viewer owns the socket", () => {
   });
 
   it("unmounting disconnects: RFB let go and the socket closed, which is how the lane reads viewer-left", () => {
-    const view = render(<ScreenViewer display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />);
+    const view = render(<ScreenViewer protocol="vnc" display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />);
     const [ws] = MockSocket.made;
     const [rfb] = MockRFB.builds;
     view.unmount();
@@ -194,7 +194,7 @@ describe("disconnect causes render by name", () => {
   // frame guard, the plane's oversized message) ride the wire word.
   for (const word of Object.keys(SCREEN_CLOSE_LINES) as (keyof typeof SCREEN_CLOSE_LINES)[]) {
     it(`a ${word} close, fed as pv-ws sends it (1011 + the word), renders its own line`, () => {
-      render(<ScreenViewer display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />);
+      render(<ScreenViewer protocol="vnc" display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />);
       act(() => {
         MockSocket.made[0].dispatchClose(1011, word);
       });
@@ -215,7 +215,7 @@ describe("disconnect causes render by name", () => {
   });
 
   it("a close carrying a word the protocol never defines reads as a lost link, not a named cause", () => {
-    render(<ScreenViewer display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />);
+    render(<ScreenViewer protocol="vnc" display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />);
     act(() => {
       MockSocket.made[0].dispatchClose(1011, "not-a-reason-of-ours");
     });
@@ -224,7 +224,7 @@ describe("disconnect causes render by name", () => {
   });
 
   it("the component's own disconnect renders the viewer-left line through the close it causes", () => {
-    render(<ScreenViewer display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />);
+    render(<ScreenViewer protocol="vnc" display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />);
     const [ws] = MockSocket.made;
     // The path pv-ws reserves for the viewer's own leaving: our close, and a
     // close event with nothing on it. Not a hand-built reason prop.
@@ -234,7 +234,7 @@ describe("disconnect causes render by name", () => {
   });
 
   it("a wordless close we did not start reads as a lost link, never as the user's own leave", () => {
-    render(<ScreenViewer display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />);
+    render(<ScreenViewer protocol="vnc" display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />);
     act(() => {
       MockSocket.made[0].dispatchClose(1006, "");
     });
@@ -320,7 +320,7 @@ describe("teardown on the paths that keep the instance alive", () => {
     // every later genuine close (leftRef is a ref, so it survives the swap).
     render(
       <StrictMode>
-        <ScreenViewer display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />
+        <ScreenViewer protocol="vnc" display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />
       </StrictMode>,
     );
     // The double-invoke really happened: the discarded first socket, then the live one.
@@ -450,7 +450,7 @@ describe("the secure-context warning speaks only in URL mode", () => {
 it("opens a cached screen shortcut once under StrictMode, including in a phone workspace tab", async () => {
   const ports: number[] = [];
   const c = controller({
-    info: info({ screen: { display: ":90", rfbPort: 5910 } }),
+    info: info({ screen: { display: ":90", viewer: { protocol: "vnc", port: 5910 } } }),
     openPort: async (port) => {
       ports.push(port);
       return { proxyBase: "/pv/shortcut/" };
@@ -471,6 +471,7 @@ it("reports the RFB connection state instead of treating an allocated lane as co
   const states: string[] = [];
   render(
     <ScreenViewer
+      protocol="vnc"
       display=":90"
       proxyBase="/pv/state/"
       onClose={() => {}}

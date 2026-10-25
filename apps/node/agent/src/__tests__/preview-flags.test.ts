@@ -355,7 +355,10 @@ it("app permission does not authorize an existing virtual display connection", a
   setPreviewEnabled(dataDir, { on: true, webPreviewsOn: true, displayOn: false, changedAt: STAMP });
   const ctx = makeCtx(dataDir);
   ctx.previewDisplays = new PreviewDisplays(dataDir);
-  const screen = spyOn(ctx.previewDisplays, "getFor").mockReturnValue({ display: ":90", rfbPort: 5910 });
+  const screen = spyOn(ctx.previewDisplays, "getFor").mockReturnValue({
+    display: ":90",
+    viewer: { protocol: "vnc", port: 5910 },
+  });
   try {
     const result = await execPreviewOpen(ctx, {
       type: "preview_open",
@@ -368,5 +371,18 @@ it("app permission does not authorize an existing virtual display connection", a
     expect(result).toEqual({ ok: false, error: "virtual-display-disabled" });
   } finally {
     screen.mockRestore();
+  }
+});
+
+it("preserves and reports the selected display provider even while previews are disabled", () => {
+  const dir = mkdtempSync(join(tmpdir(), "display-provider-mirror-"));
+  const state = { on: false, changedAt: "2026-10-25T00:00:00.000Z", displayProvider: "native-example" };
+  try {
+    setPreviewEnabled(dir, state);
+    expect(getPreviewEnabled(dir)).toEqual(state);
+    expect(getVirtualDisplayEnabled(dir)).toBe(false);
+    expect(getWebPreviewsEnabled(dir)).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

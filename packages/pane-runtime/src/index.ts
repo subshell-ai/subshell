@@ -119,6 +119,12 @@ export { previewDisplayReadiness } from "./preview/display-readiness.js";
 export * from "./preview/forward.js";
 export * from "./preview/ports.js";
 export {
+  type DisplayChild,
+  type XvfbDisplayDeps,
+  XvfbDisplayProvider,
+  xvfbDisplayReadiness,
+} from "./preview/xvfb-display-provider.js";
+export {
   deliverPromptInto,
   type PromptDeliveryOptions,
   type PromptDeliveryPane,

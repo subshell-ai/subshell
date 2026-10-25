@@ -68,6 +68,7 @@ describe("node preview-enabled route", () => {
     on: boolean,
     bearer?: string,
     feature?: "web-previews" | "display",
+    provider?: string,
   ) {
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (cookie) headers.cookie = `better-auth.session_token=${cookie}`;
@@ -76,7 +77,7 @@ describe("node preview-enabled route", () => {
       new Request(`http://localhost:3080/api/nodes/${nodeId}/views-enabled`, {
         method: "PUT",
         headers,
-        body: JSON.stringify({ on, feature }),
+        body: JSON.stringify({ on, feature, provider }),
       }),
     );
   }
@@ -288,5 +289,17 @@ describe("node preview-enabled route", () => {
     expect(await displayOff.json()).toMatchObject({ webPreviewsEnabled: true, virtualDisplayEnabled: false });
     expect((await put(NODE, otherCookie, true, undefined, "display")).status).toBe(404);
     expect((await put(NODE, adminCookie, true, undefined, "display")).status).toBe(403);
+  });
+  it("stores the provider with display permission and rejects unknown or unauthorized choices", async () => {
+    const result = await put(NODE, ownerCookie, true, undefined, "display", "xvfb-x11vnc");
+    expect(result.status).toBe(200);
+    expect(await result.json()).toMatchObject({ virtualDisplayEnabled: true, virtualDisplayProvider: "xvfb-x11vnc" });
+    const row = await db.selectFrom("nodes").selectAll().where("id", "=", NODE).executeTakeFirstOrThrow();
+    expect(row.virtualDisplayProvider).toBe("xvfb-x11vnc");
+    expect((await put(NODE, ownerCookie, true, undefined, "display", "unknown-provider")).status).toBe(400);
+    expect((await put(NODE, ownerCookie, true, undefined, "web-previews", "xvfb-x11vnc")).status).toBe(400);
+    expect((await put(NODE, editorCookie, true, undefined, "display", "xvfb-x11vnc")).status).toBe(403);
+    const off = await put(NODE, ownerCookie, false, undefined, "display");
+    expect(await off.json()).toMatchObject({ virtualDisplayEnabled: false, virtualDisplayProvider: "xvfb-x11vnc" });
   });
 });

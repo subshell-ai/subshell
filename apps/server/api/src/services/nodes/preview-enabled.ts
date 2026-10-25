@@ -1,4 +1,4 @@
-import type { NodePreviewEnabledWire } from "@internal/subshell-protocol";
+import { DEFAULT_VIRTUAL_DISPLAY_PROVIDER, type NodePreviewEnabledWire } from "@internal/subshell-protocol";
 import { LOCAL_NODE_ID, type NodeTable } from "@/db/types/nodes.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
 import { audit } from "@/services/audit.js";
@@ -49,6 +49,7 @@ function previewWire(row: PreviewRow, changedAt: string): NodePreviewEnabledWire
   return {
     on: webPreviewsOn || displayOn,
     changedAt,
+    displayProvider: row.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER,
     ...(webPreviewsOn === displayOn ? {} : { webPreviewsOn, displayOn }),
   };
 }
@@ -62,16 +63,17 @@ export async function setPreviewEnabled(
   actorUserId: string,
   on: boolean,
   feature: "web-previews" | "display" = "web-previews",
+  provider?: string,
 ): Promise<void> {
   const changedAt = new Date().toISOString();
   const { repos } = getRequestlessContext();
-  const row = await repos.nodes.setPreviewEnabled(nodeId, { on, changedAt, feature });
+  const row = await repos.nodes.setPreviewEnabled(nodeId, { on, changedAt, feature, provider });
   await audit({
     actorUserId,
     action: "node.preview_enabled.update",
     targetType: "node",
     targetId: nodeId,
-    metadataJson: JSON.stringify({ on, feature }),
+    metadataJson: JSON.stringify({ on, feature, ...(provider ? { provider } : {}) }),
   });
   // The row is written and audited BEFORE the push, so a node that answers the
   // command cannot be looking at a mirror the record has not caught up to,
@@ -82,7 +84,7 @@ export async function setPreviewEnabled(
 
 /** The node-row fields {@link decidePreviewEnabled} reads. Nothing else is relevant. */
 type PreviewRow = Pick<NodeTable, "webPreviewsEnabled" | "previewEnabledAt"> &
-  Partial<Pick<NodeTable, "virtualDisplayEnabled">>;
+  Partial<Pick<NodeTable, "virtualDisplayEnabled" | "virtualDisplayProvider">>;
 
 /** What reconciliation decided about one node's two copies of the flag. */
 export type PreviewDecision = "push-plane" | "noop";
@@ -115,7 +117,9 @@ export function decidePreviewEnabled(row: PreviewRow, reported: NodePreviewEnabl
   if (
     (reported?.on ?? false) === (rowOn || displayOn) &&
     (reported?.webPreviewsOn ?? reported?.on ?? false) === rowOn &&
-    (reported?.displayOn ?? reported?.on ?? false) === displayOn
+    (reported?.displayOn ?? reported?.on ?? false) === displayOn &&
+    (reported?.displayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER) ===
+      (row.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER)
   )
     return "noop";
   // The one disagreement with nothing to send (row never written, node mirror
@@ -183,4 +187,10 @@ export async function reconcilePreviewEnabled(
   // (`decidePreviewEnabled` only answers "push-plane" when a stamp exists; the
   // null check is what shows the type what the decide already proved.)
   pushSetPreviewEnabledBestEffort(nodeId, previewWire(row, stamp));
+}
+
+/** Read the selected backend independently of whether new displays are enabled. */
+export async function getVirtualDisplayProvider(nodeId: string): Promise<string> {
+  const { repos } = getRequestlessContext();
+  return (await repos.nodes.findById(nodeId))?.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER;
 }

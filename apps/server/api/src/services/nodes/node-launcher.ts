@@ -59,10 +59,9 @@ export interface LaunchPlan {
    */
   bestEffortLog?: boolean;
   /**
-   * The virtual display size to request (pane-preview spec §6). The agent
-   * node allocates the Xvfb + screencast pair before the pane starts (and
-   * refuses the launch by name when its platform or binaries cannot host
-   * one). The local launcher uses the same allocation machinery on the server.
+   * The virtual display size to request. The node's selected provider allocates
+   * it before the pane starts, refusing when its requirements aren't met.
+   * The local launcher uses the same provider contract on the server.
    * Absent on every plain launch.
    */
   screen?: { width: number; height: number };

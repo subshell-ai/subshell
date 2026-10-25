@@ -10,7 +10,7 @@ it("finds a specific port in a large list and keeps display choices reachable", 
     nodeEnabled: true,
     ports: [...ports, { ...ports[0], proto: "tcp6" }],
     cdpPort: null,
-    screen: { display: ":90", rfbPort: 5910 },
+    screen: { display: ":90", viewer: { protocol: "vnc", port: 5910 } },
   };
   const opened: number[] = [];
   let screens = 0;

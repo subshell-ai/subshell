@@ -103,7 +103,7 @@ describe("gated controls explain themselves", () => {
   it("a view grantee sees Open and Screen present but disabled, each with the real reason", () => {
     mount({
       access: "view",
-      info: info({ screen: { display: ":90", rfbPort: 5900 } }),
+      info: info({ screen: { display: ":90", viewer: { protocol: "vnc", port: 5900 } } }),
     });
     // Two port rows carry two Open controls; the gate is the row-independent
     // fact, so the first one states it.
@@ -256,7 +256,10 @@ describe("Watch verbs drive both halves through the controller", () => {
 
 describe("the screen row", () => {
   it("a live screen shows its display and the Screen action for edit (Task 13's enabled contract; the viewer itself is screen-viewer.test)", () => {
-    mount({ access: "edit", info: info({ ports: [], cdpPort: null, screen: { display: ":90", rfbPort: 5901 } }) });
+    mount({
+      access: "edit",
+      info: info({ ports: [], cdpPort: null, screen: { display: ":90", viewer: { protocol: "vnc", port: 5901 } } }),
+    });
     // One render contract (round-14 MINOR): the row always carries the button;
     // edit clears its reason, and no hint text replaces it.
     expect(screen.getByText("Virtual display :90")).toBeTruthy();
@@ -279,7 +282,7 @@ describe("phone layouts trade the panel, never Watch", () => {
     // and Watch - the verb a phone CAN serve - stays enabled beside it.
     mount({
       access: "edit",
-      info: info({ screen: { display: ":90", rfbPort: 5900 } }),
+      info: info({ screen: { display: ":90", viewer: { protocol: "vnc", port: 5900 } } }),
       isPhone: true,
     });
     const showScreen = screen.getByRole("button", { name: "View screen" });

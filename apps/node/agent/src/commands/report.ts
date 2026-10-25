@@ -515,7 +515,7 @@ async function reportDeath(ctx: CommandContext, socket: string, subshellId: stri
     // a throwing reap costs nothing here. A pane that never asked for a
     // screen pays an entry miss and one absent-dir check.
     try {
-      ctx.previewDisplays?.closeFor(subshellId);
+      await ctx.previewDisplays?.closeFor(subshellId);
     } catch (err) {
       log(`display close failed for ${subshellId}: ${err instanceof Error ? err.message : String(err)}`);
     }

@@ -662,7 +662,7 @@ describe("preview REST surface (Task 9)", () => {
       preview_ports_get: () => ({
         ports: [{ proto: "tcp", port: 3000, pid: 91 }],
         cdpPort: 9222,
-        screen: { display: ":90", rfbPort: 5910 },
+        screen: { display: ":90", viewer: { protocol: "vnc", port: 5910 } },
       }),
     });
     const pane = await directRow();
@@ -675,7 +675,7 @@ describe("preview REST surface (Task 9)", () => {
       expect(info.virtualDisplayEnabled).toBe(display);
       expect(info.ports).toEqual(apps ? [{ proto: "tcp", port: 3000, pid: 91 }] : []);
       expect(info.cdpPort).toBe(apps ? 9222 : null);
-      expect(info.screen).toEqual(display ? { display: ":90", rfbPort: 5910 } : null);
+      expect(info.screen).toEqual(display ? { display: ":90", viewer: { protocol: "vnc", port: 5910 } } : null);
       for (const [port, permitted] of [
         [3000, apps],
         [5910, display],
@@ -693,12 +693,12 @@ describe("preview REST surface (Task 9)", () => {
       preview_ports_get: () => ({
         ports: [],
         cdpPort: null,
-        screen: { display: ":90", rfbPort: 5910 },
+        screen: { display: ":90", viewer: { protocol: "vnc", port: 5910 } },
       }),
     });
     const pane = await directRow();
     const body = await jsonBody(await call("GET", `/${pane}/views`, { cookie: ownerCookie }));
-    expect(body.screen).toEqual({ display: ":90", rfbPort: 5910 });
+    expect(body.screen).toEqual({ display: ":90", viewer: { protocol: "vnc", port: 5910 } });
     expect(body.screenLost).toBeUndefined();
   });
 
@@ -991,8 +991,8 @@ describe("preview REST surface (Task 9)", () => {
   // their keys exactly, and the node-off key already IS its remedy string,
   // so neither is appended to.
   const SCREEN_REFUSALS: ReadonlyArray<readonly [string, RegExp, boolean]> = [
-    ["preview-display-unsupported", /hosts no X server stack/, false],
-    ["preview-display-missing-binaries: x11vnc", /missing one of the display binaries/, true],
+    ["preview-display-unsupported", /provider is not supported/, false],
+    ["preview-display-missing-requirements: x11vnc", /provider has unmet requirements/, true],
     ["preview-node-off: turn on Preview for this node", /Turn on Preview for this node/i, false],
   ];
 
@@ -1051,7 +1051,7 @@ describe("preview REST surface (Task 9)", () => {
     // the info poll inside that window. The memory holds the ack verbatim,
     // which is also the spy that onDisplayOpened fired.
     await makeLaunchable({
-      launch: () => ({ screen: { display: ":90", rfbPort: 5910 } }),
+      launch: () => ({ screen: { display: ":90", viewer: { protocol: "vnc", port: 5910 } } }),
       preview_ports_get: () => ({ ports: [], cdpPort: null, screen: null }),
     });
     const res = await call("POST", "", {
@@ -1063,10 +1063,10 @@ describe("preview REST surface (Task 9)", () => {
     createdSubshellIds.push(created);
     expect(getPreviewBroker().displayForPane(created)).toEqual({
       nodeId,
-      screen: { display: ":90", rfbPort: 5910 },
+      screen: { display: ":90", viewer: { protocol: "vnc", port: 5910 } },
     });
     const body = await jsonBody(await call("GET", `/${created}/views`, { cookie: ownerCookie }));
-    expect(body.screen).toEqual({ display: ":90", rfbPort: 5910 });
+    expect(body.screen).toEqual({ display: ":90", viewer: { protocol: "vnc", port: 5910 } });
     expect(body.screenLost).toBeUndefined();
   });
 
@@ -1076,7 +1076,7 @@ describe("preview REST surface (Task 9)", () => {
     // screen null with the named marker, not the remembered screen. Without
     // this leg the overlay could show a dead screen forever.
     await makeLaunchable({
-      launch: () => ({ screen: { display: ":90", rfbPort: 5910 } }),
+      launch: () => ({ screen: { display: ":90", viewer: { protocol: "vnc", port: 5910 } } }),
       preview_ports_get: () => ({ ports: [], cdpPort: null, screen: null }),
     });
     const res = await call("POST", "", {

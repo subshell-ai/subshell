@@ -1585,7 +1585,10 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
  * @internal exported for the sweep-trust tests; the daemon calls it from its
  * boot pass and hourly timer.
  */
-export async function runDisplaySweep(ctx: CommandContext, displays: PreviewDisplays): Promise<void> {
+export async function runDisplaySweep(
+  ctx: CommandContext,
+  displays: import("@internal/pane-runtime").VirtualDisplayRuntime,
+): Promise<void> {
   const alive = await collectLivePaneIds(ctx);
   if (alive === null) {
     log("display sweep skipped: the subshell-meta scan did not complete (unknown is not dead)");

@@ -8,7 +8,7 @@
  * shape `packages/subshell-protocol/src/ssh-errors.ts` is for ssh refusals.
  *
  * Some words throw bare and some carry a colon suffix naming which resource
- * ran out (`preview-display-missing-binaries: x11vnc`), so matching is by
+ * ran out (`preview-display-missing-requirements: x11vnc`), so matching is by
  * WORD or WORD-with-suffix, never a bare substring.
  */
 
@@ -18,10 +18,10 @@ export const PREVIEW_PORTS_UNSUPPORTED = "preview-ports-unsupported";
 export const PREVIEW_PORTS_PANE_GONE = "preview-ports-pane-gone";
 /** The node's own preview switch is off; the word carries the remedy. */
 export const PREVIEW_NODE_OFF = "preview-node-off: turn on Preview for this node";
-/** A screen launch refused: this platform hosts no X server stack. */
+/** A screen launch refused: the selected provider does not support this machine. */
 export const PREVIEW_DISPLAY_UNSUPPORTED = "preview-display-unsupported";
-/** A screen launch refused; the thrown message names the binary. */
-export const PREVIEW_DISPLAY_MISSING_BINARIES = "preview-display-missing-binaries";
+/** A screen launch refused; the thrown message names an unmet requirement. */
+export const PREVIEW_DISPLAY_MISSING_REQUIREMENTS = "preview-display-missing-requirements";
 /** A screen launch refused; the detail names what failed to come up. */
 export const PREVIEW_DISPLAY_NOT_READY = "preview-display-not-ready";
 /** The open executor refused: the named pane is gone. */
@@ -50,12 +50,12 @@ export function detailIsNodeOff(detail: string): boolean {
  * node's own words ride along so the operator can grep them.
  */
 export const SCREEN_LAUNCH_REMEDIES: Readonly<Record<string, string>> = {
-  [PREVIEW_NODE_OFF]:
-    "Preview is off for that node, so its panes cannot get a virtual screen. Turn on Preview for this node (the node's settings row), then launch again.",
+  "preview-node-off":
+    "Virtual displays are disabled on this node. Turn on Allow virtual displays in node settings, then launch again.",
   [PREVIEW_DISPLAY_UNSUPPORTED]:
-    "That node's platform hosts no X server stack, so a screen pane cannot start there. Use a Linux node, or launch without a screen.",
-  [PREVIEW_DISPLAY_MISSING_BINARIES]:
-    "That node is missing one of the display binaries (Xvfb, x11vnc, xauth), so a screen pane cannot start there. Install them on that machine, or launch without a screen.",
+    "The selected virtual display provider is not supported on this node. Choose a supported provider in node settings, or launch without a virtual display.",
+  [PREVIEW_DISPLAY_MISSING_REQUIREMENTS]:
+    "The selected virtual display provider has unmet requirements. Check the requirements in node settings, or launch without a virtual display.",
   [PREVIEW_DISPLAY_NOT_READY]:
     "That node's virtual display did not come up inside the launch budget, so the screen pane was refused. Try again, or launch without a screen.",
 };

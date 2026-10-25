@@ -97,7 +97,7 @@ interface NodeRow {
 interface PreviewInfoBody {
   ports: { proto: "tcp" | "tcp6"; port: number; pid: number }[];
   cdpPort: number | null;
-  screen: { display: string; rfbPort: number } | null;
+  screen: { display: string; viewer: { protocol: "vnc"; port: number } } | null;
   screenLost?: string;
   nodeEnabled: boolean;
   reason?: string;

@@ -1,7 +1,6 @@
 import {
   type BridgeDeps,
   bridgeCount,
-  type DisplayDeps,
   type LaneDeps,
   type PanePortsScan,
   PreviewDisplays,
@@ -11,6 +10,7 @@ import {
   startBridge,
   stopBridge,
   TmuxRunner,
+  type VirtualDisplayProvider,
 } from "@internal/pane-runtime";
 import {
   type NodeCommandBody,
@@ -27,6 +27,7 @@ import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import {
   getAnyPreviewEnabled,
   getVirtualDisplayEnabled,
+  getVirtualDisplayProvider,
   getWebPreviewsEnabled,
 } from "@/services/nodes/preview-enabled.js";
 import { getLogger } from "@/utils/logger.js";
@@ -41,7 +42,8 @@ export interface LocalPreviewDeps {
   scan?: typeof scanPanePorts;
   forward?: LaneDeps;
   bridge?: BridgeDeps;
-  display?: DisplayDeps;
+  displayProvider?: VirtualDisplayProvider;
+  getDisplayProviderId?: () => string | Promise<string>;
   log?: (line: string) => void;
 }
 
@@ -53,7 +55,8 @@ export class LocalPreviewRuntime {
   constructor(private readonly deps: LocalPreviewDeps) {
     this.forward = new PreviewForward(deps.forward);
     this.displays = new PreviewDisplays(deps.dataDir, {
-      ...deps.display,
+      provider: deps.displayProvider,
+      getProviderId: deps.getDisplayProviderId,
       isEnabled: deps.displayEnabled ?? deps.enabled,
       log: deps.log,
     });
@@ -93,7 +96,7 @@ export class LocalPreviewRuntime {
         this.refuse(err instanceof Error ? err.message : String(err));
       }
     }
-    const isScreen = cmd.kind === "forward" && !cmd.service && this.displays.getFor(pane.id)?.rfbPort === cmd.port;
+    const isScreen = cmd.kind === "forward" && !cmd.service && this.displays.getFor(pane.id)?.viewer.port === cmd.port;
     if (
       !(await (isScreen
         ? (this.deps.displayEnabled ?? this.deps.enabled)
@@ -154,6 +157,7 @@ export function getLocalPreviewRuntime(): LocalPreviewRuntime {
     sweepTimer.unref();
     runtime = new LocalPreviewRuntime({
       dataDir: SUBSHELL_SERVER_DATA_DIR,
+      getDisplayProviderId: () => getVirtualDisplayProvider(LOCAL_NODE_ID),
       enabled: () => getAnyPreviewEnabled(LOCAL_NODE_ID),
       webPreviewsEnabled: () => getWebPreviewsEnabled(LOCAL_NODE_ID),
       displayEnabled: () => getVirtualDisplayEnabled(LOCAL_NODE_ID),

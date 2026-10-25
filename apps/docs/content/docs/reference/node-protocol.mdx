@@ -207,13 +207,17 @@ runs the same preview primitives in process rather than sending node commands.
 
 | Message | Purpose |
 | --- | --- |
-| `set_preview_enabled` | Apply server-owned preview permissions and the change timestamp. `on` enables the transport; optional `webPreviewsOn` and `displayOn` distinguish web-preview access from virtual displays. When omitted, each inherits `on` for compatibility. |
-| `preview_display_check` | Check Linux display support and required binaries before launch. |
+| `set_preview_enabled` | Apply server-owned preview permissions, `displayProvider`, and the change timestamp. `on` enables the transport; optional `webPreviewsOn` and `displayOn` distinguish web-preview access from virtual displays. When omitted, each inherits `on` for compatibility. |
+| `preview_display_check` | Check the selected display provider’s support and unmet requirements before launch. |
 | `preview_ports_get` | Report listeners under a subshell's process tree, its CDP port, and display metadata. |
 | `preview_open` | Start a loopback TCP forward or CDP screencast for a subshell, port, reference, and bounded lifetime. Forward lanes may include `service: { host, protocol }` for a saved HTTP(S) destination. |
 | `preview_data` | Carry capped base64 bytes toward the node (`in`) or server (`out`). |
 | `preview_stream` | Carry sequenced JPEG browser frames and dimensions. |
 | `preview_close` / `preview_closed` | Request or report teardown with a named reason. |
+
+Display metadata contains an opaque `display` identifier and a `viewer` connection,
+currently `{ protocol: "vnc", port }`. Provider launch credentials stay on the
+node. An unknown provider is unsupported; it never silently selects another.
 
 A forward command contains a port, not an arbitrary hostname. Frame references
 are bound to the authenticated node on receipt. The server's HTTP/WS proxy

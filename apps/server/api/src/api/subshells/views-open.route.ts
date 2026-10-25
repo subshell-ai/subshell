@@ -54,7 +54,7 @@ export const viewsOpenRoute = new Elysia()
       const remembered = broker.displayForPane(params.id);
       const scan = service ? null : await broker.getPorts(row.nodeId, params.id).catch(() => null);
       const screen = scan?.screen ?? (remembered?.nodeId === row.nodeId ? remembered.screen : null);
-      const feature = !service && screen?.rfbPort === port ? "display" : "web-previews";
+      const feature = !service && screen?.viewer.port === port ? "display" : "web-previews";
       const nodeState = await previewNodeState(row.nodeId, feature);
       if (!nodeState.nodeEnabled) {
         // The info poll already said this; arriving here means the page was

@@ -132,6 +132,9 @@ login flows, or another graphical app.
 
 1. Install **Xvfb**, **x11vnc**, and **xauth** on the Linux machine running the
    subshell. In **Nodes**, select that machine and turn on **Allow virtual displays**.
+   Choose **Xvfb + VNC** under **Display provider**. This is currently the only
+   bundled provider, and it requires Linux. The requirements check uses your
+   selected provider.
 2. When launching a subshell, enable **Virtual display**. The form checks the
    selected machine and keeps the option disabled if requirements are missing.
    Missing programs show a **Set up virtual display** link to this guide.
@@ -147,7 +150,7 @@ login flows, or another graphical app.
   <figcaption>The virtual display shows the browser running on the node. Keyboard and pointer input require edit access. Select the image to enlarge it.</figcaption>
 </figure>
 
-Restarting a subshell recreates its virtual display at the same size. The node must still allow virtual displays; if it doesn’t, a manual restart is refused before stopping the current subshell.
+Changing the node’s provider affects new virtual displays; existing displays keep running. Restarting a subshell recreates its virtual display at the same size using the selected provider. The node must still allow virtual displays; if it doesn’t, a manual restart is refused before stopping the current subshell.
 
 A virtual display isn't a sandbox for the programs you run. They keep the
 execution account's permissions. Don't enable it on a host shared with untrusted

@@ -202,6 +202,8 @@ export interface Node {
   webPreviewsEnabled?: boolean;
   /** Whether subshells may request a virtual display on this node. */
   virtualDisplayEnabled?: boolean;
+  /** Provider selected for new virtual displays on this node. */
+  virtualDisplayProvider?: string;
   /**
    * This node is connected but REFUSED — held open for exactly one
    * command and offline for every other purpose (spec 2026-09-15 §5.3).

@@ -485,3 +485,11 @@ forward frame closes the lane instead of dropping TCP bytes. The display
 runtime verifies saved PIDs against the executable and this display's
 Xauthority argument before rehydration or signalling. CDP frames use numeric
 session acknowledgements and bounded dimensions before emitting images.
+
+Virtual display providers implement the shared lifecycle contract in
+`packages/pane-runtime/src/preview/display-provider.ts`. The signed preview
+settings mirror selects the provider for new displays; existing allocations
+remain owned by their original provider. Recovery sweeps every bundled provider,
+each restricted to its own state and verified process identities. The node
+launcher uses the provider's local environment and returns only the public
+viewer descriptor. See [the provider architecture](../../../docs/preview-architecture.md#display-providers-and-viewer-protocols).

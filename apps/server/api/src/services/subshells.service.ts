@@ -514,11 +514,9 @@ export class SubshellsService extends BaseService {
      */
     workspaceId?: string;
     /**
-     * A virtual display for the pane (pane-preview spec §6): the node to be
-     * allocates Xvfb + a screencast bridge at this size. The plane prefights
-     * the node's Preview switch BEFORE any row, token, or RPC; the node
-     * stays the authority on everything the plane cannot see (platform,
-     * binaries), and refuses the launch by name.
+     * A virtual display at this size, allocated by the node's selected provider.
+     * The plane checks the node's permission before any row, token, or RPC;
+     * the node checks the provider's requirements before allocating resources.
      */
     screen?: { width: number; height: number };
   }): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {

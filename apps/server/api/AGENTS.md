@@ -958,3 +958,10 @@ Web previews & screens REST resources use `/api/subshells/:id/views` (discovery)
 `webPreviewsEnabled` flag directly; the setting is `/views-enabled` and
 the prerequisite probe is `/display-readiness`. Persisted grants, audit and node
 wire identifiers remain stable; see the naming section in the architecture guide.
+
+Virtual displays use the shared provider runtime in `pane-runtime/preview`.
+The node row's `virtualDisplayProvider` selects new allocations; the signed
+`displayProvider` mirror carries it to enrolled nodes. The server launcher
+consumes provider-owned `launchEnv()` values without constructing X11 settings.
+Screen metadata exposes an opaque display id and a typed viewer connection,
+never local launch credentials. See [the provider contract](../../../docs/preview-architecture.md#display-providers-and-viewer-protocols).

@@ -1,4 +1,4 @@
-import { parsePreviewDisplayReadiness } from "@internal/subshell-protocol";
+import { type NodePreviewScreenWire, parsePreviewDisplayReadiness } from "@internal/subshell-protocol";
 import { z } from "zod";
 import { ApiError } from "./api-client.js";
 import { listNodes, resolveNodeId } from "./subshell-tools.js";
@@ -10,7 +10,7 @@ export const ScreenSchema = z
     height: z.number().int().min(320).max(4096),
   })
   .describe(
-    "Allocate a Linux virtual display at launch. Check get_node first; Virtual displays must already be enabled and display programs installed.",
+    "Allocate a virtual display using the node’s display provider at launch. Check get_node first; virtual displays must already be enabled and the provider’s requirements met.",
   );
 
 export const GetNodeSchema = z.object({
@@ -27,11 +27,6 @@ export async function getNode(deps: ToolDeps, args: z.infer<typeof GetNodeSchema
   const node = (await listNodes(deps)).find((n) => n.id === id);
   if (!node) throw new Error("subshell: node is no longer available; call list_nodes again");
   if (args.check_display === false) return { ...node, virtualDisplay: { status: "unchecked" } };
-  if (node.os && node.os !== "linux")
-    return {
-      ...node,
-      virtualDisplay: { status: "unsupported", supported: false, reason: "Virtual displays require Linux." },
-    };
   if (node.status !== "online" || node.held)
     return {
       ...node,
@@ -65,7 +60,7 @@ export const ListSubshellViewsSchema = z.object({ subshell_id: z.string().min(1)
 interface PreviewInfo {
   ports: { proto: string; port: number; pid: number }[];
   cdpPort: number | null;
-  screen: { display: string; rfbPort: number } | null;
+  screen: NodePreviewScreenWire | null;
   nodeEnabled: boolean;
   webPreviewsEnabled?: boolean;
   virtualDisplayEnabled?: boolean;
@@ -104,9 +99,9 @@ export async function openSubshellView(deps: ToolDeps, args: z.infer<typeof Open
       );
     if (!info.nodeEnabled || !info.screen)
       throw new Error(
-        "subshell: this subshell has no available virtual display; check list_subshell_views and launch with screen on a prepared Linux node",
+        "subshell: this subshell has no available virtual display; check get_node for provider requirements, then launch with screen on a prepared node",
       );
-    port = info.screen.rfbPort;
+    port = info.screen.viewer.port;
   } else {
     if (args.port === undefined) throw new Error("subshell: web previews require a port from list_subshell_views");
     port = args.port;

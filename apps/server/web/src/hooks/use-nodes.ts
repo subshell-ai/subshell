@@ -211,15 +211,26 @@ export function useDeleteSetupKey() {
 export function useSetViewsEnabled() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, on, feature }: { id: string; on: boolean; feature?: "web-previews" | "display" }) =>
+    mutationFn: ({
+      id,
+      on,
+      feature,
+      provider,
+    }: {
+      id: string;
+      on: boolean;
+      feature?: "web-previews" | "display";
+      provider?: string;
+    }) =>
       apiFetch(`/api/nodes/${encodeURIComponent(id)}/views-enabled`, {
         method: "PUT",
-        body: JSON.stringify({ on, feature }),
+        body: JSON.stringify({ on, feature, provider }),
       }),
     onSuccess: async (_data, { id }) => {
       await Promise.all([
         client.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, id] }),
         client.invalidateQueries({ queryKey: NODES_QUERY_KEY }),
+        client.invalidateQueries({ queryKey: ["preview-display-readiness", id] }),
       ]);
     },
   });

@@ -178,9 +178,9 @@ describe.skipIf(process.platform !== "linux")("scanPanePorts over fixture /proc 
       procRoot,
       panePid: 100,
       probe: async () => false,
-      screen: { display: ":97", rfbPort: 5900 },
+      screen: { display: ":97", viewer: { protocol: "vnc", port: 5900 } },
     });
-    expect(r.screen).toEqual({ display: ":97", rfbPort: 5900 });
+    expect(r.screen).toEqual({ display: ":97", viewer: { protocol: "vnc", port: 5900 } });
   });
 });
 

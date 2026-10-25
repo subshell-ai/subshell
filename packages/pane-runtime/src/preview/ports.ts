@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
 import { fetchCdpJson } from "./cdp-http.js";
+import type { PreviewScreenHandle } from "./display-provider.js";
 
 /**
  * Pane port discovery (pane-preview spec §4/§5, Task 4): what the pane's
@@ -19,16 +20,6 @@ import { fetchCdpJson } from "./cdp-http.js";
 
 /** One listening socket of the pane's tree, as the wire row names it. */
 export type PreviewPortRow = { proto: "tcp" | "tcp6"; port: number; pid: number };
-
-/**
- * The display the node allocated for this pane, when it has one:
- * `PreviewDisplays.getFor` / `openFor` hand these out, and a scan carries one
- * through to the `screen` half of the ports answer. A type alias on purpose,
- * not the protocol's interface: command results serialize through
- * `Record<string, JsonValue>`, which an alias satisfies and an interface (no
- * implicit index signature) refuses.
- */
-export type PreviewScreenHandle = { display: string; rfbPort: number };
 
 /** Everything `scanPanePorts` takes; `procRoot` and `probe` are test seams. */
 export interface ScanPanePortsOptions {
@@ -70,7 +61,11 @@ const CDP_PROBE_TIMEOUT_MS = 400;
  * never the scan.
  */
 export async function scanPanePorts(opts: ScanPanePortsOptions): Promise<PanePortsScan> {
-  if (process.platform !== "linux") throw new Error(PREVIEW_PORTS_UNSUPPORTED);
+  if (process.platform !== "linux") {
+    // Provider-owned displays do not depend on Linux process-tree discovery.
+    if (opts.screen) return { ports: [], cdpPort: null, screen: opts.screen };
+    throw new Error(PREVIEW_PORTS_UNSUPPORTED);
+  }
   const procRoot = opts.procRoot ?? "/proc";
   const screen = opts.screen ?? null;
 

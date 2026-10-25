@@ -116,6 +116,8 @@ export interface NodeTable {
   webPreviewsEnabled: number;
   /** Independent permission to start and connect to virtual displays. */
   virtualDisplayEnabled: number;
+  /** Backend selected for new displays; existing displays retain their provider. */
+  virtualDisplayProvider?: string;
   /**
    * ISO 8601 of the write that last changed {@link webPreviewsEnabled} (the
    * wire's `changedAt`), or null when the flag was never written. The stamp

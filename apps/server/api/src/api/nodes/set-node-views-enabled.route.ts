@@ -1,6 +1,7 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
+import { VIRTUAL_DISPLAY_PROVIDERS } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { ForbiddenError } from "@/api/auth-guard.js";
+import { ForbiddenError, HttpError } from "@/api/auth-guard.js";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
 import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
 import { NodeViewSchema, toNodeView } from "@/api/nodes/node-view.js";
@@ -11,6 +12,9 @@ import { apiModels } from "@/schema/index.js";
 import { setPreviewEnabled } from "@/services/nodes/preview-enabled.js";
 
 const PreviewEnabledBodySchema = t.Object({
+  provider: t.Optional(
+    t.String({ minLength: 1, maxLength: 64, description: "Bundled provider for new virtual displays on this node" }),
+  ),
   feature: t.Optional(t.Union([t.Literal("web-previews"), t.Literal("display")])),
   on: t.Boolean({
     description:
@@ -51,7 +55,12 @@ export const setNodeViewsEnabledRoute = new Elysia()
       }
       if (!gate.canManage) throw new ForbiddenError();
 
-      await setPreviewEnabled(gate.row.id, user.id, body.on, body.feature);
+      if (
+        body.provider &&
+        (body.feature !== "display" || !VIRTUAL_DISPLAY_PROVIDERS.some((p) => p.id === body.provider))
+      )
+        throw new HttpError(400, "Choose an available virtual display provider.");
+      await setPreviewEnabled(gate.row.id, user.id, body.on, body.feature, body.provider);
       // Re-read rather than patching the gate's snapshot: the service wrote
       // the row, and the view must render what is stored, not what this
       // handler believes it asked for.

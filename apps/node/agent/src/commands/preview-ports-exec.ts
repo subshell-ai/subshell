@@ -20,9 +20,8 @@ import type { Cmd, CommandContext, CommandResult } from "./context.js";
  * error reads the same and is answered the same: the plane re-checks).
  *
  * The `screen` half comes from the display registry (Task 7): a pane with a
- * registered display answers `screen: { display, rfbPort }` - decision 6's
- * rfbPort discriminator, the field that tells the plane a raw-RFB open is
- * possible - and an unregistered one answers `screen: null`. When the
+ * registered display answers `screen: { display, viewer }`, describing its
+ * viewer protocol and port. An unregistered one answers `screen: null`. When the
  * registry's dead-mid-pane marker names a binary that died while the pane
  * lived, the answer pairs the null with `screenLost: <binary>` (the
  * validator's pairing rule refuses the two non-null together): the SPA can
@@ -62,7 +61,7 @@ export async function execPreviewPorts(
   if (panePid === null) return { ok: false, error: PREVIEW_PORTS_PANE_GONE };
   const scan = seams?.scan ?? scanPanePorts;
   // The display registry read (Task 7's wiring): a registered display rides
-  // the scan as the plane's rfbPort discriminator, and the dead-mid-pane
+  // the scan as the plane's viewer-port discriminator, and the dead-mid-pane
   // marker pairs with the null exactly the validator's pairing rule wants.
   // No registry handle answers null, which is what every pre-Task-7 fake
   // (and every pane without a screen) still gets.
