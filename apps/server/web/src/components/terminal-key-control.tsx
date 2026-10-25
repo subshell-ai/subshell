@@ -88,9 +88,10 @@ export function KeyBarControl({
           return;
         }
         // Activate on the pointerup itself: the focus-pinning preventDefault
-        // below makes WebKit (iOS Safari / WKWebView) skip the synthesized
-        // click entirely, so a control that waited for `click` never fired
-        // under a real finger there. Chromium still clicks — hence the dedupe.
+        // in the pointerdown handler above makes WebKit (iOS Safari /
+        // WKWebView) skip the synthesized click entirely, so a control that
+        // waited for `click` never fired under a real finger there.
+        // Chromium still clicks — hence the dedupe.
         pointerActuated.current = true;
         onClick?.(event);
       }}
