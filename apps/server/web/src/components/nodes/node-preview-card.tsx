@@ -109,6 +109,18 @@ function NodePreviewFeatureCard({ node, feature }: { node: NodeDetail; feature: 
                 : "Apps and browser features are available to all subshells on this node."}
           </p>
         )}
+        <a
+          href={
+            display
+              ? "https://docs.subshell.sh/guides/preview#use-a-virtual-display-on-linux"
+              : "https://docs.subshell.sh/guides/preview#check-a-website"
+          }
+          target="_blank"
+          rel="noreferrer"
+          className="text-detail text-primary underline"
+        >
+          {display ? "Learn about virtual displays" : "Learn about apps and browsers"}
+        </a>
         {node.canManage && update.isPending && (
           <p id={reasonId} role="status" className="text-detail text-muted-foreground">
             {disabledReason}
