@@ -26,6 +26,7 @@ import * as presetCrossCommOptInMigration from "@/db/migrations/0043-preset-cros
 import * as sshLaunchMigration from "@/db/migrations/0048-ssh-launch-and-saved-hosts.js";
 import * as keyHomeMigration from "@/db/migrations/0052-subshell-key-home.js";
 import * as subshellParentMigration from "@/db/migrations/0060-subshell-parent.js";
+import * as presetEnabledMigration from "@/db/migrations/0062-preset-enabled.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -160,6 +161,7 @@ beforeAll(async () => {
   await presetCrossCommOptInMigration.up(db); // presets.cross_comm_enabled (0043) - same reason
   await sshLaunchMigration.up(db); // 0048 subshells.ssh — SubshellsRepository.create writes it on EVERY create now (null for a non-ssh pane), and the delete sweep reads it as the kind fact (plan-2 Task 7)
   await keyHomeMigration.up(db); // 0052 subshells.key_home_node_id - SubshellsRepository.create mirrors it on every insert (Task 14)
+  await presetEnabledMigration.up(db); // presets.enabled (0062) - PresetsRepository.create mirrors it on every insert
   presetsRepo = new PresetsRepository(db);
   subshellsRepo = new SubshellsRepository(db);
   subshellManager = new SubshellManagerService({

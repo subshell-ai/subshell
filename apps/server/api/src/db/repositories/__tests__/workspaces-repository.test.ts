@@ -20,6 +20,7 @@ import * as presetCrossCommOptInMigration from "@/db/migrations/0043-preset-cros
 import * as subshellKeyHomeMigration from "@/db/migrations/0052-subshell-key-home.js";
 import * as workspaceFirstMigration from "@/db/migrations/0058-workspace-first.js";
 import * as subshellParentMigration from "@/db/migrations/0060-subshell-parent.js";
+import * as presetEnabledMigration from "@/db/migrations/0062-preset-enabled.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -83,6 +84,7 @@ beforeAll(async () => {
   await presetCrossCommOptInMigration.up(db); // presets.cross_comm_enabled (0043) - same reason
   await subshellKeyHomeMigration.up(db); // 0052 subshells.key_home_node_id - SubshellsRepository.create mirrors it on every insert (Task 14)
   await workspaceFirstMigration.up(db); // 0058 drops workspaces.draft, adds the pane-dedupe unique index
+  await presetEnabledMigration.up(db); // presets.enabled (0062) - PresetsRepository.create mirrors it on every insert
 });
 
 beforeEach(async () => {

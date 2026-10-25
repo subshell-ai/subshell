@@ -21,6 +21,7 @@ function presetRow(over: Partial<PresetTable> = {}): PresetTable {
     configIsolation: 0,
     restartOnExit: 0,
     crossCommEnabled: 0,
+    enabled: 1,
     nodeId: null,
     workingDir: null,
     promptBlocks: null,

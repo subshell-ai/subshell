@@ -163,6 +163,33 @@ describe("PluginStateRepository (absent row means enabled)", () => {
   });
 });
 
+describe("PresetsRepository enabled switch (0062)", () => {
+  const owner = `enabled-${crypto.randomUUID().slice(0, 8)}`;
+
+  beforeAll(async () => {
+    await setupAuthTables();
+  });
+
+  it("defaults a created preset to enabled, and an explicit 0 survives create", async () => {
+    const created = await presets.create(mkPreset(owner));
+    // An insert that does not say the enable switch, says ON.
+    expect(created.enabled).toBe(1);
+    const deliberate = await presets.create({ ...mkPreset(owner), enabled: 0 });
+    expect(deliberate.enabled).toBe(0);
+
+    await presets.delete(created.id);
+    await presets.delete(deliberate.id);
+  });
+
+  it("update with { enabled: 0 } persists the disable, and it reads back", async () => {
+    const created = await presets.create(mkPreset(owner));
+    const disabled = await presets.update(created.id, { enabled: 0 });
+    expect(disabled?.enabled).toBe(0);
+    expect((await presets.findById(created.id))?.enabled).toBe(0);
+    await presets.delete(created.id);
+  });
+});
+
 describe("PresetsRepository.update", () => {
   // The workspaces twin of this line wrote `datetime('now')` and every renamed
   // workspace sorted as the oldest one owned; this pins the ISO form here so
