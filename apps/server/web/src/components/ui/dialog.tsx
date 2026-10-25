@@ -33,8 +33,8 @@ export function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.
 /**
  * The scroll cap lives on an INNER wrapper, not the Popup: a scrolling Popup
  * would scroll the absolutely-positioned close button out of view with the
- * content. The wrapper's negative margin absorbs the Popup's `p-6` so the
- * scroll area spans edge-to-edge, and its own `p-6` restores the padding —
+ * content. The wrapper's negative margins absorb the Popup's padding so the
+ * scroll area spans edge-to-edge, and its own padding restores the inset —
  * the Popup itself never scrolls, so the X stays pinned.
  *
  * Both grid columns are `minmax(0,1fr)` (and the wrapper `min-w-0`). A grid
@@ -51,16 +51,16 @@ export function DialogContent({ className, children, ...props }: DialogPrimitive
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "fixed top-[50%] left-[50%] z-50 grid w-[calc(100vw-1.5rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] grid-cols-[minmax(0,1fr)] gap-4 border bg-card p-6 opacity-100 shadow-lg transition-[opacity,scale] duration-150 data-ending-style:scale-95 data-starting-style:scale-95 data-ending-style:opacity-0 data-starting-style:opacity-0 sm:w-full sm:rounded-lg",
+          "fixed top-[50%] left-[50%] z-50 grid w-[calc(100vw-1.5rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] grid-cols-[minmax(0,1fr)] gap-4 border bg-card p-4 opacity-100 shadow-lg transition-[opacity,scale] duration-150 data-ending-style:scale-95 data-starting-style:scale-95 data-ending-style:opacity-0 data-starting-style:opacity-0 sm:w-full sm:rounded-lg",
           className,
         )}
         {...props}
       >
-        <div className="-m-6 grid max-h-[85dvh] min-w-0 grid-cols-[minmax(0,1fr)] gap-4 overflow-y-auto p-6">
+        <div className="-m-4 grid max-h-[85dvh] min-w-0 grid-cols-[minmax(0,1fr)] gap-4 overflow-y-auto p-4">
           {children}
         </div>
         <DialogPrimitive.Close
-          className="absolute top-6 right-6 inline-flex size-4.5 items-center justify-center rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring"
+          className="absolute top-4 right-4 inline-flex size-4.5 items-center justify-center rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring"
           aria-label="Close"
         >
           <X className="h-4 w-4" />
