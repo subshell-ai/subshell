@@ -78,8 +78,8 @@ final class DisplayCapture: NSObject, SCStreamOutput, SCStreamDelegate {
             guard !encoding else { return }
             encoding = true
             encoder.encode(pixelBuffer) { [weak self] jpeg in
+                guard let self else { return }
                 Task { @MainActor in
-                    guard let self else { return }
                     self.encoding = false
                     guard !self.stopped else { return }
                     guard self.allowed(), CGPreflightScreenCaptureAccess(), AXIsProcessTrusted(),
