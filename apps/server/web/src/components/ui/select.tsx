@@ -2,7 +2,6 @@ import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { cn, ExplainedButton } from "@internal/node-admin";
 import { Check, ChevronDown } from "lucide-react";
 import type { JSX } from "react";
-import { type PickerDensity, PickerDensityContext, usePickerDensity } from "@/components/ui/picker-density";
 
 /**
  * Select on Base UI parts (migrated from Radix `Select`; export names
@@ -13,25 +12,8 @@ import { type PickerDensity, PickerDensityContext, usePickerDensity } from "@/co
  * values must pass `items={[{ value, label }]}` to the Root. Call sites
  * (preset editor, subshell pickers) do; plain value-equals-label selects
  * don't need it.
- *
- * A `density="compact"` Root sizes the trigger and every row to the dense
- * sidebar control, so the popup never outgrows the picker that opened it
- * (see picker-density.tsx).
  */
-export interface SelectProps<Value = unknown> extends SelectPrimitive.Root.Props<Value> {
-  /** Pair the popup rows' size to the trigger's; see picker-density.tsx. */
-  density?: PickerDensity;
-}
-
-/** Generic over the value type so `value`/`onValueChange` infer at call
- * sites exactly as they did when `Select` was the primitive re-export. */
-export function Select<Value = unknown>({ density = "default", children, ...props }: SelectProps<Value>): JSX.Element {
-  return (
-    <PickerDensityContext.Provider value={density}>
-      <SelectPrimitive.Root {...props}>{children}</SelectPrimitive.Root>
-    </PickerDensityContext.Provider>
-  );
-}
+export const Select = SelectPrimitive.Root;
 export const SelectGroup = SelectPrimitive.Group;
 /**
  * The trigger's current-value text.
@@ -60,7 +42,6 @@ export function SelectTrigger({
   render,
   ...props
 }: SelectPrimitive.Trigger.Props & { disabledReason?: string }): JSX.Element {
-  const density = usePickerDensity();
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
@@ -73,10 +54,7 @@ export function SelectTrigger({
         />
       )}
       className={cn(
-        "flex w-full items-center justify-between gap-2 overflow-hidden whitespace-nowrap rounded-md border border-input bg-transparent shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
-        // Size follows the picker's density — see picker-density.tsx: the
-        // trigger and its rows are sized as one pair, never hand-matched.
-        density === "compact" ? "h-7 px-2 py-0.5 text-detail" : "h-9 px-3 py-2 text-sm",
+        "flex h-9 w-full items-center justify-between gap-2 overflow-hidden whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
         className,
       )}
       {...props}
@@ -139,23 +117,18 @@ export function SelectContent({
 }
 
 export function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Props): JSX.Element {
-  const density = usePickerDensity();
   return (
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        "relative flex w-full cursor-default select-none items-center rounded-sm pl-2 outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50",
-        // The same density the trigger renders with — a compact picker gets
-        // rows that fit its 28px control, a default one the 32px row the
-        // action menus share (see picker-density.tsx).
-        density === "compact" ? "py-1 pr-7 text-detail" : "py-1.5 pr-8 text-sm",
+        "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pr-8 pl-2 text-sm outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50",
         className,
       )}
       {...props}
     >
       <span className="absolute right-2 flex h-3.5 w-3.5 items-center justify-center">
         <SelectPrimitive.ItemIndicator>
-          <Check className={density === "compact" ? "h-3.5 w-3.5" : "h-4 w-4"} />
+          <Check className="h-4 w-4" />
         </SelectPrimitive.ItemIndicator>
       </span>
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>

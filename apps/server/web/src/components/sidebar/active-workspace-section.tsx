@@ -190,7 +190,6 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
   const pickerRow = (
     <div className="flex min-w-0 items-center gap-2">
       <Select
-        density="compact"
         items={[
           ...rows.map((row) => ({ value: row.id, label: row.name })),
           { value: NEW_WORKSPACE, label: "New workspace" },
@@ -205,7 +204,7 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
           if (id) void navigate({ to: "/workspaces/$id", params: { id }, search: {} });
         }}
       >
-        <SelectTrigger aria-label="Switch workspace" className="min-w-0 flex-1">
+        <SelectTrigger aria-label="Switch workspace" className="h-7 min-w-0 flex-1 px-2 py-0.5 text-detail">
           <SelectValue placeholder="Choose a workspace" />
         </SelectTrigger>
         <SelectContent>
@@ -223,7 +222,7 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
           <SelectGroup className={cn(rows.length > 0 ? "mt-1 border-t pt-1" : null)}>
             <SelectItem value={NEW_WORKSPACE}>
               <span className="flex items-center gap-2">
-                <Plus className="size-3.5" />
+                <Plus className="size-4" />
                 New workspace
               </span>
             </SelectItem>
