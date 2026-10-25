@@ -27,9 +27,9 @@ describe("migration 0062-preset-enabled", () => {
   let dbFile: string;
   let db: Kysely<any>;
 
-  async function hasColumn(table: string, column: string): Promise<boolean> {
+  async function hasColumn(target: Kysely<any>, table: string, column: string): Promise<boolean> {
     const r = await sql<{ name: string }>`SELECT name FROM pragma_table_info(${table}) WHERE name = ${column}`.execute(
-      db,
+      target,
     );
     return r.rows.length > 0;
   }
@@ -60,13 +60,13 @@ describe("migration 0062-preset-enabled", () => {
 
   it("up adds enabled to both preset tables, defaulting to 1", async () => {
     // Precondition: neither table carries the flag yet.
-    expect(await hasColumn("presets", "enabled")).toBe(false);
-    expect(await hasColumn("ssh_presets", "enabled")).toBe(false);
+    expect(await hasColumn(db, "presets", "enabled")).toBe(false);
+    expect(await hasColumn(db, "ssh_presets", "enabled")).toBe(false);
 
     await presetEnabledMigration.up(db);
 
-    expect(await hasColumn("presets", "enabled")).toBe(true);
-    expect(await hasColumn("ssh_presets", "enabled")).toBe(true);
+    expect(await hasColumn(db, "presets", "enabled")).toBe(true);
+    expect(await hasColumn(db, "ssh_presets", "enabled")).toBe(true);
 
     // An insert that does not say, says ON — the DB default is the contract.
     await db
@@ -103,17 +103,37 @@ describe("migration 0062-preset-enabled", () => {
 
   it("up twice is a no-op", async () => {
     await presetEnabledMigration.up(db);
-    expect(await hasColumn("presets", "enabled")).toBe(true);
-    expect(await hasColumn("ssh_presets", "enabled")).toBe(true);
+    expect(await hasColumn(db, "presets", "enabled")).toBe(true);
+    expect(await hasColumn(db, "ssh_presets", "enabled")).toBe(true);
+  });
+
+  it("up and down skip a table the partial schema does not have", async () => {
+    // The curated `:memory:` suites hand-build partial schemas, so `up` may
+    // be called on a database holding `presets` but no `ssh_presets`.
+    // pragma_table_info answers a missing table with zero rows, which a
+    // column-only guard reads as "absent" — the addColumn then throws
+    // "no such table". The table guard must make the absent table a skip.
+    const partial = new Kysely<any>({ dialect: new BunSqliteDialect({ database: openSqliteDatabase(":memory:") }) });
+    try {
+      await sql`CREATE TABLE presets (id TEXT PRIMARY KEY)`.execute(partial);
+
+      await presetEnabledMigration.up(partial);
+      expect(await hasColumn(partial, "presets", "enabled")).toBe(true);
+
+      await presetEnabledMigration.down(partial);
+      expect(await hasColumn(partial, "presets", "enabled")).toBe(false);
+    } finally {
+      await partial.destroy();
+    }
   });
 
   it("down drops the column from both tables, and up re-applies", async () => {
     await presetEnabledMigration.down(db);
-    expect(await hasColumn("presets", "enabled")).toBe(false);
-    expect(await hasColumn("ssh_presets", "enabled")).toBe(false);
+    expect(await hasColumn(db, "presets", "enabled")).toBe(false);
+    expect(await hasColumn(db, "ssh_presets", "enabled")).toBe(false);
 
     await presetEnabledMigration.up(db);
-    expect(await hasColumn("presets", "enabled")).toBe(true);
-    expect(await hasColumn("ssh_presets", "enabled")).toBe(true);
+    expect(await hasColumn(db, "presets", "enabled")).toBe(true);
+    expect(await hasColumn(db, "ssh_presets", "enabled")).toBe(true);
   });
 });
