@@ -33,6 +33,7 @@ const preset: SshPreset = {
   keyHome: null,
   fingerprints: [],
   forwards: [],
+  enabled: 1,
   createdAt: "t",
   updatedAt: "t",
 };

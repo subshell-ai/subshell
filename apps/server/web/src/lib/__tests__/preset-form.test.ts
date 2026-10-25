@@ -27,6 +27,7 @@ const baseRow: PresetRow = {
   settingsJson: null,
   configIsolation: 0,
   restartOnExit: 0,
+  enabled: 1,
   crossCommEnabled: 0,
   nodeId: null,
   workingDir: null,

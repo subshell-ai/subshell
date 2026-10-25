@@ -14,6 +14,7 @@ const preset: SshPreset = {
   keyHome: "keys",
   fingerprints: ["SHA256:one"],
   forwards: [],
+  enabled: 1,
   createdAt: "t",
   updatedAt: "t",
 };

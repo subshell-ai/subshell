@@ -39,6 +39,7 @@ function presetRow(
     settingsJson: null,
     configIsolation: 0,
     restartOnExit: 0,
+    enabled: 1,
     createdAt: "2026-09-13T00:00:00.000Z",
     updatedAt: "2026-09-13T00:00:00.000Z",
   };

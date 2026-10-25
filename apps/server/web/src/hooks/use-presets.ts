@@ -34,6 +34,25 @@ export function useInvalidatePresets(): () => Promise<void> {
 }
 
 /**
+ * Toggles a preset's enabled flag (`PATCH /api/presets/:id`, cookie-only,
+ * which returns the updated row). Works for both kinds: the SSH rows live
+ * under the same `["presets"]` prefix, so one invalidation refreshes the
+ * agent list and the `["presets", "ssh"]` list at once.
+ */
+export function useTogglePresetEnabled() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      apiFetch(`/api/presets/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ enabled }) }),
+    onSuccess: () => {
+      // `["presets"]` is a PREFIX match, so this invalidates both the agent
+      // list and the `["presets", "ssh"]` list in one call.
+      void queryClient.invalidateQueries({ queryKey: PRESETS_QUERY_KEY });
+    },
+  });
+}
+
+/**
  * Creates a preset (`POST /api/presets`, which returns the created row) and
  * hands the row to the caller - the /presets page lets the list render it,
  * and the launch form's "Save as preset" path posts through the launch

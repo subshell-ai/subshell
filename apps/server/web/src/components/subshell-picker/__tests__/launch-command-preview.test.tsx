@@ -14,6 +14,7 @@ const preset: PresetRow = {
   settingsJson: '{"permissionMode":"plan"}',
   configIsolation: 0,
   restartOnExit: 1,
+  enabled: 1,
   crossCommEnabled: 0,
   nodeId: null,
   workingDir: null,

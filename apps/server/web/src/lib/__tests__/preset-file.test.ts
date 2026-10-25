@@ -15,6 +15,7 @@ const agent: PresetRow = {
   settingsJson: '{"nested":{"enabled":true}}',
   configIsolation: 1,
   restartOnExit: 0,
+  enabled: 1,
   crossCommEnabled: 1,
   crossCommNotes: "Use for reviews.",
   nodeId: "node-one",
@@ -37,6 +38,7 @@ const ssh: SshPreset = {
   keyHome: "node-two",
   fingerprints: ["SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],
   forwards: [{ kind: "local", listenPort: 8080, bindHost: null, targetHost: "localhost", targetPort: 80 }],
+  enabled: 1,
   createdAt: "now",
   updatedAt: "now",
 };
