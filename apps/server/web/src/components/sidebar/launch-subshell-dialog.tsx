@@ -152,7 +152,7 @@ export function LaunchSubshellDialog({
           <>
             <NewSubshellForm value={form} onChange={setForm} onLeave={() => onOpenChange(false)} />
             {error && <p className="text-destructive text-detail">{error}</p>}
-            <DialogFooter>
+            <DialogFooter sticky>
               <Button
                 variant="outline"
                 onClick={() => onOpenChange(false)}

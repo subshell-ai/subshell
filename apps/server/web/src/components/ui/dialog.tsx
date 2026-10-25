@@ -94,12 +94,25 @@ export function DialogHeader({ className, ...props }: HTMLAttributes<HTMLDivElem
   return <div className={cn("flex flex-col space-y-1.5 pr-8 text-left", className)} {...props} />;
 }
 
-export function DialogFooter({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
+export function DialogFooter({
+  className,
+  sticky = false,
+  ...props
+}: HTMLAttributes<HTMLDivElement> & { sticky?: boolean }) {
   // Always one row, right-aligned. The shadcn stock stacks the actions on
   // narrow VIEWPORTS (`flex-col-reverse sm:flex-row`), which read as a bug
   // inside a dialog that is comfortably wide on screen: the breakpoint tests
   // the window, not the dialog (operator report, 2026-09-25).
-  return <div className={cn("flex flex-row justify-end gap-2", className)} {...props} />;
+  return (
+    <div
+      className={cn(
+        "flex flex-row justify-end gap-2",
+        sticky && "sticky -bottom-4.5 z-10 -mx-4.5 -mb-4.5 border-t bg-card p-4.5",
+        className,
+      )}
+      {...props}
+    />
+  );
 }
 
 export function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {

@@ -244,7 +244,7 @@ export function AddSubshellDialog({
         {error && <p className="text-destructive text-detail">{error}</p>}
 
         {visibleMode === "new" && kind === "agent" && (
-          <DialogFooter>
+          <DialogFooter sticky>
             <Button
               variant="outline"
               onClick={() => onOpenChange(false)}
