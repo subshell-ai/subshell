@@ -210,7 +210,7 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
         <SelectContent>
           <SelectGroup>
             {rows.map((row) => (
-              <SelectItem key={row.id} value={row.id}>
+              <SelectItem size="compact" key={row.id} value={row.id}>
                 {row.name}
               </SelectItem>
             ))}
@@ -220,9 +220,9 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
               insets it 4px from every popup edge, uniform. Any py here would
               stack on top and the vertical gap would outrun the sides. */}
           <SelectGroup className={cn(rows.length > 0 ? "mt-1 border-t pt-1" : null)}>
-            <SelectItem value={NEW_WORKSPACE}>
+            <SelectItem size="compact" value={NEW_WORKSPACE}>
               <span className="flex items-center gap-2">
-                <Plus className="size-4" />
+                <Plus className="size-3.5" />
                 New workspace
               </span>
             </SelectItem>
