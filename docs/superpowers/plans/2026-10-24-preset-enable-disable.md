@@ -17,7 +17,7 @@
 - The `/api/presets` list keeps returning disabled rows (with `enabled`); only picker surfaces filter. Bearer `envJson` redaction is unchanged.
 - The toggle is cookie-only and requires owner or edit access; a view-shared preset gets no toggle and returns 403 on the PATCH.
 - A disabled preset is never deleted; it is only hidden from pickers and refused at launch.
-- Launch refusal is a 409 with the wire code `preset_disabled` (the agent create path and the restart/swap path).
+- Launch refusal is a 409 (the agent create path and the restart/swap path). The create path's `SubshellCreateError` code is `preset_disabled`, internal to the create-error family: the global handler derives the wire code from the status, so the HTTP body carries `EXISTS_ERROR` plus the message `Preset "<name>" is disabled` (amended 2026-10-25 after Task 4 verified `error-handler.plugin.ts` never serializes private codes).
 - The import/export preset file format (version 1) is unchanged; an imported preset always starts enabled.
 - Migration is self-contained and guarded on column/table existence (re-runs cleanly), and must be registered in the static map in `apps/server/api/src/db/migrate.ts`.
 - Tests that build a `PresetRow`/`SshPreset`/`PresetView` fixture must add `enabled` to the fixture or they fail to type-check.
