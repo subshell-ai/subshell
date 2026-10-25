@@ -110,11 +110,17 @@ export function NewSubshellForm({
   // (is the agent installed+enabled on the instance), so a preset whose
   // agent runs only on ANOTHER machine is listed here too — the form reads
   // the same `["presets"]` every other surface does. The Preset row lists
-  // ALL of them (it leads the form and fills the agent); per-node fit is
-  // the grey matrix, never a list filter.
+  // every ENABLED one (it leads the form and fills the agent); per-node fit
+  // is the grey matrix, never a list filter. The enable switch (spec
+  // 2026-10-24) is the one list filter a launch surface applies: a disabled
+  // preset is invisible here and refused at create by the server. The
+  // defaults hook still receives the FULL rows, so it can SEE a disabled
+  // recent preset and drop it on purpose — filtering before the hook would
+  // leave it looking exactly like a deleted one.
   const presetQuery = usePresets();
   const { data: presetRows } = presetQuery;
   const presets = presetRows ?? [];
+  const enabledPresets = presets.filter((p) => p.enabled === 1);
 
   // The defaults read the user's most recent subshell off the ONE live-fed
   // list — no new request (spec §5).
@@ -164,7 +170,10 @@ export function NewSubshellForm({
   // muted reason: two "Fast" rows read Fast  Claude Code / Fast  Pi.
   const presetList: ComboboxOption[] = (() => {
     const names = new Map((plugins ?? []).map((p) => [p.id, p.name]));
-    const all: ComboboxOption[] = presets.map((p) => ({
+    // Enabled rows only (spec 2026-10-24) - the "Recently used" section is
+    // built by lookup into this list, so a disabled pick recorded earlier
+    // renders nothing here, exactly like a deleted one.
+    const all: ComboboxOption[] = enabledPresets.map((p) => ({
       value: p.id,
       label: presetChoiceLabel(p),
       reason: names.get(p.harnessId) ?? p.harnessId,
@@ -227,13 +236,14 @@ export function NewSubshellForm({
       {/* Preset leads the form (operator ruling 2026-09-30): picking one
           FILLS the fields below it - agent, machine, directory, prompt -
           and everything stays editable, which is the whole point of
-          filling rather than hiding. First run hides the row: a picker
-          whose only offer is emptiness is a control with no choice. */}
+          filling rather than hiding. First run hides the row, and so does
+          a store with nothing enabled (spec 2026-10-24): a picker whose
+          only offer is emptiness is a control with no choice. */}
       {!firstRun && presetQuery.isError && (
         <ListLoadError message="Couldn’t load presets." retry={presetQuery.refetch} busy={presetQuery.isFetching} />
       )}
       {!firstRun && presetQuery.isLoading && <p className="text-detail text-muted-foreground">Loading presets…</p>}
-      {!firstRun && presets.length > 0 && (
+      {!firstRun && enabledPresets.length > 0 && (
         <div className="space-y-2">
           <Label htmlFor={ids.preset}>Preset</Label>
           <SearchableSelect

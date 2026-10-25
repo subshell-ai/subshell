@@ -87,6 +87,7 @@ function preset(p: {
   nodeId?: string | null;
   workingDir?: string | null;
   promptBlocks?: string | null;
+  enabled?: number;
 }) {
   return {
     id: p.id,
@@ -98,6 +99,9 @@ function preset(p: {
     settingsJson: null,
     configIsolation: 0,
     restartOnExit: 0,
+    // The real row always carries the enable switch (spec 2026-10-24); the
+    // launch pickers offer only enabled rows.
+    enabled: p.enabled ?? 1,
     // The launch trio (spec 2026-09-29): the real row always carries the
     // columns, nulls included - the fixtures match the server's shape.
     nodeId: p.nodeId ?? null,
@@ -591,6 +595,52 @@ describe("NewSubshellForm preset row", () => {
     }
   });
 
+  it("a disabled preset is never offered; its enabled siblings stay", async () => {
+    // Launch offers only enabled rows (spec 2026-10-24): a disabled preset
+    // is invisible in the picker and refused at create by the server. The
+    // row stays in the list API for the management table and for the
+    // defaults hook, which drops it from the auto-copy on purpose.
+    const pi = plugin({ id: "pi", name: "Pi", type: "agent-harness" });
+    const restore = mockFetch(
+      [LOCAL, ENROLLED_ONLINE],
+      [CLAUDE, pi],
+      [
+        preset({ id: "p-on", harnessId: "claude-code", name: "Fast" }),
+        preset({ id: "p-off", harnessId: "pi", name: "Parked", enabled: 0 }),
+        preset({ id: "p-on2", harnessId: "pi", name: "Pi live" }),
+      ],
+    );
+    try {
+      await renderForm(emptyNewSubshellForm());
+      openPresetInRow();
+      await settle();
+      const list = screen.getByRole("listbox");
+      expect(within(list).getByText("Fast")).toBeDefined();
+      expect(within(list).getByText("Pi live")).toBeDefined();
+      expect(within(list).queryByText("Parked")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("hides the Preset row when every preset in the store is disabled", async () => {
+    // A picker whose only offer is emptiness is a control with no choice -
+    // the first-run rule, now over the enabled set.
+    const restore = mockFetch(
+      [LOCAL, ENROLLED_ONLINE],
+      [CLAUDE],
+      [preset({ id: "p-off", harnessId: "claude-code", name: "Parked", enabled: 0 })],
+    );
+    try {
+      await renderForm(emptyNewSubshellForm());
+      const labels = Array.from(document.querySelectorAll("label"), (l) => l.textContent);
+      expect(labels).not.toContain("Preset");
+      expect(screen.queryByPlaceholderText("Choose a preset")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
   it("shows the fill-hint, agent-agnostic, with the zero-presets sentence", async () => {
     const restore = mockFetch([LOCAL], [CLAUDE], []);
     try {
@@ -855,6 +905,30 @@ describe("NewSubshellForm prior-launch defaults", () => {
       // The copied directory outranks the recents seed — the row's own dir is
       // the answer, not the node's generic most-recent path.
       expect(latest().workingDir).toBe("/srv/copied");
+    } finally {
+      restore();
+    }
+  });
+
+  it("a disabled preset in the newest row is not prefilled - the rest of the copy stands", async () => {
+    // Spec 2026-10-24: the membership guard SEES the disabled row (the hook
+    // gets the full list) and drops the link deliberately; the agent,
+    // machine and directory the same row copied all stay, because only the
+    // preset is what a launch may not carry.
+    const PI_NODE = node({ id: "a1", name: "mac mini", harnesses: [PI_ON] });
+    const restore = mockFetch(
+      [LOCAL, PI_NODE],
+      [CLAUDE, PI],
+      [preset({ id: "p-pi", harnessId: "pi", name: "Pi one", enabled: 0 })],
+      [launchRow({ harnessId: "pi", presetId: "p-pi", nodeId: "a1", workingDir: "/srv/copied" })],
+      { paths: [], home: "/home/ada" },
+    );
+    try {
+      const { latest } = await renderForm();
+      await waitFor(() => expect(latest().harnessId).toBe("pi"));
+      expect(latest().nodeId).toBe("a1");
+      expect(latest().workingDir).toBe("/srv/copied");
+      expect(latest().presetId).toBeNull();
     } finally {
       restore();
     }
