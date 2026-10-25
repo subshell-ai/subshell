@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it } from "bun:test";
 import type { Node } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { VirtualDisplayField, virtualDisplayReason } from "@/components/subshell-picker/virtual-display-field";
+import { VirtualDisplayField } from "@/components/subshell-picker/virtual-display-field";
+
+import { virtualDisplayReason } from "@/hooks/use-node-display-readiness";
 
 const originalFetch = globalThis.fetch;
 afterEach(() => {

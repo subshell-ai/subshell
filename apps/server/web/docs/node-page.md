@@ -1,5 +1,12 @@
 # A node's page: structure, gates, maintenance
 
+The Apps & screens card keeps the node's combined opt-in switch visible to all
+viewers, with changes restricted to the owner (an admin for the built-in node).
+When enabled, it uses `useNodeDisplayReadiness`, shared with the new-subshell
+dialog, to show missing prerequisites, setup guidance, and Recheck. Platform
+limitations remain visible even when the switch is on. Rechecking is read-only
+and doesn't require permission to change the switch.
+
 Deep dive for `apps/server/web`, moved verbatim out of `AGENTS.md`.
 This file carries the full history behind the summary; the routing line in
 `AGENTS.md` names when to read it.

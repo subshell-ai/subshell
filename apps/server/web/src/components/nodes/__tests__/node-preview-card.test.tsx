@@ -44,7 +44,10 @@ function node(over: Partial<NodeDetail> = {}): NodeDetail {
   } as NodeDetail;
 }
 
-function mount(n: NodeDetail) {
+function mount(
+  n: NodeDetail,
+  readiness: { body: unknown; status?: number } = { body: { supported: true, missing: [] } },
+) {
   const calls: Call[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown, init?: RequestInit) => {
@@ -55,6 +58,9 @@ function mount(n: NodeDetail) {
       url: url.pathname,
       body: init?.body ? (JSON.parse(String(init.body)) as Call["body"]) : undefined,
     });
+    if (url.pathname.endsWith("/display-readiness")) {
+      return Promise.resolve(new Response(JSON.stringify(readiness.body), { status: readiness.status ?? 200 }));
+    }
     return Promise.resolve(new Response(JSON.stringify({ ...n, viewsEnabled: true })));
   }) as typeof fetch;
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -118,6 +124,63 @@ describe("the Preview switch", () => {
     const h = mount(node({ kind: "local", canManage: false }));
     try {
       expect(screen.getByText(/an admin can change this setting/i)).toBeTruthy();
+    } finally {
+      h.restore();
+    }
+  });
+});
+
+describe("node view prerequisites", () => {
+  it("explains disabled features without probing the node", () => {
+    const h = mount(node());
+    try {
+      expect(screen.getByText("Apps & screens is disabled on this node.")).toBeTruthy();
+      expect(h.calls).toHaveLength(0);
+    } finally {
+      h.restore();
+    }
+  });
+
+  it("shows missing requirements and clears the warning after a successful recheck", async () => {
+    const readiness = { body: { supported: true, missing: ["xauth"] } };
+    const h = mount(node({ viewsEnabled: true }), readiness);
+    try {
+      const guide = await screen.findByRole("link", { name: "Set up virtual display" });
+      expect(guide.getAttribute("href")).toBe("https://docs.subshell.sh/guides/preview#use-a-virtual-display-on-linux");
+      expect(screen.getByText("Required virtual display programs are missing on this machine.")).toBeTruthy();
+      expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("true");
+      readiness.body = { supported: true, missing: [] };
+      fireEvent.click(screen.getByRole("button", { name: "Recheck" }));
+      await screen.findByText("Virtual display requirements are met.");
+      expect(screen.queryByRole("link", { name: "Set up virtual display" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Recheck" })).toBeNull();
+    } finally {
+      h.restore();
+    }
+  });
+
+  it("explains unsupported features while keeping saved services available", () => {
+    const h = mount(node({ viewsEnabled: true, os: "darwin" }));
+    try {
+      expect(screen.getByText(/Automatic app discovery and browser watching are available on Linux/)).toBeTruthy();
+      expect(screen.getByText("Virtual displays are available on Linux machines only.")).toBeTruthy();
+      expect(h.calls).toHaveLength(0);
+    } finally {
+      h.restore();
+    }
+  });
+
+  it("shows a failed check and lets a read-only viewer retry it", async () => {
+    const readiness = { body: { message: "Bring this node online, then recheck." } as unknown, status: 409 };
+    const h = mount(node({ viewsEnabled: true, canManage: false, access: "view" }), readiness);
+    try {
+      await screen.findByText(/Bring this node online, then recheck/);
+      expect(screen.queryByText("Virtual display requirements are met.")).toBeNull();
+      readiness.body = { supported: true, missing: [] };
+      readiness.status = 200;
+      fireEvent.click(screen.getByRole("button", { name: "Recheck" }));
+      await screen.findByText("Virtual display requirements are met.");
+      expect(screen.getByRole("switch").matches(":disabled, [aria-disabled=true]")).toBe(true);
     } finally {
       h.restore();
     }

@@ -10,6 +10,7 @@ import {
 } from "@internal/node-admin";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSetViewsEnabled } from "@/hooks/use-nodes";
+import { NodeViewReadiness } from "./node-view-readiness";
 
 /**
  * The node page's Preview switch, cloned from the SSH card's gate posture:
@@ -78,6 +79,7 @@ export function NodePreviewCard({ node }: { node: NodeDetail }) {
             {disabledReason}
           </p>
         )}
+        <NodeViewReadiness node={node} />
         {node.canManage && update.isPending && (
           <p id="node-views-disabled-reason" role="status" className="text-detail text-muted-foreground">
             {disabledReason}
