@@ -85,7 +85,7 @@ function NodePreviewFeatureCard({ node, feature }: { node: NodeDetail; feature: 
         {node.canManage ? (
           <p className="text-detail text-muted-foreground">
             {display
-              ? "Allow subshells to run graphical apps on a machine without a monitor. Choose Virtual display when starting a subshell to create one; enabling this setting alone starts nothing."
+              ? "Allow subshells to run graphical apps on a machine without a monitor."
               : "Authorized viewers can open web apps and saved services, and watch browsers in any subshell on this node. No per-subshell switch or virtual display is required. Turning this off prevents new connections; existing connections and subshells keep running."}
           </p>
         ) : (
