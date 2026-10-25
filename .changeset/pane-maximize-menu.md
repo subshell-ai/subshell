@@ -2,4 +2,4 @@
 "@internal/server": patch
 ---
 
-Move terminal pane maximization into its actions menu, keeping Restore visible while maximized.
+Remove the terminal tab bar’s standalone maximize control and action menu. Keep Restore available for maximized groups.

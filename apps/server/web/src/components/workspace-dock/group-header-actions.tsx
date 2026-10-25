@@ -1,21 +1,15 @@
 import { Button } from "@internal/node-admin";
 import type { IDockviewHeaderActionsProps } from "dockview-react";
-import { Maximize2, Minimize2, X } from "lucide-react";
+import { Minimize2, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { ActionsMenu } from "@/components/actions-menu";
 import { TranscriptSearch } from "@/components/transcript-search";
 import { useWorkspaceDockContext } from "@/components/workspace-dock/context";
 import { previewParentId } from "@/lib/workspace-preview";
 
 /**
- * `rightHeaderActionsComponent` for `<DockviewReact>`. Terminal groups keep
- * Maximize in their actions menu and show Restore while maximized, matching
- * the preview viewers. It is the one pane action with no room in a small
- * pane's own title bar — and, once the group is maximized, the heavier
- * chrome the tiling spec reserves for one enlarged subshell at a time:
- * Close and the transcript finder. (Close replaced the old Terminate/Delete
- * pair, spec 2026-09-03: the DELETE terminates a live process itself, so the
- * pane no longer needs a running/dead split here.)
+ * `rightHeaderActionsComponent` for `<DockviewReact>`. Normal terminal groups
+ * have no action menu. Maximized terminal groups retain Restore, Close and
+ * transcript search; preview viewers own their own controls.
  *
  * dockview creates one instance of this per group and keeps it attached to
  * that same group for its whole lifetime (unlike a panel, a group is never
@@ -47,11 +41,11 @@ export function GroupHeaderActions(props: IDockviewHeaderActionsProps) {
   // button wired to a missing addon would just silently do nothing.
   const search = pane ? (searchAddons.get(pane.id) ?? null) : null;
 
-  if (props.activePanel && previewParentId(props.activePanel.id)) return null;
+  if (!maximized || (props.activePanel && previewParentId(props.activePanel.id))) return null;
 
   return (
     <div className="flex items-center gap-2 px-2">
-      {maximized && pane && (
+      {pane && (
         <>
           <Button variant="destructive" size="sm" onClick={() => onCloseSubshell(pane.subshellId)}>
             <X className="h-3 w-3" /> Close
@@ -59,23 +53,17 @@ export function GroupHeaderActions(props: IDockviewHeaderActionsProps) {
           {search && <TranscriptSearch search={search} onClose={() => {}} />}
         </>
       )}
-      {maximized ? (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-6"
-          onClick={() => props.api.exitMaximized()}
-          aria-label="Restore group"
-          title="Restore"
-        >
-          <Minimize2 className="size-3" />
-        </Button>
-      ) : (
-        <ActionsMenu
-          label="Pane"
-          items={[{ label: "Maximize pane", icon: Maximize2, onSelect: () => props.api.maximize() }]}
-        />
-      )}
+
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-6"
+        onClick={() => props.api.exitMaximized()}
+        aria-label="Restore group"
+        title="Restore"
+      >
+        <Minimize2 className="size-3" />
+      </Button>
     </div>
   );
 }
