@@ -34,7 +34,7 @@ export function VirtualDisplayField({
         checked={checked}
         disabled={Boolean(reason)}
         onCheckedChange={onChange}
-        aria-describedby={reason ? `${id}-hint ${id}-reason` : `${id}-hint`}
+        aria-describedby={reason ? `${id}-hint ${id}-cost ${id}-reason` : `${id}-hint ${id}-cost`}
       />
       <Label htmlFor={id}>Virtual display</Label>
     </div>
@@ -63,8 +63,10 @@ export function VirtualDisplayField({
         control
       )}
       <p id={`${id}-hint`} className="text-detail text-muted-foreground">
-        Gives browsers and other graphical apps launched in this subshell a screen, even without a physical monitor. See
-        and control them from Apps &amp; screens → Virtual display.
+        Run graphical apps on a machine without a monitor.
+      </p>
+      <p id={`${id}-cost`} className="text-detail text-muted-foreground">
+        Uses extra memory and CPU. Not required for web app previews.
       </p>
       {reason && (
         <p id={`${id}-reason`} className="text-detail text-warning">
