@@ -199,7 +199,7 @@ export interface Node {
    * access rules. Optional on the mirror because a payload cached by a client
    * older than the field must keep typechecking, and absent reads closed.
    */
-  viewsEnabled?: boolean;
+  webPreviewsEnabled?: boolean;
   /** Whether subshells may request a virtual display on this node. */
   virtualDisplayEnabled?: boolean;
   /**

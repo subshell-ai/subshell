@@ -48,8 +48,8 @@ export function PreviewToolbar({
       ? "Ready to open in browser tab"
       : selected?.startsWith("app:")
         ? connection === "connected"
-          ? "App loaded"
-          : "Loading app…"
+          ? "Web preview loaded"
+          : "Loading web preview…"
         : selected === "browser"
           ? connection === "connected"
             ? "Live browser frames"

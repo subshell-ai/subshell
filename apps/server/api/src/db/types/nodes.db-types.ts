@@ -113,11 +113,11 @@ export interface NodeTable {
    * predates the column, so an upgrade leaves preview off everywhere until
    * the owner flips it: the flag exposes terminal content.
    */
-  previewEnabled: number;
+  webPreviewsEnabled: number;
   /** Independent permission to start and connect to virtual displays. */
   virtualDisplayEnabled: number;
   /**
-   * ISO 8601 of the write that last changed {@link previewEnabled} (the
+   * ISO 8601 of the write that last changed {@link webPreviewsEnabled} (the
    * wire's `changedAt`), or null when the flag was never written. The stamp
    * rides the flag on every push, the shape {@link sshEnabledAt} has for
    * SSH.

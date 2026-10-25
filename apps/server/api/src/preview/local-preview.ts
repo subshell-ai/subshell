@@ -24,13 +24,17 @@ import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
-import { getAnyPreviewEnabled, getPreviewEnabled, getVirtualDisplayEnabled } from "@/services/nodes/preview-enabled.js";
+import {
+  getAnyPreviewEnabled,
+  getVirtualDisplayEnabled,
+  getWebPreviewsEnabled,
+} from "@/services/nodes/preview-enabled.js";
 import { getLogger } from "@/utils/logger.js";
 
 export interface LocalPreviewDeps {
   dataDir: string;
   enabled: () => Promise<boolean>;
-  appsEnabled?: () => Promise<boolean>;
+  webPreviewsEnabled?: () => Promise<boolean>;
   displayEnabled?: () => Promise<boolean>;
   pane: (id: string) => Promise<SubshellTable | undefined>;
   panePid: (socket: string, id: string) => Promise<number | null>;
@@ -93,7 +97,7 @@ export class LocalPreviewRuntime {
     if (
       !(await (isScreen
         ? (this.deps.displayEnabled ?? this.deps.enabled)
-        : (this.deps.appsEnabled ?? this.deps.enabled))())
+        : (this.deps.webPreviewsEnabled ?? this.deps.enabled))())
     ) {
       this.refuse(isScreen ? "virtual-display-disabled" : "preview-node-off");
     }
@@ -151,7 +155,7 @@ export function getLocalPreviewRuntime(): LocalPreviewRuntime {
     runtime = new LocalPreviewRuntime({
       dataDir: SUBSHELL_SERVER_DATA_DIR,
       enabled: () => getAnyPreviewEnabled(LOCAL_NODE_ID),
-      appsEnabled: () => getPreviewEnabled(LOCAL_NODE_ID),
+      webPreviewsEnabled: () => getWebPreviewsEnabled(LOCAL_NODE_ID),
       displayEnabled: () => getVirtualDisplayEnabled(LOCAL_NODE_ID),
       pane: (id) => panes.findById(id),
       panePid: (socket, id) => tmux.panePid(socket, id),

@@ -59,7 +59,7 @@ export type PreviewEnabledRead =
   /** The mirror parsed and says yes: panes here may be watched. */
   | {
       kind: "on";
-      appsOn?: boolean;
+      webPreviewsOn?: boolean;
       displayOn?: boolean;
       /** The stored stamp, verbatim: `ready.previewEnabled` is built from it. */
       changedAt: string;
@@ -93,7 +93,7 @@ export function readPreviewEnabled(dataDir: string): PreviewEnabledRead {
       ? {
           kind: "on",
           changedAt: state.changedAt,
-          ...(state.appsOn === undefined ? {} : { appsOn: state.appsOn }),
+          ...(state.webPreviewsOn === undefined ? {} : { webPreviewsOn: state.webPreviewsOn }),
           ...(state.displayOn === undefined ? {} : { displayOn: state.displayOn }),
         }
       : { kind: "absent" };
@@ -143,7 +143,7 @@ export function reportablePreviewEnabled(read: PreviewEnabledRead): NodePreviewE
     return {
       on: true,
       changedAt: read.changedAt,
-      ...(read.appsOn === undefined ? {} : { appsOn: read.appsOn }),
+      ...(read.webPreviewsOn === undefined ? {} : { webPreviewsOn: read.webPreviewsOn }),
       ...(read.displayOn === undefined ? {} : { displayOn: read.displayOn }),
     };
   if (read.kind === "unreadable" && read.changedAt) return { on: false, changedAt: read.changedAt };
@@ -188,9 +188,9 @@ export function setPreviewEnabled(dataDir: string, state: NodePreviewEnabledWire
 }
 
 /** Separate feature gates, with legacy combined mirrors retaining their meaning. */
-export function getAppsEnabled(dataDir: string): boolean {
+export function getWebPreviewsEnabled(dataDir: string): boolean {
   const state = getPreviewEnabled(dataDir);
-  return state?.on === true && (state.appsOn ?? state.on);
+  return state?.on === true && (state.webPreviewsOn ?? state.on);
 }
 export function getVirtualDisplayEnabled(dataDir: string): boolean {
   const state = getPreviewEnabled(dataDir);

@@ -1370,7 +1370,7 @@ export function parseNodeSshEnabled(value: unknown): NodeSshEnabledWire | null {
  */
 export interface NodePreviewEnabledWire {
   /** Independent feature permissions; absent fields retain the legacy combined switch. */
-  appsOn?: boolean;
+  webPreviewsOn?: boolean;
   displayOn?: boolean;
   /** Transport allowance: at least one preview feature is enabled. */
   on: boolean;
@@ -1381,15 +1381,16 @@ export interface NodePreviewEnabledWire {
 /** A {@link NodePreviewEnabledWire}, or null when the value is not one. */
 export function parseNodePreviewEnabled(value: unknown): NodePreviewEnabledWire | null {
   if (!isRecord(value) || !isBool(value.on) || !isStr(value.changedAt)) return null;
+  const webPreviewsOn = value.webPreviewsOn;
   if (
-    (value.appsOn !== undefined && !isBool(value.appsOn)) ||
+    (webPreviewsOn !== undefined && !isBool(webPreviewsOn)) ||
     (value.displayOn !== undefined && !isBool(value.displayOn))
   )
     return null;
   return {
     on: value.on,
     changedAt: value.changedAt,
-    ...(value.appsOn === undefined ? {} : { appsOn: value.appsOn as boolean }),
+    ...(webPreviewsOn === undefined ? {} : { webPreviewsOn: webPreviewsOn as boolean }),
     ...(value.displayOn === undefined ? {} : { displayOn: value.displayOn as boolean }),
   };
 }
@@ -1697,7 +1698,7 @@ export interface PreviewPortsGetCommand {
 
 /** The per-machine owner switch, plane sole author. Mirrors set_ssh_enabled's shape (decision 5). */
 export interface SetPreviewEnabledCommand {
-  appsOn?: boolean;
+  webPreviewsOn?: boolean;
   displayOn?: boolean;
   type: "set_preview_enabled";
   on: boolean;

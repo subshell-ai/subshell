@@ -953,8 +953,8 @@ check must repeat view-only port restrictions after an edit-to-view downgrade.
 Preview transport senders check buffered bytes before sealing; a failed sealed
 write closes the link because secretstream frames cannot be skipped.
 
-Apps & screens REST resources use `/api/subshells/:id/views` (discovery),
+Web previews & screens REST resources use `/api/subshells/:id/views` (discovery),
 `/views/open`, and `/views/browser/watch`. Node responses map the stored
-`previewEnabled` flag to `viewsEnabled`; the setting is `/views-enabled` and
+`previewEnabled` flag to `webPreviewsEnabled`; the setting is `/views-enabled` and
 the prerequisite probe is `/display-readiness`. Persisted grants, audit and node
 wire identifiers remain stable; see the naming section in the architecture guide.

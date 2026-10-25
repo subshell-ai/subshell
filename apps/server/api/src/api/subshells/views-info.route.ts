@@ -4,7 +4,7 @@ import { gatePreview, previewNodeState } from "@/api/subshells/preview-gate.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
-import { getPreviewEnabled, getVirtualDisplayEnabled } from "@/services/nodes/preview-enabled.js";
+import { getVirtualDisplayEnabled, getWebPreviewsEnabled } from "@/services/nodes/preview-enabled.js";
 import { PREVIEW_PORTS_UNSUPPORTED } from "@/services/nodes/preview-refusals.js";
 import { getPreviewBroker } from "@/services/preview-broker.js";
 
@@ -50,7 +50,7 @@ const PreviewInfoResponseSchema = t.Object({
       description: "Set only beside screen null: which display process died since the pane launched",
     }),
   ),
-  appsEnabled: t.Optional(t.Boolean()),
+  webPreviewsEnabled: t.Optional(t.Boolean()),
   virtualDisplayEnabled: t.Optional(t.Boolean()),
   nodeEnabled: t.Boolean({
     description: "Whether the pane's NODE can serve preview right now (switch, gates, link), not the pane",
@@ -102,7 +102,7 @@ export const viewsInfoRoute = new Elysia()
       const nodeId = row.nodeId;
       const nodeState = {
         ...(await previewNodeState(nodeId, "any")),
-        appsEnabled: await getPreviewEnabled(nodeId),
+        webPreviewsEnabled: await getWebPreviewsEnabled(nodeId),
         virtualDisplayEnabled: await getVirtualDisplayEnabled(nodeId),
       };
       // A pane that is not running is answered route-side, with no RPC:
@@ -126,8 +126,8 @@ export const viewsInfoRoute = new Elysia()
         const remembered =
           answer.screen === null && answer.screenLost === undefined ? broker.displayForPane(params.id) : null;
         return {
-          ports: nodeState.appsEnabled ? answer.ports : [],
-          cdpPort: nodeState.appsEnabled ? answer.cdpPort : null,
+          ports: nodeState.webPreviewsEnabled ? answer.ports : [],
+          cdpPort: nodeState.webPreviewsEnabled ? answer.cdpPort : null,
           screen: nodeState.virtualDisplayEnabled
             ? remembered && remembered.nodeId === nodeId
               ? remembered.screen

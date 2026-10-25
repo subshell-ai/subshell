@@ -39,22 +39,22 @@ export function nodeReasonLine(reason: string | undefined): string {
   switch (reason) {
     case "virtual-display-disabled":
       return "Virtual displays are disabled in this node’s settings.";
-    case "apps-disabled":
-      return "Apps and browsers are disabled in this node’s settings.";
+    case "web-previews-disabled":
+      return "Web previews are disabled in this node’s settings.";
     case "preview-ports-unsupported":
       return "This machine doesn’t support automatic port discovery or browser watching. Add a service by port instead. Virtual screens need Linux.";
     case "preview-disabled":
-      return "Apps & screens is switched off on this node. Its owner can turn it on in node settings.";
+      return "Web previews & screens is switched off on this node. Its owner can turn it on in node settings.";
     case "node-held":
-      return "This node needs attention before it can serve apps and screens. Check its status in node settings.";
+      return "This node needs attention before it can serve web previews and screens. Check its status in node settings.";
     case "node-too-old":
-      return "Update Subshell on this node to use apps and screens.";
+      return "Update Subshell on this node to use web previews and screens.";
     case "node-offline":
-      return "This node is offline. Reconnect it to open apps and screens.";
+      return "This node is offline. Reconnect it to open web previews and screens.";
     case "node-timeout":
       return "The node didn't answer the view discovery request in time. Try again in a moment.";
     default:
-      return `The node can't serve apps and screens right now${reason ? ` (${reason})` : ""}.`;
+      return `The node can't serve web previews and screens right now${reason ? ` (${reason})` : ""}.`;
   }
 }
 
@@ -92,8 +92,8 @@ export function PortList({
       ? OPEN_VIEW_REASON
       : busy
         ? "Opening the selected view…"
-        : !info.nodeEnabled || info.appsEnabled === false
-          ? nodeReasonLine(info.appsEnabled === false ? "apps-disabled" : info.reason)
+        : !info.nodeEnabled || info.webPreviewsEnabled === false
+          ? nodeReasonLine(info.webPreviewsEnabled === false ? "web-previews-disabled" : info.reason)
           : undefined;
   // Access first, the node switch second, the layout last: on a phone with a
   // dead node the switch's remedy still reads true, and it is only once the
@@ -112,9 +112,9 @@ export function PortList({
   // Watch must explain itself like its siblings, not sit mute.
   const watchReason = busy
     ? "Opening the selected view…"
-    : info.nodeEnabled && info.appsEnabled !== false
+    : info.nodeEnabled && info.webPreviewsEnabled !== false
       ? undefined
-      : nodeReasonLine(info.appsEnabled === false ? "apps-disabled" : info.reason);
+      : nodeReasonLine(info.webPreviewsEnabled === false ? "web-previews-disabled" : info.reason);
 
   if (rows.length === 0 && info.cdpPort === null && info.screen === null && info.screenLost === undefined) return null;
 
@@ -140,7 +140,7 @@ export function PortList({
           <div key={`${p.proto}:${p.port}`} className="flex items-center justify-between gap-3 py-1">
             <div className="flex min-w-0 flex-col">
               <span className="font-strong text-label">
-                {compact ? `App · ${p.port}` : p.port}{" "}
+                {compact ? `Web preview · ${p.port}` : p.port}{" "}
                 {!compact && (
                   <Badge variant="secondary" className="ml-1 text-detail">
                     {browser ? "Browser" : "Port"}
@@ -161,7 +161,7 @@ export function PortList({
                 disabledReason={openReason}
                 onClick={() => onOpen(p.port)}
               >
-                Open app
+                Open web preview
               </Button>
               {browser &&
                 (watching ? (
@@ -293,7 +293,9 @@ function CompactPreviewChoices({
   const [query, setQuery] = useState("");
   const large = rows.length + Number(Boolean(info.screen)) + Number(info.cdpPort != null) > 6 || query.length > 0;
   const term = query.trim().toLowerCase();
-  const apps = [...rows].sort((a, b) => a.port - b.port).filter((row) => `app port ${row.port}`.includes(term));
+  const webPreviews = [...rows]
+    .sort((a, b) => a.port - b.port)
+    .filter((row) => `web preview port ${row.port}`.includes(term));
   const screen = info.screen && "virtual display screen".includes(term);
   const browser = info.cdpPort != null && `browser watch ${info.cdpPort}`.includes(term);
   const special = (
@@ -319,7 +321,7 @@ function CompactPreviewChoices({
           <Search className="pointer-events-none absolute top-2.5 left-3 size-4 text-muted-foreground" aria-hidden />
           <Input
             type="search"
-            aria-label="Find an app or screen"
+            aria-label="Find a web preview or screen"
             placeholder="Find a port or view…"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -330,23 +332,23 @@ function CompactPreviewChoices({
       {large && (screen || browser) && <div className="shrink-0 rounded-md border p-1">{special}</div>}
       {large && (
         <p role="status" className="text-detail text-muted-foreground">
-          {term ? `${apps.length} of ${rows.length} apps` : `${rows.length} apps`}
+          {term ? `${webPreviews.length} of ${rows.length} web previews` : `${rows.length} web previews`}
         </p>
       )}
-      {apps.length > 0 && (
+      {webPreviews.length > 0 && (
         <div
           className={cn(
             "flex flex-col",
             large ? "max-h-[40dvh] gap-0.5 overflow-y-auto overscroll-contain rounded-md border p-1" : "gap-0.5",
           )}
         >
-          {apps.map((row) => (
+          {webPreviews.map((row) => (
             <PreviewOption
               key={row.port}
               icon={Globe}
-              label="App"
+              label="Web preview"
               port={row.port}
-              action={`Open app on port ${row.port}`}
+              action={`Open web preview on port ${row.port}`}
               reason={openReason}
               onClick={() => onOpen(row.port)}
             />
@@ -354,9 +356,9 @@ function CompactPreviewChoices({
         </div>
       )}
       {!large && special}
-      {term && !apps.length && !screen && !browser && (
+      {term && !webPreviews.length && !screen && !browser && (
         <p role="status" className="py-3 text-detail text-muted-foreground">
-          No matching apps or screens.
+          No matching web previews or screens.
         </p>
       )}
       {!info.screen && info.screenLost !== undefined && (

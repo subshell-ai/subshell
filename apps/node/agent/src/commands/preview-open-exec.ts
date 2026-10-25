@@ -5,7 +5,7 @@ import {
   PREVIEW_WATCH_FPS_DEFAULT,
 } from "@internal/subshell-protocol";
 import { type BridgeDeps, bridgeCount, startBridge } from "../preview/cdp-bridge.js";
-import { getAppsEnabled, getPreviewEnabled, getVirtualDisplayEnabled } from "../preview/flags.js";
+import { getPreviewEnabled, getVirtualDisplayEnabled, getWebPreviewsEnabled } from "../preview/flags.js";
 import type { LaneDeps } from "../preview/forward.js";
 import { resolveSocket } from "./basics.js";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
@@ -84,7 +84,7 @@ export async function execPreviewOpen(
   if (cmd.kind !== "forward" && cmd.kind !== "screencast") return { ok: false, error: "unsupported" };
   const isScreen =
     cmd.kind === "forward" && !cmd.service && ctx.previewDisplays?.getFor(cmd.paneId)?.rfbPort === cmd.port;
-  if (isScreen ? !getVirtualDisplayEnabled(ctx.config.dataDir) : !getAppsEnabled(ctx.config.dataDir)) {
+  if (isScreen ? !getVirtualDisplayEnabled(ctx.config.dataDir) : !getWebPreviewsEnabled(ctx.config.dataDir)) {
     return { ok: false, error: isScreen ? "virtual-display-disabled" : PREVIEW_NODE_OFF };
   }
   const forward = ctx.previewForward;

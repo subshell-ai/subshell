@@ -211,7 +211,7 @@ export function useDeleteSetupKey() {
 export function useSetViewsEnabled() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, on, feature }: { id: string; on: boolean; feature?: "apps" | "display" }) =>
+    mutationFn: ({ id, on, feature }: { id: string; on: boolean; feature?: "web-previews" | "display" }) =>
       apiFetch(`/api/nodes/${encodeURIComponent(id)}/views-enabled`, {
         method: "PUT",
         body: JSON.stringify({ on, feature }),

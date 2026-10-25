@@ -38,7 +38,7 @@ function node(over: Partial<NodeDetail> = {}): NodeDetail {
     maintenanceSource: null,
     sshEnabled: false,
     sshWideForwards: false,
-    viewsEnabled: false,
+    webPreviewsEnabled: false,
     held: null,
     ...over,
   } as NodeDetail;
@@ -61,7 +61,7 @@ function mount(
     if (url.pathname.endsWith("/display-readiness")) {
       return Promise.resolve(new Response(JSON.stringify(readiness.body), { status: readiness.status ?? 200 }));
     }
-    return Promise.resolve(new Response(JSON.stringify({ ...n, viewsEnabled: true })));
+    return Promise.resolve(new Response(JSON.stringify({ ...n, webPreviewsEnabled: true })));
   }) as typeof fetch;
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const view = render(
@@ -80,9 +80,9 @@ afterEach(() => cleanup());
 
 describe("the Preview switch", () => {
   it("reflects the stored flag and asks the route when flipped", async () => {
-    const h = mount(node({ viewsEnabled: false }));
+    const h = mount(node({ webPreviewsEnabled: false }));
     try {
-      const toggle = screen.getByRole("switch", { name: /allow apps and browsers/i });
+      const toggle = screen.getByRole("switch", { name: /allow web previews/i });
       // Cast-and-read, this repo's convention (Base UI wears aria-checked and
       // aria-disabled; there is no jest-dom dependency here).
       expect(toggle.getAttribute("aria-checked")).toBe("false");
@@ -93,7 +93,7 @@ describe("the Preview switch", () => {
       );
       expect(h.calls.find((c) => c.method === "PUT" && c.url === "/api/nodes/node1/views-enabled")?.body).toEqual({
         on: true,
-        feature: "apps",
+        feature: "web-previews",
       });
     } finally {
       h.restore();
@@ -101,11 +101,9 @@ describe("the Preview switch", () => {
   });
 
   it("a checked switch mirrors the stored on-state", () => {
-    const h = mount(node({ viewsEnabled: true }));
+    const h = mount(node({ webPreviewsEnabled: true }));
     try {
-      expect(screen.getByRole("switch", { name: /allow apps and browsers/i }).getAttribute("aria-checked")).toBe(
-        "true",
-      );
+      expect(screen.getByRole("switch", { name: /allow web previews/i }).getAttribute("aria-checked")).toBe("true");
     } finally {
       h.restore();
     }
@@ -115,7 +113,7 @@ describe("the Preview switch", () => {
     const h = mount(node({ canManage: false, access: "edit" }));
     try {
       expect(
-        screen.getByRole("switch", { name: /allow apps and browsers/i }).matches(":disabled, [aria-disabled=true]"),
+        screen.getByRole("switch", { name: /allow web previews/i }).matches(":disabled, [aria-disabled=true]"),
       ).toBe(true);
       expect(screen.getAllByText(/only this node/i)[0]).toBeTruthy();
     } finally {
@@ -137,7 +135,7 @@ describe("node view prerequisites", () => {
   it("explains disabled features without probing the node", () => {
     const h = mount(node());
     try {
-      expect(screen.getByText("Apps and browsers are disabled on this node.")).toBeTruthy();
+      expect(screen.getByText("Web previews are disabled on this node.")).toBeTruthy();
       expect(h.calls).toHaveLength(0);
     } finally {
       h.restore();
@@ -146,7 +144,7 @@ describe("node view prerequisites", () => {
 
   it("shows missing requirements and clears the warning after a successful recheck", async () => {
     const readiness = { body: { supported: true, missing: ["xauth"] } };
-    const h = mount(node({ viewsEnabled: true, virtualDisplayEnabled: true }), readiness);
+    const h = mount(node({ webPreviewsEnabled: true, virtualDisplayEnabled: true }), readiness);
     try {
       const guide = await screen.findByRole("link", { name: "Set up virtual display" });
       expect(guide.getAttribute("href")).toBe("https://docs.subshell.sh/guides/preview#use-a-virtual-display-on-linux");
@@ -163,7 +161,7 @@ describe("node view prerequisites", () => {
   });
 
   it("explains unsupported features while keeping saved services available", () => {
-    const h = mount(node({ viewsEnabled: true, virtualDisplayEnabled: true, os: "darwin" }));
+    const h = mount(node({ webPreviewsEnabled: true, virtualDisplayEnabled: true, os: "darwin" }));
     try {
       expect(screen.getByText(/Automatic app discovery and browser watching require Linux/)).toBeTruthy();
       expect(screen.getByText("Virtual displays are available on Linux machines only.")).toBeTruthy();
@@ -176,7 +174,7 @@ describe("node view prerequisites", () => {
   it("shows a failed check and lets a read-only viewer retry it", async () => {
     const readiness = { body: { message: "Bring this node online, then recheck." } as unknown, status: 409 };
     const h = mount(
-      node({ viewsEnabled: true, virtualDisplayEnabled: true, canManage: false, access: "view" }),
+      node({ webPreviewsEnabled: true, virtualDisplayEnabled: true, canManage: false, access: "view" }),
       readiness,
     );
     try {
@@ -196,9 +194,9 @@ describe("node view prerequisites", () => {
 });
 
 it("apps need no display prerequisites and display has its own switch", async () => {
-  const h = mount(node({ viewsEnabled: true, virtualDisplayEnabled: false }));
+  const h = mount(node({ webPreviewsEnabled: true, virtualDisplayEnabled: false }));
   try {
-    expect(screen.getByRole("switch", { name: "Allow apps and browsers" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("switch", { name: "Allow web previews" }).getAttribute("aria-checked")).toBe("true");
     const display = screen.getByRole("switch", { name: "Allow virtual displays" });
     expect(display.getAttribute("aria-checked")).toBe("false");
     expect(h.calls).toHaveLength(0);

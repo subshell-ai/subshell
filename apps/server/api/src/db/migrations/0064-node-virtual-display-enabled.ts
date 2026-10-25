@@ -6,7 +6,7 @@ export async function up(db: Kysely<any>): Promise<void> {
     .addColumn("virtual_display_enabled", "integer", (col) => col.notNull().defaultTo(0))
     .execute();
   // Preserve the permission existing owners granted with the combined switch.
-  await sql`update nodes set virtual_display_enabled = preview_enabled`.execute(db);
+  await sql`update nodes set virtual_display_enabled = web_previews_enabled`.execute(db);
 }
 
 export async function down(db: Kysely<any>): Promise<void> {

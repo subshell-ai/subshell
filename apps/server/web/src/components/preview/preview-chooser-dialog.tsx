@@ -21,7 +21,7 @@ export function PreviewChooserDialog({ subshellId, onClose }: { subshellId: stri
     >
       <DialogContent className="max-h-[85dvh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Open app or screen</DialogTitle>
+          <DialogTitle>Open web preview or screen</DialogTitle>
         </DialogHeader>
         {!info && !preview.error && <p className="text-detail text-muted-foreground">Checking available views…</p>}
         {preview.error && (
@@ -55,9 +55,9 @@ export function PreviewChooserDialog({ subshellId, onClose }: { subshellId: stri
                 ? "Opening a service needs edit access to this subshell."
                 : subshell.status !== "running" || !subshell.alive
                   ? "Restart this subshell to open its saved services."
-                  : !info?.nodeEnabled || info.appsEnabled === false
+                  : !info?.nodeEnabled || info.webPreviewsEnabled === false
                     ? info
-                      ? nodeReasonLine(info.appsEnabled === false ? "apps-disabled" : info.reason)
+                      ? nodeReasonLine(info.webPreviewsEnabled === false ? "web-previews-disabled" : info.reason)
                       : "Checking this node…"
                     : undefined
             }

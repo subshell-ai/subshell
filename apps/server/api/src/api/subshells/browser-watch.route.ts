@@ -52,7 +52,10 @@ export const browserWatchRoute = new Elysia()
       const { row, access } = await gatePreview(user.id, params.id, "view", actor);
       const nodeState = await previewNodeState(row.nodeId);
       if (!nodeState.nodeEnabled) {
-        throw new HttpError(409, `Apps & screens is not available on that node right now (${nodeState.reason}).`);
+        throw new HttpError(
+          409,
+          `Web previews & screens is not available on that node right now (${nodeState.reason}).`,
+        );
       }
       const broker = getPreviewBroker();
       let port = body.port;
@@ -137,7 +140,10 @@ export const browserWatchRoute = new Elysia()
           // `unsupported`: the connected agent predates the preview command
           // (a stale SPA POSTs a watch to an older node). Same remedy as
           // open's: update the node.
-          throw new HttpError(409, "That node does not support apps and screens yet. Update the node, then retry.");
+          throw new HttpError(
+            409,
+            "That node does not support web previews and screens yet. Update the node, then retry.",
+          );
         }
         throw err;
       }

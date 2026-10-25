@@ -6,7 +6,11 @@ import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import { type Access, accessAtLeast, loadSubshellAccess } from "@/lib/subshell-access.js";
 import { accountDisabled } from "@/services/account-status.js";
 import { getHeld, isNodeOffline } from "@/services/nodes/node-registry.js";
-import { getAnyPreviewEnabled, getPreviewEnabled, getVirtualDisplayEnabled } from "@/services/nodes/preview-enabled.js";
+import {
+  getAnyPreviewEnabled,
+  getVirtualDisplayEnabled,
+  getWebPreviewsEnabled,
+} from "@/services/nodes/preview-enabled.js";
 
 /**
  * The shared door for the three preview routes. It mirrors the subshell
@@ -52,14 +56,14 @@ export interface PreviewNodeState {
 /** The node-side truth for one machine: switch off, held, gone, or healthy. */
 export async function previewNodeState(
   nodeId: string,
-  feature: "apps" | "display" | "any" = "apps",
+  feature: "web-previews" | "display" | "any" = "web-previews",
 ): Promise<PreviewNodeState> {
   if (
     !(await (feature === "display"
       ? getVirtualDisplayEnabled
       : feature === "any"
         ? getAnyPreviewEnabled
-        : getPreviewEnabled)(nodeId))
+        : getWebPreviewsEnabled)(nodeId))
   ) {
     return { nodeEnabled: false, reason: "preview-disabled" };
   }
@@ -82,15 +86,15 @@ export async function recheckPreviewOpen(
   nodeId: string,
   min: "view" | "edit",
   actor: GuardActor,
-  feature: "apps" | "display" = "apps",
+  feature: "web-previews" | "display" = "web-previews",
 ): Promise<Access> {
   if (await accountDisabled(db, viewerId)) throw new HttpError(401, "Your account is no longer available.");
   const { row, access } = await gatePreview(viewerId, paneId, min, actor);
   if (row.nodeId !== nodeId || row.status !== "running" || row.alive !== 1) {
-    throw new HttpError(409, "This subshell is no longer running. Open Apps & screens after restarting it.");
+    throw new HttpError(409, "This subshell is no longer running. Open Web previews & screens after restarting it.");
   }
   if (!(await previewNodeState(nodeId, feature)).nodeEnabled) {
-    throw new HttpError(409, "Apps & screens is no longer available on this node.");
+    throw new HttpError(409, "Web previews & screens is no longer available on this node.");
   }
   return access;
 }

@@ -201,13 +201,13 @@ Key rotation replaces the node credential and clears the server-side encryption 
 
 ## Preview transport
 
-Apps & screens uses protocol 24's existing signed-command and encrypted-frame paths.
+Web previews & screens uses protocol 24's existing signed-command and encrypted-frame paths.
 It does not open an inbound public port on the node. The server's built-in node
 runs the same preview primitives in process rather than sending node commands.
 
 | Message | Purpose |
 | --- | --- |
-| `set_preview_enabled` | Apply server-owned preview permissions and the change timestamp. `on` enables the transport; optional `appsOn` and `displayOn` distinguish apps/browser access from virtual displays. When omitted, each inherits `on` for compatibility. |
+| `set_preview_enabled` | Apply server-owned preview permissions and the change timestamp. `on` enables the transport; optional `webPreviewsOn` and `displayOn` distinguish web-preview access from virtual displays. When omitted, each inherits `on` for compatibility. |
 | `preview_display_check` | Check Linux display support and required binaries before launch. |
 | `preview_ports_get` | Report listeners under a subshell's process tree, its CDP port, and display metadata. |
 | `preview_open` | Start a loopback TCP forward or CDP screencast for a subshell, port, reference, and bounded lifetime. Forward lanes may include `service: { host, protocol }` for a saved HTTP(S) destination. |
@@ -236,12 +236,12 @@ preview opens per node, independently of active lane capacity.
 Forward sessions expire after 15 minutes without traffic. Individual lanes and
 bridges have a four-hour maximum lifetime. Close reasons include `viewer-left`,
 `pane-gone`, `node-dropped`, `slow-link`, `over-cap`, `idle`, `revoked`, `not-cdp`,
-and `target-gone`. Switching Apps & screens off prevents new operations rather than
+and `target-gone`. Switching Web previews & screens off prevents new operations rather than
 immediately draining existing connections.
 If an open reply times out or is malformed, the server attempts to close the
 allocated reference; it doesn't assume the node failed to create the resource.
 
-See [Preview architecture](/concepts/architecture#preview-apps-and-screens) and
+See [Preview architecture](/concepts/architecture#web-previews-and-virtual-displays) and
 [Preview security](/concepts/security#preview-security) for the browser isolation,
 access, capability-link, and local-machine boundaries.
 

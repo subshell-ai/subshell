@@ -12,7 +12,7 @@ test("a service outside the subshell saves, opens without a display, survives re
   let subshellId: string | undefined;
   let workspaceId: string | undefined;
   const nodes = await (await request.get("/api/nodes")).json();
-  const wasEnabled = nodes.nodes.find((n: { id: string }) => n.id === "local")?.viewsEnabled;
+  const wasEnabled = nodes.nodes.find((n: { id: string }) => n.id === "local")?.webPreviewsEnabled;
   try {
     server = createServer((req, res) => {
       res.setHeader("Content-Type", "text/html");
@@ -30,7 +30,7 @@ test("a service outside the subshell saves, opens without a display, survives re
     expect(workspace.ok()).toBe(true);
     workspaceId = (await workspace.json()).id;
     await page.goto(`/workspaces/${workspaceId}`);
-    await page.getByRole("button", { name: "Open app or screen", exact: true }).click();
+    await page.getByRole("button", { name: "Open web preview or screen", exact: true }).click();
     await page.getByRole("button", { name: "Add service", exact: true }).click();
     await page.getByLabel("Port", { exact: true }).fill(String(port));
     await page.getByLabel("Name (optional)").fill("External website");
@@ -43,7 +43,7 @@ test("a service outside the subshell saves, opens without a display, survives re
     if (!frame) throw new Error("Saved service iframe missing");
     const proxy = frame.url();
     await page.reload({ waitUntil: "domcontentloaded" });
-    await page.getByRole("button", { name: "Open app or screen", exact: true }).click();
+    await page.getByRole("button", { name: "Open web preview or screen", exact: true }).click();
     await expect(page.getByRole("button", { name: /External website.*http:\/\/localhost/ })).toBeVisible();
     await page.getByRole("button", { name: "Remove External website", exact: true }).click();
     await expect(page.getByRole("button", { name: /External website.*http:\/\/localhost/ })).toHaveCount(0);

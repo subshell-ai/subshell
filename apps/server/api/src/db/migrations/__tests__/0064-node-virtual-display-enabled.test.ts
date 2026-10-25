@@ -7,7 +7,7 @@ import { down, up } from "../0064-node-virtual-display-enabled.js";
 it("preserves the old combined grant but defaults newly enrolled nodes off", async () => {
   const db = new Kysely<any>({ dialect: new BunSqliteDialect({ database: new Database(":memory:") }) });
   try {
-    await sql`create table nodes (id text, preview_enabled integer not null default 0)`.execute(db);
+    await sql`create table nodes (id text, web_previews_enabled integer not null default 0)`.execute(db);
     await sql`insert into nodes values ('enabled', 1), ('disabled', 0)`.execute(db);
     await up(db);
     await sql`insert into nodes (id) values ('new')`.execute(db);

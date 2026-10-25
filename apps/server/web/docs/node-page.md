@@ -1,6 +1,6 @@
 # A node's page: structure, gates, maintenance
 
-The Apps & screens card keeps the node's combined opt-in switch visible to all
+The Web previews & screens card keeps the node's combined opt-in switch visible to all
 viewers, with changes restricted to the owner (an admin for the built-in node).
 When enabled, it uses `useNodeDisplayReadiness`, shared with the new-subshell
 dialog, to show missing prerequisites, setup guidance, and Recheck. Platform

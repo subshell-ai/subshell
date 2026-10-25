@@ -19,9 +19,9 @@ import { maybeReportPreviewEnabled, seedPreviewEnabledMemo } from "../commands/r
 import type { NodeConfig } from "../config.js";
 import { PreviewDisplays } from "../preview/display.js";
 import {
-  getAppsEnabled,
   getPreviewEnabled,
   getVirtualDisplayEnabled,
+  getWebPreviewsEnabled,
   previewEnabledPath,
   readPreviewEnabled,
   reportablePreviewEnabled,
@@ -322,18 +322,18 @@ it.each([
   [false, true],
   [true, true],
   [false, false],
-])("preserves independent apps %s and display %s permissions", (appsOn, displayOn) => {
+])("preserves independent apps %s and display %s permissions", (webPreviewsOn, displayOn) => {
   const dataDir = freshDataDir();
-  const state = { on: appsOn || displayOn, appsOn, displayOn, changedAt: STAMP };
+  const state = { on: webPreviewsOn || displayOn, webPreviewsOn, displayOn, changedAt: STAMP };
   setPreviewEnabled(dataDir, state);
-  expect(getAppsEnabled(dataDir)).toBe(appsOn);
+  expect(getWebPreviewsEnabled(dataDir)).toBe(webPreviewsOn);
   expect(getVirtualDisplayEnabled(dataDir)).toBe(displayOn);
   if (state.on) expect(getPreviewEnabled(dataDir)).toEqual(state);
 });
 
 it("display permission does not authorize app forwarding or browser watching", async () => {
   const dataDir = freshDataDir();
-  setPreviewEnabled(dataDir, { on: true, appsOn: false, displayOn: true, changedAt: STAMP });
+  setPreviewEnabled(dataDir, { on: true, webPreviewsOn: false, displayOn: true, changedAt: STAMP });
   const ctx = makeCtx(dataDir);
   for (const kind of ["forward", "screencast"] as const) {
     const result = await execPreviewOpen(ctx, {
@@ -352,7 +352,7 @@ it("display permission does not authorize app forwarding or browser watching", a
 
 it("app permission does not authorize an existing virtual display connection", async () => {
   const dataDir = freshDataDir();
-  setPreviewEnabled(dataDir, { on: true, appsOn: true, displayOn: false, changedAt: STAMP });
+  setPreviewEnabled(dataDir, { on: true, webPreviewsOn: true, displayOn: false, changedAt: STAMP });
   const ctx = makeCtx(dataDir);
   ctx.previewDisplays = new PreviewDisplays(dataDir);
   const screen = spyOn(ctx.previewDisplays, "getFor").mockReturnValue({ display: ":90", rfbPort: 5910 });

@@ -16,7 +16,7 @@ test("preview documents isolate dashboard authority while modules, POST and WS k
   test.setTimeout(90000);
   const project = mkdtempSync(path.join(tmpdir(), "preview-browser-check-"));
   const nodes = await (await request.get("/api/nodes")).json();
-  const wasEnabled = nodes.nodes.find((node: { id: string }) => node.id === "local")?.viewsEnabled;
+  const wasEnabled = nodes.nodes.find((node: { id: string }) => node.id === "local")?.webPreviewsEnabled;
   let subshellId: string | undefined;
   try {
     writePreviewProject(project);
@@ -51,8 +51,8 @@ test("preview documents isolate dashboard authority while modules, POST and WS k
     const workspace = await request.post("/api/workspaces", { data: { name: "Preview isolation", subshellId } });
     expect(workspace.ok()).toBe(true);
     await page.goto(`/workspaces/${(await workspace.json()).id}`);
-    await page.getByRole("button", { name: "Apps & screens", exact: true }).click();
-    await page.getByRole("button", { name: `Open app on port ${port}` }).click();
+    await page.getByRole("button", { name: "Web previews & screens", exact: true }).click();
+    await page.getByRole("button", { name: `Open web preview on port ${port}` }).click();
     await expect(
       page.frameLocator("iframe").getByRole("heading", { name: "Small teams. Considered websites." }),
     ).toBeVisible();

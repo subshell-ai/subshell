@@ -57,42 +57,44 @@ describe("migration 0062-node-preview-enabled", () => {
   it("adds the two columns", async () => {
     const cols = await sql<{ name: string }>`SELECT name FROM pragma_table_info('nodes')`.execute(db);
     const names = cols.rows.map((c) => c.name);
-    expect(names).toContain("preview_enabled");
+    expect(names).toContain("web_previews_enabled");
     expect(names).toContain("preview_enabled_at");
   });
 
   it("leaves every pre-existing node with preview off (default-off doctrine)", async () => {
     const r = await sql<{
-      preview_enabled: number;
+      web_previews_enabled: number;
       preview_enabled_at: string | null;
-    }>`SELECT preview_enabled, preview_enabled_at FROM nodes WHERE id = 'pre-existing'`.execute(db);
-    expect(r.rows[0]).toEqual({ preview_enabled: 0, preview_enabled_at: null });
+    }>`SELECT web_previews_enabled, preview_enabled_at FROM nodes WHERE id = 'pre-existing'`.execute(db);
+    expect(r.rows[0]).toEqual({ web_previews_enabled: 0, preview_enabled_at: null });
   });
 
   it("defaults a row written without the columns to 0", async () => {
     await legacyNode("fresh");
-    const r = await sql<{ preview_enabled: number }>`SELECT preview_enabled FROM nodes WHERE id = 'fresh'`.execute(db);
-    expect(r.rows[0].preview_enabled).toBe(0);
+    const r = await sql<{
+      web_previews_enabled: number;
+    }>`SELECT web_previews_enabled FROM nodes WHERE id = 'fresh'`.execute(db);
+    expect(r.rows[0].web_previews_enabled).toBe(0);
   });
 
   it("stores the flag with its stamp", async () => {
     await db
       .updateTable("nodes")
-      .set({ preview_enabled: 1, preview_enabled_at: "2026-10-21T10:00:00.000Z" })
+      .set({ web_previews_enabled: 1, preview_enabled_at: "2026-10-21T10:00:00.000Z" })
       .where("id", "=", "fresh")
       .execute();
     const r = await sql<{
-      preview_enabled: number;
+      web_previews_enabled: number;
       preview_enabled_at: string;
-    }>`SELECT preview_enabled, preview_enabled_at FROM nodes WHERE id = 'fresh'`.execute(db);
-    expect(r.rows[0]).toEqual({ preview_enabled: 1, preview_enabled_at: "2026-10-21T10:00:00.000Z" });
+    }>`SELECT web_previews_enabled, preview_enabled_at FROM nodes WHERE id = 'fresh'`.execute(db);
+    expect(r.rows[0]).toEqual({ web_previews_enabled: 1, preview_enabled_at: "2026-10-21T10:00:00.000Z" });
   });
 
   it("down removes both columns and leaves the rows", async () => {
     await previewEnabledMigration.down(db);
     const cols = await sql<{ name: string }>`SELECT name FROM pragma_table_info('nodes')`.execute(db);
     const names = cols.rows.map((c) => c.name);
-    expect(names).not.toContain("preview_enabled");
+    expect(names).not.toContain("web_previews_enabled");
     expect(names).not.toContain("preview_enabled_at");
     const left = await sql<{ id: string }>`SELECT id FROM nodes ORDER BY id`.execute(db);
     expect(left.rows.map((r) => r.id)).toEqual(["fresh", "pre-existing"]);

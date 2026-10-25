@@ -252,7 +252,7 @@ export function PreviewSection({
     if (resumed.current || !initialView || !info?.nodeEnabled || (info.reason && initialView.kind !== "service"))
       return;
     if (initialView.kind === "screen" && (!info.screen || info.virtualDisplayEnabled === false)) return;
-    if (initialView.kind !== "screen" && info.appsEnabled === false) return;
+    if (initialView.kind !== "screen" && info.webPreviewsEnabled === false) return;
     // Wait until mount effects settle, so StrictMode's replay cannot consume
     // the shortcut while invalidating its in-flight viewer request.
     let cancelled = false;
@@ -284,7 +284,7 @@ export function PreviewSection({
 
   return (
     <section
-      aria-label="Apps & screens"
+      aria-label="Web previews & screens"
       ref={sectionRef}
       className={cn(
         "flex min-h-0 shrink-0 flex-col bg-card",
@@ -315,7 +315,7 @@ export function PreviewSection({
         )
       ) : (
         <div className="flex shrink-0 flex-wrap items-center gap-3">
-          <h2 className="font-strong text-label">Apps &amp; screens</h2>
+          <h2 className="font-strong text-label">Web previews &amp; screens</h2>
           <Button variant="ghost" size="sm" onClick={preview.refresh}>
             Refresh
           </Button>
@@ -332,7 +332,7 @@ export function PreviewSection({
           )}
           {onHide && (
             <Button variant="ghost" size="sm" onClick={onHide} aria-expanded={true}>
-              Hide apps and screens
+              Hide web previews and screens
             </Button>
           )}
           {preview.infoLoading && info === undefined && (
@@ -355,8 +355,8 @@ export function PreviewSection({
         </p>
       )}
 
-      {initialView && initialView.kind !== "screen" && info?.appsEnabled === false && (
-        <p className="p-3 text-detail text-muted-foreground">Apps and browsers are disabled in this node’s settings.</p>
+      {initialView && initialView.kind !== "screen" && info?.webPreviewsEnabled === false && (
+        <p className="p-3 text-detail text-muted-foreground">Web previews are disabled in this node’s settings.</p>
       )}
 
       {notice && <TrustNoticeBanner notices={[notice]} visibleMs={bannerVisibleMs} />}

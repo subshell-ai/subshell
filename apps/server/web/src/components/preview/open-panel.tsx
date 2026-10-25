@@ -40,7 +40,7 @@ export function OpenPanel({
     >
       {!compact && (
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
-          <span className="font-strong text-label">App preview</span>
+          <span className="font-strong text-label">Web preview</span>
           <span className="text-detail text-muted-foreground">Port {port}</span>
           <div className="flex items-center gap-1">
             <a

@@ -256,11 +256,11 @@ remain on authorized live subscriptions rather than MCP tool responses.
 
 ## Naming and compatibility
 
-The dashboard calls the feature **Apps & screens**. Public REST resources use
+The dashboard calls the feature **Web previews & screens**. Public REST resources use
 `views`: discovery at `GET /api/subshells/:id/views`, opening at
 `POST /api/subshells/:id/views/open`, and browser-watch interest at
 `POST` or `DELETE /api/subshells/:id/views/browser/watch`. Node configuration
-uses `PUT /api/nodes/:id/views-enabled`; node responses expose `viewsEnabled`.
+uses `PUT /api/nodes/:id/views-enabled`; node responses expose `webPreviewsEnabled`.
 Display prerequisites are `GET /api/nodes/:id/display-readiness`, requested by
 MCP `get_node` with the optional `check_display` argument.
 
@@ -270,11 +270,11 @@ The permission id `nodes:preview`, database `previewEnabled` columns, audit
 identifiers, signed node commands/frames, `/pv/` capability paths, and persisted
 `preview:` workspace panel ids keep their existing spelling. Those names carry
 stored state or transport compatibility; the API maps the database flag to
-`viewsEnabled`. Virtual displays use the independent `virtualDisplayEnabled`
+`webPreviewsEnabled`. Virtual displays use the independent `virtualDisplayEnabled`
 column and node-view field. The existing `/views-enabled` write accepts
-`feature: "apps" | "display"` (omitted means apps), with the same ownership gate.
+`feature: "web-previews" | "display"` (omitted means apps), with the same ownership gate.
 The signed mirror's `on` is the transport allowance (either feature enabled);
-`appsOn` and `displayOn` narrow it when the permissions differ. Legacy mirrors
+`webPreviewsOn` and `displayOn` narrow it when the permissions differ. Legacy mirrors
 without those fields retain the combined meaning, and reconciliation compares
 both permissions. Launching a screen checks the display permission, while app
 and browser opens check the apps permission. These aren't alternative public discovery endpoints. The

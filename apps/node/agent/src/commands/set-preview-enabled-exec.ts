@@ -30,7 +30,7 @@ export function execSetPreviewEnabled(ctx: CommandContext, cmd: Cmd<"set_preview
   ctx.lastReportedPreviewEnabled = setPreviewEnabled(ctx.config.dataDir, {
     on: cmd.on,
     changedAt: cmd.changedAt,
-    ...(cmd.appsOn === undefined ? {} : { appsOn: cmd.appsOn }),
+    ...(cmd.webPreviewsOn === undefined ? {} : { webPreviewsOn: cmd.webPreviewsOn }),
     ...(cmd.displayOn === undefined ? {} : { displayOn: cmd.displayOn }),
   });
   return { ok: true };

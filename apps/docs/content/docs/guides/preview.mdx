@@ -1,17 +1,17 @@
 ---
-title: "Apps & screens"
+title: "Web previews & screens"
 description: "Check websites beside your coding agent, open dev-server previews, and control a subshell's virtual display."
 ---
 
-Apps & screens lets you check a website or graphical app alongside the agent building it.
+Web previews & screens lets you check a website or graphical app alongside the agent building it.
 
-## Enable apps and screens on the machine
+## Enable web previews and displays on the machine
 
 In the dashboard sidebar, open **Nodes** and select the machine running your
 subshell. Its owner can change these settings; an administrator manages them
 for the server's built-in node.
 
-- **Allow apps and browsers** enables web app previews, saved services, and
+- **Allow web previews** enables web previews, saved services, and
   browser watching for every subshell on that node. No per-subshell option or
   virtual display is required.
 - **Allow virtual displays** lets a subshell request a virtual screen at launch.
@@ -19,22 +19,21 @@ for the server's built-in node.
   that requests a display uses extra memory and CPU.
 
 Both settings are off by default for new nodes and can be changed independently.
-Existing nodes retain the permissions granted through the previous combined switch.
 
 You need edit access to open an app or control a virtual display. View access
 lets you discover available views and watch browser frames. Switching either feature off prevents new operations; it doesn't stop your subshell or immediately close
 an existing connection.
 
-## Use Apps & screens from a Mac
+## Use Web previews & screens from a Mac
 
 You can view and control previews from your Mac in a browser or **Subshell
 Client** while the subshell runs on a Linux node. The server's built-in node
 also works when the server runs on Linux.
 
 1. Open your server's dashboard on the Mac and
-   [enable apps and screens](#enable-apps-and-screens-on-the-machine) for the Linux node.
+   [enable web previews and displays](#enable-web-previews-and-displays-on-the-machine) for the Linux node.
 2. Launch your subshell on that node and start the project's dev server there.
-3. Follow [Check a website](#check-a-website) to open its app preview. For an
+3. Follow [Check a website](#check-a-website) to open its web preview. For an
    interactive browser or GUI app, follow
    [Use a virtual display on Linux](#use-a-virtual-display-on-linux).
 
@@ -43,7 +42,7 @@ virtual display. Your Mac doesn't need those programs or its own node to view
 that screen.
 
 If the subshell runs directly on macOS, the picker cannot automatically discover
-its app ports or browser. Use **Add service** to connect to a web service by port on macOS. Virtual displays require Linux, and Apps & screens does not
+its app ports or browser. Use **Add service** to connect to a web service by port on macOS. Virtual displays require Linux, and Web previews & screens does not
 capture native Mac app windows. Installing the Linux display programs on a Mac
 doesn't add that support.
 
@@ -51,15 +50,15 @@ doesn't add that support.
 
 1. Start your project's dev server inside a subshell. Keep it listening on
    loopback; you don't need to expose its port to your network.
-2. Choose **Apps & screens** below the terminal, or use the Apps & screens icon in the
+2. Choose **Web previews & screens** below the terminal, or use the Web previews & screens icon in the
    subshell header. A window icon means the subshell has a virtual display;
    otherwise the header uses a globe.
-3. In **Open app or screen**, choose the **App** row for your dev server's port.
+3. In **Open web preview or screen**, choose the **Web preview** row for your dev server's port.
 4. Check the site in the preview beside the terminal. Try navigation, forms,
    filters, and other interactions, then give your agent specific feedback.
 
 <figure className="docs-screenshot">
-  <ImageZoom src="/screenshots/preview-picker.png" alt="Open app or screen dialog with a website on port 3000 and a virtual display, each opened by selecting its row." width="1072" height="420" loading="lazy" decoding="async" unoptimized />
+  <ImageZoom src="/screenshots/preview-picker.png" alt="Open web preview or screen dialog with a website on port 3000 and a virtual display, each opened by selecting its row." width="1072" height="420" loading="lazy" decoding="async" unoptimized />
   <figcaption>Choose the dev-server port to check the website, or Virtual display to control a browser running on the node. Select the image to enlarge it.</figcaption>
 </figure>
 
@@ -75,11 +74,11 @@ in the sidebar.
 
 ## Add a service started elsewhere
 
-A virtual display isn't required for web services. The **Apps & screens** button
+A virtual display isn't required for web services. The **Web previews & screens** button
 below the terminal and the globe icon in the subshell header open the same dialog,
 even when the subshell has no display.
 
-1. Open **Apps & screens**, then choose **Add service** under **Saved services**.
+1. Open **Web previews & screens**, then choose **Add service** under **Saved services**.
 2. Enter the service's **Port** and choose **HTTP** or **HTTPS**. You can add a name
    to make it easier to recognize.
 3. Leave **Host** under **Advanced** as `localhost` for a service on the subshell's
@@ -94,7 +93,7 @@ even when the subshell has no display.
 
 This also works for web services running on a macOS node, where automatic port
 discovery isn't available. The subshell must be running and its node must have
-**Allow apps and browsers** enabled. HTTPS requires a certificate the node trusts and whose
+**Allow web previews** enabled. HTTPS requires a certificate the node trusts and whose
 name matches the host; Subshell doesn't bypass certificate checks.
 
 Saved connections stay with the subshell across reloads and closed tabs. Use the
@@ -114,10 +113,10 @@ The viewer toolbar has refresh and a **More view actions** menu:
   directly in the toolbar while maximized.
 - **Full screen** uses your browser's fullscreen mode. **Exit full screen**
   appears directly in the toolbar while active.
-- **Open in browser tab** opens an app preview in a separate browser tab.
+- **Open in browser tab** opens an web preview in a separate browser tab.
 - **Close view** closes the current viewer.
 
-Use the subshell header's Apps & screens icon to open another view. When there are
+Use the subshell header's Web previews & screens icon to open another view. When there are
 more than six choices, the picker adds search and a scrollable app list with
 ports in numeric order. Browser and virtual-display choices stay above that list.
 
@@ -190,7 +189,7 @@ through the subshell token's node discovery tools.
    ```
 
 4. Call `list_subshell_views` with `subshell_id` to discover its views. In the dashboard,
-   select the helper's Apps & screens action and open its app or virtual display.
+   select the helper's Web previews & screens action and open its app or virtual display.
    Each opens in its own workspace tab. `open_subshell_view` can create a private
    connection path for a client, but it doesn't open a dashboard tab or return
    a screenshot.
@@ -222,4 +221,4 @@ Treat a preview URL as a private access link. Anyone who receives it can use it
 while its session remains valid, and closing a tab doesn't immediately revoke
 a copied link. The server can read forwarded bytes and browser frames. See
 [Preview security](/concepts/security#preview-security) for the trust boundaries
-and [Architecture](/concepts/architecture#preview-apps-and-screens) for the data path.
+and [Architecture](/concepts/architecture#web-previews-and-virtual-displays) for the data path.

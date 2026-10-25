@@ -252,7 +252,7 @@ export function maybeReportPreviewEnabled(ctx: CommandContext): void {
   if (
     last?.on === state.on &&
     last.changedAt === state.changedAt &&
-    last.appsOn === state.appsOn &&
+    last.webPreviewsOn === state.webPreviewsOn &&
     last.displayOn === state.displayOn
   )
     return;

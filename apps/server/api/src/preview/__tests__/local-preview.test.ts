@@ -37,7 +37,7 @@ describe("the server's machine-local preview runtime", () => {
       ["screencast", 9222, false, true, "preview-node-off"],
       ["forward", 5910, true, false, "virtual-display-disabled"],
     ] as const) {
-      const runtime = setup({ appsEnabled: async () => apps, displayEnabled: async () => display });
+      const runtime = setup({ webPreviewsEnabled: async () => apps, displayEnabled: async () => display });
       const screen = spyOn(runtime.displays, "getFor").mockReturnValue({ display: ":90", rfbPort: 5910 });
       try {
         await expect(

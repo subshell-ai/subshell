@@ -671,7 +671,7 @@ describe("preview REST surface (Task 9)", () => {
     const bearer = await bearerFor(pane);
     for (const auth of [{ cookie: ownerCookie }, { bearer }]) {
       const info = await jsonBody(await call("GET", `/${pane}/views`, auth));
-      expect(info.appsEnabled).toBe(apps);
+      expect(info.webPreviewsEnabled).toBe(apps);
       expect(info.virtualDisplayEnabled).toBe(display);
       expect(info.ports).toEqual(apps ? [{ proto: "tcp", port: 3000, pid: 91 }] : []);
       expect(info.cdpPort).toBe(apps ? 9222 : null);
@@ -852,7 +852,7 @@ describe("preview REST surface (Task 9)", () => {
     const res = await call("POST", `/${pane}/views/browser/watch`, { cookie: ownerCookie, body: { port: 3000 } });
     expect(res.status).toBe(409);
     const body = await errorBody(res);
-    expect(body.message).toMatch(/does not support apps and screens yet/);
+    expect(body.message).toMatch(/does not support web previews and screens yet/);
     expect(body.message).toMatch(/update the node/i);
   });
 
@@ -923,7 +923,7 @@ describe("preview REST surface (Task 9)", () => {
     expect(sim.countOf("launch")).toBe(0);
   });
 
-  it("virtual-display launches work with apps and browsers disabled", async () => {
+  it("virtual-display launches work with web previews disabled", async () => {
     await makeLaunchable();
     await nodes.setPreviewEnabled(nodeId, { on: false, changedAt: new Date().toISOString() });
     const res = await call("POST", "", {

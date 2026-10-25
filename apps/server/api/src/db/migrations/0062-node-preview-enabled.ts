@@ -7,12 +7,12 @@ import type { Kysely } from "kysely";
 export async function up(db: Kysely<any>): Promise<void> {
   await db.schema
     .alterTable("nodes")
-    .addColumn("preview_enabled", "integer", (col) => col.notNull().defaultTo(0))
+    .addColumn("web_previews_enabled", "integer", (col) => col.notNull().defaultTo(0))
     .execute();
   await db.schema.alterTable("nodes").addColumn("preview_enabled_at", "text").execute();
 }
 
 export async function down(db: Kysely<any>): Promise<void> {
   await db.schema.alterTable("nodes").dropColumn("preview_enabled_at").execute();
-  await db.schema.alterTable("nodes").dropColumn("preview_enabled").execute();
+  await db.schema.alterTable("nodes").dropColumn("web_previews_enabled").execute();
 }

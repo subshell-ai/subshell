@@ -23,16 +23,16 @@ import { NodeViewReadiness } from "./node-view-readiness";
 export function NodePreviewCard({ node }: { node: NodeDetail }) {
   return (
     <>
-      <NodePreviewFeatureCard node={node} feature="apps" />
+      <NodePreviewFeatureCard node={node} feature="web-previews" />
       <NodePreviewFeatureCard node={node} feature="display" />
     </>
   );
 }
 
-function NodePreviewFeatureCard({ node, feature }: { node: NodeDetail; feature: "apps" | "display" }) {
+function NodePreviewFeatureCard({ node, feature }: { node: NodeDetail; feature: "web-previews" | "display" }) {
   const display = feature === "display";
-  const enabled = display ? node.virtualDisplayEnabled === true : node.viewsEnabled === true;
-  const title = display ? "Virtual displays" : "Apps and browsers";
+  const enabled = display ? node.virtualDisplayEnabled === true : node.webPreviewsEnabled === true;
+  const title = display ? "Virtual displays" : "Web previews";
   const id = display ? "node-virtual-display-enabled" : "node-preview-enabled";
   const reasonId = `${id}-reason`;
   const update = useSetViewsEnabled();
@@ -80,13 +80,13 @@ function NodePreviewFeatureCard({ node, feature }: { node: NodeDetail; feature: 
           ) : (
             toggle
           )}
-          <Label htmlFor={id}>{display ? "Allow virtual displays" : "Allow apps and browsers"}</Label>
+          <Label htmlFor={id}>{display ? "Allow virtual displays" : "Allow web previews"}</Label>
         </div>
         {node.canManage ? (
           <p className="text-detail text-muted-foreground">
             {display
               ? "Allow subshells to run graphical apps on a machine without a monitor."
-              : "Authorized viewers can open web apps and saved services, and watch browsers in any subshell on this node."}
+              : "Open websites and saved web services, and watch browsers running in subshells on this node."}
           </p>
         ) : (
           <p id={reasonId} className="text-detail text-warning">
@@ -96,17 +96,17 @@ function NodePreviewFeatureCard({ node, feature }: { node: NodeDetail; feature: 
         {display ? (
           <>
             <p className="text-detail text-warning">
-              Each virtual display uses extra memory and CPU. Web app previews don’t need one.
+              Each virtual display uses extra memory and CPU. Web previews don’t need one.
             </p>
             <NodeViewReadiness node={node} />
           </>
         ) : (
           <p className="text-detail text-muted-foreground">
             {!enabled
-              ? "Apps and browsers are disabled on this node."
+              ? "Web previews are disabled on this node."
               : node.os !== "linux"
                 ? "Automatic app discovery and browser watching require Linux. You can still add HTTP and HTTPS services by port."
-                : "Apps and browser features are available to all subshells on this node."}
+                : "Web previews are available to all subshells on this node."}
           </p>
         )}
         <a
@@ -119,7 +119,7 @@ function NodePreviewFeatureCard({ node, feature }: { node: NodeDetail; feature: 
           rel="noreferrer"
           className="text-detail text-primary underline"
         >
-          {display ? "Learn about virtual displays" : "Learn about apps and browsers"}
+          {display ? "Learn about virtual displays" : "Learn about web previews"}
         </a>
         {node.canManage && update.isPending && (
           <p id={reasonId} role="status" className="text-detail text-muted-foreground">

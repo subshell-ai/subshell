@@ -176,7 +176,7 @@ function nodeRow(over: Partial<NodeTable> = {}): NodeTable {
     sshEnabled: 0,
     sshWideForwards: 0,
     sshEnabledAt: null,
-    previewEnabled: 0,
+    webPreviewsEnabled: 0,
     virtualDisplayEnabled: 0,
     previewEnabledAt: null,
     // The 0049 mirror slot: NULL until the runtime-report task fills it.

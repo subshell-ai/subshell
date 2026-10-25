@@ -25,10 +25,10 @@ import { logger } from "@/utils/logger.js";
  * and a stamp-less default all answer OFF. Watching panes is opt-in, so an
  * unknown node is a refused node, never an error the caller must handle.
  */
-export async function getPreviewEnabled(nodeId: string): Promise<boolean> {
+export async function getWebPreviewsEnabled(nodeId: string): Promise<boolean> {
   const { repos } = getRequestlessContext();
   const row = await repos.nodes.findById(nodeId);
-  return row?.previewEnabled === 1;
+  return row?.webPreviewsEnabled === 1;
 }
 
 export async function getVirtualDisplayEnabled(nodeId: string): Promise<boolean> {
@@ -40,13 +40,17 @@ export async function getVirtualDisplayEnabled(nodeId: string): Promise<boolean>
 export async function getAnyPreviewEnabled(nodeId: string): Promise<boolean> {
   const { repos } = getRequestlessContext();
   const row = await repos.nodes.findById(nodeId);
-  return row?.previewEnabled === 1 || row?.virtualDisplayEnabled === 1;
+  return row?.webPreviewsEnabled === 1 || row?.virtualDisplayEnabled === 1;
 }
 
 function previewWire(row: PreviewRow, changedAt: string): NodePreviewEnabledWire {
-  const appsOn = row.previewEnabled === 1;
+  const webPreviewsOn = row.webPreviewsEnabled === 1;
   const displayOn = row.virtualDisplayEnabled === 1;
-  return { on: appsOn || displayOn, changedAt, ...(appsOn === displayOn ? {} : { appsOn, displayOn }) };
+  return {
+    on: webPreviewsOn || displayOn,
+    changedAt,
+    ...(webPreviewsOn === displayOn ? {} : { webPreviewsOn, displayOn }),
+  };
 }
 
 /** Flip one node's preview switch: row, audit, and the best-effort push,
@@ -57,7 +61,7 @@ export async function setPreviewEnabled(
   nodeId: string,
   actorUserId: string,
   on: boolean,
-  feature: "apps" | "display" = "apps",
+  feature: "web-previews" | "display" = "web-previews",
 ): Promise<void> {
   const changedAt = new Date().toISOString();
   const { repos } = getRequestlessContext();
@@ -77,7 +81,7 @@ export async function setPreviewEnabled(
 }
 
 /** The node-row fields {@link decidePreviewEnabled} reads. Nothing else is relevant. */
-type PreviewRow = Pick<NodeTable, "previewEnabled" | "previewEnabledAt"> &
+type PreviewRow = Pick<NodeTable, "webPreviewsEnabled" | "previewEnabledAt"> &
   Partial<Pick<NodeTable, "virtualDisplayEnabled">>;
 
 /** What reconciliation decided about one node's two copies of the flag. */
@@ -103,14 +107,14 @@ export type PreviewDecision = "push-plane" | "noop";
  *   `ready` field the lenient parser dropped)
  */
 export function decidePreviewEnabled(row: PreviewRow, reported: NodePreviewEnabledWire | undefined): PreviewDecision {
-  const rowOn = row.previewEnabled === 1;
+  const rowOn = row.webPreviewsEnabled === 1;
   const displayOn = row.virtualDisplayEnabled === 1;
   // Silence reads as OFF, the node's own fail-closed default, which is the
   // only reading under which "node lost its file while the row says off" is
   // the quiet agreement it is.
   if (
     (reported?.on ?? false) === (rowOn || displayOn) &&
-    (reported?.appsOn ?? reported?.on ?? false) === rowOn &&
+    (reported?.webPreviewsOn ?? reported?.on ?? false) === rowOn &&
     (reported?.displayOn ?? reported?.on ?? false) === displayOn
   )
     return "noop";

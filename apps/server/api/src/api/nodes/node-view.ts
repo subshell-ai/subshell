@@ -184,7 +184,7 @@ export const NodeViewSchema = t.Object({
   virtualDisplayEnabled: t.Boolean({
     description: "Whether this node permits virtual displays. Each subshell must explicitly request one.",
   }),
-  viewsEnabled: t.Boolean({
+  webPreviewsEnabled: t.Boolean({
     description:
       "Whether authorized viewers may open apps and services and watch browsers in any subshell on this machine. Opt-in per node, off by default including the control-plane host; view operations are refused while false",
   }),
@@ -490,7 +490,7 @@ function nodeViewBase(
     maintenanceAt: row.maintenanceAt,
     maintenanceSource: row.maintenanceSource,
     sshEnabled: row.sshEnabled === 1,
-    viewsEnabled: row.previewEnabled === 1,
+    webPreviewsEnabled: row.webPreviewsEnabled === 1,
     virtualDisplayEnabled: row.virtualDisplayEnabled === 1,
     sshWideForwards: row.sshWideForwards === 1,
     // Read from the LIVE registry rather than the row, for the same reason

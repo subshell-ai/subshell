@@ -44,9 +44,9 @@ MCP runs beside the agent as a stdio child, using the pane's scoped identity. It
 
 The server relays ciphertext, but terminal output and channel metadata have different security properties.
 
-## Preview apps and screens
+## Web previews and virtual displays
 
-Apps & screens brings a subshell's dev server, browser frames, or virtual display into
+Web previews & screens brings a subshell's dev server, browser frames, or virtual display into
 the workspace. Your browser connects to the server; it doesn't need direct
 network access to the node's ports.
 
@@ -62,20 +62,20 @@ flowchart LR
   S -->|In-process adapter| L[Built-in node runtime]
 ```
 
-The server checks subshell access and the node's separate apps/browser or virtual-display permission before opening
+The server checks subshell access and the node's separate web-preview or virtual-display permission before opening
 a view. App forwarding and screen input need edit access. Watching browser
 frames needs view access; view-only shares are restricted to the browser
 discovered for their subshell.
 
 The REST resource is `/api/subshells/:id/views`. Clients open a connection at
 `/views/open` and start or stop browser watching at `/views/browser/watch`.
-Node responses expose `viewsEnabled` for apps and browsers and `virtualDisplayEnabled` for virtual displays.
-Node configuration uses `/views-enabled` with `feature: "apps"` or `feature: "display"`,
+Node responses expose `webPreviewsEnabled` for web previews and `virtualDisplayEnabled` for virtual displays.
+Node configuration uses `/views-enabled` with `feature: "web-previews"` or `feature: "display"`,
 and display prerequisites use `/display-readiness`. The corresponding MCP tools
 are `list_subshell_views`, `open_subshell_view`, and `watch_subshell_browser`.
 See the [MCP tool reference](/mcp/tools#list_subshell_views) for their arguments.
 
-For app previews, the server creates a private capability URL and forwards each
+For web previews, the server creates a private capability URL and forwards each
 HTTP or WebSocket connection through a lane to loopback or the saved service destination on the execution
 machine. Proxied documents have an opaque browser origin so website scripts
 don't inherit dashboard authority. Target cookies stay in a server-side jar.
@@ -93,7 +93,7 @@ parent subshell. Desktop previews initially split to the right. The phone tab
 strip leaves the desktop split layout unchanged. Saved layouts retain only
 previews whose parent pane is still authorized and present.
 
-See [Apps & screens](/guides/preview), [Preview transport](/reference/node-protocol#preview-transport),
+See [Web previews & screens](/guides/preview), [Preview transport](/reference/node-protocol#preview-transport),
 and [Preview security](/concepts/security#preview-security).
 
 ## See also

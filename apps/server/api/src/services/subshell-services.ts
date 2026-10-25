@@ -23,7 +23,7 @@ export async function getService(subshellId: string, id: string) {
     .where("subshellId", "=", subshellId)
     .where("id", "=", id)
     .executeTakeFirst();
-  if (!row) throw new HttpError(404, "This saved service was removed. Add it again from Apps & screens.");
+  if (!row) throw new HttpError(404, "This saved service was removed. Add it again from Web previews & screens.");
   return row;
 }
 export async function saveService(

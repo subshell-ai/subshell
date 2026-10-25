@@ -40,7 +40,7 @@ function fixture(answer: (path: string, init?: { method?: string; body?: unknown
 describe("MCP preview discovery and launch", () => {
   it("preserves capability settings and honest harness health", async () => {
     const facts = {
-      viewsEnabled: false,
+      webPreviewsEnabled: false,
       virtualDisplayEnabled: true,
       sshEnabled: true,
       sshWideForwards: false,
@@ -67,24 +67,24 @@ describe("MCP preview discovery and launch", () => {
   it("reports disabled permission even when display prerequisites are ready", async () => {
     const { deps } = fixture((path) =>
       path === "/api/nodes"
-        ? { nodes: [{ ...node, viewsEnabled: true, virtualDisplayEnabled: false }] }
+        ? { nodes: [{ ...node, webPreviewsEnabled: true, virtualDisplayEnabled: false }] }
         : { supported: true, missing: [] },
     );
     expect(await getNode(deps, { node: node.id })).toMatchObject({
-      viewsEnabled: true,
+      webPreviewsEnabled: true,
       virtualDisplayEnabled: false,
       virtualDisplay: { status: "ready" },
     });
     const views = fixture(() => ({
       nodeEnabled: true,
-      appsEnabled: true,
+      webPreviewsEnabled: true,
       virtualDisplayEnabled: false,
       ports: [],
       cdpPort: null,
       screen: null,
     }));
     expect(await listSubshellViews(views.deps, { subshell_id: "x" })).toMatchObject({
-      appsEnabled: true,
+      webPreviewsEnabled: true,
       virtualDisplayEnabled: false,
     });
   });
@@ -177,7 +177,7 @@ describe("MCP preview discovery and launch", () => {
   it("explains a disabled display without trying to open it", async () => {
     const { deps, calls } = fixture(() => ({
       nodeEnabled: true,
-      appsEnabled: true,
+      webPreviewsEnabled: true,
       virtualDisplayEnabled: false,
       screen: null,
     }));
@@ -189,7 +189,7 @@ describe("MCP preview discovery and launch", () => {
 
   it("propagates node permission refusals for apps and browser watching", async () => {
     const { deps } = fixture(() => {
-      throw new ApiError(409, "Apps and browsers are disabled on this node.");
+      throw new ApiError(409, "Web previews are disabled on this node.");
     });
     await expect(openSubshellView(deps, { subshell_id: "x", kind: "app", port: 3000 })).rejects.toThrow(
       "disabled on this node",

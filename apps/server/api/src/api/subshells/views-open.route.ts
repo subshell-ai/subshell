@@ -44,14 +44,17 @@ export const viewsOpenRoute = new Elysia()
       const { row } = await gatePreview(user.id, params.id, "edit", actor);
       const transportState = await previewNodeState(row.nodeId, "any");
       if (!transportState.nodeEnabled)
-        throw new HttpError(409, `Apps & screens is not available on that node right now (${transportState.reason}).`);
+        throw new HttpError(
+          409,
+          `Web previews & screens is not available on that node right now (${transportState.reason}).`,
+        );
       const service = "serviceId" in body ? await getService(params.id, body.serviceId) : undefined;
       const port = service?.port ?? ("port" in body ? body.port : 0);
       const broker = getPreviewBroker();
       const remembered = broker.displayForPane(params.id);
       const scan = service ? null : await broker.getPorts(row.nodeId, params.id).catch(() => null);
       const screen = scan?.screen ?? (remembered?.nodeId === row.nodeId ? remembered.screen : null);
-      const feature = !service && screen?.rfbPort === port ? "display" : "apps";
+      const feature = !service && screen?.rfbPort === port ? "display" : "web-previews";
       const nodeState = await previewNodeState(row.nodeId, feature);
       if (!nodeState.nodeEnabled) {
         // The info poll already said this; arriving here means the page was
@@ -60,7 +63,7 @@ export const viewsOpenRoute = new Elysia()
           409,
           feature === "display"
             ? "Virtual displays are disabled on this node."
-            : `Apps and browsers are not available on that node right now (${nodeState.reason}).`,
+            : `Web previews are not available on that node right now (${nodeState.reason}).`,
         );
       }
       try {
@@ -97,7 +100,10 @@ export const viewsOpenRoute = new Elysia()
             throw new HttpError(409, "The node did not answer the view request in time. Try again in a moment.");
           }
           // `unsupported`: the connected agent predates the preview command.
-          throw new HttpError(409, "That node does not support apps and screens yet. Update the node, then retry.");
+          throw new HttpError(
+            409,
+            "That node does not support web previews and screens yet. Update the node, then retry.",
+          );
         }
         throw err;
       }

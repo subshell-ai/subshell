@@ -62,7 +62,13 @@ describe("node preview-enabled route", () => {
     return new Map(rows.map((r) => [r.id, { actorUserId: r.actorUserId, metadataJson: r.metadataJson }]));
   }
 
-  function put(nodeId: string, cookie: string | undefined, on: boolean, bearer?: string, feature?: "apps" | "display") {
+  function put(
+    nodeId: string,
+    cookie: string | undefined,
+    on: boolean,
+    bearer?: string,
+    feature?: "web-previews" | "display",
+  ) {
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (cookie) headers.cookie = `better-auth.session_token=${cookie}`;
     if (bearer) headers.authorization = `Bearer ${bearer}`;
@@ -114,7 +120,7 @@ describe("node preview-enabled route", () => {
     // the fleet default if a later test in THIS file's process re-reads it.
     await db
       .updateTable("nodes")
-      .set({ previewEnabled: 0, previewEnabledAt: null } as never)
+      .set({ webPreviewsEnabled: 0, previewEnabledAt: null } as never)
       .where("id", "=", LOCAL_NODE_ID)
       .execute();
     for (const id of createdKeyIds) {
@@ -137,14 +143,14 @@ describe("node preview-enabled route", () => {
       }),
     );
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { viewsEnabled: boolean }).viewsEnabled).toBe(false);
+    expect(((await res.json()) as { webPreviewsEnabled: boolean }).webPreviewsEnabled).toBe(false);
   });
 
   it("the owner turns it on, and the answer is the node view carrying the flag", async () => {
     const res = await put(NODE, ownerCookie, true);
     expect(res.status).toBe(200);
-    const view = (await res.json()) as { viewsEnabled: boolean };
-    expect(view.viewsEnabled).toBe(true);
+    const view = (await res.json()) as { webPreviewsEnabled: boolean };
+    expect(view.webPreviewsEnabled).toBe(true);
   });
 
   it("names the acting human and names the selected feature in the audit row", async () => {
@@ -162,13 +168,13 @@ describe("node preview-enabled route", () => {
     expect(added).toHaveLength(1);
     expect(added[0][1].actorUserId).toBe(ownerId);
     // The audit names the changed permission, without secrets.
-    expect(JSON.parse(added[0][1].metadataJson ?? "null")).toEqual({ on: true, feature: "apps" });
+    expect(JSON.parse(added[0][1].metadataJson ?? "null")).toEqual({ on: true, feature: "web-previews" });
   });
 
   it("turning it off lands on the row and the view", async () => {
     const res = await put(NODE, ownerCookie, false);
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { viewsEnabled: boolean }).viewsEnabled).toBe(false);
+    expect(((await res.json()) as { webPreviewsEnabled: boolean }).webPreviewsEnabled).toBe(false);
   });
 
   it("an edit grantee is refused: it is not their machine to widen", async () => {
@@ -269,17 +275,17 @@ describe("node preview-enabled route", () => {
     // to test on the shared host row; `afterAll` restores it.
     const res = await put(LOCAL_NODE_ID, adminCookie, true);
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { viewsEnabled: boolean }).viewsEnabled).toBe(true);
+    expect(((await res.json()) as { webPreviewsEnabled: boolean }).webPreviewsEnabled).toBe(true);
   });
   it("changes the two permissions independently and checks ownership for both", async () => {
     await put(NODE, ownerCookie, false);
     const display = await put(NODE, ownerCookie, true, undefined, "display");
     expect(display.status).toBe(200);
-    expect(await display.json()).toMatchObject({ viewsEnabled: false, virtualDisplayEnabled: true });
+    expect(await display.json()).toMatchObject({ webPreviewsEnabled: false, virtualDisplayEnabled: true });
     const apps = await put(NODE, ownerCookie, true);
-    expect(await apps.json()).toMatchObject({ viewsEnabled: true, virtualDisplayEnabled: true });
+    expect(await apps.json()).toMatchObject({ webPreviewsEnabled: true, virtualDisplayEnabled: true });
     const displayOff = await put(NODE, ownerCookie, false, undefined, "display");
-    expect(await displayOff.json()).toMatchObject({ viewsEnabled: true, virtualDisplayEnabled: false });
+    expect(await displayOff.json()).toMatchObject({ webPreviewsEnabled: true, virtualDisplayEnabled: false });
     expect((await put(NODE, otherCookie, true, undefined, "display")).status).toBe(404);
     expect((await put(NODE, adminCookie, true, undefined, "display")).status).toBe(403);
   });

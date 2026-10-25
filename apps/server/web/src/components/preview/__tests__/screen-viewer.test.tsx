@@ -347,7 +347,7 @@ describe("teardown on the paths that keep the instance alive", () => {
     const view = render(<PreviewSection paneId="paneA" access="edit" preview={preview} isPhone={false} />);
     fireEvent.click(screen.getByRole("button", { name: "View screen" }));
     await waitFor(() => expect(viewerAlive()).toBe(true));
-    fireEvent.click(screen.getByRole("button", { name: "Open app" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open web preview" }));
     await waitFor(() => expect(screen.getByText("Port 8080")).toBeTruthy());
     view.rerender(<PreviewSection paneId="paneB" access="edit" preview={preview} isPhone={false} />);
     expect(viewerAlive()).toBe(false);
@@ -364,7 +364,7 @@ describe("teardown on the paths that keep the instance alive", () => {
     });
     const view = render(<PreviewSection paneId="paneA" access="edit" preview={preview} isPhone={false} />);
     fireEvent.click(screen.getByRole("button", { name: "View screen" }));
-    fireEvent.click(screen.getByRole("button", { name: "Open app" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open web preview" }));
     expect(resolvers).toHaveLength(2);
     view.rerender(<PreviewSection paneId="paneB" access="edit" preview={preview} isPhone={false} />);
     await act(async () => {

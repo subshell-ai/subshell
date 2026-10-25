@@ -11,10 +11,10 @@ import { apiModels } from "@/schema/index.js";
 import { setPreviewEnabled } from "@/services/nodes/preview-enabled.js";
 
 const PreviewEnabledBodySchema = t.Object({
-  feature: t.Optional(t.Union([t.Literal("apps"), t.Literal("display")])),
+  feature: t.Optional(t.Union([t.Literal("web-previews"), t.Literal("display")])),
   on: t.Boolean({
     description:
-      "Allow the selected feature on this machine. Apps and browsers apply to every subshell; virtual displays must be requested at launch. Off by default. Owner only; admin on the control-plane host.",
+      "Allow the selected feature on this machine. Web previews apply to every subshell; virtual displays must be requested at launch. Off by default. Owner only; admin on the control-plane host.",
   }),
 });
 
@@ -73,7 +73,7 @@ export const setNodeViewsEnabledRoute = new Elysia()
         operationId: "setNodeViewsEnabled",
         tags: ["nodes"],
         description:
-          "Enable or disable apps and screens on a node (owner only; admin on the control-plane host). Off by default; enabling lets authorized viewers watch this machine's pane content.",
+          "Enable or disable web previews and virtual displays on a node (owner only; admin on the control-plane host). Off by default; enabling lets authorized viewers watch this machine's pane content.",
       },
     },
   );

@@ -27,21 +27,21 @@ it("finds a specific port in a large list and keeps display choices reachable", 
       }}
     />,
   );
-  expect(screen.getByRole("status").textContent).toBe("25 apps");
-  expect(screen.getAllByRole("button", { name: /^Open app/ })[0].getAttribute("aria-label")).toBe(
-    "Open app on port 10001",
+  expect(screen.getByRole("status").textContent).toBe("25 web previews");
+  expect(screen.getAllByRole("button", { name: /^Open web preview/ })[0].getAttribute("aria-label")).toBe(
+    "Open web preview on port 10001",
   );
   fireEvent.click(screen.getByRole("button", { name: "View screen" }));
   expect(screens).toBe(1);
-  const search = screen.getByRole("searchbox", { name: "Find an app or screen" });
+  const search = screen.getByRole("searchbox", { name: "Find a web preview or screen" });
   fireEvent.change(search, { target: { value: "10021" } });
-  expect(screen.getAllByRole("button", { name: /^Open app/ })).toHaveLength(1);
-  fireEvent.click(screen.getByRole("button", { name: "Open app on port 10021" }));
+  expect(screen.getAllByRole("button", { name: /^Open web preview/ })).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Open web preview on port 10021" }));
   expect(opened).toEqual([10021]);
   fireEvent.change(search, { target: { value: "missing" } });
-  expect(screen.getByText("No matching apps or screens.")).toBeTruthy();
+  expect(screen.getByText("No matching web previews or screens.")).toBeTruthy();
   fireEvent.change(search, { target: { value: "screen" } });
   expect(screen.getByRole("button", { name: "View screen" })).toBeTruthy();
   fireEvent.change(search, { target: { value: "" } });
-  expect(screen.getAllByRole("button", { name: /^Open app/ })).toHaveLength(25);
+  expect(screen.getAllByRole("button", { name: /^Open web preview/ })).toHaveLength(25);
 });

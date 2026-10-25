@@ -17,7 +17,8 @@ const VIEW_REASON = "Opening a forwarded port needs edit access to this subshell
 const SCREEN_VIEW_REASON = "Virtual display needs edit access to this subshell.";
 const SCREEN_PHONE_REASON =
   "View screen is available on larger screens. You can still watch browser frames on this phone.";
-const SWITCH_OFF_REASON = "Apps & screens is switched off on this node. Its owner can turn it on in node settings.";
+const SWITCH_OFF_REASON =
+  "Web previews & screens is switched off on this node. Its owner can turn it on in node settings.";
 
 function controller(over: Partial<UseSubshellPreview> = {}): UseSubshellPreview {
   return {
@@ -109,7 +110,7 @@ describe("gated controls explain themselves", () => {
     // Cast-and-read, this repo's convention: no jest-dom dependency; the
     // disabled-with-reason trio lives on `aria-disabled` + `aria-description`
     // (ExplainedButton).
-    const open = screen.getAllByRole("button", { name: /^Open app/ })[0];
+    const open = screen.getAllByRole("button", { name: /^Open web preview/ })[0];
     expect(open.matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(open.getAttribute("aria-description")).toBe(VIEW_REASON);
     const watch = screen.getByRole("button", { name: "Watch browser" });
@@ -135,7 +136,7 @@ describe("gated controls explain themselves", () => {
 describe("Open (edit unlocks it)", () => {
   it("edit opens the panel hosting the proxy iframe and a new-tab link with the proxy href", async () => {
     const { view } = mount({ access: "edit", info: info() });
-    fireEvent.click(screen.getAllByRole("button", { name: /^Open app/ })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Open web preview/ })[0]);
     await waitFor(() => expect(view.container.querySelector("iframe")).not.toBeNull());
     expect(view.container.querySelector("iframe")?.getAttribute("src")).toBe("/pv/ref1/");
     const link = screen.getByRole("link", { name: /open in new tab/i });
@@ -144,7 +145,7 @@ describe("Open (edit unlocks it)", () => {
 
   it("the panel closes again", async () => {
     const { view } = mount({ access: "edit", info: info() });
-    fireEvent.click(screen.getAllByRole("button", { name: /^Open app/ })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Open web preview/ })[0]);
     await waitFor(() => expect(view.container.querySelector("iframe")).not.toBeNull());
     fireEvent.click(screen.getByRole("button", { name: /close/i }));
     expect(view.container.querySelector("iframe")).toBeNull();
@@ -290,7 +291,7 @@ describe("phone layouts trade the panel, never Watch", () => {
 
   it("prepares a real link on phones so a slow request cannot become a blocked popup", async () => {
     const { view } = mount({ access: "edit", info: info(), isPhone: true });
-    fireEvent.click(screen.getAllByRole("button", { name: /^Open app/ })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Open web preview/ })[0]);
     const link = await screen.findByRole("link", { name: "Open port 3000 in new tab" });
     expect(link.getAttribute("href")).toBe("/pv/ref1/");
     expect(link.getAttribute("target")).toBe("_blank");
@@ -360,8 +361,8 @@ it("fills a preview tab and resumes its selected app only once", async () => {
     />,
   );
   await screen.findByTitle("Preview of port 3000");
-  expect(screen.queryByText("App preview") === null).toBe(true);
-  expect(screen.getByRole("region", { name: "Apps & screens" }).className).toContain("h-full");
+  expect(screen.queryByText("Web preview") === null).toBe(true);
+  expect(screen.getByRole("region", { name: "Web previews & screens" }).className).toContain("h-full");
   view.rerender(
     <PreviewSection
       paneId="pane1"
@@ -386,23 +387,23 @@ it("replaces an app view when the browser watch is selected", async () => {
       },
     },
   });
-  fireEvent.click(screen.getAllByRole("button", { name: /^Open app/ })[0]);
-  await screen.findByText("App preview");
+  fireEvent.click(screen.getAllByRole("button", { name: /^Open web preview/ })[0]);
+  await screen.findByText("Web preview");
   fireEvent.click(screen.getByRole("button", { name: "Watch browser" }));
   expect(starts).toBe(1);
-  expect(screen.queryByText("App preview") === null).toBe(true);
+  expect(screen.queryByText("Web preview") === null).toBe(true);
 });
 
 it("keeps the chooser free of a toolbar and shows it only after opening a view", async () => {
   const c = controller({ info: info() });
   render(<PreviewSection paneId="pane1" access="owner" preview={c} fill isPhone={false} />);
-  expect(screen.getAllByRole("button", { name: /^Open app/ }).length).toBeGreaterThan(0);
+  expect(screen.getAllByRole("button", { name: /^Open web preview/ }).length).toBeGreaterThan(0);
   expect(screen.queryByRole("button", { name: "Open another preview" }) === null).toBe(true);
   expect(screen.queryByRole("button", { name: "Refresh view" }) === null).toBe(true);
-  fireEvent.click(screen.getAllByRole("button", { name: /^Open app/ })[0]);
+  fireEvent.click(screen.getAllByRole("button", { name: /^Open web preview/ })[0]);
   await screen.findByTitle("Preview of port 3000");
   expect(screen.getByRole("button", { name: "Refresh view" })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: /^Open app/ }) === null).toBe(true);
+  expect(screen.queryByRole("button", { name: /^Open web preview/ }) === null).toBe(true);
 });
 
 it("refreshes the selected app without allocating another forwarded lane", async () => {
@@ -415,10 +416,10 @@ it("refreshes the selected app without allocating another forwarded lane", async
     },
   });
   render(<PreviewSection paneId="pane1" access="owner" preview={c} fill isPhone={false} />);
-  fireEvent.click(screen.getAllByRole("button", { name: /^Open app/ })[0]);
+  fireEvent.click(screen.getAllByRole("button", { name: /^Open web preview/ })[0]);
   const first = await screen.findByTitle("Preview of port 3000");
   fireEvent.load(first);
-  expect(screen.getByRole("button", { name: "App loaded" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Web preview loaded" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Refresh view" }));
   expect(screen.getByTitle("Preview of port 3000").isSameNode(first)).toBe(false);
   expect(opened).toBe(1);

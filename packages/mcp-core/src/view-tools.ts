@@ -10,7 +10,7 @@ export const ScreenSchema = z
     height: z.number().int().min(320).max(4096),
   })
   .describe(
-    "Allocate a Linux virtual display at launch. Check get_node first; Apps & screens must already be enabled and display programs installed.",
+    "Allocate a Linux virtual display at launch. Check get_node first; Virtual displays must already be enabled and display programs installed.",
   );
 
 export const GetNodeSchema = z.object({
@@ -67,7 +67,7 @@ interface PreviewInfo {
   cdpPort: number | null;
   screen: { display: string; rfbPort: number } | null;
   nodeEnabled: boolean;
-  appsEnabled?: boolean;
+  webPreviewsEnabled?: boolean;
   virtualDisplayEnabled?: boolean;
   reason?: string;
 }
@@ -79,7 +79,7 @@ export const OpenSubshellViewSchema = z
   .object({
     subshell_id: z.string().min(1),
     kind: z.enum(["app", "screen"]),
-    port: z.number().int().min(1).max(65535).optional().describe("Required for app previews; omit for screen previews"),
+    port: z.number().int().min(1).max(65535).optional().describe("Required for web previews; omit for screen previews"),
   })
   .superRefine((args, ctx) => {
     if (args.kind === "app" && args.port === undefined) {
@@ -108,7 +108,7 @@ export async function openSubshellView(deps: ToolDeps, args: z.infer<typeof Open
       );
     port = info.screen.rfbPort;
   } else {
-    if (args.port === undefined) throw new Error("subshell: app previews require a port from list_subshell_views");
+    if (args.port === undefined) throw new Error("subshell: web previews require a port from list_subshell_views");
     port = args.port;
   }
   const result = await deps.api.req<{ proxyBase: string }>(
