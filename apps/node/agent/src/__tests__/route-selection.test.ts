@@ -14,7 +14,8 @@ afterEach(async () => {
 const publicUrl = "wss://plane.example/ws/node";
 const lan = "ws://172.16.2.177:3080/ws/node";
 
-async function fixture() {
+async function fixture(controlledClock = false) {
+  let clock = 1;
   const server = await generateLinkKeyPair();
   const stranger = await generateLinkKeyPair();
   const dir = await mkdtemp(join(tmpdir(), "node-route-test-"));
@@ -41,7 +42,9 @@ async function fixture() {
     if (local ? state.lanDown : state.publicDown) throw new Error("unreachable");
     const request = await openRouteRequest(server, JSON.parse(String(init?.body)) as RouteEnvelope);
     expect(request.payload).toMatchObject({ nodeKey: "secret-key" });
-    await Bun.sleep(local ? state.lanDelay : state.publicDelay);
+    const delay = local ? state.lanDelay : state.publicDelay;
+    if (controlledClock) clock += delay;
+    else await Bun.sleep(delay);
     if (local && state.wrongIdentity) {
       // An unrelated control plane cannot even open the probe, much less authenticate its reply.
       await openRouteRequest(stranger, JSON.parse(String(init?.body)) as RouteEnvelope);
@@ -54,7 +57,13 @@ async function fixture() {
       }),
     );
   }) as typeof fetch;
-  return { config, state, calls, selector: () => new NodeRouteSelector(config, publicUrl, { fetch: fetcher }) };
+  return {
+    config,
+    state,
+    calls,
+    selector: () =>
+      new NodeRouteSelector(config, publicUrl, { fetch: fetcher, now: controlledClock ? () => clock : undefined }),
+  };
 }
 
 test("prefers a verified faster LAN route without rewriting the public fallback", async () => {
@@ -93,7 +102,9 @@ test("a failed WebSocket route cools down and returns to the configured endpoint
 });
 
 test("a small timing difference keeps the configured route", async () => {
-  const f = await fixture();
+  // Exercise the hysteresis threshold, not CI scheduling or crypto latency.
+  // The fresh fixture probes the configured endpoint, then its one LAN hint.
+  const f = await fixture(true);
   f.state.publicDelay = 8;
   expect(await f.selector().select()).toMatchObject({
     url: publicUrl,
