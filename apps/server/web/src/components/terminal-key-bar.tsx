@@ -1,4 +1,4 @@
-import { cn, ExplainedButton } from "@internal/node-admin";
+import { cn } from "@internal/node-admin";
 import {
   ArrowDownToLine,
   ArrowUpToLine,
@@ -11,8 +11,9 @@ import {
   RefreshCw,
   TextCursorInput,
 } from "lucide-react";
-import { type ButtonHTMLAttributes, type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { KeyBarControl } from "@/components/terminal-key-control";
 
 /** One key-bar button — every button sends raw bytes, like a physical key. */
 export interface KeyBarButton {
@@ -104,59 +105,6 @@ export interface TerminalKeyBarProps {
 const BUTTON_CLASS =
   "min-h-11 min-w-11 shrink-0 touch-manipulation select-none bg-transparent px-3 text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-40 aria-disabled:opacity-40 data-[pressed=true]:bg-accent data-[pressed=true]:text-foreground data-[pressed=true]:shadow-inner enabled:active:bg-accent enabled:active:text-foreground motion-safe:transition-colors";
 
-/** Preserve terminal focus and show feedback even for a quick touch tap. */
-function KeyBarControl({
-  className,
-  disabled,
-  disabledReason,
-  onClick,
-  ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { disabledReason?: string }) {
-  const [pressed, setPressed] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(() => () => clearTimeout(timer.current), []);
-  function press() {
-    if (disabled) return;
-    clearTimeout(timer.current);
-    setPressed(true);
-  }
-  function release() {
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => setPressed(false), 160);
-  }
-  function cancel() {
-    clearTimeout(timer.current);
-    setPressed(false);
-  }
-  return (
-    <ExplainedButton
-      {...props}
-      disabled={disabled}
-      disabledReason={disabledReason}
-      className={className}
-      data-pressed={!disabled && pressed}
-      onPointerDown={(event) => {
-        event.preventDefault();
-        press();
-      }}
-      onPointerUp={release}
-      onPointerCancel={cancel}
-      onPointerLeave={cancel}
-      onBlur={cancel}
-      onKeyDown={(event) => {
-        if (event.key === " " || event.key === "Enter") press();
-      }}
-      onKeyUp={release}
-      onClick={(event) => {
-        if (disabled) return;
-        press();
-        release();
-        onClick?.(event);
-      }}
-    />
-  );
-}
-
 /**
  * One horizontally scrollable accessory row for touch devices. Byte buttons are min-h-11 (44px) and touch-manipulation (no
  * double-tap zoom). subshell intercepts no characters; the pane's own program
@@ -167,7 +115,10 @@ function KeyBarControl({
  * `onPointerDown` preventDefault pins focus wherever it is (the terminal's
  * hidden textarea) when a button is tapped — a native button would take
  * focus, and xterm stops routing keystrokes once its textarea is blurred,
- * so the next hardware key would go missing. `click` still fires normally.
+ * so the next hardware key would go missing. That cancellation also makes
+ * WebKit skip the synthesized click, so the action rides the `pointerup`
+ * (see {@link KeyBarControl}) rather than waiting for a click that iOS
+ * never sends; the click path stays for keyboard activation.
  * View access renders only reading controls. Copy mode keeps the full row
  * and its scroll position, disabling input controls until input resumes.
  *
