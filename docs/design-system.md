@@ -27,6 +27,8 @@ no class at all is the one escape.
 | `body` | 14 / 400 | 16 / 400 | running text, subtitles, dialog and card prose, table headings and values |
 | `detail` | 13 / 400 | 13 / 400 | **the floor, and everything quiet**: what explains a control (its help text, state note, error), plus metadata: chips, timestamps, versions, monospace output. `muted-foreground` by default |
 
+Dialog titles use `text-dialog-title` (18px), while other headings remain 20px.
+
 Action-menu items use `detail` (13px) with the normal menu foreground, 2px vertical padding, and 28px minimum row height.
 
 Line-height 1.2 for `display`/`heading`, 1.5 otherwise. Code is `detail` in the

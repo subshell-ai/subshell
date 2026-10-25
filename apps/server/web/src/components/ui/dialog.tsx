@@ -60,7 +60,7 @@ export function DialogContent({ className, children, ...props }: DialogPrimitive
           {children}
         </div>
         <DialogPrimitive.Close
-          className="absolute top-4 right-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring"
+          className="absolute top-6 right-6 inline-flex size-4.5 items-center justify-center rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring"
           aria-label="Close"
         >
           <X className="h-4 w-4" />
@@ -91,7 +91,7 @@ export function DialogHeader({ className, ...props }: HTMLAttributes<HTMLDivElem
   // breakpoint, but that tests the WINDOW, not the dialog — page zoom or a
   // narrow shell put a comfortably wide dialog back in its centered branch
   // (same trap as the footer, operator report 2026-09-25).
-  return <div className={cn("flex flex-col space-y-1.5 text-left", className)} {...props} />;
+  return <div className={cn("flex flex-col space-y-1.5 pr-8 text-left", className)} {...props} />;
 }
 
 export function DialogFooter({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
@@ -106,7 +106,7 @@ export function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn("font-strong text-heading leading-none tracking-tight", className)}
+      className={cn("font-strong text-dialog-title leading-none tracking-tight", className)}
       {...props}
     />
   );
