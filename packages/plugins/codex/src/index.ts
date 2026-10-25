@@ -14,6 +14,17 @@ import {
   validateGenericPreset,
 } from "@subshell-ai/plugin-api";
 
+// Codex filters the MCP child's environment. Forward names only so pane
+// credentials are resolved at launch, never written into config or argv.
+const MCP_ENV_VARS = [
+  "SUBSHELL_API_KEY",
+  "SUBSHELL_BASE_URL",
+  "SUBSHELL_ID",
+  "SUBSHELL_NAME",
+  "SUBSHELL_DATA_DIR",
+  "SUBSHELL_SERVER_DATA_DIR",
+];
+
 /** Known Codex settings, applied as per-invocation CLI flags. */
 const CODEX_SETTINGS_FIELDS: SettingsField[] = [
   {
@@ -162,6 +173,7 @@ const createPlugin: HarnessPluginFactory = (host: PluginHost): SubshellPlugin =>
       `[mcp_servers.${MCP_SERVER_NAME}]`,
       `command = ${tomlString(launch.command)}`,
       `args = ${tomlStringArray(launch.args)}`,
+      `env_vars = ${tomlStringArray(MCP_ENV_VARS)}`,
       "",
     ].join("\n");
     return {
@@ -171,11 +183,12 @@ const createPlugin: HarnessPluginFactory = (host: PluginHost): SubshellPlugin =>
         `mcp_servers.${MCP_SERVER_NAME}.command=${tomlString(launch.command)}`,
         "-c",
         `mcp_servers.${MCP_SERVER_NAME}.args=${tomlStringArray(launch.args)}`,
+        "-c",
+        `mcp_servers.${MCP_SERVER_NAME}.env_vars=${tomlStringArray(MCP_ENV_VARS)}`,
       ],
       // No wiring env on purpose (contrast opencode's OPENCODE_CONFIG): the -c
       // argv IS the wiring, and CODEX_HOME must stay on the user's dir (auth).
-      // The spawned `subshell mcp` child inherits the SUBSHELL_* credentials
-      // the backend bakes into the pane regardless of this registration.
+      // env_vars explicitly forwards the pane identity to the MCP child.
       env: undefined,
     };
   },

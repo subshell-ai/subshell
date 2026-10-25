@@ -151,6 +151,8 @@ describe("CodexPlugin", () => {
       'mcp_servers.subshell.command="/usr/bin/bun"',
       "-c",
       'mcp_servers.subshell.args=["/opt/subshell/dist/mcp/main.js"]',
+      "-c",
+      'mcp_servers.subshell.env_vars=["SUBSHELL_API_KEY", "SUBSHELL_BASE_URL", "SUBSHELL_ID", "SUBSHELL_NAME", "SUBSHELL_DATA_DIR", "SUBSHELL_SERVER_DATA_DIR"]',
     ]);
   });
 
@@ -161,6 +163,8 @@ describe("CodexPlugin", () => {
       'mcp_servers.subshell.command="/opt/subshell/subshell-mcp"',
       "-c",
       "mcp_servers.subshell.args=[]",
+      "-c",
+      'mcp_servers.subshell.env_vars=["SUBSHELL_API_KEY", "SUBSHELL_BASE_URL", "SUBSHELL_ID", "SUBSHELL_NAME", "SUBSHELL_DATA_DIR", "SUBSHELL_SERVER_DATA_DIR"]',
     ]);
   });
 
@@ -170,7 +174,30 @@ describe("CodexPlugin", () => {
     expect(reg?.fileContent).toContain('command = "/usr/bin/bun"');
     expect(reg?.fileContent).toContain('args = ["/opt/subshell/dist/mcp/main.js"]');
     expect(reg?.fileContent).toContain("MANUAL-SETUP REFERENCE");
-    expect(reg?.fileContent).not.toMatch(/KEY|TOKEN/);
+    const config = Bun.TOML.parse(reg?.fileContent ?? "") as {
+      mcp_servers: { subshell: { env_vars: string[]; env?: unknown } };
+    };
+    expect(config.mcp_servers.subshell.env).toBeUndefined();
+    expect(config.mcp_servers.subshell.env_vars).toEqual([
+      "SUBSHELL_API_KEY",
+      "SUBSHELL_BASE_URL",
+      "SUBSHELL_ID",
+      "SUBSHELL_NAME",
+      "SUBSHELL_DATA_DIR",
+      "SUBSHELL_SERVER_DATA_DIR",
+    ]);
+    const command = plugin.buildCommand({
+      binary: "/usr/bin/codex",
+      cwd: "/tmp/ws",
+      subshellName: "",
+      preset: preset(),
+      mcp: reg,
+    });
+    const override = command.find((arg) => arg.startsWith("mcp_servers.subshell.env_vars="));
+    expect(override).toBeDefined();
+    expect(Bun.TOML.parse(override ?? "")).toEqual({
+      mcp_servers: { subshell: { env_vars: config.mcp_servers.subshell.env_vars } },
+    });
   });
 
   it("reports auto setup", () => {
