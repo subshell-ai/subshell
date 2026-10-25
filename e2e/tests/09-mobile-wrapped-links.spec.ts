@@ -30,14 +30,18 @@ const SPAWN_TIMEOUT = 30_000;
  * through the `window.open` recorder and the clipboard.
  */
 const WRAP_URL = `https://wraplink7z.test/m/${"q".repeat(200)}/END42MARKER`;
-const HEAD = "https://wraplink7z.test";
 
 /**
- * Geometry for the first seam, read structurally rather than by hunting a
- * marker string: the phone grid is ~46 columns, narrow enough that a wrap can
- * land INSIDE any marker the URL ends with, so no string is guaranteed to sit
- * whole on the continuation row. The row after the URL's head row is a
- * continuation row by construction (the URL fills every row between them).
+ * Geometry for a seam that is still on screen, read structurally rather than
+ * by hunting a marker string: the phone grid is ~46 columns, narrow enough
+ * that a wrap can land INSIDE any marker the URL ends with, so no string is
+ * guaranteed to sit whole on the continuation row. The locator is therefore
+ * ANY two adjacent rows inside the URL's `q` run — the run is ~200 chars, so
+ * it fills several whole rows and the pair survives as the stub's 5 s ticks
+ * scroll the replay. Anchoring to the URL's HEAD row instead was a real
+ * flake: a phone grid holds ~10 rows and the wrapped URL takes 6, so the head
+ * row could ride out of the replay's capture-pane before the reloaded SPA
+ * even painted. Tap and copy are proved at whichever seam is visible.
  */
 interface SeamGeometry {
   /** Head row: center for the DOWN tap, left edge for the copy start. */
@@ -55,50 +59,49 @@ interface SeamGeometry {
   contChars: string;
 }
 
-/** Center + edges of the LAST rendering of `head`, plus the row beneath it. */
-function seamGeometry(head: string): SeamGeometry | null {
+/** Center + edges of the LAST visible q-row seam, plus the row beneath it. */
+function seamGeometry(): SeamGeometry | null {
   let found: SeamGeometry | null = null;
   const rows = Array.from(document.querySelectorAll(".xterm-rows > div"));
   for (let i = 0; i + 1 < rows.length; i++) {
     const headRow = rows[i]!;
-    const walker = document.createTreeWalker(headRow, NodeFilter.SHOW_TEXT);
-    for (;;) {
-      const node = walker.nextNode() as Text | null;
-      if (!node) break;
-      const j = node.data.indexOf(head);
-      if (j < 0) continue;
-      const range = document.createRange();
-      range.setStart(node, j);
-      range.setEnd(node, j + head.length);
-      const hr = range.getBoundingClientRect();
-      if (hr.width === 0 && hr.height === 0) continue;
-      const contRow = rows[i + 1]!;
-      const contNode = document.createTreeWalker(contRow, NodeFilter.SHOW_TEXT).nextNode() as Text | null;
-      // Ten URL chars make the copy's expected slice; a shorter run means
-      // this head render ends too early to aim the drag.
-      if (!contNode || contNode.data.length < 10) continue;
-      const contRange = document.createRange();
-      contRange.setStart(contNode, 0);
-      contRange.setEnd(contNode, 10);
-      const cr = contRange.getBoundingClientRect();
-      if (cr.width === 0 && cr.height === 0) continue;
-      const contRect = contRow.getBoundingClientRect();
-      const headText = headRow.textContent ?? "";
-      found = {
-        head: { x: hr.left + hr.width / 2, y: hr.top + hr.height / 2, left: hr.left },
-        cont: { x: contRect.left + contRect.width / 2, y: contRect.top + contRect.height / 2 },
-        copy: {
-          fromX: hr.left + 2,
-          fromY: hr.top + hr.height / 2,
-          // 95% of the ten-char span: inside the last cell of the run, so
-          // the drag cannot round past it.
-          toX: cr.left + cr.width * 0.95,
-          toY: cr.top + cr.height / 2,
-        },
-        headText: headText.slice(headText.indexOf(head)),
-        contChars: contNode.data.slice(0, 10),
-      };
-    }
+    // A whole row of the URL's q run (the renderer pads rows, so trim):
+    // pure q means this row is strictly inside the URL, and the row after it
+    // continues the same wrapped line.
+    const headText = (headRow.textContent ?? "").replace(/\s+$/, "");
+    if (!/^q{10,}$/.test(headText)) continue;
+    const headNode = document.createTreeWalker(headRow, NodeFilter.SHOW_TEXT).nextNode() as Text | null;
+    if (!headNode) continue;
+    const range = document.createRange();
+    range.setStart(headNode, 0);
+    range.setEnd(headNode, Math.min(10, headNode.data.length));
+    const hr = range.getBoundingClientRect();
+    if (hr.width === 0 && hr.height === 0) continue;
+    const contRow = rows[i + 1]!;
+    const contNode = document.createTreeWalker(contRow, NodeFilter.SHOW_TEXT).nextNode() as Text | null;
+    // Ten URL chars make the copy's expected slice; a row that does not open
+    // on them is not a continuation of this seam (it is the tail marker).
+    if (!contNode || !/^q{10,}/.test(contNode.data)) continue;
+    const contRange = document.createRange();
+    contRange.setStart(contNode, 0);
+    contRange.setEnd(contNode, 10);
+    const cr = contRange.getBoundingClientRect();
+    if (cr.width === 0 && cr.height === 0) continue;
+    const contRect = contRow.getBoundingClientRect();
+    found = {
+      head: { x: hr.left + hr.width / 2, y: hr.top + hr.height / 2, left: hr.left },
+      cont: { x: contRect.left + contRect.width / 2, y: contRect.top + contRect.height / 2 },
+      copy: {
+        fromX: hr.left + 2,
+        fromY: hr.top + hr.height / 2,
+        // 95% of the ten-char span: inside the last cell of the run, so
+        // the drag cannot round past it.
+        toX: cr.left + cr.width * 0.95,
+        toY: cr.top + cr.height / 2,
+      },
+      headText,
+      contChars: contNode.data.slice(0, 10),
+    };
   }
   return found;
 }
@@ -189,9 +192,7 @@ test("a wrapped URL taps open whole and copies clean after a replay (mobile)", a
   await page.reload();
   await socket2;
   await expect(page.getByText("reconnecting…")).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
-  await expect
-    .poll(async () => (await page.evaluate(seamGeometry, HEAD)) !== null, { timeout: SPAWN_TIMEOUT })
-    .toBe(true);
+  await expect.poll(async () => (await page.evaluate(seamGeometry)) !== null, { timeout: SPAWN_TIMEOUT }).toBe(true);
 
   // Copy mode on: input off, native selection and taps live.
   expect(await page.locator(".copy-mode").count()).toBe(0);
@@ -201,8 +202,8 @@ test("a wrapped URL taps open whole and copies clean after a replay (mobile)", a
 
   // A tap on the continuation row must walk UP the seam chain and open the
   // whole URL; a tap on the head row must walk DOWN and do the same.
-  const seam = await page.evaluate(seamGeometry, HEAD);
-  if (!seam) throw new Error("the wrapped URL's head row vanished after the replay");
+  const seam = await page.evaluate(seamGeometry);
+  if (!seam) throw new Error("no q-row seam of the wrapped URL survived the replay");
   await touchTap(page, seam.cont.x, seam.cont.y);
   await touchTap(page, seam.head.x, seam.head.y);
   await expect.poll(async () => (await opens()).join("|"), { timeout: 8_000 }).toContain(WRAP_URL);
