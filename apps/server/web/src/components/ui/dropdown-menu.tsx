@@ -95,7 +95,7 @@ export function DropdownMenuItem({ className, onSelect, onClick, ...props }: Dro
         // matches the Select and Combobox rows the earlier 36px ran taller
         // than (operator freed the 36px touch call 2026-10-24); it still
         // clears the WCAG 2.5.8 24px floor.
-        "relative flex min-h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 py-1 text-sm outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50",
+        "relative flex min-h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 py-1 text-detail outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50",
         className,
       )}
       onClick={(event) => {
