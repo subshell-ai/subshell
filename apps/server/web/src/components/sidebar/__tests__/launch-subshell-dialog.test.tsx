@@ -7,7 +7,8 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { LaunchSubshellDialog } from "@/components/sidebar/launch-subshell-dialog";
 
 /**
@@ -26,7 +27,17 @@ async function renderDialog(initialSsh?: { destination?: string }) {
   const indexRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/",
-    component: () => <LaunchSubshellDialog open onOpenChange={() => {}} initialSsh={initialSsh} />,
+    component: function DialogHarness() {
+      const [open, setOpen] = useState(true);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Reopen launch
+          </button>
+          <LaunchSubshellDialog open={open} onOpenChange={setOpen} initialSsh={initialSsh} />
+        </>
+      );
+    },
   });
   const subshellRoute = createRoute({
     getParentRoute: () => rootRoute,
@@ -68,4 +79,18 @@ it("focuses the selected SSH type when a link opens the SSH form", async () => {
   expect(ssh.getAttribute("aria-pressed")).toBe("true");
   expect(document.activeElement).toBe(ssh);
   expect(screen.getByRole("button", { name: "Agent or terminal" }).getAttribute("aria-pressed")).toBe("false");
+});
+
+it.each(["Cancel", "Close"])("%s discards the launch draft", async (action) => {
+  await renderDialog();
+  await screen.findByRole("heading", { name: "New subshell" });
+  const field = document.querySelector<HTMLInputElement>("#picker-working-dir");
+  if (!field) throw new Error("Working directory input is missing");
+  const initial = field.value;
+  fireEvent.change(field, { target: { value: "/tmp/discard-this-draft" } });
+  expect(field.value).toBe("/tmp/discard-this-draft");
+  fireEvent.click(screen.getByRole("button", { name: action }));
+  await waitFor(() => expect(screen.queryByRole("dialog") === null).toBe(true));
+  fireEvent.click(screen.getByRole("button", { name: "Reopen launch" }));
+  await waitFor(() => expect(document.querySelector<HTMLInputElement>("#picker-working-dir")?.value).toBe(initial));
 });

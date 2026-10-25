@@ -64,6 +64,12 @@ export function LaunchSubshellDialog({
     setKind("agent");
   }
 
+  function dismiss() {
+    if (sshPending || create.isPending) return;
+    onOpenChange(false);
+    reset();
+  }
+
   async function submit() {
     setError(null);
     try {
@@ -98,8 +104,8 @@ export function LaunchSubshellDialog({
       // only a deliberate act closes this - X, Cancel, or a successful add.
       onOpenChange={formDialogOpenChange((next) => {
         if (sshPending || create.isPending) return;
-        onOpenChange(next);
-        if (!next) reset();
+        if (next) onOpenChange(true);
+        else dismiss();
       })}
     >
       <DialogContent
@@ -122,7 +128,7 @@ export function LaunchSubshellDialog({
             onDraftChange={setSshDraft}
             onPendingChange={setSshPending}
             initial={initialSsh}
-            onLeave={() => onOpenChange(false)}
+            onLeave={dismiss}
             onCreated={async (id) => {
               onOpenChange(false);
               reset();
@@ -150,12 +156,12 @@ export function LaunchSubshellDialog({
           />
         ) : (
           <>
-            <NewSubshellForm value={form} onChange={setForm} onLeave={() => onOpenChange(false)} />
+            <NewSubshellForm value={form} onChange={setForm} onLeave={dismiss} />
             {error && <p className="text-destructive text-detail">{error}</p>}
             <DialogFooter sticky>
               <Button
                 variant="outline"
-                onClick={() => onOpenChange(false)}
+                onClick={dismiss}
                 disabled={create.isPending}
                 disabledReason="Wait for the subshell to start."
               >
