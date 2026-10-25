@@ -14,6 +14,7 @@ export function VirtualDisplayField({
   onLeave,
   provider,
   onProviderChange,
+  resetReason,
 }: {
   node: Node | null;
   id: string;
@@ -22,6 +23,7 @@ export function VirtualDisplayField({
   onLeave?: () => void;
   provider?: string;
   onProviderChange?: (provider: string | undefined) => void;
+  resetReason?: string;
 }) {
   const { check, reason, needsSetup, shouldCheck } = useNodeDisplayReadiness(node, provider);
   const providers = node?.virtualDisplayProviders ?? [DEFAULT_VIRTUAL_DISPLAY_PROVIDER];
@@ -32,7 +34,12 @@ export function VirtualDisplayField({
         checked={checked}
         disabled={Boolean(reason) && !checked}
         onCheckedChange={onChange}
-        aria-describedby={reason ? `${id}-hint ${id}-cost ${id}-reason` : `${id}-hint ${id}-cost`}
+        aria-describedby={[
+          `${id}-hint`,
+          `${id}-cost`,
+          ...(reason ? [`${id}-reason`] : []),
+          ...(resetReason ? [`${id}-reset`] : []),
+        ].join(" ")}
       />
       <Label htmlFor={id}>Virtual display</Label>
     </div>
@@ -72,6 +79,11 @@ export function VirtualDisplayField({
       <p id={`${id}-hint`} className="text-detail text-muted-foreground">
         Run graphical apps on a machine without a monitor.
       </p>
+      {resetReason && (
+        <p id={`${id}-reset`} role="status" className="text-detail text-warning">
+          {resetReason}
+        </p>
+      )}
       <p id={`${id}-cost`} className="text-detail text-warning">
         Uses extra memory and CPU. Not required for web app previews.
       </p>

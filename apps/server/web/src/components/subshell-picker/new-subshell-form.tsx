@@ -385,15 +385,11 @@ export function NewSubshellForm({
         addButtonId={ids.prompt}
       />
 
-      {!firstRun && value.displayResetReason && (
-        <p role="status" className="text-detail text-warning">
-          {value.displayResetReason}
-        </p>
-      )}
       {!firstRun && (
         <VirtualDisplayField
           node={selectedNode}
           id={ids.virtualDisplay}
+          resetReason={value.displayResetReason}
           provider={value.displayProvider}
           onProviderChange={(displayProvider) => onChange({ ...value, displayProvider, displayResetReason: undefined })}
           checked={value.virtualDisplay === true}
