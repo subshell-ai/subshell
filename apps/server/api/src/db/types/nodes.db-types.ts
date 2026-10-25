@@ -108,12 +108,14 @@ export interface NodeTable {
    */
   sshEnabledAt: string | null;
   /**
-   * 1 = pane preview may be watched on this machine (pane-preview spec
+   * 1 = apps, services and browsers may be viewed on this machine (pane-preview spec
    * Task 3). Opt-in per node, never a fleet default: 0 for every row that
    * predates the column, so an upgrade leaves preview off everywhere until
    * the owner flips it: the flag exposes terminal content.
    */
   previewEnabled: number;
+  /** Independent permission to start and connect to virtual displays. */
+  virtualDisplayEnabled: number;
   /**
    * ISO 8601 of the write that last changed {@link previewEnabled} (the
    * wire's `changedAt`), or null when the flag was never written. The stamp

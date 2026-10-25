@@ -11,7 +11,7 @@ afterEach(() => {
   cleanup();
   globalThis.fetch = originalFetch;
 });
-const linux = { id: "node1", name: "Test machine", os: "linux", viewsEnabled: true, canManage: true } as Node;
+const linux = { id: "node1", name: "Test machine", os: "linux", virtualDisplayEnabled: true, canManage: true } as Node;
 const ready = { supported: true, missing: [] };
 function wrapper({ children }: { children: React.ReactNode }) {
   return (
@@ -33,7 +33,7 @@ describe("virtual display prerequisites", () => {
     expect(virtualDisplayReason(linux, ready)).toBeUndefined();
     expect(virtualDisplayReason(linux)).toContain("Checking");
     expect(virtualDisplayReason({ ...linux, os: "darwin" })).toContain("Linux");
-    expect(virtualDisplayReason({ ...linux, viewsEnabled: false })).toContain("Allow apps and screens");
+    expect(virtualDisplayReason({ ...linux, virtualDisplayEnabled: false })).toContain("Allow virtual displays");
     expect(virtualDisplayReason(null)).toContain("Choose a machine");
     expect(virtualDisplayReason(linux, { supported: true, missing: ["x11vnc"] })).toContain(
       "Required virtual display programs are missing",

@@ -270,6 +270,13 @@ The permission id `nodes:preview`, database `previewEnabled` columns, audit
 identifiers, signed node commands/frames, `/pv/` capability paths, and persisted
 `preview:` workspace panel ids keep their existing spelling. Those names carry
 stored state or transport compatibility; the API maps the database flag to
-`viewsEnabled`. They aren't alternative public discovery endpoints. The
+`viewsEnabled`. Virtual displays use the independent `virtualDisplayEnabled`
+column and node-view field. The existing `/views-enabled` write accepts
+`feature: "apps" | "display"` (omitted means apps), with the same ownership gate.
+The signed mirror's `on` is the transport allowance (either feature enabled);
+`appsOn` and `displayOn` narrow it when the permissions differ. Legacy mirrors
+without those fields retain the combined meaning, and reconciliation compares
+both permissions. Launching a screen checks the display permission, while app
+and browser opens check the apps permission. These aren't alternative public discovery endpoints. The
 subshell `preview` field still means its recent terminal output, and website
 previews remain a useful description of the app viewer.

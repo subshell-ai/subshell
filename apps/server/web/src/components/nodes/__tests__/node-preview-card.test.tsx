@@ -82,7 +82,7 @@ describe("the Preview switch", () => {
   it("reflects the stored flag and asks the route when flipped", async () => {
     const h = mount(node({ viewsEnabled: false }));
     try {
-      const toggle = screen.getByRole("switch", { name: /allow apps and screens/i });
+      const toggle = screen.getByRole("switch", { name: /allow apps and browsers/i });
       // Cast-and-read, this repo's convention (Base UI wears aria-checked and
       // aria-disabled; there is no jest-dom dependency here).
       expect(toggle.getAttribute("aria-checked")).toBe("false");
@@ -93,6 +93,7 @@ describe("the Preview switch", () => {
       );
       expect(h.calls.find((c) => c.method === "PUT" && c.url === "/api/nodes/node1/views-enabled")?.body).toEqual({
         on: true,
+        feature: "apps",
       });
     } finally {
       h.restore();
@@ -102,7 +103,9 @@ describe("the Preview switch", () => {
   it("a checked switch mirrors the stored on-state", () => {
     const h = mount(node({ viewsEnabled: true }));
     try {
-      expect(screen.getByRole("switch", { name: /allow apps and screens/i }).getAttribute("aria-checked")).toBe("true");
+      expect(screen.getByRole("switch", { name: /allow apps and browsers/i }).getAttribute("aria-checked")).toBe(
+        "true",
+      );
     } finally {
       h.restore();
     }
@@ -112,9 +115,9 @@ describe("the Preview switch", () => {
     const h = mount(node({ canManage: false, access: "edit" }));
     try {
       expect(
-        screen.getByRole("switch", { name: /allow apps and screens/i }).matches(":disabled, [aria-disabled=true]"),
+        screen.getByRole("switch", { name: /allow apps and browsers/i }).matches(":disabled, [aria-disabled=true]"),
       ).toBe(true);
-      expect(screen.getByText(/only this node/i)).toBeTruthy();
+      expect(screen.getAllByText(/only this node/i)[0]).toBeTruthy();
     } finally {
       h.restore();
     }
@@ -123,7 +126,7 @@ describe("the Preview switch", () => {
   it("the local host answers with the admin remedy line", () => {
     const h = mount(node({ kind: "local", canManage: false }));
     try {
-      expect(screen.getByText(/an admin can change this setting/i)).toBeTruthy();
+      expect(screen.getAllByText(/an admin can change this setting/i)[0]).toBeTruthy();
     } finally {
       h.restore();
     }
@@ -134,7 +137,7 @@ describe("node view prerequisites", () => {
   it("explains disabled features without probing the node", () => {
     const h = mount(node());
     try {
-      expect(screen.getByText("Apps & screens is disabled on this node.")).toBeTruthy();
+      expect(screen.getByText("Apps and browsers are disabled on this node.")).toBeTruthy();
       expect(h.calls).toHaveLength(0);
     } finally {
       h.restore();
@@ -143,12 +146,12 @@ describe("node view prerequisites", () => {
 
   it("shows missing requirements and clears the warning after a successful recheck", async () => {
     const readiness = { body: { supported: true, missing: ["xauth"] } };
-    const h = mount(node({ viewsEnabled: true }), readiness);
+    const h = mount(node({ viewsEnabled: true, virtualDisplayEnabled: true }), readiness);
     try {
       const guide = await screen.findByRole("link", { name: "Set up virtual display" });
       expect(guide.getAttribute("href")).toBe("https://docs.subshell.sh/guides/preview#use-a-virtual-display-on-linux");
       expect(screen.getByText("Required virtual display programs are missing on this machine.")).toBeTruthy();
-      expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("true");
+      expect(screen.getByRole("switch", { name: /allow virtual displays/i }).getAttribute("aria-checked")).toBe("true");
       readiness.body = { supported: true, missing: [] };
       fireEvent.click(screen.getByRole("button", { name: "Recheck" }));
       await screen.findByText("Virtual display requirements are met.");
@@ -160,9 +163,9 @@ describe("node view prerequisites", () => {
   });
 
   it("explains unsupported features while keeping saved services available", () => {
-    const h = mount(node({ viewsEnabled: true, os: "darwin" }));
+    const h = mount(node({ viewsEnabled: true, virtualDisplayEnabled: true, os: "darwin" }));
     try {
-      expect(screen.getByText(/Automatic app discovery and browser watching are available on Linux/)).toBeTruthy();
+      expect(screen.getByText(/Automatic app discovery and browser watching require Linux/)).toBeTruthy();
       expect(screen.getByText("Virtual displays are available on Linux machines only.")).toBeTruthy();
       expect(h.calls).toHaveLength(0);
     } finally {
@@ -172,7 +175,10 @@ describe("node view prerequisites", () => {
 
   it("shows a failed check and lets a read-only viewer retry it", async () => {
     const readiness = { body: { message: "Bring this node online, then recheck." } as unknown, status: 409 };
-    const h = mount(node({ viewsEnabled: true, canManage: false, access: "view" }), readiness);
+    const h = mount(
+      node({ viewsEnabled: true, virtualDisplayEnabled: true, canManage: false, access: "view" }),
+      readiness,
+    );
     try {
       await screen.findByText(/Bring this node online, then recheck/);
       expect(screen.queryByText("Virtual display requirements are met.")).toBeNull();
@@ -180,9 +186,26 @@ describe("node view prerequisites", () => {
       readiness.status = 200;
       fireEvent.click(screen.getByRole("button", { name: "Recheck" }));
       await screen.findByText("Virtual display requirements are met.");
-      expect(screen.getByRole("switch").matches(":disabled, [aria-disabled=true]")).toBe(true);
+      expect(
+        screen.getByRole("switch", { name: /allow virtual displays/i }).matches(":disabled, [aria-disabled=true]"),
+      ).toBe(true);
     } finally {
       h.restore();
     }
   });
+});
+
+it("apps need no display prerequisites and display has its own switch", async () => {
+  const h = mount(node({ viewsEnabled: true, virtualDisplayEnabled: false }));
+  try {
+    expect(screen.getByRole("switch", { name: "Allow apps and browsers" }).getAttribute("aria-checked")).toBe("true");
+    const display = screen.getByRole("switch", { name: "Allow virtual displays" });
+    expect(display.getAttribute("aria-checked")).toBe("false");
+    expect(h.calls).toHaveLength(0);
+    fireEvent.click(display);
+    await waitFor(() => expect(h.calls.some((c) => c.method === "PUT")).toBe(true));
+    expect(h.calls.find((c) => c.method === "PUT")?.body).toEqual({ on: true, feature: "display" });
+  } finally {
+    h.restore();
+  }
 });

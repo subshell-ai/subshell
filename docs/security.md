@@ -4055,9 +4055,14 @@ stay unprobeable.
 ## 11.15 Preview apps, browsers, and virtual displays
 
 
-Preview is opt-in per node, including the built-in node. The node owner controls
-it; an administrator controls the built-in node. The server checks the database
-setting before opening a preview and enrolled nodes check its signed mirror.
+Apps/browser access and virtual displays have independent opt-in permissions per
+node, including the built-in node. The node owner controls them; an administrator
+controls the built-in node. The server checks the corresponding database setting
+before opening a preview or creating a display, and enrolled nodes check the
+corresponding signed mirror field. The transport runs when either feature is
+allowed; that transport allowance alone does not authorize the other feature.
+Migration preserves grants from the previous combined setting; new nodes default
+both permissions off.
 Turning it off prevents new operations. It does not drain existing lanes,
 terminate a subshell, or stop graphical programs.
 

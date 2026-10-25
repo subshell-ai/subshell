@@ -41,6 +41,7 @@ describe("MCP preview discovery and launch", () => {
   it("preserves capability settings and honest harness health", async () => {
     const facts = {
       viewsEnabled: false,
+      virtualDisplayEnabled: true,
       sshEnabled: true,
       sshWideForwards: false,
       protocolVersion: 17,

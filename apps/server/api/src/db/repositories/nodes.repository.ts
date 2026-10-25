@@ -66,6 +66,7 @@ export class NodesRepository extends BaseRepository {
         // A new node watches no panes: `0` is the column default (migration
         // 0062) and preview is opt-in per machine; mirror it the same way.
         previewEnabled: input.previewEnabled ?? 0,
+        virtualDisplayEnabled: input.virtualDisplayEnabled ?? 0,
         previewEnabledAt: input.previewEnabledAt ?? null,
         sshWideForwards: 0,
         createdAt: input.createdAt ?? now,
@@ -314,6 +315,7 @@ export class NodesRepository extends BaseRepository {
     state: {
       /** True = this machine's panes may be watched. */
       on: boolean;
+      feature?: "apps" | "display";
       /** ISO 8601 of the write that produced `on`. Never re-stamped on relay. */
       changedAt: string;
     },
@@ -321,7 +323,9 @@ export class NodesRepository extends BaseRepository {
     return await this.db
       .updateTable("nodes")
       .set({
-        previewEnabled: state.on ? 1 : 0,
+        ...(state.feature === "display"
+          ? { virtualDisplayEnabled: state.on ? 1 : 0 }
+          : { previewEnabled: state.on ? 1 : 0 }),
         previewEnabledAt: state.changedAt,
         updatedAt: new Date().toISOString(),
       })

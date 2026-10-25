@@ -225,7 +225,7 @@ export function seedSshEnabledMemo(ctx: CommandContext): NodeSshEnabledWire | un
  * @param state - the mirror's answer, sent verbatim (never re-stamped here)
  */
 export function reportPreviewEnabled(ctx: CommandContext, state: NodePreviewEnabledWire): void {
-  ctx.ws.send({ type: "preview_enabled", on: state.on, changedAt: state.changedAt });
+  ctx.ws.send({ type: "preview_enabled", ...state });
   ctx.lastReportedPreviewEnabled = state;
 }
 
@@ -249,7 +249,13 @@ export function maybeReportPreviewEnabled(ctx: CommandContext): void {
   const state = reportablePreviewEnabled(readPreviewEnabled(ctx.config.dataDir));
   if (!state) return;
   const last = ctx.lastReportedPreviewEnabled;
-  if (last?.on === state.on && last.changedAt === state.changedAt) return;
+  if (
+    last?.on === state.on &&
+    last.changedAt === state.changedAt &&
+    last.appsOn === state.appsOn &&
+    last.displayOn === state.displayOn
+  )
+    return;
   reportPreviewEnabled(ctx, state);
 }
 

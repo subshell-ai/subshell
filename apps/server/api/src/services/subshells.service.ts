@@ -38,7 +38,7 @@ import {
   probeQuiet,
   waitSentinel,
 } from "@/services/nodes/pane-exec.js";
-import { getPreviewEnabled } from "@/services/nodes/preview-enabled.js";
+import { getVirtualDisplayEnabled } from "@/services/nodes/preview-enabled.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { getNotifyService } from "@/services/notify.service.js";
 import { getPreviewBroker } from "@/services/preview-broker.js";
@@ -651,10 +651,10 @@ export class SubshellsService extends BaseService {
     // node's Task 7 gate stays the authority for every fact the plane's row
     // cannot hold (platform, binaries). Placed in the service rather than
     // the launcher so a refused create never creates a pane at all.
-    if (screen !== undefined && !(await getPreviewEnabled(resolvedNodeId))) {
+    if (screen !== undefined && !(await getVirtualDisplayEnabled(resolvedNodeId))) {
       throw new SubshellCreateError(
         "bad_request",
-        "Preview is off for that node, so a screen pane cannot start there. Turn on Preview for this node (the node's settings row), or launch without a screen.",
+        "Virtual displays are disabled on this node. Enable Allow virtual displays in node settings, or launch without a virtual display.",
         400,
       );
     }

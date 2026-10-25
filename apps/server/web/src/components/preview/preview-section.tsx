@@ -251,7 +251,8 @@ export function PreviewSection({
   useEffect(() => {
     if (resumed.current || !initialView || !info?.nodeEnabled || (info.reason && initialView.kind !== "service"))
       return;
-    if (initialView.kind === "screen" && !info.screen) return;
+    if (initialView.kind === "screen" && (!info.screen || info.virtualDisplayEnabled === false)) return;
+    if (initialView.kind !== "screen" && info.appsEnabled === false) return;
     // Wait until mount effects settle, so StrictMode's replay cannot consume
     // the shortcut while invalidating its in-flight viewer request.
     let cancelled = false;
@@ -348,9 +349,14 @@ export function PreviewSection({
 
       {initialView?.kind === "screen" && info?.nodeEnabled && !info.reason && !info.screen && !screenSession && (
         <p className="p-3 text-detail text-muted-foreground">
-          This virtual display is no longer available. Restart the subshell with Virtual display enabled to create a new
-          one.
+          {info.virtualDisplayEnabled === false
+            ? "Virtual displays are disabled in this node’s settings."
+            : "This virtual display is no longer available. Restart the subshell with Virtual display enabled to create a new one."}
         </p>
+      )}
+
+      {initialView && initialView.kind !== "screen" && info?.appsEnabled === false && (
+        <p className="p-3 text-detail text-muted-foreground">Apps and browsers are disabled in this node’s settings.</p>
       )}
 
       {notice && <TrustNoticeBanner notices={[notice]} visibleMs={bannerVisibleMs} />}

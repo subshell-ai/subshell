@@ -7,14 +7,22 @@ Apps & screens lets you check a website or graphical app alongside the agent bui
 
 ## Enable apps and screens on the machine
 
-Apps & screens is off by default. In the dashboard sidebar, open **Nodes**, select the
-machine running your subshell, and turn on **Allow apps and screens** in its **Apps & screens**
-card. The node owner can change this setting; an administrator manages it for
-the server's built-in node.
+In the dashboard sidebar, open **Nodes** and select the machine running your
+subshell. Its owner can change these settings; an administrator manages them
+for the server's built-in node.
+
+- **Allow apps and browsers** enables web app previews, saved services, and
+  browser watching for every subshell on that node. No per-subshell option or
+  virtual display is required.
+- **Allow virtual displays** lets a subshell request a virtual screen at launch.
+  Enabling this node setting alone starts no display processes. Each subshell
+  that requests a display uses extra memory and CPU.
+
+Both settings are off by default for new nodes and can be changed independently.
+Existing nodes retain the permissions granted through the previous combined switch.
 
 You need edit access to open an app or control a virtual display. View access
-lets you discover available views and watch browser frames. Switching Apps & screens
-off prevents new operations; it doesn't stop your subshell or immediately close
+lets you discover available views and watch browser frames. Switching either feature off prevents new operations; it doesn't stop your subshell or immediately close
 an existing connection.
 
 ## Use Apps & screens from a Mac
@@ -86,7 +94,7 @@ even when the subshell has no display.
 
 This also works for web services running on a macOS node, where automatic port
 discovery isn't available. The subshell must be running and its node must have
-Apps & screens enabled. HTTPS requires a certificate the node trusts and whose
+**Allow apps and browsers** enabled. HTTPS requires a certificate the node trusts and whose
 name matches the host; Subshell doesn't bypass certificate checks.
 
 Saved connections stay with the subshell across reloads and closed tabs. Use the
@@ -124,7 +132,7 @@ physical monitor. Launch a browser there when you need to check browser storage,
 login flows, or another graphical app.
 
 1. Install **Xvfb**, **x11vnc**, and **xauth** on the Linux machine running the
-   subshell, and enable Apps & screens for that node.
+   subshell. In **Nodes**, select that machine and turn on **Allow virtual displays**.
 2. When launching a subshell, enable **Virtual display**. The form checks the
    selected machine and keeps the option disabled if requirements are missing.
    Missing programs show a **Set up virtual display** link to this guide.
@@ -161,7 +169,7 @@ same account. The calling agent can run on a Mac; the virtual display runs on
 the Linux node. Shared nodes and the server's built-in node aren't available
 through the subshell token's node discovery tools.
 
-1. Call `list_nodes` to choose an online node with `canLaunch: true`, Apps & screens
+1. Call `list_nodes` to choose an online node with `canLaunch: true`, virtual displays
    enabled, and an installed, working terminal harness. Call
    `get_node` with its ID to check display prerequisites. If anything is
    missing, follow [Linux setup](#use-a-virtual-display-on-linux) on that node.

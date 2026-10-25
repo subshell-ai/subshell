@@ -1369,7 +1369,10 @@ export function parseNodeSshEnabled(value: unknown): NodeSshEnabledWire | null {
  * with the plane's value pushed down.
  */
 export interface NodePreviewEnabledWire {
-  /** True = this machine may serve preview lanes. */
+  /** Independent feature permissions; absent fields retain the legacy combined switch. */
+  appsOn?: boolean;
+  displayOn?: boolean;
+  /** Transport allowance: at least one preview feature is enabled. */
   on: boolean;
   /** ISO 8601 stamp of the write that produced this value. */
   changedAt: string;
@@ -1378,7 +1381,17 @@ export interface NodePreviewEnabledWire {
 /** A {@link NodePreviewEnabledWire}, or null when the value is not one. */
 export function parseNodePreviewEnabled(value: unknown): NodePreviewEnabledWire | null {
   if (!isRecord(value) || !isBool(value.on) || !isStr(value.changedAt)) return null;
-  return { on: value.on, changedAt: value.changedAt };
+  if (
+    (value.appsOn !== undefined && !isBool(value.appsOn)) ||
+    (value.displayOn !== undefined && !isBool(value.displayOn))
+  )
+    return null;
+  return {
+    on: value.on,
+    changedAt: value.changedAt,
+    ...(value.appsOn === undefined ? {} : { appsOn: value.appsOn as boolean }),
+    ...(value.displayOn === undefined ? {} : { displayOn: value.displayOn as boolean }),
+  };
 }
 
 /** Agent → control events, unsigned (socket-authed; spec §3.3). */
@@ -1684,6 +1697,8 @@ export interface PreviewPortsGetCommand {
 
 /** The per-machine owner switch, plane sole author. Mirrors set_ssh_enabled's shape (decision 5). */
 export interface SetPreviewEnabledCommand {
+  appsOn?: boolean;
+  displayOn?: boolean;
   type: "set_preview_enabled";
   on: boolean;
   changedAt: string;

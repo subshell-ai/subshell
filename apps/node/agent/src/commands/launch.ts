@@ -15,7 +15,7 @@ import { log } from "../log.js";
 import { readMaintenance, reportableMaintenance } from "../maintenance.js";
 import { pathAllowed, realpathRoots } from "../path-policy.js";
 import { PREVIEW_DISPLAY_UNSUPPORTED, xauthorityPath } from "../preview/display.js";
-import { getPreviewEnabled } from "../preview/flags.js";
+import { getVirtualDisplayEnabled } from "../preview/flags.js";
 import type { PreviewScreenHandle } from "../preview/ports.js";
 import { selfInvocation } from "../self-invoke.js";
 import { isSubshellId } from "../subshell-meta.js";
@@ -201,7 +201,7 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
   // before the record", which is the half reviewers flagged.
   if (cmd.screen) {
     if (process.platform !== "linux") return { ok: false, error: PREVIEW_DISPLAY_UNSUPPORTED };
-    if (getPreviewEnabled(ctx.config.dataDir)?.on !== true) return { ok: false, error: PREVIEW_NODE_OFF };
+    if (!getVirtualDisplayEnabled(ctx.config.dataDir)) return { ok: false, error: PREVIEW_NODE_OFF };
     if (!ctx.previewDisplays) {
       return { ok: false, error: "preview display registry unavailable in this daemon context" };
     }

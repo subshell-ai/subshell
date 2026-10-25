@@ -89,16 +89,16 @@ export function VirtualDisplayField({
           Recheck
         </Button>
       )}
-      {node && node.viewsEnabled !== true && (
+      {node && node.virtualDisplayEnabled !== true && (
         <Link to="/nodes/$id" params={{ id: node.id }} onClick={onLeave} className="text-detail text-primary underline">
           Open node settings
         </Link>
       )}
-      {node && !node.canManage && node.viewsEnabled !== true && (
+      {node && !node.canManage && node.virtualDisplayEnabled !== true && (
         <p className="text-detail text-warning">
           {node.kind === "local"
-            ? "An admin can enable Apps & screens."
-            : "Only this node’s owner can enable Apps & screens."}
+            ? "An admin can enable virtual displays."
+            : "Only this node’s owner can enable virtual displays."}
         </p>
       )}
     </div>

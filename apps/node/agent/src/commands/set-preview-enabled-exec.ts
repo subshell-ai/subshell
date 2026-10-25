@@ -27,6 +27,11 @@ export function execSetPreviewEnabled(ctx: CommandContext, cmd: Cmd<"set_preview
   // Memoized as REPORTED, not merely written: the plane is the source of this
   // value, the ONLY source it will ever have, so sending it back on the next
   // heartbeat tick would be an echo the plane then reconciles against itself.
-  ctx.lastReportedPreviewEnabled = setPreviewEnabled(ctx.config.dataDir, { on: cmd.on, changedAt: cmd.changedAt });
+  ctx.lastReportedPreviewEnabled = setPreviewEnabled(ctx.config.dataDir, {
+    on: cmd.on,
+    changedAt: cmd.changedAt,
+    ...(cmd.appsOn === undefined ? {} : { appsOn: cmd.appsOn }),
+    ...(cmd.displayOn === undefined ? {} : { displayOn: cmd.displayOn }),
+  });
   return { ok: true };
 }

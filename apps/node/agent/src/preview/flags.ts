@@ -5,7 +5,8 @@ import { logger } from "../log.js";
 
 /**
  * This node's MIRROR of the preview switch (pane-preview spec Task 3): one
- * word meaning "this machine's pane content may be watched at all".
+ * transport allowance plus independent app/browser and virtual-display grants.
+ * Legacy mirrors without feature fields retain their combined-switch meaning.
  *
  * It is the SSH capability mirror's twin in mechanics and in default. Same
  * file-permission doctrine (0600, temp+rename, its own file beside
@@ -58,6 +59,8 @@ export type PreviewEnabledRead =
   /** The mirror parsed and says yes: panes here may be watched. */
   | {
       kind: "on";
+      appsOn?: boolean;
+      displayOn?: boolean;
       /** The stored stamp, verbatim: `ready.previewEnabled` is built from it. */
       changedAt: string;
     }
@@ -86,7 +89,14 @@ export function readPreviewEnabled(dataDir: string): PreviewEnabledRead {
   try {
     const state = parseNodePreviewEnabled(JSON.parse(readFileSync(file, "utf8")));
     if (!state) throw new SyntaxError("not a preview-enabled state");
-    return state.on ? { kind: "on", changedAt: state.changedAt } : { kind: "absent" };
+    return state.on
+      ? {
+          kind: "on",
+          changedAt: state.changedAt,
+          ...(state.appsOn === undefined ? {} : { appsOn: state.appsOn }),
+          ...(state.displayOn === undefined ? {} : { displayOn: state.displayOn }),
+        }
+      : { kind: "absent" };
   } catch (err) {
     logger.withError(err).warn(`preview-enabled: ${file} unreadable; treating this node as PREVIEW-DISABLED`);
     // The mtime, never `now`: this answer refuses, so the plane has to hear
@@ -129,7 +139,13 @@ function mtimeOf(file: string): string | undefined {
  * unreadable
  */
 export function reportablePreviewEnabled(read: PreviewEnabledRead): NodePreviewEnabledWire | undefined {
-  if (read.kind === "on") return { on: true, changedAt: read.changedAt };
+  if (read.kind === "on")
+    return {
+      on: true,
+      changedAt: read.changedAt,
+      ...(read.appsOn === undefined ? {} : { appsOn: read.appsOn }),
+      ...(read.displayOn === undefined ? {} : { displayOn: read.displayOn }),
+    };
   if (read.kind === "unreadable" && read.changedAt) return { on: false, changedAt: read.changedAt };
   return undefined;
 }
@@ -160,7 +176,7 @@ export function getPreviewEnabled(dataDir: string): NodePreviewEnabledWire | und
  */
 export function setPreviewEnabled(dataDir: string, state: NodePreviewEnabledWire): NodePreviewEnabledWire {
   const file = previewEnabledPath(dataDir);
-  const body: NodePreviewEnabledWire = { on: state.on, changedAt: state.changedAt };
+  const body: NodePreviewEnabledWire = { ...state };
   // 0700, matching the data dir `identity.ts` creates. mkdir's mode is
   // umask-clamped, so it is a floor; the file's own 0600 below is set at
   // creation and is the one that matters.
@@ -169,4 +185,14 @@ export function setPreviewEnabled(dataDir: string, state: NodePreviewEnabledWire
   writeFileSync(tmp, JSON.stringify(body, null, 2), { mode: 0o600 });
   renameSync(tmp, file);
   return body;
+}
+
+/** Separate feature gates, with legacy combined mirrors retaining their meaning. */
+export function getAppsEnabled(dataDir: string): boolean {
+  const state = getPreviewEnabled(dataDir);
+  return state?.on === true && (state.appsOn ?? state.on);
+}
+export function getVirtualDisplayEnabled(dataDir: string): boolean {
+  const state = getPreviewEnabled(dataDir);
+  return state?.on === true && (state.displayOn ?? state.on);
 }

@@ -219,6 +219,7 @@ describe("preview REST surface (Task 9)", () => {
     systemUserId = await ensureSystemUser();
     await nodes.create({ id: nodeId, ownerUserId: ownerId, name: "Preview Node", kind: "agent" });
     await nodes.setPreviewEnabled(nodeId, { on: true, changedAt: new Date().toISOString() });
+    await nodes.setPreviewEnabled(nodeId, { on: true, feature: "display", changedAt: new Date().toISOString() });
   });
 
   afterAll(async () => {
@@ -240,6 +241,7 @@ describe("preview REST surface (Task 9)", () => {
     resetNodeRegistryForTests();
     resetForTests();
     await nodes.setPreviewEnabled(nodeId, { on: true, changedAt: new Date().toISOString() });
+    await nodes.setPreviewEnabled(nodeId, { on: true, feature: "display", changedAt: new Date().toISOString() });
   });
 
   /* ---------------------------------------------------------------- */
@@ -559,6 +561,7 @@ describe("preview REST surface (Task 9)", () => {
     const node = attachLive();
     const pane = await directRow();
     await nodes.setPreviewEnabled(nodeId, { on: false, changedAt: new Date().toISOString() });
+    await nodes.setPreviewEnabled(nodeId, { on: false, feature: "display", changedAt: new Date().toISOString() });
     const res = await call("GET", `/${pane}/views`, { cookie: ownerCookie });
     expect(res.status).toBe(200);
     const body = await jsonBody(res);
@@ -846,6 +849,7 @@ describe("preview REST surface (Task 9)", () => {
     // authority for everything the plane cannot see.
     await makeLaunchable();
     await nodes.setPreviewEnabled(nodeId, { on: false, changedAt: new Date().toISOString() });
+    await nodes.setPreviewEnabled(nodeId, { on: false, feature: "display", changedAt: new Date().toISOString() });
     const before = await paneCount(ownerId);
     const res = await call("POST", "", {
       cookie: ownerCookie,
@@ -853,7 +857,7 @@ describe("preview REST surface (Task 9)", () => {
     });
     expect(res.status).toBe(400);
     const body = await errorBody(res);
-    expect(body.message).toMatch(/turn on Preview for this node/i);
+    expect(body.message).toMatch(/Enable Allow virtual displays/i);
     expect(sim.countOf("launch")).toBe(0);
     expect(await paneCount(ownerId)).toBe(before);
   });
@@ -870,6 +874,29 @@ describe("preview REST surface (Task 9)", () => {
     expect(launches[0].screen).toEqual({ width: 1280, height: 800 });
     const created = await jsonBody(res);
     createdSubshellIds.push(String(created.id));
+  });
+
+  it("apps can stay enabled while virtual-display launches are refused", async () => {
+    await makeLaunchable();
+    await nodes.setPreviewEnabled(nodeId, { on: false, feature: "display", changedAt: new Date().toISOString() });
+    const res = await call("POST", "", {
+      cookie: ownerCookie,
+      body: await createBody({ name: "display disabled", screen: { width: 1280, height: 800 } }),
+    });
+    expect(res.status).toBe(400);
+    expect(sim.countOf("launch")).toBe(0);
+  });
+
+  it("virtual-display launches work with apps and browsers disabled", async () => {
+    await makeLaunchable();
+    await nodes.setPreviewEnabled(nodeId, { on: false, changedAt: new Date().toISOString() });
+    const res = await call("POST", "", {
+      cookie: ownerCookie,
+      body: await createBody({ name: "display only", screen: { width: 1280, height: 800 } }),
+    });
+    expect(res.status).toBe(200);
+    expect(sim.cmdsOf("launch")[0].screen).toEqual({ width: 1280, height: 800 });
+    createdSubshellIds.push(String((await jsonBody(res)).id));
   });
 
   it("a plain launch carries no screen member at all", async () => {

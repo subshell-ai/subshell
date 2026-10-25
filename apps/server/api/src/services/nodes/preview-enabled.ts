@@ -31,30 +31,54 @@ export async function getPreviewEnabled(nodeId: string): Promise<boolean> {
   return row?.previewEnabled === 1;
 }
 
+export async function getVirtualDisplayEnabled(nodeId: string): Promise<boolean> {
+  const { repos } = getRequestlessContext();
+  return (await repos.nodes.findById(nodeId))?.virtualDisplayEnabled === 1;
+}
+
+/** The transport is available when either independently authorized feature needs it. */
+export async function getAnyPreviewEnabled(nodeId: string): Promise<boolean> {
+  const { repos } = getRequestlessContext();
+  const row = await repos.nodes.findById(nodeId);
+  return row?.previewEnabled === 1 || row?.virtualDisplayEnabled === 1;
+}
+
+function previewWire(row: PreviewRow, changedAt: string): NodePreviewEnabledWire {
+  const appsOn = row.previewEnabled === 1;
+  const displayOn = row.virtualDisplayEnabled === 1;
+  return { on: appsOn || displayOn, changedAt, ...(appsOn === displayOn ? {} : { appsOn, displayOn }) };
+}
+
 /** Flip one node's preview switch: row, audit, and the best-effort push,
  * all in this one function, so no caller can perform half the act. The
  * stamp is minted HERE (one change-site mints once); the route supplies the
  * acting human, never a time. */
-export async function setPreviewEnabled(nodeId: string, actorUserId: string, on: boolean): Promise<void> {
+export async function setPreviewEnabled(
+  nodeId: string,
+  actorUserId: string,
+  on: boolean,
+  feature: "apps" | "display" = "apps",
+): Promise<void> {
   const changedAt = new Date().toISOString();
   const { repos } = getRequestlessContext();
-  await repos.nodes.setPreviewEnabled(nodeId, { on, changedAt });
+  const row = await repos.nodes.setPreviewEnabled(nodeId, { on, changedAt, feature });
   await audit({
     actorUserId,
     action: "node.preview_enabled.update",
     targetType: "node",
     targetId: nodeId,
-    metadataJson: JSON.stringify({ on }),
+    metadataJson: JSON.stringify({ on, feature }),
   });
   // The row is written and audited BEFORE the push, so a node that answers the
   // command cannot be looking at a mirror the record has not caught up to,
   // and a push that fails (the node is offline) costs nothing: the value
   // re-lands at the node's next `ready` through {@link reconcilePreviewEnabled}.
-  pushSetPreviewEnabledBestEffort(nodeId, { on, changedAt });
+  if (row) pushSetPreviewEnabledBestEffort(nodeId, previewWire(row, changedAt));
 }
 
 /** The node-row fields {@link decidePreviewEnabled} reads. Nothing else is relevant. */
-type PreviewRow = Pick<NodeTable, "previewEnabled" | "previewEnabledAt">;
+type PreviewRow = Pick<NodeTable, "previewEnabled" | "previewEnabledAt"> &
+  Partial<Pick<NodeTable, "virtualDisplayEnabled">>;
 
 /** What reconciliation decided about one node's two copies of the flag. */
 export type PreviewDecision = "push-plane" | "noop";
@@ -80,10 +104,16 @@ export type PreviewDecision = "push-plane" | "noop";
  */
 export function decidePreviewEnabled(row: PreviewRow, reported: NodePreviewEnabledWire | undefined): PreviewDecision {
   const rowOn = row.previewEnabled === 1;
+  const displayOn = row.virtualDisplayEnabled === 1;
   // Silence reads as OFF, the node's own fail-closed default, which is the
   // only reading under which "node lost its file while the row says off" is
   // the quiet agreement it is.
-  if ((reported?.on ?? false) === rowOn) return "noop";
+  if (
+    (reported?.on ?? false) === (rowOn || displayOn) &&
+    (reported?.appsOn ?? reported?.on ?? false) === rowOn &&
+    (reported?.displayOn ?? reported?.on ?? false) === displayOn
+  )
+    return "noop";
   // The one disagreement with nothing to send (row never written, node mirror
   // on). The row IS off and the plane gates on the row, so an unstamped push
   // would only mint a write time for a write that never happened.
@@ -104,7 +134,7 @@ export function decidePreviewEnabled(row: PreviewRow, reported: NodePreviewEnabl
  */
 export async function pushSetPreviewEnabled(nodeId: string, state: NodePreviewEnabledWire): Promise<void> {
   if (nodeId === LOCAL_NODE_ID) return;
-  await sendCommand(nodeId, { type: "set_preview_enabled", on: state.on, changedAt: state.changedAt });
+  await sendCommand(nodeId, { type: "set_preview_enabled", ...state });
 }
 
 /**
@@ -148,5 +178,5 @@ export async function reconcilePreviewEnabled(
   if (decidePreviewEnabled(row, reported) !== "push-plane" || stamp === null) return;
   // (`decidePreviewEnabled` only answers "push-plane" when a stamp exists; the
   // null check is what shows the type what the decide already proved.)
-  pushSetPreviewEnabledBestEffort(nodeId, { on: row.previewEnabled === 1, changedAt: stamp });
+  pushSetPreviewEnabledBestEffort(nodeId, previewWire(row, stamp));
 }

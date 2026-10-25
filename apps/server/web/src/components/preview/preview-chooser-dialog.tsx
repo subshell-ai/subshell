@@ -55,9 +55,9 @@ export function PreviewChooserDialog({ subshellId, onClose }: { subshellId: stri
                 ? "Opening a service needs edit access to this subshell."
                 : subshell.status !== "running" || !subshell.alive
                   ? "Restart this subshell to open its saved services."
-                  : !info?.nodeEnabled
+                  : !info?.nodeEnabled || info.appsEnabled === false
                     ? info
-                      ? nodeReasonLine(info.reason)
+                      ? nodeReasonLine(info.appsEnabled === false ? "apps-disabled" : info.reason)
                       : "Checking this node…"
                     : undefined
             }

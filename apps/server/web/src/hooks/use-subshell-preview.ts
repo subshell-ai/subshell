@@ -44,6 +44,8 @@ export interface PreviewInfo {
   /** Which display process died since launch; only meaningful beside `screen: null`. */
   screenLost?: "Xvfb" | "x11vnc";
   nodeEnabled: boolean;
+  appsEnabled?: boolean;
+  virtualDisplayEnabled?: boolean;
   reason?: string;
 }
 

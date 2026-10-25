@@ -9,6 +9,7 @@ import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
 import {
   decidePreviewEnabled,
   getPreviewEnabled,
+  getVirtualDisplayEnabled,
   pushSetPreviewEnabled,
   reconcilePreviewEnabled,
   setPreviewEnabled,
@@ -92,7 +93,11 @@ afterAll(async () => {
 /* ------------------ the pure table -------------------------- */
 
 describe("decidePreviewEnabled: the plane is authoritative, so stamps are never read", () => {
-  const row = (previewEnabled: 0 | 1, previewEnabledAt: string | null) => ({ previewEnabled, previewEnabledAt });
+  const row = (previewEnabled: 0 | 1, previewEnabledAt: string | null) => ({
+    previewEnabled,
+    previewEnabledAt,
+    virtualDisplayEnabled: previewEnabled,
+  });
 
   it("agreement is a noop: reported matches the row, either value", () => {
     expect(
@@ -154,11 +159,17 @@ describe("setPreviewEnabled: write, audit, push, one function", () => {
       const rows = await auditFor(nodeId);
       expect(rows).toHaveLength(1);
       expect(rows[0].actorUserId).toBe(ownerId);
-      expect(rows[0].meta).toEqual({ on: true });
+      expect(rows[0].meta).toEqual({ on: true, feature: "apps" });
       // The push is the row's OWN bytes: the wire frame the shipped parser
       // accepted, the stored stamp included, not a re-stamped copy.
       expect(scripted.cmdsOf("set_preview_enabled")).toEqual([
-        { type: "set_preview_enabled", on: true, changedAt: stamped(row?.previewEnabledAt) },
+        {
+          type: "set_preview_enabled",
+          on: true,
+          appsOn: true,
+          displayOn: false,
+          changedAt: stamped(row?.previewEnabledAt),
+        },
       ]);
     } finally {
       scripted.detach();
@@ -215,7 +226,7 @@ describe("reconcilePreviewEnabled: decide, push the row, write nothing", () => {
     await settle();
     try {
       // The `ready` that follows the push carries exactly what was written.
-      await reconcilePreviewEnabled(nodeId, { on: true, changedAt });
+      await reconcilePreviewEnabled(nodeId, { on: true, appsOn: true, displayOn: false, changedAt });
       await settle();
       expect(scripted.countOf("set_preview_enabled")).toBe(1); // only the flip's own push
     } finally {
@@ -236,7 +247,7 @@ describe("reconcilePreviewEnabled: decide, push the row, write nothing", () => {
       await settle();
       const pushes = scripted.cmdsOf("set_preview_enabled");
       expect(pushes).toHaveLength(2);
-      expect(pushes[1]).toEqual({ type: "set_preview_enabled", on: true, changedAt }); // the row's bytes, stamp included
+      expect(pushes[1]).toEqual({ type: "set_preview_enabled", on: true, appsOn: true, displayOn: false, changedAt }); // the row's bytes, stamp included
       expect((await nodes.findById(nodeId))?.previewEnabledAt).toBe(changedAt); // unmoved: never adopted, never re-stamped
     } finally {
       scripted.detach();
@@ -256,8 +267,8 @@ describe("reconcilePreviewEnabled: decide, push the row, write nothing", () => {
       await reconcilePreviewEnabled(nodeId, undefined);
       await settle();
       expect(scripted.cmdsOf("set_preview_enabled")).toEqual([
-        { type: "set_preview_enabled", on: true, changedAt },
-        { type: "set_preview_enabled", on: true, changedAt },
+        { type: "set_preview_enabled", on: true, appsOn: true, displayOn: false, changedAt },
+        { type: "set_preview_enabled", on: true, appsOn: true, displayOn: false, changedAt },
       ]);
       expect((await auditFor(nodeId)).length).toBe(auditsBefore); // pushes are not acts; only flips audit
     } finally {
@@ -312,4 +323,32 @@ describe("`local` has no mirror to push to", () => {
     await setPreviewEnabled(LOCAL_NODE_ID, ownerId, false);
     expect((await nodes.findById(LOCAL_NODE_ID))?.previewEnabled).toBe(0);
   });
+});
+
+it("keeps apps and display permissions independent across writes and reconciliation", async () => {
+  const nodeId = await mkNode();
+  const scripted = attachScriptedNode(nodeId, { set_preview_enabled: ok });
+  try {
+    await setPreviewEnabled(nodeId, ownerId, true, "display");
+    expect(await getPreviewEnabled(nodeId)).toBe(false);
+    expect(await getVirtualDisplayEnabled(nodeId)).toBe(true);
+    await settle();
+    const displayOnly = scripted.cmdsOf("set_preview_enabled").at(-1);
+    expect(displayOnly).toMatchObject({ on: true, appsOn: false, displayOn: true });
+    const row = await nodes.findById(nodeId);
+    await reconcilePreviewEnabled(nodeId, {
+      on: true,
+      appsOn: true,
+      displayOn: false,
+      changedAt: stamped(row?.previewEnabledAt),
+    });
+    await settle();
+    expect(scripted.cmdsOf("set_preview_enabled").at(-1)).toEqual(displayOnly);
+    await setPreviewEnabled(nodeId, ownerId, true);
+    await setPreviewEnabled(nodeId, ownerId, false, "display");
+    expect(await getPreviewEnabled(nodeId)).toBe(true);
+    expect(await getVirtualDisplayEnabled(nodeId)).toBe(false);
+  } finally {
+    scripted.detach();
+  }
 });

@@ -42,24 +42,38 @@ export const viewsOpenRoute = new Elysia()
     async ({ params, body, user, actor, apiKeyPermissions }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "write");
       const { row } = await gatePreview(user.id, params.id, "edit", actor);
-      const nodeState = await previewNodeState(row.nodeId);
+      const transportState = await previewNodeState(row.nodeId, "any");
+      if (!transportState.nodeEnabled)
+        throw new HttpError(409, `Apps & screens is not available on that node right now (${transportState.reason}).`);
+      const service = "serviceId" in body ? await getService(params.id, body.serviceId) : undefined;
+      const port = service?.port ?? ("port" in body ? body.port : 0);
+      const broker = getPreviewBroker();
+      const remembered = broker.displayForPane(params.id);
+      const scan = service ? null : await broker.getPorts(row.nodeId, params.id).catch(() => null);
+      const screen = scan?.screen ?? (remembered?.nodeId === row.nodeId ? remembered.screen : null);
+      const feature = !service && screen?.rfbPort === port ? "display" : "apps";
+      const nodeState = await previewNodeState(row.nodeId, feature);
       if (!nodeState.nodeEnabled) {
         // The info poll already said this; arriving here means the page was
         // stale (or the switch moved mid-click). Say the same thing as a 409.
-        throw new HttpError(409, `Apps & screens is not available on that node right now (${nodeState.reason}).`);
+        throw new HttpError(
+          409,
+          feature === "display"
+            ? "Virtual displays are disabled on this node."
+            : `Apps and browsers are not available on that node right now (${nodeState.reason}).`,
+        );
       }
-      const service = "serviceId" in body ? await getService(params.id, body.serviceId) : undefined;
       try {
         const { ref } = await getPreviewBroker().openForward({
           viewerUserId: user.id,
           paneId: params.id,
           nodeId: row.nodeId,
-          port: service?.port ?? ("port" in body ? body.port : 0),
+          port,
           service: service ? { host: service.host, protocol: service.protocol } : undefined,
           serviceId: service?.id,
           authorize: async () => {
             if (service) await getService(params.id, service.id);
-            await recheckPreviewOpen(user.id, params.id, row.nodeId, "edit", actor);
+            await recheckPreviewOpen(user.id, params.id, row.nodeId, "edit", actor, feature);
           },
         });
         return { proxyBase: `/pv/${ref}/` };

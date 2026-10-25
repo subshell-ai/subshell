@@ -5,7 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 export function virtualDisplayReason(node: Node | null, readiness?: PreviewDisplayReadiness): string | undefined {
   if (!node) return "Choose a machine first.";
   if (node.os !== "linux") return "Virtual displays are available on Linux machines only.";
-  if (node.viewsEnabled !== true) return "Turn on Allow apps and screens in this machine's node settings first.";
+  if (node.virtualDisplayEnabled !== true)
+    return "Turn on Allow virtual displays in this machine's node settings first.";
   if (!readiness) return "Checking virtual display requirements…";
   if (!readiness.supported) return "Virtual displays are available on Linux machines only.";
   if (readiness.missing.length) {
@@ -16,7 +17,7 @@ export function virtualDisplayReason(node: Node | null, readiness?: PreviewDispl
 
 /** Share the machine check and refusal reasons between node settings and launch. */
 export function useNodeDisplayReadiness(node: Node | null) {
-  const shouldCheck = Boolean(node && node.os === "linux" && node.viewsEnabled === true);
+  const shouldCheck = Boolean(node && node.os === "linux" && node.virtualDisplayEnabled === true);
   const check = useQuery({
     queryKey: ["preview-display-readiness", node?.id],
     enabled: shouldCheck,

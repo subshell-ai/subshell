@@ -37,6 +37,10 @@ export const SCREEN_PHONE_REASON =
 /** The remedy line per plane-side reason word, for rows shown while the node cannot serve. */
 export function nodeReasonLine(reason: string | undefined): string {
   switch (reason) {
+    case "virtual-display-disabled":
+      return "Virtual displays are disabled in this node’s settings.";
+    case "apps-disabled":
+      return "Apps and browsers are disabled in this node’s settings.";
     case "preview-ports-unsupported":
       return "This machine doesn’t support automatic port discovery or browser watching. Add a service by port instead. Virtual screens need Linux.";
     case "preview-disabled":
@@ -88,8 +92,8 @@ export function PortList({
       ? OPEN_VIEW_REASON
       : busy
         ? "Opening the selected view…"
-        : !info.nodeEnabled
-          ? nodeReasonLine(info.reason)
+        : !info.nodeEnabled || info.appsEnabled === false
+          ? nodeReasonLine(info.appsEnabled === false ? "apps-disabled" : info.reason)
           : undefined;
   // Access first, the node switch second, the layout last: on a phone with a
   // dead node the switch's remedy still reads true, and it is only once the
@@ -99,14 +103,18 @@ export function PortList({
       ? SCREEN_VIEW_REASON
       : busy
         ? "Opening the selected view…"
-        : !info.nodeEnabled
-          ? nodeReasonLine(info.reason)
+        : !info.nodeEnabled || info.virtualDisplayEnabled === false
+          ? nodeReasonLine(info.virtualDisplayEnabled === false ? "virtual-display-disabled" : info.reason)
           : phone
             ? SCREEN_PHONE_REASON
             : undefined;
   // The same node-switch reason the Open row already carries: a disabled
   // Watch must explain itself like its siblings, not sit mute.
-  const watchReason = busy ? "Opening the selected view…" : info.nodeEnabled ? undefined : nodeReasonLine(info.reason);
+  const watchReason = busy
+    ? "Opening the selected view…"
+    : info.nodeEnabled && info.appsEnabled !== false
+      ? undefined
+      : nodeReasonLine(info.appsEnabled === false ? "apps-disabled" : info.reason);
 
   if (rows.length === 0 && info.cdpPort === null && info.screen === null && info.screenLost === undefined) return null;
 

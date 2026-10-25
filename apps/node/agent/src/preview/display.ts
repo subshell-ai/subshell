@@ -1,6 +1,6 @@
 import { type DisplayDeps, PreviewDisplays as RuntimePreviewDisplays } from "@internal/pane-runtime";
 import { log } from "../log.js";
-import { getPreviewEnabled } from "./flags.js";
+import { getVirtualDisplayEnabled } from "./flags.js";
 
 export type { DisplayChild, DisplayDeps, DisplaySweepResult } from "@internal/pane-runtime";
 export {
@@ -11,6 +11,6 @@ export {
 } from "@internal/pane-runtime";
 export class PreviewDisplays extends RuntimePreviewDisplays {
   constructor(dataDir: string, deps: DisplayDeps = {}) {
-    super(dataDir, { ...deps, isEnabled: () => getPreviewEnabled(dataDir)?.on === true, log });
+    super(dataDir, { ...deps, isEnabled: () => getVirtualDisplayEnabled(dataDir), log });
   }
 }

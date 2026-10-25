@@ -62,7 +62,7 @@ describe("node preview-enabled route", () => {
     return new Map(rows.map((r) => [r.id, { actorUserId: r.actorUserId, metadataJson: r.metadataJson }]));
   }
 
-  function put(nodeId: string, cookie: string | undefined, on: boolean, bearer?: string) {
+  function put(nodeId: string, cookie: string | undefined, on: boolean, bearer?: string, feature?: "apps" | "display") {
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (cookie) headers.cookie = `better-auth.session_token=${cookie}`;
     if (bearer) headers.authorization = `Bearer ${bearer}`;
@@ -70,7 +70,7 @@ describe("node preview-enabled route", () => {
       new Request(`http://localhost:3080/api/nodes/${nodeId}/views-enabled`, {
         method: "PUT",
         headers,
-        body: JSON.stringify({ on }),
+        body: JSON.stringify({ on, feature }),
       }),
     );
   }
@@ -147,7 +147,7 @@ describe("node preview-enabled route", () => {
     expect(view.viewsEnabled).toBe(true);
   });
 
-  it("names the acting human and carries ONLY {on} in the audit row", async () => {
+  it("names the acting human and names the selected feature in the audit row", async () => {
     // The ROUTE is the only place `actorUserId` is wired in: the service
     // takes it as an argument, so a regression to a null actor passes every
     // test of the service alone.
@@ -161,9 +161,8 @@ describe("node preview-enabled route", () => {
     const added = [...(await previewAudit())].filter(([id]) => !before.has(id));
     expect(added).toHaveLength(1);
     expect(added[0][1].actorUserId).toBe(ownerId);
-    // The metadata is the STRING `"{\"on\":true}"`: the flag and nothing else
-    // (audit never carries secrets).
-    expect(added[0][1].metadataJson).toBe('{"on":true}');
+    // The audit names the changed permission, without secrets.
+    expect(JSON.parse(added[0][1].metadataJson ?? "null")).toEqual({ on: true, feature: "apps" });
   });
 
   it("turning it off lands on the row and the view", async () => {
@@ -271,5 +270,17 @@ describe("node preview-enabled route", () => {
     const res = await put(LOCAL_NODE_ID, adminCookie, true);
     expect(res.status).toBe(200);
     expect(((await res.json()) as { viewsEnabled: boolean }).viewsEnabled).toBe(true);
+  });
+  it("changes the two permissions independently and checks ownership for both", async () => {
+    await put(NODE, ownerCookie, false);
+    const display = await put(NODE, ownerCookie, true, undefined, "display");
+    expect(display.status).toBe(200);
+    expect(await display.json()).toMatchObject({ viewsEnabled: false, virtualDisplayEnabled: true });
+    const apps = await put(NODE, ownerCookie, true);
+    expect(await apps.json()).toMatchObject({ viewsEnabled: true, virtualDisplayEnabled: true });
+    const displayOff = await put(NODE, ownerCookie, false, undefined, "display");
+    expect(await displayOff.json()).toMatchObject({ viewsEnabled: true, virtualDisplayEnabled: false });
+    expect((await put(NODE, otherCookie, true, undefined, "display")).status).toBe(404);
+    expect((await put(NODE, adminCookie, true, undefined, "display")).status).toBe(403);
   });
 });

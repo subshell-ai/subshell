@@ -11,9 +11,10 @@ import { apiModels } from "@/schema/index.js";
 import { setPreviewEnabled } from "@/services/nodes/preview-enabled.js";
 
 const PreviewEnabledBodySchema = t.Object({
+  feature: t.Optional(t.Union([t.Literal("apps"), t.Literal("display")])),
   on: t.Boolean({
     description:
-      "Allow authorized viewers to open apps, watch browsers, and control virtual displays on this machine. Off by default. Owner only; admin on the control-plane host.",
+      "Allow the selected feature on this machine. Apps and browsers apply to every subshell; virtual displays must be requested at launch. Off by default. Owner only; admin on the control-plane host.",
   }),
 });
 
@@ -50,7 +51,7 @@ export const setNodeViewsEnabledRoute = new Elysia()
       }
       if (!gate.canManage) throw new ForbiddenError();
 
-      await setPreviewEnabled(gate.row.id, user.id, body.on);
+      await setPreviewEnabled(gate.row.id, user.id, body.on, body.feature);
       // Re-read rather than patching the gate's snapshot: the service wrote
       // the row, and the view must render what is stored, not what this
       // handler believes it asked for.

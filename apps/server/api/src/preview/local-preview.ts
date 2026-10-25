@@ -24,12 +24,14 @@ import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
-import { getPreviewEnabled } from "@/services/nodes/preview-enabled.js";
+import { getAnyPreviewEnabled, getPreviewEnabled, getVirtualDisplayEnabled } from "@/services/nodes/preview-enabled.js";
 import { getLogger } from "@/utils/logger.js";
 
 export interface LocalPreviewDeps {
   dataDir: string;
   enabled: () => Promise<boolean>;
+  appsEnabled?: () => Promise<boolean>;
+  displayEnabled?: () => Promise<boolean>;
   pane: (id: string) => Promise<SubshellTable | undefined>;
   panePid: (socket: string, id: string) => Promise<number | null>;
   scan?: typeof scanPanePorts;
@@ -46,7 +48,11 @@ export class LocalPreviewRuntime {
   private chain: Promise<unknown> = Promise.resolve();
   constructor(private readonly deps: LocalPreviewDeps) {
     this.forward = new PreviewForward(deps.forward);
-    this.displays = new PreviewDisplays(deps.dataDir, { ...deps.display, isEnabled: deps.enabled, log: deps.log });
+    this.displays = new PreviewDisplays(deps.dataDir, {
+      ...deps.display,
+      isEnabled: deps.displayEnabled ?? deps.enabled,
+      log: deps.log,
+    });
   }
 
   /** Serializes admission like the node's command chain, including in-flight CDP handshakes. */
@@ -82,6 +88,14 @@ export class LocalPreviewRuntime {
       } catch (err) {
         this.refuse(err instanceof Error ? err.message : String(err));
       }
+    }
+    const isScreen = cmd.kind === "forward" && !cmd.service && this.displays.getFor(pane.id)?.rfbPort === cmd.port;
+    if (
+      !(await (isScreen
+        ? (this.deps.displayEnabled ?? this.deps.enabled)
+        : (this.deps.appsEnabled ?? this.deps.enabled))())
+    ) {
+      this.refuse(isScreen ? "virtual-display-disabled" : "preview-node-off");
     }
     if (this.forward.laneCount() + bridgeCount() >= PREVIEW_SESSIONS_PER_NODE)
       this.refuse(cmd.kind === "forward" ? "preview-lane-over-node-cap" : "preview-watch-over-node-cap");
@@ -136,7 +150,9 @@ export function getLocalPreviewRuntime(): LocalPreviewRuntime {
     sweepTimer.unref();
     runtime = new LocalPreviewRuntime({
       dataDir: SUBSHELL_SERVER_DATA_DIR,
-      enabled: () => getPreviewEnabled(LOCAL_NODE_ID),
+      enabled: () => getAnyPreviewEnabled(LOCAL_NODE_ID),
+      appsEnabled: () => getPreviewEnabled(LOCAL_NODE_ID),
+      displayEnabled: () => getVirtualDisplayEnabled(LOCAL_NODE_ID),
       pane: (id) => panes.findById(id),
       panePid: (socket, id) => tmux.panePid(socket, id),
       log: (line) => getLogger().debug(line),

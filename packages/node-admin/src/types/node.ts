@@ -194,12 +194,14 @@ export interface Node {
   sshWideForwards: boolean;
   /**
    * Whether this machine's pane content may be watched (pane-preview spec
-   * Task 3): forwarded ports, live browser frames, and virtual screens.
+   * Task 3): forwarded app/service ports and live browser frames.
    * Opt-in per node, off by default; every act still passes the pane's own
    * access rules. Optional on the mirror because a payload cached by a client
    * older than the field must keep typechecking, and absent reads closed.
    */
   viewsEnabled?: boolean;
+  /** Whether subshells may request a virtual display on this node. */
+  virtualDisplayEnabled?: boolean;
   /**
    * This node is connected but REFUSED — held open for exactly one
    * command and offline for every other purpose (spec 2026-09-15 §5.3).

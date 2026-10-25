@@ -14,10 +14,13 @@ import { join } from "node:path";
 import type { NodeCommandBody, NodeEvent } from "@internal/subshell-protocol";
 import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
+import { execPreviewOpen } from "../commands/preview-open-exec.js";
 import { maybeReportPreviewEnabled, seedPreviewEnabledMemo } from "../commands/report.js";
 import type { NodeConfig } from "../config.js";
 import {
+  getAppsEnabled,
   getPreviewEnabled,
+  getVirtualDisplayEnabled,
   previewEnabledPath,
   readPreviewEnabled,
   reportablePreviewEnabled,
@@ -311,4 +314,37 @@ describe("the heartbeat belt", () => {
     expect(events).toEqual([]);
     expect(seedPreviewEnabledMemo(makeCtx(freshDataDir()))).toBeUndefined();
   });
+});
+
+it.each([
+  [true, false],
+  [false, true],
+  [true, true],
+  [false, false],
+])("preserves independent apps %s and display %s permissions", (appsOn, displayOn) => {
+  const dataDir = freshDataDir();
+  const state = { on: appsOn || displayOn, appsOn, displayOn, changedAt: STAMP };
+  setPreviewEnabled(dataDir, state);
+  expect(getAppsEnabled(dataDir)).toBe(appsOn);
+  expect(getVirtualDisplayEnabled(dataDir)).toBe(displayOn);
+  if (state.on) expect(getPreviewEnabled(dataDir)).toEqual(state);
+});
+
+it("display permission does not authorize app forwarding or browser watching", async () => {
+  const dataDir = freshDataDir();
+  setPreviewEnabled(dataDir, { on: true, appsOn: false, displayOn: true, changedAt: STAMP });
+  const ctx = makeCtx(dataDir);
+  for (const kind of ["forward", "screencast"] as const) {
+    const result = await execPreviewOpen(ctx, {
+      type: "preview_open",
+      ref: crypto.randomUUID(),
+      paneId: crypto.randomUUID(),
+      port: 3000,
+      kind,
+      lifetimeMs: 60000,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Disabled apps unexpectedly opened a preview");
+    expect(result.error).toContain("preview-node-off");
+  }
 });
