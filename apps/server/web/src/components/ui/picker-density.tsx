@@ -9,7 +9,7 @@ import { createContext, useContext } from "react";
  * halves cannot drift the way hand-matched classNames did.
  *
  * `"default"` is the form-family size — the 36px control that sits beside an
- * h-9 Input, with 32px rows (the same row height the action menus use).
+ * h-9 Input, with 32px rows.
  * `"compact"` is the dense-sidebar size: a 28px control with rows that fit it.
  */
 export type PickerDensity = "default" | "compact";
