@@ -161,7 +161,23 @@ test("a soft-wrapped URL links and copies as one line, live and across a reload"
   await page.reload();
   await socket2;
   await expect(page.getByText("reconnecting…")).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
-  await expect.poll(async () => (await page.evaluate(locate, TAIL)) !== null, { timeout: SPAWN_TIMEOUT }).toBe(true);
+  // Wait for the replay's grid to SETTLE before aiming anything at it: poll
+  // until BOTH URL ends render in the same paint. The reload's attach can
+  // carry a capacity measured mid-layout, and the degenerate guard only
+  // refuses `cols <= 2` / `rows <= 1` — so a 138x2 read passes, pins the pane
+  // to two rows, and paints the replay with the URL's head row alone in
+  // xterm's scrollback (measured in CI's aria snapshot: the whole buffer
+  // reduced to the tail row plus the `^M` echo). The outer ResizeObserver
+  // reports the real capacity moments later and the rows reflow back, so a
+  // single-end poll can pass INSIDE that transient — which is exactly where
+  // the one-shot head check used to throw. `locate()` reads viewport rows
+  // only, and head+tail in one paint is the structural proof the viewport is
+  // at the real grid and the replay is whole.
+  await expect
+    .poll(async () => (await page.evaluate(locate, HEAD)) !== null && (await page.evaluate(locate, TAIL)) !== null, {
+      timeout: SPAWN_TIMEOUT,
+    })
+    .toBe(true);
 
   // The continuation row must link too, and open the FULL url, not nothing.
   const tail = await page.evaluate(locate, TAIL);
