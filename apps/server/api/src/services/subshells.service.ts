@@ -425,8 +425,9 @@ export class SubshellsService extends BaseService {
    * `EMPTY_PRESET` adds no env, no flags, no isolation.
    * @throws SubshellCreateError 404 when the (given) preset is absent, or
    *         the requested node is absent OR invisible (spec §2: 404-not-403
-   *         — an invisible node never answers 403); 400 when a given preset
-   *         belongs to a different harness than the body names
+   *         — an invisible node never answers 403); 409 when the given preset
+   *         is disabled (`preset_disabled`, spec 2026-10-24); 400 when a given
+   *         preset belongs to a different harness than the body names
    *         (`preset_harness_mismatch`); 403 (node launch switched off).
    * @throws ApiError 409 NODE_OFFLINE (agent node unreachable), 400
    *         NODE_REQUIRED (no launch-eligible node), 409 when the harness is
@@ -531,6 +532,13 @@ export class SubshellsService extends BaseService {
       presetRow = await this.repos.presets.findById(presetId);
       if (!presetRow || (await presetAccess(this.db, "agent", presetRow, userId, !machineActor)) === "none") {
         throw new SubshellCreateError("not_found", "Preset not found", 404);
+      }
+      // The row is proven present and readable — it is just switched off, so
+      // this reads 409, not 404: the preset exists and the remedy is the
+      // toggle, not another pick (spec 2026-10-24). Asked after the access
+      // check so an invisible preset still answers the plain 404 first.
+      if (presetRow.enabled === 0) {
+        throw new SubshellCreateError("preset_disabled", `Preset "${presetRow.name}" is disabled`, 409);
       }
       if (presetRow.harnessId !== harnessId) {
         // A preset only customises ITS harness — silently launching the
@@ -1332,6 +1340,10 @@ export class SubshellsService extends BaseService {
    *         row back and retired the token before this boundary.
    * @throws ApiError 400 INVALID_PRESET when the swap preset is unknown, not
    *         the caller's, or from another harness (spec 2026-09-23 §2).
+   * @throws SubshellCreateError 409 (`preset_disabled`, spec 2026-10-24) when
+   *         the preset this restart rides — the row's own or the swap target —
+   *         is switched off; 404 when access to it was removed. Nothing is
+   *         written or killed by either refusal.
    * @throws ApiError 409 RESTART_IN_FLIGHT when a swap-carrying restart finds
    *         the id's in-flight lease held: the running revival composes the
    *         first caller's preset, so this one is refused rather than joined
@@ -1437,6 +1449,21 @@ export class SubshellsService extends BaseService {
           "not_found",
           "Preset access was removed. Choose another preset before restarting this subshell.",
           404,
+        );
+      }
+      // A disabled preset refuses every NEW start (spec 2026-10-24): a running
+      // pane it drove is untouched, but reviving it — or swapping onto it — is
+      // a launch from a switched-off preset. Same code and 409 as the create
+      // gate, asked here before the manager can kill anything; the message is
+      // NAME-FREE like this path's whole refusal family, because an edit
+      // grantee restarts a pane whose owner's preset they may not be able to
+      // see. (Unlike the harness switch, which a manual restart deliberately
+      // outlives — that gate stays on create and the sweep.)
+      if (preset.enabled === 0) {
+        throw new SubshellCreateError(
+          "preset_disabled",
+          "Preset is disabled. Re-enable it in the dashboard before restarting this subshell.",
+          409,
         );
       }
     }
