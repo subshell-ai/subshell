@@ -246,17 +246,16 @@ function PreviewOption({
     <div className="flex flex-col gap-1">
       <Button
         variant="ghost"
-        className="h-auto min-h-11 w-full justify-start gap-3 px-3 py-2"
+        size="sm"
+        className="w-full justify-start gap-2"
         aria-label={action}
         disabled={Boolean(reason)}
         disabledReason={reason}
         onClick={onClick}
       >
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-primary">
-          <Icon className="size-5" aria-hidden />
-        </span>
-        <span className="text-label">{label}</span>
-        {port !== undefined && <Badge variant="secondary">{port}</Badge>}
+        <Icon data-icon="inline-start" aria-hidden />
+        <span>{label}</span>
+        {port !== undefined && <span className="text-muted-foreground tabular-nums">{port}</span>}
         <ArrowRight className="ml-auto size-4 shrink-0 text-muted-foreground" aria-hidden />
       </Button>
       {reason && <p className="text-detail text-muted-foreground">{reason}</p>}

@@ -24,6 +24,8 @@ Keep large preview pickers manageable with search, sorted ports, denser rows, an
 
 Use compact rows for small preview lists too.
 
+Use picker-sized rows with smaller labels, plain icons, and unbadged port numbers for apps, screens, and saved services.
+
 Open the preview picker from the subshell header, removing the duplicate selector from viewer toolbars.
 
 Move full screen into the preview action menu, keeping that menu usable inside the fullscreen viewer.

@@ -178,6 +178,7 @@ export function SavedServices({
             <div key={row.id} className="flex items-center gap-2">
               <Button
                 variant="ghost"
+                size="sm"
                 className="min-w-0 flex-1 justify-start"
                 disabled={!!openReason}
                 disabledReason={openReason}
