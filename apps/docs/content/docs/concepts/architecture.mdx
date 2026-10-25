@@ -62,14 +62,15 @@ flowchart LR
   S -->|In-process adapter| L[Built-in node runtime]
 ```
 
-The server checks subshell access and the node's Apps & screens setting before opening
+The server checks subshell access and the node's separate apps/browser or virtual-display permission before opening
 a view. App forwarding and screen input need edit access. Watching browser
 frames needs view access; view-only shares are restricted to the browser
 discovered for their subshell.
 
 The REST resource is `/api/subshells/:id/views`. Clients open a connection at
 `/views/open` and start or stop browser watching at `/views/browser/watch`.
-Node responses expose `viewsEnabled`; node configuration uses `/views-enabled`,
+Node responses expose `viewsEnabled` for apps and browsers and `virtualDisplayEnabled` for virtual displays.
+Node configuration uses `/views-enabled` with `feature: "apps"` or `feature: "display"`,
 and display prerequisites use `/display-readiness`. The corresponding MCP tools
 are `list_subshell_views`, `open_subshell_view`, and `watch_subshell_browser`.
 See the [MCP tool reference](/mcp/tools#list_subshell_views) for their arguments.

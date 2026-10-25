@@ -207,7 +207,7 @@ runs the same preview primitives in process rather than sending node commands.
 
 | Message | Purpose |
 | --- | --- |
-| `set_preview_enabled` | Apply the server-owned opt-in flag and change timestamp. |
+| `set_preview_enabled` | Apply server-owned preview permissions and the change timestamp. `on` enables the transport; optional `appsOn` and `displayOn` distinguish apps/browser access from virtual displays. When omitted, each inherits `on` for compatibility. |
 | `preview_display_check` | Check Linux display support and required binaries before launch. |
 | `preview_ports_get` | Report listeners under a subshell's process tree, its CDP port, and display metadata. |
 | `preview_open` | Start a loopback TCP forward or CDP screencast for a subshell, port, reference, and bounded lifetime. Forward lanes may include `service: { host, protocol }` for a saved HTTP(S) destination. |

@@ -70,7 +70,7 @@ Arguments: `{}`. Returns an array of owned nodes with `id`, `name`, `kind`, `sta
 
 Each harness row has `harnessId`, `name`, and `installed`, plus `version`, refusal `reason`, `broken`, `restartRequired`, and `checkedAt` when reported. A `broken` plugin can't launch even if its binary is installed. `restartRequired` concerns the server's loaded plugin, not the harness binary. `inventoryStale` identifies cached detection. Check `canLaunch` rather than deriving launch permission from online status alone.
 
-`viewsEnabled`, `sshEnabled`, and `sshWideForwards` report configuration, not live readiness. `protocolVersion`, `agentVersion`, and `held` describe the daemon connection when reported. Missing fields from older servers mean unknown, not disabled. Subshell SSH still requires a browser session; these tools don't grant SSH access or change node settings.
+`viewsEnabled` reports permission for apps and browsers; `virtualDisplayEnabled` reports permission for virtual displays. These fields, `sshEnabled`, and `sshWideForwards` report configuration, not live readiness. `protocolVersion`, `agentVersion`, and `held` describe the daemon connection when reported. Missing fields from older servers mean unknown, not disabled. Subshell SSH still requires a browser session; these tools don't grant SSH access or change node settings.
 
 ## get_node
 
