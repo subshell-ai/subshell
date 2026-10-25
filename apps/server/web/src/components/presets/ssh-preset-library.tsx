@@ -1,4 +1,14 @@
-import { apiFetch, Card, CardContent, CardHeader, CardTitle, confirmAction, errMessage } from "@internal/node-admin";
+import {
+  apiFetch,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  cn,
+  confirmAction,
+  errMessage,
+  Switch,
+} from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { Copy, Download, Pencil, Play, Share2, Terminal, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -8,7 +18,7 @@ import { PresetSharingDialog } from "@/components/presets/preset-sharing-dialog"
 import { SshPresetEditor } from "@/components/presets/ssh-preset-editor";
 import { SshQueryStatus } from "@/components/ssh/query-status";
 import { useNodes } from "@/hooks/use-nodes";
-import { useInvalidatePresets } from "@/hooks/use-presets";
+import { useInvalidatePresets, useTogglePresetEnabled } from "@/hooks/use-presets";
 import { useSshPresets } from "@/hooks/use-ssh-presets";
 import { canEditPreset, ownsPreset } from "@/lib/preset-access";
 import { downloadPreset } from "@/lib/preset-file";
@@ -29,6 +39,7 @@ export function SshPresetLibrary({
   const query = useSshPresets();
   const nodes = useNodes();
   const invalidate = useInvalidatePresets();
+  const toggle = useTogglePresetEnabled();
   const navigate = useNavigate();
   const [sharing, setSharing] = useState<string | null>(null);
   const [editor, setEditor] = useState<{ preset: SshPreset; cloneName?: string } | null>(null);
@@ -102,6 +113,9 @@ export function SshPresetLibrary({
                     <th scope="col" className="@lg:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">
                       Authentication
                     </th>
+                    <th scope="col" className="@lg:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">
+                      Enabled
+                    </th>
                     <th scope="col" className="@2xl:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">
                       Owner
                     </th>
@@ -112,7 +126,13 @@ export function SshPresetLibrary({
                 </thead>
                 <tbody>
                   {query.data.map((preset) => (
-                    <tr key={preset.id} className="border-b align-middle last:border-0">
+                    // A disabled preset stays in the table, dimmed: this management
+                    // view shows everything, and hiding a parked row here would leave
+                    // no way back in. The pickers do the hiding.
+                    <tr
+                      key={preset.id}
+                      className={cn("border-b align-middle last:border-0", preset.enabled === 0 && "opacity-70")}
+                    >
                       {/* The name opens the editor, same act as the menu's Edit. Not a
                           disclosure: this row already prints the preset's four facts, so
                           there is nothing the name could expand that Edit doesn't show. */}
@@ -141,6 +161,17 @@ export function SshPresetLibrary({
                       </td>
                       <td className="@lg:table-cell hidden h-8 whitespace-nowrap py-0 pr-4 text-muted-foreground">
                         {SSH_AUTHENTICATION_LABELS[preset.authentication]}
+                      </td>
+                      <td className="@lg:table-cell hidden h-8 whitespace-nowrap py-0 pr-4">
+                        {canEditPreset(preset) ? (
+                          <Switch
+                            checked={preset.enabled !== 0}
+                            aria-label={`${preset.name} enabled`}
+                            onCheckedChange={(checked) => toggle.mutate({ id: preset.id, enabled: checked })}
+                          />
+                        ) : (
+                          <span className="text-muted-foreground">{preset.enabled === 0 ? "No" : "Yes"}</span>
+                        )}
                       </td>
                       <td
                         className="@2xl:table-cell hidden h-8 max-w-0 truncate py-0 pr-4 text-muted-foreground"
