@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import {
   mkdtempSync,
   readdirSync,
@@ -17,6 +17,7 @@ import { dispatchCommand } from "../commands/index.js";
 import { execPreviewOpen } from "../commands/preview-open-exec.js";
 import { maybeReportPreviewEnabled, seedPreviewEnabledMemo } from "../commands/report.js";
 import type { NodeConfig } from "../config.js";
+import { PreviewDisplays } from "../preview/display.js";
 import {
   getAppsEnabled,
   getPreviewEnabled,
@@ -346,5 +347,26 @@ it("display permission does not authorize app forwarding or browser watching", a
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("Disabled apps unexpectedly opened a preview");
     expect(result.error).toContain("preview-node-off");
+  }
+});
+
+it("app permission does not authorize an existing virtual display connection", async () => {
+  const dataDir = freshDataDir();
+  setPreviewEnabled(dataDir, { on: true, appsOn: true, displayOn: false, changedAt: STAMP });
+  const ctx = makeCtx(dataDir);
+  ctx.previewDisplays = new PreviewDisplays(dataDir);
+  const screen = spyOn(ctx.previewDisplays, "getFor").mockReturnValue({ display: ":90", rfbPort: 5910 });
+  try {
+    const result = await execPreviewOpen(ctx, {
+      type: "preview_open",
+      ref: crypto.randomUUID(),
+      paneId: crypto.randomUUID(),
+      port: 5910,
+      kind: "forward",
+      lifetimeMs: 60000,
+    });
+    expect(result).toEqual({ ok: false, error: "virtual-display-disabled" });
+  } finally {
+    screen.mockRestore();
   }
 });

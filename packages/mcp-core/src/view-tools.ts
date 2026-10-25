@@ -67,6 +67,8 @@ interface PreviewInfo {
   cdpPort: number | null;
   screen: { display: string; rfbPort: number } | null;
   nodeEnabled: boolean;
+  appsEnabled?: boolean;
+  virtualDisplayEnabled?: boolean;
   reason?: string;
 }
 export function listSubshellViews(deps: ToolDeps, args: z.infer<typeof ListSubshellViewsSchema>): Promise<PreviewInfo> {
@@ -96,6 +98,10 @@ export async function openSubshellView(deps: ToolDeps, args: z.infer<typeof Open
   let port: number;
   if (args.kind === "screen") {
     const info = await listSubshellViews(deps, args);
+    if (info.virtualDisplayEnabled === false)
+      throw new Error(
+        "subshell: virtual displays are disabled on this node; ask its owner to enable Allow virtual displays in node settings",
+      );
     if (!info.nodeEnabled || !info.screen)
       throw new Error(
         "subshell: this subshell has no available virtual display; check list_subshell_views and launch with screen on a prepared Linux node",

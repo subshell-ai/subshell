@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -31,6 +31,25 @@ afterEach(() => {
 });
 
 describe("the server's machine-local preview runtime", () => {
+  it("rejects each disabled feature before opening a lane or browser bridge", async () => {
+    for (const [kind, port, apps, display, error] of [
+      ["forward", 3000, false, true, "preview-node-off"],
+      ["screencast", 9222, false, true, "preview-node-off"],
+      ["forward", 5910, true, false, "virtual-display-disabled"],
+    ] as const) {
+      const runtime = setup({ appsEnabled: async () => apps, displayEnabled: async () => display });
+      const screen = spyOn(runtime.displays, "getFor").mockReturnValue({ display: ":90", rfbPort: 5910 });
+      try {
+        await expect(
+          runtime.execute({ type: "preview_open", kind, port, paneId: id, ref, lifetimeMs: 60000 }, () => {}),
+        ).rejects.toThrow(error);
+        expect(runtime.forward.laneCount()).toBe(0);
+      } finally {
+        screen.mockRestore();
+      }
+    }
+  });
+
   it("checks the DB switch before inspecting a process", async () => {
     let reads = 0;
     const runtime = setup({

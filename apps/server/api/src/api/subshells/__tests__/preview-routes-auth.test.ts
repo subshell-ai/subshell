@@ -652,6 +652,42 @@ describe("preview REST surface (Task 9)", () => {
     expect(body.ports).toEqual([{ proto: "tcp6", port: 8080, pid: 91 }]);
   });
 
+  it.each([
+    [true, true],
+    [true, false],
+    [false, true],
+    [false, false],
+  ])("enforces apps %s and display %s independently for discovery and new connections", async (apps, display) => {
+    attachLive({
+      preview_ports_get: () => ({
+        ports: [{ proto: "tcp", port: 3000, pid: 91 }],
+        cdpPort: 9222,
+        screen: { display: ":90", rfbPort: 5910 },
+      }),
+    });
+    const pane = await directRow();
+    await nodes.setPreviewEnabled(nodeId, { on: apps, changedAt: new Date().toISOString() });
+    await nodes.setPreviewEnabled(nodeId, { on: display, feature: "display", changedAt: new Date().toISOString() });
+    const bearer = await bearerFor(pane);
+    for (const auth of [{ cookie: ownerCookie }, { bearer }]) {
+      const info = await jsonBody(await call("GET", `/${pane}/views`, auth));
+      expect(info.appsEnabled).toBe(apps);
+      expect(info.virtualDisplayEnabled).toBe(display);
+      expect(info.ports).toEqual(apps ? [{ proto: "tcp", port: 3000, pid: 91 }] : []);
+      expect(info.cdpPort).toBe(apps ? 9222 : null);
+      expect(info.screen).toEqual(display ? { display: ":90", rfbPort: 5910 } : null);
+      for (const [port, permitted] of [
+        [3000, apps],
+        [5910, display],
+      ] as const) {
+        const response = await call("POST", `/${pane}/views/open`, { ...auth, body: { port } });
+        expect(response.status).toBe(permitted ? 200 : 409);
+      }
+      const watch = await call("POST", `/${pane}/views/browser/watch`, { ...auth, body: { port: 9222 } });
+      expect(watch.status).toBe(apps ? 200 : 409);
+    }
+  });
+
   it("a live display passes the screen pair through", async () => {
     attachLive({
       preview_ports_get: () => ({

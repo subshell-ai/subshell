@@ -64,6 +64,31 @@ describe("MCP preview discovery and launch", () => {
     const { deps } = fixture(() => ({ nodes: [{ ...node, ...facts }] }));
     expect((await listNodes(deps))[0]).toMatchObject(facts);
   });
+  it("reports disabled permission even when display prerequisites are ready", async () => {
+    const { deps } = fixture((path) =>
+      path === "/api/nodes"
+        ? { nodes: [{ ...node, viewsEnabled: true, virtualDisplayEnabled: false }] }
+        : { supported: true, missing: [] },
+    );
+    expect(await getNode(deps, { node: node.id })).toMatchObject({
+      viewsEnabled: true,
+      virtualDisplayEnabled: false,
+      virtualDisplay: { status: "ready" },
+    });
+    const views = fixture(() => ({
+      nodeEnabled: true,
+      appsEnabled: true,
+      virtualDisplayEnabled: false,
+      ports: [],
+      cdpPort: null,
+      screen: null,
+    }));
+    expect(await listSubshellViews(views.deps, { subshell_id: "x" })).toMatchObject({
+      appsEnabled: true,
+      virtualDisplayEnabled: false,
+    });
+  });
+
   it("checks requirements through the owner read surface, never management detail", async () => {
     const { deps, calls } = fixture((path) =>
       path === "/api/nodes" ? { nodes: [node] } : { supported: true, missing: ["xauth"] },
@@ -149,6 +174,29 @@ describe("MCP preview discovery and launch", () => {
     await expect(openSubshellView(deps, { subshell_id: "x", kind: "app" })).rejects.toThrow("require a port");
     expect(calls.every((c) => c.method === "GET")).toBe(true);
   });
+  it("explains a disabled display without trying to open it", async () => {
+    const { deps, calls } = fixture(() => ({
+      nodeEnabled: true,
+      appsEnabled: true,
+      virtualDisplayEnabled: false,
+      screen: null,
+    }));
+    await expect(openSubshellView(deps, { subshell_id: "x", kind: "screen" })).rejects.toThrow(
+      "virtual displays are disabled on this node",
+    );
+    expect(calls.every((c) => c.method === "GET")).toBe(true);
+  });
+
+  it("propagates node permission refusals for apps and browser watching", async () => {
+    const { deps } = fixture(() => {
+      throw new ApiError(409, "Apps and browsers are disabled on this node.");
+    });
+    await expect(openSubshellView(deps, { subshell_id: "x", kind: "app", port: 3000 })).rejects.toThrow(
+      "disabled on this node",
+    );
+    await expect(watchSubshellBrowser(deps, { subshell_id: "x", on: true })).rejects.toThrow("disabled on this node");
+  });
+
   it("starts and stops browser interest through the existing API", async () => {
     const { deps, calls } = fixture(() => ({ ok: true }));
     await watchSubshellBrowser(deps, { subshell_id: "x", on: true, port: 9222 });

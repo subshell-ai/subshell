@@ -186,7 +186,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     {
       title: "List subshell views",
       description:
-        "Discover app ports, the browser-debugging port, virtual display and availability for an authorized subshell. This does not open a preview or run a program.",
+        "Discover app ports, the browser-debugging port, virtual display and availability for an authorized subshell. appsEnabled and virtualDisplayEnabled report the node's independent permissions; nodeEnabled reports overall availability. This does not open a preview or run a program.",
       inputSchema: ListSubshellViewsSchema,
     },
     guard((args: z.infer<typeof ListSubshellViewsSchema>) => listSubshellViews(deps, args)),
