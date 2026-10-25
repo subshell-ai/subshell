@@ -65,7 +65,7 @@ export function VirtualDisplayField({
       <p id={`${id}-hint`} className="text-detail text-muted-foreground">
         Run graphical apps on a machine without a monitor.
       </p>
-      <p id={`${id}-cost`} className="text-detail text-muted-foreground">
+      <p id={`${id}-cost`} className="text-detail text-warning">
         Uses extra memory and CPU. Not required for web app previews.
       </p>
       {reason && (
