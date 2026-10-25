@@ -2,14 +2,15 @@ import { Button } from "@internal/node-admin";
 import type { IDockviewHeaderActionsProps } from "dockview-react";
 import { Maximize2, Minimize2, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { ActionsMenu } from "@/components/actions-menu";
 import { TranscriptSearch } from "@/components/transcript-search";
 import { useWorkspaceDockContext } from "@/components/workspace-dock/context";
 import { previewParentId } from "@/lib/workspace-preview";
 
 /**
- * `rightHeaderActionsComponent` for `<DockviewReact>`. Always shows the
- * maximize/restore toggle for terminals; preview groups keep it in their
- * viewer menu. It is the one pane action with no room in a small
+ * `rightHeaderActionsComponent` for `<DockviewReact>`. Terminal groups keep
+ * Maximize in their actions menu and show Restore while maximized, matching
+ * the preview viewers. It is the one pane action with no room in a small
  * pane's own title bar — and, once the group is maximized, the heavier
  * chrome the tiling spec reserves for one enlarged subshell at a time:
  * Close and the transcript finder. (Close replaced the old Terminate/Delete
@@ -58,22 +59,23 @@ export function GroupHeaderActions(props: IDockviewHeaderActionsProps) {
           {search && <TranscriptSearch search={search} onClose={() => {}} />}
         </>
       )}
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-6 w-6"
-        // Reads live state at click time rather than branching on the
-        // `maximized` state variable above: that state exists to render the
-        // right icon/label, but by the time of a click it's one render cycle
-        // behind whatever `onDidMaximizedGroupChange` last delivered, and
-        // acting on it instead of the source of truth is exactly the kind of
-        // staleness `DockedPane`'s captured-group bug came from.
-        onClick={() => (props.api.isMaximized() ? props.api.exitMaximized() : props.api.maximize())}
-        aria-label={maximized ? "Restore group" : "Maximize group"}
-        title={maximized ? "Restore" : "Maximize"}
-      >
-        {maximized ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
-      </Button>
+      {maximized ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-6"
+          onClick={() => props.api.exitMaximized()}
+          aria-label="Restore group"
+          title="Restore"
+        >
+          <Minimize2 className="size-3" />
+        </Button>
+      ) : (
+        <ActionsMenu
+          label="Pane"
+          items={[{ label: "Maximize pane", icon: Maximize2, onSelect: () => props.api.maximize() }]}
+        />
+      )}
     </div>
   );
 }
