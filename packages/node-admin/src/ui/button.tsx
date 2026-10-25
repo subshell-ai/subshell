@@ -22,10 +22,10 @@ const buttonVariants = cva(
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-9 px-4 py-2",
-        sm: "h-8 rounded-md px-3 text-detail",
+        default: "h-7 px-3 py-0.5 text-detail",
+        sm: "h-7 rounded-md px-3 text-detail",
         lg: "h-10 rounded-md px-8",
-        icon: "h-9 w-9",
+        icon: "size-7",
         /** Dense icon-only control for toolbars and card corners — the size
             the hand-rolled `h-6 w-6`/`h-7 w-7` overrides converge on. */
         "icon-sm": "h-7 w-7",

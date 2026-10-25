@@ -1,11 +1,12 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
-import { ApiError, apiFetch, Input } from "@internal/node-admin";
+import { ApiError, apiFetch, cn, Input } from "@internal/node-admin";
 import { type InfiniteData, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowUp, ChevronRight, FolderOpen, Star } from "lucide-react";
 import type { JSX } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PermissionNotice } from "@/components/desktop/permission-notice";
+import { POPUP_ROW_DENSITY } from "@/components/ui/popup-row";
 import { desktopPlatform, isServerDesktop } from "@/lib/desktop";
 import { patchExploreFavorite, shouldFetchNextPage } from "@/lib/explore-pagination";
 import { SERVER_DEPLOYMENT_QUERY_KEY } from "@/lib/query-keys";
@@ -481,7 +482,10 @@ export function DirectoryPickerInput({
                 <button
                   type="button"
                   onClick={clearChoice}
-                  className="mb-1 w-full rounded px-2 py-1 text-left text-muted-foreground text-sm hover:bg-accent hover:text-foreground"
+                  className={cn(
+                    POPUP_ROW_DENSITY,
+                    "mb-1 w-full rounded px-2 text-left text-muted-foreground hover:bg-accent hover:text-foreground",
+                  )}
                 >
                   {clearOption}
                 </button>
@@ -504,7 +508,10 @@ export function DirectoryPickerInput({
                         type="button"
                         title="Go up one level"
                         onClick={() => pick(explore.parent ?? "")}
-                        className="flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-accent"
+                        className={cn(
+                          POPUP_ROW_DENSITY,
+                          "flex min-w-0 flex-1 items-center gap-2 rounded px-2 text-left hover:bg-accent",
+                        )}
                       >
                         <ArrowUp className="h-3 w-3 shrink-0 text-muted-foreground" />
                         ..
@@ -549,15 +556,15 @@ export function DirectoryPickerInput({
 }
 
 /**
- * The height of one folder row in px: a `text-sm` line (14px at 1.5 leading,
- * src/styles.css) inside a `py-1` button, so 21 + 8. Rows are one truncated
+ * The height of one folder row in px, matching `POPUP_ROW_DENSITY`
+ * (13px text, 2px vertical padding, and a 28px minimum). Rows are one truncated
  * line by construction, which is why the virtualizer sizes them from this
  * constant rather than measuring each row: a per-row measure would add a
  * layout read to answer what the CSS already fixes, and a constant is what
  * keeps the window jump-free. Change the row's padding or its type role and
  * this number must change with it.
  */
-const DIR_ROW_HEIGHT = 29;
+const DIR_ROW_HEIGHT = 28;
 
 /**
  * The folder rows of the listing state, windowed.
@@ -679,7 +686,10 @@ function DirRows({
               type="button"
               title={`Open ${e.name}`}
               onClick={() => onPick(e.path)}
-              className="flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-accent"
+              className={cn(
+                POPUP_ROW_DENSITY,
+                "flex min-w-0 flex-1 items-center gap-2 rounded px-2 text-left hover:bg-accent",
+              )}
             >
               <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
               <span className="truncate">{e.name}</span>
@@ -761,7 +771,10 @@ function ShortcutSections({
                 type="button"
                 title={r.path}
                 onClick={() => onPick(r.path)}
-                className="flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-accent"
+                className={cn(
+                  POPUP_ROW_DENSITY,
+                  "flex min-w-0 flex-1 items-center gap-2 rounded px-2 text-left hover:bg-accent",
+                )}
               >
                 <FolderOpen className="h-3 w-3 shrink-0 text-muted-foreground" />
                 <span className="truncate">{r.label ?? r.path}</span>
@@ -780,7 +793,10 @@ function ShortcutSections({
                 type="button"
                 title={f.path}
                 onClick={() => onPick(f.path)}
-                className="flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-accent"
+                className={cn(
+                  POPUP_ROW_DENSITY,
+                  "flex min-w-0 flex-1 items-center gap-2 rounded px-2 text-left hover:bg-accent",
+                )}
               >
                 <FolderOpen className="h-3 w-3 shrink-0 text-muted-foreground" />
                 <span className="truncate">{f.label ?? f.path}</span>

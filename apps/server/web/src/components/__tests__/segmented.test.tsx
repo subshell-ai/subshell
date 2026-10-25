@@ -89,18 +89,8 @@ describe("Segmented", () => {
     expect(picked).toEqual(["new"]);
   });
 
-  it("dense halves the button box height; without it every button keeps the shared sm table", () => {
-    // The byte-identical guarantee for every non-dense consumer (home tiles
-    // toggle, the dialogs): the pin below is the button's ACTUAL className,
-    // h-8 included. `dense` is opt-in and merges `h-6` — the rail's density
-    // ask (24px, the cell grid's own rhythm); `cn` is twMerge, so h-6 wins
-    // over the variant's h-8 in any order, and px-3 (width) stays untouched.
-    const { unmount } = render(<Segmented ariaLabel="What to add" options={OPTIONS} value="new" onChange={() => {}} />);
-    const plain = screen.getByRole("button", { name: "New subshell" });
-    expect(plain.className).toContain("h-8");
-    expect(plain.className).not.toContain("h-6");
-    unmount();
-    render(<Segmented ariaLabel="What to add" options={OPTIONS} value="new" onChange={() => {}} dense />);
+  it.each([false, true])("uses compact buttons with dense=%s", (dense) => {
+    render(<Segmented ariaLabel="What to add" options={OPTIONS} value="new" onChange={() => {}} dense={dense} />);
     for (const btn of screen.getAllByRole("button")) {
       expect(btn.className).toContain("h-6");
       expect(btn.className).not.toContain("h-8");
