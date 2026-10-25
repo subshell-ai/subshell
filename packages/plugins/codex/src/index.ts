@@ -98,9 +98,9 @@ function tomlStringArray(values: string[]): string {
  * (a user may put it in their own preset flags — that is their call).
  *
  * subshell MCP is wired automatically WITHOUT touching user state: every
- * launch carries `-c mcp_servers.subshell.command=… -c mcp_servers.subshell.args=…
- * -c mcp_servers.subshell.env_vars=…` config overrides (dotted path, value
- * parsed as TOML — verified against the
+ * launch carries `-c mcp_servers.subshell.command=…`,
+ * `-c mcp_servers.subshell.args=…` and `-c mcp_servers.subshell.env_vars=…`
+ * config overrides (dotted path, value parsed as TOML — verified against the
  * real binary), which codex merges over ~/.codex/config.toml for that run
  * only. The subagent monitoring hooks ride the same mechanism as
  * `hooks.SubagentStart/SubagentStop/SessionStart` overrides, so a user's own
