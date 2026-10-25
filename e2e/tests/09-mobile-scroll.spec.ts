@@ -14,9 +14,13 @@ const SPAWN_TIMEOUT = 30_000;
  * suppression break. This spec taps with `page.touchscreen` (CDP touch
  * events, the chain a thumb actually runs) and asserts the PANE'S OWN buffer
  * moved: the scroll jumps drive local scrollback, which the server-side log
- * the byte-key specs read cannot see. The DOM renderer paints exactly the
- * visible rows, so the first line of `.xterm-rows` is the top row the user
- * sees.
+ * the byte-key specs read cannot see. The witness is xterm's scroll thumb.
+ * In the 6.1 DOM the legacy `.xterm-viewport` never scrolls at all (measured:
+ * `scrollHeight === clientHeight` at rest), while `.xterm-slider` inside the
+ * vertical `.xterm-scrollbar` is positioned by `style.top` against the buffer
+ * — exactly `0px` at the scrollback top, a fixed value at the bottom. Late
+ * output can repaint a first row and fake a row comparison; it cannot move
+ * the thumb up.
  */
 test("key bar scroll buttons scroll the pane under real touch", async ({ page }) => {
   test.setTimeout(180_000);
@@ -80,24 +84,33 @@ async function exerciseScrollKeys(page: Page, id: string): Promise<void> {
   await expect(bar).toBeVisible();
   await expect(bar).toBeInViewport();
 
-  // xterm repaints asynchronously after any scroll: every read goes through
-  // `expect.poll`, never a bare synchronous read (that false-negatived in
-  // development of this spec).
-  const topRow = async () =>
-    (await page.locator(".xterm-rows").evaluate((el) => (el as HTMLElement).innerText.split("\n")[0] ?? "")).trim();
+  // xterm moves the thumb asynchronously after any scroll: every read goes
+  // through `expect.poll`, never a bare synchronous read (that false-negatived
+  // in development of this spec).
+  const sliderTop = () =>
+    page
+      .locator(".xterm-scrollbar.xterm-vertical .xterm-slider")
+      .first()
+      .evaluate((el) => {
+        const thumb = el as HTMLElement;
+        return {
+          top: thumb.style.top === "" ? -1 : Math.round(parseFloat(thumb.style.top)),
+          visible: thumb.parentElement?.classList.contains("xterm-visible") ?? false,
+        };
+      });
 
-  // Resting state: two consecutive NON-EMPTY reads agree, so the stream has
-  // stopped. Empty is not "settled at the bottom" — the first run captured
-  // "" twice while the renderer had not painted the rows yet, and every
-  // later "did it move" comparison then measured against a blank.
-  let bottomTop = "";
+  // Resting state: the scrollbar is visible (output overflowed the viewport)
+  // and two consecutive reads agree, so the stream has stopped. That stable
+  // value is the bottom anchor; xterm measures the top anchor at exactly
+  // `0px`, so no scroll-direction convention needs to be guessed.
+  let resting = -1;
   await expect
     .poll(
       async () => {
-        const row = await topRow();
-        const same = row !== "" && row === bottomTop;
-        bottomTop = row;
-        return same;
+        const s = await sliderTop();
+        const settled = s.visible && s.top >= 0 && s.top === resting;
+        resting = s.top;
+        return settled;
       },
       { timeout: SPAWN_TIMEOUT, message: "the terminal settles at the bottom" },
     )
@@ -116,17 +129,30 @@ async function exerciseScrollKeys(page: Page, id: string): Promise<void> {
     await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
   };
 
+  // Known positions, not mere "it moved": the thumb sits at 0px at the top,
+  // returns to the exact resting value at the bottom, and a page jump lands
+  // strictly between (the 100-line scrollback overflows a page on any
+  // viewport this spec runs on). Only scrolling moves the thumb.
+  const bottom = resting;
+  const at = () => sliderTop().then((s) => s.top);
+
   await tap("Scroll page up");
-  await expect.poll(async () => (await topRow()) !== bottomTop, { timeout: 10_000 }).toBe(true);
-  const pageUpTop = await topRow();
+  await expect.poll(async () => (await at()) < bottom, { timeout: 10_000 }).toBe(true);
 
   await tap("Scroll to top");
-  await expect.poll(async () => (await topRow()) !== pageUpTop, { timeout: 10_000 }).toBe(true);
-  const topTop = await topRow();
+  await expect.poll(async () => (await at()) === 0, { timeout: 10_000 }).toBe(true);
 
   await tap("Scroll page down");
-  await expect.poll(async () => (await topRow()) !== topTop, { timeout: 10_000 }).toBe(true);
+  await expect
+    .poll(
+      async () => {
+        const t = await at();
+        return t > 0 && t < bottom;
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(true);
 
   await tap("Scroll to bottom");
-  await expect.poll(topRow, { timeout: 10_000 }).toBe(bottomTop);
+  await expect.poll(async () => (await at()) === bottom, { timeout: 10_000 }).toBe(true);
 }

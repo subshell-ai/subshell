@@ -321,6 +321,30 @@ describe("TerminalKeyBar", () => {
     expect(sent).toEqual(["\x03"]);
   });
 
+  it("the tap after a panned-off release actuates on its first press", () => {
+    // A release that slid off the button (the row panning under the finger)
+    // must leave nothing behind that a later real tap has to press through.
+    // It cannot: every primary button-0 release consumes the arm — actuated,
+    // containment-rejected, or disabled-gated — and a fresh press re-arms
+    // anyway, so the press following a pan lands on its first down-up.
+    const sent: string[] = [];
+    render(<TerminalKeyBar disabled={false} onBytes={(b) => sent.push(b)} />);
+    const button = screen.getByRole("button", { name: "Send Ctrl-C" });
+    fireEvent.pointerDown(button, { pointerType: "touch", button: 0, isPrimary: true });
+    fireEvent.pointerUp(button, {
+      pointerType: "touch",
+      button: 0,
+      isPrimary: true,
+      clientX: 5000,
+      clientY: 5000,
+    });
+    expect(sent).toEqual([]); // the pan itself sends nothing
+    // The next real tap must actuate on its own, with no extra press.
+    fireEvent.pointerDown(button, { pointerType: "touch", button: 0, isPrimary: true });
+    fireEvent.pointerUp(button, { pointerType: "touch", button: 0, isPrimary: true });
+    expect(sent).toEqual(["\x03"]);
+  });
+
   it("keyboard activation still sends, with no pointer events before the click", () => {
     const sent: string[] = [];
     render(<TerminalKeyBar disabled={false} onBytes={(b) => sent.push(b)} />);
