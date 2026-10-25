@@ -6,19 +6,26 @@ test.use({ storageState: ADMIN_STATE });
 const SPAWN_TIMEOUT = 30_000;
 
 /**
- * The scroll keys under a real finger, in the forced-tab presentation. Every
- * earlier key-bar proof used Playwright's `.click()`, which dispatches MOUSE
- * events even in the touch-enabled mobile project — the bar's deliberate
- * `onPointerDown` preventDefault only interacts with the browser's
- * touch-to-click synthesis, so the mouse path could never have caught the
- * suppression break. This spec taps with `page.touchscreen` (CDP touch
- * events, the chain a thumb actually runs) and asserts the PANE'S OWN buffer
- * moved: the scroll jumps drive local scrollback, which the server-side log
- * the byte-key specs read cannot see. The witness is xterm's scroll thumb.
- * In the 6.1 DOM the legacy `.xterm-viewport` never scrolls at all (measured:
- * `scrollHeight === clientHeight` at rest), while `.xterm-slider` inside the
- * vertical `.xterm-scrollbar` is positioned by `style.top` against the buffer
- * — exactly `0px` at the scrollback top, a fixed value at the bottom. Late
+ * The scroll keys under touch input, in the forced-tab presentation. Earlier
+ * key-bar proofs used Playwright's `.click()`, which dispatches MOUSE events
+ * even in the touch-enabled mobile project; this spec taps with
+ * `page.touchscreen` — the CDP touch chain a thumb actually runs — and
+ * asserts the PANE'S OWN buffer moved: the scroll jumps drive local
+ * scrollback, which the server-side log the byte-key specs read cannot see.
+ *
+ * What this spec does NOT gate is the engine difference the pointerup fix
+ * answered. The mobile project is Chromium, and a measured Blink tap still
+ * synthesizes the click after the bar's cancelled `onPointerDown`, so a
+ * control that waited for the click would stay green here. Only WebKit drops
+ * that click; the suppression stays pinned by the unit suite's gesture
+ * tests, and the playwright config still names real-device Safari the
+ * manual gate.
+ *
+ * The witness is xterm's scroll thumb. In the 6.1 DOM the legacy
+ * `.xterm-viewport` never scrolls at all (measured: `scrollHeight ===
+ * clientHeight` at rest), while `.xterm-slider` inside the vertical
+ * `.xterm-scrollbar` is positioned by `style.top` against the buffer —
+ * exactly `0px` at the scrollback top, a fixed value at the bottom. Late
  * output can repaint a first row and fake a row comparison; it cannot move
  * the thumb up.
  */
@@ -47,15 +54,27 @@ test("key bar scroll buttons scroll the pane under real touch", async ({ page })
   await expect(page).toHaveURL(/\/workspaces\/.+/, { timeout: SPAWN_TIMEOUT });
   await socket;
 
-  const id = await newPaneId(page, before);
   // A red assertion must not leave the pane running in the shared database
   // for whichever spec reads it next, so the whole scenario is best-effort
-  // cleaned in the finally.
+  // cleaned in the finally. The lookup itself is inside the try: the pane
+  // exists the moment the launch lands, so a dead `newPaneId` must still
+  // sweep the ids the spawn added rather than orphan the process.
+  let id = "";
   try {
+    id = await newPaneId(page, before);
     await exerciseScrollKeys(page, id);
   } finally {
-    await page.request.post(`/api/subshells/${id}/terminate`).catch(() => null);
-    await page.request.delete(`/api/subshells/${id}`).catch(() => null);
+    let strays = id ? [id] : [];
+    if (strays.length === 0) {
+      const res = await page.request.get("/api/subshells").catch(() => null);
+      if (res?.ok()) {
+        strays = ((await res.json()) as { id: string }[]).filter((s) => !before.has(s.id)).map((s) => s.id);
+      }
+    }
+    for (const pane of strays) {
+      await page.request.post(`/api/subshells/${pane}/terminate`).catch(() => null);
+      await page.request.delete(`/api/subshells/${pane}`).catch(() => null);
+    }
   }
 });
 
@@ -71,8 +90,9 @@ async function exerciseScrollKeys(page: Page, id: string): Promise<void> {
   await send("seq 1 100");
   await send("SCROLL_TEST_DONE");
 
-  // Server-side truth that the output landed and the shell is back at a
-  // prompt — the same log tail spec 09's byte assertions read.
+  // Server-side truth that the text reached the pane — the same log tail
+  // the byte-key specs read. Not proof of an idle prompt: the tty echo of
+  // the typed command alone already contains the sentinels.
   const logText = async () => {
     const res = await page.request.get(`/api/subshells/${id}/log`);
     return res.ok() ? ((await res.json()) as { lines: string[] }).lines.join("\n") : "";
@@ -136,8 +156,19 @@ async function exerciseScrollKeys(page: Page, id: string): Promise<void> {
   const bottom = resting;
   const at = () => sliderTop().then((s) => s.top);
 
+  // The settle loop's `top >= 0` rule keeps reading here too: the sentinel
+  // (-1, thumb with no inline top, e.g. a terminal mid-remount) must not
+  // satisfy "< bottom" and pass this jump without the buffer having moved.
   await tap("Scroll page up");
-  await expect.poll(async () => (await at()) < bottom, { timeout: 10_000 }).toBe(true);
+  await expect
+    .poll(
+      async () => {
+        const t = await at();
+        return t >= 0 && t < bottom;
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(true);
 
   await tap("Scroll to top");
   await expect.poll(async () => (await at()) === 0, { timeout: 10_000 }).toBe(true);

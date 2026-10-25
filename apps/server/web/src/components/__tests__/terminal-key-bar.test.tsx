@@ -345,6 +345,54 @@ describe("TerminalKeyBar", () => {
     expect(sent).toEqual(["\x03"]);
   });
 
+  it("a secondary touch pointer's press does not arm the control", () => {
+    // Only a primary button-0 pointerdown arms. A second finger landing
+    // first must leave the control un-armed, so the primary release that
+    // follows finds nothing to run. Drop the isPrimary clause from the arm
+    // and this sends a byte nobody pressed.
+    const sent: string[] = [];
+    render(<TerminalKeyBar disabled={false} onBytes={(b) => sent.push(b)} />);
+    const button = screen.getByRole("button", { name: "Send Ctrl-C" });
+    fireEvent.pointerDown(button, { pointerType: "touch", button: 0, isPrimary: false });
+    fireEvent.pointerUp(button, { pointerType: "touch", button: 0, isPrimary: true });
+    expect(sent).toEqual([]);
+  });
+
+  it("a keyboard activation actuates after a tap, whose mark the keydown resets", () => {
+    // A WebKit tap actuates on pointerup and NO click arrives to consume
+    // its mark, so the mark stands until the next gesture starts. A
+    // keyboard press is such a start: its keydown resets the mark, letting
+    // the Enter-generated click actuate. Drop that reset and the keyboard
+    // user's first Enter after a tap is silently swallowed.
+    const sent: string[] = [];
+    render(<TerminalKeyBar disabled={false} onBytes={(b) => sent.push(b)} />);
+    const button = screen.getByRole("button", { name: "Send Ctrl-C" });
+    fireEvent.pointerDown(button, { pointerType: "touch", button: 0, isPrimary: true });
+    fireEvent.pointerUp(button, { pointerType: "touch", button: 0, isPrimary: true });
+    expect(sent).toEqual(["\x03"]);
+    fireEvent.keyDown(button, { key: "Enter" });
+    fireEvent.keyUp(button, { key: "Enter" });
+    fireEvent.click(button);
+    expect(sent).toEqual(["\x03", "\x03"]);
+  });
+
+  it("holds the disabled gate when the bar disables itself between press and release", () => {
+    // The bar goes disabled while a press is still down (the terminal WS
+    // drops mid-press). aria-disabled stays event-transparent, so the
+    // release reaches this handler carrying the fresh `disabled` value,
+    // and the `disabled` term of the pointerup gate is what keeps that
+    // byte off a socket that has stopped answering. A tap started on an
+    // already-disabled control cannot probe the gate: Base UI's focusable
+    // suppressor keeps those pointer events away from it.
+    const sent: string[] = [];
+    const view = render(<TerminalKeyBar disabled={false} onBytes={(b) => sent.push(b)} />);
+    const button = screen.getByRole("button", { name: "Send Ctrl-C" });
+    fireEvent.pointerDown(button, { pointerType: "touch", button: 0, isPrimary: true });
+    view.rerender(<TerminalKeyBar disabled onBytes={(b) => sent.push(b)} />);
+    fireEvent.pointerUp(button, { pointerType: "touch", button: 0, isPrimary: true });
+    expect(sent).toEqual([]);
+  });
+
   it("keyboard activation still sends, with no pointer events before the click", () => {
     const sent: string[] = [];
     render(<TerminalKeyBar disabled={false} onBytes={(b) => sent.push(b)} />);
