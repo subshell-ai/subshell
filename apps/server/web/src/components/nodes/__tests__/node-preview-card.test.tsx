@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { NodeDetail } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { NodePreviewCard } from "@/components/nodes/node-preview-card";
 
 /**
@@ -146,15 +146,36 @@ describe("node view prerequisites", () => {
     const readiness = { body: { supported: true, missing: ["xauth"] } };
     const h = mount(node({ webPreviewsEnabled: true, virtualDisplayEnabled: true }), readiness);
     try {
-      const guide = await screen.findByRole("link", { name: "Set up virtual display" });
+      const guide = await within(screen.getByRole("group", { name: "Xvfb + VNC display provider" })).findByRole(
+        "link",
+        { name: "Set up virtual display" },
+      );
       expect(guide.getAttribute("href")).toBe("https://docs.subshell.sh/guides/preview#use-a-virtual-display-on-linux");
-      expect(screen.getByText("Virtual display requirements are missing on the selected node.")).toBeTruthy();
+      expect(
+        within(screen.getByRole("group", { name: "Xvfb + VNC display provider" })).getByText(
+          "Virtual display requirements are missing on the selected node.",
+        ),
+      ).toBeTruthy();
       expect(screen.getByRole("switch", { name: /allow virtual displays/i }).getAttribute("aria-checked")).toBe("true");
       readiness.body = { supported: true, missing: [] };
-      fireEvent.click(screen.getByRole("button", { name: "Recheck" }));
-      await screen.findByText("Virtual display requirements are met.");
-      expect(screen.queryByRole("link", { name: "Set up virtual display" })).toBeNull();
-      expect(screen.queryByRole("button", { name: "Recheck" })).toBeNull();
+      fireEvent.click(
+        within(screen.getByRole("group", { name: "Xvfb + VNC display provider" })).getByRole("button", {
+          name: "Recheck",
+        }),
+      );
+      await within(screen.getByRole("group", { name: "Xvfb + VNC display provider" })).findByText(
+        "Virtual display requirements are met.",
+      );
+      expect(
+        within(screen.getByRole("group", { name: "Xvfb + VNC display provider" })).queryByRole("link", {
+          name: "Set up virtual display",
+        }),
+      ).toBeNull();
+      expect(
+        within(screen.getByRole("group", { name: "Xvfb + VNC display provider" })).queryByRole("button", {
+          name: "Recheck",
+        }),
+      ).toBeNull();
     } finally {
       h.restore();
     }
@@ -166,7 +187,11 @@ describe("node view prerequisites", () => {
     });
     try {
       expect(screen.getByText(/Automatic app discovery and browser watching require Linux/)).toBeTruthy();
-      expect(await screen.findByText("This virtual display provider does not support the selected node.")).toBeTruthy();
+      expect(
+        await within(screen.getByRole("group", { name: "Xvfb + VNC display provider" })).findByText(
+          "This virtual display provider does not support the selected node.",
+        ),
+      ).toBeTruthy();
     } finally {
       h.restore();
     }
@@ -179,12 +204,24 @@ describe("node view prerequisites", () => {
       readiness,
     );
     try {
-      await screen.findByText(/Bring this node online, then recheck/);
-      expect(screen.queryByText("Virtual display requirements are met.")).toBeNull();
+      await within(screen.getByRole("group", { name: "Xvfb + VNC display provider" })).findByText(
+        /Bring this node online, then recheck/,
+      );
+      expect(
+        within(screen.getByRole("group", { name: "Xvfb + VNC display provider" })).queryByText(
+          "Virtual display requirements are met.",
+        ),
+      ).toBeNull();
       readiness.body = { supported: true, missing: [] };
       readiness.status = 200;
-      fireEvent.click(screen.getByRole("button", { name: "Recheck" }));
-      await screen.findByText("Virtual display requirements are met.");
+      fireEvent.click(
+        within(screen.getByRole("group", { name: "Xvfb + VNC display provider" })).getByRole("button", {
+          name: "Recheck",
+        }),
+      );
+      await within(screen.getByRole("group", { name: "Xvfb + VNC display provider" })).findByText(
+        "Virtual display requirements are met.",
+      );
       expect(
         screen.getByRole("switch", { name: /allow virtual displays/i }).matches(":disabled, [aria-disabled=true]"),
       ).toBe(true);

@@ -1,0 +1,9 @@
+{
+  "bundle": {
+    "macOS": {
+      "files": {
+        "Helpers/Subshell Display Helper.app": "resources/Subshell Display Helper.app"
+      }
+    }
+  }
+}

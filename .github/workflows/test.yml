@@ -750,6 +750,29 @@ jobs:
           echo "restoring workspace ownership to $own"
           chown -R "$own" "$GITHUB_WORKSPACE"
 
+  macos-display-helper:
+    name: macOS display helper and desktop integration
+    needs: plan
+    if: needs.plan.outputs.rustApps == 'true'
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            crates/desktop-core/target
+            apps/client/desktop/src-tauri/target
+            apps/server/desktop/src-tauri/target
+          key: macos-helper-cargo-${{ hashFiles('**/Cargo.lock', 'native/display-helper/**') }}
+          restore-keys: macos-helper-cargo-
+      - name: Check native consent and both desktop apps without opening a GUI
+        run: |
+          rustup component add rustfmt clippy
+          env -u SHELLOPTS -u BASHOPTS bash scripts/rust-check.sh
+
   # The shared Rust library both desktop apps depend on. Its own job because it
   # has NO tauri dependency and therefore none of Tauri's system deps — it is a
   # ~30-second job, and keeping it separate means the apps' matrix legs do not

@@ -72,6 +72,8 @@
 
 pub mod browser;
 pub mod cli_update;
+#[cfg(target_os = "macos")]
+pub mod display_helper;
 pub mod legal;
 pub mod pending_install;
 pub mod permissions;

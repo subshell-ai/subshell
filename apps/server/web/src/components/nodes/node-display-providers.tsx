@@ -32,7 +32,11 @@ export function NodeDisplayProviders({
           />
         );
         return (
-          <div key={p.id} className="flex flex-col gap-2">
+          <fieldset
+            key={p.id}
+            aria-label={`${p.name} display provider`}
+            className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0"
+          >
             <div className="flex items-center gap-3">
               {disabledReason ? (
                 <Tooltip>
@@ -58,11 +62,26 @@ export function NodeDisplayProviders({
               <Label htmlFor={id}>Allow {p.name}</Label>
             </div>
             <p className="text-detail text-muted-foreground">{p.description}</p>
+            {p.id === "betterdisplay" && (
+              <p className="text-detail text-warning">
+                On this node's Mac (macOS 14 or later), open Subshell Client or Subshell Server → Virtual Display
+                Helper… to enable the helper and grant macOS permissions. You can disable it from that panel at any
+                time. This node setting cannot activate it. macOS displays share keyboard focus and the pointer.{" "}
+                <a
+                  href="https://docs.subshell.sh/nodes/manage#macos-display-helper"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline"
+                >
+                  Setup instructions
+                </a>
+              </p>
+            )}
             <NodeViewReadiness node={node} provider={p.id} inspect />
             {!enabled.includes(p.id) && (
               <p className="text-detail text-warning">This provider is disabled for new virtual displays.</p>
             )}
-          </div>
+          </fieldset>
         );
       })}
       {choices.length > 0 ? (

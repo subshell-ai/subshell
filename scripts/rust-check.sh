@@ -30,6 +30,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # names something else — so it is refused here instead of diagnosed there.
 "$ROOT/scripts/macos-toolchain-preflight.sh"
 
+env -u SHELLOPTS -u BASHOPTS bash "$ROOT/native/display-helper/test.sh"
+
 TRIPLE="$(rustc --print host-tuple)"
 
 # dir : sidecar stem. The same pairing lives in test.yml's matrix and in each

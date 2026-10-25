@@ -22,6 +22,8 @@ mod ssh_key;
 // Gated at the MODULE, never at the call site, so `cargo clippy` on Linux sees
 // the same code Linux compiles.
 #[cfg(target_os = "macos")]
+mod display_helper;
+#[cfg(target_os = "macos")]
 mod menu;
 mod tray;
 mod windows;

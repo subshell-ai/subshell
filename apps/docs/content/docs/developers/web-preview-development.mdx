@@ -1,0 +1,219 @@
+---
+title: "Develop and extend web previews"
+description: "Run a preview-compatible HTTP and WebSocket example, then locate and validate changes to Subshell's forwarding and browser-watch implementation."
+---
+
+Use a small HTTP and WebSocket target to understand the preview contract before changing Subshell's forwarding implementation.
+
+## Before you start
+
+Read [Web preview architecture](/developers/web-preview-architecture) and prepare
+an [isolated development server](/developers/contribute#run-an-isolated-server).
+Run test targets inside a terminal subshell on a development node. Its owner
+must enable **Allow web previews** in **Nodes**; an administrator manages the
+built-in node. You need edit access to open HTTP previews or saved services.
+
+This example needs Bun and no npm dependencies. It serves nonsensitive sample
+data on loopback and deliberately implements no authentication. It isn't an
+application security template or a replacement for Subshell's preview gates.
+
+## Create a working target
+
+Create an empty directory on the development node and save these files there.
+The page uses relative paths so its HTTP and WebSocket requests stay under the
+preview capability prefix. A root-relative `/api/message` URL would instead
+point at the Subshell server's API namespace.
+
+```ts title="server.ts"
+const page = `<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Preview example</title>
+<h1>Preview example</h1>
+<p id="http">Loading HTTP response…</p>
+<p id="socket">Connecting WebSocket…</p>
+<script type="module">
+  const http = document.querySelector('#http');
+  const socket = document.querySelector('#socket');
+  try {
+    const response = await fetch('./api/message');
+    if (!response.ok) throw new Error('HTTP request failed');
+    http.textContent = (await response.json()).message;
+  } catch (error) {
+    http.textContent = String(error);
+  }
+  const address = new URL('./events', location.href);
+  address.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(address);
+  ws.onopen = () => ws.send('ping');
+  ws.onmessage = (event) => { socket.textContent = String(event.data); };
+  ws.onerror = () => { socket.textContent = 'WebSocket failed'; };
+</script>
+</html>`;
+
+/** A loopback-only development target with HTTP and WebSocket paths. */
+export function startPreviewExample(port = 3333) {
+  return Bun.serve({
+    hostname: "127.0.0.1",
+    port,
+    fetch(request, server) {
+      const path = new URL(request.url).pathname;
+      if (path === "/events") {
+        if (server.upgrade(request)) return;
+        return new Response("WebSocket upgrade required", { status: 426 });
+      }
+      if (path === "/api/message") return Response.json({ message: "HTTP works" });
+      if (path === "/") return new Response(page, {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      });
+      return new Response("Not found", { status: 404 });
+    },
+    websocket: {
+      message(socket, message) {
+        socket.send(message === "ping" ? "WebSocket works" : "Unknown message");
+      },
+    },
+  });
+}
+
+if (import.meta.main) {
+  const server = startPreviewExample(Number(process.env.PORT ?? 3333));
+  console.log(`Preview example listening on ${server.url}`);
+}
+```
+
+```ts title="server.test.ts"
+import { expect, test } from "bun:test";
+import { startPreviewExample } from "./server";
+
+test("the example serves HTML, JSON, and WebSocket messages", async () => {
+  const server = startPreviewExample(0);
+  let socket: WebSocket | undefined;
+  try {
+    const html = await fetch(server.url);
+    expect(html.headers.get("content-type")).toContain("text/html");
+    expect(await html.text()).toContain("./api/message");
+    expect(await (await fetch(new URL("api/message", server.url))).json())
+      .toEqual({ message: "HTTP works" });
+    expect((await fetch(new URL("missing", server.url))).status).toBe(404);
+    const address = new URL("events", server.url);
+    address.protocol = "ws:";
+    const reply = await new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        socket?.close();
+        reject(new Error("WebSocket timed out"));
+      }, 2000);
+      socket = new WebSocket(address);
+      socket.onopen = () => socket?.send("ping");
+      socket.onmessage = (event) => {
+        clearTimeout(timer);
+        resolve(String(event.data));
+      };
+      socket.onerror = () => {
+        clearTimeout(timer);
+        reject(new Error("WebSocket failed"));
+      };
+    });
+    expect(reply).toBe("WebSocket works");
+  } finally {
+    socket?.close();
+    await server.stop(true);
+  }
+});
+```
+
+Run the test, then start the target in the terminal subshell:
+
+```bash
+bun test server.test.ts
+bun server.ts
+```
+
+The test should pass and the server should listen on `127.0.0.1:3333`. If that
+port is occupied, use another unused port, such as `PORT=3334 bun server.ts`.
+The sample tests the target directly; it doesn't prove proxy authorization,
+sandbox behavior, or browser rendering.
+
+## Verify it through Subshell
+
+1. In the isolated dashboard, select the terminal subshell's **Web previews &
+   screens** action. On Linux, its process-tree discovery should find the target
+   port. Open the web preview for that port.
+2. If discovery is unavailable or the target runs outside the subshell, use
+   **Add service** in that dialog and save the loopback host, selected port,
+   and HTTP protocol. Open that saved service.
+3. Confirm that the page says **HTTP works** and **WebSocket works**. This checks
+   a document request, a relative fetch, and an application WebSocket through
+   the preview lane.
+4. Close and reopen the preview. The target should remain running. Stop it with
+   Ctrl+C in its terminal when finished; closing the tab isn't a process stop.
+
+Keep the capability URL private. Don't attach it or authorization headers to a
+bug report. Report the failure category and relevant sanitized logs instead.
+For a target that requires storage, service workers, or normal website login,
+use the node's browser with a virtual display rather than removing preview
+isolation. See [Web previews & screens](/guides/preview).
+
+## Change the owning layer
+
+Web previews don't implement `VirtualDisplayProvider`, and there is no separate
+web-preview plugin registration. The following paths are relative to the
+Subshell checkout:
+
+| Change | Owning implementation | Preserve |
+| --- | --- | --- |
+| Automatic listener discovery | `packages/pane-runtime/src/preview/ports.ts` | Bounded process-tree traversal, attribution, and explicit unsupported-platform results. |
+| TCP/TLS target forwarding | `packages/pane-runtime/src/preview/forward.ts` | Loopback defaults, saved-destination validation, certificate checks, bounded writes, and cleanup. |
+| Browser capture | `packages/pane-runtime/src/preview/cdp-http.ts` and `cdp-bridge.ts` | Loopback CDP validation, timeouts, cancellation, frame limits, and acknowledgements. |
+| HTTP isolation and cookies | `apps/server/api/src/preview/pv-http.ts` and `lane-http.ts` | Header stripping, sandboxing, path fidelity, and no retry after a partial write. |
+| Application WebSockets | `apps/server/api/src/preview/pv-ws.ts` and `lane-ws-client.ts` | Upgrade gates, HTTP/raw separation, message bounds, and closing both ends. |
+| Capabilities, audiences, and revocation | `apps/server/api/src/services/preview-broker.ts` | Ownership, concurrent-open limits, pending-open cancellation, and repeated authorization after awaits. |
+| Browser viewer behavior | `apps/server/web/src/components/preview/` | The distinction between embedded websites, browser watches, and interactive displays. |
+
+The enrolled-node command executors and the built-in node's
+`apps/server/api/src/preview/local-preview.ts` both use the shared runtime.
+Changes to command/result shapes also require shared protocol validators,
+node/server compatibility handling, and tests for malformed or unsupported
+messages. Don't update only one execution path.
+
+For example, supporting automatic discovery on another OS requires verified
+process/listener attribution and platform-specific tests, not just removing
+the Linux guard. Until that exists, saved services provide explicit HTTP(S)
+destinations without guessing which process owns a port.
+
+## Validate an implementation change
+
+Read the owning app's `AGENTS.md`, then reproduce the problem in an isolated
+stack. Keep target tests separate from proxy and authorization tests. A working
+sample page doesn't establish that credentials stay out of target requests or
+that a revoked viewer loses access.
+
+Run the relevant package scripts from the repository root, building the frontend
+first because the proxy integration tests load the production application:
+
+```bash
+bunx turbo build --filter=@internal/server-web
+env -u SHELLOPTS -u BASHOPTS bun run --cwd packages/pane-runtime test
+env -u SHELLOPTS -u BASHOPTS bun run --cwd apps/node/agent test
+env -u SHELLOPTS -u BASHOPTS bun run --cwd apps/server/api test
+env -u SHELLOPTS -u BASHOPTS bun run --cwd apps/server/web test
+```
+
+Add regression coverage at the changed boundary:
+
+- Unauthorized discovery/open/watch, view-only port selection, and
+  share/account revocation while a request is awaiting the node.
+- Header and cookie isolation, root-relative redirects, escaped paths, and
+  sandboxed-origin fetch/WebSocket behavior.
+- Fragmented or oversized WebSocket messages, slow consumers, queue exhaustion,
+  partial writes, failed upstream upgrades, and cancellation during startup.
+- Target loss, node disconnect, subshell restart/deletion, saved-service removal,
+  and cleanup of pending requests and retained capabilities.
+- CDP redirects, returned WebSocket destinations, malformed images, and watch
+  recipients losing access while frames are in flight.
+
+Finally, repeat the sample through the isolated dashboard on both the built-in
+node and an enrolled node when the shared transport changed. Verify the page
+in the browser as well as the tests. Record which operating systems and browser
+flows you actually exercised; don't infer cross-platform discovery or login
+compatibility from a successful loopback HTTP test.

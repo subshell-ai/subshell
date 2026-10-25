@@ -91,7 +91,7 @@ export function VirtualDisplayField({
         <p id={`${id}-reason`} className="text-detail text-warning">
           {needsSetup ? (
             <a
-              href="https://docs.subshell.sh/guides/preview#use-a-virtual-display-on-linux"
+              href="https://docs.subshell.sh/nodes/manage#apps-browsers-and-virtual-displays"
               target="_blank"
               rel="noreferrer"
               className="underline"
@@ -102,6 +102,13 @@ export function VirtualDisplayField({
             reason
           )}
         </p>
+      )}
+      {needsSetup && (
+        <ul aria-label="Missing requirements on this node" className="list-disc pl-4 text-detail text-warning">
+          {check.data?.missing.map((requirement) => (
+            <li key={requirement}>{requirement}</li>
+          ))}
+        </ul>
       )}
       {shouldCheck && reason && !check.isFetching && (
         <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => void check.refetch()}>

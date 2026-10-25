@@ -294,6 +294,12 @@ for KEY in NSPhotoLibraryUsageDescription \
   [ -n "$VAL" ] || fail "the bundle's Info.plist is missing $KEY — the src-tauri merge did not reach the bundle"
 done
 
+HELPER_BUNDLE="$APP_BUNDLE/Contents/Helpers/Subshell Display Helper.app"
+[ -x "$HELPER_BUNDLE/Contents/MacOS/subshell-display-helper" ] || fail "the native display helper is missing"
+codesign --verify --strict -R 'anchor apple generic and identifier "dev.subshell.display-helper" and certificate leaf[subject.OU] = "DVRYX6BV6J"' "$HELPER_BUNDLE" || fail "the display helper has the wrong signing identity"
+helper_sig="$(codesign -dvv "$HELPER_BUNDLE" 2>&1 || true)"
+case "$helper_sig" in *"flags="*"runtime"*) ;; *) fail "the display helper is missing the hardened runtime" ;; esac
+
 echo "smoke: verifying the signature chain"
 codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE" || fail "codesign --verify failed"
 # The sidecar must carry the hardened runtime too, or its entitlements are inert.

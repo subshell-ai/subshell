@@ -638,3 +638,14 @@ apps/server/desktop/docs/native-chrome.md first.**
   red. A manager that would not answer is not the same fact as a stopped
   service, and flattening the two is how the 2026-09-07 crash loop read as
   "stopped" with no explanation.
+
+## macOS display helper
+
+The native application menu's **Virtual Display Helper…** opens a shared
+standalone AppKit settings panel. It is not part of first run and has no
+Tauri IPC command. Both desktop apps bundle the same signed helper identity;
+`desktop-core::display_helper` installs or reuses one per-user copy only on a
+menu selection. The helper owns consent, OS permission requests, and login
+registration. Read [the helper architecture](../../../docs/macos-display-helper.md)
+before changing bundling, activation, or local control. User instructions live
+in [node management](../../docs/content/docs/nodes/manage.mdx#macos-display-helper).

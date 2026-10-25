@@ -51,7 +51,7 @@ describe("virtual display prerequisites", () => {
       },
     );
     const guide = await screen.findByRole("link", { name: "Set up virtual display" });
-    expect(guide.getAttribute("href")).toBe("https://docs.subshell.sh/guides/preview#use-a-virtual-display-on-linux");
+    expect(guide.getAttribute("href")).toBe("https://docs.subshell.sh/nodes/manage#apps-browsers-and-virtual-displays");
     expect(guide.getAttribute("target")).toBe("_blank");
     expect(guide.closest(".text-warning")).not.toBeNull();
     expect(screen.queryByText(/install Xvfb/)).toBeNull();

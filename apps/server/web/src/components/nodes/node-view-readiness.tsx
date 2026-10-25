@@ -22,13 +22,24 @@ export function NodeViewReadiness({
       </p>
       {needsSetup && (
         <a
-          href="https://docs.subshell.sh/guides/preview#use-a-virtual-display-on-linux"
+          href={
+            provider === "betterdisplay"
+              ? "https://docs.subshell.sh/nodes/manage#macos-display-helper"
+              : "https://docs.subshell.sh/guides/preview#use-a-virtual-display-on-linux"
+          }
           target="_blank"
           rel="noreferrer"
           className="text-detail text-warning underline"
         >
           Set up virtual display
         </a>
+      )}
+      {needsSetup && (
+        <ul aria-label="Missing requirements on this node" className="list-disc pl-4 text-detail text-warning">
+          {check.data?.missing.map((requirement) => (
+            <li key={requirement}>{requirement}</li>
+          ))}
+        </ul>
       )}
       {shouldCheck && reason && !check.isFetching && (
         <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => void check.refetch()}>

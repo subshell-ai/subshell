@@ -4,6 +4,7 @@ import {
   type PreviewDisplayReadiness,
   type VirtualDisplayRequest,
 } from "@internal/subshell-protocol";
+import { BetterDisplayProvider } from "./betterdisplay-provider.js";
 import {
   PREVIEW_DISPLAY_MISSING_REQUIREMENTS,
   PREVIEW_DISPLAY_NOT_READY,
@@ -31,7 +32,7 @@ export interface PreviewDisplayOptions {
 
 /** Select built-ins here; providers are statically bundled, not runtime plugins. */
 export function createDisplayProviders(dataDir: string, log?: (line: string) => void): VirtualDisplayProvider[] {
-  return [new XvfbDisplayProvider(dataDir, { log })];
+  return [new XvfbDisplayProvider(dataDir, { log }), new BetterDisplayProvider(dataDir, { log })];
 }
 
 /** Applies host policy around a provider without depending on its display system. */
@@ -142,6 +143,21 @@ export class PreviewDisplays implements VirtualDisplayRuntime {
     // Readiness can await an OS permission prompt or a remote helper. A node
     // setting changed during that wait must apply before any resources start.
     await this.assertAllowed(provider);
-    return provider.openFor(paneId, size);
+    const screen = await provider.openFor(paneId, size);
+    try {
+      // Native allocation can await several external processes. Don't publish
+      // a new display if node policy changed while those calls were pending.
+      await this.assertAllowed(provider);
+    } catch (error) {
+      if (!existing) {
+        try {
+          await provider.closeFor(paneId);
+        } catch {
+          this.options.log?.("Display cleanup is pending after node policy changed during allocation.");
+        }
+      }
+      throw error;
+    }
+    return screen;
   }
 }

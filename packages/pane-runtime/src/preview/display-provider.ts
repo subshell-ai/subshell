@@ -25,8 +25,9 @@ export interface DisplaySweepResult {
 /**
  * Machine-local display backend, shared by the server and enrolled nodes.
  * Providers own their state directory, process identity checks, and rollback.
- * A failed allocation must leave no resources behind. Recovery and cleanup
- * must touch only resources whose ownership the provider can verify.
+ * Failed allocations must stop viewer access and roll back verified resources.
+ * Keep a journal when creation or cleanup is uncertain, so recovery can retry
+ * without touching resources whose ownership the provider cannot verify.
  */
 export interface VirtualDisplayRuntime {
   /** Read-only prerequisites for this backend on the current machine. */

@@ -173,6 +173,31 @@ A virtual display isn't a sandbox for the programs you run. They keep the
 execution account's permissions. Don't enable it on a host shared with untrusted
 local OS users; see [Preview security](/concepts/security#preview-security).
 
+## Use a virtual display on macOS
+
+Choose the **BetterDisplay** provider after following
+[macOS display helper setup](/nodes/manage#macos-display-helper) on the node's
+Mac. Both Subshell desktop apps include the helper, which stays disabled until
+you enable it in its native settings panel and grant macOS permissions.
+
+Unlike a private Linux display, a macOS virtual screen shares your login
+session, keyboard focus, and pointer. Apps don't automatically open on it;
+move their windows onto the screen before using its viewer. The helper's
+**Disable helper** control stops capture and input without closing terminals.
+
+### How the macOS connection works
+
+BetterDisplay creates the virtual screen. Subshell's locally enabled helper
+captures that screen and handles keyboard and pointer input. The node converts
+the captured images into a VNC-compatible stream and carries it through
+Subshell's authenticated preview connection to your browser. You don't need
+to configure BetterDisplay as a VNC server or expose a VNC port to the network.
+
+The node's local VNC listener has no separate password. Don't enable virtual
+displays on a Mac shared with untrusted local OS users. For message formats,
+limits, and versioning, see
+[BetterDisplay integration protocol](/developers/betterdisplay-protocol).
+
 ## Watch browser frames
 
 If a subshell runs Chrome or Chromium with remote debugging enabled on loopback,
@@ -186,8 +211,9 @@ select another browser port on the node. Close the preview tab when you're done.
 ## Launch a preview from another subshell
 
 An agent can use MCP to start a helper on another enrolled node owned by the
-same account. The calling agent can run on a Mac; the virtual display runs on
-the Linux node. Shared nodes and the server's built-in node aren't available
+same account. The example below uses a Linux node. A configured macOS node
+can use `betterdisplay` instead; MCP can check its requirements but cannot
+enable the helper or grant macOS permissions. Shared nodes and the server's built-in node aren't available
 through the subshell token's node discovery tools.
 
 1. Call `list_nodes` to choose an online node with `canLaunch: true`, virtual displays
@@ -246,3 +272,5 @@ while its session remains valid, and closing a tab doesn't immediately revoke
 a copied link. The server can read forwarded bytes and browser frames. See
 [Preview security](/concepts/security#preview-security) for the trust boundaries
 and [Architecture](/concepts/architecture#web-previews-and-virtual-displays) for the data path.
+
+For implementation details, read [Web preview architecture](/developers/web-preview-architecture) and [Develop and extend web previews](/developers/web-preview-development).

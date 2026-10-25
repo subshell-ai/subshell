@@ -75,6 +75,39 @@ describe("display provider contract", () => {
     }
   });
 
+  it("revoked policy tears down a pending new display but preserves an existing one", async () => {
+    for (const permission of ["feature", "provider"] as const) {
+      for (const existing of [false, true]) {
+        const provider = new ExampleProvider("example", 6000);
+        const id = crypto.randomUUID();
+        if (existing) await provider.openFor(id);
+        let enabled = true;
+        let allowed = [provider.id];
+        const entered = Promise.withResolvers<void>();
+        const release = Promise.withResolvers<void>();
+        const open = provider.openFor.bind(provider);
+        provider.openFor = async (paneId) => {
+          entered.resolve();
+          await release.promise;
+          return open(paneId);
+        };
+        const displays = new PreviewDisplays("/unused", {
+          provider,
+          isEnabled: () => enabled,
+          getEnabledProviderIds: () => allowed,
+        });
+        const pending = displays.openFor(id, size).catch((error: unknown) => error);
+        await entered.promise;
+        if (permission === "feature") enabled = false;
+        else allowed = [];
+        release.resolve();
+        expect(String(await pending)).toContain(permission === "feature" ? "preview-node-off" : "provider-disabled");
+        expect(provider.closed).toEqual(existing ? [] : [id]);
+        expect(displays.getFor(id) !== null).toBe(existing);
+      }
+    }
+  });
+
   it("orders competing providers and cleanup behind an in-flight allocation", async () => {
     const first = new ExampleProvider("first", 6001);
     const second = new ExampleProvider("second", 6002);
