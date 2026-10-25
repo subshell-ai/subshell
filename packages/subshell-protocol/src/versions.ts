@@ -119,8 +119,14 @@ export function semverLt(a: string, b: string): boolean {
  *
  * Raised to 2.2.0 with protocol 22, which requires nodes that can materialize
  * harness integration files beside a launch's MCP config.
+ *
+ * Raised to 2.4.0 with protocol 23 (the preview surface, spec 2026-10-21).
+ * The floor equals the shipping agent: `apps/node/agent/package.json` moves
+ * to 2.4.0 in this same commit. An agent below 23 understands no preview
+ * frame and the exact-match gate refuses it; the floor says the same thing
+ * wherever a version, not a protocol number, is what gets compared.
  */
-export const MIN_NODE_VERSION = "2.2.0";
+export const MIN_NODE_VERSION = "2.4.0";
 
 /**
  * Whether an agent reporting `version` may connect.

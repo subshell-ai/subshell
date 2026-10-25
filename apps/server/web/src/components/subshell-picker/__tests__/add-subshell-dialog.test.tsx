@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { AddSubshellDialog } from "@/components/subshell-picker/add-subshell-dialog";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
@@ -62,15 +63,40 @@ function renderDialog(props: {
       rows.filter((s) => s.nodeId === nodeId),
     );
   }
+  function DialogHarness() {
+    const [open, setOpen] = useState(true);
+    return (
+      <>
+        <button type="button" onClick={() => setOpen(true)}>
+          Reopen add
+        </button>
+        <AddSubshellDialog open={open} onOpenChange={setOpen} {...props} onAdd={props.onAdd ?? (async () => {})} />
+      </>
+    );
+  }
   render(
     <QueryClientProvider client={qc}>
-      <AddSubshellDialog open onOpenChange={() => {}} {...props} onAdd={props.onAdd ?? (async () => {})} />
+      <DialogHarness />
     </QueryClientProvider>,
   );
 }
 
 describe("AddSubshellDialog", () => {
   afterEach(cleanup);
+
+  it.each(["Cancel", "Close"])("%s discards the launch draft", async (action) => {
+    renderDialog({ excludeSubshellIds: ["here", "other", "remote"] });
+    await screen.findByRole("heading", { name: "New subshell" });
+    const field = document.querySelector<HTMLInputElement>("#picker-working-dir");
+    if (!field) throw new Error("Working directory input is missing");
+    const initial = field.value;
+    fireEvent.change(field, { target: { value: "/tmp/discard-this-draft" } });
+    expect(field.value).toBe("/tmp/discard-this-draft");
+    fireEvent.click(screen.getByRole("button", { name: action }));
+    await waitFor(() => expect(screen.queryByRole("dialog") === null).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Reopen add" }));
+    await waitFor(() => expect(document.querySelector<HTMLInputElement>("#picker-working-dir")?.value).toBe(initial));
+  });
 
   it("leaves out the subshells it was told to exclude", async () => {
     renderDialog({ excludeSubshellIds: ["here"] });

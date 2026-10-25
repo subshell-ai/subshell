@@ -82,3 +82,24 @@ Check both HTTP status and the structured response. After an ambiguous create ti
 ## Next steps
 
 Read [Build an API integration](/automation/integrations) and [Access model](/concepts/access).
+
+## Saved app services
+
+Use these endpoints for services started outside a subshell. A virtual display
+isn't required; the subshell must be running to open the connection.
+
+| Action | Endpoint | Body |
+| --- | --- | --- |
+| List saved connections | `GET /api/subshells/:id/services` | None |
+| Save a connection | `POST /api/subshells/:id/services` | `port`, `protocol` (`http` or `https`), optional `name` and `host` |
+| Open a saved connection | `POST /api/subshells/:id/views/open` | `{ "serviceId": "saved-service-uuid" }` |
+| Remove a saved connection | `DELETE /api/subshells/:id/services/:serviceId` | None |
+
+Host defaults to `localhost` on the subshell's node. HTTPS certificates must be
+trusted by that node. Reading requires subshell view access; saving, opening,
+and removing require edit access and `subshells:execute` for a scoped system key.
+Machine credentials retain their owner-only scope. Removing a saved connection
+revokes its open capabilities without stopping the service. The returned
+`proxyBase` is a private bearer capability; don't put it in logs or public links.
+
+See [Web previews & screens](/guides/preview#add-a-service-started-elsewhere) for the UI flow.

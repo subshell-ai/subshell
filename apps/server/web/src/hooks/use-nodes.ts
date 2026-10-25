@@ -200,3 +200,40 @@ export function useDeleteSetupKey() {
     },
   });
 }
+
+/**
+ * Flip one machine's pane-preview allowance (pane-preview spec Task 3).
+ * Owner-only at the route (the same gate as the SSH switch), and it answers
+ * on an offline node too: the flag is the plane's record, and the machine
+ * learns the value at its next connect - which is why the card never dims
+ * the control for a node that is merely dark.
+ */
+export function useSetViewsEnabled() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      on,
+      feature,
+      provider,
+      providers,
+    }: {
+      id: string;
+      on: boolean;
+      feature?: "web-previews" | "display";
+      provider?: string;
+      providers?: string[];
+    }) =>
+      apiFetch(`/api/nodes/${encodeURIComponent(id)}/views-enabled`, {
+        method: "PUT",
+        body: JSON.stringify({ on, feature, provider, providers }),
+      }),
+    onSuccess: async (_data, { id }) => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, id] }),
+        client.invalidateQueries({ queryKey: NODES_QUERY_KEY }),
+        client.invalidateQueries({ queryKey: ["preview-display-readiness", id] }),
+      ]);
+    },
+  });
+}

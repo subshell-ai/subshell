@@ -116,19 +116,25 @@ export function SelectContent({
   );
 }
 
-export function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Props): JSX.Element {
+export function SelectItem({
+  className,
+  children,
+  size = "default",
+  ...props
+}: SelectPrimitive.Item.Props & { size?: "default" | "compact" }): JSX.Element {
   return (
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
         "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pr-8 pl-2 text-sm outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50",
+        size === "compact" && "min-h-7 py-0.5 pr-7 text-detail",
         className,
       )}
       {...props}
     >
       <span className="absolute right-2 flex h-3.5 w-3.5 items-center justify-center">
         <SelectPrimitive.ItemIndicator>
-          <Check className="h-4 w-4" />
+          <Check className={size === "compact" ? "size-3.5" : "size-4"} />
         </SelectPrimitive.ItemIndicator>
       </span>
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>

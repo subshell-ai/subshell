@@ -14,6 +14,7 @@ import { WORKSPACES_QUERY_KEY } from "@/hooks/use-workspaces";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import { SUBSHELL_DND_TYPE } from "@/lib/subshell-dnd";
 import { resetWorkspaceFocusForTests, setWorkspaceFocusedId } from "@/lib/workspace-focus";
+import { onWorkspacePreviewRequest, publishWorkspacePreviews } from "@/lib/workspace-preview";
 import { setFetchRouter } from "@/test-setup";
 
 const dragImage = spyOn(DataTransfer.prototype, "setDragImage").mockImplementation(() => {});
@@ -552,7 +553,7 @@ test("workspace rows group by machine and spawned helpers appear once under thei
   );
   const { add, remove, router, refresh } = await mountRig(fx);
   const parentBranch = add.querySelector('[data-subshell-tree-id="s1"]') as HTMLElement;
-  fireEvent.click(await within(parentBranch).findByRole("button", { name: "Expand subagents" }));
+  fireEvent.click(await within(parentBranch).findByRole("button", { name: "Expand subshell details" }));
   await within(add).findByRole("link", { name: /Review helper/ });
   expect(within(add).getByRole("heading", { name: "Server" })).toBeTruthy();
   expect(within(add).getByRole("heading", { name: "node you can't see" })).toBeTruthy();
@@ -645,4 +646,32 @@ test("removing the last pane leaves the retired workspace after its list row dis
   fireEvent.drop(remove, { dataTransfer: dt });
   await waitFor(() => expect(fx.workspaces.some((w) => w.id === "w1")).toBe(false));
   await waitFor(() => expect(router.state.location.pathname).toBe("/subshells"));
+});
+
+test("an open preview is a focusable leaf under its subshell and disappears when closed", async () => {
+  const fx = standardRig();
+  setWorkspaceFocusedId("s1");
+  publishWorkspacePreviews(
+    [{ id: "preview:p1:screen", paneId: "p1", subshellId: "s1", workspaceId: "w1", view: { kind: "screen" } }],
+    "preview:p1:screen",
+  );
+  const focused: string[] = [];
+  const dispose = onWorkspacePreviewRequest((id) => {
+    focused.push(id);
+    return true;
+  });
+  try {
+    const { add } = await mountRig(fx);
+    const parent = add.querySelector('[data-subshell-tree-id="s1"]') as HTMLElement;
+    const leaf = await within(parent).findByRole("button", { name: "Virtual display" });
+    expect(leaf.getAttribute("aria-current")).toBe("page");
+    fireEvent.click(leaf);
+    expect(focused).toEqual(["s1"]);
+    act(() => publishWorkspacePreviews([], null));
+    expect(within(parent).queryByRole("button", { name: "Virtual display" }) === null).toBe(true);
+    expect(within(parent).getByRole("link", { name: /Member 1/ })).toBeTruthy();
+  } finally {
+    dispose();
+    publishWorkspacePreviews([], null);
+  }
 });

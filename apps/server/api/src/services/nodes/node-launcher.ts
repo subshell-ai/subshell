@@ -1,4 +1,5 @@
 import type { HarnessPlugin, McpRegistration, PresetDefinition, ReporterSpec } from "@internal/pane-runtime";
+import type { VirtualDisplayRequest } from "@internal/subshell-protocol";
 
 /** One harness start, structured (spec 2026-08-31 §6.3). */
 export interface LaunchPlan {
@@ -58,6 +59,13 @@ export interface LaunchPlan {
    * (createSubshell stays strict).
    */
   bestEffortLog?: boolean;
+  /**
+   * The virtual display size to request. The node's selected provider allocates
+   * it before the pane starts, refusing when its requirements aren't met.
+   * The local launcher uses the same provider contract on the server.
+   * Absent on every plain launch.
+   */
+  screen?: VirtualDisplayRequest;
 }
 
 /**

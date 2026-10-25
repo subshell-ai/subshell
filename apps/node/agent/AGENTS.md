@@ -235,6 +235,48 @@ launch argv **and** the pane's tmux hook table. Both are accepted (§11.2,
 refused, not escaped: tmux re-parses hook values when it fires and `#`
 expands (§11.14).
 
+## Preview (`src/preview/`, `src/commands/preview-*.ts`, pane-preview spec 2026-10-21)
+
+The node's half of pane preview, and its executors join the command
+inventory: `preview_ports_get` (Linux-only: it reads `/proc`, and non-Linux
+answers `preview-ports-unsupported` BEFORE touching the filesystem; the
+`screen` half rides the display registry), `preview_open` (one command, two
+branches by `kind`: `forward` registers a lane synchronously and its ack
+precedes any socket activity, exactly `ssh-relay-exec.ts`'s off-the-chain A
+contract, because the executor chain serializes every command; `screencast`
+awaits `startBridge`), `preview_close`, `set_preview_enabled` (the switch
+mirror, which SUCCEEDS everywhere including mac), and the display gate inside
+`launch` (3c/5a: platform, then switch, then the registry; the allocation
+precedes tmux so the refusal fails the launch with its named reason).
+
+- **Automatic views and CDP stay on loopback.** Protocol 24 also permits a
+  validated `service: { host, protocol }` on forward lanes for manually saved
+  browser services. DNS and certificate-verified HTTPS run on this node.
+  Explicit hosts never fall back to another host; localhost retains the IPv4/IPv6
+  retry. Screencasts reject the service field and still require a loopback CDP
+  WebSocket on the requested port.
+- **Xvfb, x11vnc and xauth are optional runtime dependencies.** A
+  non-Linux machine refuses by platform (`preview-display-unsupported`); a
+  Linux machine missing one of the binaries refuses
+  `preview-display-missing-binaries` naming the binary, and a pair that never
+  comes up inside the budget refuses `preview-display-not-ready`; a
+  switched-off node answers the one shared voice
+  (`preview-node-off: turn on Preview for this node`). Nothing installs them,
+  and nothing degrades
+  silently: a dropped `screen` at launch would be the bug, not the error.
+  `xauth add` (not `generate`) mints the cookie before Xvfb exists, and the
+  pane's `DISPLAY`/`XAUTHORITY` ride the env chain pinned by
+  `packages/pane-runtime`'s launch test.
+- **Budgets are shared, so one mechanism cannot starve the other.** The open
+  executor sums the node-wide lane count with the bridge registry's count
+  against `PREVIEW_SESSIONS_PER_NODE` before either starts, plus a per-pane
+  lane cap; frame bytes are capped (`PREVIEW_FRAME_MAX_BYTES`) and slow
+  viewers shed bytes, not the machine. A healthy screencast bridge logs
+  NOTHING (drops are the only lines); the display sweep (boot + hourly)
+  reaps registered displays absent from a COMPLETE pane census past a
+  one-minute floor, unknown-not-dead, and the plane's pane-close path is
+  the normal teardown: the sweep is the backstop for deleted rows.
+
 ## The loopback dashboard (`src/dashboard/`, spec 2026-09-19)
 
 `subshell run` binds **127.0.0.1:3090** and serves the node its own admin
@@ -425,3 +467,33 @@ CLI main behind `import.meta.main` so tests import the pure publish/build logic
 without building or spawning; `src/service.ts` needs no such guard: it is
 side-effect-free by DI design (everything arrives through `ServiceDeps`; the CLI
 entry lives in `cli.ts`).
+
+Preview's machine-local implementations live in
+`packages/pane-runtime/src/preview/` so the control-plane host and enrolled
+nodes use the same discovery, forward, CDP, and display lifecycle code. The
+agent's `preview/` modules preserve its logging and file-backed opt-in gate.
+Build the shared runtime before testing changes through these wrappers.
+CDP discovery refuses redirects and bounds JSON before parsing. Its returned
+WebSocket URL must retain the requested loopback port; pending handshakes count
+toward capacity and must cancel their discovery fetch when closed or timed out.
+Forwarding must bound the target socket's queued writes as well as outgoing
+preview frames; a target that stops reading cannot grow the daemon's heap.
+
+
+Preview transport checks its WebSocket queue before sealing; an undeliverable
+forward frame closes the lane instead of dropping TCP bytes. The display
+runtime verifies saved PIDs against the executable and this display's
+Xauthority argument before rehydration or signalling. CDP frames use numeric
+session acknowledgements and bounded dimensions before emitting images.
+
+Virtual display providers implement the shared lifecycle contract in
+`packages/pane-runtime/src/preview/display-provider.ts`. The signed preview
+settings mirror carries the allowed providers and their default. The launch
+request names its saved provider, and the runtime checks both the feature flag
+and allowed set before allocation, including after asynchronous readiness.
+Existing allocations remain owned by their original provider. Per-subshell
+opens and closes are ordered, and Xvfb allocation and recovery verify that the
+loopback RFB socket belongs to the recorded x11vnc child. Recovery sweeps every bundled provider,
+each restricted to its own state and verified process identities. The node
+launcher uses the provider's local environment and returns only the public
+viewer descriptor. See [the provider architecture](../../../docs/preview-architecture.md#display-providers-and-viewer-protocols).

@@ -1,7 +1,9 @@
 import { Button, FormSectionTitle, HelperCaption, Label, Switch } from "@internal/node-admin";
-import { CROSS_AGENT_NOTES_MAX } from "@internal/subshell-protocol";
+import { CROSS_AGENT_NOTES_MAX, VIRTUAL_DISPLAY_PROVIDERS } from "@internal/subshell-protocol";
 import { X } from "lucide-react";
 import { PromptStackSection } from "@/components/prompts/prompt-stack-section";
+import { DisplayProviderPicker } from "@/components/subshell-picker/display-provider-picker";
+import { Checkbox } from "@/components/ui/checkbox";
 import type { ComboboxOption } from "@/components/ui/combobox";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -133,6 +135,30 @@ export function PresetLaunchFields({
       </div>
       {/* The stack shows itself behind a divider (ruling 2026-09-30), ONE
           section shared with the launch form: see prompt-stack-section. */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-3">
+          <Checkbox
+            id="preset-virtual-display"
+            checked={Boolean(value.screen)}
+            onCheckedChange={(checked) => onChange({ ...value, screen: checked ? { width: 1280, height: 800 } : null })}
+          />
+          <Label htmlFor="preset-virtual-display">Virtual display</Label>
+        </div>
+        {value.screen && (
+          <DisplayProviderPicker
+            id="preset-display-provider"
+            value={value.screen.provider}
+            providers={VIRTUAL_DISPLAY_PROVIDERS.map((p) => p.id)}
+            defaultProvider={selectedNode?.virtualDisplayProvider}
+            onChange={(provider) =>
+              onChange({ ...value, screen: { ...(value.screen ?? { width: 1280, height: 800 }), provider } })
+            }
+          />
+        )}
+        <p className="text-detail text-muted-foreground">
+          The node’s permissions and provider requirements are checked when you start a subshell.
+        </p>
+      </div>
       <PromptStackSection
         blocks={value.promptBlocks}
         onBlocksChange={(promptBlocks) => onChange({ ...value, promptBlocks })}

@@ -1,8 +1,10 @@
 import { readSystemSpecs } from "@internal/pane-runtime";
 import {
+  DEFAULT_VIRTUAL_DISPLAY_PROVIDER,
   type NodeSshFingerprintReport,
   parseNodeSshFingerprintReport,
   parseNodeSystemSpecs,
+  storedDisplayProviderIds,
 } from "@internal/subshell-protocol";
 import { type Static, t } from "elysia";
 import { db } from "@/db/index.js";
@@ -180,6 +182,17 @@ export const NodeViewSchema = t.Object({
   sshEnabled: t.Boolean({
     description:
       "Whether this machine may be used for Subshell SSH (outbound ssh and serving its keys). Opt-in per node, off by default on every row including the control-plane host; the launch gate refuses SSH here while false, whoever asks",
+  }),
+  virtualDisplayProviders: t.Array(t.String({ description: "Enabled provider identifier" }), {
+    description: "Providers allowed for new virtual displays",
+  }),
+  virtualDisplayProvider: t.String({ description: "Provider selected for new virtual displays" }),
+  virtualDisplayEnabled: t.Boolean({
+    description: "Whether this node permits virtual displays. Each subshell must explicitly request one.",
+  }),
+  webPreviewsEnabled: t.Boolean({
+    description:
+      "Whether authorized viewers may open apps and services and watch browsers in any subshell on this machine. Opt-in per node, off by default including the control-plane host; view operations are refused while false",
   }),
   sshWideForwards: t.Boolean({
     description:
@@ -483,6 +496,10 @@ function nodeViewBase(
     maintenanceAt: row.maintenanceAt,
     maintenanceSource: row.maintenanceSource,
     sshEnabled: row.sshEnabled === 1,
+    webPreviewsEnabled: row.webPreviewsEnabled === 1,
+    virtualDisplayEnabled: row.virtualDisplayEnabled === 1,
+    virtualDisplayProvider: row.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER,
+    virtualDisplayProviders: storedDisplayProviderIds(row.virtualDisplayProviders),
     sshWideForwards: row.sshWideForwards === 1,
     // Read from the LIVE registry rather than the row, for the same reason
     // `runtime` is: being held is a fact about a socket that exists right now,

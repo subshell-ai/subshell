@@ -96,7 +96,7 @@ export function AllSubshellsSection({
           <SelectContent>
             <SelectGroup>
               {GROUP_OPTIONS.map(({ value, label }) => (
-                <SelectItem key={value} value={value}>
+                <SelectItem size="compact" key={value} value={value}>
                   {label}
                 </SelectItem>
               ))}

@@ -27,6 +27,7 @@ export {
   normalizeAllowedDir,
   normalizeAllowedDirs,
 } from "./dir-allowlist.js";
+export * from "./display-providers.js";
 export {
   BRACKETED_PASTE_END,
   BRACKETED_PASTE_START,
@@ -72,6 +73,7 @@ export { LIST_SEARCH_MAX } from "./list-search.js";
 export {
   type LiveClientFrame,
   type LiveServerFrame,
+  type PreviewStreamFrame,
   parseLiveClientFrame,
 } from "./live-frames.js";
 export {
@@ -110,6 +112,7 @@ export {
   type NodeCommandBody,
   type NodeEvent,
   type NodeMaintenanceWire,
+  type NodePreviewEnabledWire,
   type NodeRuntimeReport,
   type NodeServiceVerb,
   type NodeSshEnabledWire,
@@ -117,13 +120,23 @@ export {
   type NodeSshFingerprintReport,
   type NodeSshPeerFingerprint,
   type PluginReportWire,
+  PREVIEW_CLOSE_REASONS,
+  PREVIEW_COMMAND_TYPES,
   type PresetDefinitionWire,
+  type PreviewCloseCommand,
+  type PreviewCloseReason,
+  type PreviewDataFrame,
+  type PreviewLaneKind,
+  type PreviewOpenCommand,
+  type PreviewPortsGetCommand,
   parseNodeCommandBody,
   parseNodeEvent,
   parseNodeMaintenance,
+  parseNodePreviewEnabled,
   parseNodeRuntimeReport,
   parseNodeSshEnabled,
   parseNodeSshFingerprintReport,
+  parsePreviewFrame,
   parseRelayFrame,
   partPathOf,
   RELAY_DIRECTIONS,
@@ -131,25 +144,35 @@ export {
   type RelayFrame,
   relayFrameOverCap,
   relayFrameRefIfOverCap,
+  type SetPreviewEnabledCommand,
 } from "./node-frames.js";
 export {
   type DetectResultWire,
+  type DisplayViewerConnection,
   FS_LS_MAX_ENTRIES,
   type NodeAgentLogSlice,
   type NodeArchiveCreateResult,
   type NodeArchiveExtractResult,
   type NodeFileReadResult,
   type NodeFsLsResult,
+  type NodeLaunchResult,
   type NodeLogReadResult,
   type NodeManifestEntryWire,
   type NodePaneCursorResult,
   type NodePaneSizeResult,
   type NodePathExistsResult,
+  type NodePreviewCloseResult,
+  type NodePreviewOpenResult,
+  type NodePreviewPortsResult,
+  type NodePreviewPortWire,
+  type NodePreviewScreenLost,
+  type NodePreviewScreenWire,
   type NodeProbeEntry,
   type NodePromptDeliverResult,
   type NodeStatDirResult,
   type NodeTreeManifestPage,
   type NodeWriteFileResult,
+  type PreviewDisplayReadiness,
   parseNodeAgentLogSlice,
   parseNodeArchiveCreateResult,
   parseNodeArchiveExtractResult,
@@ -157,10 +180,14 @@ export {
   parseNodeDetectResults,
   parseNodeFileReadResult,
   parseNodeFsLsResult,
+  parseNodeLaunchResult,
   parseNodeLogReadResult,
   parseNodePaneCursorResult,
   parseNodePaneSizeResult,
   parseNodePathExistsResult,
+  parseNodePreviewCloseResult,
+  parseNodePreviewOpenResult,
+  parseNodePreviewPortsResult,
   parseNodeProbeEntries,
   parseNodePromptDeliver,
   parseNodeSshAgentIdentities,
@@ -174,6 +201,7 @@ export {
   parseNodeStatDirResult,
   parseNodeTreeManifestPage,
   parseNodeWriteFileResult,
+  parsePreviewDisplayReadiness,
 } from "./node-results.js";
 export {
   type CommandClaims,
@@ -241,6 +269,12 @@ export {
   presetLaunchRequirementsMet,
 } from "./preset-prompt.js";
 export {
+  PREVIEW_IMAGE_MAX_DIMENSION,
+  PREVIEW_IMAGE_MAX_PIXELS,
+  previewDimensionsAllowed,
+  previewImageSizeAllowed,
+} from "./preview-image.js";
+export {
   DEFAULT_RELEASE_API,
   hostReleaseTarget,
   newestRelease,
@@ -258,6 +292,7 @@ export {
   releaseAssetNames,
   SUBSHELL_REPO_SLUG,
 } from "./releases.js";
+export { normalizeServiceHost, type ServiceTarget, serviceAuthority } from "./service-target.js";
 export {
   DEFAULT_GRID,
   DEFAULT_SIZING,
@@ -336,6 +371,23 @@ export {
   type SshKeyBridgeResult,
 } from "./ssh-key-bridge.js";
 export {
+  PREVIEW_FORWARD_SESSIONS_PER_PANE,
+  PREVIEW_FPS_GRAMMAR_MAX,
+  PREVIEW_FRAME_MAX_BYTES,
+  PREVIEW_IDLE_MS,
+  PREVIEW_LANE_BUFFER_MAX_BYTES,
+  PREVIEW_LANE_QUEUE_MAX,
+  PREVIEW_LIFETIME_MAX_MS,
+  PREVIEW_LIFETIME_MIN_MS,
+  PREVIEW_REF_RE,
+  PREVIEW_SESSIONS_PER_NODE,
+  PREVIEW_STREAM_DEBT_MAX,
+  PREVIEW_WATCH_FPS_DEFAULT,
+  PREVIEW_WATCH_FPS_MAX,
+  PREVIEW_WATCH_FPS_MIN,
+  PREVIEW_WATCH_FRAMES_BUFFERED,
+  PREVIEW_WATCH_JPEG_QUALITY,
+  PREVIEW_WATCH_SUBSCRIBERS_MAX,
   SSH_CONFIG_FILE_MAX_BYTES,
   SSH_EXEC_COMMAND_MAX_CHARS,
   SSH_EXEC_MAX_PRESET_FLAGS,
@@ -397,3 +449,9 @@ export type {
 } from "./ssh-results.js";
 export { MAX_UPLOAD_BYTES } from "./uploads.js";
 export { MIN_NODE_VERSION, nodeVersionSupported, semverLt } from "./versions.js";
+export {
+  parseWorkspacePreviewId,
+  type WorkspacePreviewTarget,
+  workspacePreviewId,
+  workspacePreviewLabel,
+} from "./workspace-preview.js";

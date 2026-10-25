@@ -32,6 +32,7 @@ import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch, nodeCanLaunchOn } f
 import { presetAccess, presetOwnerName, withPresetAccess } from "@/lib/preset-access.js";
 import { duplicatePresetName } from "@/lib/preset-name-error.js";
 import { apiModels } from "@/schema/index.js";
+import { VirtualDisplayRequestSchema } from "@/schema/virtual-display.js";
 import { PORTABLE_MCP_LAUNCH, PORTABLE_REPORTER } from "@/services/mcp-resolve.js";
 import { presetShares } from "@/services/preset-sharing.service.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
@@ -184,6 +185,7 @@ const CreatePresetBodySchema = t.Object({
   flags: t.Optional(t.Array(t.String(), { description: "Extra CLI flags" })),
   settings: t.Optional(t.Record(t.String(), t.Any(), { description: "Settings JSON object" })),
   configIsolation: t.Optional(t.Boolean({ description: "Config source isolation" })),
+  screen: t.Optional(t.Nullable(VirtualDisplayRequestSchema)),
   restartOnExit: t.Optional(t.Boolean({ description: "New subshells auto-restart on exit" })),
   crossCommNotes: t.Optional(
     t.Nullable(
@@ -225,6 +227,7 @@ const UpdatePresetBodySchema = t.Object(
     flags: t.Optional(t.Array(t.String(), { description: "Extra CLI flags" })),
     settings: t.Optional(t.Record(t.String(), t.Any(), { description: "Settings JSON object" })),
     configIsolation: t.Optional(t.Boolean({ description: "Config source isolation" })),
+    screen: t.Optional(t.Nullable(VirtualDisplayRequestSchema)),
     restartOnExit: t.Optional(t.Boolean({ description: "New subshells auto-restart on exit" })),
     crossCommNotes: t.Optional(
       t.Nullable(
@@ -257,6 +260,7 @@ const UPDATE_PRESET_KEYS = new Set([
   "settings",
   "configIsolation",
   "restartOnExit",
+  "screen",
   "crossCommEnabled",
   "crossCommNotes",
   "nodeId",
@@ -383,6 +387,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
             settingsJson: body.settings ? JSON.stringify(body.settings) : null,
             configIsolation: body.configIsolation ? 1 : 0,
             restartOnExit: body.restartOnExit ? 1 : 0,
+            screenConfig: body.screen ? JSON.stringify(body.screen) : null,
             crossCommEnabled: body.crossCommEnabled ? 1 : 0,
             crossCommNotes: body.crossCommNotes ?? null,
             ...launch,
@@ -599,6 +604,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
           configIsolation:
             body.configIsolation !== undefined ? (body.configIsolation ? 1 : 0) : existing.configIsolation,
           restartOnExit: body.restartOnExit !== undefined ? (body.restartOnExit ? 1 : 0) : existing.restartOnExit,
+          ...(body.screen !== undefined ? { screenConfig: body.screen ? JSON.stringify(body.screen) : null } : {}),
           crossCommEnabled,
           ...(body.crossCommNotes !== undefined ? { crossCommNotes: body.crossCommNotes } : {}),
           // The launch fields merge by KEY PRESENCE (explicit null clears),

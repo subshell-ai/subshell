@@ -1,4 +1,5 @@
 import type { Node } from "@internal/node-admin";
+import { parseStoredVirtualDisplayRequest } from "@internal/subshell-protocol";
 import { useEffect, useMemo, useRef } from "react";
 import {
   emptyNewSubshellForm,
@@ -7,7 +8,7 @@ import {
 } from "@/components/subshell-picker/launch-form-rules";
 import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
 import type { RecentPathsResponse } from "@/hooks/use-recent-paths";
-import { isUntouchedForm, type LaunchTemplate, launchTemplateFromList } from "@/lib/launch-defaults";
+import { isUntouchedForm, launchTemplateFromList } from "@/lib/launch-defaults";
 import { wireToPresetBlocks } from "@/lib/prompt-stack";
 import { buildAgentOptions, defaultAgentId } from "@/lib/subshell-compat";
 import type { PresetRow } from "@/types/preset";
@@ -38,6 +39,8 @@ export interface LaunchFormDefaults {
   subshellsPending: boolean;
   /** The setup assistant's first launch: hides the Preset row, so the copy tier stands down */
   firstRun: boolean;
+  /** Readiness belongs to this exact node/provider pair, never a prior render. */
+  displayCheck: { nodeId: string; provider?: string; reason?: string; unavailable: boolean };
 }
 
 /**
@@ -58,6 +61,9 @@ export interface LaunchFormActions {
 export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActions {
   const { value, onChange, nodes, nodesPending, plugins, presetRows, recent, subshells, subshellsPending, firstRun } =
     args;
+  const { displayCheck } = args;
+  const displayReviewNodeRef = useRef<string | null>(null);
+  const agentDefaultBlockedRef = useRef(false);
 
   // The full default launch reads the newest prior subshell — data the ONE
   // live-fed list already holds, so no new request. ONE selector with the
@@ -65,10 +71,8 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
   // disagree about which row is "recent". Memoized on the list: a fresh
   // object per render would re-trigger the effect that depends on it.
   const recentTemplate = useMemo(() => launchTemplateFromList(subshells), [subshells]);
-  // Armed once (like every pre-fill here) and consumed by the agent tier
-  // below. Held in a ref, not state: it is a scheduled correction inside the
-  // ONE effect, and a render that showed it would be a second UI for it.
-  const pendingTemplateRef = useRef<LaunchTemplate | null>(null);
+  // Apply the previous node and directory only once per fresh form.
+  const priorLaunchAppliedRef = useRef(false);
 
   const prefillDoneRef = useRef(false);
   // The node the CURRENT `workingDir` was chosen against. A directory is a
@@ -86,7 +90,7 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
   const dirNodeRef = useRef(value.nodeId);
 
   // ONE effect for all automatic corrections (prior-launch node+dir → node
-  // re-home → working-dir pre-fill → agent+preset default): composing the
+  // re-home → working-dir pre-fill → agent default): composing the
   // final value once makes the old cross-effect clobbering impossible. Runs
   // only after the node list actually loads; while it loads the default
   // "local" stands (the server accepts it).
@@ -104,21 +108,19 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
     // and only while the form still holds the untouched baseline. Everything
     // that makes a form touched — a Split `initialForm`, a caller seed,
     // pre-settle typing — disqualifies this tier, never the picker. The agent
-    // and its preset ride the settled tier below, on this same pass. The
+    // rides the settled tier below, on this same pass. The
     // gate waits on the node list like everything else here: arming a node
     // the settled pick then re-homes away from is the ordering this effect's
     // comments exist to keep impossible.
     if (
-      pendingTemplateRef.current === null &&
+      !priorLaunchAppliedRef.current &&
       recentTemplate !== null &&
       nodes !== null &&
-      // First run asks nothing it cannot show: the row it would fill a preset
-      // into is hidden there, and an applied-but-invisible preset is a worse
-      // launch than a cold one.
+      // First-run setup uses its own starting values.
       !firstRun &&
       isUntouchedForm(next, emptyNewSubshellForm())
     ) {
-      pendingTemplateRef.current = recentTemplate;
+      priorLaunchAppliedRef.current = true;
       const t = recentTemplate;
       next = { ...next, nodeId: t.nodeId, workingDir: t.workingDir };
       // The copied pair belongs together: `dirNodeRef` records the machine
@@ -143,6 +145,8 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
     // above): drop the carried-over path and re-arm the seed, so the new
     // machine's own most-recent-else-home fills when its query answers.
     if (next.nodeId !== dirNodeRef.current) {
+      displayReviewNodeRef.current = next.virtualDisplay ? next.nodeId : null;
+      next = { ...next, harnessResetReason: undefined, displayResetReason: undefined };
       dirNodeRef.current = next.nodeId;
       if (next.workingDir !== "") next = { ...next, workingDir: "" };
       prefillDoneRef.current = false;
@@ -178,6 +182,45 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
         if (fallback && next.workingDir === "") next = { ...next, workingDir: fallback };
       }
     }
+    const heldNode = nodes?.find((n) => n.id === next.nodeId) ?? null;
+    if (next.harnessId && heldNode && plugins !== undefined) {
+      const option = buildAgentOptions(plugins, heldNode).find((o) => o.value === next.harnessId);
+      if (!option || option.disabled) {
+        // Replacing an agent also changes which program receives the prompt.
+        // Leave that decision to the user instead of silently picking another.
+        const name = plugins.find((p) => p.id === next.harnessId)?.name ?? "The selected agent";
+        agentDefaultBlockedRef.current = true;
+        next = {
+          ...next,
+          harnessId: "",
+          presetId: null,
+          harnessResetReason: `${name} can't run on ${heldNode.name}. Choose another agent.`,
+        };
+      }
+    }
+    if (!next.virtualDisplay) displayReviewNodeRef.current = null;
+    const currentDisplayCheck = displayCheck.nodeId === next.nodeId && displayCheck.provider === next.displayProvider;
+    if (displayReviewNodeRef.current === next.nodeId && currentDisplayCheck) {
+      if (displayCheck.unavailable) {
+        displayReviewNodeRef.current = null;
+        next = {
+          ...next,
+          virtualDisplay: false,
+          displayProvider: undefined,
+          displaySize: undefined,
+          displayResetReason: `Virtual display was turned off. ${displayCheck.reason}`,
+        };
+      } else if (!displayCheck.reason) {
+        displayReviewNodeRef.current = null;
+      }
+    }
+    const displayUnavailable = next.virtualDisplay
+      ? currentDisplayCheck
+        ? displayCheck.reason
+        : "Checking virtual display requirements…"
+      : undefined;
+    if (next.displayUnavailable !== displayUnavailable) next = { ...next, displayUnavailable };
+
     // Default agent, when the user has not chosen one. Reads the same disabled
     // set the dropdown renders — computed against the row this pass holds, so
     // even a same-pass re-home cannot select an agent the server would refuse.
@@ -191,6 +234,7 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
     // not answered, and the fill stays armed for a later success, the same
     // gate-the-answered-not-the-value rule as the pre-fill above.
     if (
+      !agentDefaultBlockedRef.current &&
       next.harnessId === "" &&
       plugins !== undefined &&
       nodes !== null &&
@@ -200,18 +244,8 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
       const heldNode = nodes.find((n) => n.id === next.nodeId) ?? null;
       const dflt = defaultAgentId(buildAgentOptions(plugins, heldNode), plugins, recentTemplate?.harnessId ?? null);
       if (dflt !== null) next = { ...next, harnessId: dflt };
-      // Consume the armed template either way — one-shot like the tier it
-      // rides beside. Its preset follows only when ITS agent survived the
-      // usability check; a prior launch under an agent this node cannot run
-      // keeps the agent fallback and loses the preset, which is the honest
-      // pair. (The membership guard below re-checks every pass regardless.)
-      const t = pendingTemplateRef.current;
-      if (t !== null) {
-        pendingTemplateRef.current = null;
-        if (dflt !== null && dflt === t.harnessId && t.presetId !== null) {
-          next = { ...next, presetId: t.presetId };
-        }
-      }
+      // Presets are copied only through an explicit selection. Reapplying
+      // the last subshell's preset would undo Cancel's fresh-form reset.
     }
     // The one guard: a preset belongs to exactly one agent. (Agent changes
     // reset the preset at the control; this catches a row that vanished from
@@ -228,6 +262,7 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
     // pending→ERROR transition changes no data value, and without the flag
     // this effect would never re-run to see that the gate stayed shut.
   }, [
+    displayCheck,
     recent,
     nodes,
     nodesPending,
@@ -254,7 +289,8 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
   // a preset filled: the person still sees what they are about to launch
   // with.
   function applyPreset(preset: PresetRow | null): void {
-    pendingTemplateRef.current = null;
+    priorLaunchAppliedRef.current = true;
+    displayReviewNodeRef.current = null;
     if (preset === null) {
       onChange({ ...value, presetId: null });
       return;
@@ -262,6 +298,14 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
     let next: NewSubshellFormValue = { ...emptyNewSubshellForm(), presetId: preset.id, harnessId: preset.harnessId };
     if (preset.nodeId !== null) next = { ...next, nodeId: preset.nodeId };
     if (preset.workingDir !== null) next = { ...next, workingDir: preset.workingDir };
+    const display = preset.screenConfig ? parseStoredVirtualDisplayRequest(preset.screenConfig) : null;
+    if (display)
+      next = {
+        ...next,
+        virtualDisplay: true,
+        displayProvider: display.provider,
+        displaySize: { width: display.width, height: display.height },
+      };
     const blocks = wireToPresetBlocks(preset.promptBlocks);
     if (blocks.length > 0) next = { ...next, promptBlocks: blocks };
     // The pair rule (2026-09-20): a directory is a claim about ONE machine,

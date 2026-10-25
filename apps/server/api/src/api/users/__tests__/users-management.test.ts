@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import type { NodeCommandBody } from "@internal/subshell-protocol";
 import { hashPassword, verifyPassword } from "better-auth/crypto";
 import { sql } from "kysely";
 import { authRateLimitRoutes } from "@/api/auth-rate-limit.route.js";
@@ -18,6 +19,7 @@ import {
   OWNER_DISABLED_CLOSE_CODE,
   resetNodeRegistryForTests,
 } from "@/services/nodes/node-registry.js";
+import { getPreviewBroker, resetForTests as resetPreviewBrokerForTests } from "@/services/preview-broker.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { registerLiveSocket, resetLiveRegistryForTests } from "@/ws/live-registry.js";
 import { registerViewer, resetLiveViewersForTests, type WsSocket } from "@/ws/viewers.js";
@@ -178,6 +180,43 @@ describe("admin user management", () => {
       expect(closes).toHaveLength(1);
       expect(closes[0]).toBeLessThan(4000);
       resetLiveRegistryForTests();
+    });
+
+    it("closes that user's live preview sessions revoked", async () => {
+      // The cut this route owes the preview broker is a different object from
+      // the socket drop above: a preview session is plane-side broker state
+      // (lanes, watch counts, stream attaches) that closing a /ws/live socket
+      // does not touch. Without `closeAllForUser`, a demoted account's open
+      // forward lane keeps proxying bytes to its target port until the
+      // 15-minute idle sweep finds it. The mechanism is tested in the broker
+      // suite; this pins that the ROUTE performs the cut (spec 2026-10-21 §7).
+      const sent: NodeCommandBody[] = [];
+      resetPreviewBrokerForTests({
+        send: async (_nodeId, cmd) => {
+          sent.push(cmd);
+          if (cmd.type === "preview_ports_get") return { ports: [], cdpPort: null, screen: null };
+          if (cmd.type === "preview_open") return { ref: cmd.ref, pending: true };
+          if (cmd.type === "preview_close") return { ref: cmd.ref, closed: true };
+          throw new Error(`unexpected command ${cmd.type}`);
+        },
+      });
+      try {
+        const { ref } = await getPreviewBroker().openForward({
+          viewerUserId: admin2Id,
+          paneId: memberSubshellId,
+          nodeId: "n-preview",
+          port: 3000,
+        });
+        // A lane, because the lane is the NODE-side state: the sweep's wire
+        // frame names it (the session ref was the probe, already closed).
+        await getPreviewBroker().openLaneForConnection(ref);
+        const res = await req("PATCH", `/${admin2Id}/role`, adminCookie, { role: "user" });
+        expect(res.status).toBe(200);
+        expect(getPreviewBroker().sessionFor(ref)).toBeNull();
+        expect(sent.some((c) => c.type === "preview_close" && c.reason === "revoked")).toBe(true);
+      } finally {
+        resetPreviewBrokerForTests();
+      }
     });
 
     it("promotes a member to admin", async () => {
@@ -442,6 +481,39 @@ describe("admin user management", () => {
       // this drop plus that gate is the whole closure.
       expect(closes[0]).toBeLessThan(4000);
       resetLiveRegistryForTests();
+    });
+
+    it("closes the disabled user's live preview sessions revoked", async () => {
+      // The stronger act's twin of the demotion cut: spec 2026-10-21 §7's
+      // "disable closes live sessions revoked" is a promise about THIS route,
+      // and a preview session is not a socket. Opened through the real
+      // broker with a faked command sender, the forward session must be gone
+      // and its node lanes closed named `revoked` when the write lands.
+      const sent: NodeCommandBody[] = [];
+      resetPreviewBrokerForTests({
+        send: async (_nodeId, cmd) => {
+          sent.push(cmd);
+          if (cmd.type === "preview_ports_get") return { ports: [], cdpPort: null, screen: null };
+          if (cmd.type === "preview_open") return { ref: cmd.ref, pending: true };
+          if (cmd.type === "preview_close") return { ref: cmd.ref, closed: true };
+          throw new Error(`unexpected command ${cmd.type}`);
+        },
+      });
+      try {
+        const { ref } = await getPreviewBroker().openForward({
+          viewerUserId: memberId,
+          paneId: memberSubshellId,
+          nodeId: "n-preview",
+          port: 3000,
+        });
+        await getPreviewBroker().openLaneForConnection(ref);
+        const res = await req("PATCH", `/${memberId}/disabled`, adminCookie, { disabled: true });
+        expect(res.status).toBe(200);
+        expect(getPreviewBroker().sessionFor(ref)).toBeNull();
+        expect(sent.some((c) => c.type === "preview_close" && c.reason === "revoked")).toBe(true);
+      } finally {
+        resetPreviewBrokerForTests();
+      }
     });
 
     /**

@@ -14,9 +14,13 @@ import { DIR_REFUSED_MESSAGE, launchDirAllowed, readAllowedDirs } from "../allow
 import { log } from "../log.js";
 import { readMaintenance, reportableMaintenance } from "../maintenance.js";
 import { pathAllowed, realpathRoots } from "../path-policy.js";
+import { PREVIEW_DISPLAY_UNSUPPORTED } from "../preview/display.js";
+import { getVirtualDisplayEnabled } from "../preview/flags.js";
+import type { PreviewScreenHandle } from "../preview/ports.js";
 import { selfInvocation } from "../self-invoke.js";
 import { isSubshellId } from "../subshell-meta.js";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
+import { PREVIEW_NODE_OFF } from "./preview-ports-exec.js";
 import { reportMaintenance, startExitWatcher } from "./report.js";
 import { gateOpen, SSH_GATE_REFUSAL } from "./ssh-shared.js";
 
@@ -185,6 +189,25 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
     await enforceMode(derivedPath, 0o600); // umask cannot leak bits past this
   }
 
+  // (3c) Virtual display gate (pane-preview spec §5, Task 7). A `screen`
+  // launch is refused BEFORE the meta record and before anything spawns, in
+  // the same order the allocation itself runs: platform first (a machine
+  // without an X stack says so by name), then the mirror (switch off refuses
+  // with the one voice every preview entry point uses, the constant pinned
+  // in preview-ports-exec.ts), then the loud refusal a context without the
+  // display registry earns - silently dropping the screen the plane asked
+  // for would be the bug here, not an error message. openFor checks the same
+  // gates again for its own sake; this block is the launch-side "refuse
+  // before the record", which is the half reviewers flagged.
+  if (cmd.screen) {
+    if (ctx.previewDisplays && !(await ctx.previewDisplays.readiness(cmd.screen.provider)).supported)
+      return { ok: false, error: PREVIEW_DISPLAY_UNSUPPORTED };
+    if (!getVirtualDisplayEnabled(ctx.config.dataDir)) return { ok: false, error: PREVIEW_NODE_OFF };
+    if (!ctx.previewDisplays) {
+      return { ok: false, error: "preview display registry unavailable in this daemon context" };
+    }
+  }
+
   // (4) Record meta FIRST: path policy + socket lookup must see the cwd even
   // while later steps are in flight (and the rollback below has something to
   // roll back). `record` creates <dataDir>/subshells with 0700.
@@ -205,8 +228,20 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
   // same field names, the frame validator already ran — so the cast is the
   // intended decode, exactly where the brief pins it.
   const preset = cmd.preset as unknown as PresetDefinition;
+  let screenHandle: PreviewScreenHandle | undefined;
   try {
-    const paneCmd = assembleHarnessCommand(argv, preset, cmd.subshellEnv, mcpPaneEnv);
+    // (5a) Allocate the pane's display BEFORE assembling (spec §5, Task 7):
+    // the refusal must fail the launch with its named reason before tmux is
+    // asked for a pane, and the allocated numbers are what the env layer
+    // below carries. The handle is echoed in the launch result (Task 1's
+    // `screen` echo) so the plane learns the display without a re-read.
+    if (cmd.screen && ctx.previewDisplays) {
+      screenHandle = await ctx.previewDisplays.openFor(cmd.subshellId, cmd.screen);
+    }
+    // Provider-owned launch settings stay on the node; only the public screen
+    // descriptor is returned in the acknowledgement.
+    const displayEnv = screenHandle ? ctx.previewDisplays?.launchEnv(cmd.subshellId) : undefined;
+    const paneCmd = assembleHarnessCommand(argv, preset, cmd.subshellEnv, mcpPaneEnv, displayEnv);
     // The pane reports its OWN death to the control plane, through the same
     // builder the plane's local launcher uses (spec 2026-09-19 §4.3). It needs
     // no frame and no protocol bump: the pane already holds the plane's
@@ -220,10 +255,17 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
     // The SAME layers the pane command is assembled from — including the
     // preset's, which this used to omit while the plane omitted the MCP
     // wiring too. Two partial slices of one precedence chain is how a report
-    // ends up aimed at a different plane from the pane that sent it.
-    const exitHook = exitHookFor(selfInvocation("report"), paneEnvFor(cmd.subshellEnv, preset, mcpPaneEnv));
+    // ends up aimed at a different plane from the pane that sent it. The
+    // display layer rides this map too: the hook string itself keeps only the
+    // credential keys, but one map for both consumers is the agreement, so
+    // the report is built from the same env the pane got.
+    const exitHook = exitHookFor(selfInvocation("report"), paneEnvFor(cmd.subshellEnv, preset, mcpPaneEnv, displayEnv));
     ctx.tmux.newSubshell(cmd.socket, cmd.subshellId, cmd.cwd, paneCmd, exitHook);
   } catch (err) {
+    // Roll back in the order things were created: a display this launch
+    // opened but never got a pane for is closed FIRST (its pids are ours),
+    // then the meta record goes as it always has.
+    if (screenHandle) await ctx.previewDisplays?.closeFor(cmd.subshellId);
     await ctx.meta.forget(cmd.subshellId); // nothing spawned — no orphan root for the policy
     throw err; // dispatcher answers {ok:false}; mirrors LocalLauncher's throw path
   }
@@ -276,5 +318,9 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
   // relaunch having re-asserted its meta by the time a stale tick could
   // forget it. Do not sink startExitWatcher below a meta gap.
   startExitWatcher(ctx, cmd.subshellId, cmd.socket);
-  return { ok: true };
+  // The `screen` echo (Task 1's launch-result member): a screen pane's
+  // answer carries the allocated pair so the plane can open its Screen
+  // affordance without a `preview_ports_get` round trip; a plain launch
+  // answers exactly `{ ok: true }`, as it always did.
+  return screenHandle ? { ok: true, data: { screen: screenHandle } } : { ok: true };
 }

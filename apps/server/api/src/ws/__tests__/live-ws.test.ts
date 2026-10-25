@@ -1,4 +1,13 @@
 import { describe, expect, it } from "bun:test";
+import {
+  type NodeCommandBody,
+  type NodeEvent,
+  PREVIEW_STREAM_DEBT_MAX,
+  PREVIEW_WATCH_SUBSCRIBERS_MAX,
+  type PreviewStreamFrame,
+} from "@internal/subshell-protocol";
+import { getPreviewBroker, resetForTests } from "@/services/preview-broker.js";
+import { sendPreviewStreamSocket, sendToSockets } from "@/ws/live-registry.js";
 import { EVERYONE_TOPIC, userTopic } from "@/ws/live-topics.js";
 import {
   handleLiveClose,
@@ -20,14 +29,19 @@ import {
  * the socket, which is how the first version of this endpoint leaked an
  * interval per closed socket while its test stayed green.
  */
-function fakeSocket(query: Record<string, string> = {}) {
+function fakeSocket(query: Record<string, string> = {}, raw: unknown = { getBufferedAmount: () => 0 }) {
   const sent: string[] = [];
   const closed: { code?: number; reason?: string }[] = [];
   const subscribed: string[] = [];
   const data: LiveWsSocket["data"] = { query };
   let readyState = 1; // OPEN
+  // `raw` is the SAME instance in both wrappers, as in production: the socket
+  // the watch adapter hands the broker reads its byte debt through it, so a
+  // double that fakes the raw socket per-wrapper would miss exactly the
+  // property the adapter exists to carry.
   const wrapper = (): LiveWsSocket => ({
     data,
+    raw,
     get readyState() {
       return readyState;
     },
@@ -68,6 +82,10 @@ function deps(over: Partial<LiveWsDeps> = {}): LiveWsDeps {
     // factory hands out. Individual cases flip it.
     accountDisabled: async () => false,
     passwordChangeRequired: async () => false,
+    // The `watch` gate asks one question; the healthy answer by default is
+    // this socket's owner watching their own pane. Rows that probe the gate
+    // flip it (a `view` grant, a foreign `none`).
+    accessFor: async () => "owner",
     ...over,
   };
 }
@@ -369,5 +387,345 @@ describe("/ws/live bounded work and resync", () => {
     release();
     await pending;
     expect(frames().filter((f) => f.type === "preview")).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* watch/unwatch: the screencast fan-out wired through the broker      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Rebuilds the broker over fake node seams with the REAL fan-out sender
+ * installed (`sendPreviewStreamSocket`, the very function `live-ws.ts` wires
+ * at module init). Passing the seam explicitly keeps every row below
+ * deterministic no matter which sender won the process-global boot slot in
+ * a serial run: what these rows exercise is the real broker mechanics and
+ * the real serialization, driven through the real handler.
+ */
+function fakePreviewNode(accessFor?: LiveWsDeps["accessFor"]): { commands: NodeCommandBody[] } {
+  const commands: NodeCommandBody[] = [];
+  resetForTests({
+    send: async (_nodeId: string, cmd: NodeCommandBody): Promise<unknown> => {
+      commands.push(cmd);
+      if (cmd.type === "preview_open") return { ref: cmd.ref, subscribers: 1 };
+      if (cmd.type === "preview_close") return { ref: cmd.ref, closed: true };
+      return {};
+    },
+    sendToSockets: sendPreviewStreamSocket,
+    accessFor,
+  });
+  return { commands };
+}
+
+/** The pane's live screencast bridge, built the way the REST watch path builds it. */
+async function openBridge(paneId: string, nodeId = "n-fake"): Promise<string> {
+  const broker = getPreviewBroker();
+  await broker.startWatch({ viewerUserId: "u1", paneId, nodeId, port: 9222 });
+  const ref = broker.sessionForPane(paneId)?.ref;
+  if (!ref) throw new Error(`bridge for ${paneId} did not stand`);
+  return ref;
+}
+
+function streamEvent(ref: string, seq: number): Extract<NodeEvent, { type: "preview_stream" }> {
+  return { type: "preview_stream", ref, seq, w: 64, h: 32, ts: 1_780_000_000_000 + seq, blob: `blob-${seq}` };
+}
+
+function streamFrames(sent: string[]): Record<string, unknown>[] {
+  return sent.map((s) => JSON.parse(s) as Record<string, unknown>).filter((f) => f.type === "preview-stream");
+}
+
+describe("/ws/live watch subscriptions", () => {
+  it("refuses a disabled account before its live socket has been closed", async () => {
+    fakePreviewNode();
+    const ref = await openBridge("p-1");
+    let disabled = false;
+    const d = deps({ accountDisabled: async () => disabled });
+    const { ws, closeWs, sent } = fakeSocket({ token: "good" });
+    await handleLiveOpen(ws, d);
+    disabled = true;
+    await handleLiveMessage(ws, JSON.stringify({ type: "watch", id: "p-1" }), d);
+    getPreviewBroker().onStreamEvent("n-fake", streamEvent(ref, 1));
+    try {
+      expect(streamFrames(sent)).toEqual([]);
+    } finally {
+      handleLiveClose(closeWs);
+    }
+  });
+
+  it("stops retrying when revocation repeatedly overtakes the access check", async () => {
+    fakePreviewNode();
+    const ref = await openBridge("p-1");
+    let asked = 0;
+    const d = deps({
+      accessFor: async () => {
+        asked++;
+        await getPreviewBroker().closeUnauthorizedForPane("another-pane");
+        return "view";
+      },
+    });
+    const { ws, closeWs, sent } = fakeSocket({ token: "good" });
+    await handleLiveOpen(ws, d);
+    await handleLiveMessage(ws, JSON.stringify({ type: "watch", id: "p-1" }), d);
+    getPreviewBroker().onStreamEvent("n-fake", streamEvent(ref, 1));
+    try {
+      expect(streamFrames(sent)).toEqual([]);
+      expect(asked).toBe(3);
+    } finally {
+      handleLiveClose(closeWs);
+    }
+  });
+
+  for (const cut of ["share", "user"] as const) {
+    it(`rechecks a pending stream subscription after ${cut} revocation`, async () => {
+      let allowed = true;
+      fakePreviewNode(async (userId) => (userId === "u1" && !allowed ? "none" : "owner"));
+      const ref = await openBridge("p-1");
+      let release = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let entered = () => {};
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let asked = 0;
+      const d = deps({
+        accessFor: async () => {
+          asked++;
+          const answer = allowed ? "view" : "none";
+          if (asked === 1) {
+            entered();
+            await gate;
+          }
+          return answer;
+        },
+      });
+      const { ws, closeWs, sent } = fakeSocket({ token: "good" });
+      await handleLiveOpen(ws, d);
+      const pending = handleLiveMessage(ws, JSON.stringify({ type: "watch", id: "p-1" }), d);
+      await started;
+      allowed = false;
+      if (cut === "share") await getPreviewBroker().closeUnauthorizedForPane("p-1");
+      else await getPreviewBroker().closeAllForUser("u1", "revoked");
+      release();
+      await pending;
+      getPreviewBroker().onStreamEvent("n-fake", streamEvent(ref, 1));
+      try {
+        expect(streamFrames(sent)).toEqual([]);
+        expect(asked).toBe(2);
+      } finally {
+        handleLiveClose(closeWs);
+      }
+    });
+  }
+
+  it("a watch from a view grant attaches the socket; frames arrive with the blob untouched, and only there", async () => {
+    fakePreviewNode();
+    const ref = await openBridge("p-1");
+    // Two sockets of the SAME holder (both redeem to u1): only the first
+    // sends `watch`, so only the first may receive.
+    const watcher = fakeSocket({ token: "good" });
+    const sibling = fakeSocket({ token: "good" });
+    const d = deps({ accessFor: async () => "view" });
+    await handleLiveOpen(watcher.ws, d);
+    await handleLiveOpen(sibling.ws, d);
+    await handleLiveMessage(watcher.ws, JSON.stringify({ type: "watch", id: "p-1" }), d);
+
+    getPreviewBroker().onStreamEvent("n-fake", streamEvent(ref, 1));
+
+    expect(streamFrames(watcher.sent)).toEqual([
+      { type: "preview-stream", id: "p-1", seq: 1, w: 64, h: 32, blob: "blob-1" },
+    ]);
+    expect(streamFrames(sibling.sent)).toEqual([]);
+    handleLiveClose(watcher.closeWs);
+    handleLiveClose(sibling.closeWs);
+  });
+
+  it("a watch the access check fails attaches nothing and never closes the socket", async () => {
+    fakePreviewNode();
+    const ref = await openBridge("p-foreign");
+    const asked: string[] = [];
+    const d = deps({
+      accessFor: async (_u, paneId) => {
+        asked.push(paneId);
+        return "none";
+      },
+    });
+    const { ws, closeWs, sent, closed } = fakeSocket({ token: "good" });
+    await handleLiveOpen(ws, d);
+    // Spy straight at the broker: the check must be the last thing standing
+    // between a stranger and the stream set.
+    const broker = getPreviewBroker();
+    const realAttach = broker.attachStream;
+    const attached: string[] = [];
+    broker.attachStream = (paneId, socketKey, holderUserId, socket) => {
+      attached.push(paneId);
+      return realAttach(paneId, socketKey, holderUserId, socket);
+    };
+
+    await handleLiveMessage(ws, JSON.stringify({ type: "watch", id: "p-foreign" }), d);
+    getPreviewBroker().onStreamEvent("n-fake", streamEvent(ref, 1));
+
+    expect(asked).toEqual(["p-foreign"]); // the gate was asked
+    expect(attached).toEqual([]); // and refused: nothing reached the broker
+    expect(streamFrames(sent)).toEqual([]);
+    expect(closed).toEqual([]); // invisible reads as silence, never as a refusal
+    handleLiveClose(closeWs);
+  });
+
+  it("unwatch stops delivery and leaves the socket open", async () => {
+    fakePreviewNode();
+    const ref = await openBridge("p-1");
+    const d = deps();
+    const { ws, closeWs, sent, closed } = fakeSocket({ token: "good" });
+    await handleLiveOpen(ws, d);
+    await handleLiveMessage(ws, JSON.stringify({ type: "watch", id: "p-1" }), d);
+    getPreviewBroker().onStreamEvent("n-fake", streamEvent(ref, 1));
+    expect(streamFrames(sent)).toHaveLength(1);
+
+    await handleLiveMessage(ws, JSON.stringify({ type: "unwatch", id: "p-1" }), d);
+    getPreviewBroker().onStreamEvent("n-fake", streamEvent(ref, 2));
+
+    expect(streamFrames(sent)).toHaveLength(1); // seq 2 never arrived
+    expect(closed).toEqual([]);
+    handleLiveClose(closeWs);
+  });
+
+  /**
+   * THE swapped-wrapper pin. Elysia hands `close` a fresh `ElysiaWS` that
+   * shares `data` with the one `open` got (the file-header measurement), so
+   * a stream registry keyed by the SOCKET OBJECT would find nothing here and
+   * leak the entry for the pane's life. This double builds a fresh wrapper
+   * per call exactly like the adapter does: closing through `closeWs` (never
+   * the `ws` that attached) must still detach.
+   */
+  it("closing through the swapped wrapper detaches every pane; the holder's other socket is unaffected", async () => {
+    fakePreviewNode();
+    const refA = await openBridge("p-a");
+    const refB = await openBridge("p-b");
+    const d = deps();
+    const a = fakeSocket({ token: "good" });
+    const b = fakeSocket({ token: "good" });
+    await handleLiveOpen(a.ws, d);
+    await handleLiveOpen(b.ws, d);
+    for (const pane of ["p-a", "p-b"]) {
+      await handleLiveMessage(a.ws, JSON.stringify({ type: "watch", id: pane }), d);
+      await handleLiveMessage(b.ws, JSON.stringify({ type: "watch", id: pane }), d);
+    }
+    getPreviewBroker().onStreamEvent("n-fake", streamEvent(refA, 1));
+    getPreviewBroker().onStreamEvent("n-fake", streamEvent(refB, 1));
+    expect(streamFrames(a.sent)).toHaveLength(2);
+    expect(streamFrames(b.sent)).toHaveLength(2);
+
+    // Close socket a through the wrapper it never attached with.
+    handleLiveClose(a.closeWs);
+
+    getPreviewBroker().onStreamEvent("n-fake", streamEvent(refA, 2));
+    getPreviewBroker().onStreamEvent("n-fake", streamEvent(refB, 2));
+    expect(streamFrames(a.sent)).toHaveLength(2); // both panes detached by one close
+    expect(streamFrames(b.sent)).toHaveLength(4); // sibling untouched, both panes still flowing
+    handleLiveClose(b.closeWs);
+  });
+
+  it("byte debt on one socket detaches THAT socket through the raw-socket adapter; bridge and lane stay untouched", async () => {
+    const node = fakePreviewNode();
+    const ref = await openBridge("p-1");
+    const d = deps();
+    // The lagging socket's raw reports debt above the cap; the handler's
+    // adapter must read the METHOD off `raw` (the wrapper carries neither
+    // property nor method - Task 8's measurement is why this exists at all).
+    const slow = fakeSocket({ token: "good" }, { getBufferedAmount: () => PREVIEW_STREAM_DEBT_MAX + 1 });
+    const fast = fakeSocket({ token: "good" });
+    await handleLiveOpen(slow.ws, d);
+    await handleLiveOpen(fast.ws, d);
+    await handleLiveMessage(slow.ws, JSON.stringify({ type: "watch", id: "p-1" }), d);
+    await handleLiveMessage(fast.ws, JSON.stringify({ type: "watch", id: "p-1" }), d);
+
+    getPreviewBroker().onStreamEvent("n-fake", streamEvent(ref, 1));
+    expect(streamFrames(slow.sent)).toEqual([]); // dropped before its frame was sent
+    expect(streamFrames(fast.sent)).toHaveLength(1);
+
+    getPreviewBroker().onStreamEvent("n-fake", streamEvent(ref, 2));
+    // Still silent. This row cannot tell "detached" from "skipped again"
+    // while the debt stays over cap; the deletion itself is pinned by the
+    // broker's viewer_drop row in preview-broker.test.ts.
+    expect(streamFrames(slow.sent)).toEqual([]);
+    expect(streamFrames(fast.sent)).toHaveLength(2);
+
+    // The drop is viewer-side only: the bridge still stands and the wire saw
+    // no close of anything (spec §9 drops slow viewers, never the bridge).
+    expect(getPreviewBroker().sessionForPane("p-1")).not.toBeNull();
+    expect(node.commands.filter((c) => c.type === "preview_close")).toEqual([]);
+    handleLiveClose(slow.closeWs);
+    handleLiveClose(fast.closeWs);
+  });
+
+  /**
+   * The ninth socket's experience is the dark canvas: the attach cap refuses
+   * with a VALUE plus an audit row (both Task 8's), and this row pins the
+   * handler's half: the refusal is swallowed. Not thrown, not a close, not a
+   * registration.
+   */
+  it("a watch the attach cap refuses leaves the socket open and unregistered", async () => {
+    fakePreviewNode();
+    const ref = await openBridge("p-1");
+    const broker = getPreviewBroker();
+    const quiet: string[] = [];
+    for (let i = 0; i < PREVIEW_WATCH_SUBSCRIBERS_MAX; i += 1) {
+      expect(broker.attachStream("p-1", `fill-${i}`, "u1", { send: (d) => quiet.push(d) })).toEqual({ ok: true });
+    }
+    const d = deps();
+    const { ws, closeWs, sent, closed } = fakeSocket({ token: "good" });
+    await handleLiveOpen(ws, d);
+
+    await expect(handleLiveMessage(ws, JSON.stringify({ type: "watch", id: "p-1" }), d)).resolves.toBeUndefined();
+    getPreviewBroker().onStreamEvent("n-fake", streamEvent(ref, 1));
+
+    expect(streamFrames(sent)).toEqual([]); // unregistered: the pane's frames skip it
+    expect(closed).toEqual([]); // and it stays open on the feed
+    expect(quiet).toHaveLength(PREVIEW_WATCH_SUBSCRIBERS_MAX); // the eight it displaced keep streaming
+    handleLiveClose(closeWs);
+  });
+
+  it("a watch that lands after the socket closed during the access check attaches nothing", async () => {
+    // `liveStop` is the close marker: a close that lands while the gate's
+    // await is in flight must not leave a dead socket in the stream set.
+    fakePreviewNode();
+    const ref = await openBridge("p-1");
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const d = deps({
+      accessFor: async () => {
+        await gate;
+        return "view";
+      },
+    });
+    const { ws, closeWs, sent } = fakeSocket({ token: "good" });
+    await handleLiveOpen(ws, d);
+    const pending = handleLiveMessage(ws, JSON.stringify({ type: "watch", id: "p-1" }), d);
+    handleLiveClose(closeWs);
+    release();
+    await pending;
+
+    getPreviewBroker().onStreamEvent("n-fake", streamEvent(ref, 1));
+    expect(streamFrames(sent)).toEqual([]);
+  });
+});
+
+describe("live-registry preview fan-out primitives", () => {
+  it("one send per socket, JSON-serialized in both shapes", () => {
+    const frame: PreviewStreamFrame = { type: "preview-stream", id: "p", seq: 7, w: 4, h: 2, blob: "zz" };
+    const a: string[] = [];
+    const b: string[] = [];
+    const sa = { send: (d: string) => a.push(d) };
+    const sb = { send: (d: string) => b.push(d) };
+
+    sendPreviewStreamSocket(sa, frame);
+    sendToSockets([sa, sb], frame);
+
+    expect(a).toEqual([JSON.stringify(frame), JSON.stringify(frame)]);
+    expect(b).toEqual([JSON.stringify(frame)]);
   });
 });

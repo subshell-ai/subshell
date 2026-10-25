@@ -66,6 +66,15 @@ async function auditFor(targetId: string): Promise<{ actorUserId: string | null;
 /** Let the void-fired pushes land (the maintenance-apply posture). */
 const settle = () => new Promise((r) => setTimeout(r, 25));
 
+// Signing can take longer than a fixed sleep on a loaded CI worker.
+async function waitForPushes(scripted: ReturnType<typeof attachScriptedNode>, count: number) {
+  const deadline = Date.now() + 2_000;
+  while (scripted.countOf("set_ssh_enabled") < count && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  expect(scripted.countOf("set_ssh_enabled")).toBe(count);
+}
+
 beforeAll(async () => {
   await setupAuthTables();
   ownerId = await mkUser();
@@ -139,7 +148,7 @@ describe("setNodeSshEnabled — write, audit, push, one function", () => {
       const row = await nodes.findById(nodeId);
       expect(row?.sshEnabled).toBe(1);
       expect(row?.sshEnabledAt).toBe(changedAt);
-      await settle();
+      await waitForPushes(scripted, 1);
       // Exactly one audit row — the push adds nothing, and a second writer of
       // this act is precisely what the one-function shape exists to prevent.
       const rows = await auditFor(nodeId);
@@ -162,7 +171,7 @@ describe("setNodeSshEnabled — write, audit, push, one function", () => {
       const row = await nodes.findById(nodeId);
       expect(row?.sshEnabled).toBe(0);
       expect(row?.sshEnabledAt).toBe("2026-10-07T11:00:00.000Z");
-      await settle();
+      await waitForPushes(scripted, 1);
       expect(scripted.cmdsOf("set_ssh_enabled")).toEqual([
         { type: "set_ssh_enabled", on: false, changedAt: "2026-10-07T11:00:00.000Z" },
       ]);
@@ -188,7 +197,7 @@ describe("reconcileSshEnabled — decide, push the row, write nothing", () => {
     const scripted = attachScriptedNode(nodeId, { set_ssh_enabled: ok });
     const changedAt = "2026-10-07T10:00:00.000Z";
     await setNodeSshEnabled({ nodeId, on: true, changedAt, actorUserId: ownerId });
-    await settle();
+    await waitForPushes(scripted, 1);
     try {
       // The `ready` that follows the push carries exactly what was written.
       await reconcileSshEnabled(nodeId, { on: true, changedAt });
@@ -204,12 +213,12 @@ describe("reconcileSshEnabled — decide, push the row, write nothing", () => {
     const scripted = attachScriptedNode(nodeId, { set_ssh_enabled: ok });
     const changedAt = "2026-10-07T10:00:00.000Z";
     await setNodeSshEnabled({ nodeId, on: true, changedAt, actorUserId: ownerId });
-    await settle();
+    await waitForPushes(scripted, 1);
     try {
       // The machine reports REFUSED (its mirror corrupted, say) under an ON
       // row: the answer is the row pushed down — never the report pulled up.
       await reconcileSshEnabled(nodeId, { on: false, changedAt: "2026-10-07T13:00:00.000Z" });
-      await settle();
+      await waitForPushes(scripted, 2);
       const pushes = scripted.cmdsOf("set_ssh_enabled");
       expect(pushes).toHaveLength(2);
       expect(pushes[1]).toEqual({ type: "set_ssh_enabled", on: true, changedAt }); // the row's bytes, stamp included
@@ -224,13 +233,13 @@ describe("reconcileSshEnabled — decide, push the row, write nothing", () => {
     const scripted = attachScriptedNode(nodeId, { set_ssh_enabled: ok });
     const changedAt = "2026-10-07T10:00:00.000Z";
     await setNodeSshEnabled({ nodeId, on: true, changedAt, actorUserId: ownerId });
-    await settle();
+    await waitForPushes(scripted, 1);
     const auditsBefore = (await auditFor(nodeId)).length;
     try {
       // A wiped data dir: no mirror, no stamp to offer, the row's value is
       // re-armed by the push (the maintenance-decide table's same cell).
       await reconcileSshEnabled(nodeId, undefined);
-      await settle();
+      await waitForPushes(scripted, 2);
       expect(scripted.cmdsOf("set_ssh_enabled")).toEqual([
         { type: "set_ssh_enabled", on: true, changedAt },
         { type: "set_ssh_enabled", on: true, changedAt },

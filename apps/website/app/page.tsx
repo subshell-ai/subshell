@@ -1,7 +1,7 @@
 import { Analytics } from "../components/analytics";
-import { DeskShot } from "../components/desk-shot";
 import { FeatureShowcase } from "../components/feature-showcase";
 import { HeroSpread } from "../components/hero-spread";
+import { PreviewShowcase } from "../components/preview-showcase";
 import { SiteFooter } from "../components/site-footer";
 import { SiteHeader } from "../components/site-header";
 import releases from "../data/releases.json";
@@ -12,7 +12,7 @@ export default function Home() {
     <main className="flex min-h-screen flex-col px-[26px] pb-[18px] pt-[26px]">
       <SiteHeader />
       <HeroSpread manifest={releases as ReleasesManifest} />
-      <DeskShot />
+      <PreviewShowcase />
       <FeatureShowcase />
       <div className="mt-3">
         <SiteFooter />

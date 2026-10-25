@@ -1,5 +1,5 @@
 import { cn } from "@internal/node-admin";
-import { ServerCog, Users } from "lucide-react";
+import { Eye, ServerCog, Users } from "lucide-react";
 import type { JSX } from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { TrustNotice, TrustNoticeKind } from "@/lib/trust-notices";
@@ -23,6 +23,10 @@ import type { TrustNotice, TrustNoticeKind } from "@/lib/trust-notices";
 const ICONS: Record<TrustNoticeKind, typeof Users> = {
   "foreign-node": ServerCog,
   shared: Users,
+  // Present so the Record over the kind stays total; `trustNoticesFor` never
+  // emits this kind, so the header shows no preview icon (spec §7: the
+  // header machinery is unchanged).
+  preview: Eye,
 };
 
 export interface TrustIndicatorsProps {

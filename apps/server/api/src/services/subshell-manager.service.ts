@@ -11,7 +11,7 @@ import {
   TmuxTimeoutError,
   tmuxSocketFor,
 } from "@internal/pane-runtime";
-import type { ApiKeyPermission } from "@internal/subshell-protocol";
+import type { ApiKeyPermission, NodePreviewScreenWire } from "@internal/subshell-protocol";
 import {
   dirAllowed,
   type NodeEvent,
@@ -19,9 +19,13 @@ import {
   normalizeLabel,
   parseNodeProbeEntries,
   parseSshForwardRows,
+  parseStoredVirtualDisplayRequest,
+  parseVirtualDisplayRequest,
   type SshConnectionSnapshotWire,
   type SshForwardWire,
+  type VirtualDisplayRequest,
 } from "@internal/subshell-protocol";
+import { HttpError } from "@/api/auth-guard.js";
 import { harnessUsable } from "@/api/harness-utils.js";
 import { intersectSystemPermissions } from "@/auth/system-key-permissions.js";
 import type { PresetsRepository } from "@/db/repositories/presets.repository.js";
@@ -33,6 +37,7 @@ import type { SubshellTable, SubshellUpdate } from "@/db/types/subshells.db-type
 import { getRequestlessContext } from "@/lib/context.js";
 import { presetAccess } from "@/lib/preset-access.js";
 import type { Access } from "@/lib/subshell-access.js";
+import { getLocalPreviewRuntime } from "@/preview/local-preview.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
 import { publishLive } from "@/services/live-bus.js";
 // Value cycle with `lockdown.js` (it imports THIS module for the kill loop):
@@ -49,6 +54,7 @@ import {
   subshellMcpEnv,
 } from "@/services/mcp-launch.js";
 import { probeReporterLaunch } from "@/services/mcp-resolve.js";
+import { resolveNodeDisplayRequest } from "@/services/nodes/display-selection.js";
 import { launcherFor } from "@/services/nodes/launcher-registry.js";
 import { LocalLauncher } from "@/services/nodes/local-launcher.js";
 import { type LogCursorRequest, readLogCursor } from "@/services/nodes/log-tail.js";
@@ -65,6 +71,7 @@ import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
 import { EMPTY_PRESET, parsePreset } from "@/services/preset-definition.js";
+import { closePreviewForPaneExit, getPreviewBroker } from "@/services/preview-broker.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
 import { sshCanonicalDestination } from "@/services/ssh-destination.js";
 import { sweepLocalSshDir } from "@/services/ssh-launch.service.js";
@@ -383,6 +390,7 @@ export class SubshellManagerService {
     extraPaneEnv,
     subshellId,
     workspaceId,
+    screen,
   }: {
     /** Explicit permission ceiling of the creating credential. */
     systemKeyPermissions?: ApiKeyPermission[] | null;
@@ -467,6 +475,14 @@ export class SubshellManagerService {
      * the truth rather than a fiction.
      */
     workspaceId?: string;
+    /**
+     * The virtual display size to request with the launch (pane-preview spec
+     * §6): forwarded verbatim to the launcher, which ships it on the frame;
+     * the AGENT node allocates (or refuses by name), `LocalLauncher` ignores
+     * it. The service preflighted the node's Preview switch before arriving
+     * here, so no row exists unless the plane already said yes.
+     */
+    screen?: VirtualDisplayRequest;
   }): Promise<{ id: string; tmuxSocket: string; apiKey: string; promptDelivered: boolean }> {
     if (subshellId !== undefined && !/^[a-zA-Z0-9_-]{1,64}$/.test(subshellId)) {
       throw new Error("createSubshell: subshellId is outside the id grammar");
@@ -487,6 +503,7 @@ export class SubshellManagerService {
     }
 
     const targetNode = nodeId ?? LOCAL_NODE_ID;
+    if (screen) screen = await resolveNodeDisplayRequest(targetNode, screen);
     const launcher = this.#launcherFor(targetNode);
     const realPath = await launcher.validateWorkingDir(workingDir);
     await assertDirAllowed(targetNode, realPath);
@@ -568,6 +585,7 @@ export class SubshellManagerService {
       // The relay pane's key home, recorded with the row (migration 0052):
       // immutable thereafter, and no direct pane carries it.
       keyHomeNodeId: ssh?.keyHomeNodeId ?? null,
+      ...(screen ? { screenConfig: JSON.stringify(screen) } : {}),
     });
 
     if (workspaceId !== undefined) {
@@ -641,6 +659,9 @@ export class SubshellManagerService {
         // The composed ssh member (spec 2026-10-07 decision 4). Conditional
         // spread: absent on every non-ssh launch, byte-identical plan there.
         ...(ssh ? { ssh: { configPath: ssh.configPath, fileContent: ssh.fileContent } } : {}),
+        // Conditional too (pane-preview §6): a plain launch's frame carries
+        // no screen member at all, byte-identical to the pre-preview plan.
+        ...(screen ? { screen } : {}),
       });
       if (prompt?.trim()) {
         promptDelivered = await this.#deliverPrompt(
@@ -841,7 +862,7 @@ export class SubshellManagerService {
     const views: ReturnType<typeof toSubshellView>[] = [];
     for (const row of rows) {
       const preview = withPreviews ? await this.#preview(row) : [];
-      views.push(toSubshellView(row, row.status, preview, "owner", isNodeOffline(row.nodeId)));
+      views.push(toSubshellView(row, row.status, preview, "owner", isNodeOffline(row.nodeId), displayNameFor(row)));
     }
     return views;
   }
@@ -873,7 +894,14 @@ export class SubshellManagerService {
   async getSubshell(userId: string, id: string): Promise<ReturnType<typeof toSubshellView> | undefined> {
     const row = await this.#subshells.findById(id);
     if (!row || row.userId !== userId) return undefined;
-    return toSubshellView(row, row.status, await this.#preview(row), "owner", isNodeOffline(row.nodeId));
+    return toSubshellView(
+      row,
+      row.status,
+      await this.#preview(row),
+      "owner",
+      isNodeOffline(row.nodeId),
+      displayNameFor(row),
+    );
   }
 
   /**
@@ -970,6 +998,7 @@ export class SubshellManagerService {
       return existing; // same owner, already restarting — join it
     }
     const run = (async (): Promise<{ id: string; tmuxSocket: string } | null> => {
+      await this.#screenForRestart(source);
       // Recheck here as well as in the service so a direct manager call or a
       // revoked grant cannot stop a live pane before discovering the refusal.
       const nextPresetId = swapPresetTo === undefined ? source.presetId : swapPresetTo;
@@ -979,6 +1008,9 @@ export class SubshellManagerService {
           throw new Error("Preset access was removed. Choose another preset before restarting this subshell.");
         }
       }
+      // Revoke capabilities before stopping the old process: the exit hook may
+      // arrive after its token is revoked, and a restart keeps the same row id.
+      await getPreviewBroker().closeForPane(source.id, "pane-gone");
       if (source.alive === 1 && source.tmuxSocket) {
         // killSubshell swallows "already gone"; the tree dies with its baked
         // key, which #reviveRow then rotates off the same row anyway.
@@ -1025,6 +1057,9 @@ export class SubshellManagerService {
         logger.info(`subshell restart abandoned (terminate/delete raced): ${source.id}`);
         return null;
       }
+      // Catch opens that arrived while the old pane was stopping. The parked
+      // row now rejects opens until revival completes.
+      await getPreviewBroker().closeForPane(source.id, "pane-gone");
       const parked = await this.#subshells.findById(source.id);
       if (!parked) return null; // deleted between park and re-read
       let revived: boolean;
@@ -1090,6 +1125,7 @@ export class SubshellManagerService {
   async terminateSubshell(userId: string, id: string): Promise<boolean> {
     const row = await this.#subshells.findById(id);
     if (!row || row.userId !== userId) return false;
+    await getPreviewBroker().closeForPane(id, "pane-gone");
     let killUnverified = false;
     if (row.tmuxSocket) {
       // Kill on the node the row lives on (row-based launcher, spec §6.3).
@@ -1114,6 +1150,7 @@ export class SubshellManagerService {
     // `terminated` there is no transition left to claim.
     const stopped = (await this.#subshells.updateIfAlive(id, { alive: 0 })) > 0;
     await this.#subshells.markTerminated(id, new Date().toISOString());
+    await getPreviewBroker().closeForPane(id, "pane-gone");
     publishLive({ kind: "subshell.changed", id });
     // Teardown must finish even when the token store is down: a failed revoke
     // unlinks apiKeyId (guard 401s the key) so the audit event below still lands.
@@ -1180,6 +1217,7 @@ export class SubshellManagerService {
   async deleteSubshell(userId: string, id: string): Promise<boolean> {
     const row = await this.#subshells.findById(id);
     if (!row || row.userId !== userId) return false;
+    await getPreviewBroker().closeForPane(id, "pane-gone");
     const launcher = this.#launcherFor(row.nodeId);
     if (row.tmuxSocket) {
       // Kill the pane even if it is already dead; try/catch so a missing
@@ -1209,6 +1247,7 @@ export class SubshellManagerService {
       return [] as string[];
     });
     await this.#subshells.delete(id);
+    await getPreviewBroker().closeForPane(id, "pane-gone");
     // The pane's row is gone, so its tab rows cascaded with it. The OWNER's
     // workspaces THIS emptied retire too (spec 2026-10-17: a workspace exists
     // exactly as long as it holds a tab), and only the ones it emptied — an
@@ -1415,6 +1454,7 @@ export class SubshellManagerService {
       systemKeyPermissions = null,
     }: { backoffCount: number; systemKeyPermissions?: ApiKeyPermission[] | null },
   ): Promise<boolean> {
+    const screen = await this.#screenForRestart(row);
     // A NULL `presetId` is not a missing preset — it is a presetless launch
     // (spec 2026-09-13 §4), and it revives as exactly what it was created
     // as: EMPTY_PRESET. Only a NON-NULL reference whose row vanished throws.
@@ -1494,6 +1534,7 @@ export class SubshellManagerService {
       harnessSession,
       reporter,
       bestEffortLog: true,
+      ...(screen ? { screen } : {}),
     });
     // Conditional revival: a terminate that landed after the pre-spawn
     // check (between it and this write) must not resurrect the row — the
@@ -1525,6 +1566,22 @@ export class SubshellManagerService {
       return false;
     }
     return true;
+  }
+
+  async #screenForRestart(row: SubshellTable): Promise<VirtualDisplayRequest | undefined> {
+    if (!row.screenConfig) return undefined;
+    let screen: VirtualDisplayRequest | null;
+    try {
+      screen = parseVirtualDisplayRequest(JSON.parse(row.screenConfig));
+    } catch {
+      screen = null;
+    }
+    if (!screen)
+      throw new HttpError(
+        409,
+        "This subshell's saved display settings are invalid. Start a new subshell with a virtual display.",
+      );
+    return resolveNodeDisplayRequest(row.nodeId, screen, 409);
   }
 
   /**
@@ -1576,6 +1633,7 @@ export class SubshellManagerService {
   /** The classic local sweep loop (verbatim pre-§6.3 body, crash branch folded into {@link #applyDeath}). */
   async #reconcileLocalRows(rows: SubshellTable[], now: string): Promise<void> {
     for (const row of rows) {
+      observeDisplayStatus(LOCAL_NODE_ID, row.id, getLocalPreviewRuntime().displays.getFor(row.id));
       // A manual restart owns this row right now: it is parked (alive:0, no
       // pane) mid-kill→respawn and is about to come back on its own. Sweeping
       // it here would revoke the token #reviveRow just issued, stamp a false
@@ -1724,6 +1782,7 @@ export class SubshellManagerService {
             // The agent answers ONLY for the ids it supervises; no entry is
             // the same no-evidence class as an offline node — skip, don't kill.
             if (!entry) continue;
+            if (entry.previewScreen !== undefined) observeDisplayStatus(nodeId, row.id, entry.previewScreen);
             if (!entry.alive) {
               await this.#applyDeath(row, { exitCode: entry.exitCode, endedAt: now });
               continue;
@@ -1741,10 +1800,11 @@ export class SubshellManagerService {
 
   /**
    * The shared death transition — where a probe- or report-driven death is
-   * stamped alive→dead AND the pane's artifacts (preview cache, ssh config dir,
-   * idle tmux server) are cleared. Every entry point that learns a LIVE pane is
-   * gone calls this: the sweep (local tmux probe or the agent `probe`/`exit`
-   * census), an agent `exit` event, and the `subshells_report` reconnect census.
+   * stamped alive→dead AND the pane's artifacts (preview cache, preview broker
+   * state, ssh config dir, idle tmux server) are cleared. Every entry point
+   * that learns a LIVE pane is gone calls this: the sweep (local tmux probe
+   * or the agent `probe`/`exit` census), an agent `exit` event, and the
+   * `subshells_report` reconnect census.
    * (The reconcile's no-socket fast path — a row that cannot be alive — stamps
    * directly rather than routing here, and repeats the ssh sweep so no
    * alive→dead path misses it.) Idempotent by construction: the stamp + death
@@ -1791,6 +1851,7 @@ export class SubshellManagerService {
     // a subshell that will never come back has its MCP token revoked here.
     // "Never" means opted out OR the backoff limit was exhausted (the
     // sweep gives up at that count, so the bearer would linger otherwise).
+    if (fresh.nodeId === LOCAL_NODE_ID) await getLocalPreviewRuntime().displays.closeFor(fresh.id);
     const restarted = await this.maybeAutoRestart(fresh);
     // The ssh config dir is a pane artifact like the preview cache and the idle
     // tmux server below: it dies with the pane, HERE, in the ONE shared
@@ -1803,7 +1864,14 @@ export class SubshellManagerService {
     // The relay cut runs whatever the restart ladder decided: an agent-capable
     // ssh pane never auto-restarts (M1 decision 7), and a restart of anything
     // else must not strand the relay session of the process that just died.
+    // Same posture, same belt, for the preview state: the exit route's own
+    // `closeForPane` is the fast path, but when the hook report is lost it is
+    // THIS line that keeps a forward session (and the browser stream sockets
+    // attached to the pane) from outliving it to the idle and lifetime caps.
+    // Fire-and-forget like the relay's: a crashed pane's node may not answer
+    // the lane closes, and the sweep must keep walking rows.
     closeRelayForPaneExit(fresh.id);
+    closePreviewForPaneExit(fresh.id);
     if (!restarted) sweepLocalSshDir(fresh);
     if (!restarted && (fresh.restartOnExit !== 1 || fresh.backoffCount >= 5)) {
       // Terminal: this subshell will never come back, so its bearer must
@@ -2346,6 +2414,7 @@ function normalizePaneTitle(raw: string): string {
 
 export function toSubshellView(
   row: {
+    screenConfig?: string | null;
     id: string;
     userId: string;
     presetId: string | null;
@@ -2389,10 +2458,13 @@ export function toSubshellView(
    * and read false.
    */
   nodeOffline = false,
+  virtualDisplay: string | null = null,
 ) {
   const sshSummary = row.ssh !== null ? sshPaneSummary(row.ssh) : null;
   return {
     id: row.id,
+    screen: parseStoredVirtualDisplayRequest(row.screenConfig),
+    virtualDisplay: status === "running" && row.alive === 1 ? virtualDisplay : null,
     presetId: row.presetId,
     harnessId: row.harnessId,
     nodeId: row.nodeId,
@@ -2472,4 +2544,17 @@ export function sshPaneSummary(raw: string | null): { destination: string; forwa
   // its place, and a header is not where a stored-row bug gets surfaced.
   const forwards = column.declaredForwards === undefined ? [] : parseSshForwardRows(column.declaredForwards);
   return { destination, forwards };
+}
+
+/** Cheap metadata read: remote displays arrive on the existing batched probe. */
+function displayNameFor(row: { id: string; nodeId: string }): string | null {
+  if (row.nodeId === LOCAL_NODE_ID) return getLocalPreviewRuntime().displays.getFor(row.id)?.display ?? null;
+  return getPreviewBroker().displayForPane(row.id)?.screen.display ?? null;
+}
+
+function observeDisplayStatus(nodeId: string, id: string, screen: NodePreviewScreenWire | null): void {
+  const broker = getPreviewBroker();
+  const before = broker.displayForPane(id);
+  broker.observeDisplay(nodeId, id, screen);
+  if ((before?.screen.display ?? null) !== (screen?.display ?? null)) publishLive({ kind: "subshell.changed", id });
 }

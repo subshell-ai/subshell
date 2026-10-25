@@ -9,7 +9,13 @@ import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 import type { AttentionKind } from "@internal/mcp-core";
 import { allHarnesses, getHarness, tmuxSocketFor } from "@internal/pane-runtime";
 import type { ApiKeyPermission } from "@internal/subshell-protocol";
-import { joinPresetPrompt, NODE_RESULT_MAINTENANCE, parsePresetPromptBlocks } from "@internal/subshell-protocol";
+import {
+  joinPresetPrompt,
+  NODE_RESULT_MAINTENANCE,
+  parsePresetPromptBlocks,
+  parseVirtualDisplayRequest,
+  type VirtualDisplayRequest,
+} from "@internal/subshell-protocol";
 import type { GuardActor } from "@/api/auth-guard.js";
 import { HttpError } from "@/api/auth-guard.js";
 import { harnessUsable } from "@/api/harness-utils.js";
@@ -38,8 +44,10 @@ import {
   probeQuiet,
   waitSentinel,
 } from "@/services/nodes/pane-exec.js";
+import { getVirtualDisplayEnabled } from "@/services/nodes/preview-enabled.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { getNotifyService } from "@/services/notify.service.js";
+import { getPreviewBroker } from "@/services/preview-broker.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
 import { sweepLocalSshDir } from "@/services/ssh-launch.service.js";
 import { closeRelayForPaneExit, sweepRelayForPane } from "@/services/ssh-relay.service.js";
@@ -449,6 +457,7 @@ export class SubshellsService extends BaseService {
     extraPaneEnv,
     subshellId,
     workspaceId,
+    screen,
   }: {
     /** Permission ceiling passed to the new pane credential. */
     systemKeyPermissions?: ApiKeyPermission[] | null;
@@ -510,6 +519,12 @@ export class SubshellsService extends BaseService {
      * row before anything spawns.
      */
     workspaceId?: string;
+    /**
+     * A virtual display at this size, allocated by the node's selected provider.
+     * The plane checks the node's permission before any row, token, or RPC;
+     * the node checks the provider's requirements before allocating resources.
+     */
+    screen?: VirtualDisplayRequest | null;
   }): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
     // Lockdown is the FIRST question the instance asks of every create
     // (operator ask 2026-09-24): it answers valid bodies and invalid ones
@@ -634,6 +649,32 @@ export class SubshellsService extends BaseService {
         409,
       );
     }
+    // The gated screen preflight (spec §6): a `screen` launch against a node
+    // whose Preview switch is off is refused HERE, before the row, the
+    // token, and the wire, with the same remedy the node itself names. The
+    // node's Task 7 gate stays the authority for every fact the plane's row
+    // cannot hold (platform, binaries). Placed in the service rather than
+    // the launcher so a refused create never creates a pane at all.
+    if (screen === undefined && presetRow?.screenConfig) {
+      try {
+        screen = parseVirtualDisplayRequest(JSON.parse(presetRow.screenConfig));
+      } catch {
+        screen = null;
+      }
+      if (!screen)
+        throw new SubshellCreateError(
+          "bad_request",
+          "This preset’s display settings are invalid. Edit the preset before launching.",
+          400,
+        );
+    }
+    if (screen && !(await getVirtualDisplayEnabled(resolvedNodeId))) {
+      throw new SubshellCreateError(
+        "bad_request",
+        "Virtual displays are disabled on this node. Enable Allow virtual displays in node settings, or launch without a virtual display.",
+        400,
+      );
+    }
     // The deferred default (spec 2026-10-01 §2): the launch node's home, read
     // only from sources this request already has — the local host's homedir,
     // or the agent's reported `ready` facts. A node that has never reported a
@@ -683,6 +724,7 @@ export class SubshellsService extends BaseService {
         ...(extraPaneEnv !== undefined ? { extraPaneEnv } : {}),
         ...(subshellId !== undefined ? { subshellId } : {}),
         ...(workspaceId !== undefined ? { workspaceId } : {}),
+        ...(screen ? { screen } : {}),
       })
       .catch(rethrowLaunchRefusal);
     // Feed the picker's Recents (and the new-subshell form's pre-fill) from
@@ -1243,6 +1285,14 @@ export class SubshellsService extends BaseService {
     // thing that can tell a revoked grantee (spec §4.2). Deriving which topics
     // that means stays in the publisher — the service carries domain facts.
     publishLive({ kind: "subshell.shares-changed", id, before: { ownerUserId: row.userId, shares: before } });
+    // A preview session is broker state, not a socket: the shares-changed
+    // publish tells /ws/live viewers the row moved, but it cannot touch a
+    // forward lane's node connection or a watch count. Recomputed against
+    // the POST-write grant set, every lane below `edit` and every viewer
+    // below `view` on THIS pane dies now (pane-preview spec §7; the relay
+    // twin is `closeUnauthorizedForNode` in the set-node-shares route).
+    // Awaited so the answer does not race the cut it describes.
+    await getPreviewBroker().closeUnauthorizedForPane(id);
     return { shares: await this.#shareViews(id) };
   }
 

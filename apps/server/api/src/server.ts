@@ -9,6 +9,8 @@ import { authPlugin } from "@/plugins/auth.plugin.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { openApiPlugin } from "@/plugins/openapi.plugin.js";
 import { selectStaticPlugin } from "@/plugins/static.plugin.js";
+import { pvHttpRoute } from "@/preview/pv-http.js";
+import { previewWsRoute } from "@/preview/pv-ws.js";
 import { apiModels } from "@/schema/index.js";
 import { originRegistry } from "@/services/trusted-origins.js";
 import { logger } from "@/utils/logger.js";
@@ -25,7 +27,8 @@ const FRONTEND_DIST = new URL("../../web/dist", import.meta.url).pathname;
  * echoes that header back with `vary: Origin`. Exported so the integration
  * test mounts the very predicate the app runs, not a copy.
  *
- * Exact match on purpose. The plugin's own string branch also accepted a
+ * Opaque-origin preview resources have a capability-path exception below;
+ * dashboard APIs never inherit it. Exact match otherwise. The plugin's own string branch also accepted a
  * SCHEMELESS entry by stripping the scheme off the incoming header — which
  * made `box.local:3080` a scheme wildcard there (security-context.md). The
  * operator writer already refuses schemeless entries; this closes the branch
@@ -33,6 +36,9 @@ const FRONTEND_DIST = new URL("../../web/dist", import.meta.url).pathname;
  */
 export function corsOriginAllowed(request: Request): boolean {
   const origin = request.headers.get("origin");
+  // Opaque preview documents may load their capability-bound resources.
+  // Never extend this exception to API routes or the dashboard sockets.
+  if (origin === "null" && /^\/pv\/[0-9a-f]{32}\//.test(new URL(request.url).pathname)) return true;
   return origin !== null && originRegistry().has(origin);
 }
 
@@ -61,11 +67,22 @@ export function createApp() {
     // top-level path the static plugin's file branch would otherwise 404
     // (it is not a dist file). spec 2026-08-31 §8.
     .use(installScriptRoute)
+    // Root-level `/pv/<ref>/...` like install.sh above, and for the same
+    // reason: mounted AFTER the static plugin, every proxy path the pane
+    // browser loads would hit the file branch and 404. The session ref in
+    // the path is the credential (spec 2026-10-21 §6/§10); no cookie or
+    // bearer gate stands in front of it, and REQUEST_LOG_IGNORE keeps the
+    // secret out of request lines.
+    .use(pvHttpRoute)
     .use(authPlugin)
     // Disk dist wins when present (dev and checkout deployments behave alike);
     // else the SPA embedded by scripts/embed-web.ts; else boot fails loudly.
     .use(selectStaticPlugin(FRONTEND_DIST, EMBEDDED))
     .use(wsPlugin)
+    // The proxy's WS half rides the same wildcard as pvHttpRoute; Elysia
+    // dispatches upgrade GETs here and plain GETs to the HTTP routes
+    // (spike-verified for one dynamic pattern across two modules).
+    .use(previewWsRoute())
     .use(routes);
 
   return app;

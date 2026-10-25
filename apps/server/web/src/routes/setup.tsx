@@ -693,6 +693,7 @@ function SetupPage() {
           prompt: "setup-prompt-add",
           savePreset: "setup-save-as-preset",
           presetName: "setup-preset-name",
+          virtualDisplay: "setup-virtual-display",
         }}
       />
       {create.error && (

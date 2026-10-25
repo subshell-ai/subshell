@@ -19,10 +19,15 @@ import {
   NODE_RESULT_VERSION_MISMATCH,
   NODE_SERVICE_DESTRUCTIVE,
   NODE_SERVICE_VERBS,
+  PREVIEW_CLOSE_REASONS,
+  PREVIEW_COMMAND_TYPES,
+  type PreviewDataFrame,
+  type PreviewOpenCommand,
   parseNodeCommandBody,
   parseNodeEvent,
   parseNodeRuntimeReport,
   parseNodeSshFingerprintReport,
+  parsePreviewFrame,
   partPathOf,
 } from "../node-frames.js";
 import {
@@ -36,6 +41,16 @@ import {
   type SshRelayOpenCommand,
 } from "../ssh-frames.js";
 import {
+  PREVIEW_FPS_GRAMMAR_MAX,
+  PREVIEW_FRAME_MAX_BYTES,
+  PREVIEW_IDLE_MS,
+  PREVIEW_LANE_BUFFER_MAX_BYTES,
+  PREVIEW_LIFETIME_MAX_MS,
+  PREVIEW_LIFETIME_MIN_MS,
+  PREVIEW_REF_RE,
+  PREVIEW_WATCH_FPS_DEFAULT,
+  PREVIEW_WATCH_FPS_MAX,
+  PREVIEW_WATCH_FPS_MIN,
   SSH_CONFIG_FILE_MAX_BYTES,
   SSH_EXEC_COMMAND_MAX_CHARS,
   SSH_EXEC_MAX_PRESET_FLAGS,
@@ -395,7 +410,15 @@ describe("parseNodeCommandBody", () => {
     // / `ssh_relay_close` signed commands. A tier-17 agent understands no relay
     // frame, and the exact-match gate refuses it BEFORE any relay command
     // (spec §11: never half-relaying).
-    expect(NODE_PROTOCOL_VERSION).toBe(22);
+    // 23 is the preview surface (pane-preview spec 2026-10-21 §4): the
+    // `preview_open` / `preview_close` signed commands and the `preview_data`
+    // link frame carry a gated byte lane to a pane's loopback port, the
+    // `preview_stream` event carries read-only screencast frames,
+    // `preview_ports_get` reports a pane's listening ports, `set_preview_enabled`
+    // mirrors a per-machine owner switch, and a launch may carry a `screen`
+    // request. A pre-23 agent understands none of it, and the exact-match gate
+    // refuses pairing before any of it is sent.
+    expect(NODE_PROTOCOL_VERSION).toBe(24);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
@@ -1786,5 +1809,276 @@ describe("launch mcp companion files", () => {
     expect(launchWith({ "ok.mjs": "y".repeat(65_536) })).not.toBeNull();
     expect(launchWith({ n: 7 })).toBeNull();
     expect(launchWith("bridge.mjs")).toBeNull();
+  });
+});
+
+// Protocol 23 (pane-preview spec 2026-10-21 §4): the preview surface. What
+// this file pins is what BOTH ends must agree on before anything is sent. The
+// bridge's clamp, the lane quotas and the idle timer are enforced by Tasks 6
+// and 8; the grammar here is deliberately looser where the spec says so.
+describe("preview lanes (arrived at protocol 23)", () => {
+  const REF = "a".repeat(32);
+
+  it("preview_open round trips, both kinds", () => {
+    const fwd: PreviewOpenCommand = {
+      type: "preview_open",
+      ref: REF,
+      kind: "forward",
+      paneId: "p1",
+      port: 5173,
+      lifetimeMs: 3_600_000,
+    };
+    expect(parseNodeCommandBody(JSON.stringify(fwd))).toEqual(fwd);
+    const sc: PreviewOpenCommand = {
+      type: "preview_open",
+      ref: REF,
+      kind: "screencast",
+      paneId: "p1",
+      port: 9222,
+      fps: 5,
+      lifetimeMs: 3_600_000,
+    };
+    expect(parseNodeCommandBody(JSON.stringify(sc))).toEqual(sc);
+  });
+
+  it("the kind decides whether fps may appear, and fps stays optional", () => {
+    const noFps: PreviewOpenCommand = {
+      type: "preview_open",
+      ref: REF,
+      kind: "screencast",
+      paneId: "p",
+      port: 9222,
+      lifetimeMs: 60_000,
+    };
+    const parsed = parseNodeCommandBody(JSON.stringify(noFps));
+    expect(parsed).toEqual(noFps);
+    // Absent stays absent: the grammar does not default fps. The default to
+    // PREVIEW_WATCH_FPS_DEFAULT belongs at the bridge (Task 6), where the
+    // consumer is.
+    expect(parsed && "fps" in parsed).toBe(false);
+    expect(parseNodeCommandBody(JSON.stringify({ ...noFps, kind: "forward", fps: 5 }))).toBeNull();
+    expect(parseNodeCommandBody(JSON.stringify({ ...noFps, kind: "nonsense" }))).toBeNull();
+  });
+
+  it("refuses out-of-range numbers", () => {
+    const base = { type: "preview_open", ref: REF, kind: "forward", paneId: "p", port: 8080, lifetimeMs: 60_000 };
+    expect(parseNodeCommandBody(JSON.stringify({ ...base, port: 70_000 }))).toBeNull();
+    expect(parseNodeCommandBody(JSON.stringify({ ...base, port: 0 }))).toBeNull();
+    expect(parseNodeCommandBody(JSON.stringify({ ...base, port: 65_535 }))).not.toBeNull();
+    expect(parseNodeCommandBody(JSON.stringify({ ...base, port: 1.5 }))).toBeNull();
+    // The grammar allows up to PREVIEW_FPS_GRAMMAR_MAX; the bridge clamps into
+    // [PREVIEW_WATCH_FPS_MIN, PREVIEW_WATCH_FPS_MAX] (Task 6). 30 is a rate the
+    // grammar accepts and the clamp drops, 61 is nonsense even for the grammar.
+    expect(parseNodeCommandBody(JSON.stringify({ ...base, kind: "screencast", fps: 30 }))).not.toBeNull();
+    expect(
+      parseNodeCommandBody(JSON.stringify({ ...base, kind: "screencast", fps: PREVIEW_FPS_GRAMMAR_MAX + 1 })),
+    ).toBeNull();
+    expect(parseNodeCommandBody(JSON.stringify({ ...base, kind: "screencast", fps: 0 }))).toBeNull();
+    expect(parseNodeCommandBody(JSON.stringify({ ...base, lifetimeMs: PREVIEW_LIFETIME_MIN_MS - 1 }))).toBeNull();
+    expect(parseNodeCommandBody(JSON.stringify({ ...base, lifetimeMs: PREVIEW_LIFETIME_MAX_MS + 1 }))).toBeNull();
+  });
+
+  it("refuses a short or malformed ref", () => {
+    // Lane refs double as proxy path secrets: 32 lowercase hex, nothing else.
+    expect(parseNodeCommandBody(JSON.stringify({ type: "preview_close", ref: "x", reason: "viewer-left" }))).toBeNull();
+    expect(
+      parseNodeCommandBody(JSON.stringify({ type: "preview_close", ref: "A".repeat(32), reason: "viewer-left" })),
+    ).toBeNull();
+  });
+
+  it("launch accepts a screen size and bounds it", () => {
+    // A screen request rides beside cols/rows. The grammar only bounds the
+    // size (320..4096 on both dims); a machine with the owner switch off
+    // refuses at EXECUTION, before spawning (spec §4).
+    expect(parseNodeCommandBody({ ...launchCmd, screen: { width: 1280, height: 720 } })).toMatchObject({
+      screen: { width: 1280, height: 720 },
+    });
+    expect(parseNodeCommandBody({ ...launchCmd, screen: { width: 100, height: 720 } })).toBeNull();
+    expect(parseNodeCommandBody({ ...launchCmd, screen: { width: 1280, height: 5000 } })).toBeNull();
+    expect(parseNodeCommandBody({ ...launchCmd, screen: { width: 1280 } })).toBeNull();
+    const bare = parseNodeCommandBody(launchCmd);
+    expect(bare).toMatchObject({ type: "launch" });
+    expect(bare && "screen" in bare).toBe(false); // absent is not defaulted
+  });
+
+  it("the close-reason census is pinned", () => {
+    // The plane maps a refusal per reason, so the set is closed on purpose: a
+    // new member is a wire change, and "because" must never reach a UI.
+    // `target-gone` is plan decision 3's member: the node's own answer for a
+    // lane whose target process died.
+    for (const reason of PREVIEW_CLOSE_REASONS) {
+      expect(parseNodeCommandBody(JSON.stringify({ type: "preview_close", ref: REF, reason }))).toEqual({
+        type: "preview_close",
+        ref: REF,
+        reason,
+      });
+    }
+    expect(parseNodeCommandBody(JSON.stringify({ type: "preview_close", ref: REF, reason: "because" }))).toBeNull();
+    expect(PREVIEW_CLOSE_REASONS).toHaveLength(9);
+  });
+
+  it("the preview command census includes the display preflight", () => {
+    // The SSH_COMMAND_TYPES tripwire again: a new preview command must be
+    // added HERE as well as to the dispatcher, or this fails.
+    expect([...PREVIEW_COMMAND_TYPES].sort()).toEqual([
+      "preview_close",
+      "preview_display_check",
+      "preview_open",
+      "preview_ports_get",
+      "set_preview_enabled",
+    ]);
+    expect(PREVIEW_COMMAND_TYPES).toHaveLength(5);
+    for (const type of PREVIEW_COMMAND_TYPES) {
+      const body =
+        type === "preview_open"
+          ? { type, ref: REF, kind: "forward", paneId: "p1", port: 5173, lifetimeMs: 60_000 }
+          : type === "preview_close"
+            ? { type, ref: REF, reason: "viewer-left" }
+            : type === "preview_ports_get"
+              ? { type, paneId: "p1" }
+              : type === "preview_display_check"
+                ? { type }
+                : { type, on: true, changedAt: "2026-10-22T00:00:00.000Z" };
+      expect(parseNodeCommandBody(JSON.stringify(body))).not.toBeNull();
+    }
+  });
+
+  it("pins the numbers both ends quote", () => {
+    // These live in the grammar now because BOTH ends read them, so a typo is
+    // a wire change: the clamp band and its default, the slow-link byte
+    // ceiling, the idle self-close, the ref shape.
+    expect([PREVIEW_WATCH_FPS_MIN, PREVIEW_WATCH_FPS_DEFAULT, PREVIEW_WATCH_FPS_MAX]).toEqual([1, 5, 5]);
+    expect(PREVIEW_WATCH_FPS_MAX).toBeLessThanOrEqual(PREVIEW_FPS_GRAMMAR_MAX);
+    expect(PREVIEW_LANE_BUFFER_MAX_BYTES).toBe(1_048_576);
+    expect(PREVIEW_IDLE_MS).toBe(900_000);
+    expect(PREVIEW_REF_RE.test("a".repeat(32))).toBe(true);
+    expect(PREVIEW_REF_RE.test("A".repeat(32))).toBe(false);
+  });
+});
+
+// The ssh gate's mirror twin (plan decision 5): same {on, changedAt} shape,
+// same division of strictness. The standalone carriers are STRICT because that
+// frame IS the change, and a silently dropped one would leave the plane
+// holding the opposite of what the machine says. `ready` is LENIENT because
+// the rest of that frame is what brings the node online.
+describe("preview owner switch (arrived at protocol 23)", () => {
+  const ready = {
+    type: "ready",
+    agentVersion: MIN_NODE_VERSION,
+    protocolVersion: NODE_PROTOCOL_VERSION,
+    os: "linux",
+    arch: "x64",
+    hostname: "h",
+    dataDir: "/d",
+    capabilities: [],
+  };
+  const state = { on: true, changedAt: "2026-10-22T10:00:00.000Z" };
+
+  it("parses the set_preview_enabled command and refuses a partial one", () => {
+    expect(parseNodeCommandBody({ type: "set_preview_enabled", ...state })).toEqual({
+      type: "set_preview_enabled",
+      ...state,
+    });
+    expect(parseNodeCommandBody({ type: "set_preview_enabled", on: false, changedAt: state.changedAt })).toEqual({
+      type: "set_preview_enabled",
+      on: false,
+      changedAt: state.changedAt,
+    });
+    expect(parseNodeCommandBody({ type: "set_preview_enabled", on: true })).toBeNull();
+    expect(parseNodeCommandBody({ type: "set_preview_enabled", changedAt: state.changedAt })).toBeNull();
+    expect(parseNodeCommandBody({ type: "set_preview_enabled", on: 1, changedAt: state.changedAt })).toBeNull();
+  });
+
+  it("parses the preview_enabled event strictly", () => {
+    expect(parseNodeEvent({ type: "preview_enabled", ...state })).toEqual({ type: "preview_enabled", ...state });
+    expect(parseNodeEvent({ type: "preview_enabled", on: false, changedAt: state.changedAt })).toEqual({
+      type: "preview_enabled",
+      on: false,
+      changedAt: state.changedAt,
+    });
+    expect(parseNodeEvent({ type: "preview_enabled", on: "yes", changedAt: state.changedAt })).toBeNull();
+    expect(parseNodeEvent({ type: "preview_enabled", on: true })).toBeNull();
+  });
+
+  it("carries previewEnabled on ready, and drops a malformed one without refusing the ready", () => {
+    expect(parseNodeEvent({ ...ready, previewEnabled: state })).toMatchObject({ type: "ready", previewEnabled: state });
+    expect(parseNodeEvent(ready)).toMatchObject({ type: "ready" });
+    const bad = parseNodeEvent({ ...ready, previewEnabled: { on: "yes" } });
+    expect(bad?.type).toBe("ready");
+    expect(bad && "previewEnabled" in bad ? bad.previewEnabled : undefined).toBeUndefined();
+  });
+});
+
+describe("preview link frames and events (arrived at protocol 23)", () => {
+  const REF = "a".repeat(32);
+  const frame: PreviewDataFrame = {
+    type: "preview_data",
+    ref: REF,
+    dir: "in",
+    blob: Buffer.alloc(10).toString("base64"),
+  };
+
+  it("round trips and enforces the raw blob cap", () => {
+    expect(parsePreviewFrame(frame)).toEqual(frame);
+    expect(parsePreviewFrame(JSON.stringify(frame))).toEqual(frame);
+    expect(parsePreviewFrame({ ...frame, dir: "out" })).toEqual({ ...frame, dir: "out" });
+    // The cap is on the RAW payload bytes, not the base64 chars, exactly like
+    // RelayFrame's: the limit protects the pipes, and the encoding cost is not
+    // the thing being capped.
+    expect(
+      parsePreviewFrame({ ...frame, blob: Buffer.alloc(PREVIEW_FRAME_MAX_BYTES + 1).toString("base64") }),
+    ).toBeNull();
+    expect(
+      parsePreviewFrame({ ...frame, blob: Buffer.alloc(PREVIEW_FRAME_MAX_BYTES).toString("base64") }),
+    ).not.toBeNull();
+    expect(parsePreviewFrame({ ...frame, dir: "sideways" })).toBeNull();
+    expect(parsePreviewFrame({ ...frame, ref: "x" })).toBeNull();
+    expect(parsePreviewFrame({ ...frame, blob: "!!!" })).toBeNull();
+    expect(parsePreviewFrame({ ...frame, blob: "" })).toBeNull();
+    expect(parsePreviewFrame({ type: "pane_input", ref: REF, dir: "in", blob: "AAA=" })).toBeNull();
+  });
+
+  it("the lane frame reaches the plane through the event union", () => {
+    // Inbound on the established link, so the event side must parse it too.
+    expect(parseNodeEvent({ ...frame })).toEqual(frame);
+  });
+
+  it("the screencast event parses and refuses junk", () => {
+    const image = { type: "preview_stream", ref: REF, seq: 1, w: 800, h: 600, ts: 123, blob: "AAA=" };
+    expect(parseNodeEvent({ ...image, w: 65535, h: 65535 })).toBeNull();
+    expect(parseNodeEvent({ ...image, w: 8192, h: 8192 })).toBeNull();
+    expect(parseNodeEvent({ ...image, blob: Buffer.alloc(PREVIEW_FRAME_MAX_BYTES + 1).toString("base64") })).toBeNull();
+    expect(parseNodeEvent({ type: "preview_stream", ref: REF, seq: 1, w: 800, h: 600, ts: 123, blob: "AAA=" })).toEqual(
+      {
+        type: "preview_stream",
+        ref: REF,
+        seq: 1,
+        w: 800,
+        h: 600,
+        ts: 123,
+        blob: "AAA=",
+      },
+    );
+    expect(
+      parseNodeEvent({ type: "preview_stream", ref: REF, seq: -1, w: 800, h: 600, ts: 123, blob: "AAA=" }),
+    ).toBeNull();
+    expect(
+      parseNodeEvent({ type: "preview_stream", ref: REF, seq: 1, w: 0, h: 600, ts: 123, blob: "AAA=" }),
+    ).toBeNull();
+    expect(
+      parseNodeEvent({ type: "preview_stream", ref: REF, seq: 1, w: 800, h: 600, ts: 123, blob: "!!" }),
+    ).toBeNull();
+  });
+
+  it("the self-close event names a reason from the closed set", () => {
+    // Plan decision 3: a lane the node kills itself (target died, idle timer,
+    // revoked switch) must reach the plane, or the viewer waits on a lane
+    // nobody will ever answer.
+    expect(parseNodeEvent({ type: "preview_closed", ref: REF, reason: "target-gone" })).toEqual({
+      type: "preview_closed",
+      ref: REF,
+      reason: "target-gone",
+    });
+    expect(parseNodeEvent({ type: "preview_closed", ref: REF, reason: "because" })).toBeNull();
   });
 });

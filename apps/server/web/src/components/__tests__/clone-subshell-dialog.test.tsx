@@ -43,6 +43,16 @@ function makeSource(overrides: Partial<SubshellView> = {}): SubshellView {
 }
 
 describe("cloneInputFromSource", () => {
+  it("preserves the source display rather than adopting a changed preset or node default", () => {
+    expect(
+      cloneInputFromSource(makeSource({ screen: { provider: "native-example", width: 1440, height: 900 } }), "copy"),
+    ).toMatchObject({
+      virtualDisplay: true,
+      displayProvider: "native-example",
+      displaySize: { width: 1440, height: 900 },
+    });
+  });
+
   it("copies agent/preset/dir/node and trims the name; absent node means local", () => {
     expect(cloneInputFromSource(makeSource(), "  Copy  ")).toEqual({
       harnessId: "claude",
@@ -207,6 +217,7 @@ describe("CloneSubshellDialog", () => {
             // a prompt of its own - only an explicit "" keeps the copy from
             // resurrecting it server-side.
             prompt: "",
+            screen: null,
           },
         }),
       );

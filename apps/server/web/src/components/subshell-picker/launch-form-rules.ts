@@ -46,6 +46,20 @@ export interface NewSubshellFormValue {
   saveAsPreset?: boolean;
   /** The new preset's name; REQUIRED (trimmed) while `saveAsPreset` is checked. */
   presetName?: string;
+  /**
+   * "Virtual display" (pane-preview spec §7): launch the pane with a virtual
+   * screen it can be watched on. Optional on the type - an absent value is
+   * the untouched false, and an unchecked box sends NO `screen` field: the
+   * create route refuses an unsolicited `screen` default by turning every
+   * plain terminal into a display.
+   */
+  virtualDisplay?: boolean;
+  displayProvider?: string;
+  displayUnavailable?: string;
+  /** Explain automatic corrections until the person makes a new choice. */
+  harnessResetReason?: string;
+  displayResetReason?: string;
+  displaySize?: { width: number; height: number };
 }
 
 export function emptyNewSubshellForm(): NewSubshellFormValue {
@@ -56,12 +70,14 @@ export function emptyNewSubshellForm(): NewSubshellFormValue {
 export function canSubmit(value: NewSubshellFormValue): boolean {
   // A checked "Save as preset" without a name is an unnamed promise; the
   // field is required exactly while the box is checked (ruling 2026-09-30).
+  if (value.virtualDisplay && value.displayUnavailable) return false;
   const presetNamed = value.saveAsPreset !== true || (value.presetName ?? "").trim() !== "";
   return Boolean(value.harnessId) && Boolean(value.workingDir.trim()) && Boolean(value.nodeId) && presetNamed;
 }
 
 /** Explain the same requirements that prevent a launch. */
 export function launchDisabledReason(value: NewSubshellFormValue): string | undefined {
+  if (value.virtualDisplay && value.displayUnavailable) return value.displayUnavailable;
   if (!value.harnessId) return "Choose an agent or shell first.";
   if (!value.nodeId) return "Choose a node first.";
   if (!value.workingDir.trim()) return "Choose a working directory first.";
@@ -152,6 +168,8 @@ export interface NewSubshellFormIds {
   savePreset: string;
   /** New-preset name input, shown while the box is checked */
   presetName: string;
+  /** "Virtual display" checkbox */
+  virtualDisplay: string;
 }
 
 /** The `picker-*` set every launch dialog gets by default. */
@@ -163,4 +181,5 @@ export const DIALOG_IDS: NewSubshellFormIds = {
   prompt: "picker-prompt-add",
   savePreset: "picker-save-as-preset",
   presetName: "picker-preset-name",
+  virtualDisplay: "picker-virtual-display",
 };

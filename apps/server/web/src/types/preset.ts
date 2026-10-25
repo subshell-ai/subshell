@@ -14,6 +14,7 @@ export interface PresetSharing {
 }
 
 export interface AgentPreset extends PresetSharing {
+  screenConfig?: string | null;
   kind: "agent";
   id: string;
   harnessId: string;

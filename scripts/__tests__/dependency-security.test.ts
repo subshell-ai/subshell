@@ -26,13 +26,8 @@ function olderThan(version: string, fixed: string): boolean {
   return false;
 }
 
-test("zod resolves to the patched version everywhere except the @expo/cli 3.x copy", () => {
-  // GHSA-mrhx-c7xc-m3w5 is fixed at 4.6.6. The root "zod@4" override pins
-  // every 4.x consumer to it, and the ignore file allows the one copy that
-  // cannot be patched: zod@3 under @expo/cli (mobile build tooling). That
-  // entry matches by package name, so it would also mask a new unpatched
-  // 4.x copy. This check is the version-aware half: no resolution may sit
-  // below 4.6.6 except that single @expo/cli copy.
+test("zod resolves to a patched version for every consumer", () => {
+  // Include Expo CLI: its scoped override must not reintroduce Zod 3.
   const lock = readFileSync(new URL("../../bun.lock", import.meta.url), "utf8");
   const copies = [...lock.matchAll(/"((?:[^"]*\/)?zod)":\s*\["zod@(\d+\.\d+\.\d+)"/g)].map((m) => ({
     key: m[1] ?? "",
@@ -40,5 +35,17 @@ test("zod resolves to the patched version everywhere except the @expo/cli 3.x co
   }));
   expect(copies.length).toBeGreaterThan(0);
   const belowFix = copies.filter((c) => olderThan(c.version, "4.6.6"));
-  expect(belowFix).toEqual([{ key: "@expo/cli/zod", version: "3.25.76" }]);
+  expect(belowFix).toEqual([]);
 });
+
+test("Forge rejects nested DigestAlgorithm garbage without breaking Expo consumers", () => {
+  const result = spawnSync("node", [fileURLToPath(new URL("./fixtures/forge-consumers.cjs", import.meta.url))], {
+    cwd: fileURLToPath(new URL("../../", import.meta.url)),
+    encoding: "utf8",
+    timeout: 10_000,
+  });
+  expect(result.error).toBeUndefined();
+  expect(result.stderr).toBe("");
+  expect(result.status).toBe(0);
+  expect(result.stdout).toContain("Forge rejects nested garbage");
+}, 15_000);

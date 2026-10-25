@@ -184,6 +184,14 @@ export function NodeCrossAgentCard({ node }: { node: NodeDetail }) {
               ))}
           </Field>
         </FieldGroup>
+        <a
+          href="https://docs.subshell.sh/nodes/manage#cross-agent-guidance"
+          target="_blank"
+          rel="noreferrer"
+          className="self-start text-detail text-primary underline"
+        >
+          Learn about cross-agent communication
+        </a>
         {!node.canManage && <p className="text-detail text-warning">{restriction}</p>}
         {problem && <p className="text-destructive text-detail">{problem}</p>}
         {save.isError && (

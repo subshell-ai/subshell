@@ -34,6 +34,13 @@ function cloneNodeId(source: SubshellView): string {
  */
 export function cloneInputFromSource(source: SubshellView, name: string): CreateSubshellInput {
   return {
+    ...(source.screen
+      ? {
+          virtualDisplay: true,
+          displayProvider: source.screen.provider,
+          displaySize: { width: source.screen.width, height: source.screen.height },
+        }
+      : {}),
     harnessId: source.harnessId,
     presetId: source.presetId,
     workingDir: source.workingDir,

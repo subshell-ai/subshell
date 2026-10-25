@@ -15,10 +15,12 @@ import {
 } from "@/components/subshell-picker/launch-form-rules";
 import { NoLaunchTargets } from "@/components/subshell-picker/no-launch-targets";
 import { useLaunchFormDefaults } from "@/components/subshell-picker/use-launch-form-defaults";
+import { VirtualDisplayField } from "@/components/subshell-picker/virtual-display-field";
 import { type ComboboxOption, SearchableSelect } from "@/components/ui/combobox";
 import { RequiredMark } from "@/components/ui/required-mark";
 import { WorkingDirField } from "@/components/working-dir-field";
 import { type InstancePluginRow, useInstancePlugins } from "@/hooks/use-instance-plugins";
+import { useNodeDisplayReadiness } from "@/hooks/use-node-display-readiness";
 import { useNodes } from "@/hooks/use-nodes";
 import { usePresets } from "@/hooks/use-presets";
 import { useRecentPaths } from "@/hooks/use-recent-paths";
@@ -61,7 +63,7 @@ import { buildAgentOptions, buildNodeOptions, launchableNodes } from "@/lib/subs
  * and the row would have nothing to offer.
  *
  * **It opens on your last launch** (operator rule, 2026-09-25): node,
- * directory, agent and preset pre-fill from the newest prior subshell, once,
+ * directory and agent pre-fill from the newest prior subshell, once,
  * while the form is still untouched — and choosing a preset re-applies from
  * ITS stored launch trio (spec 2026-09-29-preset-launch-fields). Both are
  * defaults, never constraints: every field stays re-pickable, and the form's
@@ -124,11 +126,12 @@ export function NewSubshellForm({
   const { data: recent } = useRecentPaths(value.nodeId);
 
   const { data: nodeData, isPending: nodesPending } = useNodes();
-  // A well-formed registry response is `{ nodes: [...] }`; anything else
-  // (an error body, an older stub) leaves the current pick untouched.
+  // Unanswered or malformed data cannot invalidate a held selection.
   const nodes = Array.isArray(nodeData?.nodes) ? nodeData.nodes : null;
+  const selectedNode: Node | null = (nodes ?? []).find((n) => n.id === value.nodeId) ?? null;
+  const displayCheck = useNodeDisplayReadiness(selectedNode, value.displayProvider);
 
-  // The ONE effect (prior-launch node+dir → re-home → seed → agent+preset)
+  // The ONE effect (prior-launch node+dir → re-home → seed → agent)
   // and `applyPreset`, choosing a preset's explicit act (select + prefill its
   // launch trio), which cancels a pending auto-default.
   const { applyPreset } = useLaunchFormDefaults({
@@ -142,9 +145,14 @@ export function NewSubshellForm({
     subshells,
     subshellsPending,
     firstRun,
+    displayCheck: {
+      nodeId: value.nodeId,
+      provider: value.displayProvider,
+      reason: displayCheck.reason,
+      unavailable: displayCheck.unavailable,
+    },
   });
 
-  const selectedNode: Node | null = (nodes ?? []).find((n) => n.id === value.nodeId) ?? null;
   const selectedAgent: InstancePluginRow | undefined = (plugins ?? []).find((p) => p.id === value.harnessId);
   const agentName = selectedAgent?.name ?? value.harnessId;
   const selectedPreset = presets.find((preset) => preset.id === value.presetId && preset.harnessId === value.harnessId);
@@ -191,7 +199,8 @@ export function NewSubshellForm({
   const agentOptions = buildAgentOptions(plugins ?? [], selectedNode);
   // An unmade pick ("" ) never matches a row id, so selectedNode is already
   // null there — nothing extra to guard.
-  const nodeOptions = buildNodeOptions(targets, selectedAgent ?? null);
+  // A node change may clear an incompatible agent. Keep those nodes selectable.
+  const nodeOptions = buildNodeOptions(targets, null);
 
   // Honest dead-ends (spec §1): the pick stands, the pair cannot — say what
   // to fix and link there. Gate on LOADED, not non-empty: a loaded-zero list
@@ -207,7 +216,8 @@ export function NewSubshellForm({
     plugins !== undefined &&
     !isOfflineAgent(selectedNode) &&
     agentOptions.every((o) => o.disabled);
-  const noNodeHere = nodes !== null && selectedAgent !== undefined && nodeOptions.every((o) => o.disabled);
+  const noNodeHere =
+    nodes !== null && selectedAgent !== undefined && buildNodeOptions(targets, selectedAgent).every((o) => o.disabled);
 
   // Nowhere to launch: the form has no question to ask, so it asks none and
   // says what to do instead. The caller's submit is already dead — `canSubmit`
@@ -289,8 +299,15 @@ export function NewSubshellForm({
           options={agentOptions}
           // The preset belongs to the agent, so a new agent drops the pick
           // (the copy's fields stay - they are the form's now).
-          onValueChange={(harnessId) => harnessId !== "" && onChange({ ...value, harnessId, presetId: null })}
+          onValueChange={(harnessId) =>
+            harnessId !== "" && onChange({ ...value, harnessId, presetId: null, harnessResetReason: undefined })
+          }
         />
+        {value.harnessResetReason && (
+          <p role="status" className="text-detail text-warning">
+            {value.harnessResetReason}
+          </p>
+        )}
         {noAgentHere && selectedNode ? (
           <p id={`${ids.agent}-no-agent`} className="text-detail text-muted-foreground">
             {"Nothing installed on "}
@@ -367,6 +384,19 @@ export function NewSubshellForm({
         onBlocksChange={(promptBlocks) => onChange({ ...value, promptBlocks })}
         addButtonId={ids.prompt}
       />
+
+      {!firstRun && (
+        <VirtualDisplayField
+          node={selectedNode}
+          id={ids.virtualDisplay}
+          resetReason={value.displayResetReason}
+          provider={value.displayProvider}
+          onProviderChange={(displayProvider) => onChange({ ...value, displayProvider, displayResetReason: undefined })}
+          checked={value.virtualDisplay === true}
+          onChange={(virtualDisplay) => onChange({ ...value, virtualDisplay, displayResetReason: undefined })}
+          onLeave={onLeave}
+        />
+      )}
 
       {/* Save as preset (operator ruling 2026-09-30, replacing the picker's
           `+`): the launch you just assembled can be kept, as a NEW preset

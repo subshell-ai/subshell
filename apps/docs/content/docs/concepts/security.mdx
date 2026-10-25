@@ -69,6 +69,44 @@ A view grant can expose credentials printed in terminal output. An edit grant le
 
 Sharing a node is a separate decision: even a view grant on a node permits the recipient to launch their own sessions there. The execution account and machine can access those processes and their files. Sharing a node doesn't automatically share every session on it. See [Access model](/concepts/access), [Share a subshell](/guides/sharing), and [Share a node](/nodes/sharing).
 
+### Preview security
+
+Web previews and virtual displays have separate opt-in settings on each node.
+The node owner also controls which display providers are allowed. A successful
+requirements check doesn't enable a feature or grant permission. App forwarding
+and virtual-screen input need edit access to the subshell. View access permits browser-frame
+watching, restricted to the browser discovered for that shared subshell.
+
+Forwarded websites run in an opaque-origin browser sandbox, including when
+opened in a separate browser tab. Their scripts can't read the dashboard DOM,
+storage, or authenticated API responses. Target cookies stay in a per-preview
+server-side jar rather than being installed on the dashboard origin. Browser
+storage, service workers, and some website login flows need the node's normal
+browser context; use **Virtual display** for those checks.
+
+The preview URL is a bearer access link. Anyone who obtains it can use it while
+it remains valid. Keep it out of public issues, shared browser history, and
+reverse-proxy access logs. Closing the tab releases its connections but doesn't
+immediately revoke a copied link. Forward sessions expire after 15 minutes
+without traffic; grant removal, account disable, subshell death, and node loss
+also cut off affected access. Switching Web previews & screens off prevents new operations,
+but isn't an emergency close for existing connections.
+
+The server sees forwarded website bytes and browser frames. The node link is
+encrypted, but this is not end-to-end encryption from your browser to the app.
+Automatically discovered apps use loopback. Saved services can reach an explicit host from the node, with edit access and node opt-in required. HTTPS connections validate the destination certificate on the node. Saving a service does not expose a new public listener.
+Edit access retains the execution account's authority over its local services;
+port discovery isn't an OS isolation boundary.
+
+Linux virtual displays use a private Xauthority file and a loopback-only RFB
+listener. That RFB listener has no separate password, so other local users able
+to reach it can control the screen. Don't enable virtual displays on a host
+shared with untrusted local OS users. GUI apps and agents retain their normal
+execution-account permissions.
+
+Follow [Web previews & screens](/guides/preview) for setup and the
+[preview architecture](/concepts/architecture#web-previews-and-virtual-displays) for the data path.
+
 ### Machine credentials
 
 Credentials serve different purposes:

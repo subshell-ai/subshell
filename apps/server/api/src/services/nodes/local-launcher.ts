@@ -9,9 +9,15 @@ import {
   type HarnessPlugin,
   paneEnvFor,
   TmuxRunner,
+  type VirtualDisplayRuntime,
   validateWorkingDir,
 } from "@internal/pane-runtime";
+import { HttpError } from "@/api/auth-guard.js";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
+import { getLocalPreviewRuntime, sweepLocalPreviewDisplays } from "@/preview/local-preview.js";
 import { probePaneLogLaunch } from "@/services/mcp-resolve.js";
+import { screenLaunchRemedy } from "@/services/nodes/preview-refusals.js";
+import { getPreviewBroker } from "@/services/preview-broker.js";
 import { logger } from "@/utils/logger.js";
 import { readLogTailFrom, TAIL_POLL_MS } from "./log-tail.js";
 import type { LaunchPlan, NodeLauncher } from "./node-launcher.js";
@@ -20,8 +26,10 @@ import { subshellLogDir, subshellLogPath, subshellSshConfigPath } from "./subshe
 /** Today's exact tmux/fs behavior behind the launcher seam (spec §6.3). */
 export class LocalLauncher implements NodeLauncher {
   readonly #tmux: TmuxRunner;
+  readonly #displayOverride?: VirtualDisplayRuntime;
 
-  constructor(deps: { tmux?: TmuxRunner } = {}) {
+  constructor(deps: { tmux?: TmuxRunner; displays?: VirtualDisplayRuntime } = {}) {
+    this.#displayOverride = deps.displays;
     this.#tmux = deps.tmux ?? new TmuxRunner();
     // The log dir must exist before ANY pipe-pane: tmux runs `cat >> <path>`
     // once, and a missing parent dir makes it die silently — every pane
@@ -54,6 +62,38 @@ export class LocalLauncher implements NodeLauncher {
    * logged (debug) and swallowed, exactly like the pre-seam revive did.
    */
   async launch(plan: LaunchPlan): Promise<void> {
+    let displayEnv: Record<string, string> | undefined;
+    if (plan.screen) {
+      let allocated = false;
+      try {
+        if (!this.#displayOverride) await sweepLocalPreviewDisplays();
+        await this.#displays().openFor(plan.id, plan.screen);
+        allocated = true;
+        displayEnv = this.#displays().launchEnv(plan.id);
+      } catch (err) {
+        if (allocated) await this.#displays().closeFor(plan.id);
+        const remedy = err instanceof Error ? screenLaunchRemedy(err.message) : null;
+        if (remedy) throw new HttpError(400, remedy);
+        throw err;
+      }
+    }
+    try {
+      await this.#launch(plan, displayEnv);
+      if (plan.screen) {
+        const screen = this.#displays().getFor(plan.id);
+        if (screen) getPreviewBroker().onDisplayOpened(LOCAL_NODE_ID, plan.id, screen);
+      }
+    } catch (err) {
+      if (plan.screen) await this.#displays().closeFor(plan.id);
+      throw err;
+    }
+  }
+
+  #displays(): VirtualDisplayRuntime {
+    return this.#displayOverride ?? getLocalPreviewRuntime().displays;
+  }
+
+  async #launch(plan: LaunchPlan, displayEnv?: Record<string, string>): Promise<void> {
     // SSH pane config (spec 2026-10-07 decision 4): whoever spawns the pane
     // writes the file, and for a local row that is THIS process — under the
     // SERVER's own dataDir, before the pane exists. The path is DERIVED, not
@@ -74,6 +114,7 @@ export class LocalLauncher implements NodeLauncher {
       plan.mcp,
       plan.harnessSession,
       plan.reporter,
+      displayEnv,
     );
     // The pane reports its OWN death through the same reporter prefix the
     // harness hooks use, so no new credential exists — but it does NOT arrive
@@ -90,7 +131,7 @@ export class LocalLauncher implements NodeLauncher {
     // a preset may deliberately override `SUBSHELL_BASE_URL` (see
     // `paneEnvFor`), and a death report that went somewhere else than
     // the pane's own MCP calls would be a silent 401 nobody could explain.
-    const hookEnv = paneEnvFor(plan.subshellEnv, plan.preset, plan.mcp?.env);
+    const hookEnv = paneEnvFor(plan.subshellEnv, plan.preset, plan.mcp?.env, displayEnv);
     this.#tmux.newSubshell(plan.socket, plan.id, plan.cwd, cmd, exitHookFor(plan.reporter, hookEnv));
     // Stream all pane output to a per-subshell log file for attach replay.
     const logFile = subshellLogPath(plan.id);
@@ -163,11 +204,13 @@ export class LocalLauncher implements NodeLauncher {
    */
   async terminate(socket: string, id: string): Promise<void> {
     this.#tmux.run(["-L", socket, "kill-session", "-t", id], {});
+    await this.#displays().closeFor(id);
   }
 
   /** Kills the subshell, swallowing "already gone" (TmuxRunner.killSubshell semantics). */
   async killSubshell(socket: string, id: string): Promise<void> {
     this.#tmux.killSubshell(socket, id);
+    await this.#displays().closeFor(id);
   }
 
   /** Unlinks the dead server's socket file on THIS host. See {@link NodeLauncher.cleanSocket}. */

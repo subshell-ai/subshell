@@ -1063,6 +1063,22 @@ consequences are:
   old sessions. Peer pins remain unchanged and require separate verified
   repair. A corrupt identity or quarantined pin store requires restoring
   verified files, rather than treating missing trust as first use.
+- **Preview lanes carry pane bytes to the plane on purpose (pane-preview spec
+  2026-10-21), accounted here the way the relay lanes are.** A forward lane
+  dials loopback by default, or an explicit saved HTTP(S) destination from the node.
+  Protocol 24 carries a validated host and protocol for that destination; TLS
+  certificate checks stay enabled. The plane rewrites `Host` to the destination; the
+  session's 32-hex ref inside the `/pv/` path is the credential. The
+  screencast bridge dials CDP on the node's loopback, so frames ride the
+  encrypted node link like any other node event. The plane therefore sees
+  proxied bytes by design, not by accident (spec §8), and what a lane reaches
+  is what an `edit` viewer could type into the pane's own browser anyway.
+  Watch frames fan out through `/ws/live`, so §11.14's control governs stream
+  subscribers exactly as it governs the rest of the feed, and a machine with
+  no capture stack refuses by name (`preview-ports-unsupported`,
+  `preview-display-unsupported`) instead of half-serving silently. Browser
+  document isolation, bearer-link exposure, and local-user limits are accounted
+  separately in §11.15.
 - **Node shares and subshell shares are independent axes.** Sharing a node does
   not hand out subshell tokens, but anything launched there trusts the machine.
 - **Whoever owns the node's OS user owns every pane launched there**, including
@@ -4035,6 +4051,159 @@ audience is a topic. They are PULLED instead, by the one surface that draws
 them, through a request filtered by the ordinary visible-set read, so an id
 the viewer cannot see is absent from the answer rather than refused, and ids
 stay unprobeable.
+
+## 11.15 Web previews and virtual displays
+
+
+Web-preview access and virtual displays have independent opt-in permissions per
+node, including the built-in node. The node owner controls them; an administrator
+controls the built-in node. The server checks the corresponding database setting
+before opening a preview or creating a display, and enrolled nodes check the
+corresponding signed mirror field. The transport runs when either feature is
+allowed; that transport allowance alone does not authorize the other feature.
+New nodes default both permissions off. The owner also controls the enabled
+display providers and the default. These values travel in the signed mirror.
+Launch checks the requested provider against the enabled set on both the
+server and the node before allocation; unknown providers never fall back to
+another implementation. A subshell pins its provider when created. Changing
+the default cannot switch an existing subshell’s provider on restart.
+The provider runtime rechecks feature permission and provider membership after
+asynchronous readiness, immediately before allocation. Opens and closes are
+ordered per subshell so competing providers cannot both acquire it and cleanup
+cannot finish ahead of a pending allocation. Providers are trusted bundled
+code running with the host's privileges, not a plugin sandbox. Their local
+launch environment never enters public display descriptors.
+Turning it off prevents new operations. It does not drain existing lanes,
+terminate a subshell, or stop graphical programs.
+
+| Surface | Authorization and boundary |
+| --- | --- |
+| Discovery and browser watch | Subshell view access; view-only watchers are restricted to that subshell's discovered CDP port. |
+| App forwarding and virtual-screen input | Subshell edit access, including its shell-equivalent authority over the execution account. |
+| `/pv/<ref>/` HTTP and WS | The random 128-bit path reference is the credential. A forwarded link can be used without the opener's cookie. |
+| Browser frame subscriptions | Authorized `/ws/live` registration and recipient pruning, as in §11.14. |
+| Saved preview panels | Parsed resource identity and an authorized parent workspace pane. Parameters are reconstructed, not trusted. |
+
+### MCP Preview discovery and launch
+
+The MCP Preview tools call the existing subshell discovery, open, and watch
+routes with the pane's token; they don't grant access to another user's shared
+subshell. Display allocation uses the normal launch checks. Returning a proxy
+capability makes it a secret in the MCP conversation, with the same bearer-link
+risk and revocation rules as browser-created capabilities.
+
+`GET /api/nodes/:id/display-readiness` accepts subshell tokens for a read-only
+prerequisite probe. `loadNodeGate` restricts machine actors to owned enrolled
+nodes, excluding shares, admin privilege inheritance, and the server host.
+Node management/detail and SSH guards are unchanged. Node discovery reports
+SSH settings and harness health without granting configuration or SSH access.
+
+**Website JavaScript does not inherit dashboard authority.** Proxied documents
+carry a CSP sandbox without `allow-same-origin`; embedded app viewers also use
+the iframe sandbox attribute. Their opaque origin cannot read the dashboard
+DOM or storage. The browser's dashboard cookie is stripped on target requests,
+and target cookies stay in a per-session server-side jar rather than setting
+cookies on the dashboard origin. The HTTP proxy strips `Authorization`,
+`X-Api-Key`, `Forwarded`, `Remote-User`, and headers in the `CF-Access-*`,
+`X-Auth-*`, `X-Amzn-Oidc-*`, and `X-Forwarded-*` families. Operators using other
+custom identity headers must prevent those from reaching preview routes.
+Target `Clear-Site-Data`, `WWW-Authenticate`, HSTS, Alt-Svc, NEL, Report-To,
+Reporting-Endpoints, Accept-CH, and Critical-CH response headers are removed
+so a dev server cannot install those origin-wide dashboard policies.
+Responses use `Cache-Control: no-store` and
+`Referrer-Policy: no-referrer`.
+
+Preview CORS permits modules and application requests only under the capability
+path. `Origin: null` is supported for those preview preflights and WebSocket
+handshakes because sandboxed documents produce it. It remains refused by the
+dashboard API and dashboard WebSocket origin gates. The WS capability must
+still exist before a tunnel opens. This exception does not add `null` to the
+instance's trusted-origin registry.
+
+The sandbox deliberately prevents same-origin storage and service-worker use.
+Sites requiring those browser capabilities, JavaScript-managed cookies, or a
+full browser login should run in the node's browser and be checked through a
+virtual display. Target CSP remains effective apart from its framing directive;
+a strict target policy can still prevent an embedded app from working.
+
+**The server and node remain trusted endpoints.** Remote bytes cross the
+established encrypted node link, but the server decrypts and proxies them. This
+is not end-to-end encryption between the viewer and the website. Each dial uses
+loopback literals and a bounded port by default. Saved services deliberately extend
+this to a hostname or IP and HTTP/HTTPS, chosen by an edit-authorized user and
+stored under the subshell. This grants network reach from that node, including
+private networks, at the same shell-equivalent authority as terminal input. Hosts
+cannot contain credentials, paths, or header text. TLS remains certificate-verified;
+the proxy never follows redirects server-side. Deleting a saved entry cancels
+pending opens and revokes its capabilities without stopping the service. Saves
+and removals are audited without capability URLs. Port
+discovery is not a security allowlist for an edit-authorized forward: shell
+editors can already contact the execution account's local services. View-only
+browser watches do not receive that authority and cannot select arbitrary ports.
+Live-feed sockets receive frames only for their user’s authorized REST watch registration, not merely because they subscribe to a pane. An edit-to-view downgrade removes registrations for browsers outside the pane’s discovered port.
+Discovery is cached for five seconds, so it is not a durable OS process-isolation
+claim against a machine capable of rebinding its ports. CDP discovery refuses
+redirects and bounds JSON at 256 KiB; the returned WebSocket must retain the
+requested loopback port. Cancellation aborts discovery and pending handshakes.
+
+**A virtual display is not isolation from local OS users.** Xvfb disables its
+TCP listener and uses a private Xauthority file. x11vnc binds loopback and uses
+no separate RFB password; the authenticated proxy is the remote access boundary.
+Other local users able to reach that loopback listener can interact with the
+screen. Do not enable displays on hosts shared with untrusted local users.
+Agents and GUI applications retain their normal execution-account permissions.
+The allocator skips X sockets and X lock files owned by other data directories;
+a concurrent bind can still fail closed rather than reusing their screen.
+RFB candidates are reserved before asynchronous port probes, so concurrent
+allocations cannot choose the same port in one runtime. Allocation and recovery
+also join the loopback listener's socket inode to the x11vnc process's open file
+descriptors; another process answering on the candidate port cannot establish
+readiness. Unreadable process state refuses recovery. Rehydration and teardown
+verify saved PIDs against the executable and the display's Xauthority argument
+before trusting or signalling them. These checks prevent accidental cross-display
+routing; they don't change the local-user limitation or promise protection
+against a hostile OS account rebinding a port after a check.
+
+**Capabilities need protection beyond application logs.** `/pv/` paths are
+excluded from request logs and full references are absent from preview audit
+metadata. Reverse proxies, browser history, copied links, and an operator's
+external diagnostics can still retain a capability URL. Treat it as a secret.
+Closing a tab releases its connections, but the forward session can remain
+valid until its 15-minute traffic-idle expiry, loss of the opener's access,
+subshell death, account disable, or node loss. Explicit terminate, delete, and
+restart await preview teardown before stopping the old pane, independently of
+its exit hook. Opens waiting for node acknowledgement are included in those
+sweeps and in share, account, and node revocation; the route's current
+account/access and pane/node availability are checked again before publication.
+An edit-to-view downgrade also repeats the discovered-port restriction, and
+permission reads overtaken by a sweep must be repeated.
+Explicit lifecycle actions also sweep after retiring the old row, covering
+opens that arrived during the stop. Individual lanes and bridges
+also receive best-effort teardown when an open reply times out or is malformed.
+Live-screen subscriptions repeat access checks overtaken by a revocation sweep
+and refuse disabled accounts or accounts requiring a password change. Lanes and bridges
+have a four-hour ceiling; it is not a fixed lifetime for an actively reused
+forward capability. Use grant removal or end the subshell when revocation is
+required rather than relying on closing a tab or switching Preview off.
+
+Resource limits bound active lanes, queued requests, frame sizes, stream byte
+debt, and screencast rate; they are not general API rate limiting. Session maps
+and cookie jars are in server memory. Per node, retained forward capabilities
+are capped at 64 and pending opens at 32; discovery caching holds 512 entries. Proxy queues, unread lane bytes, target TCP write queues,
+browser WS debt, and assembled WS messages have a 1 MiB ceiling; chunked HTTP
+bodies stream without holding whole chunks. Preview sends check the encrypted
+link's buffered bytes before sealing, and failed sealed writes close the link.
+Image dimensions are bounded at 8,192 per axis and 16,777,216 pixels. JPEG/PNG
+headers are checked before browser decoding; noVNC also bounds its render
+queue and consumes unused clipboard messages without decompression. Optional
+H.264 and animated PNG decoding are refused. Jars retain at most 128 cookies
+and 64 KiB, with a 4 KiB per-cookie limit. Untrusted execution programs can
+consume host resources. The existing trusted-instance and OS-account posture
+still applies.
+
+See [Preview architecture](preview-architecture.md) for protocol shapes, limits,
+and lifecycle, and the [2026-10-24 audit](security-actionable.md#preview-feature-audit-2026-10-24)
+for the findings, fixes, and verification scope.
 
 ## 12. Hardening checklist for a wider deployment
 

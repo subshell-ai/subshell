@@ -1,5 +1,284 @@
 # Security follow-ups and audit history
 
+## Display provider refactor audit: 2026-10-25
+
+This review covered the provider registry, Xvfb lifecycle, signed node settings,
+node configuration and readiness authorization, persisted launch/restart choices,
+presets, viewer descriptors, and MCP reporting. It found and corrected:
+
+1. **Medium: concurrent allocations could publish the same RFB port.** Both
+   launches could probe a free port before either x11vnc process bound it. The
+   answering listener could then satisfy readiness for both displays. Candidates
+   are now reserved before probing, and allocation and recovery verify that the
+   IPv4 loopback listener's socket inode belongs to the intended x11vnc PID.
+   Regressions reproduce concurrent selection, a foreign responding listener,
+   and refusal to recover a record pointing at someone else's listener.
+2. **Medium: asynchronous readiness could outlive permission.** The runtime
+   checked the feature and provider settings before awaiting readiness, then
+   allocated without checking again. It now rechecks both settings before
+   allocation. Tests revoke each independently while readiness is pending and
+   assert that no allocation occurs.
+3. **Low: provider operations could overlap for one subshell.** Concurrent opens
+   could each observe no owner, and a close could finish before an asynchronous
+   provider published its allocation. Per-subshell operation ordering now makes
+   later opens observe the owner and makes cleanup wait for the pending work.
+   The regression overlaps two providers and a close, then checks that the
+   competing provider never allocates and no display remains.
+
+The follow-up review retained the existing trust model: bundled providers are
+trusted host code; node owners control allowed providers, and subshell agents
+cannot change node settings. Readiness and MCP capability reports grant no
+permission. Defaults are resolved before persistence, restarts retain that
+provider, and disabled settings leave existing displays running. The no-password
+loopback RFB and local OS-user limitations remain documented in
+[security §11.15](security.md#1115-web-previews-and-virtual-displays).
+
+## Preview feature audit: 2026-10-24
+
+This targeted review followed the discovery, open/watch, HTTP/WS proxy,
+broker, local runtime, enrolled-node runtime, and workspace-layout paths.
+It found and corrected six issues across browser isolation, authorization,
+credential handling, lifecycle, diagnostics, and display allocation:
+
+1. **High: website JavaScript shared the dashboard origin.** App iframes lacked
+   a sandbox and direct preview documents had no response-enforced isolation.
+   A malicious website could access dashboard DOM/storage and make authenticated
+   API requests as the person checking it. App viewers now use an opaque-origin
+   iframe sandbox, and every proxied response enforces the sandbox for direct
+   tabs too. Target cookies stay in the server jar, preview responses cannot set
+   dashboard cookies, and no-referrer/no-store policies reduce link retention.
+   Preview-only CORS and `Origin: null` WS handling preserve modules, fetch,
+   and HMR-style tunnels without trusting that origin on dashboard endpoints.
+
+2. **High: a view grantee could choose another browser port.** The watch route
+   accepted an explicit CDP port with only view access to any shared subshell
+   on that node. A guessed port could expose another subshell's browser frames.
+   View-only requests now have to match the CDP port discovered for their own
+   shared subshell. Owners and edit grantees retain explicit-port support,
+   consistent with their existing shell authority. The REST regression verifies
+   refusal before opening a bridge.
+
+3. **Medium availability: display allocation ignored other data directories.**
+   Each runtime started at `:90` with locks in its own data directory. A second
+   isolated server collided with a display already running on this host, then
+   failed the readiness budget. Allocation now skips existing host X sockets
+   and X lock files; a unit regression covers externally occupied numbers.
+   Xauthority prevented the observed collision from becoming screen access.
+
+4. **Medium: runtime diagnostics printed complete preview references.** The
+   initial forward probe used the future browser capability reference, so a
+   runtime log line could disclose a usable link secret. Forward and CDP
+   lifecycle diagnostics now retain only an eight-character correlation prefix.
+   Reverse-proxy and browser-history retention remain operator concerns.
+
+5. **High: proxy headers could cross the dashboard trust boundary.** Browser
+   HTTP authorization and known edge-identity headers could reach a dev server;
+   upstream origin-wide headers such as `Clear-Site-Data` could affect dashboard
+   state. The HTTP proxy now strips these credentials and forwarded identity,
+   along with target storage-clearing, HTTP-authentication, HSTS, and Alt-Svc
+   response headers. Regressions verify both directions. Custom authentication
+   headers outside the recognized families still need operator review.
+
+6. **Medium: explicit subshell stops relied on the exit hook for revocation.**
+   Deleting a subshell could leave its capability registered after the row was
+   gone; a real browser regression observed a 500 instead of a revoked-link 404.
+   Existing connections also needed teardown independent of the exit hook.
+   Terminate, delete, and restart now await broker teardown before stopping the
+   old pane. Unit tests cover all three actions, owner checks, and ordering;
+   the Chromium regression verifies deletion immediately invalidates the URL.
+
+The real-Chromium check in `e2e/capture-preview-demo.ts --security-only` verifies
+embedded and direct preview documents against a disposable server: opaque
+origins, blocked parent/storage/cookie/API reads and service-worker registration, and working ES modules, JSON POST
+preflights, and application WebSockets. The same checks run in CI through
+`e2e/tests/48-preview-browser-isolation.spec.ts`. Unit tests cover proxy headers and cookie
+separation, foreign and opaque WS origins, watch-port authorization, reference
+ownership, revocation, caps, and saved-layout parent binding. The capture also
+exercises real dev-server forwarding and Linux virtual-display rendering.
+
+This is a source audit and targeted regression pass, not an independent
+penetration test. Native macOS behavior, other browsers, all framework-specific
+HMR/login flows, reverse-proxy log retention, and mutually untrusted local OS
+users were not exhaustively tested. Accepted bearer-link, loopback RFB,
+execution-account, cookie-jar, and resource-usage limits are stated in
+[security §11.15](security.md#1115-web-previews-and-virtual-displays).
+
+## Preview follow-up audit: 2026-10-24
+
+A second implementation review tested the asynchronous open and revocation
+paths, CDP destinations, proxy parsers, and target-controlled browser policy.
+It reproduced and corrected four further boundaries:
+
+1. **High: revocation missed opens waiting for node acknowledgement.** The
+   broker registered sessions only after the RPC completed. An app or watch
+   could therefore finish opening after share removal, account disable,
+   subshell teardown, or node loss had swept the registered sessions. Eight
+   held-ack regressions failed before the fix. Pending opens now participate in
+   those sweeps, recheck account/access/liveness/node availability before
+   publication, and close late node registrations. Explicit lifecycle actions
+   sweep again after the old row is retired or parked, covering opens that
+   arrived while the process was stopping.
+
+2. **High: CDP answers could redirect discovery or repoint a watch at another
+   loopback browser.** `/json/version` and `/json/list` followed HTTP redirects;
+   the returned WebSocket URL needed only a loopback hostname. Discovery now
+   refuses redirects, caps JSON at 256 KiB, and aborts on timeout or cancellation.
+   A WebSocket URL must retain the requested port, use WS/WSS, and contain no
+   credentials or fragment. The localhost alias is normalized to a literal
+   loopback address. Pending handshakes count toward node capacity and can be
+   cancelled individually.
+
+3. **Medium: target responses could grow proxy memory beyond lane budgets.**
+   HTTP chunk parsing buffered whole declared chunks, the browser response
+   queue and unread duplex had no byte cap, and the upstream WebSocket receiver
+   accepted unbounded fragmented messages. HTTP chunks now stream incrementally;
+   queues, unread lane bytes, browser WS debt, and WS messages are capped at
+   1 MiB. Malformed framing and truncated bodies fail without retrying writes.
+   Cookie jars retain at most 128 entries and 64 KiB, with a 4 KiB cookie limit.
+   Target Content-Length is dropped so the proxy controls browser framing.
+
+4. **Medium: target reporting headers could persist policy for the dashboard
+   origin.** NEL, Report-To, Reporting-Endpoints, Accept-CH, and Critical-CH now
+   join the response-header denylist. A dev server cannot use those headers to
+   enroll the dashboard in its network-error reporting or client-hint policy.
+
+Regressions exercise late acknowledgements after each revocation, changed
+access at publication, redirects without destination contact, foreign loopback
+CDP ports, oversized discovery JSON, slow HTTP readers, huge chunk declarations,
+malformed/truncated framing, fragmented WebSocket limits, cookie eviction, and
+response-header filtering. The Chromium and enrolled-node preview checks remain
+the end-to-end coverage for ordinary traffic. The original audit's scope and
+remaining trust boundaries still apply; this does not claim general denial-of-service
+protection or OS-user isolation.
+
+## Additional preview race and resource audit: 2026-10-24
+
+A further review reproduced three more issues. Nine regression cases failed
+before their fixes:
+
+1. **High: a pending live-screen subscription could outlast revocation.**
+   `/ws/live` checked access asynchronously, then registered the viewer. A
+   share or user sweep during that check found no registered viewer to remove;
+   the old permission answer could then attach the socket and receive another
+   viewer's active screencast. Revocation now advances a broker revision before
+   its first await. Subscription checks retry when that revision changes,
+   failing closed after three attempts. They also recheck account disable and
+   required password changes before attaching.
+
+2. **Medium availability: a non-reading target could grow the node's TCP
+   write queue.** Browser-to-target writes ignored socket backpressure. The
+   runtime now checks queued bytes plus the incoming frame against the 1 MiB
+   lane budget and closes the lane with `slow-link` before exceeding it.
+   This applies while connecting as well as after connection. A real Bun TCP
+   probe confirmed that stalled writes appear in `writableLength`.
+
+3. **Medium availability: uncertain open replies could strand node resources.**
+   Timeout and malformed-reply paths discarded the server reservation without
+   closing the node reference. Probes, forward lanes, and screencast bridges
+   now attempt a close when the reply cannot establish the outcome, and verify
+   the acknowledged reference. An explicit node refusal still propagates
+   unchanged. Cleanup is best effort when the node is unreachable; link loss
+   and the existing lifetime ceiling remain the fallback.
+
+Regression coverage includes share and user revocation during subscription,
+disabled accounts before socket closure, bounded authorization retries, a
+stalled TCP writer, and uncertain replies across all three open paths. The
+earlier audits' scope and accepted trust boundaries still apply.
+
+## Preview authorization and allocation audit: 2026-10-24
+
+The next pass found and fixed five more issues:
+
+1. **High: an edit-to-view downgrade could preserve an arbitrary watch port
+   during an open.** The publication check required view access but did not
+   repeat the view-only port restriction. It now checks the discovered CDP
+   port against current access, and repeats authorization when a share sweep
+   overtakes an asynchronous permission read. Tests hold both the node reply
+   and a permission read across the downgrade.
+
+2. **Medium availability: image metadata and decoder inputs could request
+   excessive allocations in the dashboard.** Screencast dimensions and encoded
+   sizes are checked at the runtime, protocol, broker, and browser boundaries.
+   The browser checks JPEG frame headers before image decoding. The noVNC
+   integration also bounds framebuffer, cursor, and rectangle dimensions,
+   queued rendering, and embedded JPEG/PNG dimensions. It refuses animated
+   PNGs and the unused H.264 path. Clipboard messages, which ScreenViewer
+   does not expose, are consumed within a byte budget without decompressing
+   extended clipboard data. Real-class regressions pin the noVNC integration
+   to the installed 1.7 API. These guards limit allocations; they do not claim
+   to sandbox browser codecs or prevent an authorized execution program from
+   using CPU.
+
+3. **Medium availability: the encrypted node transport could queue preview
+   traffic outside the lane limits.** Both senders now check the WebSocket's
+   buffered bytes before sealing. Refusal leaves encryption state untouched;
+   a failed write after sealing closes the connection rather than continuing
+   a secretstream with a missing frame. A TCP forward closes on its first
+   undeliverable output instead of silently skipping bytes.
+
+4. **Medium availability: inactive capabilities and pending opens had no
+   independent capacity limit.** The broker now admits 64 retained forward
+   capabilities and 32 pending opens per node, counting reservations before
+   any await. Its discovery cache holds at most 512 entries and checks node
+   identity as well as pane identity. Existing lane and bridge limits remain
+   independent. This bounds retained state, not overall authenticated API
+   request rate.
+
+5. **Medium availability: display cleanup trusted saved PIDs.** A reused PID
+   could be signalled as an old display child. Rehydration, liveness checks,
+   and teardown now verify the executable name and this display's exact
+   Xauthority argument through Linux procfs. A mismatched process is never
+   signalled. This is a stale-process guard, not isolation from malicious code
+   running under the same OS account; the process can still exit between the
+   check and signal.
+
+The same pass corrected screencast acknowledgements to echo CDP's numeric
+session identifier. That correctness fix keeps real browser captures flowing
+while their images pass through the new guards.
+
+### Final pass and verification
+
+After the fixes, another pass reviewed REST and live-socket authorization,
+publication and subscription races, bearer capabilities and revocation, proxy
+headers/cookies/origins, HTTP and WebSocket framing, both encrypted-link send
+queues, discovery and CDP destination validation, browser decoding, display
+process ownership, and retained resource budgets. It found no additional high-
+or medium-severity issues within the preview threat model in §11.15.
+
+The affected server, node, web, protocol, and shared-runtime suites passed,
+as did all 56 type/build dependency tasks and 170 documentation tests.
+The aggregate run exposed a frontend-build/test race; the affected server
+suite passed on its own after the build. Three Chromium scenarios covered
+setup/login, enrolled-node previews, and embedded/direct browser isolation.
+A real Chromium screencast emitted 12 accepted frames across repeated
+repaints, and the updated noVNC integration rendered a real 1280×800 x11vnc
+screen through the built-in node. Real PNG and JPEG captures passed the
+encoded-image guards. The manual test login was checked through Vite on 5174.
+This is the stopping point for this targeted audit, not a guarantee that no
+vulnerabilities exist outside the reviewed paths or accepted trust model.
+
+### Dependency audit outside the preview runtime
+
+The two Expo-tooling advisories found during review have been addressed:
+[Zod collection validation](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5)
+no longer appears after updating all resolutions to 4.6.7, including a scoped
+Expo CLI override with schema compatibility checks.
+
+[node-forge signature verification](https://github.com/advisories/GHSA-86w9-cpqp-85rv)
+has no published fixed release as of 2026-10-25. The tracked Bun patch for
+1.4.0 backports the nested DigestAlgorithm element-count validation proposed
+in [upstream PR #1152](https://github.com/digitalbazaar/forge/pull/1152).
+The regression test reproduces acceptance of malformed signatures without
+the patch, confirms rejection with it, and checks valid signatures and
+certificates through the same installed Forge used by Expo CLI and
+`@expo/code-signing-certificates`. These are mobile build/dev dependencies,
+not dependencies of the shipped preview runtime.
+
+The version-based audit still reports Forge 1.4.0; its exception now records
+the tested mitigation. Replace the patch and remove the exception once a
+fixed upstream release is available. This does not claim that Forge has no
+other vulnerabilities.
+
 ## Targeted code audit: 2026-10-21
 
 This pass reviewed authentication and scoped credentials, node enrollment and

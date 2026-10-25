@@ -4,6 +4,8 @@ import { X } from "lucide-react";
 import { type JSX, useEffect, useRef, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
 import { PaneFocusHeader } from "@/components/pane-focus-header";
+import { PreviewChooserDialog } from "@/components/preview/preview-chooser-dialog";
+import { PreviewTabContent } from "@/components/preview/preview-tab-content";
 import { SubshellDot } from "@/components/subshell-dot";
 import { SubshellPane } from "@/components/subshell-pane";
 import { SubshellPicker } from "@/components/subshell-picker";
@@ -12,6 +14,15 @@ import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { isPaneWaiting } from "@/lib/subshell-order";
 import { onWorkspacePaneFocusRequest, setWorkspaceFocusedId, takePaneFocusOnArrive } from "@/lib/workspace-focus";
+import { panelIdsInLayout } from "@/lib/workspace-layout";
+import {
+  onWorkspacePreviewRequest,
+  parseWorkspacePreviewId,
+  previewPanelId,
+  previewParentId,
+  publishWorkspacePreviews,
+  workspacePreviewLabel,
+} from "@/lib/workspace-preview";
 import type { SplitIntent } from "@/lib/workspace-split-intent";
 import type { SplitDirection, WorkspaceDetail, WorkspacePaneRow } from "@/types/workspace";
 
@@ -129,12 +140,58 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
   const navigate = useNavigate();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [chooserId, setChooserId] = useState<string | null>(null);
+  const [previewIds, setPreviewIds] = useState<string[]>(() =>
+    panelIdsInLayout(detail.workspace.layout).filter((id) => previewParentId(id)),
+  );
+  const previewPanes = previewIds.flatMap((id) => {
+    const parsed = parseWorkspacePreviewId(id);
+    const pane = detail.panes.find((row) => row.id === parsed?.paneId);
+    return pane && parsed ? [{ ...pane, id, paneId: pane.id, view: parsed.view }] : [];
+  });
+  const selectedPreview = previewPanes.find((pane) => pane.id === selectedId);
+  function closePreview(id: string, paneId: string) {
+    setPreviewIds((ids) => ids.filter((entry) => entry !== id));
+    if (selectedId === id) setSelectedId(paneId);
+  }
+  useEffect(
+    () =>
+      onWorkspacePreviewRequest((subshellId, view) => {
+        const pane = detail.panes.find((row) => row.subshellId === subshellId);
+        if (!pane) return false;
+        if (!view) {
+          setChooserId(subshellId);
+          return true;
+        }
+        const id = previewPanelId(pane.id, view);
+        setPreviewIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
+        setSelectedId(id);
+        return true;
+      }),
+    [detail.panes],
+  );
+  useEffect(() => {
+    publishWorkspacePreviews(
+      previewPanes.map((pane) => ({
+        id: pane.id,
+        paneId: pane.paneId,
+        view: pane.view,
+        subshellId: pane.subshellId,
+        workspaceId: detail.workspace.id,
+      })),
+      selectedPreview?.id ?? null,
+    );
+  }, [previewPanes, selectedPreview, detail.workspace.id]);
+  useEffect(() => () => publishWorkspacePreviews([], null), []);
   const { addPane, removePane, restartSubshell } = useWorkspacePaneMutations(detail.workspace.id);
 
   // Falls back to the first pane whenever `selectedId` doesn't name a pane
   // that still exists — including the moment the poll removes whichever pane
   // was selected — without needing a separate effect to "clamp" it.
-  const selected = detail.panes.find((p) => p.id === selectedId) ?? detail.panes[0];
+  const selected =
+    (selectedPreview && detail.panes.find((pane) => pane.id === selectedPreview.paneId)) ??
+    detail.panes.find((p) => p.id === selectedId) ??
+    detail.panes[0];
 
   // Publish the selected tab as the dock's equivalent focus, so the rail rings
   // one tab in the narrow presentation too (the dock owns this on wide ones).
@@ -282,6 +339,7 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
 
   return (
     <>
+      {chooserId && <PreviewChooserDialog subshellId={chooserId} onClose={() => setChooserId(null)} />}
       <PaneFocusHeader
         fallbackName={detail.workspace.name}
         panes={detail.panes}
@@ -336,30 +394,62 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
             <WorkspaceTab
               key={pane.id}
               pane={pane}
-              active={pane.id === selected?.id}
+              active={!selectedPreview && pane.id === selected?.id}
               onSelect={() => setSelectedId(pane.id)}
               onRemove={() => void handleRemovePane(pane.id)}
               waiting={isPaneWaiting(pane)}
             />
           ))}
+          {previewPanes.map((pane) => (
+            <div key={pane.id} data-pane-id={pane.id} className="flex shrink-0 items-center border-b-2">
+              <Button
+                variant={selectedPreview?.id === pane.id ? "secondary" : "ghost"}
+                aria-current={selectedPreview?.id === pane.id}
+                className="min-h-9 px-4"
+                onClick={() => setSelectedId(pane.id)}
+              >
+                {workspacePreviewLabel(pane.view)} · {pane.subshellName}
+              </Button>
+              <ExplainedButton
+                type="button"
+                aria-label={`Close ${workspacePreviewLabel(pane.view)} for ${pane.subshellName}`}
+                onClick={() => closePreview(pane.id, pane.paneId)}
+              >
+                <X className="size-4" />
+              </ExplainedButton>
+            </div>
+          ))}
         </div>
         <div className="relative min-h-0 flex-1">
+          {selectedPreview && (
+            <div className="absolute inset-0">
+              <PreviewTabContent
+                key={selectedPreview.id}
+                subshellId={selectedPreview.subshellId}
+                choice={selectedPreview.view}
+                onClose={() => closePreview(selectedPreview.id, selectedPreview.paneId)}
+              />
+            </div>
+          )}
           {detail.panes.length === 0 && (
             <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
               No subshells in this workspace yet. Add one above.
             </div>
           )}
           {detail.panes.map((pane) => (
-            <div key={pane.id} className={cn("absolute inset-0", pane.id === selected?.id ? "block" : "hidden")}>
+            <div
+              key={pane.id}
+              className={cn("absolute inset-0", !selectedPreview && pane.id === selected?.id ? "block" : "hidden")}
+            >
               <SubshellPane
                 pane={pane}
-                active={pane.id === selected?.id}
+                active={!selectedPreview && pane.id === selected?.id}
                 // The phone's answer to `DockedPane`'s `visible && isActive`:
                 // only the selected tab is shown and only one key bar may ride
                 // the strip. `SubshellPane` still gates the bar on coarse
                 // pointer itself, so a narrow desktop window gets no bar here
                 // any more than in the dock.
-                showKeyBar={pane.id === selected?.id}
+                showKeyBar={!selectedPreview && pane.id === selected?.id}
                 onRestart={(subshellId) => void handleRestart(subshellId)}
                 onRemovePane={(paneId) => void handleRemovePane(paneId)}
               />

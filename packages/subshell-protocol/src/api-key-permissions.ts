@@ -38,6 +38,11 @@ export const API_KEY_PERMISSION_GROUPS = [
         description: "Enable or disable Subshell SSH and use of the machine's keys.",
       },
       {
+        id: "nodes:preview",
+        label: "Change apps and screens access",
+        description: "Enable or disable apps and screens on a node.",
+      },
+      {
         id: "nodes:ssh-wide-forwards",
         label: "Allow network-accessible forwards",
         description: "Allow SSH forwards to listen on addresses other machines can reach.",
