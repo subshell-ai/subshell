@@ -80,7 +80,7 @@ export function VirtualDisplayField({
         Run graphical apps on a machine without a monitor.
       </p>
       {resetReason && (
-        <p id={`${id}-reset`} role="status" className="text-detail text-warning">
+        <p id={`${id}-reset`} role="status" className="text-destructive text-detail">
           {resetReason}
         </p>
       )}
