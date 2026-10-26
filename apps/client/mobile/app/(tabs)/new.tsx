@@ -23,6 +23,7 @@ import { useSubshells } from "@/hooks/use-subshells";
 import { agentDefault } from "@/lib/agent-default";
 import { errMessage } from "@/lib/api-error";
 import { isSelectable, nodePickSettled, nodeRunsHarness, nodeUnpickableReason, pickNodeDefault } from "@/lib/node-pick";
+import { isPresetOffered } from "@/lib/preset-visibility";
 import { colors, font, radius, touchTarget } from "@/lib/tokens";
 import { useSubshell } from "@/providers/subshell-provider";
 import type { ExploreResult } from "@/types/files";
@@ -108,20 +109,24 @@ export default function NewSubshell() {
     if (pick) setHarnessId(pick);
   }, [harnessId, nodes.isFetched, nodes.data, nodeId, plugins.data, subshells.data, installedOnNode]);
 
-  // The chosen agent's presets — the row exists only when there is at least
-  // one (spec §5: "a new account has zero presets and the row would offer
-  // only None"). Changing the agent resets the preset to None.
+  // The chosen agent's ENABLED presets (spec 2026-10-24: the enable switch,
+  // mirrored from web): a disabled row never reaches the chips. The row
+  // exists only when there is at least one (spec §5: "a new account has zero
+  // presets and the row would offer only None", and an all-disabled store is
+  // that same emptiness). Changing the agent resets the preset to None.
   const agentPresets = useMemo(
-    () => (presets.data ?? []).filter((p) => p.harnessId === harnessId),
+    () => (presets.data ?? []).filter((p) => p.harnessId === harnessId && isPresetOffered(p)),
     [presets.data, harnessId],
   );
 
   // Coherence guard (web's one-liner in new-subshell-form.tsx): a held
   // preset that has vanished from the chosen agent's list — deleted on
-  // another device — falls back to None instead of riding the submit into a
-  // 404. Only an answered list may clear: while presets are still loading,
-  // absence proves nothing. (Changing the agent already resets the pick, so
-  // web's harness-mismatch branch is unreachable here by construction.)
+  // another device, or disabled there (spec 2026-10-24: the filter above
+  // drops it, so a remote disable un-picks just like a delete) — falls
+  // back to None instead of riding the submit into a 404. Only an answered
+  // list may clear: while presets are still loading, absence proves
+  // nothing. (Changing the agent already resets the pick, so web's
+  // harness-mismatch branch is unreachable here by construction.)
   useEffect(() => {
     if (presetId === null || !presets.data) return;
     if (!agentPresets.some((p) => p.id === presetId)) setPresetId(null);

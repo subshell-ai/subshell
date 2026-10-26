@@ -253,6 +253,8 @@ describe("SubshellClient new-subshell surface", () => {
       name: "Default",
       description: null,
       restartOnExit: 0,
+      // The real row carries the enable switch (spec 2026-10-24).
+      enabled: 1,
     };
     const { fn, calls } = recordingFetch(() => fakeResponse(JSON.stringify([row])));
     const client = new SubshellClient({ baseUrl: BASE, store, fetchImpl: fn });
