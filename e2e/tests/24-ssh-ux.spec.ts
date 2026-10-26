@@ -76,7 +76,7 @@ async function wire(page: Page, ready = true) {
     if (route.request().method() !== "POST") return route.continue();
     const payload = route.request().postDataJSON();
     saves.push(payload);
-    const preset = { ...payload, id: `ssh-${saves.length}` };
+    const preset = { ...payload, id: `ssh-${saves.length}`, enabled: 1 };
     presets.push(preset);
     return route.fulfill({ json: preset });
   });
@@ -196,6 +196,7 @@ test("SSH preset selection restores remote key choices without connecting", asyn
     authentication: "remote",
     keyHome: "local",
     fingerprints: [fingerprint],
+    enabled: 1,
   });
   await page.goto("/new?kind=ssh&preset=remote");
   await expect(page.getByLabel("SSH destination", { exact: true })).toHaveValue(destination);
@@ -217,6 +218,7 @@ test("local-key SSH presets restore the authentication choice and require a fres
     authentication: "local-key",
     keyHome: null,
     fingerprints: [],
+    enabled: 1,
   });
   await page.goto("/new?kind=ssh&preset=local-key");
   await expect(page.getByLabel("SSH destination", { exact: true })).toHaveValue(destination);
