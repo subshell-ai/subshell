@@ -46,3 +46,20 @@ test("unit execution passes only selected packages and disables retries", () => 
 test("a failing test command fails the orchestration process", () => {
   expect(execute(["@internal/assistant"], 7).result.exitCode).not.toBe(0);
 });
+
+test("server tests build their frontend before booting a real server", () => {
+  const { result, argv } = execute(["@internal/server"]);
+  expect(result.exitCode, result.stderr.toString()).toBe(0);
+  expect(argv).toEqual([
+    "turbo",
+    "run",
+    "build",
+    "--filter=@internal/server-web",
+    "turbo",
+    "run",
+    "test",
+    "--filter=@internal/server",
+    "--",
+    "--retry=0",
+  ]);
+});

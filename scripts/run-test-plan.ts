@@ -21,6 +21,8 @@ export function turbo(tasks: string[], packages: string[], extra: string[] = [])
 export function runUnit(plan: TestPlan, packages = plan.packages, scripts = plan.scripts): void {
   const workspaces = readWorkspaces();
   const selected = packages.filter((name) => workspaces.find((p) => p.name === name)?.scripts.test);
+  // The cross-subshell tests boot a real server, which serves the built SPA.
+  if (selected.includes("@internal/server")) turbo(["build"], ["@internal/server-web"]);
   // Tests aren't cached. Full verification also rebuilds dependencies from this revision.
   turbo(["test"], selected, [...(plan.full ? ["--force"] : []), "--", "--retry=0"]);
   if (scripts) {

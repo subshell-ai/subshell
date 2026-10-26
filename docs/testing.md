@@ -383,7 +383,9 @@ claim about a whole-repo migration speedup. It does show that adding workers to
 very short suites can cost more than it saves. Don't raise worker counts by
 instinct, enable in-file concurrency on shared DB/DOM state, or disable isolation
 without measuring the representative suite. Keep the existing local package
-widths and CI's measured serial regime until hosted measurements justify a change.
+widths. CI keeps other lanes serial, but the server lane uses `--parallel=1`
+for isolation: a shared process leaks singleton state between server fixtures.
+Increasing that width still needs representative hosted measurements.
 
 After the third cull, workspace unit verification on Bun 1.4.4 reports 12,251
 passed, two skipped, and none failed across 1,000 files. All 60 Turbo tasks

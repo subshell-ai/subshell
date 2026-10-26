@@ -86,6 +86,8 @@ jobs:
     env:
       TEST_PLAN: ${{ needs.plan.outputs.plan }}
       TEST_LANE: ${{ toJSON(matrix) }}
+      # Server fixtures mutate process-global state; isolate files even at width one.
+      SUBSHELL_TEST_PARALLEL: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-ci
@@ -97,7 +99,9 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y tmux jq openssh-client
           fi
-      - run: bun scripts/run-test-plan.ts unit
+      - run: |
+          if [ "${{ matrix.name }}" = server ]; then unset SUBSHELL_TEST_SERIAL; fi
+          bun scripts/run-test-plan.ts unit
 
   integration:
     name: Browser and compiled CLI tests
