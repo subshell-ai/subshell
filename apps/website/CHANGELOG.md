@@ -1,5 +1,15 @@
 # @internal/website
 
+## 0.2.19
+
+### Patch Changes
+
+- [#426](https://github.com/subshell-ai/subshell/pull/426) [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661) Thanks [@theogravity](https://github.com/theogravity)! - Name the dashboard entry point Apps & screens and its picker Open app or screen, with matching setup guidance and documentation. Keep API and MCP identifiers stable. Simplify the website demonstration and support private development hostnames through local environment settings.
+
+- [#426](https://github.com/subshell-ai/subshell/pull/426) [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661) Thanks [@theogravity](https://github.com/theogravity)! - Update Zod to 4.6.7 and override Expo CLI’s older Zod dependency to remove the vulnerable version from the dependency tree.
+
+- [#426](https://github.com/subshell-ai/subshell/pull/426) [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661) Thanks [@theogravity](https://github.com/theogravity)! - Add a website preview demonstration directly below the mobile video, showing a real coding agent fixing project filters and checking the result beside its terminal.
+
 ## 0.2.18
 
 ### Patch Changes
