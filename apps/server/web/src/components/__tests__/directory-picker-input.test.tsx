@@ -977,6 +977,42 @@ describe("DirectoryPickerInput", () => {
     }
   });
 
+  /**
+   * The label trap (user report 2026-10-26): clicking the field's "Working
+   * directory" label to dismiss an open panel reopened it instead. One label
+   * click is two events: a pointerdown on the label (outside the picker, so
+   * the panel closes) and the label's activation behavior then dispatches a
+   * click on the input, which still holds focus and answers no focus event of
+   * its own. That forwarded click is the tail of the dismissing gesture and
+   * must not undo it — while the NEXT click on the field opens again as usual.
+   */
+  it("clicking the field's label closes an open panel without reopening it", async () => {
+    const { restore } = mockExplore({ "/tmp": exploreBody("/tmp", ["cache"]) });
+    // Stands in for the launch form's label, wired to the id renderField gives
+    // the input. happy-dom has no label activation behavior, so each label
+    // click below is driven as the two events a real browser produces.
+    const label = document.createElement("label");
+    label.setAttribute("for", "wd");
+    label.textContent = "Working directory";
+    document.body.appendChild(label);
+    try {
+      renderField({ value: "/tmp" });
+      const input = screen.getByRole("textbox");
+      fireEvent.focus(input);
+      await screen.findByText("cache");
+      fireEvent(label, new Event("pointerdown", { bubbles: true }));
+      fireEvent.click(input);
+      await waitFor(() => expect(screen.queryByText("cache") === null).toBe(true));
+      // A fresh label click is now an ordinary field click: the panel opens.
+      fireEvent(label, new Event("pointerdown", { bubbles: true }));
+      fireEvent.click(input);
+      await screen.findByText("cache");
+    } finally {
+      label.remove();
+      restore();
+    }
+  });
+
   // The server pages LOCAL browses (200 entries per page) and the picker
   // walks the cursors when the listing's tail comes into view. happy-dom has
   // no scroll, so these tests drive the trigger the same way a small folder

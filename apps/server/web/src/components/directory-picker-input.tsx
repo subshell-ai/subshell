@@ -95,6 +95,34 @@ export function DirectoryPickerInput({
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const restoringFocusRef = useRef(false);
+  // One gesture can dismiss AND reopen: clicking the field's label closes the
+  // panel on the outside pointerdown, and the label's activation behavior then
+  // dispatches a click on the input — which still holds focus, so it fires no
+  // focus event, and only the click handler can see it (user report
+  // 2026-10-26: "I tend to click above the input to close it and it reopens").
+  // An outside pointerdown therefore arms this ref, and a click-driven open
+  // that arrives while it is armed is the tail of the dismissing gesture and
+  // drops. The capture-phase listener below disarms at the START of every
+  // gesture, which is what makes the next click on the field open again;
+  // click-side clearing alone could not — a dismissed gesture whose mouseup
+  // lands elsewhere leaves no click at the input to clear it, and the next
+  // honest click would be swallowed. One accepted residual rides the other
+  // way: a synthetic click with no pointer at all (AT activation, a
+  // `click()` call) landing on the input after an armed dismissal is dropped
+  // once, and the next press or refocus opens as usual.
+  const dismissedRef = useRef(false);
+
+  // Always mounted, not with `pickerOpen`: the flag outlives the panel (an
+  // armed dismissal closes it), and the disarming must catch the next gesture
+  // whether or not anything is still listening. Capture phase puts it ahead of
+  // the dismiss listener on the same event, so arming happens after disarming.
+  useEffect(() => {
+    function disarm() {
+      dismissedRef.current = false;
+    }
+    document.addEventListener("pointerdown", disarm, true);
+    return () => document.removeEventListener("pointerdown", disarm, true);
+  }, []);
 
   // Move focus before removing a focused picker row. Letting the dialog
   // repair focus afterwards can focus the input and open the panel again.
@@ -155,7 +183,10 @@ export function DirectoryPickerInput({
   useEffect(() => {
     if (!pickerOpen) return;
     function onPointerDown(e: PointerEvent) {
-      if (!rootRef.current?.contains(e.target as Node)) closePicker();
+      if (!rootRef.current?.contains(e.target as Node)) {
+        dismissedRef.current = true;
+        closePicker();
+      }
     }
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
@@ -315,8 +346,19 @@ export function DirectoryPickerInput({
     favorite.mutate({ path, on });
   }
 
-  function openPicker() {
+  /**
+   * Opens the panel on a deliberate interaction with the field. A `focus`
+   * opens: keyboard Tab, or a label click when the input held no focus. (The
+   * one focus that is not deliberate, `closePicker`'s restore, already
+   * arrives behind `restoringFocusRef`.) A `click` that arrives with
+   * `dismissedRef` armed is not: its gesture began outside the picker and
+   * already closed the panel — the label's activation, forwarded to the input,
+   * is the case that can produce this click — and it must not undo the
+   * dismissal.
+   */
+  function openPicker(source: "focus" | "click") {
     if (restoringFocusRef.current) return;
+    if (source === "click" && dismissedRef.current) return;
     setPickerPath(value || "~");
     setPickerOpen(true);
   }
@@ -365,8 +407,8 @@ export function DirectoryPickerInput({
         id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        onFocus={openPicker}
-        onClick={openPicker}
+        onFocus={() => openPicker("focus")}
+        onClick={() => openPicker("click")}
         placeholder={placeholder}
       />
 
