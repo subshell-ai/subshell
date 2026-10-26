@@ -16,8 +16,8 @@ other server setting; `subshell-server status` prints it as
 test-only by construction). `<dataDir>/plugins/` is the one installed set:
 "usable" is (instance installed ∧ `plugin_state.enabled`; absent row =
 enabled) × (that node's detection found the binary), computed once in
-`api/harness-utils.ts` for every node alike. And the plane RESOLVES the set:
-`services/nodes/local-plugins.ts` points the pane-runtime registry overlay at
+`modules/plugins/availability.ts` for every node alike. And the plane RESOLVES the set:
+`modules/plugins/store.ts` points the pane-runtime registry overlay at
 this store at boot and after every install and uninstall
 (`refreshInstalledPlugins`), so `getHarness` answers for a registry-installed
 plugin the moment the install returns (detect specs, preset validation, argv:
@@ -35,7 +35,7 @@ anonymous setup route has NO spec field; built-in ids only, forever (spec
 ## Registering the MCP dialect per harness (moved from AGENTS.md "Architecture")
 
 Cross-subshell comms (`subshell mcp`) is registered per harness by the plugin
-itself: `services/mcp-launch.ts:registerSubshellMcp` asks the plugin for its
+itself: `modules/subshells/mcp-launch.ts:registerSubshellMcp` asks the plugin for its
 dialect (claude: `--mcp-config` file; opencode: merged config layer +
 `OPENCODE_CONFIG`; codex: per-invocation `-c mcp_servers.subshell.*` overrides,
 no per-subshell file), while harnesses without a per-subshell format (hermes, pi)

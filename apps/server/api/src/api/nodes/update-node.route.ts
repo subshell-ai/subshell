@@ -14,20 +14,21 @@ import {
   semverLt,
 } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { authGuard, ForbiddenError, requireCookieActor } from "@/api/auth-guard.js";
-import { loadNodeGate } from "@/api/nodes/node-gate.js";
+import { apiErrorBody } from "@/api/api-error.js";
+import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { APP_BASE_URL } from "@/constants.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { nodeCanConfigure } from "@/lib/node-access.js";
-import { artifactStat, diskArtifactSha256, staleArtifactRefusal } from "@/lib/node-artifacts.js";
-import { apiModels } from "@/schema/index.js";
-import { audit } from "@/services/audit.js";
-import { getHeld, getLive } from "@/services/nodes/node-registry.js";
-import { NodeRpcError, sendCommand, UPDATE_COMMAND_TIMEOUT_MS } from "@/services/nodes/node-rpc.js";
-import { mintUpdateToken } from "@/services/nodes/update-tokens.js";
-import { beginUpdate, updateOutcomeUnknown, updateRefused, updateSwapped } from "@/services/nodes/update-tracker.js";
-import { autoFetchEnabled, compatibleNodeRelease, fetchDigest } from "@/services/releases.js";
-import { nodeUpdateBlockReason } from "@/services/server-update.js";
+import { audit } from "@/modules/audit.js";
+import { nodeCanConfigure } from "@/modules/nodes/access.js";
+import { loadNodeGate } from "@/modules/nodes/gate.js";
+import { getHeld, getLive } from "@/modules/nodes/node-registry.js";
+import { NodeRpcError, sendCommand, UPDATE_COMMAND_TIMEOUT_MS } from "@/modules/nodes/node-rpc.js";
+import { artifactStat, diskArtifactSha256, staleArtifactRefusal } from "@/modules/updates/node-artifacts.js";
+import { mintUpdateToken } from "@/modules/updates/node-tokens.js";
+import { beginUpdate, updateOutcomeUnknown, updateRefused, updateSwapped } from "@/modules/updates/node-tracker.js";
+import { autoFetchEnabled, compatibleNodeRelease, fetchDigest } from "@/modules/updates/releases.js";
+import { nodeUpdateBlockReason } from "@/modules/updates/server-update.js";
+import { ForbiddenError } from "@/shared/errors.js";
 
 const UpdateBodySchema = t.Object({
   force: t.Optional(

@@ -16,7 +16,7 @@ import { tmuxSocketFor } from "@internal/pane-runtime";
 import { type NodeCommandBody, parseNodeCommandBody } from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
-
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 /**
  * Task 14 — the cross-stack integration suite: everything phase-2 shipped
  * (registry, signed RPC, RemoteLauncher, manager routing, node resolution,
@@ -37,12 +37,10 @@ import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { seedPreset } from "@/services/__tests__/helpers/seed-preset.js";
-import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
-import { sendCommand } from "@/services/nodes/node-rpc.js";
-import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { SubshellManagerService } from "@/services/subshell-manager.service.js";
+import { resetNodeRegistryForTests } from "@/modules/nodes/node-registry.js";
+import { sendCommand } from "@/modules/nodes/node-rpc.js";
+import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { SubshellManagerService } from "@/modules/subshells/subshell-manager.service.js";
 import {
   attachScriptedNode,
   ok,
@@ -51,8 +49,9 @@ import {
   type ScriptedHandler,
   type ScriptedNode,
   statDirEcho,
-} from "@/test-helpers/scripted-node.js";
-import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+} from "@/testing/scripted-node.js";
+import { seedPreset } from "@/testing/seed-preset.js";
+import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 const app = new Elysia().use(errorHandlerPlugin).use(subshellRoutes).use(uploadsRoutes);
 

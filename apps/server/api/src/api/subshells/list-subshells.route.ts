@@ -1,10 +1,10 @@
 import { LIST_SEARCH_MAX } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
-import { matchesListQuery } from "@/api/list-filter.js";
-import { SubshellSchema } from "@/api/models.js";
-import { contextPlugin } from "@/plugins/context.plugin.js";
-import { apiModels } from "@/schema/index.js";
+import { contextPlugin } from "@/api/middleware/context.plugin.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { SubshellSchema } from "@/api/schemas/models.js";
+import { matchesListQuery } from "@/shared/list-filter.js";
 
 const ListSubshellsQuerySchema = t.Object({
   q: t.Optional(

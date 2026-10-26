@@ -1,0 +1,367 @@
+import { forensicsEnabled, recordAttachPaint } from "@/api/ws/attach-forensics.js";
+import type { AttachParams } from "@/api/ws/attach-params.js";
+import { captureToReplayText } from "@/api/ws/capture-text.js";
+import { captureStable, fitPaneAndRepaint, paneReadsAsBooting, RESIZE_SETTLE_MS } from "@/api/ws/pane-repaint.js";
+import { createRemoteTailSource } from "@/api/ws/pane-sources.js";
+import type { Subscription } from "@/api/ws/pane-stream.js";
+import {
+  applySharedGeometry,
+  broadcastToViewers,
+  broadcastViewers,
+  paneStreams,
+  persistOutputFor,
+  readPaneCursor,
+  readPaneGeometry,
+  registerViewer,
+  sendFrame,
+  sharedGridFor,
+  type WsData,
+  type WsSocket,
+} from "@/api/ws/viewers.js";
+import { getRequestlessContext } from "@/app/context.js";
+import { getLive } from "@/modules/nodes/node-registry.js";
+import type { RemoteLauncher } from "@/modules/nodes/remote-launcher.js";
+import type { Access } from "@/modules/subshells/access.js";
+import { replayLineCap } from "@/modules/subshells/log-tail.js";
+import { logger } from "@/shared/logger.js";
+
+/**
+ * Live-terminal relay for subshells running on an agent node (spec
+ * 2026-08-31 §6.5) — the remote twin of the local WS attach in
+ * `subshell-ws.ts`. The browser contract is BYTE-IDENTICAL: one
+ * `{"type":"replay","data":...}` frame (pane grid + reflowed history rows),
+ * then `{"type":"output","data":...}` frames carrying ONLY bytes appended
+ * after the replay was taken, every outbound string marker-stripped, refusals
+ * on close code 4004.
+ *
+ * The flow (per row): liveness (registry + probe) → optional pre-capture
+ * resize + settle → `capture` with the replay line cap → one `log_read(0,1)`
+ * size probe (AFTER the capture — the tail starts at that EOF and never
+ * replays historical log bytes). Everything the
+ * relay consumes from the launcher is pinned by the launcher's own suite:
+ * the agent's `tail_start` RESULT can resolve before its initial catch-up
+ * bytes flow (never assume "caught up" at resolve — the launcher's relay
+ * queues those bytes itself), gap backfill/dup-clamp live inside
+ * {@link RemoteLauncher.tailStart}, so `onChunk` here just ships bytes
+ * monotonically. Client input/resize/teardown ride the EXISTING
+ * `handleSubshellMessage`/`cleanupSubshellWs` — attach sets `ws.data` to the
+ * same {@link WsData} shape the local path builds.
+ *
+ * No longer part of an import cycle: everything both attach paths share
+ * lives in `api/ws/viewers.ts` (the registry, sizing and pump), `api/ws/pane-repaint.ts`
+ * and `api/ws/attach-params.ts`, so this module reaches for those directly instead
+ * of into the local attach handler.
+ */
+
+/** The row fields the relay consumes (`SubshellTable` subset). */
+export interface RemoteAttachRow {
+  /** Subshell id (uuid) — also the agent-side log/meta file stem. */
+  id: string;
+  /** Node the subshell runs on (never `local` on this path). */
+  nodeId: string;
+  /** tmux socket name — ignored by the remote launcher, carried in `WsData` for shape honesty. */
+  tmuxSocket: string | null;
+  /** Owning user — whose per-user terminal-history cap governs this attach. */
+  userId: string;
+  /**
+   * The row's boot timestamp — `paneReadsAsBooting`'s per-boot epoch. A
+   * restart reuses the id and the log survives, so bytes alone cannot tell
+   * "settled pane" from "second boot in flight"; this can. Optional only for
+   * the relay's test fixtures — the production caller passes the full
+   * `SubshellTable` row, and one that omitted this would quietly lose
+   * restart detection (gracefully: the old winch dance, not a failure).
+   */
+  startedAt?: string | null;
+}
+
+/**
+ * Local structural extension of `WsSocket.raw` for the backpressure probe —
+ * Bun's server-side ws exposes `getBufferedAmount`; the shared `WsSocket`
+ * type stays deliberately narrow (only this call site needs it).
+ */
+type RawWithBackpressure = { getBufferedAmount?: () => number };
+
+/** Browser queue depth above which the client is dropped (spec §3.4: a lagging browser reconnects and replays). */
+const CLIENT_LAG_LIMIT_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Attaches a browser socket to a subshell living on an agent node.
+ *
+ * Refusals: `4004 node offline` (no live connection — checked before any
+ * round-trip), `4004 subshell not running` (probe says dead, or the pane
+ * raced away between probe and capture). After open, any relay failure
+ * (dropped node socket, malformed answer) tears the tail down and closes
+ * `1011`; a browser whose send queue exceeds {@link CLIENT_LAG_LIMIT_BYTES}
+ * is closed `1011 client too slow` mid-tail.
+ *
+ * Disposal is EXACTLY-ONCE by construction: `ws.data.cleanup` is installed
+ * before the first await (so a close during any round-trip lands on it), it
+ * flags `detached` and calls the late-bound disposer, and the disposer
+ * itself is idempotent ({@link RemoteLauncher.tailStart}). If the browser
+ * vanishes before `tailStart` resolves, no zombie stream survives: the
+ * pending attach disposes immediately on resolve (or returns before arming).
+ *
+ * @param ws - the browser socket (Elysia WS, narrowed to {@link WsSocket})
+ * @param row - the subshell row (must name a non-local node)
+ * @param launcher - the node's cached {@link RemoteLauncher} (registry-resolved)
+ * @param _access - the caller's effective access, from {@link resolveAttach}.
+ *   The relay decides nothing input from it any more (§5.4 made that
+ *   `canInput`'s alone), so it is deliberately unread - underscore-prefixed for
+ *   the same reason the local twin's fixtures name their unused contexts; it
+ *   stays in the signature because the attach's one authority is handed back
+ *   beside it and this is the relay's positional contract with the caller.
+ * @param size - the client's fitted geometry; when present the pane is
+ *   resized (and given {@link RESIZE_SETTLE_MS} to repaint) BEFORE the
+ *   capture, so the replay matches the geometry the client renders into
+ * @param canInput - the relay's keystroke authority, computed ONCE by
+ *   {@link resolveAttach} (the `edit`/`owner` grant AND the ssh owner-only
+ *   carve-out, spec §5.4). REQUIRED, with no fallback: an omission must be a
+ *   type error, not a grant-only default — the same doctrine the `params`
+ *   struct below records for `hidden`, and the reason a caller that forgot
+ *   the argument cannot silently reopen the ssh relay door to `edit` grantees.
+ */
+export async function attachRemoteSubshellWs(
+  ws: WsSocket,
+  row: RemoteAttachRow,
+  launcher: RemoteLauncher,
+  _access: Access,
+  /**
+   * Everything the client declared on the connect URL, as ONE value.
+   *
+   * The relay never sees the URL itself, and taking these one positional
+   * argument at a time is exactly how `hidden` came to be missing here while
+   * the local twin had it — a phone attached to a node subshell while
+   * backgrounded then counted as a visible viewer for its whole life. A
+   * struct makes the next omission a type error instead.
+   */
+  params: AttachParams,
+  canInput: boolean,
+): Promise<void> {
+  const { size, deviceLabel, hidden, wireMode } = params;
+  if (!getLive(row.nodeId)) {
+    ws.close(4004, "node offline");
+    return;
+  }
+
+  // Teardown state, armed BEFORE the first await: a close event during any
+  // round-trip runs `cleanup`, and whatever eventually resolves knows it is
+  // too late (detached) and cleans itself up.
+  let detached = false;
+  let disposer: (() => void) | undefined;
+  const cleanup = (): void => {
+    detached = true;
+    disposer?.();
+  };
+
+  // The WsData the shared message/close handlers read. Mirrors the local
+  // attach's shape — except `logFile`, which honestly stays "": the remote
+  // path never opens a local file (tail bytes ride `log_read`/`output`
+  // frames) and neither shared handler reads the field, so the node-side
+  // path (`launcher.logPath`) has no consumer here — filling it after the
+  // Object.assign below would not even reach `ws.data` (review-wave trap).
+  // `socket` carries the row's tmux name (the remote launcher ignores it,
+  // like every other member).
+  const data: WsData = {
+    launcher,
+    socket: row.tmuxSocket ?? "",
+    subshellId: row.id,
+    // Always an agent node on this path — the local twin sets `local`. Wave D
+    // keys the plane→node input hold by it.
+    nodeId: row.nodeId,
+    logFile: "",
+    // Whether THIS socket may type: `resolveAttach`'s one authority (edit/owner
+    // grant AND the ssh owner-only carve-out, spec §5.4), taken verbatim. No
+    // `access`-derived fallback: that pre-§5.4 rule would silently reopen the
+    // ssh relay door to a caller that omitted the argument, so the argument is
+    // required and an omission is a type error.
+    canInput,
+    capacity: size ?? undefined,
+    hidden,
+    // Presence identity: who this viewer is in the `viewers` frame. The id
+    // lives as long as the socket, so a reconnect is legitimately a new
+    // viewer rather than a resurrected one.
+    viewerId: crypto.randomUUID(),
+    deviceLabel,
+    since: new Date().toISOString(),
+    // The encoding the client negotiated on its connect URL (`&enc=cbor`),
+    // same rule as the local twin: one connection, one mode; absent means
+    // JSON, byte-identical to before the negotiation existed.
+    wireMode,
+    cleanup,
+  };
+  Object.assign(ws.data, data);
+  // The browser left while the node registry was being consulted — see the
+  // local twin: its close found nothing to undo, so registering now would
+  // strand a viewer that can never be removed.
+  if (ws.data.detachedEarly) return;
+  // AFTER the assign: the registry is keyed by `ws.data.viewerId`, which does
+  // not exist until the context object carries it.
+  registerViewer(ws, row.id);
+
+  try {
+    if (!(await launcher.hasSubshell(data.socket, row.id))) {
+      ws.close(4004, "subshell not running");
+      return;
+    }
+    if (detached) return;
+
+    // JOIN POINT (the local twin carries the full reasoning): one 1-byte
+    // `log_read` for `size`, sampled BEFORE the resize — the tail streams
+    // every byte from here, so the client can never miss a diff frame (a
+    // desync a diff-rendering TUI can never heal; skipped-overlap it replays
+    // is idempotent repaint). A missing/empty log reads size 0 and the tail
+    // still arms (the agent tolerates a log pipe-pane has not created yet).
+    const logStart = (await launcher.readLogSized(row.id, 0, 1)).size;
+    if (detached) return;
+
+    // The local twin's rule: no readable bytes at the join, or residual bytes
+    // from a previous life inside the restart grace — a booting pane gets no
+    // provocation, and its viewer gets the boot bytes DROPPED before the
+    // capture (see `discardQueued`), not replayed on top of the same screen.
+    const booting = paneReadsAsBooting(logStart, row.startedAt);
+
+    // Attach to the subshell's shared pump BEFORE the pane is read — the
+    // local twin's ordering, and here it is also a hard requirement rather
+    // than an optimization: `NodeLauncher`'s contract forbids overlapping
+    // per-subshell pumps, so two viewers each running their own `tailStart`
+    // over one pane is two independent dup-clamp/backfill states on one byte
+    // stream. Each device could observe a different order and neither would
+    // be authoritative. The subscription starts QUEUED; nothing is delivered
+    // until the replay has been sent.
+    const stream: Subscription = paneStreams.subscribe(
+      row.id,
+      () =>
+        createRemoteTailSource({
+          launcher,
+          subshellId: row.id,
+          fromByte: logStart,
+          onOutput: () => persistOutputFor(row.id),
+        }),
+      (text) => {
+        // Spec §3.4: a browser that cannot keep up is cut, not queued into —
+        // its reconnect replays fresh. (Measured on the server send queue.)
+        const lag = (ws.raw as RawWithBackpressure | undefined)?.getBufferedAmount?.() ?? 0;
+        if (lag > CLIENT_LAG_LIMIT_BYTES) {
+          ws.close(1011, "client too slow");
+          return;
+        }
+        // Encoded in THIS socket's negotiated mode: the same helper the local
+        // twin's sink uses, so a mode can never be decided twice.
+        sendFrame(ws, { type: "output", data: text });
+      },
+    );
+    disposer = () => stream.close();
+
+    // The pane as the viewer found it — forensics only, and only when armed
+    // (an extra capture RPC). The local twin carries the reasoning.
+    const preResize = forensicsEnabled() ? await captureStable(launcher, data.socket, row.id, 0) : null;
+
+    // Fit the pane to the viewer BEFORE anything reads it — the local twin's
+    // pre-capture resize, relayed as one RPC. A failure here is not fatal
+    // (stale geometry beats a refused attach); the capture right after dies
+    // with its own refusal if the node actually went away.
+    let repainted = false;
+    let nudged = false;
+    if (size) {
+      const sizeOf = async (): Promise<number> => (await launcher.readLogSized(row.id, 0, 1)).size;
+      try {
+        // The pane is fitted to what EVERY viewer can display, not to the
+        // joiner's own size — the local twin's rule, and the remote path was
+        // the half that never got it: a phone attaching to a node subshell a
+        // laptop was already watching applied its own 60x20 unconditionally,
+        // so the pane bounced between the two exactly as it did before
+        // eviction was removed.
+        const fit = sharedGridFor(row.id) ?? size;
+        // Fit, detect the TUI's real repaint (a burst of fresh log bytes —
+        // a flat settle captures tmux's re-wrapped approximation of the OLD
+        // frame), and when no burst comes force one. One shared sequence with
+        // the local twin, which carries the full reasoning. Improves the
+        // first paint only; correctness lives in the gap-free join above.
+        const outcome = await fitPaneAndRepaint(launcher, data.socket, row.id, fit, sizeOf, {
+          baseline: logStart,
+          canNudge: () => !detached,
+          // The local twin's rule (see paneReadsAsBooting): a pane with no
+          // settled frame — first boot, or a restart still in the grace —
+          // gets the fit and nothing else; the winch storm duplicates a
+          // still-booting prompt.
+          booting,
+        });
+        repainted = outcome.repainted;
+        nudged = outcome.nudged;
+      } catch (err) {
+        logger.withError(err).warn("remote attach: initial resize failed; replay uses the current size");
+        await Bun.sleep(RESIZE_SETTLE_MS);
+      }
+      if (detached) return;
+    }
+
+    // The local twin's booting drop: the replay below captures the whole
+    // current screen, so the queued boot bytes are the same frames twice —
+    // and the boot's transitional sequences (scroll-region, line-insert)
+    // repaint as a ghost prompt when re-applied. Mark now, capture after.
+    if (booting) stream.discardQueued();
+
+    // N is the OWNER's per-user setting (Account → Terminal history), falling
+    // back to the instance default — the local twin's rule; the clamp
+    // (ceiling is a load guarantee) is the SHARED {@link replayLineCap} —
+    // identical math on both attach paths.
+    // The capture carries the visible grid PLUS the last `cap` reflowed
+    // history rows; historical log bytes are never re-played. One capture —
+    // the gap-free stream above corrects any raced frame (local twin).
+    const cap = replayLineCap(await getRequestlessContext().repos.userMeta.getTerminalReplayLines(row.userId));
+    const replay = await captureStable(launcher, data.socket, row.id, cap);
+    if (replay === null) {
+      // pane may have just died (the local twin swallows this; remote closes
+      // the same refusal the probe path uses — nothing after it can stream).
+      // Tear the subscription down HERE rather than trusting the platform to
+      // deliver a close event for a socket we just closed ourselves: the pump
+      // is armed before the capture (the join-point rule), so a refusal after
+      // it would otherwise leave a tail running for a viewer that never was.
+      cleanup();
+      ws.close(4004, "subshell not running");
+      return;
+    }
+    // The cursor is read immediately after the capture, like the local twin:
+    // the replay must end with the client's cursor ON the pane's cursor, or
+    // every later live byte paints at a row the two disagree about. Null
+    // (pane gone, agent unanswerable) ships the replay without the restore.
+    const cursor = await readPaneCursor(launcher, data.socket, row.id);
+    // The pane's CONFIRMED grid, announced to every viewer before the
+    // replay so the capture is painted onto a grid they already agree
+    // with. Null means the pane died between the fit and here, and a
+    // dying pane gets no announcement — there is no second meaning to
+    // disambiguate any more, because every machine can measure.
+    const attachGeometry = await readPaneGeometry(launcher, data.socket, row.id);
+    if (attachGeometry) {
+      broadcastToViewers(row.id, { type: "geometry", cols: attachGeometry.cols, rows: attachGeometry.rows });
+    }
+
+    const painted = captureToReplayText(replay, cursor ?? undefined);
+    sendFrame(ws, { type: "replay", data: painted });
+    recordAttachPaint({ subshellId: row.id, preResize, replay: painted, repainted, nudged });
+    if (detached) return;
+
+    // Deliver: flush what the pump held while the replay was being taken,
+    // then stream live. Decode/strip state lives in the SOURCE, not here —
+    // per-viewer copies would each see only part of the byte stream and burn
+    // characters split across a read boundary to U+FFFD.
+    stream.open();
+    // Presence LAST, like the local twin: a joiner appears to the others once
+    // it is actually receiving, and its own first list already includes it.
+    broadcastViewers(row.id);
+    // Re-decide now the attach is over — the local twin's reasoning: this
+    // path resized the pane DIRECTLY and seeded the queue behind its back, so
+    // a client frame that landed mid-attach could have been applied and then
+    // undone. Idempotent when nothing raced (the queue drops a request for
+    // the size it already holds), so the quiet case costs nothing.
+    applySharedGeometry(row.id, launcher, data.socket);
+    if (detached) stream.close();
+  } catch (err) {
+    // Anything after open that throws (rpc drop, malformed answer): tear the
+    // tail down (idempotent — cleanup may already have run) and close. The
+    // disposer's tail_stop stays fire-and-forget inside the launcher.
+    cleanup();
+    logger.withError(err).warn(`remote terminal relay failed for subshell ${row.id}`);
+    ws.close(1011, "relay failed");
+  }
+}

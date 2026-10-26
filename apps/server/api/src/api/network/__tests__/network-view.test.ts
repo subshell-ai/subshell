@@ -7,7 +7,7 @@ import {
   type SupervisorDeps,
   type SupervisorState,
   setSupervisorDepsForTests,
-} from "@/services/network/supervisor.js";
+} from "@/modules/network/supervisor.js";
 
 /**
  * The row builder, and the one merge it makes (spec 2026-09-15 § 4.5: for a

@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { Elysia } from "elysia";
 import { adminServerRoutes } from "@/api/admin-server/index.js";
 import { logsSeams } from "@/api/admin-server/logs.route.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { authedRequest } from "../../__tests__/helpers/auth-tables.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
+import { authedRequest } from "../../../testing/api/auth-tables.js";
 import { type AdminServerFixture, bearerRequest, setupAdminServerFixture } from "./fixture.js";
 
 const app = new Elysia().use(errorHandlerPlugin).use(adminServerRoutes);

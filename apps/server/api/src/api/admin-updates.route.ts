@@ -10,15 +10,15 @@ import { ReleaseRefSchema, ServerUpdateViewSchema } from "@/api/admin-server/sch
 import { requireAdmin } from "@/api/auth-guard.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { isNodeOffline, listHeld } from "@/services/nodes/node-registry.js";
-import { readView, type UpdateStateView, updateTrackerSeams } from "@/services/nodes/update-tracker.js";
-import { compatibleNodeRelease, releaseSourceUrl, resolveReleases } from "@/services/releases.js";
+import { isNodeOffline, listHeld } from "@/modules/nodes/node-registry.js";
+import { readView, type UpdateStateView, updateTrackerSeams } from "@/modules/updates/node-tracker.js";
+import { compatibleNodeRelease, releaseSourceUrl, resolveReleases } from "@/modules/updates/releases.js";
 import {
   collectServerUpdateView,
   nodeUpdateBlockReason,
   type ReleaseRef,
   releaseRef,
-} from "@/services/server-update.js";
+} from "@/modules/updates/server-update.js";
 
 /**
  * `GET /api/admin/updates` — everything the Updates page renders, in ONE read

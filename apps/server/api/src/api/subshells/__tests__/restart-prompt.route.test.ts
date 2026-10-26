@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
-
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 /**
  * The optional `prompt` riding a restart (spec 2026-09-25 MCP DX): the MCP
  * `restart_subshell` tool gains a first task to type, and this is the door it
@@ -29,18 +29,11 @@ import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { seedPreset } from "@/services/__tests__/helpers/seed-preset.js";
-import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
-import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import {
-  attachScriptedNode,
-  ok,
-  probeAllAlive,
-  type ScriptedHandlers,
-  statDirEcho,
-} from "@/test-helpers/scripted-node.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+import { resetNodeRegistryForTests } from "@/modules/nodes/node-registry.js";
+import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { attachScriptedNode, ok, probeAllAlive, type ScriptedHandlers, statDirEcho } from "@/testing/scripted-node.js";
+import { seedPreset } from "@/testing/seed-preset.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 const app = new Elysia().use(errorHandlerPlugin).use(subshellRoutes);
 

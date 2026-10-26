@@ -1,18 +1,18 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
-import { ensureMigratedTestDb } from "@/__tests__/helpers/test-database.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/api/__tests__/helpers/auth-tables.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { sshRoutes } from "@/api/ssh/index.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { sshSetupTracker } from "@/services/ssh-setup-progress.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
+import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { sshSetupTracker } from "@/modules/ssh/ssh-setup-progress.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/testing/api/auth-tables.js";
+import { ensureMigratedTestDb } from "@/testing/test-database.js";
 
 /**
  * `POST /api/ssh/setup-here` - the HTTP surface of the destination upgrade

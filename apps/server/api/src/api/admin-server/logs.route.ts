@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 import { requireAdmin } from "@/api/auth-guard.js";
-import { readServerLogTail, SERVER_LOG_CAP_BYTES, serverLogPath } from "@/utils/log-file.js";
+import { readServerLogTail, SERVER_LOG_CAP_BYTES, serverLogPath } from "@/shared/log-file.js";
 
 const LogsQuerySchema = t.Object({
   lines: t.Optional(

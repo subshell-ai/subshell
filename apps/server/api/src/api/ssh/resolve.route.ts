@@ -1,13 +1,9 @@
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
-import {
-  SshDestinationField,
-  SshExpectedDestinationField,
-  SshResolveOutcomeViewSchema,
-  throwCodedRefusal,
-} from "@/api/ssh/ssh-views.js";
-import { apiModels } from "@/schema/index.js";
-import { sshResolveDestination } from "@/services/ssh-launch.service.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { SshDestinationField, SshExpectedDestinationField, SshResolveOutcomeViewSchema } from "@/api/ssh/ssh-views.js";
+import { throwCodedRefusal } from "@/modules/ssh/refusal.js";
+import { sshResolveDestination } from "@/modules/ssh/ssh-launch.service.js";
 
 /**
  * `POST /api/ssh/resolve` `{node, alias}` — resolve one destination token on

@@ -3,6 +3,7 @@ import type { NodeCommandBody } from "@internal/subshell-protocol";
 import { NODE_RESULT_MAINTENANCE } from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
@@ -10,17 +11,16 @@ import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import {
   attachConnection,
   detachConnection,
   type NodeConnection,
   type NodeSocket,
   resetNodeRegistryForTests,
-} from "@/services/nodes/node-registry.js";
-import { resolveResult } from "@/services/nodes/node-rpc.js";
-import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+} from "@/modules/nodes/node-registry.js";
+import { resolveResult } from "@/modules/nodes/node-rpc.js";
+import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
  * Maintenance at the HTTP surface (spec 2026-09-14 §7).

@@ -1,0 +1,177 @@
+import { BackendErrorCodes } from "@internal/backend-errors";
+import { isSshFingerprints, SSH_MAX_SELECTED_FINGERPRINTS } from "@internal/subshell-protocol";
+import { db } from "@/db/index.js";
+import { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
+import { gateSshNode } from "@/modules/ssh/policy.js";
+import { getRelayBroker, type RelayPeerKeys, SshRelayRefusal } from "@/modules/ssh/relay-broker.js";
+import { ensureDestinationPin, hostPinRefusal, SshHostPinError } from "@/modules/ssh/ssh-host-pins.service.js";
+import { listNodeAgentIdentities, type SshAnswer } from "@/modules/ssh/ssh-launch.service.js";
+import { ensureLocalRelayIdentity } from "@/modules/ssh/ssh-local-identity.js";
+
+function refused(refusal: Exclude<SshAnswer<never>, { ok: true }>["refusal"]): SshAnswer<never> {
+  return { ok: false, refusal };
+}
+
+/** Select current agent identities. Omitted selection uses the whole roster only within the cap. */
+export function selectRelayFingerprints(
+  roster: readonly { fingerprint: string }[],
+  requested?: readonly string[],
+): SshAnswer<string[]> {
+  if (requested !== undefined && (!Array.isArray(requested) || requested.some((key) => typeof key !== "string"))) {
+    return refused({
+      status: 400,
+      code: BackendErrorCodes.SSH_KEYS_INVALID,
+      message: "Choose keys that are currently loaded in the selected machine's SSH agent.",
+    });
+  }
+  const selected = requested === undefined ? roster.map((key) => key.fingerprint) : [...new Set(requested)];
+  if (selected.length > SSH_MAX_SELECTED_FINGERPRINTS)
+    return refused({
+      status: 400,
+      code: BackendErrorCodes.SSH_KEYS_OVER_LIMIT,
+      message: `Select at most ${SSH_MAX_SELECTED_FINGERPRINTS} SSH keys before connecting. No keys were selected automatically.`,
+    });
+  if (!isSshFingerprints(selected) || selected.some((key) => !roster.some((item) => item.fingerprint === key))) {
+    return refused({
+      status: 400,
+      code: BackendErrorCodes.SSH_KEYS_INVALID,
+      message: "Choose keys that are currently loaded in the selected machine's SSH agent.",
+    });
+  }
+  return { ok: true, value: selected };
+}
+
+/** Prepare one user-scoped relay; current launch access on both machines authorizes it. */
+export async function prepareRelayLeg(args: {
+  viewerId: string;
+  aNode: { id: string; name: string };
+  bNodeId: string;
+  destination: string;
+  paneId: string;
+  fingerprints?: readonly string[];
+}): Promise<SshAnswer<{ socketPath: string; ref: string; fingerprints: string[] }>> {
+  const broker = getRelayBroker();
+  const identityGenerations = {
+    a: broker.identityGeneration(args.aNode.id),
+    b: broker.identityGeneration(args.bNodeId),
+  };
+  for (const nodeId of [args.aNode.id, args.bNodeId]) {
+    const gate = await gateSshNode(args.viewerId, nodeId);
+    if (!gate.ok) return gate;
+  }
+  const roster = await listNodeAgentIdentities({ viewerId: args.viewerId, aNodeId: args.aNode.id });
+  if (!roster.ok) return roster;
+  const selection = selectRelayFingerprints(roster.value.identities, args.fingerprints);
+  if (!selection.ok) return selection;
+  const selected = selection.value;
+  if ([args.aNode.id, args.bNodeId].includes("local")) {
+    try {
+      await ensureLocalRelayIdentity();
+    } catch {
+      return refused({
+        status: 409,
+        code: BackendErrorCodes.SSH_RELAY_IDENTITY_MISSING,
+        message:
+          "The server relay identity is unavailable or differs from its registration. An admin must restore or repair its SSH identity before connecting.",
+      });
+    }
+  }
+  const identities = new IdentitiesRepository(db);
+  const [rowA, rowB] = await Promise.all([
+    identities.findByPrincipal(`node:${args.aNode.id}`),
+    identities.findByPrincipal(`node:${args.bNodeId}`),
+  ]);
+  // The two halves the broker pairs: the registered ES256 signing JWK and the
+  // ECDH-ES encryption JWK, both read from the identities store, never from
+  // the caller. A row without either half is the named refusal - the §4.3
+  // `ready` bootstrap or a re-enroll is the only thing that fills a slot.
+  const peerHalf = (row: typeof rowA): RelayPeerKeys | null =>
+    row && row.signingPublicKey !== null
+      ? { signingPublicKey: row.signingPublicKey, encryptionPublicJwk: row.publicKey }
+      : null;
+  const aPeer = peerHalf(rowA);
+  const bPeer = peerHalf(rowB);
+  if (!aPeer || !bPeer) {
+    return refused({
+      status: 409,
+      code: BackendErrorCodes.SSH_RELAY_IDENTITY_MISSING,
+      message:
+        "One of the machines hasn’t registered its SSH relay identity. Wait for it to reconnect, then check its SSH settings if the identity is still missing.",
+    });
+  }
+  // The pin door (spec §9, Task 12): read the destination's stored pin,
+  // capturing from A's `known_hosts` at first open when none stands.
+  // Every failure refuses the
+  // launch BEFORE any session exists - a relay without a pin would mean B
+  // ambient-TOFUing D, which is the one posture the design refuses.
+  let hostPin: string;
+  try {
+    hostPin = (
+      await ensureDestinationPin({ ownerUserId: args.viewerId, aNodeId: args.aNode.id, destination: args.destination })
+    ).line;
+  } catch (err) {
+    if (err instanceof SshHostPinError) return refused(hostPinRefusal(err));
+    throw err;
+  }
+  let socketPath: string;
+  let ref: string;
+  try {
+    const opened = await broker.openRelay({
+      userId: args.viewerId,
+      identityGenerations,
+      fingerprints: selected,
+      paneId: args.paneId,
+      aNode: args.aNode.id,
+      bNode: args.bNodeId,
+      aPeer,
+      bPeer,
+      hostPin,
+    });
+    socketPath = opened.socketPath;
+    ref = opened.ref;
+  } catch (err) {
+    if (err instanceof SshRelayRefusal) {
+      return refused({
+        status: 409,
+        code: BackendErrorCodes.SSH_RELAY_OPEN_FAILED,
+        message: relayRefusalCopy(err.code),
+      });
+    }
+    throw err;
+  }
+  for (const nodeId of [args.aNode.id, args.bNodeId]) {
+    const gate = await gateSshNode(args.viewerId, nodeId);
+    if (!gate.ok) {
+      await broker.closeRelay(ref, "access-revoked");
+      return gate;
+    }
+  }
+  return { ok: true, value: { socketPath, ref, fingerprints: selected } };
+}
+/** Human copy per broker refusal code; ids only, never key material or sockets. */
+function relayRefusalCopy(code: SshRelayRefusal["code"]): string {
+  switch (code) {
+    case "identity-repair":
+      return "A machine relay identity is being repaired or changed while connecting. Retry after its identity repair finishes.";
+    case "access-denied":
+      return "SSH launch access changed while the connection was opening. Check access to both machines and retry.";
+    case "quota":
+      return "That machine has reached its limit for SSH relay connections. Close one or wait for it to finish, then try again.";
+    case "handshake":
+      return "The machines couldn't establish the SSH relay. Check that both are online and try again.";
+    case "node-off":
+      return "SSH was switched off on one of the machines while connecting. Enable it and try again.";
+    case "no-node":
+    case "no-datadir":
+      return "One of the machines hasn't finished connecting to the server. Wait for it to connect and try again.";
+    case "same-node":
+      return "Choose the connecting machine’s own keys to use keys from that machine.";
+    case "bad-socket-path":
+      return "The server couldn't verify the connecting machine's SSH relay socket. No subshell was started.";
+    case "bad-pane-id":
+    case "bad-fingerprints":
+      return "The SSH relay received invalid session details. No subshell was started.";
+    case "bad-host-pin":
+      return "The destination's saved host key is invalid. No subshell was started.";
+  }
+}

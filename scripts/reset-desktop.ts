@@ -25,7 +25,7 @@ import { existsSync, rmSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 
-/** Where the server CLI keeps its data, per `apps/server/api/src/config-env.ts`. */
+/** Where the server CLI keeps its data, per `apps/server/api/src/modules/server/config/env.ts`. */
 const DEFAULT_DATA_DIR = join(homedir(), ".config", "subshell-server");
 /** The managed copy the desktop app installs and every ladder rung ends at. */
 const INSTALLED_BINARY = join(homedir(), ".local", "bin", "subshell-server");

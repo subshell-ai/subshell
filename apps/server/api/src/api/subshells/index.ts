@@ -26,7 +26,7 @@ import { subshellSubagentsRoute } from "./subshell-subagents.route.js";
  * `/api/subshells` — one Elysia instance per endpoint, mounted in the original
  * monolithic route's order (convention, not a router constraint: Elysia ranks
  * static segments above `/:id` regardless of order). Business logic lives in
- * `SubshellsService` (`src/services/subshells.service.ts`), reached by handlers
+ * `SubshellsService` (`src/modules/subshells/subshells.service.ts`), reached by handlers
  * via `ctx`.
  */
 export const subshellRoutes = new Elysia({ prefix: "/api/subshells" }).use([

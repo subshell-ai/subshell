@@ -1,0 +1,528 @@
+/**
+ * The dashboard's half of `subshell-server update` (spec 2026-09-15 §4.5): one
+ * READ that says whether this server can update itself, and one in-process JOB
+ * that performs the same swap the CLI performs.
+ *
+ * **It is the CLI's steps 5–7 and then `performRestart()`.** `cli/commands/update.ts`
+ * owns the ten-step verb, and nine of those steps are refusals an HTTP route
+ * expresses as 409s instead — so what is shared is the irreversible middle:
+ * download-and-verify, chmod, probe, back up, `beginUpdate`, and the
+ * link-then-single-rename swap (`keepPreviousBinary` + one `rename`, which
+ * never moves the live path out from under the service definition). The
+ * tail differs for one structural reason: the CLI asks the service manager to
+ * restart a process it is not, while this code IS the process, so it exits the
+ * way `POST /api/admin/server/restart` does and lets the manager respawn it.
+ * Everything after that — finishing or reverting the transaction — belongs to
+ * the next boot either way (`modules/updates/update-transaction.ts`).
+ *
+ * **The job is a module-level singleton and deliberately not a queue.** There
+ * is exactly one binary to replace on this host, so a second concurrent start
+ * is a mistake rather than work to schedule. The route pre-checks with
+ * `UPDATE_IN_PROGRESS`, and `beginUpdate` refuses it again from the marker on
+ * disk — which is what also covers a CLI update started in a terminal. The
+ * pre-check alone was NOT the gate: it sits before the release lookup and the
+ * audit, both of which await, so two concurrent POSTs both passed it and both
+ * reached `start()` (round-3 sweep C4 — they then shared one
+ * `<name>.download-<pid>` temp file, and the loser's cleanup unlinked the
+ * winner's bytes mid-flight). {@link tryClaimServerUpdate} is the actual
+ * lock: one synchronous check-and-set, and the route calls it — through the
+ * seam, so tests exercise the same claim a live server takes — with no await
+ * between the claim and handing work to {@link startServerUpdate}.
+ *
+ * **A failed job stays visible until the next start.** It is the only record
+ * of a failure BEFORE the swap — a failure after it writes `failed.json` at
+ * the next boot instead — and a page that cleared it on read would leave a
+ * download that 404'd looking like a button that did nothing.
+ */
+import { chmodSync, renameSync, rmSync } from "node:fs";
+import { basename, dirname } from "node:path";
+import { NODE_UPDATE_SERVER_BUSY_MESSAGE } from "@internal/backend-errors";
+import { hostReleaseTarget, releaseAssetNames, semverLt } from "@internal/subshell-protocol";
+import { SUBSHELL_DB_BACKUPS_KEEP } from "@/constants.js";
+import { type BackupFile, backupsDir, listBackups } from "@/modules/backups/db-backup.js";
+import { createUpdateBackup } from "@/modules/backups/update-backup.js";
+import { serverConfigDir } from "@/modules/server/config/env.js";
+import {
+  binaryIsReplaceable,
+  type InstalledBinary,
+  resolveInstalledBinary,
+} from "@/modules/server/installed-binary.js";
+import { collectDeployment, collectDeploymentCached, type DeploymentView } from "@/modules/server/server-deployment.js";
+import { performRestart } from "@/modules/server/server-restart.js";
+import { beginSelfUpdate } from "@/modules/updates/node-tracker.js";
+import {
+  downloadVerified,
+  installableCliRelease,
+  type ResolvedRelease,
+  refreshReleases,
+  releasePublishedAt,
+  releaseSourceUrl,
+  signedAssetDigest,
+} from "@/modules/updates/releases.js";
+import {
+  beginUpdate,
+  clearPending,
+  type FailedUpdate,
+  keepPreviousBinary,
+  readFailed,
+  readPending,
+} from "@/modules/updates/update-transaction.js";
+import { getLogger } from "@/shared/logger.js";
+import { SERVER_VERSION } from "@/version.js";
+
+// ---------------------------------------------------------------------------
+// The job
+// ---------------------------------------------------------------------------
+
+/** Which step of an update is running. `failed` is terminal and survives until the next start. */
+export type UpdateJobPhase = "downloading" | "verifying" | "backing-up" | "swapping" | "restarting" | "failed";
+
+/**
+ * Where a running update has got to.
+ *
+ * One flat shape rather than a discriminated union, because it is polled once
+ * a second and rendered as ONE line: a union would make every reader narrow
+ * before it could print a phase name, and the two payload fields (`received`
+ * and `error`) belong to exactly one phase each and are null everywhere else.
+ */
+export interface UpdateJob {
+  /** The version that was installed when the job started. */
+  from: string;
+  /** The version being installed. */
+  to: string;
+  /** ISO 8601, when the job started. */
+  startedAt: string;
+  /** Which step is running now. */
+  phase: UpdateJobPhase;
+  /** Bytes downloaded so far; only moves while `phase` is `downloading`. */
+  received: number;
+  /** Total bytes, when the release source sent a length; null when it did not. */
+  total: number | null;
+  /** Why the job stopped, when `phase` is `failed`; null otherwise. */
+  error: string | null;
+}
+
+let job: UpdateJob | null = null;
+
+/** The running (or last failed) job, or null when none has started in this process. */
+export function currentUpdateJob(): UpdateJob | null {
+  return job;
+}
+
+/** Whether a job is in flight — anything that is not `failed`. */
+export function updateJobRunning(): boolean {
+  return job !== null && job.phase !== "failed";
+}
+
+/** Node downloads depend on this process staying available until they finish. */
+export function nodeUpdateBlockReason(): string | null {
+  return updateJobRunning() || readPending() !== null ? NODE_UPDATE_SERVER_BUSY_MESSAGE : null;
+}
+
+/** Drop the job so a suite starts clean. @internal */
+export function resetUpdateJobForTests(): void {
+  job = null;
+}
+
+/**
+ * Take the one slot, synchronously — the update lock (round-3 sweep C4).
+ *
+ * A check and a set with nothing between them, which is the whole point: the
+ * route's earlier `UPDATE_IN_PROGRESS` refusal reads the same two facts, but
+ * it sits before awaits (the release lookup, the audit) that let a second
+ * request sail past it. This is what makes "an update is already running"
+ * true of the moment a POST is accepted, not of the moment one happens to be
+ * observed.
+ *
+ * It re-reads the on-disk marker as well as the in-process job: a
+ * `subshell-server update` started in a terminal between the route's pre-check
+ * and this claim must be refused here, exactly as the pre-check would have
+ * refused it had it landed earlier.
+ *
+ * @param to - the version being installed; fills the job the view renders
+ *   while the download runs.
+ * @returns whether the slot was taken — `false` means the caller owes the
+ *   request the `UPDATE_IN_PROGRESS` refusal.
+ */
+export function tryClaimServerUpdate(to: string): boolean {
+  if (readPending() !== null || updateJobRunning()) return false;
+  job = {
+    from: SERVER_VERSION,
+    to,
+    startedAt: new Date().toISOString(),
+    phase: "downloading",
+    received: 0,
+    total: null,
+    error: null,
+  };
+  return true;
+}
+
+/** What {@link startServerUpdate} touches outside itself; every one injectable for tests. */
+export interface ServerUpdateJobDeps {
+  /** Capture a full pre-upgrade archive and private rollback checkpoint. */
+  backup?: () => Promise<{ path: string; rollbackDatabase?: string } | null>;
+  /** Run `<file> version` and return the version it reports (default: a bounded spawn). */
+  probeVersion?: (file: string) => string | null;
+  /** Exit for the service manager (default: {@link performRestart}). */
+  restart?: () => void;
+  /** Make a downloaded file executable (default: `chmodSync 0755`). */
+  chmod?: (path: string, mode: number) => void;
+  /** Move a file (default: `renameSync`). */
+  rename?: (from: string, to: string) => void;
+  /**
+   * Keep the RUNNING binary at `<binary>.previous` without moving the live
+   * path (default: {@link keepPreviousBinary} — hardlink, copy+fsync where
+   * links are refused). The swap is this plus ONE rename onto the live path;
+   * a throwing seam is how a test opens the crash window between them.
+   */
+  keepPrevious?: (binary: string) => string;
+  /** Remove a file (default: `rmSync … force`). */
+  remove?: (path: string) => void;
+}
+
+/** The version out of a `subshell-server X.Y.Z` line — the byte-identical machine contract. */
+function probeInstalledVersion(file: string): string | null {
+  try {
+    const res = Bun.spawnSync({ cmd: [file, "version"], stdout: "pipe", stderr: "ignore", timeout: 10_000 });
+    if (res.exitCode !== 0) return null;
+    return (
+      res.stdout
+        .toString()
+        .trim()
+        .match(/^subshell-server (\d+\.\d+\.\d+)$/m)?.[1] ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Start the in-process update. Returns immediately; the caller has already
+ * answered 202 and the page polls {@link currentUpdateJob} through the view.
+ * Call only after {@link tryClaimServerUpdate} has returned true — the claim
+ * is the lock, this is the work, and calling it unclaimed would overwrite a
+ * running job.
+ *
+ * Every refusal this could raise has already been evaluated by the route
+ * (§4.5), so what is left here is the work and the failures only a running
+ * download can produce: an asset that 404s, a digest that does not match, a
+ * binary that reports the wrong version, a database that will not snapshot.
+ * All of those land in `phase: "failed"` with the message, having deleted the
+ * temp file and left this host running exactly what it was running before.
+ */
+export function startServerUpdate(
+  input: { release: ResolvedRelease; binary: string; forced: boolean },
+  deps: ServerUpdateJobDeps = {},
+): void {
+  job = {
+    from: SERVER_VERSION,
+    to: input.release.version,
+    startedAt: new Date().toISOString(),
+    phase: "downloading",
+    received: 0,
+    total: null,
+    error: null,
+  };
+  void runJob(input, deps).catch((error: unknown) => {
+    fail(error instanceof Error ? error.message : String(error));
+  });
+}
+
+/** Record the failure on the job and in the log. This path never leaves a marker on disk. */
+function fail(message: string): void {
+  if (job !== null) job = { ...job, phase: "failed", error: message };
+  getLogger().error(`server update failed before the swap: ${message}`);
+}
+
+async function runJob(
+  input: { release: ResolvedRelease; binary: string; forced: boolean },
+  deps: ServerUpdateJobDeps,
+): Promise<void> {
+  const chmod = deps.chmod ?? ((path: string, mode: number) => chmodSync(path, mode));
+  const rename = deps.rename ?? ((from: string, to: string) => renameSync(from, to));
+  const remove = deps.remove ?? ((path: string) => rmSync(path, { force: true }));
+  const keepPrevious = deps.keepPrevious ?? keepPreviousBinary;
+  const { release, binary } = input;
+  const binaryDir = dirname(binary);
+
+  const hostTarget = hostReleaseTarget(process.platform, process.arch);
+  if (hostTarget === null) {
+    fail(`no server binary is published for ${process.platform}-${process.arch}`);
+    return;
+  }
+  const names = releaseAssetNames("cli-server", hostTarget);
+  const url = release.assets.get(names.binary);
+  if (url === undefined) {
+    fail(`${release.tag} publishes no ${names.binary}`);
+    return;
+  }
+
+  // 5. Download, hashing on the way past, then prove what arrived.
+  //    The digest is the SIGNED manifest's (spec 2026-09-17 §5 path 2): a
+  //    release whose signature does not verify throws here, before a byte of
+  //    binary is requested, and the job lands in `failed` with that reason.
+  let tmp: string;
+  try {
+    const expectedDigest = await signedAssetDigest(release, names.binary);
+    tmp = await downloadVerified({
+      url,
+      expectedDigest,
+      destDir: binaryDir,
+      destName: basename(binary),
+      onProgress: (received, total) => {
+        if (job !== null && job.phase === "downloading") job = { ...job, received, total };
+      },
+    });
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+    return;
+  }
+  if (job !== null) job = { ...job, phase: "verifying" };
+  try {
+    chmod(tmp, 0o755);
+  } catch (error) {
+    remove(tmp);
+    fail(`could not make ${tmp} executable: ${error instanceof Error ? error.message : String(error)}`);
+    return;
+  }
+  const reported = (deps.probeVersion ?? probeInstalledVersion)(tmp);
+  if (reported !== release.version) {
+    // The digest proves the bytes are the ones that release published; it does
+    // NOT prove the release was labelled right. A binary that cannot say what
+    // it is does not get installed, and neither does one that says something else.
+    remove(tmp);
+    fail(`the downloaded binary reports ${reported ?? "nothing"}, not ${release.version}`);
+    return;
+  }
+
+  // 6. Back up. A fresh install with no database answers null, which is a
+  //    state to report rather than fail on.
+  if (job !== null) job = { ...job, phase: "backing-up" };
+  let backup: string | null = null;
+  let rollbackDatabase: string | undefined;
+  try {
+    const written = await (deps.backup ?? (() => createUpdateBackup()))();
+    backup = written?.path ?? null;
+    rollbackDatabase = written?.rollbackDatabase;
+  } catch (error) {
+    remove(tmp);
+    fail(`could not create the pre-upgrade archive: ${error instanceof Error ? error.message : String(error)}`);
+    return;
+  }
+
+  // 7. The transaction. From `beginUpdate` to the swap rename is the only
+  //    stretch in which this host is not in the state it started in — and the
+  //    swap no longer moves the live path (round-3 sweep C5): `.previous` is
+  //    made a second name for the RUNNING binary first, then ONE rename lands
+  //    the new bytes onto `binary`, over the image this process is running
+  //    (measured safe, spec §12.2). The old shape — rename aside, rename in —
+  //    left a window where the path the unit names held NOTHING, and the
+  //    boot-revert lives inside the missing binary: a kill or power loss in
+  //    that gap meant a hand at a keyboard, on machines deliberately headless.
+  //    A crash between the two operations NOW leaves the old binary at
+  //    ExecStart — bootable — and the next boot's marker-vs-version mismatch
+  //    converges it to a recorded failure (`recordFailure`, index.ts).
+  if (job !== null) job = { ...job, phase: "swapping" };
+  const previousBinary = `${binary}.previous`;
+  try {
+    beginUpdate({
+      from: SERVER_VERSION,
+      to: release.version,
+      binary,
+      previousBinary,
+      backup: rollbackDatabase ?? backup,
+      ...(rollbackDatabase && { archiveBackup: backup ?? undefined }),
+      startedAt: new Date().toISOString(),
+      origin: "api",
+      forced: input.forced,
+    });
+  } catch (error) {
+    remove(tmp);
+    fail(error instanceof Error ? error.message : String(error));
+    return;
+  }
+  try {
+    keepPrevious(binary);
+  } catch (error) {
+    // Nothing of the live path was touched; the marker was the only change.
+    clearPending();
+    remove(tmp);
+    fail(`could not keep a rollback copy of ${binary}: ${error instanceof Error ? error.message : String(error)}`);
+    return;
+  }
+  try {
+    rename(tmp, binary);
+  } catch (error) {
+    // The old binary is still exactly where the service definition points it
+    // — this is the difference from the old shape, where failing HERE meant
+    // reaching into `.previous` by hand. Drop the marker and the kept copy;
+    // the host stands where it started.
+    remove(previousBinary);
+    clearPending();
+    remove(tmp);
+    fail(`could not install ${binary}: ${error instanceof Error ? error.message : String(error)}`);
+    return;
+  }
+
+  // 8. Exit for the manager. The NEXT boot finishes or reverts the transaction.
+  if (job !== null) job = { ...job, phase: "restarting" };
+  // The tracker's self entry (design 2026-09-25) opens HERE because this is
+  // the one path that actually restarts — every `fail()` above returned before
+  // it. Honest about what an in-memory entry means across a process death:
+  // this one lives seconds, only for the page's last poll before the exit;
+  // the boot finalizer RE-CREATES it from the marker (`update-transaction.ts`).
+  beginSelfUpdate({ from: SERVER_VERSION, to: release.version });
+  getLogger().info(`server update ${SERVER_VERSION} → ${release.version}: installed, restarting`);
+  (deps.restart ?? performRestart)();
+}
+
+// ---------------------------------------------------------------------------
+// The view
+// ---------------------------------------------------------------------------
+
+/** One release, as a view names it. */
+export interface ReleaseRef {
+  /** Strict `X.Y.Z`, off the tag. */
+  version: string;
+  /** The git tag the release carries (`cli-server-v0.7.0`). */
+  tag: string;
+  /** ISO 8601 from the release source, or null when it did not say. */
+  publishedAt: string | null;
+}
+
+/** What `GET /api/admin/server/update` answers (spec §4.5). */
+export interface ServerUpdateView {
+  /** Includes updates started from the CLI or desktop app, recorded on disk. */
+  updating: boolean;
+  /** The release source, and whether it is on at all. */
+  source: { url: string | null; enabled: boolean };
+  /** The version this process is. */
+  current: string;
+  /** The newest published `cli-server` release, or null. */
+  latest: ReleaseRef | null;
+  /** Why `latest` is null while the source is ON; null when the source answered (or is off). */
+  latestError: string | null;
+  /** Whether {@link latest} is newer than {@link current}. */
+  updateAvailable: boolean;
+  /** Whether an update could be applied at all right now, and every reason it could not. */
+  canApply: { ok: boolean; reasons: string[] };
+  /** Which file an update would replace. */
+  binary: { kind: InstalledBinary["kind"]; path: string | null; reason: string | null };
+  /** Whether a restart keeps live panes — the dialog's sentence and its forced path. */
+  paneSafety: DeploymentView["service"]["paneSafety"];
+  /** The running (or last failed) job in this process. */
+  job: UpdateJob | null;
+  /** The last update that reverted at boot, kept until the next `beginUpdate`. */
+  lastFailure: FailedUpdate | null;
+  /** Where snapshots go, how many are kept, and what is there. */
+  backups: { dir: string; keep: number; count: number; latest: BackupFile | null };
+}
+
+/**
+ * The newest INSTALLABLE server release, or the reason there is none. Never
+ * throws.
+ *
+ * "Installable" is the signed-manifest gate (spec 2026-09-17 §5 path 4):
+ * a release whose manifest is missing, unsigned, or whose signature fails to
+ * verify is simply NOT in the list, and its one-sentence reason travels in
+ * `error` the way an unreachable source's did — the page renders either way,
+ * and the sentence is the answer to the question the row exists to ask.
+ */
+async function readServerRelease(refresh: boolean): Promise<{ latest: ReleaseRef | null; error: string | null }> {
+  if (releaseSourceUrl() === null) return { latest: null, error: null };
+  try {
+    if (refresh) await refreshReleases();
+    const gate = await installableCliRelease("cli-server");
+    return gate.ok ? { latest: releaseRef(gate.release), error: null } : { latest: null, error: gate.reason };
+  } catch (error) {
+    // A page that cannot reach the release source still renders; it says so.
+    return { latest: null, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** One resolved release as a {@link ReleaseRef}. */
+export function releaseRef(release: ResolvedRelease | null): ReleaseRef | null {
+  if (release === null) return null;
+  return { version: release.version, tag: release.tag, publishedAt: releasePublishedAt(release.tag) };
+}
+
+/**
+ * Everything the Updates page's Server row needs, in one read.
+ *
+ * `canApply.reasons` holds the HARD blockers — the refusals no press can
+ * overcome — and deliberately not every 409 the POST can answer. Two are left
+ * out on purpose: `UPDATE_NOT_AVAILABLE` is `updateAvailable: false`, which
+ * the row renders as two equal version cells rather than as a failure; and
+ * `RESTART_KILLS_PANES` is FORCIBLE, so listing it would disable the very
+ * button whose dialog offers the forced path. `paneSafety` travels instead,
+ * which is what the restart dialog reads for the same sentence.
+ *
+ * @param refresh - re-read the release source instead of trusting the 15-minute memo
+ */
+export async function collectServerUpdateView(refresh = false): Promise<ServerUpdateView> {
+  const url = releaseSourceUrl();
+  const { latest, error: latestError } = await readServerRelease(refresh);
+  // The uncached collector only where someone pressed something: collecting
+  // spawns the service manager SYNCHRONOUSLY, and this view is polled at 1 s
+  // while a job runs.
+  const deployment = refresh ? collectDeployment() : collectDeploymentCached();
+  const installed = resolveInstalledBinary({ configDir: serverConfigDir() });
+  const pending = readPending();
+
+  const reasons: string[] = [];
+  if (url === null) reasons.push("no release source is configured (SUBSHELL_RELEASE_URL is empty)");
+  if (!deployment.service.supervised) {
+    reasons.push(deployment.restart.reason ?? "this server is not running under a service manager");
+  }
+  const binary = describeBinary(installed);
+  if (binary.reason !== null) reasons.push(binary.reason);
+  if (pending !== null || updateJobRunning()) reasons.push("an update is already in progress");
+
+  const backupFiles = listBackups();
+  return {
+    updating: pending !== null || updateJobRunning(),
+    source: { url, enabled: url !== null },
+    current: SERVER_VERSION,
+    latest,
+    latestError,
+    updateAvailable: latest !== null && semverLt(SERVER_VERSION, latest.version),
+    canApply: { ok: reasons.length === 0, reasons },
+    binary,
+    paneSafety: deployment.service.paneSafety,
+    job,
+    lastFailure: (() => {
+      const failed = readFailed();
+      return failed ? { ...failed, backup: failed.archiveBackup ?? failed.backup } : null;
+    })(),
+    backups: {
+      dir: backupsDir(),
+      keep: SUBSHELL_DB_BACKUPS_KEEP,
+      count: backupFiles.length,
+      // `listBackups` is ordered by the name's own timestamp, NEWEST FIRST —
+      // the same order `prune` slices off the tail of, and the same order
+      // `status --json` reads `[0]` from. Reading the tail here named the
+      // OLDEST snapshot as the latest, which on a host with five of them is a
+      // card saying the database was last backed up four updates ago.
+      latest: backupFiles[0] ?? null,
+    },
+  };
+}
+
+/**
+ * The binary rung, flattened for the wire — and the one place "unwritable"
+ * becomes a reason rather than a separate kind, because to the page it is the
+ * same answer: this file cannot be replaced, and here is why.
+ */
+export function describeBinary(installed: InstalledBinary): ServerUpdateView["binary"] {
+  if (installed.kind === "source") {
+    return { kind: "source", path: null, reason: `${installed.reason} (${installed.argv.join(" ")})` };
+  }
+  if (installed.kind === "unknown") return { kind: "unknown", path: null, reason: installed.reason };
+  const replaceable = binaryIsReplaceable(installed.path);
+  return {
+    kind: "compiled",
+    path: installed.path,
+    reason: replaceable.ok ? null : `cannot replace ${installed.path}: ${replaceable.reason}`,
+  };
+}

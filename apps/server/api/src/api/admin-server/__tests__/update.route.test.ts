@@ -5,16 +5,16 @@ import { join } from "node:path";
 import { Elysia } from "elysia";
 import { adminServerRoutes } from "@/api/admin-server/index.js";
 import { updateSeams } from "@/api/admin-server/update.route.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { db } from "@/db/index.js";
 import { AuditRepository } from "@/db/repositories/audit.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import type { CliReleaseCheck, ResolvedRelease } from "@/services/releases.js";
-import { setReleaseUrlForTests } from "@/services/releases.js";
-import { type DeploymentView, RESTART_CONTAINERIZED_REASON } from "@/services/server-deployment.js";
-import { resetUpdateJobForTests } from "@/services/server-update.js";
-import { clearPending, updateDir } from "@/services/update-transaction.js";
+import { type DeploymentView, RESTART_CONTAINERIZED_REASON } from "@/modules/server/server-deployment.js";
+import type { CliReleaseCheck, ResolvedRelease } from "@/modules/updates/releases.js";
+import { setReleaseUrlForTests } from "@/modules/updates/releases.js";
+import { resetUpdateJobForTests } from "@/modules/updates/server-update.js";
+import { clearPending, updateDir } from "@/modules/updates/update-transaction.js";
 import { SERVER_VERSION } from "@/version.js";
-import { authedRequest } from "../../__tests__/helpers/auth-tables.js";
+import { authedRequest } from "../../../testing/api/auth-tables.js";
 import { type AdminServerFixture, bearerRequest, setupAdminServerFixture } from "./fixture.js";
 
 /**
@@ -24,7 +24,7 @@ import { type AdminServerFixture, bearerRequest, setupAdminServerFixture } from 
  * The success path ENDS IN A PROCESS EXIT, so it is testable only through
  * `updateSeams`, exactly as the restart route's is through `restartSeams`. The
  * job itself is tested against a real fake release server in
- * `services/__tests__/server-update.test.ts`; what is asserted here is which
+ * `modules/updates/__tests__/server-update.test.ts`; what is asserted here is which
  * requests ever reach it.
  */
 

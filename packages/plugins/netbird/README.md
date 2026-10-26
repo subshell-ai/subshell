@@ -83,7 +83,7 @@ record. The host upgrades `joined` to `published` when, and only when, that reco
 exists. A plugin without the flag (Tailscale, whose `serve` state is readable)
 is never upgraded, so a serve reset from a terminal still shows honestly as
 `joined`. The mechanism is `publishStateVisible` in
-`apps/server/api/src/services/network/state.ts`.
+`apps/server/api/src/modules/network/state.ts`.
 
 ## Licence
 

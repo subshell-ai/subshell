@@ -16,7 +16,7 @@ import type { WorkspacesRepository } from "@/db/repositories/workspaces.reposito
 
 /**
  * The repositories the request context wires into services (built in
- * `ApiContext.init`, see `src/lib/context.ts`). This mirrors exactly what the
+ * `ApiContext.init`, see `src/app/context.ts`). This mirrors exactly what the
  * context constructs — add an entry here (and in `ApiContext.init`) when a
  * service needs a new repository; remove it when the last consumer goes away.
  */

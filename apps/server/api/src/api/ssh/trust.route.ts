@@ -2,13 +2,14 @@ import { BackendErrorCodes } from "@internal/backend-errors";
 import { isSshKnownHostsPinLine } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
-import { SshDestinationField, SshExpectedDestinationField, throwCodedRefusal } from "@/api/ssh/ssh-views.js";
-import { apiModels } from "@/schema/index.js";
-import { parseSshCanonicalDestination } from "@/services/ssh-destination.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { SshDestinationField, SshExpectedDestinationField } from "@/api/ssh/ssh-views.js";
+import { throwCodedRefusal } from "@/modules/ssh/refusal.js";
+import { parseSshCanonicalDestination } from "@/modules/ssh/ssh-destination.js";
 import {
   acceptDestinationVerification,
   prepareDestinationVerification,
-} from "@/services/ssh-destination-verification.service.js";
+} from "@/modules/ssh/ssh-destination-verification.service.js";
 import {
   captureHostPin,
   deleteHostPin,
@@ -16,7 +17,7 @@ import {
   hostPinRefusal,
   listHostPins,
   SshHostPinError,
-} from "@/services/ssh-host-pins.service.js";
+} from "@/modules/ssh/ssh-host-pins.service.js";
 
 /**
  * Browser sessions confirm unfamiliar destinations in the connection flow.

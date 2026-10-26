@@ -1,8 +1,8 @@
 import { Elysia, t } from "elysia";
 import { requireAdmin } from "@/api/auth-guard.js";
-import { apiModels } from "@/schema/index.js";
-import { audit } from "@/services/audit.js";
-import { collectDeploymentCached } from "@/services/server-deployment.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { audit } from "@/modules/audit.js";
+import { collectDeploymentCached } from "@/modules/server/server-deployment.js";
 
 const SupervisionAuditBodySchema = t.Object({
   mode: t.Union([t.Literal("service"), t.Literal("app")], {

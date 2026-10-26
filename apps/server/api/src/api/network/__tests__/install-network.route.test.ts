@@ -2,14 +2,14 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 import { allNetworkPlugins, builtInHarnesses } from "@internal/pane-runtime";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/api/__tests__/helpers/auth-tables.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { networkRoutes } from "@/api/network/index.js";
-import { invalidateNetworkStatus, setNetworkDepsForTests } from "@/api/network/network-gate.js";
 import { db } from "@/db/index.js";
 import { AuditRepository } from "@/db/repositories/audit.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { clearNetworkState } from "@/services/network/state.js";
+import { invalidateNetworkStatus, setNetworkDepsForTests } from "@/modules/network/operations.js";
+import { clearNetworkState } from "@/modules/network/state.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/testing/api/auth-tables.js";
 import { FAKE_ID, fakeDeps, installRecorder, makeFakePlugin } from "./fake-network-plugin.js";
 
 /**

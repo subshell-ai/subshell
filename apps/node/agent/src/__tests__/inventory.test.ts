@@ -8,7 +8,7 @@ import { buildInventoryEvent } from "../inventory.js";
  * wire's shape with no harness content: `harnesses: []` is protocol filler
  * the validator still requires, NOT a claim, and the server's `inventory`
  * handler treats an empty array as "nothing to apply" (pinned by the server's
- * detect-cache test in `apps/server/api/src/services/nodes/__tests__/
+ * detect-cache test in `apps/server/api/src/modules/nodes/__tests__/
  * node-ws-handler.test.ts`).
  */
 

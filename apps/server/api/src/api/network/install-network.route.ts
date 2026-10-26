@@ -1,17 +1,17 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia } from "elysia";
+import { apiErrorBody } from "@/api/api-error.js";
 import { ndjsonResponse } from "@/api/network/ndjson.js";
+import { requireNetworkAdmin } from "@/api/network/network-gate.js";
+import { NetworkParamsSchema } from "@/api/network/schemas.js";
+import { apiModels } from "@/api/schemas/index.js";
 import {
   auditNetwork,
   invalidateNetworkStatus,
   networkDeps,
   prepareNetworkAct,
   readNetworkStatus,
-  requireNetworkAdmin,
-} from "@/api/network/network-gate.js";
-import { NetworkParamsSchema } from "@/api/network/schemas.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
+} from "@/modules/network/operations.js";
 
 /**
  * `POST /api/network/:id/install` — runs the vendor's own installer for one

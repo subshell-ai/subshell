@@ -7,9 +7,9 @@ import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+import { subshellLogPath } from "@/modules/subshells/paths.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
  * GET /api/subshells/:id/log — the diagnostic tail a dead subshell's pane

@@ -1,11 +1,11 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
-import { throwCodedRefusal } from "@/api/ssh/ssh-views.js";
-import { contextPlugin } from "@/plugins/context.plugin.js";
-import { apiModels } from "@/schema/index.js";
-import { setupHere } from "@/services/ssh-setup-here.service.js";
-import { sshSetupTracker } from "@/services/ssh-setup-progress.js";
+import { contextPlugin } from "@/api/middleware/context.plugin.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { throwCodedRefusal } from "@/modules/ssh/refusal.js";
+import { setupHere } from "@/modules/ssh/ssh-setup-here.service.js";
+import { sshSetupTracker } from "@/modules/ssh/ssh-setup-progress.js";
 
 /**
  * `POST /api/ssh/setup-here` `{paneId}` - "Set up Subshell here" (spec

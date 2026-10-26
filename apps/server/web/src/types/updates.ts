@@ -105,7 +105,7 @@ export interface ServerUpdateView {
 
 /**
  * Which phase an in-flight update reads as, per the server's tracker
- * (`apps/server/api/src/services/nodes/update-tracker.ts`, design
+ * (`apps/server/api/src/modules/updates/node-tracker.ts`, design
  * 2026-09-25). `stalled` is NOT terminal: a late `ready` still resolves the
  * entry to `done`, which is the whole point of tracking it server-side.
  */

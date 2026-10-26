@@ -1,7 +1,11 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { withPluginOutput } from "@internal/pane-runtime";
 import { Elysia, t } from "elysia";
+import { apiErrorBody } from "@/api/api-error.js";
 import { ndjsonResponse } from "@/api/network/ndjson.js";
+import { requireNetworkAdmin } from "@/api/network/network-gate.js";
+import { NetworkParamsSchema } from "@/api/network/schemas.js";
+import { apiModels } from "@/api/schemas/index.js";
 import {
   auditNetwork,
   configurationRefusal,
@@ -10,14 +14,10 @@ import {
   prepareNetworkAct,
   readinessRefusal,
   readNetworkStatus,
-  requireNetworkAdmin,
-} from "@/api/network/network-gate.js";
-import { NetworkParamsSchema } from "@/api/network/schemas.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
-import { syncNetworkOrigins } from "@/services/network/origins.js";
-import { writeNetworkState } from "@/services/network/state.js";
-import { getLogger } from "@/utils/logger.js";
+} from "@/modules/network/operations.js";
+import { syncNetworkOrigins } from "@/modules/network/origins.js";
+import { writeNetworkState } from "@/modules/network/state.js";
+import { getLogger } from "@/shared/logger.js";
 
 /**
  * How long the implicit-publish gap-re-read gives the peer table.

@@ -1,20 +1,20 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { transferRoutes } from "@/api/transfers/index.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { attachScriptedNode, type ScriptedNode } from "@/test-helpers/scripted-node.js";
-import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { attachScriptedNode, type ScriptedNode } from "@/testing/scripted-node.js";
+import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
  * POST /api/transfers - the GATE STACK of spec 2026-10-01 §5, end to end
  * through the real authGuard (cookie and bearer) and the real registry. The
- * relay itself is pinned by `services/__tests__/transfers.service.test.ts`;
+ * relay itself is pinned by `modules/files/__tests__/transfers.service.test.ts`;
  * what lives here is the ORDERING that matters: foreign rows 404 before any
  * other fact can leak, `local` refuses by name, maintenance outranks
  * offline (an operator can act on one and not the other), the freshly minted

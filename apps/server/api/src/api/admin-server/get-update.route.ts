@@ -1,7 +1,7 @@
 import { Elysia } from "elysia";
 import { ServerUpdateViewSchema } from "@/api/admin-server/schemas.js";
 import { requireAdmin } from "@/api/auth-guard.js";
-import { collectServerUpdateView } from "@/services/server-update.js";
+import { collectServerUpdateView } from "@/modules/updates/server-update.js";
 
 /**
  * `GET /api/admin/server/update` — whether this server can replace itself, and

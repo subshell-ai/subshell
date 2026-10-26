@@ -12,8 +12,8 @@ import type {
   SubshellManifest,
 } from "@internal/pane-runtime";
 import type { PluginReportWire } from "@internal/subshell-protocol";
-import type { NetworkDeps } from "@/api/network/network-gate.js";
-import type { AgentInstallResult } from "@/services/agent-install.service.js";
+import type { NetworkDeps } from "@/modules/network/operations.js";
+import type { AgentInstallResult } from "@/modules/plugins/agent-install.service.js";
 
 /**
  * A network plugin the suites drive, and the deps that make it the only one

@@ -1,14 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { Elysia } from "elysia";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { settingsRoutes } from "@/api/settings.route.js";
 import { instancePublicRoutes } from "@/api/settings-public.route.js";
 import { db } from "@/db/index.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { INSTANCE_NAME_KEY } from "@/services/instance-name.js";
-import { localHostname } from "@/services/nodes/seed-local.js";
-import { setupAuthTables } from "./helpers/auth-tables.js";
+import { localHostname } from "@/modules/nodes/seed-local.js";
+import { INSTANCE_NAME_KEY } from "@/modules/server/instance-name.js";
+import { setupAuthTables } from "../../testing/api/auth-tables.js";
 
 /**
  * `GET /api/settings/instance` is the app's first anonymous read outside the

@@ -10,12 +10,12 @@ import {
   defaultSubshellServerDataDir as sharedDefaultSubshellServerDataDir,
 } from "@internal/subshell-protocol";
 import { default as envVar } from "env-var";
-import { loadConfigEnv } from "@/config-env.js";
+import { loadConfigEnv } from "@/modules/server/config/env.js";
 
 // The config.env layer is applied HERE, at the top of this module's body,
 // BEFORE the dotenvx call below and before a single `env.get` reads
 // process.env. It cannot live only in cli-bootstrap's body: that module's
-// first import is @/cli.js, whose graph reaches THIS file first, so ESM
+// first import is @/cli/dispatch.js, whose graph reaches THIS file first, so ESM
 // evaluates constants before loadConfigEnv could run — a macOS/launchd boot
 // (no EnvironmentFile to mask it) then silently ignored config.env and booted
 // on defaults. Measured 2026-09-07: `database: /data/subshell.db` crash-loops
@@ -60,7 +60,7 @@ export const IS_TEST = process.env.NODE_ENV === "test" || env.get("SUBSHELL_TEST
  *
  * Formerly the URI string `file::memory:?cache=shared`, chosen so the app's
  * Kysely connection (`db/index.ts`) and better-auth's separate handle
- * (`auth/database.ts`) would address ONE shared-cache in-memory database
+ * (`modules/auth/database.ts`) would address ONE shared-cache in-memory database
  * instead of two private `:memory:` ones. That is sound SQLite doctrine but
  * wrong about Bun: `new Database(...)` does not interpret SQLite URIs, so
  * every test process was creating a LITERAL FILE named
@@ -128,7 +128,7 @@ export const SUBSHELL_SERVER_DATA_DIR = IS_TEST
 
 /**
  * Days a terminated subshell's pane log is kept before the retention sweep
- * unlinks it (`services/pane-log-hygiene.ts`). `0` disables the sweep.
+ * unlinks it (`modules/subshells/pane-log-hygiene.ts`). `0` disables the sweep.
  *
  * A pane log is the verbatim transcript of a session — typed secrets and all —
  * and before this existed it was unlinked only when the subshell was DELETED,
@@ -313,7 +313,7 @@ export function emergencyLoginArmed(): boolean {
  *
  * Wildcard bind hosts are skipped — `0.0.0.0`/`::` are listen addresses, not
  * addresses anyone visits. An IPv6 host is bracketed as URL syntax requires.
- * @internal exported for the unit test; `services/trusted-origins.ts` is the value in use
+ * @internal exported for the unit test; `modules/network/trusted-origins.ts` is the value in use
  */
 export function localOriginsFor(port: number, host: string, baseUrl?: string): string[] {
   const bracketed = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
@@ -361,8 +361,8 @@ export function localOriginsFor(port: number, host: string, baseUrl?: string): s
  * The built-in `TRUSTED_ORIGINS` value — the dev Vite server's two ports,
  * which is what makes a `bun run dev` browser session able to sign in.
  *
- * Exported because `commands/status.ts` reports the value a boot WOULD use and
- * must not carry a second copy of it, and because `commands/configure.ts`
+ * Exported because `cli/commands/status.ts` reports the value a boot WOULD use and
+ * must not carry a second copy of it, and because `cli/commands/configure.ts`
  * REMOVES the key rather than writing it empty precisely because this default
  * is non-empty: an empty line in config.env would beat `.env` in the
  * precedence ladder and silently strip these on a developer's own machine.

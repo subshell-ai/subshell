@@ -1,0 +1,379 @@
+import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { backupDatabase, listBackups, listUpdateArchives, restoreDatabase } from "@/modules/backups/db-backup.js";
+
+/**
+ * Everything here runs against a temp database in a temp directory: the module
+ * defaults to the CONFIGURED database and data dir, and a test that used those
+ * would snapshot whatever instance the developer is running.
+ */
+let work = "";
+let dbPath = "";
+let dir = "";
+
+/** A live WAL database with rows in it — the shape the snapshot has to survive. */
+function seed(rows: number): Database {
+  const db = new Database(dbPath);
+  db.exec("PRAGMA journal_mode = WAL");
+  db.exec("CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, v TEXT)");
+  const insert = db.prepare("INSERT INTO t (v) VALUES (?)");
+  for (let i = 0; i < rows; i++) insert.run(`row-${i}`);
+  return db;
+}
+
+/** Row count in whatever database is at `path`. */
+function count(path: string): number {
+  const db = new Database(path, { readonly: true });
+  try {
+    return (db.query("SELECT count(*) AS n FROM t").get() as { n: number }).n;
+  } finally {
+    db.close();
+  }
+}
+
+beforeEach(() => {
+  work = mkdtempSync(join(tmpdir(), "backup-test-"));
+  dbPath = join(work, "subshell.db");
+  dir = join(work, "backups");
+});
+
+afterEach(() => {
+  rmSync(work, { recursive: true, force: true });
+});
+
+describe("backupDatabase", () => {
+  it("snapshots a LIVE WAL database with no sidecars beside the copy", async () => {
+    // §12.1's measurement, as a regression test: the writer is still open, so
+    // this is the real update case rather than a quiesced one.
+    const live = seed(500);
+    const backup = await backupDatabase({ reason: "update", version: "1.2.3", databasePath: dbPath, dir });
+    expect(backup).not.toBeNull();
+    const path = backup?.path as string;
+
+    expect(existsSync(`${path}-wal`)).toBe(false);
+    expect(existsSync(`${path}-shm`)).toBe(false);
+    expect(count(path)).toBe(500);
+    const check = new Database(path, { readonly: true });
+    expect(check.query("PRAGMA integrity_check").all()).toEqual([{ integrity_check: "ok" }]);
+    check.close();
+
+    // Rows written AFTER the snapshot are not in it — the copy is of a moment,
+    // which is exactly what makes a rollback mean something.
+    live.prepare("INSERT INTO t (v) VALUES (?)").run("after");
+    expect(count(path)).toBe(500);
+    live.close();
+  });
+
+  it("writes 0600 in a 0700 directory", async () => {
+    seed(1).close();
+    const backup = await backupDatabase({ reason: "manual", databasePath: dbPath, dir });
+    // SQLite creates the file with the process umask (0644 measured), so the
+    // chmod is what makes this true. The file holds credential and API-key
+    // hashes, audit rows and channel ciphertext.
+    expect(statSync(backup?.path as string).mode & 0o777).toBe(0o600);
+    expect(statSync(dir).mode & 0o777).toBe(0o700);
+  });
+
+  it("repairs a loose directory mode rather than leaving it", async () => {
+    mkdirSync(dir, { recursive: true, mode: 0o755 });
+    seed(1).close();
+    await backupDatabase({ reason: "manual", databasePath: dbPath, dir });
+    expect(statSync(dir).mode & 0o777).toBe(0o700);
+  });
+
+  it("names the file with the server version and a sortable timestamp", async () => {
+    seed(1).close();
+    const backup = await backupDatabase({
+      reason: "update",
+      version: "0.6.0",
+      databasePath: dbPath,
+      dir,
+      now: () => new Date(Date.UTC(2026, 8, 15, 4, 5, 6)),
+    });
+    expect(backup?.path.endsWith("subshell-v0.6.0-20260915-040506.db")).toBe(true);
+  });
+
+  it("does not collide when two backups land in the same second", async () => {
+    // `VACUUM INTO` REFUSES an existing file rather than overwriting it, so a
+    // second update inside one second would fail for a reason that has nothing
+    // to do with the update. Measured in this repo's own suite, 2026-09-15.
+    seed(1).close();
+    const at = () => new Date(Date.UTC(2026, 0, 1, 0, 0, 0));
+    const first = await backupDatabase({ reason: "update", version: "1.0.0", databasePath: dbPath, dir, now: at });
+    const second = await backupDatabase({ reason: "update", version: "1.0.0", databasePath: dbPath, dir, now: at });
+    expect(second?.path).not.toBe(first?.path);
+    expect(second?.path.endsWith("-000000-2.db")).toBe(true);
+    // And the sequence sorts AFTER the un-suffixed one, so "newest first" holds.
+    expect(listBackups(dir).map((b) => b.path)).toEqual([second?.path as string, first?.path as string]);
+  });
+
+  it("answers null when there is no database yet", async () => {
+    // A fresh install that has never booted — a real state on the update path,
+    // so the caller says so rather than failing.
+    expect(await backupDatabase({ reason: "update", databasePath: join(work, "nothing.db"), dir })).toBeNull();
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  it("prunes to the retention count, newest kept", async () => {
+    seed(1).close();
+    for (let i = 0; i < 5; i++) {
+      await backupDatabase({
+        reason: "update",
+        version: `0.0.${i}`,
+        databasePath: dbPath,
+        dir,
+        keep: 3,
+        now: () => new Date(Date.UTC(2026, 0, 1, 0, 0, i)),
+      });
+    }
+    const kept = listBackups(dir).map((b) => b.path.slice(-9));
+    // Newest first, and the two oldest are gone.
+    expect(kept).toEqual(["000004.db", "000003.db", "000002.db"]);
+  });
+
+  it("keeps everything when the retention count is 0", async () => {
+    seed(1).close();
+    for (let i = 0; i < 4; i++) {
+      await backupDatabase({
+        reason: "manual",
+        databasePath: dbPath,
+        dir,
+        keep: 0,
+        now: () => new Date(Date.UTC(2026, 0, 1, 0, 0, i)),
+      });
+    }
+    expect(listBackups(dir)).toHaveLength(4);
+  });
+});
+
+describe("listBackups", () => {
+  it("is empty rather than an error when nothing has ever been backed up", () => {
+    expect(listBackups(join(work, "never"))).toEqual([]);
+  });
+
+  it("ignores files the operator put there", async () => {
+    seed(1).close();
+    await backupDatabase({ reason: "manual", databasePath: dbPath, dir });
+    writeFileSync(join(dir, "notes.txt"), "mine");
+    writeFileSync(join(dir, "subshell.db"), "also mine");
+    // Only the name shape this module writes is listed — and therefore only
+    // that shape is ever pruned.
+    expect(listBackups(dir)).toHaveLength(1);
+  });
+
+  it("orders newest first by the name's own timestamp", async () => {
+    seed(1).close();
+    for (const second of [0, 2, 1]) {
+      await backupDatabase({
+        reason: "manual",
+        version: "1.0.0",
+        databasePath: dbPath,
+        dir,
+        keep: 0,
+        now: () => new Date(Date.UTC(2026, 0, 1, 0, 0, second)),
+      });
+    }
+    expect(listBackups(dir).map((b) => b.path.slice(-9))).toEqual(["000002.db", "000001.db", "000000.db"]);
+  });
+
+  it("counts only database snapshots, never the update archives", async () => {
+    // The two families share `backups/`. `listBackups` is the retention view
+    // `backupDatabase`'s prune slices, so a `subshell-update-v*.tar.gz`
+    // counted here would make "keep 3 database snapshots" delete a real
+    // pre-upgrade archive (and `status` would print tarballs under
+    // "database backups").
+    seed(1).close();
+    await backupDatabase({
+      reason: "manual",
+      databasePath: dbPath,
+      dir,
+      keep: 0,
+      now: () => new Date(Date.UTC(2026, 0, 1, 0, 0, 0)),
+    });
+    const archive = join(dir, "subshell-update-v9.9.9-20260101-000000-00000000-0000-4000-8000-000000000000.tar.gz");
+    writeFileSync(archive, "full instance archive");
+    const dbs = listBackups(dir).map((b) => b.path);
+    expect(dbs).toHaveLength(1);
+    expect(dbs[0]?.endsWith(".db")).toBe(true);
+    expect(listUpdateArchives(dir).map((b) => b.path)).toEqual([archive]);
+  });
+
+  it("pruning database snapshots to the count leaves update archives standing", async () => {
+    // The retention count applies to its OWN family. With keep=1 and two
+    // snapshots plus a pinned-shaped update archive, exactly the two newest
+    // snapshots survive and the tarball is never in the slice.
+    seed(1).close();
+    for (let i = 0; i < 3; i++) {
+      await backupDatabase({
+        reason: "update",
+        version: `0.0.${i}`,
+        databasePath: dbPath,
+        dir,
+        keep: 1,
+        now: () => new Date(Date.UTC(2026, 0, 1, 0, 0, i)),
+      });
+    }
+    const archive = join(dir, "subshell-update-v9.9.9-20260101-000000-00000000-0000-4000-8000-000000000000.tar.gz");
+    writeFileSync(archive, "x");
+    await backupDatabase({
+      reason: "update",
+      version: "0.0.9",
+      databasePath: dbPath,
+      dir,
+      keep: 1,
+      now: () => new Date(Date.UTC(2026, 0, 1, 0, 1, 0)),
+    });
+    expect(existsSync(archive)).toBe(true); // the other family's file survives a snapshot prune
+    expect(listBackups(dir)).toHaveLength(1);
+  });
+});
+
+describe("listUpdateArchives", () => {
+  it("is empty when the directory only holds database snapshots", async () => {
+    seed(1).close();
+    await backupDatabase({ reason: "manual", databasePath: dbPath, dir });
+    expect(listUpdateArchives(dir)).toEqual([]);
+  });
+
+  it("orders update archives newest first by their own timestamp", () => {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    for (const second of [10, 30, 20]) {
+      const stamp = `20260101-0000${String(second).padStart(2, "0")}`;
+      writeFileSync(join(dir, `subshell-update-v1.0.0-${stamp}-00000000-0000-4000-8000-000000000000.tar.gz`), "x");
+    }
+    expect(listUpdateArchives(dir).map((b) => /-(\d{8}-\d{6})-/.exec(b.path)?.[1])).toEqual([
+      "20260101-000030",
+      "20260101-000020",
+      "20260101-000010",
+    ]);
+  });
+});
+
+describe("restoreDatabase", () => {
+  it("replaces the live database and its sidecars with the snapshot", async () => {
+    const live = seed(10);
+    const backup = await backupDatabase({ reason: "update", databasePath: dbPath, dir });
+    // The update's migrations run, more rows land, and then the boot fails.
+    live.prepare("INSERT INTO t (v) VALUES (?)").run("migrated");
+    expect(count(dbPath)).toBe(11);
+    live.close();
+    // A stale WAL beside a restored main file would replay transactions the
+    // snapshot never had, so both sidecars go.
+    writeFileSync(`${dbPath}-wal`, "stale");
+    writeFileSync(`${dbPath}-shm`, "stale");
+
+    restoreDatabase(backup?.path as string, dbPath);
+
+    expect(existsSync(`${dbPath}-wal`)).toBe(false);
+    expect(existsSync(`${dbPath}-shm`)).toBe(false);
+    expect(count(dbPath)).toBe(10);
+    expect(statSync(dbPath).mode & 0o777).toBe(0o600);
+  });
+
+  it("refuses a backup that is not there rather than deleting the database", () => {
+    seed(3).close();
+    expect(() => restoreDatabase(join(work, "no-such-backup.db"), dbPath)).toThrow(/is not there/);
+    // The live database is untouched: the refusal fires before the first unlink.
+    expect(count(dbPath)).toBe(3);
+  });
+
+  it("leaves the live database intact when the copy itself fails", () => {
+    seed(7).close();
+    // A restore that cannot write its replacement must not have destroyed the
+    // thing it was replacing. `revertUpdate` CATCHES this throw and carries on
+    // to put the old binary back, so a database deleted here would be booted
+    // over: SQLite CREATES the missing file, the migrator builds an empty
+    // schema, and an instance with zero users opens registration to anyone.
+    //
+    // A directory passes `existsSync` and then fails `copyFileSync` with
+    // EISDIR, which is the cheap stand-in for the realistic cause — ENOSPC on
+    // a host that has just written an ~80 MB binary and a full snapshot. It
+    // discriminates: deleting the target before copying leaves no database
+    // here, and this assertion is what catches that.
+    const notAFile = join(work, "backup-that-is-a-directory");
+    mkdirSync(notAFile, { recursive: true });
+
+    expect(() => restoreDatabase(notAFile, dbPath)).toThrow();
+
+    expect(existsSync(dbPath)).toBe(true);
+    expect(count(dbPath)).toBe(7);
+    // No half-written staging file is left behind for the next restore to trip on.
+    expect(readdirSync(work).filter((f) => f.includes(".restore-"))).toHaveLength(0);
+  });
+
+  it("leaves nothing else in the backups directory", async () => {
+    seed(2).close();
+    const backup = await backupDatabase({ reason: "manual", databasePath: dbPath, dir });
+    restoreDatabase(backup?.path as string, dbPath);
+    // A restore consumes nothing: the same snapshot can be restored again.
+    expect(readdirSync(dir)).toHaveLength(1);
+  });
+
+  /**
+   * C8's crash arithmetic, tested with a REAL hot WAL rather than garbage
+   * sidecars. The replaced file carries committed-but-uncheckpointed frames
+   * left by a SIGKILLed writer — the shape a power loss leaves. The stale
+   * sidecar is made REAL on purpose: a garbage "stale" file only tests
+   * header-validation. `restoreDatabase` folds that tail into the file it is
+   * replacing and only then drops the sidecars, so (a) the final state is
+   * exactly the snapshot — a stale WAL left beside the renamed-in snapshot is
+   * NOT inert: measured on bun 1.4.2, a self-consistent WAL replayed onto the
+   * delete-mode snapshot (a 10-row read answered 12), which is why the
+   * sidecars must be gone before the rename — and (b) a crash between the
+   * checkpoint and the rename can only leave a live database that is whole
+   * (tail folded in) and re-revertable, never a main file silently truncated
+   * of its committed tail, which is what unlink-first left.
+   */
+  it("checkpoints the killed writer's uncheckpointed tail before dropping the sidecars", async () => {
+    const live = seed(10);
+    const backup = await backupDatabase({ reason: "update", databasePath: dbPath, dir });
+    live.prepare("INSERT INTO t (v) VALUES (?)").run("migrated");
+    const killed = Bun.spawnSync({
+      cmd: [
+        process.execPath,
+        "-e",
+        `const {Database} = require("bun:sqlite");
+         const db = new Database(${JSON.stringify(dbPath)});
+         db.exec("PRAGMA journal_mode = WAL");
+         db.exec("CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, v TEXT)");
+         db.prepare("INSERT INTO t (v) VALUES (?)").run("tail-from-killed-writer");
+         process.kill(process.pid, "SIGKILL");`,
+      ],
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(killed.exitCode).not.toBe(0); // died of the signal, as intended
+    expect(existsSync(`${dbPath}-wal`)).toBe(true);
+    live.close();
+
+    restoreDatabase(backup?.path as string, dbPath);
+
+    expect(existsSync(`${dbPath}-wal`)).toBe(false);
+    expect(existsSync(`${dbPath}-shm`)).toBe(false);
+    // The snapshot, not the snapshot plus a tail it never had.
+    expect(count(dbPath)).toBe(10);
+    const check = new Database(dbPath, { readonly: true });
+    expect(check.query("PRAGMA integrity_check").all()).toEqual([{ integrity_check: "ok" }]);
+    check.close();
+  });
+
+  it("sweeps the staging file a crashed restore left behind, and no one else's", async () => {
+    seed(4).close();
+    const backup = await backupDatabase({ reason: "manual", databasePath: dbPath, dir });
+    // The leftover was there BEFORE this restore ran, as it would be on a
+    // boot retrying a revert whose own staging died mid-flight.
+    const leftover = `${dbPath}.restore-99999`;
+    writeFileSync(leftover, "crashed staging debris");
+    const foreign = join(work, "other-app.db.restore-1");
+    writeFileSync(foreign, "not this module's file");
+
+    restoreDatabase(backup?.path as string, dbPath);
+
+    expect(existsSync(leftover)).toBe(false);
+    expect(existsSync(foreign)).toBe(true); // prefix-scoped: never a sweep of the directory
+    expect(count(dbPath)).toBe(4);
+  });
+});

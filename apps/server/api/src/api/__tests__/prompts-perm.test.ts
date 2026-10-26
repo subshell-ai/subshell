@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { ForbiddenError, requirePerm } from "@/api/auth-guard.js";
+import { requirePerm } from "@/api/auth-guard.js";
+import { ForbiddenError } from "@/shared/errors.js";
 
 /**
  * The bearer permission map grows a `prompts` resource (spec 2026-09-28).

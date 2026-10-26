@@ -12,14 +12,14 @@ import type { verifyReleaseManifest } from "@internal/subshell-protocol/release-
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { downloadsRoutes } from "@/api/downloads.route.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { NODE_ARTIFACTS_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { resetShelfProbeForTests, shelfVersionFacts } from "@/lib/node-artifact-serve.js";
-import { resetAnnouncedShaCacheForTests, resetDiskShaCacheForTests } from "@/lib/node-artifacts.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { releaseSeams, resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+import { resetShelfProbeForTests, shelfVersionFacts } from "@/modules/updates/node-artifact-serve.js";
+import { resetAnnouncedShaCacheForTests, resetDiskShaCacheForTests } from "@/modules/updates/node-artifacts.js";
+import { releaseSeams, resetReleaseCacheForTests, setReleaseUrlForTests } from "@/modules/updates/releases.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
 
 const app = new Elysia().use(errorHandlerPlugin).use(downloadsRoutes);
 

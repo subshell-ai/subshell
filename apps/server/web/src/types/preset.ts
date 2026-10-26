@@ -1,7 +1,7 @@
 /**
  * A harness preset as returned by the presets API.
  * This is the client-facing subset of `PresetSchema` in the backend
- * (apps/server/api/src/api/models.ts): it carries the fields the frontend uses
+ * (apps/server/api/src/api/schemas/models.ts): it carries the fields the frontend uses
  * including viewer-relative sharing metadata.
  */
 import type { SshForwardRow } from "@/lib/ssh";

@@ -1,8 +1,9 @@
 import { Elysia, t } from "elysia";
-import { authGuard, ForbiddenError, HttpError } from "@/api/auth-guard.js";
-import { contextPlugin } from "@/plugins/context.plugin.js";
-import { apiModels } from "@/schema/index.js";
-import { issueWsToken } from "@/ws/ws-token.js";
+import { authGuard } from "@/api/auth-guard.js";
+import { contextPlugin } from "@/api/middleware/context.plugin.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { issueWsToken } from "@/api/ws/ws-token.js";
+import { ForbiddenError, HttpError } from "@/shared/errors.js";
 
 /**
  * The body is OPTIONAL at the envelope level: the SPA and mobile POST this

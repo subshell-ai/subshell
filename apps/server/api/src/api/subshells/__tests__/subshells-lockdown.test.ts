@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { nodesRoutes } from "@/api/nodes/index.js";
 import { settingsRoutes } from "@/api/settings.route.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
@@ -11,10 +12,9 @@ import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { LOCKDOWN_KEY } from "@/services/lockdown.js";
-import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { LOCKDOWN_KEY } from "@/modules/server/lockdown.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
  * Lockdown mode (operator ask, 2026-09-24): one instance-wide emergency

@@ -1,17 +1,18 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
 import { sql } from "kysely";
-import { authGuard, ForbiddenError, HttpError, requireCookieActor } from "@/api/auth-guard.js";
-import { loadNodeGate } from "@/api/nodes/node-gate.js";
-import type { CreatedApiKey, NodeKeyMetadata } from "@/auth/apikey-store.js";
-import { setApiKeyEnabled } from "@/auth/apikey-store.js";
-import { getAuth } from "@/auth.js";
+import { apiErrorBody } from "@/api/api-error.js";
+import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { db } from "@/db/index.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
-import { audit } from "@/services/audit.js";
-import { disconnectNode, getLive, REVOKED_CLOSE_CODE } from "@/services/nodes/node-registry.js";
-import { failConnPendings } from "@/services/nodes/node-rpc.js";
+import { audit } from "@/modules/audit.js";
+import type { CreatedApiKey, NodeKeyMetadata } from "@/modules/auth/apikey-store.js";
+import { setApiKeyEnabled } from "@/modules/auth/apikey-store.js";
+import { getAuth } from "@/modules/auth/auth.js";
+import { loadNodeGate } from "@/modules/nodes/gate.js";
+import { disconnectNode, getLive, REVOKED_CLOSE_CODE } from "@/modules/nodes/node-registry.js";
+import { failConnPendings } from "@/modules/nodes/node-rpc.js";
+import { ForbiddenError, HttpError } from "@/shared/errors.js";
 
 /** One-time key reveal + the manual step the operator still owns. */
 const RotateResponseSchema = t.Object({

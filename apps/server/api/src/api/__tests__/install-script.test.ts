@@ -1,13 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
-import { ensureMigratedTestDb } from "@/__tests__/helpers/test-database.js";
-import { deleteUserByEmailOrId, setupAuthTables } from "@/api/__tests__/helpers/auth-tables.js";
 import { installScriptRoute } from "@/api/install-script.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
+import { deleteUserByEmailOrId, setupAuthTables } from "@/testing/api/auth-tables.js";
+import { ensureMigratedTestDb } from "@/testing/test-database.js";
 
 /**
  * `GET /install.sh` render rules (spec 2026-08-31 §8; the placeholder rule

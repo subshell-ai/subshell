@@ -1,12 +1,12 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
 import { DeploymentViewSchema } from "@/api/admin-server/schemas.js";
+import { apiErrorBody } from "@/api/api-error.js";
 import { requireAdmin } from "@/api/auth-guard.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
-import { audit } from "@/services/audit.js";
-import { currentDebugLogging, setDebugLogging } from "@/services/logging-preference.js";
-import { collectDeployment } from "@/services/server-deployment.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { audit } from "@/modules/audit.js";
+import { currentDebugLogging, setDebugLogging } from "@/modules/server/logging-preference.js";
+import { collectDeployment } from "@/modules/server/server-deployment.js";
 
 const LoggingBodySchema = t.Object({
   debug: t.Boolean({

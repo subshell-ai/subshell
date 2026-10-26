@@ -40,7 +40,7 @@ export class NodeSetupKeysRepository extends BaseRepository {
    *
    * @param ownerUserId - The future node owner. For a NEW-node key that is the
    *  creator; for a RECOVERY key it MUST be the existing node's owner, never
-   *  the caller (redemption in `services/nodes/reregister-node.ts` requires
+   *  the caller (redemption in `modules/nodes/reregister-node.ts` requires
    *  `key.ownerUserId === node.ownerUserId`, so a key minted under a different
    *  user would be dead on arrival). The reregister route passes the node's
    *  owner even when an ADMIN triggered the mint.

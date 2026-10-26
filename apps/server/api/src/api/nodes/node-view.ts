@@ -1,24 +1,3 @@
-import { readSystemSpecs } from "@internal/pane-runtime";
-import {
-  DEFAULT_VIRTUAL_DISPLAY_PROVIDER,
-  type NodeSshFingerprintReport,
-  parseNodeSshFingerprintReport,
-  parseNodeSystemSpecs,
-  storedDisplayProviderIds,
-} from "@internal/subshell-protocol";
-import { type Static, t } from "elysia";
-import { db } from "@/db/index.js";
-import { NodeAllowedDirsRepository } from "@/db/repositories/node-allowed-dirs.repository.js";
-import { UsersRepository } from "@/db/repositories/users.repository.js";
-import type { NodeShareTable } from "@/db/types/node-shares.db-types.js";
-import type { NodeTable } from "@/db/types/nodes.db-types.js";
-import { type NodeAccess, nodeCanLaunchOn, nodeCanManageFor, nodeCanRetire } from "@/lib/node-access.js";
-import { type EffectiveHarnessReport, effectiveHarnessStates } from "@/services/nodes/inventory.js";
-import { enabledHarnessPlugins } from "@/services/nodes/local-plugins.js";
-import { getHeld, type HeldReason } from "@/services/nodes/node-registry.js";
-import { localPlatform } from "@/services/nodes/seed-local.js";
-import { serverSubshellsEnabled } from "@/services/server-as-node.js";
-
 /**
  * Node registry view schemas + mappers (spec 2026-08-31 §9) — the shared
  * rendering layer behind list/detail so the two never drift.
@@ -35,11 +14,27 @@ import { serverSubshellsEnabled } from "@/services/server-as-node.js";
  * values (the view is informational — the launch gate is the strict one).
  */
 
-/**
- * Access levels a view can carry — "none" never has a view (invisible nodes
- * are 404/absent), so the wire schema and the mappers speak the narrowed type.
- */
-export type NodeViewableAccess = Exclude<NodeAccess, "none">;
+import { readSystemSpecs } from "@internal/pane-runtime";
+import {
+  DEFAULT_VIRTUAL_DISPLAY_PROVIDER,
+  type NodeSshFingerprintReport,
+  parseNodeSshFingerprintReport,
+  parseNodeSystemSpecs,
+  storedDisplayProviderIds,
+} from "@internal/subshell-protocol";
+import { type Static, t } from "elysia";
+import { db } from "@/db/index.js";
+import { NodeAllowedDirsRepository } from "@/db/repositories/node-allowed-dirs.repository.js";
+import { UsersRepository } from "@/db/repositories/users.repository.js";
+import type { NodeShareTable } from "@/db/types/node-shares.db-types.js";
+import type { NodeTable } from "@/db/types/nodes.db-types.js";
+import type { NodeViewableAccess } from "@/modules/nodes/access.js";
+import { type NodeAccess, nodeCanLaunchOn, nodeCanManageFor, nodeCanRetire } from "@/modules/nodes/access.js";
+import { type EffectiveHarnessReport, effectiveHarnessStates } from "@/modules/nodes/inventory.js";
+import { getHeld, type HeldReason } from "@/modules/nodes/node-registry.js";
+import { localPlatform } from "@/modules/nodes/seed-local.js";
+import { enabledHarnessPlugins } from "@/modules/plugins/store.js";
+import { serverSubshellsEnabled } from "@/modules/server/server-as-node.js";
 
 /** The viewer's effective access on this node; "none" is never rendered (invisible → 404/absent). */
 export const NodeAccessSchema = t.Union([t.Literal("owner"), t.Literal("edit"), t.Literal("view")], {

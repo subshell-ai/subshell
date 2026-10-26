@@ -6,8 +6,8 @@ import { UsersError } from "@/api/users/users-error.js";
 import { db } from "@/db/index.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { DEFAULT_USER_ROLE, USER_ROLES } from "@/db/types/user-role.js";
-import { audit } from "@/services/audit.js";
-import { checkUserName, USER_NAME_MAX } from "@/services/user-name.js";
+import { audit } from "@/modules/audit.js";
+import { checkUserName, USER_NAME_MAX } from "@/modules/users/user-name.js";
 
 const CreateUserBodySchema = t.Object({
   name: t.String({
@@ -43,7 +43,7 @@ const CreateUserResponseSchema = t.Object({
  * response body. The name is not the admin's private label — it is rendered
  * to everyone a subshell is shared with and it reaches log lines — so it goes
  * through the same normalizer node names and the instance name do; the rule
- * itself lives in `services/user-name.ts`, which the sign-up hook shares.
+ * itself lives in `modules/users/user-name.ts`, which the sign-up hook shares.
  */
 function requireName(name: string): string {
   const result = checkUserName(name);

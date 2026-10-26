@@ -3,8 +3,7 @@ import { hostname } from "node:os";
 import { MIN_NODE_VERSION, NODE_PROTOCOL_VERSION, nodeVersionSupported } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { requireAdmin } from "@/api/auth-guard.js";
-import { listSystemKeys } from "@/auth/apikey-store.js";
-import { findSystemUserId } from "@/auth/system-user.js";
+import { staticSource } from "@/api/middleware/static.plugin.js";
 import {
   APP_BASE_URL,
   AUTH_SECRET,
@@ -17,11 +16,12 @@ import {
 } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { InstanceStatsRepository } from "@/db/repositories/instance-stats.repository.js";
-import { staticSource } from "@/plugins/static.plugin.js";
-import { probeMcpLaunch } from "@/services/mcp-resolve.js";
-import { listOnline } from "@/services/nodes/node-registry.js";
-import { localPlatform } from "@/services/nodes/seed-local.js";
-import { registrationOpen } from "@/services/registration-gate.js";
+import { listSystemKeys } from "@/modules/auth/apikey-store.js";
+import { registrationOpen } from "@/modules/auth/registration-gate.js";
+import { findSystemUserId } from "@/modules/auth/system-user.js";
+import { listOnline } from "@/modules/nodes/node-registry.js";
+import { localPlatform } from "@/modules/nodes/seed-local.js";
+import { probeMcpLaunch } from "@/modules/subshells/mcp-resolve.js";
 import { SERVER_VERSION } from "@/version.js";
 
 /**

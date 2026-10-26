@@ -10,7 +10,7 @@ import { readChannelPostsRoute } from "@/api/channels/read-channel-posts.route.j
 /**
  * `/api/channels` — one Elysia instance per endpoint (mounted in the original
  * monolithic route's order); business logic lives in `ChannelsService`
- * (`src/services/channels.service.ts`), reached by handlers via `ctx`.
+ * (`src/modules/channels/channels.service.ts`), reached by handlers via `ctx`.
  */
 export const channelRoutes = new Elysia({ prefix: "/api/channels" })
   .use(createChannelRoute)

@@ -50,7 +50,7 @@ use crate::proc::Run;
 
 /// The CLI's `--json` tail for a completed update.
 ///
-/// Emitted by `apps/server/api/src/commands/update.ts` (and the node agent's
+/// Emitted by `apps/server/api/src/cli/commands/update.ts` (and the node agent's
 /// twin) as the LAST line of stdout, after the human-readable step lines. The
 /// app reads it to say what actually changed rather than restating what it
 /// asked for: the `from` is the version that WAS installed, which this side
@@ -302,7 +302,7 @@ mod tests {
     /// RELEASED tags rather than from the working tree — the binaries this has
     /// to recognise are the ones that predate the verb.
     ///
-    /// `server-v0.6.0` `apps/server/api/src/cli.ts`:
+    /// `server-v0.6.0` `apps/server/api/src/cli/dispatch.ts`:
     ///   `error(\`subshell-server: unknown command '${command}'\`)`, then
     ///   `error(USAGE)`, then `exit(1)`.
     /// `node-v0.8.0` `apps/node/agent/src/cli.ts`:

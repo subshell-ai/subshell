@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
 import { gatePreview } from "@/api/subshells/preview-gate.js";
-import { listServices, removeService, saveService } from "@/services/subshell-services.js";
+import { listServices, removeService, saveService } from "@/modules/subshells/saved-services.js";
 
 /** Saved destinations use the same ownership/share boundary as interactive views. */
 export const servicesRoute = new Elysia()

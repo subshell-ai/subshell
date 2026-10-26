@@ -230,6 +230,7 @@ describe("UserRowActions", () => {
       await pick("Reset password");
       const dialog = await screen.findByRole("dialog");
       fireEvent.change(screen.getByLabelText("New password"), { target: { value: "correct-horse-battery" } });
+      fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "correct-horse-battery" } });
       fireEvent.click(screen.getByRole("button", { name: "Reset and sign out" }));
       await waitFor(() => expect(dialog.textContent).toContain("Cannot reset this account"));
       // ONE alert: presence in the dialog alone would also pass if the row
@@ -295,7 +296,32 @@ describe("UserRowActions", () => {
     }
   });
 
-  it("opens the password dialog from the menu, submits once, and shows the new password once", async () => {
+  it("clears both passwords and validation when cancelled and reopened", async () => {
+    const { patches, restore } = mockFetch(() => ok({ sessionsRevoked: 0 }));
+    try {
+      renderRow();
+      await pick("Reset password");
+      fireEvent.change(screen.getByLabelText("New password"), { target: { value: "cancelled-password" } });
+      fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "mismatch" } });
+      fireEvent.blur(screen.getByLabelText("Confirm new password"));
+      expect(screen.getByText("Passwords do not match.")).toBeDefined();
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      await pick("Reset password");
+      expect((screen.getByLabelText("New password") as HTMLInputElement).value).toBe("");
+      expect((screen.getByLabelText("Confirm new password") as HTMLInputElement).value).toBe("");
+      expect(screen.queryByText("Passwords do not match.")).toBeNull();
+      expect(
+        (screen.getByRole("button", { name: "Reset and sign out" }) as HTMLButtonElement).matches(
+          ":disabled, [aria-disabled=true]",
+        ),
+      ).toBe(true);
+      expect(patches).toEqual([]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("opens the password dialog from the menu, requires matching masked passwords and clears them after resetting", async () => {
     const { patches, restore } = mockFetch(() => ok({ sessionsRevoked: 3 }));
     try {
       renderRow({ id: "u9", email: "dana@example.com" });
@@ -307,18 +333,34 @@ describe("UserRowActions", () => {
       expect(dialog.textContent).toMatch(/signs them out of every device/i);
       expect(dialog.textContent).toMatch(/won't be notified/i);
       const button = screen.getByRole("button", { name: "Reset and sign out" });
+      expect((screen.getByLabelText("New password") as HTMLInputElement).type).toBe("password");
+      expect((screen.getByLabelText("Confirm new password") as HTMLInputElement).type).toBe("password");
+      fireEvent.change(screen.getByLabelText("New password"), { target: { value: "correct-horse-battery" } });
+      expect((button as HTMLButtonElement).matches(":disabled, [aria-disabled=true]")).toBe(true);
+      fireEvent.focus(screen.getByLabelText("Confirm new password"));
+      fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "different-password" } });
+      expect(screen.queryByText("Passwords do not match.")).toBeNull();
+      fireEvent.blur(screen.getByLabelText("Confirm new password"));
+      expect((button as HTMLButtonElement).matches(":disabled, [aria-disabled=true]")).toBe(true);
+      expect(screen.getByText("Passwords do not match.")).toBeDefined();
+      fireEvent.click(button);
+      expect(patches).toEqual([]);
       // Confirm-gated: too short keeps the act dead.
       fireEvent.change(screen.getByLabelText("New password"), { target: { value: "short" } });
       expect((button as HTMLButtonElement).matches(":disabled, [aria-disabled=true]")).toBe(true);
       fireEvent.change(screen.getByLabelText("New password"), { target: { value: "correct-horse-battery" } });
+      fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "correct-horse-battery" } });
       expect((button as HTMLButtonElement).matches(":disabled, [aria-disabled=true]")).toBe(false);
       fireEvent.click(button);
       await waitFor(() => expect(patches.length).toBe(1));
       expect(patches[0]?.url).toBe("/api/users/u9/password");
       expect(patches[0]?.body).toEqual({ password: "correct-horse-battery" });
       await waitFor(() => expect(screen.getByText(/Signed out of 3 sessions\./)).toBeDefined());
-      // Shown once, readable: the admin must be able to pass it on.
-      expect(screen.getByText("correct-horse-battery")).toBeDefined();
+      expect(screen.queryByText("correct-horse-battery")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Done" }));
+      await pick("Reset password", "dana@example.com");
+      expect((screen.getByLabelText("New password") as HTMLInputElement).value).toBe("");
+      expect((screen.getByLabelText("Confirm new password") as HTMLInputElement).value).toBe("");
     } finally {
       restore();
     }

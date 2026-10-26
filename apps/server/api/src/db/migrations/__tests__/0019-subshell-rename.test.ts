@@ -3,9 +3,9 @@ import { describe, expect, it } from "bun:test";
 import { getMigrations } from "better-auth/db/migration";
 import { CamelCasePlugin, Kysely } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
-import { AUTH_OPTIONS } from "@/auth.js";
 import * as renameMigration from "@/db/migrations/0019-subshell-rename.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
+import { AUTH_OPTIONS } from "@/modules/auth/auth.js";
 
 /**
  * Focused coverage for migration 0019's BEARER-KEY rewrite — the one step of

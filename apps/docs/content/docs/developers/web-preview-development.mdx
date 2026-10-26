@@ -165,13 +165,13 @@ Subshell checkout:
 | Automatic listener discovery | `packages/pane-runtime/src/preview/ports.ts` | Bounded process-tree traversal, attribution, and explicit unsupported-platform results. |
 | TCP/TLS target forwarding | `packages/pane-runtime/src/preview/forward.ts` | Loopback defaults, saved-destination validation, certificate checks, bounded writes, and cleanup. |
 | Browser capture | `packages/pane-runtime/src/preview/cdp-http.ts` and `cdp-bridge.ts` | Loopback CDP validation, timeouts, cancellation, frame limits, and acknowledgements. |
-| HTTP isolation and cookies | `apps/server/api/src/preview/pv-http.ts` and `lane-http.ts` | Header stripping, sandboxing, path fidelity, and no retry after a partial write. |
-| Application WebSockets | `apps/server/api/src/preview/pv-ws.ts` and `lane-ws-client.ts` | Upgrade gates, HTTP/raw separation, message bounds, and closing both ends. |
-| Capabilities, audiences, and revocation | `apps/server/api/src/services/preview-broker.ts` | Ownership, concurrent-open limits, pending-open cancellation, and repeated authorization after awaits. |
+| HTTP isolation and cookies | `apps/server/api/src/api/previews/http.ts` and `lane-http.ts` | Header stripping, sandboxing, path fidelity, and no retry after a partial write. |
+| Application WebSockets | `apps/server/api/src/api/previews/ws.ts` and `lane-ws-client.ts` | Upgrade gates, HTTP/raw separation, message bounds, and closing both ends. |
+| Capabilities, audiences, and revocation | `apps/server/api/src/modules/previews/preview-broker.ts` | Ownership, concurrent-open limits, pending-open cancellation, and repeated authorization after awaits. |
 | Browser viewer behavior | `apps/server/web/src/components/preview/` | The distinction between embedded websites, browser watches, and interactive displays. |
 
 The enrolled-node command executors and the built-in node's
-`apps/server/api/src/preview/local-preview.ts` both use the shared runtime.
+`apps/server/api/src/modules/previews/local-preview.ts` both use the shared runtime.
 Changes to command/result shapes also require shared protocol validators,
 node/server compatibility handling, and tests for malformed or unsupported
 messages. Don't update only one execution path.

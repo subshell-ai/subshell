@@ -5,15 +5,15 @@ import {
   VIRTUAL_DISPLAY_PROVIDERS,
 } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { ForbiddenError, HttpError } from "@/api/auth-guard.js";
-import { loadNodeGate } from "@/api/nodes/node-gate.js";
+import { apiErrorBody } from "@/api/api-error.js";
 import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
 import { NodeViewSchema, toNodeView } from "@/api/nodes/node-view.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
-import { setPreviewEnabled } from "@/services/nodes/preview-enabled.js";
+import { loadNodeGate } from "@/modules/nodes/gate.js";
+import { setPreviewEnabled } from "@/modules/nodes/preview-enabled.js";
+import { ForbiddenError, HttpError } from "@/shared/errors.js";
 
 const PreviewEnabledBodySchema = t.Object({
   providers: t.Optional(

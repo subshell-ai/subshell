@@ -1,16 +1,16 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { NODE_NAME_MAX_UNITS, normalizeNodeName } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { ForbiddenError } from "@/api/auth-guard.js";
-import { loadNodeGate } from "@/api/nodes/node-gate.js";
+import { apiErrorBody } from "@/api/api-error.js";
 import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
 import { NodeViewSchema, toNodeView } from "@/api/nodes/node-view.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { isUniqueNameViolation } from "@/lib/node-errors.js";
-import { apiModels } from "@/schema/index.js";
-import { audit } from "@/services/audit.js";
+import { audit } from "@/modules/audit.js";
+import { isUniqueNameViolation } from "@/modules/nodes/errors.js";
+import { loadNodeGate } from "@/modules/nodes/gate.js";
+import { ForbiddenError } from "@/shared/errors.js";
 
 /**
  * Rename body — the same name shape enroll enforces (keeps picker labels sane),

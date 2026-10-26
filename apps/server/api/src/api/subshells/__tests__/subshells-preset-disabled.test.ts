@@ -1,22 +1,22 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { presetRoutes } from "@/api/presets.route.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
+import { getRequestlessContext } from "@/app/context.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { getRequestlessContext } from "@/lib/context.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { FakeNodeLauncher } from "@/services/__tests__/helpers/node-fakes.js";
-import { seedPreset } from "@/services/__tests__/helpers/seed-preset.js";
-import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
-import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { SubshellManagerService } from "@/services/subshell-manager.service.js";
-import { attachScriptedNode, ok, statDirEcho } from "@/test-helpers/scripted-node.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+import { resetNodeRegistryForTests } from "@/modules/nodes/node-registry.js";
+import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { SubshellManagerService } from "@/modules/subshells/subshell-manager.service.js";
+import { FakeNodeLauncher } from "@/testing/node-fakes.js";
+import { attachScriptedNode, ok, statDirEcho } from "@/testing/scripted-node.js";
+import { seedPreset } from "@/testing/seed-preset.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
  * A disabled preset refuses launch (spec 2026-10-24). The refusal is asked at

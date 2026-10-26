@@ -1,9 +1,9 @@
 import { Elysia, t } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
-import { isCookieAdmin } from "@/api/user-utils.js";
-import { SYSTEM_USER_EMAIL } from "@/auth/system-user.js";
 import { db } from "@/db/index.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { SYSTEM_USER_EMAIL } from "@/modules/auth/system-user.js";
+import { isCookieAdmin } from "@/modules/users/roles.js";
 
 const UserRowSchema = t.Object({
   id: t.String({ description: "User id" }),

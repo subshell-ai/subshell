@@ -4,8 +4,9 @@ User procedure: [Backups and restoration](../../../docs/content/docs/administrat
 
 ## Boundaries
 
-`services/backups/` owns the streamed archive, encryption, validation, and offline
-replacement. It takes explicit host paths and imports no auth/server state.
+`modules/backups/` owns archives, capture/staging, recovery, and restore jobs.
+Its archive, encryption, validation, and offline replacement primitives take
+explicit host paths; those primitives stay independent of auth/server state.
 `journal.ts` must remain import-inert and reachable before constants/config/auth:
 `loadConfigEnv` recovers interrupted replacement before applying the file layer.
 Read-only status/help/version/license, service status, and restore inspection/list commands skip recovery so their promise of no destination

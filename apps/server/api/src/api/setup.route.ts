@@ -1,20 +1,21 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { builtInHarnesses, builtInIds } from "@internal/pane-runtime";
 import { Elysia, t } from "elysia";
-import { ForbiddenError, HttpError, isIssuedCredential, UnauthorizedError } from "@/api/auth-guard.js";
-import { harnessInfo } from "@/api/harness-utils.js";
-import { HarnessInfoSchema } from "@/api/models.js";
+import { apiErrorBody } from "@/api/api-error.js";
+import { isIssuedCredential } from "@/api/auth-guard.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { HarnessInfoSchema } from "@/api/schemas/models.js";
 import { IS_TEST } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { asSetupStep, SETUP_STEPS } from "@/db/types/setup-step.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { browserOriginAllowed } from "@/lib/browser-origin.js";
-import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
-import { apiModels } from "@/schema/index.js";
-import { backupPasswordChangeRequired } from "@/services/backup-admin-recovery.js";
-import { installLocalPlugin, localPluginReports, uninstallLocalPlugin } from "@/services/nodes/local-plugins.js";
-import { hasAnyUser } from "@/services/registration-gate.js";
+import { hasAnyUser } from "@/modules/auth/registration-gate.js";
+import { extractSessionToken, resolveCookieSession } from "@/modules/auth/session-cookie.js";
+import { backupPasswordChangeRequired } from "@/modules/backups/backup-admin-recovery.js";
+import { browserOriginAllowed } from "@/modules/network/browser-origin.js";
+import { harnessInfo } from "@/modules/plugins/availability.js";
+import { installLocalPlugin, localPluginReports, uninstallLocalPlugin } from "@/modules/plugins/store.js";
+import { ForbiddenError, HttpError, UnauthorizedError } from "@/shared/errors.js";
 
 const SetupStatusSchema = t.Object({
   // These descriptions reach OpenAPI and the generated SDK on the instance's

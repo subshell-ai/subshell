@@ -13,9 +13,9 @@ issuer and carries the endpoints discovery resolved AT SAVE TIME, so a rebuild
 never re-fetches a dead issuer, `genericOAuth` stays out of `AUTH_OPTIONS`
 (a throwing provider must not crash boot's migration path), and a throwing
 rebuild serves the last-known-good instance. **Provider policy is one global
-seam**, `options.user.validateUserInfo` → `auth/provider-policy.ts` (1.7.1 has no
+seam**, `options.user.validateUserInfo` → `modules/auth/provider-policy.ts` (1.7.1 has no
 per-provider hook); it never fires on the password/passkey SIGN-IN paths, so
-`auth/provider-guards.ts` (`hooks.before`) carries those two refusals for a
+`modules/auth/provider-guards.ts` (`hooks.before`) carries those two refusals for a
 closed E-mail provider, with `closed` meaning EITHER flag: the guard reads
 `enabled = 0` beside `sign_in_enabled = 0` (final review, Important 1: the
 master switch was hiding the provider in the UI while the API kept signing
@@ -28,9 +28,9 @@ in (pinned both ways in `provider-guards.test.ts`). A
 creation; it also undoes any first-admin promotion its own write caused,
 clearing the `setup_step` bookmark with it) and its session dies at
 `session.create.before`, where PENDING now sits beside DISABLED
-(`services/account-status.ts`); returning pendings are refused by the policy
+(`modules/users/account-status.ts`); returning pendings are refused by the policy
 hook with the code the login page maps to `/pending`. The hourly sweep
-(`services/pending-approvals.ts`) expires stale `pending` rows (never
+(`modules/users/pending-approvals.ts`) expires stale `pending` rows (never
 `rejected`) and re-marks failed-mark arrivals. `/api/auth-providers` is
 cookie-admin only; verification is the save gate: discovery plus, where the
 issuer advertises the grant, one token request (400 `DISCOVERY_FAILED` /

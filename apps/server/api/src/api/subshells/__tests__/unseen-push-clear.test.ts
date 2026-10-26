@@ -1,15 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
-import { authDatabase } from "@/auth/database.js";
 import { db } from "@/db/index.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+import { authDatabase } from "@/modules/auth/database.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 const app = new Elysia().use(errorHandlerPlugin).use(subshellRoutes);
 
@@ -120,7 +120,7 @@ describe("owner-cookie pane reads clear the unseen urgency", () => {
 
   it("a throwing clear still answers the owner's read — best-effort like the attach twin (final review)", async () => {
     // A real SQLITE_BUSY here used to turn the owner's OWN pane detail GET
-    // into a 500; the attach twin in `ws/attach-resolve.ts` wraps the
+    // into a 500; the attach twin in `api/ws/attach-resolve.ts` wraps the
     // identical write in try/catch and this site must not be worse. The spy
     // makes exactly ONE method throw — the read path reaches `update` only
     // from `#rememberSeen` (`getSubshell` is read-only).

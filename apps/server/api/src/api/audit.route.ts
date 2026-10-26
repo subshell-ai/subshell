@@ -1,10 +1,10 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
+import { apiErrorBody } from "@/api/api-error.js";
 import { requireAdmin } from "@/api/auth-guard.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { db } from "@/db/index.js";
 import { AuditRepository } from "@/db/repositories/audit.repository.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
 
 const AuditEventSchema = t.Object({
   id: t.String({ description: "Event id" }),

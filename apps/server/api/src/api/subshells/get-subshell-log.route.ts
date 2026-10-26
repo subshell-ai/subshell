@@ -1,9 +1,9 @@
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
-import { SubshellLogTailSchema } from "@/api/models.js";
-import { contextPlugin } from "@/plugins/context.plugin.js";
-import { apiModels } from "@/schema/index.js";
-import { LOG_MAX_WINDOW_BYTES, LOG_WINDOW_DEFAULT_BYTES } from "@/services/nodes/log-tail.js";
+import { contextPlugin } from "@/api/middleware/context.plugin.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { SubshellLogTailSchema } from "@/api/schemas/models.js";
+import { LOG_MAX_WINDOW_BYTES, LOG_WINDOW_DEFAULT_BYTES } from "@/modules/subshells/log-tail.js";
 
 /**
  * Cursor window (spec 2026-10-01 §3); absent `from_byte` keeps the EOF-anchored

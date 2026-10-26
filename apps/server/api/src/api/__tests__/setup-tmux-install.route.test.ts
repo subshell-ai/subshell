@@ -2,17 +2,17 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test"
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { resolveDeployFacts } from "@/api/admin-status.route.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { setHasUsersProbeForTests } from "@/api/setup.route.js";
 import { setTmuxInstallDepsForTests, setupTmuxInstallRoute } from "@/api/setup-tmux-install.route.js";
-import { authDatabase } from "@/auth/database.js";
-import { chooseTmuxInstaller } from "@/commands/tmux-install.js";
 import { db } from "@/db/index.js";
 import { AuditRepository } from "@/db/repositories/audit.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+import { authDatabase } from "@/modules/auth/database.js";
+import { chooseTmuxInstaller } from "@/modules/server/tmux-install.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
 
 /**
  * `POST /api/setup/tmux/install` (spec 2026-09-15 § 5.1, accounted § 6).

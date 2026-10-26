@@ -1924,7 +1924,7 @@ console.log("native password interoperable");
     }
     #[test]
     fn supported_restore_environment_matches_cli_contract() {
-        let source = include_str!("../../../api/src/services/backups/config.ts");
+        let source = include_str!("../../../api/src/modules/backups/config.ts");
         let array = source
             .split("export const BACKUP_CONFIG_KEYS = [")
             .nth(1)

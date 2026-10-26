@@ -4,27 +4,27 @@ import { hashPassword, verifyPassword } from "better-auth/crypto";
 import { sql } from "kysely";
 import { authRateLimitRoutes } from "@/api/auth-rate-limit.route.js";
 import { usersRoutes } from "@/api/users/index.js";
-import { ensureSystemUser } from "@/auth/system-user.js";
-import { setAuthPolicyDb } from "@/auth.js";
+import { registerLiveSocket, resetLiveRegistryForTests } from "@/api/ws/live-registry.js";
+import { registerViewer, resetLiveViewersForTests, type WsSocket } from "@/api/ws/viewers.js";
+import { clearWsTokensForTests, consumeWsToken, issueWsToken } from "@/api/ws/ws-token.js";
+import { subscribeLive } from "@/app/live-bus.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { subscribeLive } from "@/services/live-bus.js";
+import { setAuthPolicyDb } from "@/modules/auth/auth.js";
+import { ensureSystemUser } from "@/modules/auth/system-user.js";
 import {
   attachConnection,
   getLive,
   type NodeSocket,
   OWNER_DISABLED_CLOSE_CODE,
   resetNodeRegistryForTests,
-} from "@/services/nodes/node-registry.js";
-import { getPreviewBroker, resetForTests as resetPreviewBrokerForTests } from "@/services/preview-broker.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { registerLiveSocket, resetLiveRegistryForTests } from "@/ws/live-registry.js";
-import { registerViewer, resetLiveViewersForTests, type WsSocket } from "@/ws/viewers.js";
-import { clearWsTokensForTests, consumeWsToken, issueWsToken } from "@/ws/ws-token.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+} from "@/modules/nodes/node-registry.js";
+import { getPreviewBroker, resetForTests as resetPreviewBrokerForTests } from "@/modules/previews/preview-broker.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
  * Admin user management: role assignment and password reset.
@@ -519,7 +519,7 @@ describe("admin user management", () => {
     /**
      * A fake open terminal attach, registered the way both attach paths do
      * it: `registerViewer` with a `viewerId`, and the `attachUserId` the
-     * attach resolved (see `ws/attach-resolve.ts`). The close records instead
+     * attach resolved (see `api/ws/attach-resolve.ts`). The close records instead
      * of tearing down — the walk under test only needs to reach the socket.
      */
     function terminalViewer(userId: string, viewerId: string) {
@@ -932,6 +932,8 @@ describe("admin user management", () => {
       // *something*.
       expect(await verifyPassword({ hash: stored as string, password: next })).toBe(true);
       expect(await verifyPassword({ hash: stored as string, password: pw })).toBe(false);
+      expect((await attemptSignIn(memberEmail, next)).status).toBe(200);
+      expect((await attemptSignIn(memberEmail, pw)).status).toBe(401);
     });
 
     it("revokes every session the target holds, and says how many", async () => {

@@ -5,19 +5,19 @@ import { join } from "node:path";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { filesRoutes, setFilesReaddirForTests } from "@/api/files.route.js";
-import { authDatabase } from "@/auth/database.js";
-import { ensureSystemUser } from "@/auth/system-user.js";
-import { getAuth } from "@/auth.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { db } from "@/db/index.js";
 import { FavoritesRepository } from "@/db/repositories/favorites.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { setFilesRealpathForTests } from "@/services/files-path-rules.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+import { getAuth } from "@/modules/auth/auth.js";
+import { authDatabase } from "@/modules/auth/database.js";
+import { ensureSystemUser } from "@/modules/auth/system-user.js";
+import { setFilesRealpathForTests } from "@/modules/files/paths.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
 
 /**
  * The folder explorer is an authenticated-BROWSER convenience, not an API:

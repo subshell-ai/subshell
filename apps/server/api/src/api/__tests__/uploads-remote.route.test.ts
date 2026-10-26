@@ -15,9 +15,9 @@ import {
   type NodeConnection,
   type NodeSocket,
   resetNodeRegistryForTests,
-} from "@/services/nodes/node-registry.js";
-import { resolveResult } from "@/services/nodes/node-rpc.js";
-import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+} from "@/modules/nodes/node-registry.js";
+import { resolveResult } from "@/modules/nodes/node-rpc.js";
+import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
 
 /**
  * Route-level contract for the terminal-upload relay to agent nodes (spec

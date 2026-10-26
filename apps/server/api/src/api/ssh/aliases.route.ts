@@ -1,8 +1,8 @@
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
-import { throwCodedRefusal } from "@/api/ssh/ssh-views.js";
-import { apiModels } from "@/schema/index.js";
-import { sshListAliases } from "@/services/ssh-launch.service.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { throwCodedRefusal } from "@/modules/ssh/refusal.js";
+import { sshListAliases } from "@/modules/ssh/ssh-launch.service.js";
 
 /**
  * `GET /api/ssh/aliases?node=<id>` — the NAMES of the machine's usable SSH

@@ -1,15 +1,15 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
-import { ForbiddenError } from "@/api/auth-guard.js";
-import { harnessInfo } from "@/api/harness-utils.js";
+import { apiErrorBody } from "@/api/api-error.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { resolveSetupActor } from "@/api/setup.route.js";
 import { IS_TEST } from "@/constants.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { resolveCookieSession } from "@/lib/session-cookie.js";
-import { apiModels } from "@/schema/index.js";
-import { type AgentInstallDeps, installBuiltInAgent, refuseInstall } from "@/services/agent-install.service.js";
-import { audit } from "@/services/audit.js";
-import { localPluginReports } from "@/services/nodes/local-plugins.js";
+import { audit } from "@/modules/audit.js";
+import { resolveCookieSession } from "@/modules/auth/session-cookie.js";
+import { type AgentInstallDeps, installBuiltInAgent, refuseInstall } from "@/modules/plugins/agent-install.service.js";
+import { harnessInfo } from "@/modules/plugins/availability.js";
+import { localPluginReports } from "@/modules/plugins/store.js";
+import { ForbiddenError } from "@/shared/errors.js";
 
 let depsOverride: AgentInstallDeps | undefined;
 

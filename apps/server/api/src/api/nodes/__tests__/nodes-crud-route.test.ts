@@ -2,9 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { exportJWK, generateKeyPair } from "jose";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { nodesRoutes } from "@/api/nodes/index.js";
-import { authDatabase } from "@/auth/database.js";
-import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
@@ -13,19 +12,20 @@ import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
+import { getAuth } from "@/modules/auth/auth.js";
+import { authDatabase } from "@/modules/auth/database.js";
 import {
   attachConnection,
   getLive,
   type NodeConnection,
   type NodeSocket,
   resetNodeRegistryForTests,
-} from "@/services/nodes/node-registry.js";
-import { NodeRpcError } from "@/services/nodes/node-rpc.js";
-import { ensureLocalNode, localPlatform } from "@/services/nodes/seed-local.js";
-import { deliverSigningKey } from "@/services/nodes/ssh-identity.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+} from "@/modules/nodes/node-registry.js";
+import { NodeRpcError } from "@/modules/nodes/node-rpc.js";
+import { ensureLocalNode, localPlatform } from "@/modules/nodes/seed-local.js";
+import { deliverSigningKey } from "@/modules/nodes/ssh-identity.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /** One rendered node as the list/detail routes return it. */
 type View = {

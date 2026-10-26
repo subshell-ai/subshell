@@ -13,7 +13,7 @@ import {
 } from "@internal/pane-runtime";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/api/__tests__/helpers/auth-tables.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { setNodeSharesRoute } from "@/api/nodes/set-node-shares.route.js";
 import { presetRoutes } from "@/api/presets.route.js";
 import { sshRoutes } from "@/api/ssh/index.js";
@@ -25,16 +25,16 @@ import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID, type NodeTable } from "@/db/types/nodes.db-types.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { ROSTER, startStubAgent } from "@/services/__tests__/helpers/ssh-relay-stack.js";
-import { audit } from "@/services/audit.js";
-import { getHeld, holdConnection, releaseHeld, resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
-import { sendCommand } from "@/services/nodes/node-rpc.js";
-import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { gateSshNode, sshAccessRevoked } from "@/services/ssh-policy.service.js";
-import { createRelayBroker, setRelayBrokerForTests } from "@/services/ssh-relay.service.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { attachScriptedNode, ok, SCRIPTED_DATA_DIR, statDirEcho } from "@/test-helpers/scripted-node.js";
+import { audit } from "@/modules/audit.js";
+import { getHeld, holdConnection, releaseHeld, resetNodeRegistryForTests } from "@/modules/nodes/node-registry.js";
+import { sendCommand } from "@/modules/nodes/node-rpc.js";
+import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { gateSshNode, sshAccessRevoked } from "@/modules/ssh/policy.js";
+import { createRelayBroker, setRelayBrokerForTests } from "@/modules/ssh/relay-broker.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/testing/api/auth-tables.js";
+import { attachScriptedNode, ok, SCRIPTED_DATA_DIR, statDirEcho } from "@/testing/scripted-node.js";
+import { ROSTER, startStubAgent } from "@/testing/ssh-relay-stack.js";
 
 /**
  * The `/api/ssh` surface (spec 2026-10-07 §4.3/§5/§7) — the gate doctrine, the

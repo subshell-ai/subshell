@@ -283,7 +283,7 @@ async function enrollFailure(res: Response, name: string): Promise<Error> {
  * Renders the field-level failures of a `400 INPUT_VALIDATION_ERROR` body into a
  * suffix like `; invalid input — setupKey: Expected string length greater or
  * equal to 8`. The shape mirrors the server: the VALIDATION branch of
- * apps/server/api/src/plugins/error-handler.plugin.ts puts Elysia's `error.all`
+ * apps/server/api/src/api/middleware/error-handler.plugin.ts puts Elysia's `error.all`
  * items under `validationError.validation[]`, each carrying a JSON-pointer
  * `path` ("/name") and a human `message`. Field names only — never the offending
  * values (a rejected `publicKey` echo would be noise, a rejected key would be a

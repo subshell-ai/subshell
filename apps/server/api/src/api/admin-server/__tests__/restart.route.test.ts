@@ -2,11 +2,11 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { Elysia } from "elysia";
 import { adminServerRoutes } from "@/api/admin-server/index.js";
 import { restartSeams } from "@/api/admin-server/restart.route.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { db } from "@/db/index.js";
 import { AuditRepository } from "@/db/repositories/audit.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { type DeploymentView, RESTART_CONTAINERIZED_REASON } from "@/services/server-deployment.js";
-import { authedRequest } from "../../__tests__/helpers/auth-tables.js";
+import { type DeploymentView, RESTART_CONTAINERIZED_REASON } from "@/modules/server/server-deployment.js";
+import { authedRequest } from "../../../testing/api/auth-tables.js";
 import { type AdminServerFixture, bearerRequest, setupAdminServerFixture } from "./fixture.js";
 
 const app = new Elysia().use(errorHandlerPlugin).use(adminServerRoutes);

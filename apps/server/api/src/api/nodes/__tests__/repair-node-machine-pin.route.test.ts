@@ -8,17 +8,17 @@ import { IdentitiesRepository } from "@/db/repositories/identities.repository.js
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
-import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { SshRpcError } from "@/services/nodes/ssh-rpc.js";
+import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { SshRpcError } from "@/modules/nodes/ssh-rpc.js";
+import { createRelayBroker, setRelayBrokerForTests } from "@/modules/ssh/relay-broker.js";
 import {
   ensureLocalRelayIdentity,
   localRelayIdentityDir,
   resetLocalRelayIdentity,
-} from "@/services/ssh-local-identity.js";
-import { setSshMachinePinsDepsForTests } from "@/services/ssh-machine-pins.service.js";
-import { createRelayBroker, setRelayBrokerForTests } from "@/services/ssh-relay.service.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+} from "@/modules/ssh/ssh-local-identity.js";
+import { setSshMachinePinsDepsForTests } from "@/modules/ssh/ssh-machine-pins.service.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
  * `POST /api/nodes/:id/machine-pins/:peerNodeId/repair` (spec 2026-10-08

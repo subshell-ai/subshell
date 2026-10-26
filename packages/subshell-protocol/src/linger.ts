@@ -3,7 +3,7 @@
  * its owner's logout.
  *
  * **Why this one thing is shared when the rest of the two service modules is
- * not.** `apps/server/api/src/service.ts` and `apps/node/agent/src/service.ts`
+ * not.** `apps/server/api/src/modules/server/supervision.ts` and `apps/node/agent/src/service.ts`
  * are deliberate ports of each other — sync against async — and that
  * duplication is a decision, not an accident: each owns its own platform
  * logic, and a shared layer over two callers would be an abstraction over a

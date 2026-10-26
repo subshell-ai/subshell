@@ -1,14 +1,15 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
-import { authGuard, ForbiddenError, requireCookieActor } from "@/api/auth-guard.js";
-import { loadNodeGate } from "@/api/nodes/node-gate.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
+import { apiErrorBody } from "@/api/api-error.js";
+import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { loadNodeGate } from "@/modules/nodes/gate.js";
 import {
   machinePinRepairRefusal,
   repairMachinePin,
   SshMachinePinRepairError,
-} from "@/services/ssh-machine-pins.service.js";
+} from "@/modules/ssh/ssh-machine-pins.service.js";
+import { ForbiddenError } from "@/shared/errors.js";
 
 const RepairedSchema = t.Object({
   repaired: t.Boolean({ description: "Always true on success: the machine's ack confirmed the write" }),

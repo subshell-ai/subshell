@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { setupAuthTables } from "@/api/__tests__/helpers/auth-tables.js";
 import { db } from "@/db/index.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
+import { setupAuthTables } from "@/testing/api/auth-tables.js";
 
 /**
  * The transactional last-provider guard (Task 8 review, Important 1). A

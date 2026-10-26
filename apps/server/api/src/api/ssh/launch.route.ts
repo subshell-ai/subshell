@@ -1,17 +1,17 @@
 import { normalizeLabel, SSH_MAX_FORWARD_ROWS, SSH_ROSTER_MAX_IDENTITIES } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
-import { SubshellSchema } from "@/api/models.js";
+import { contextPlugin } from "@/api/middleware/context.plugin.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { SubshellSchema } from "@/api/schemas/models.js";
 import {
   SshDestinationField,
   SshExpectedDestinationField,
   SshForwardRowSchema,
   SshResolveRefusalViewSchema,
-  throwCodedRefusal,
 } from "@/api/ssh/ssh-views.js";
-import { contextPlugin } from "@/plugins/context.plugin.js";
-import { apiModels } from "@/schema/index.js";
-import { sshLaunch } from "@/services/ssh-launch.service.js";
+import { throwCodedRefusal } from "@/modules/ssh/refusal.js";
+import { sshLaunch } from "@/modules/ssh/ssh-launch.service.js";
 
 /**
  * `POST /api/ssh/launch` `{node, destination, name?}` — open an interactive

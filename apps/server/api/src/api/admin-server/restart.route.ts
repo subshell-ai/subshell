@@ -1,11 +1,11 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
+import { apiErrorBody } from "@/api/api-error.js";
 import { requireAdmin } from "@/api/auth-guard.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
-import { audit } from "@/services/audit.js";
-import { collectDeployment } from "@/services/server-deployment.js";
-import { performRestart } from "@/services/server-restart.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { audit } from "@/modules/audit.js";
+import { collectDeployment } from "@/modules/server/server-deployment.js";
+import { performRestart } from "@/modules/server/server-restart.js";
 
 const RestartBodySchema = t.Object({
   force: t.Optional(

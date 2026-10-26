@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { filesRoutes } from "@/api/files.route.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { db } from "@/db/index.js";
 import { FavoritesRepository } from "@/db/repositories/favorites.repository.js";
 import { NodeAllowedDirsRepository } from "@/db/repositories/node-allowed-dirs.repository.js";
@@ -13,11 +14,10 @@ import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { attachScriptedNode, type ScriptedNode } from "@/test-helpers/scripted-node.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+import { resetNodeRegistryForTests } from "@/modules/nodes/node-registry.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { attachScriptedNode, type ScriptedNode } from "@/testing/scripted-node.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
 
 /**
  * `GET /api/files/explore?node=<id>` — the REMOTE half of the folder picker.

@@ -1,4 +1,5 @@
-import { ForbiddenError, type GuardActor } from "@/api/auth-guard.js";
+import type { GuardActor } from "@/modules/auth/actor.js";
+import { ForbiddenError } from "@/shared/errors.js";
 
 /**
  * Every `/api/workspaces` endpoint is a browser-only surface: the `subshell mcp`

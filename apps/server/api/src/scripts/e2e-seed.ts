@@ -6,7 +6,7 @@ import { runMigrations } from "@/db/migrate.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
 
 /**
  * Seed/inspector for the two-process cross-subshell e2e test (plan T13).

@@ -136,7 +136,7 @@ other kind: both `service status` commands print it, its regex over
 leave the other quietly wrong on exactly the headless machine the fact exists
 for. When to ask and what to do with the answer stay here.
 
-`queryService`/`controlService` (ported from `apps/server/api/src/service.ts`,
+`queryService`/`controlService` (ported from `apps/server/api/src/modules/server/supervision.ts`,
 2026-09-05; async here, since every seam in this module is) are what
 `service status|start|stop|restart` run on. Two platform facts they encode:
 the EFFECTIVE systemd `KillMode` comes from `systemctl show` (a unit-file grep

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { hashPassword } from "better-auth/crypto";
 import { spawnSync } from "bun";
 import { Elysia } from "elysia";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { db } from "@/db/index.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
@@ -12,10 +13,9 @@ import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { WorkspacePanesRepository } from "@/db/repositories/workspace-panes.repository.js";
 import { WorkspacesRepository } from "@/db/repositories/workspaces.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
  * The workspace half of the subshell door (spec 2026-10-17): filing a create

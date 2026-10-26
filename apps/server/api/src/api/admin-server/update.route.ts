@@ -1,16 +1,21 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { semverLt } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
+import { apiErrorBody } from "@/api/api-error.js";
 import { requireAdmin } from "@/api/auth-guard.js";
-import { serverConfigDir } from "@/config-env.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
-import { audit } from "@/services/audit.js";
-import { resolveInstalledBinary } from "@/services/installed-binary.js";
-import { type CliReleaseCheck, installableCliRelease, releaseSourceUrl } from "@/services/releases.js";
-import { collectDeployment } from "@/services/server-deployment.js";
-import { describeBinary, startServerUpdate, tryClaimServerUpdate, updateJobRunning } from "@/services/server-update.js";
-import { readPending } from "@/services/update-transaction.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { audit } from "@/modules/audit.js";
+import { serverConfigDir } from "@/modules/server/config/env.js";
+import { resolveInstalledBinary } from "@/modules/server/installed-binary.js";
+import { collectDeployment } from "@/modules/server/server-deployment.js";
+import { type CliReleaseCheck, installableCliRelease, releaseSourceUrl } from "@/modules/updates/releases.js";
+import {
+  describeBinary,
+  startServerUpdate,
+  tryClaimServerUpdate,
+  updateJobRunning,
+} from "@/modules/updates/server-update.js";
+import { readPending } from "@/modules/updates/update-transaction.js";
 import { SERVER_VERSION } from "@/version.js";
 
 const UpdateBodySchema = t.Object({

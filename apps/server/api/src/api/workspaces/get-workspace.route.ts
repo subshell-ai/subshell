@@ -1,9 +1,9 @@
 import { Elysia } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
-import { WorkspaceDetailSchema } from "@/api/models.js";
+import { contextPlugin } from "@/api/middleware/context.plugin.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { WorkspaceDetailSchema } from "@/api/schemas/models.js";
 import { requireCookieActor } from "@/api/workspaces/require-cookie-actor.js";
-import { contextPlugin } from "@/plugins/context.plugin.js";
-import { apiModels } from "@/schema/index.js";
 
 /** `GET /api/workspaces/:id` — one workspace with its panes and each pane's subshell summary. */
 export const getWorkspaceRoute = new Elysia()

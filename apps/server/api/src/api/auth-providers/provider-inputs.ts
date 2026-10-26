@@ -1,4 +1,4 @@
-import { EntryInputError, normalizeEntryOrigin } from "@/auth/oidc-discovery.js";
+import { EntryInputError, normalizeEntryOrigin } from "@/modules/auth/oidc-discovery.js";
 
 /**
  * The name cap: the same 120 code points the subshell/workspace renames use.

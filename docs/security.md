@@ -1478,9 +1478,9 @@ before retrying. Setup keys and installer output are excluded from audit metadat
 and user-facing refusal text; the audit event records the service-selected outcome.
 
 Implementation entry points: `apps/server/api/src/api/ssh/`,
-`apps/server/api/src/services/ssh-launch.service.ts`,
-`apps/server/api/src/services/ssh-destination-verification.service.ts`,
-`apps/server/api/src/services/subshells.service.ts`, and
+`apps/server/api/src/modules/ssh/ssh-launch.service.ts`,
+`apps/server/api/src/modules/ssh/ssh-destination-verification.service.ts`,
+`apps/server/api/src/modules/subshells/subshells.service.ts`, and
 `packages/pane-runtime/src/ssh/`. Operator instructions live in
 [Connect over SSH](../apps/docs/content/docs/guides/ssh.mdx).
 

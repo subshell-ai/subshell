@@ -1,12 +1,12 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
 import { DeploymentViewSchema } from "@/api/admin-server/schemas.js";
+import { apiErrorBody } from "@/api/api-error.js";
 import { requireAdmin } from "@/api/auth-guard.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
-import { type CliResult, setAutostart } from "@/service.js";
-import { audit } from "@/services/audit.js";
-import { collectDeployment, serviceDeps } from "@/services/server-deployment.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { audit } from "@/modules/audit.js";
+import { collectDeployment, serviceDeps } from "@/modules/server/server-deployment.js";
+import { type CliResult, setAutostart } from "@/modules/server/supervision.js";
 
 const AutostartBodySchema = t.Object({
   enabled: t.Boolean({ description: "Whether the installed service should start at login" }),

@@ -2,20 +2,20 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import type { NetworkPluginEntry, NetworkStatus } from "@internal/pane-runtime";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/api/__tests__/helpers/auth-tables.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { networkRoutes } from "@/api/network/index.js";
-import { invalidateNetworkStatus, setNetworkDepsForTests } from "@/api/network/network-gate.js";
-import { authDatabase } from "@/auth/database.js";
 import { db } from "@/db/index.js";
 import { AuditRepository } from "@/db/repositories/audit.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { setNetworkOriginsResolveForTests } from "@/services/network/origins.js";
-import { clearNetworkState, readNetworkState, writeNetworkState } from "@/services/network/state.js";
-import { setUnpublishDepsForTests } from "@/services/network/unpublish.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { originRegistry, resetOriginRegistryForTests } from "@/services/trusted-origins.js";
+import { authDatabase } from "@/modules/auth/database.js";
+import { invalidateNetworkStatus, setNetworkDepsForTests } from "@/modules/network/operations.js";
+import { setNetworkOriginsResolveForTests } from "@/modules/network/origins.js";
+import { clearNetworkState, readNetworkState, writeNetworkState } from "@/modules/network/state.js";
+import { originRegistry, resetOriginRegistryForTests } from "@/modules/network/trusted-origins.js";
+import { setUnpublishDepsForTests } from "@/modules/network/unpublish.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/testing/api/auth-tables.js";
 import { FAKE_ID, fakeDeps, fakeReport, makeFakePlugin } from "./fake-network-plugin.js";
 
 /**

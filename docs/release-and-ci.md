@@ -216,7 +216,7 @@ file keyed by their identifier, so a shared string is a collision:
 
 **Those Linux directory names are not the CLIs'**, and that asymmetry is the
 point: `~/.config/subshell-server` is where the SERVER CLI keeps `config.env`
-(`apps/server/api/src/config-env.ts`) and `~/.config/subshell` is the node CLI's
+(`apps/server/api/src/modules/server/config/env.ts`) and `~/.config/subshell` is the node CLI's
 own config home (`apps/node/agent/src/config.ts`). A desktop app dropping
 `settings.json` into either would put two different programs' state in one
 directory, so each app prefixes `subshell-desktop-`. An identifier is an
@@ -265,7 +265,7 @@ you touch any of it:
   the same publisher signature.** `packages/subshell-protocol/src/releases.ts`
   picks the newest release of a component off the tag list by semver (never
   by date, because four components share one repository and "latest" is
-  whichever was cut last), and `apps/server/api/src/services/releases.ts` is
+  whichever was cut last), and `apps/server/api/src/modules/updates/releases.ts` is
   the I/O half, one fetch behind a 15-minute TTL. The URL is the only seam:
   `SUBSHELL_RELEASE_URL` (which replaced `SUBSHELL_NODE_RELEASE_URL`; there is
   deliberately no alias), **empty = air-gapped and every network path refuses

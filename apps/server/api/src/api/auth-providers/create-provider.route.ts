@@ -1,24 +1,24 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { normalizeLabel } from "@internal/subshell-protocol";
 import { Elysia } from "elysia";
+import { apiErrorBody } from "@/api/api-error.js";
 import { requireAdmin } from "@/api/auth-guard.js";
 import { b2n, CreateProviderFieldsSchema } from "@/api/auth-providers/provider-fields.js";
 import { normalizeCallbackBase, normalizeOriginList, PROVIDER_NAME_MAX } from "@/api/auth-providers/provider-inputs.js";
 import { domainsInput, ProviderViewSchema, toView } from "@/api/auth-providers/provider-view.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { APP_BASE_URL } from "@/constants.js";
+import { db } from "@/db/index.js";
+import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
+import { audit } from "@/modules/audit.js";
+import { invalidateAuth } from "@/modules/auth/auth.js";
 import {
   EntryInputError,
   normalizeDomains,
   normalizeEntryOrigin,
   slugifyProviderId,
   verifyOnSave,
-} from "@/auth/oidc-discovery.js";
-import { invalidateAuth } from "@/auth.js";
-import { APP_BASE_URL } from "@/constants.js";
-import { db } from "@/db/index.js";
-import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
-import { audit } from "@/services/audit.js";
+} from "@/modules/auth/oidc-discovery.js";
 
 /**
  * `POST /api/auth-providers` — adds an OIDC sign-in provider (cookie-admin

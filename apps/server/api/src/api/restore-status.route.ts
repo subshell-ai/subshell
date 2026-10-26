@@ -1,6 +1,6 @@
 import { Elysia } from "elysia";
-import { HttpError } from "@/api/auth-guard.js";
-import { readRestoreJob } from "@/services/restore-jobs.js";
+import { readRestoreJob } from "@/modules/backups/restore-jobs.js";
+import { HttpError } from "@/shared/errors.js";
 
 // The unpredictable job UUID is a read-only status capability. Restoring revokes
 // login cookies, so this exposes only generic progress, never instance metadata.

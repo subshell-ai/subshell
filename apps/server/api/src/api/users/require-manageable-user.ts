@@ -1,7 +1,7 @@
 import { UsersError } from "@/api/users/users-error.js";
-import { SYSTEM_USER_EMAIL } from "@/auth/system-user.js";
 import { db } from "@/db/index.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { SYSTEM_USER_EMAIL } from "@/modules/auth/system-user.js";
 
 /**
  * Loads a user an admin may act on, or throws.

@@ -1,13 +1,13 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
+import { apiErrorBody } from "@/api/api-error.js";
 import { requireAdmin } from "@/api/auth-guard.js";
 import { LAST_PROVIDER_MESSAGE } from "@/api/auth-providers/provider-inputs.js";
-import { invalidateAuth } from "@/auth.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { db } from "@/db/index.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
-import { audit } from "@/services/audit.js";
+import { audit } from "@/modules/audit.js";
+import { invalidateAuth } from "@/modules/auth/auth.js";
 
 /** DELETE /api/auth-providers/:id response — a body, not a bare 204: the SPA parses it. */
 const DeleteResponseSchema = t.Object({

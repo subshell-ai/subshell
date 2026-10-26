@@ -1,11 +1,12 @@
 import { Elysia, t } from "elysia";
-import { authGuard, HttpError, requirePerm } from "@/api/auth-guard.js";
+import { authGuard, requirePerm } from "@/api/auth-guard.js";
+import { contextPlugin } from "@/api/middleware/context.plugin.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { gatePreview, previewNodeState, recheckPreviewOpen } from "@/api/subshells/preview-gate.js";
-import { contextPlugin } from "@/plugins/context.plugin.js";
-import { apiModels } from "@/schema/index.js";
-import { NodeRpcError } from "@/services/nodes/node-rpc.js";
-import { PREVIEW_PORTS_UNSUPPORTED } from "@/services/nodes/preview-refusals.js";
-import { getPreviewBroker, PreviewRefusal } from "@/services/preview-broker.js";
+import { NodeRpcError } from "@/modules/nodes/node-rpc.js";
+import { getPreviewBroker, PreviewRefusal } from "@/modules/previews/preview-broker.js";
+import { PREVIEW_PORTS_UNSUPPORTED } from "@/modules/previews/refusals.js";
+import { HttpError } from "@/shared/errors.js";
 
 /**
  * The screencast watch doors, one file per resource rule: `POST

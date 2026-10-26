@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { builtInNetworkPlugins, type NetworkContext } from "@internal/pane-runtime";
-import { configurationRefusal } from "@/api/network/network-gate.js";
+import { configurationRefusal } from "@/modules/network/operations.js";
 
 /**
  * The settings/secret gate, run against the REAL built-in manifests.

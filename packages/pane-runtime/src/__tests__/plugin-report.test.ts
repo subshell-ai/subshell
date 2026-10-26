@@ -9,7 +9,7 @@ import { buildPluginReports, installEmbedded, pluginsDir } from "../index.js";
  * What a host learns about its own installed plugins, as wire data.
  *
  * `buildPluginReports` lives here and the control plane consumes it for
- * `local`'s declaration mirror (`apps/server/api/src/services/nodes/
+ * `local`'s declaration mirror (`apps/server/api/src/modules/nodes/
  * local-plugins.ts`); the agent stopped calling it when the node lost its
  * plugin concept (inversion spec §6), so these pins moved with the only
  * remaining consumer rather than being deleted with the agent-side copy.
@@ -46,7 +46,7 @@ describe("buildPluginReports", () => {
 
   it("renders manual harness steps against the PORTABLE launch — the preset editor's own spelling", async () => {
     // Cross-package contract, reviewed after #57: `PORTABLE_MCP_LAUNCH`
-    // (`apps/server/api/src/services/mcp-resolve.ts`) pins
+    // (`apps/server/api/src/modules/subshells/mcp-resolve.ts`) pins
     // { command: "subshell", args: ["mcp"] } for the schema route, and THIS
     // package spells the same literal at `plugin-report.ts`. It cannot import
     // the constant — pane-runtime is Apache, the constant is a VALUE export
@@ -66,7 +66,7 @@ describe("buildPluginReports", () => {
   it("renders manual hook lines against the PORTABLE reporter — the server's own spelling", async () => {
     // Same cross-package rule as the mcp literal above: `plugin-report.ts`
     // spells { command: "subshell", args: ["report"] } for the Nodes page and
-    // `apps/server/api/src/services/mcp-resolve.ts` pins PORTABLE_REPORTER
+    // `apps/server/api/src/modules/subshells/mcp-resolve.ts` pins PORTABLE_REPORTER
     // for the preset editor. Both sides hold the literal; drift would show
     // users two different hook commands for one harness.
     const dir = tempDataDir();

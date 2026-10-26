@@ -1,22 +1,22 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia } from "elysia";
+import { apiErrorBody } from "@/api/api-error.js";
+import { requireNetworkAdmin } from "@/api/network/network-gate.js";
+import { NetworkActionResponseSchema, NetworkParamsSchema } from "@/api/network/schemas.js";
+import { apiModels } from "@/api/schemas/index.js";
 import {
   auditNetwork,
   invalidateNetworkStatus,
   prepareNetworkAct,
   readNetworkStatus,
-  requireNetworkAdmin,
-} from "@/api/network/network-gate.js";
-import { NetworkActionResponseSchema, NetworkParamsSchema } from "@/api/network/schemas.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
-import { unpublishNetwork } from "@/services/network/unpublish.js";
-import { originRegistry } from "@/services/trusted-origins.js";
+} from "@/modules/network/operations.js";
+import { originRegistry } from "@/modules/network/trusted-origins.js";
+import { unpublishNetwork } from "@/modules/network/unpublish.js";
 
 /**
  * `POST /api/network/:id/unpublish` (spec 2026-09-15 § 5.1, § 5.3).
  *
- * Delegates the whole sequence to `services/network/unpublish.ts`, which is
+ * Delegates the whole sequence to `modules/network/unpublish.ts`, which is
  * the SAME function `PATCH /api/plugins/:id { enabled: false }` runs before it
  * flips the flag. One implementation, because the ordering inside it is a
  * safety property — process down first, guard off LAST — and two copies of an

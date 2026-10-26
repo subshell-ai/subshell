@@ -2,17 +2,17 @@ import { Elysia, t } from "elysia";
 import { requireAdmin } from "@/api/auth-guard.js";
 import { requireManageableUser } from "@/api/users/require-manageable-user.js";
 import { UsersError } from "@/api/users/users-error.js";
+import { dropLiveSocketsFor } from "@/api/ws/live-registry.js";
+import { dropTerminalSocketsFor } from "@/api/ws/viewers.js";
+import { dropUserTokensFor } from "@/api/ws/ws-token.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
-import { audit } from "@/services/audit.js";
-import { disconnectNode, getHeld, getLive, OWNER_DISABLED_CLOSE_CODE } from "@/services/nodes/node-registry.js";
-import { failConnPendings } from "@/services/nodes/node-rpc.js";
-import { getPreviewBroker } from "@/services/preview-broker.js";
-import { logger } from "@/utils/logger.js";
-import { dropLiveSocketsFor } from "@/ws/live-registry.js";
-import { dropTerminalSocketsFor } from "@/ws/viewers.js";
-import { dropUserTokensFor } from "@/ws/ws-token.js";
+import { audit } from "@/modules/audit.js";
+import { disconnectNode, getHeld, getLive, OWNER_DISABLED_CLOSE_CODE } from "@/modules/nodes/node-registry.js";
+import { failConnPendings } from "@/modules/nodes/node-rpc.js";
+import { getPreviewBroker } from "@/modules/previews/preview-broker.js";
+import { logger } from "@/shared/logger.js";
 
 const DisabledBodySchema = t.Object({
   disabled: t.Boolean({ description: "True to disable the account, false to re-enable it" }),

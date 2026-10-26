@@ -1,19 +1,18 @@
 import type { ApiKeyPermission } from "@internal/subshell-protocol";
 import type { Session, User } from "better-auth";
 import { Elysia } from "elysia";
-import { systemKeyPermissions } from "@/auth/system-key-permissions.js";
-import { ensureSystemUser } from "@/auth/system-user.js";
-import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
-import { browserOriginAllowed } from "@/lib/browser-origin.js";
-import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
-import { accountDisabled } from "@/services/account-status.js";
-import { backupPasswordChangeRequired } from "@/services/backup-admin-recovery.js";
-
-/** How the request authenticated — drives permission and admin policy. */
-export type GuardActor = "cookie" | "system-key" | "subshell-key";
+import type { GuardActor } from "@/modules/auth/actor.js";
+import { getAuth } from "@/modules/auth/auth.js";
+import { extractSessionToken, resolveCookieSession } from "@/modules/auth/session-cookie.js";
+import { systemKeyPermissions } from "@/modules/auth/system-key-permissions.js";
+import { ensureSystemUser } from "@/modules/auth/system-user.js";
+import { backupPasswordChangeRequired } from "@/modules/backups/backup-admin-recovery.js";
+import { browserOriginAllowed } from "@/modules/network/browser-origin.js";
+import { accountDisabled } from "@/modules/users/account-status.js";
+import { ForbiddenError, HttpError, UnauthorizedError } from "@/shared/errors.js";
 
 /** The api-key row subset the guard reads off a successful verification. */
 interface VerifiedKeyRow {
@@ -244,42 +243,6 @@ export function requirePerm(
   if (resource === "prompts" && grants === undefined && ctx.apiKeyPermissions && "channels" in ctx.apiKeyPermissions)
     return;
   if (!(grants ?? []).includes(action)) throw new ForbiddenError();
-}
-
-/**
- * Thrown by guards on missing/invalid credentials; Elysia maps `status`.
- * The message is overridable (it reaches the client via the error handler);
- * the default keeps every generic rejection worded as it always has been.
- */
-export class UnauthorizedError extends Error {
-  readonly status = 401;
-  constructor(message = "Unauthorized") {
-    super(message);
-    this.name = "UnauthorizedError";
-  }
-}
-
-/** Thrown by guards on insufficient permissions; Elysia maps `status`. */
-export class ForbiddenError extends Error {
-  readonly status = 403;
-  constructor() {
-    super("Forbidden");
-    this.name = "ForbiddenError";
-  }
-}
-
-/**
- * Route-level error carrying an HTTP status; Elysia maps `status` to the
- * response code. The shared form for "throw NNN with this message" in any
- * /api route handler — routes need not redeclare it per file.
- */
-export class HttpError extends Error {
-  readonly status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.name = "HttpError";
-    this.status = status;
-  }
 }
 
 /**

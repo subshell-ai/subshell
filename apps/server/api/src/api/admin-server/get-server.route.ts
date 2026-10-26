@@ -1,7 +1,7 @@
 import { Elysia } from "elysia";
 import { DeploymentViewSchema } from "@/api/admin-server/schemas.js";
 import { requireAdmin } from "@/api/auth-guard.js";
-import { collectDeploymentCached } from "@/services/server-deployment.js";
+import { collectDeploymentCached } from "@/modules/server/server-deployment.js";
 
 /**
  * `GET /api/admin/server` — how this server is DEPLOYED, as against

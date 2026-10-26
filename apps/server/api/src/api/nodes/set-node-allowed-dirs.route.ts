@@ -1,17 +1,17 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { MAX_ALLOWED_DIRS, normalizeAllowedDir, normalizeAllowedDirs } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { ForbiddenError } from "@/api/auth-guard.js";
-import { loadNodeGate } from "@/api/nodes/node-gate.js";
+import { apiErrorBody } from "@/api/api-error.js";
 import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
 import { NodeViewSchema, toNodeView } from "@/api/nodes/node-view.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { db } from "@/db/index.js";
 import { NodeAllowedDirsRepository } from "@/db/repositories/node-allowed-dirs.repository.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
-import { audit } from "@/services/audit.js";
-import { pushAllowedDirsBestEffort } from "@/services/nodes/allowed-dirs-sync.js";
-import { launcherFor } from "@/services/nodes/launcher-registry.js";
+import { audit } from "@/modules/audit.js";
+import { pushAllowedDirsBestEffort } from "@/modules/nodes/allowed-dirs-sync.js";
+import { loadNodeGate } from "@/modules/nodes/gate.js";
+import { launcherFor } from "@/modules/nodes/launcher-registry.js";
+import { ForbiddenError } from "@/shared/errors.js";
 
 /** Replacement set — the complete intended list, never a delta. */
 const AllowedDirsBodySchema = t.Object({

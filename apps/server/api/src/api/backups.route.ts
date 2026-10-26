@@ -2,28 +2,29 @@ import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { backupEncryptionPasswordProblem } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { HttpError, requireAdmin } from "@/api/auth-guard.js";
-import { audit } from "@/services/audit.js";
-import { prepareBackupAdminRecovery } from "@/services/backup-admin-recovery.js";
-import { listLocalBackups } from "@/services/backup-catalog.js";
+import { requireAdmin } from "@/api/auth-guard.js";
+import { audit } from "@/modules/audit.js";
+import { prepareBackupAdminRecovery } from "@/modules/backups/backup-admin-recovery.js";
+import { listLocalBackups } from "@/modules/backups/backup-catalog.js";
 import {
   backupDownloadJobStatus,
   cancelBackupDownloadJob,
   claimBackupDownload,
   startBackupDownloadJob,
-} from "@/services/backup-download-jobs.js";
+} from "@/modules/backups/backup-download-jobs.js";
 import {
   createRestoreStage,
   deleteRestoreStage,
   readRestoreStage,
   type StageRecord,
   saveRestoreStage,
-} from "@/services/backup-staging.js";
-import { validateRestoreConfigOverrides } from "@/services/backups/index.js";
-import { assertSafeHostPath, trustedTemporaryDirectory } from "@/services/backups/paths.js";
-import { instanceBackupPaths } from "@/services/instance-backup-source.js";
-import { restoreInspectionDefaults } from "@/services/restore-inspection.js";
-import { preflightRestoreJob, startRestoreJob } from "@/services/restore-jobs.js";
+} from "@/modules/backups/backup-staging.js";
+import { validateRestoreConfigOverrides } from "@/modules/backups/config.js";
+import { instanceBackupPaths } from "@/modules/backups/instance-backup-source.js";
+import { assertSafeHostPath, trustedTemporaryDirectory } from "@/modules/backups/paths.js";
+import { restoreInspectionDefaults } from "@/modules/backups/restore-inspection.js";
+import { preflightRestoreJob, startRestoreJob } from "@/modules/backups/restore-jobs.js";
+import { HttpError } from "@/shared/errors.js";
 
 function publicInspection(record: StageRecord) {
   return {

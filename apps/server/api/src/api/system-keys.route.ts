@@ -1,12 +1,13 @@
 import { API_KEY_PERMISSIONS, type ApiKeyPermission } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { HttpError, requireAdmin } from "@/api/auth-guard.js";
-import type { ApiKeyListRow, CreatedApiKey } from "@/auth/apikey-store.js";
-import { deleteApiKey, isSystemKey, listSystemKeys, setApiKeyEnabled } from "@/auth/apikey-store.js";
-import { systemKeyPermissions } from "@/auth/system-key-permissions.js";
-import { ensureSystemUser } from "@/auth/system-user.js";
-import { getAuth } from "@/auth.js";
-import { audit } from "@/services/audit.js";
+import { requireAdmin } from "@/api/auth-guard.js";
+import { audit } from "@/modules/audit.js";
+import type { ApiKeyListRow, CreatedApiKey } from "@/modules/auth/apikey-store.js";
+import { deleteApiKey, isSystemKey, listSystemKeys, setApiKeyEnabled } from "@/modules/auth/apikey-store.js";
+import { getAuth } from "@/modules/auth/auth.js";
+import { systemKeyPermissions } from "@/modules/auth/system-key-permissions.js";
+import { ensureSystemUser } from "@/modules/auth/system-user.js";
+import { HttpError } from "@/shared/errors.js";
 
 const PermissionSchema = t.UnionEnum(API_KEY_PERMISSIONS as readonly [ApiKeyPermission, ...ApiKeyPermission[]], {
   description: "An explicit API key permission",

@@ -2,7 +2,7 @@ import { Elysia, t } from "elysia";
 import { db } from "@/db/index.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import { asProviderKind } from "@/db/types/auth-providers.db-types.js";
-import { resolveInstanceName } from "@/services/instance-name.js";
+import { resolveInstanceName } from "@/modules/server/instance-name.js";
 
 /** One sign-in provider the login page may paint a button for. */
 const InstanceProviderSchema = t.Object({

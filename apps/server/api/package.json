@@ -12,11 +12,11 @@
       "import": "./dist/index.js"
     },
     "./backup-types": {
-      "types": "./src/services/backups/types.ts"
+      "types": "./src/modules/backups/types.ts"
     },
     "./config-values": {
-      "types": "./dist/commands/config-values.d.ts",
-      "import": "./dist/commands/config-values.js"
+      "types": "./dist/modules/server/config/values.d.ts",
+      "import": "./dist/modules/server/config/values.js"
     }
   },
   "types": "dist/index.d.ts",

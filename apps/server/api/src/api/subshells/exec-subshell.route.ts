@@ -1,8 +1,8 @@
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
-import { contextPlugin } from "@/plugins/context.plugin.js";
-import { apiModels } from "@/schema/index.js";
-import { EXEC_TIMEOUT_MAX, EXEC_TIMEOUT_MIN, EXEC_TIMEOUT_MS } from "@/services/nodes/pane-exec.js";
+import { contextPlugin } from "@/api/middleware/context.plugin.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { EXEC_TIMEOUT_MAX, EXEC_TIMEOUT_MIN, EXEC_TIMEOUT_MS } from "@/modules/subshells/exec.js";
 
 /**
  * One shell command, run in a TERMINAL pane, answered with its output and

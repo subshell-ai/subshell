@@ -1,10 +1,10 @@
 import { beforeAll, describe, expect, it } from "bun:test";
-import { setupAuthTables } from "@/api/__tests__/helpers/auth-tables.js";
 import { db } from "@/db/index.js";
 import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { NewPreset } from "@/db/types/presets.db-types.js";
+import { setupAuthTables } from "@/testing/api/auth-tables.js";
 
 /**
  * The three repository methods the instance plugins door (spec 2026-09-10

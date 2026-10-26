@@ -1,19 +1,14 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { createPluginSecrets } from "@internal/pane-runtime";
 import { Elysia, t } from "elysia";
-import {
-  auditNetwork,
-  invalidateNetworkStatus,
-  networkDeps,
-  prepareNetworkAct,
-  requireNetworkAdmin,
-} from "@/api/network/network-gate.js";
+import { apiErrorBody } from "@/api/api-error.js";
+import { requireNetworkAdmin } from "@/api/network/network-gate.js";
 import { buildNetworkRow } from "@/api/network/network-view.js";
 import { NetworkParamsSchema, NetworkRowSchema } from "@/api/network/schemas.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
-import { readNetworkState, writeNetworkState } from "@/services/network/state.js";
+import { auditNetwork, invalidateNetworkStatus, networkDeps, prepareNetworkAct } from "@/modules/network/operations.js";
+import { readNetworkState, writeNetworkState } from "@/modules/network/state.js";
 
 const SettingsBodySchema = t.Record(
   t.String({ description: "A settings field key the plugin declared" }),

@@ -1,16 +1,17 @@
-import { type GuardActor, HttpError } from "@/api/auth-guard.js";
 import { db } from "@/db/index.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
-import { type Access, accessAtLeast, loadSubshellAccess } from "@/lib/subshell-access.js";
-import { accountDisabled } from "@/services/account-status.js";
-import { getHeld, isNodeOffline } from "@/services/nodes/node-registry.js";
+import type { GuardActor } from "@/modules/auth/actor.js";
+import { getHeld, isNodeOffline } from "@/modules/nodes/node-registry.js";
 import {
   getAnyPreviewEnabled,
   getVirtualDisplayEnabled,
   getWebPreviewsEnabled,
-} from "@/services/nodes/preview-enabled.js";
+} from "@/modules/nodes/preview-enabled.js";
+import { type Access, accessAtLeast, loadSubshellAccess } from "@/modules/subshells/access.js";
+import { accountDisabled } from "@/modules/users/account-status.js";
+import { HttpError } from "@/shared/errors.js";
 
 /**
  * The shared door for the three preview routes. It mirrors the subshell

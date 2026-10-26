@@ -95,7 +95,7 @@ describe("NodeSetupKeysRepository", () => {
   it("a recovery key's mint owner must BE the target node's owner (the redemption invariant)", async () => {
     // The reregister route, since the 2026-10-09 retire ruling, can be reached
     // by an ADMIN but still mints under the NODE'S owner. This guard is WHY:
-    // redemption (`services/nodes/reregister-node.ts`) refuses a key whose
+    // redemption (`modules/nodes/reregister-node.ts`) refuses a key whose
     // ownerUserId differs from the node owner's, so a key minted under the
     // admin would be dead on arrival. The repository enforces the invariant at
     // the write, so the route can hand it the owner id and never persist a

@@ -2,13 +2,13 @@ import { Elysia, t } from "elysia";
 import { requireAdmin } from "@/api/auth-guard.js";
 import { requireManageableUser } from "@/api/users/require-manageable-user.js";
 import { UsersError } from "@/api/users/users-error.js";
+import { dropLiveSocketsFor } from "@/api/ws/live-registry.js";
 import { db } from "@/db/index.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { DEFAULT_USER_ROLE, USER_ROLES } from "@/db/types/user-role.js";
-import { audit } from "@/services/audit.js";
-import { getPreviewBroker } from "@/services/preview-broker.js";
-import { logger } from "@/utils/logger.js";
-import { dropLiveSocketsFor } from "@/ws/live-registry.js";
+import { audit } from "@/modules/audit.js";
+import { getPreviewBroker } from "@/modules/previews/preview-broker.js";
+import { logger } from "@/shared/logger.js";
 
 const RoleSchema = t.Union(
   USER_ROLES.map((role) => t.Literal(role)),

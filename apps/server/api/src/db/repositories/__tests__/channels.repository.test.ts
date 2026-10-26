@@ -1,9 +1,9 @@
 import { beforeAll, beforeEach, describe, expect, it } from "bun:test";
-import { ensureMigratedTestDb } from "@/__tests__/helpers/test-database.js";
 import { db } from "@/db/index.js";
 import { ChannelPostsRepository } from "@/db/repositories/channel-posts.repository.js";
 import { ChannelNameTakenError, ChannelsRepository } from "@/db/repositories/channels.repository.js";
 import { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
+import { ensureMigratedTestDb } from "@/testing/test-database.js";
 
 // Parallel `bun test` isolates each file's modules, so this suite gets its
 // own unmigrated database - the tables used to arrive on the strength of

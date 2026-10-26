@@ -4,27 +4,22 @@ import type { NetworkAddress } from "@internal/pane-runtime";
 import { getNetworkPlugin } from "@internal/pane-runtime";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
-import {
-  deleteUserByEmailOrId,
-  seedLocalPluginsForTests,
-  setupAuthTables,
-  signIn,
-} from "@/api/__tests__/helpers/auth-tables.js";
-import { beginNetworkOp, endNetworkOp } from "@/api/network/network-gate.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { pluginsRoutes } from "@/api/plugins.route.js";
 import { db } from "@/db/index.js";
 import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
+import { beginNetworkOp, endNetworkOp } from "@/modules/network/operations.js";
 import {
   isNetworkPluginTombstoned,
   observeNetworkStatus,
   setNetworkOriginsResolveForTests,
-} from "@/services/network/origins.js";
-import { clearNetworkState, networkStatePath, readNetworkState, writeNetworkState } from "@/services/network/state.js";
-import { setUnpublishDepsForTests } from "@/services/network/unpublish.js";
-import { installLocalPlugin } from "@/services/nodes/local-plugins.js";
-import { originRegistry, resetOriginRegistryForTests } from "@/services/trusted-origins.js";
+} from "@/modules/network/origins.js";
+import { clearNetworkState, networkStatePath, readNetworkState, writeNetworkState } from "@/modules/network/state.js";
+import { originRegistry, resetOriginRegistryForTests } from "@/modules/network/trusted-origins.js";
+import { setUnpublishDepsForTests } from "@/modules/network/unpublish.js";
+import { installLocalPlugin } from "@/modules/plugins/store.js";
+import { deleteUserByEmailOrId, seedLocalPluginsForTests, setupAuthTables, signIn } from "@/testing/api/auth-tables.js";
 
 /**
  * `PATCH /api/plugins/:id { enabled: false }` on a NETWORK plugin runs the

@@ -2,16 +2,16 @@ import { BackendErrorCodes } from "@internal/backend-errors";
 import { loginPathEntries } from "@internal/pane-runtime";
 import { Elysia } from "elysia";
 import { invalidateDeployFacts } from "@/api/admin-status.route.js";
-import { ForbiddenError } from "@/api/auth-guard.js";
+import { apiErrorBody } from "@/api/api-error.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { resolveSetupActor } from "@/api/setup.route.js";
-import { chooseTmuxInstaller, type TmuxInstaller } from "@/commands/tmux-install.js";
 import { IS_TEST } from "@/constants.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { resolveCookieSession } from "@/lib/session-cookie.js";
-import { apiModels } from "@/schema/index.js";
-import { runInstaller } from "@/services/agent-install.service.js";
-import { audit } from "@/services/audit.js";
+import { audit } from "@/modules/audit.js";
+import { resolveCookieSession } from "@/modules/auth/session-cookie.js";
+import { runInstaller } from "@/modules/plugins/agent-install.service.js";
+import { chooseTmuxInstaller, type TmuxInstaller } from "@/modules/server/tmux-install.js";
+import { ForbiddenError } from "@/shared/errors.js";
 
 /**
  * Test seams. Production callers get the real platform table and the real

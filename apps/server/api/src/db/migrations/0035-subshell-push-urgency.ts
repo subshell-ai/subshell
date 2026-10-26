@@ -6,7 +6,7 @@ import type { Kysely } from "kysely";
  * `last_push_urgency` is the urgency of the last DELIVERED push attempt this
  * pane made that its owner has not answered by opening the pane: NULL =
  * nothing unseen. The urgency ladder itself lives beside the gate in
- * `services/notify.service.ts` (only notify.service and the clear sites
+ * `modules/notifications/notify.service.ts` (only notify.service and the clear sites
  * interpret the number); this column stores it. Nothing here backfills — a
  * row created before the column exists has, correctly, never pushed under
  * the new rule.

@@ -8,7 +8,7 @@
  * be imported with `import type { App } from "@internal/backend-client"` if a
  * later milestone wants inference instead of these mirrors.
  *
- * Field list tracks `SubshellSchema` in `apps/server/api/src/api/models.ts:29-53`.
+ * Field list tracks `SubshellSchema` in `apps/server/api/src/api/schemas/models.ts:29-53`.
  */
 
 /** Lifecycle status persisted on the subshell row. */

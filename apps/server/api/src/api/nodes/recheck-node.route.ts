@@ -1,13 +1,13 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
-import { ForbiddenError } from "@/api/auth-guard.js";
-import { loadNodeGate } from "@/api/nodes/node-gate.js";
+import { apiErrorBody } from "@/api/api-error.js";
 import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { nodeCanConfigure } from "@/lib/node-access.js";
-import { apiModels } from "@/schema/index.js";
-import { detectOnNode } from "@/services/nodes/inventory.js";
-import { NodeRpcError } from "@/services/nodes/node-rpc.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { nodeCanConfigure } from "@/modules/nodes/access.js";
+import { loadNodeGate } from "@/modules/nodes/gate.js";
+import { detectOnNode } from "@/modules/nodes/inventory.js";
+import { NodeRpcError } from "@/modules/nodes/node-rpc.js";
+import { ForbiddenError } from "@/shared/errors.js";
 
 /** Response of a successful re-check — the data itself is already stored. */
 const RecheckResponseSchema = t.Object({

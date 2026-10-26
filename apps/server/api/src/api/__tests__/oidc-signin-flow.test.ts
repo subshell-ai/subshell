@@ -2,16 +2,16 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { sql } from "kysely";
-import { getAuth, invalidateAuth, setAuthPolicyDb } from "@/auth.js";
+import { authPlugin } from "@/api/middleware/auth.plugin.js";
 import { APP_BASE_URL } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { NewAuthProvider } from "@/db/types/auth-providers.db-types.js";
-import { authPlugin } from "@/plugins/auth.plugin.js";
-import { deleteUserByEmailOrId, setupAuthTables } from "./helpers/auth-tables.js";
-import { type FakeIdp, startFakeIdp } from "./helpers/fake-oidc.js";
+import { getAuth, invalidateAuth, setAuthPolicyDb } from "@/modules/auth/auth.js";
+import { deleteUserByEmailOrId, setupAuthTables } from "../../testing/api/auth-tables.js";
+import { type FakeIdp, startFakeIdp } from "../../testing/api/fake-oidc.js";
 
 /**
  * The end-to-end sign-in matrix (spec 2026-09-24 §4/§5/§6/§7): a fake OIDC

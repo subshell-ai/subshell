@@ -2,11 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { getHarness, listInstalled } from "@internal/pane-runtime";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
-import { usableHarnessIds } from "@/api/harness-utils.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { pluginsRoutes, setPluginsRegistryUrlForTests } from "@/api/plugins.route.js";
-import { authDatabase } from "@/auth/database.js";
-import { ensureSystemUser } from "@/auth/system-user.js";
-import { getAuth } from "@/auth.js";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { AuditRepository } from "@/db/repositories/audit.repository.js";
@@ -14,14 +11,13 @@ import { PluginStateRepository } from "@/db/repositories/plugin-state.repository
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import {
-  type FakeRegistry,
-  makePluginTgz,
-  startFakeRegistry,
-} from "@/services/nodes/__tests__/helpers/fake-npm-registry.js";
-import { installLocalPlugin, localPluginReports, uninstallLocalPlugin } from "@/services/nodes/local-plugins.js";
-import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+import { getAuth } from "@/modules/auth/auth.js";
+import { authDatabase } from "@/modules/auth/database.js";
+import { ensureSystemUser } from "@/modules/auth/system-user.js";
+import { usableHarnessIds } from "@/modules/plugins/availability.js";
+import { installLocalPlugin, localPluginReports, uninstallLocalPlugin } from "@/modules/plugins/store.js";
+import { type FakeRegistry, makePluginTgz, startFakeRegistry } from "@/testing/nodes/fake-npm-registry.js";
+import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
 
 /**
  * The instance-level plugins door (spec 2026-09-10 §6, §6.1).
