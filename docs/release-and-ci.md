@@ -765,13 +765,16 @@ the experimental probe.
 That signing runs during `cargo build`, before Tauri builds its own throwaway
 keychain at bundle time, so the desktop shards build a dedicated keychain for it
 and hand its path to the build script through `APPLE_SIGNING_KEYCHAIN`. The
-keychain stays on the user's search list for the build: `codesign` resolves a
-named identity through the search list, not the `--keychain` argument, so the
-keychain has to be listed for the identity to be found (run 40306776766 failed
-with "item could not be found" when it was created, imported, and then taken
-back off the list). It carries the same single identity as Tauri's later bundle
-keychain, so listing both is no ambiguity, and the step's trap restores the
-baseline search list when it ends.
+shard then makes that keychain the sole entry of the user's search list, exactly
+as the CLI darwin shards provision theirs: `codesign` resolves a named identity
+through the search list, not the `--keychain` argument, and on this runner image
+`security create-keychain` does not add the keychain to that list. Run
+40306776766 failed with "item could not be found" for exactly that reason, and
+probe run 40325026239 on the same image confirmed the split: the same keychain
+refused the identity while unlisted and signed cleanly once listed. When Tauri's
+bundle-time keychain takes the list over later it carries the same single
+identity from the same p12, so the two views are never in conflict, and the
+step's trap restores the baseline search list when it ends.
 
 The helper has its own `Info.plist` version, which must increase when its code
 changes. Both apps reuse the newest installed helper; neither may downgrade it
