@@ -1,0 +1,35 @@
+---
+title: "Oh My Pi"
+description: "Install and launch Oh My Pi with Subshell, including automatic MCP configuration and supported settings."
+---
+
+Run Oh My Pi as a Subshell agent.
+
+## Before you start
+
+Install `omp` using the [vendor instructions](https://github.com/can1357/oh-my-pi#install) and authenticate it under the execution account. The integration targets Oh My Pi 18.12.6, including its extension-package MCP discovery. Ask an administrator to enable **Oh My Pi** under **Settings** → **Server Settings** → **Plugins** in the server dashboard's sidebar. Follow [Install an agent CLI](/agents/install-cli) to confirm detection on the target node.
+
+Oh My Pi and [pi](/agents/pi) are separate harnesses. Installing `pi` doesn't provide the `omp` executable.
+
+## Launch
+
+1. Follow [Launch a subshell](/guides/launch) to open **Add subshell**, then choose **Oh My Pi** under **Agent or terminal**.
+2. Select a preset if you want saved model, provider, and thinking settings. Configure those values in [Presets](/presets) before launching, or launch without a preset to use Oh My Pi's defaults.
+3. Choose the target node and an existing project directory.
+4. Launch and complete Oh My Pi's first-run setup if it appears. Wait for the agent prompt before submitting a task.
+
+The plugin detects `omp` through PATH, `~/.bun/bin/omp`, and `~/.local/bin/omp`. `OMP_PATH` can identify the binary explicitly in the execution environment. Before changing that override, see [Files and paths](/reference/paths) for configuration locations and service-environment guidance.
+
+## MCP and session behavior
+
+Subshell supplies an extension directory for each launch. Oh My Pi discovers its `mcp.json` and starts the resolved host executable with the `mcp` subcommand. The child inherits the pane's identity; credentials aren't written into the extension. Your existing configuration and authentication stay in place, and you don't need pi's community MCP adapter.
+
+Open Oh My Pi's MCP tool list and confirm that `subshell` exposes `list_subshells`. An explicit Oh My Pi setting that disables that server can still prevent it from loading.
+
+This plugin supports MCP and launch settings. It doesn't provide automatic conversation resumption, attention hooks, or sidebar subagent monitoring. Conversation selection on restart follows Oh My Pi's own settings and any resume flags you've supplied. The Subshell display name isn't forwarded as a CLI flag.
+
+Provider configuration, usage limits, and CLI-specific permissions remain Oh My Pi's own settings.
+
+## Next steps
+
+Read [MCP configuration](/mcp/configure), [Presets](/presets), and [Agent and launch errors](/troubleshooting/agents).
