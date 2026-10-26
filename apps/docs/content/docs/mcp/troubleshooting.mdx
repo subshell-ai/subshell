@@ -7,7 +7,7 @@ Diagnose problems with Subshell MCP integration and communication.
 
 ## No Subshell tools
 
-Confirm the agent is running inside a Subshell-launched pane. Check [MCP configuration](/mcp/configure), including the one-time setup required by Hermes and pi.
+Confirm the agent is running inside a Subshell-launched pane. Check [MCP configuration](/mcp/configure), including the one-time setup required by Grok Build, Hermes, and pi.
 
 Run `subshell-server status` on the server host to see which MCP executable it uses. If you've configured MCP manually, check that the executable exists on the machine where the agent runs.
 
@@ -17,29 +17,50 @@ Run `subshell-server status` on the server host to see which MCP executable it u
 
 ## Codex starts, but Subshell MCP fails
 
-Open `/mcp` in Codex to check the Subshell server. A handshake failure alone doesn't identify the cause; inspect the MCP startup error. If it says `SUBSHELL_API_KEY is not set`, the MCP child lacks the credential even if Codex's shell can access it.
+Open `/mcp` in Codex and inspect the startup error. If it says
+`SUBSHELL_API_KEY is not set`, the MCP process didn't receive the subshell's
+credential, even if Codex's shell can access it.
 
-Codex uses `env_vars` to explicitly forward environment variables to stdio MCP servers. Registrations that supply only `command` and `args` can leave Subshell without its identity. See [Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp).
+Subshell's Codex harness forwards the required variables automatically on new
+launches. For an older or manual registration, check the `env_vars` setting in
+Codex's configuration on the machine where the agent runs:
 
-For an affected installation:
-
-1. On the node where Codex runs, edit `~/.codex/config.toml` under the execution account. Add the following key to the existing `[mcp_servers.subshell]` table, or create the table if it doesn't exist. Keep any existing command and arguments; a complete registration block lives in [MCP configuration](/mcp/configure).
+1. Under the execution account, open `~/.codex/config.toml`, or the file under
+   your custom `CODEX_HOME`. See [Files and paths](/reference/paths).
+2. Add or update `env_vars` in the existing `[mcp_servers.subshell]` table.
+   Keep its command and arguments. A complete example for a node with
+   `subshell` on PATH is:
 
    ```toml
    [mcp_servers.subshell]
-   env_vars = ["SUBSHELL_API_KEY", "SUBSHELL_BASE_URL", "SUBSHELL_ID", "SUBSHELL_NAME", "SUBSHELL_DATA_DIR", "SUBSHELL_SERVER_DATA_DIR"]
+   command = "subshell"
+   args = ["mcp"]
+   env_vars = [
+     "SUBSHELL_API_KEY",
+     "SUBSHELL_BASE_URL",
+     "SUBSHELL_ID",
+     "SUBSHELL_NAME",
+     "SUBSHELL_DATA_DIR",
+     "SUBSHELL_SERVER_DATA_DIR",
+   ]
    ```
 
-2. Save your work and restart Codex inside the Subshell-launched pane so it reads the configuration and receives the pane's environment.
-3. Open `/mcp` again, then ask Codex to call `list_subshells`. A successful startup alone doesn't verify an authenticated tool call.
+   On the server host, use its resolved MCP executable, which may be
+   `subshell-server` or an absolute path. Don't create a duplicate TOML table.
+3. Save your work and restart Codex inside the Subshell-launched pane. Open
+   `/mcp` again, then ask it to call `list_subshells` to verify authenticated access.
 
-The configuration stores variable names, not credential values. It cannot supply identity when Codex is launched outside Subshell. Don't copy a pane token into `config.toml`. For configuration locations, see [Files and paths](/reference/paths).
+`env_vars` lists variable names, not secrets. Don't copy a pane token into this
+file. The registration still requires an agent running inside Subshell.
+See [Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp).
 
 ## Working while MCP is unavailable
 
-An agent may use the HTTP API from its shell for an already-authorized task if the pane's identity environment is available and the endpoint supports pane credentials. This is a direct API fallback, not an MCP tool call or proof that MCP is healthy.
-
-Keep requests within the pane's existing permissions. Don't substitute an administrator credential, bypass a disabled feature, or print credentials in commands or logs. Verify the endpoint and its authorization before sending a request. Encrypted channel coordination requires the MCP channel protocol; a plain HTTP post isn't a substitute.
+An agent with its pane credentials can use the [REST API](/automation/rest-api)
+for an authorized task if the endpoint accepts those credentials. This doesn't
+repair MCP or expand the agent's permissions. Don't substitute an administrator
+credential, bypass a disabled feature, or expose credentials in logs.
+Encrypted channel communication still requires the MCP channel protocol.
 
 ## Rejected tokens or actions
 

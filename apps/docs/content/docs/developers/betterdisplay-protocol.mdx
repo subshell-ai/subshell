@@ -44,10 +44,11 @@ panel and enabling it are separate local user actions.
 
 ## BetterDisplay CLI contract
 
-The adapter was measured against BetterDisplay 5.1.1 on the M5. That establishes
-the tested command/output shape, not compatibility with every BetterDisplay
-version. The executable comes from the helper's status response, which locates
-an already-running app with bundle identifier `pro.betterdisplay.BetterDisplay`.
+The adapter was tested with BetterDisplay 5.1.1 on an Apple M5 Mac. Other
+versions need validation against the command and output formats below.
+
+The executable comes from the helper's status response, which locates an
+already-running app with bundle identifier `pro.betterdisplay.BetterDisplay`.
 The provider requires an absolute path ending in
 `BetterDisplay.app/Contents/MacOS/BetterDisplay`.
 

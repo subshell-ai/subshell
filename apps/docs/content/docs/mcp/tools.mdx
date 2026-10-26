@@ -23,7 +23,7 @@ Successful MCP responses contain JSON encoded in a text content block. Failures 
 | `get_node` | Inspect an owned machine and check display prerequisites. |
 | `list_subshell_views` | Discover a subshell's apps, browser, and virtual display. |
 | `open_subshell_view` | Create a private app or screen connection. |
-| `watch_subshell_browser` | Start or stop browser screencast interest. |
+| `watch_subshell_browser` | Start or stop watching browser frames. |
 | `list_presets` | List saved agent presets and harness catalog entries. |
 | `create_subshell` | Launch from a saved preset, or open a plain terminal without one. |
 | `restart_subshell` | Revive a session in place. |
@@ -98,7 +98,7 @@ Treat the complete link as a secret. Anyone holding it can use the connection wh
 
 ## watch_subshell_browser
 
-Pass `{ "subshell_id": "SUBSHELL_ID", "on": true }`, optionally with a CDP `port`, to start browser screencast interest. Pass `on: false` to release it when finished. Frames go to authorized dashboard live subscriptions, not the MCP response. This doesn't provide mouse or keyboard input. The server applies the same ownership, Web previews & screens enablement, and port checks as it does for dashboard requests.
+Pass `{ "subshell_id": "SUBSHELL_ID", "on": true }`, optionally with a CDP `port`, to start watching browser frames. Pass `on: false` to stop watching when finished. Frames go to authorized dashboard live subscriptions, not the MCP response. This doesn't provide mouse or keyboard input. The server checks ownership, the node’s web-preview permission, and the browser port, as it does for dashboard requests.
 
 ## list_presets
 
@@ -120,8 +120,12 @@ The tool has two shapes. From a preset (the default) it launches saved settings;
 | `node` | Optional string | Node ID or unambiguous display name override. |
 | `working_dir` | Optional string | Absolute directory on that node. Omitted, a presetless terminal starts in the node's home. |
 | `prompt` | Optional string | Task text added to or replacing the preset prompt, or typed once a presetless shell settles. |
-| `screen` | Optional object or null | Allocate a virtual display with integer `width` and `height`, each 320 to 4096, and an optional enabled `provider` ID. Omitting the provider uses the node default. Omitting `screen` inherits the preset’s display; `null` opts out. Check `get_node` first. This doesn’t enable providers or install programs. |
+| `screen` | Optional object or null | Display `width` and `height` (integers from 320 to 4096) and optional `provider` ID. Omit to inherit the preset’s display, or pass `null` for no display. |
 | `prompt_mode` | Optional enum | `append` by default, or `replace`. Needs a preset. |
+
+Before requesting a display, use `get_node` to check its requirements and
+permission. An omitted `provider` uses the node default. Creating a subshell
+doesn't enable providers or install missing programs.
 
 Returns `{ id, promptDelivered }`. Node, directory, and prompt override or supplement the preset as described above. The final composed prompt is limited to 20,000 characters.
 

@@ -173,7 +173,7 @@ The server applies two distinct gates to readiness:
 1. The node release must meet the server's minimum supported release version.
 2. Its protocol version must match the server's protocol exactly.
 
-The implemented protocol is **23**. Its number is independent of the package release version. Additive wire changes also require a protocol bump and coordinated rollout; there is no per-feature compatibility window.
+The implemented protocol is **24**. Its number is independent of the package release version. Additive wire changes also require a protocol bump and coordinated rollout; there is no per-feature compatibility window.
 
 A refused node can remain connected in a **held** state for updates while staying unavailable for launches and ordinary management commands. Only `update` can use that held connection. Older nodes on the legacy path receive that update command in its frozen plaintext recovery format; they aren't admitted for normal plaintext operation. Invalid credentials and disabled owners are authentication failures, not update holds.
 
@@ -201,8 +201,8 @@ Key rotation replaces the node credential and clears the server-side encryption 
 
 ## Preview transport
 
-Web previews & screens uses protocol 24's existing signed-command and encrypted-frame paths.
-It does not open an inbound public port on the node. The server's built-in node
+Web previews and virtual displays use the signed-command and encrypted-frame paths.
+These features don't open an inbound public port on the node. The server's built-in node
 runs the same preview primitives in process rather than sending node commands.
 
 | Message | Purpose |
@@ -235,22 +235,27 @@ watch frames are delivered only to authorized live-feed subscriptions.
 CDP discovery refuses HTTP redirects, caps discovery JSON at 256 KiB, and
 requires the returned WebSocket to stay on the requested loopback port.
 
-Raw preview payloads are capped at 256 KiB per frame, lane buffering and queued
-TCP writes to the target and preview traffic queued on the encrypted link at
-1 MiB each,
-active forward lanes at four per subshell, and active lanes plus bridges at
-16 per node. The queue admits eight waiting lanes per subshell. Browser watches
-run at 1–5 fps, with five buffered frames and at most eight subscribers.
-Screencast dimensions are capped at 8,192 per axis and 16,777,216 pixels;
-the browser also checks encoded image headers before decoding them. The server
-retains at most 64 forwarding capabilities and admits at most 32 pending
-preview opens per node, independently of active lane capacity.
+Preview transport applies these limits:
+
+| Resource | Limit |
+| --- | --- |
+| Raw payload | 256 KiB per frame |
+| Lane buffer, queued target writes, and queued preview traffic on the encrypted link | 1 MiB each |
+| Active forward lanes / waiting lanes per subshell | 4 / 8 |
+| Active lanes and browser bridges per node | 16 total |
+| Browser watch | 1–5 fps, 5 buffered frames, at most 8 subscribers |
+| Screencast image | 8,192 pixels per axis and 16,777,216 pixels total |
+| Retained forwarding capabilities per node | 64 |
+| Pending preview opens per node | 32 |
+
+The browser checks encoded image headers before decoding them. Capability and
+pending-open limits apply independently of active lane capacity.
 
 Forward sessions expire after 15 minutes without traffic. Individual lanes and
 bridges have a four-hour maximum lifetime. Close reasons include `viewer-left`,
 `pane-gone`, `node-dropped`, `slow-link`, `over-cap`, `idle`, `revoked`, `not-cdp`,
-and `target-gone`. Switching Web previews & screens off prevents new operations rather than
-immediately draining existing connections.
+and `target-gone`. Turning off either node feature setting prevents new
+operations for that feature without immediately closing existing connections.
 If an open reply times out or is malformed, the server attempts to close the
 allocated reference; it doesn't assume the node failed to create the resource.
 
