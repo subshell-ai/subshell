@@ -1,5 +1,11 @@
 # @internal/server
 
+## 3.0.1
+
+### Patch Changes
+
+- [#452](https://github.com/subshell-ai/subshell/pull/452) [`036d137`](https://github.com/subshell-ai/subshell/commit/036d137b8fa1869578d88cd0aab1ff86a035c794) Thanks [@theogravity](https://github.com/theogravity)! - Mask passwords during admin resets and require matching confirmation before submitting. Clear both fields on cancellation and after a successful reset without displaying the password, and keep submission disabled when the empty form is reopened.
+
 ## 3.0.0
 
 ### Major Changes
