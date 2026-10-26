@@ -892,6 +892,31 @@ jobs:
               export APPLE_API_KEY="$NOTARY_KEY_ID"
               export APPLE_API_ISSUER="$NOTARY_ISSUER_ID"
               export APPLE_API_KEY_PATH="$CI_TMP/notary.p8"
+              # One exception to the one-owner rule, by name: the display
+              # helper's build script signs its nested .app during cargo build,
+              # which runs BEFORE Tauri's keychain exists (it arrives at bundle
+              # time), and a release helper must carry the Developer ID, not an
+              # ad-hoc signature, because the permission grant follows the
+              # cdhash. Build a second keychain for exactly that one call, then
+              # take it back OFF the user's search list: the build script names
+              # it explicitly through APPLE_SIGNING_KEYCHAIN (--keychain), so
+              # Tauri still sees one identity in the shared view, not two.
+              KC="$CI_TMP/helper-sign.keychain-db"
+              KCPW="$(/usr/bin/openssl rand -hex 16)"
+              security create-keychain -p "$KCPW" "$KC"
+              security unlock-keychain -p "$KCPW" "$KC"
+              printf '%s' "$MACOS_CERT_P12_BASE64" | base64 -d > "$CI_TMP/cert.p12"
+              security import "$CI_TMP/cert.p12" -k "$KC" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+              rm -f "$CI_TMP/cert.p12"
+              security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPW" "$KC" >/dev/null 2>&1
+              security find-identity -v -p codesigning "$KC" | grep -q "Developer ID Application" \
+                || { echo "imported p12 yielded no valid Developer ID Application identity"; exit 1; }
+              # create-keychain appends to the search list; reset it to the
+              # baseline this step started from, so this keychain is visible
+              # only to the call that names it.
+              security list-keychains -d user -s "$HOME/Library/Keychains/login.keychain-db"
+              trap 'rm -rf "$CI_TMP"; security delete-keychain "$KC" 2>/dev/null || true; security list-keychains -d user -s "$HOME/Library/Keychains/login.keychain-db"' EXIT
+              export APPLE_SIGNING_KEYCHAIN="$KC"
               ;;
           esac
 
@@ -1525,6 +1550,31 @@ jobs:
               export APPLE_API_KEY="$NOTARY_KEY_ID"
               export APPLE_API_ISSUER="$NOTARY_ISSUER_ID"
               export APPLE_API_KEY_PATH="$CI_TMP/notary.p8"
+              # One exception to the one-owner rule, by name: the display
+              # helper's build script signs its nested .app during cargo build,
+              # which runs BEFORE Tauri's keychain exists (it arrives at bundle
+              # time), and a release helper must carry the Developer ID, not an
+              # ad-hoc signature, because the permission grant follows the
+              # cdhash. Build a second keychain for exactly that one call, then
+              # take it back OFF the user's search list: the build script names
+              # it explicitly through APPLE_SIGNING_KEYCHAIN (--keychain), so
+              # Tauri still sees one identity in the shared view, not two.
+              KC="$CI_TMP/helper-sign.keychain-db"
+              KCPW="$(/usr/bin/openssl rand -hex 16)"
+              security create-keychain -p "$KCPW" "$KC"
+              security unlock-keychain -p "$KCPW" "$KC"
+              printf '%s' "$MACOS_CERT_P12_BASE64" | base64 -d > "$CI_TMP/cert.p12"
+              security import "$CI_TMP/cert.p12" -k "$KC" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+              rm -f "$CI_TMP/cert.p12"
+              security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPW" "$KC" >/dev/null 2>&1
+              security find-identity -v -p codesigning "$KC" | grep -q "Developer ID Application" \
+                || { echo "imported p12 yielded no valid Developer ID Application identity"; exit 1; }
+              # create-keychain appends to the search list; reset it to the
+              # baseline this step started from, so this keychain is visible
+              # only to the call that names it.
+              security list-keychains -d user -s "$HOME/Library/Keychains/login.keychain-db"
+              trap 'rm -rf "$CI_TMP"; security delete-keychain "$KC" 2>/dev/null || true; security list-keychains -d user -s "$HOME/Library/Keychains/login.keychain-db"' EXIT
+              export APPLE_SIGNING_KEYCHAIN="$KC"
               ;;
           esac
 
