@@ -69,6 +69,18 @@ describe("route", () => {
     expect(route(probe({ next: "unreachable", error: "connection refused" }), "update", IDLE)).toEqual({
       kind: "update",
     });
+    // Virtual Displays holds this too on the platform that has the helper.
+    expect(route(probe({ next: "unreachable", error: "connection refused" }), "display", IDLE)).toEqual({
+      kind: "display",
+    });
+  });
+
+  it("answers a Virtual Displays request with the machine it was asked of", () => {
+    // The one requested screen that is a platform FACT: its steps name a Mac's
+    // permissions and its button can only refuse elsewhere. The rail drops the
+    // section off macOS, and a deep link is held to the same rule — the request
+    // routes nothing and the host shows its own journey.
+    expect(route(probe({ next: "ready", platform: "linux" }), "display", IDLE)).toEqual({ kind: "handoff" });
   });
 
   it("holds the setup screen while the chain runs, ready probe or not", () => {
@@ -195,8 +207,8 @@ describe("nextPollDelay", () => {
 describe("railFor", () => {
   it("answers null for every FTE family route, permissions and boot", () => {
     for (const kind of ["welcome", "tmux", "setup", "handoff", "permissions", "boot"] as const) {
-      expect(railFor({ kind }, true), kind).toBeNull();
-      expect(railFor({ kind }, false), kind).toBeNull();
+      expect(railFor({ kind }, true, true), kind).toBeNull();
+      expect(railFor({ kind }, false, true), kind).toBeNull();
     }
   });
 
@@ -212,6 +224,7 @@ describe("railFor", () => {
       "update",
       "supervision",
       "settings",
+      "display",
       "backup",
       "restore",
       "reset",
@@ -222,19 +235,20 @@ describe("railFor", () => {
     // The old page allowed a requested screen over any machine; wave 2 keeps
     // the render but takes away the rail — the exclusion stays absolute.
     for (const kind of ["status", "update", "supervision", "addresses"] as const) {
-      expect(railFor({ kind }, false), kind).toBeNull();
+      expect(railFor({ kind }, false, true), kind).toBeNull();
     }
   });
 
   it("answers the five standing sections for a standing route on an onboarded machine", () => {
     // The fifth is Reset (operator ruling 2026-09-22): the DOOR in the rail,
     // marked destructive.
-    const sections = railFor({ kind: "status" }, true);
+    const sections = railFor({ kind: "status" }, true, true);
     expect(sections?.map((s) => s.id)).toEqual([
       "status",
       "update",
       "supervision",
       "settings",
+      "display",
       "backup",
       "restore",
       "reset",
@@ -244,22 +258,42 @@ describe("railFor", () => {
       "Update",
       "Service",
       "Addresses",
+      "Virtual Displays",
       "Backup",
       "Restore",
       "Reset",
     ]);
     expect(sections?.find((s) => s.id === "reset")?.danger).toBe(true);
-    for (const kind of ["update", "supervision", "addresses", "backup", "restore"] as const) {
-      expect(railFor({ kind }, true)?.map((s) => s.id)).toEqual([
+    for (const kind of ["update", "supervision", "addresses", "backup", "restore", "display"] as const) {
+      expect(railFor({ kind }, true, true)?.map((s) => s.id)).toEqual([
         "status",
         "update",
         "supervision",
         "settings",
+        "display",
         "backup",
         "restore",
         "reset",
       ]);
     }
+  });
+
+  it("takes Virtual Displays off the rail where there is no display helper, and nothing else", () => {
+    // The section is the rail's only platform fact, because the helper is
+    // BetterDisplay's and a Linux host has no panel for the button to open.
+    // Everything else on the rail is this machine's rail either way, which is
+    // what the comparison says rather than a length check.
+    expect(railFor({ kind: "display" }, true, false)?.map((s) => s.id)).toEqual([
+      "status",
+      "update",
+      "supervision",
+      "settings",
+      "backup",
+      "restore",
+      "reset",
+    ]);
+    // The highlight resolution is platform-free: the route answers for itself.
+    expect(railActive({ kind: "display" })).toBe("display");
   });
 
   it("marks the active section by the route, through railActive", () => {

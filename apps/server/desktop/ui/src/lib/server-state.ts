@@ -49,6 +49,7 @@ export type Route =
   | { kind: "permissions" }
   | { kind: "backup" }
   | { kind: "restore" }
+  | { kind: "display" }
   | { kind: "boot" };
 
 /**
@@ -98,6 +99,12 @@ export function route(
     if (screen === "supervision") return { kind: "supervision" };
     if (screen === "settings") return { kind: "addresses" };
     if (screen === "permissions") return { kind: "permissions" };
+    // Virtual Displays is the one requested screen that is a platform FACT: the
+    // helper exists on a Mac and nowhere else, which is why the rail drops the
+    // section off macOS. A deep link asking for it on a Linux host is answered
+    // by that host's own journey rather than by Mac-only steps beside a button
+    // that can only refuse.
+    if (screen === "display" && probe.platform === "darwin") return { kind: "display" };
   }
   const resolved = resolveJourney(probe, screen);
   if (resolved === null) {
@@ -179,6 +186,13 @@ export const RAIL_SECTIONS: RailSection[] = [
   { id: "update", label: "Update" },
   { id: "supervision", label: "Service" },
   { id: "settings", label: "Addresses" },
+  // Virtual Displays opens the macOS display helper's own panel, so it is the
+  // one section that is platform FACT rather than vocabulary:
+  // {@link RAIL_SECTIONS_OFF_MAC} is this list without it, and {@link railFor}
+  // picks by the probe's platform. It sits with the machine's settings and
+  // ahead of the backup/restore/reset tail, which stays last on every
+  // platform.
+  { id: "display", label: "Virtual Displays" },
   // The fifth section is the DESTRUCTIVE one (operator ruling 2026-09-22,
   // live screenshot): the DOOR moves into the rail, styled in the destructive
   // token. Since the 2026-09-23 dialog ruling it is a DOOR and nothing more:
@@ -190,6 +204,12 @@ export const RAIL_SECTIONS: RailSection[] = [
   { id: "restore", label: "Restore" },
   { id: "reset", label: "Reset", danger: true },
 ];
+
+/**
+ * The rail on a platform with no display helper, computed once so the two
+ * lists are stable identities rather than a filter run per render.
+ */
+const RAIL_SECTIONS_OFF_MAC: RailSection[] = RAIL_SECTIONS.filter((s) => s.id !== "display");
 
 /**
  * Whether THIS route gets the rail, and which sections it shows.
@@ -208,9 +228,15 @@ export const RAIL_SECTIONS: RailSection[] = [
  * The active section is not folded in here — a `RailSection` is `{id, label}`
  * by design, and the active state is the Rail primitive's prop — so
  * {@link railActive} answers it, keyed on the same route.
+ *
+ * `macos` comes from `probe.platform` and drops the Virtual Displays section
+ * everywhere else. It is a required argument rather than a default precisely
+ * because the probe can answer it: a defaulted platform is how a rail ends up
+ * drawn from the build machine's own OS rather than the machine on screen.
  */
-export function railFor(r: Route, onboarded: boolean): RailSection[] | null {
+export function railFor(r: Route, onboarded: boolean, macos: boolean): RailSection[] | null {
   if (!onboarded) return null;
+  const sections = macos ? RAIL_SECTIONS : RAIL_SECTIONS_OFF_MAC;
   switch (r.kind) {
     case "status":
     case "update":
@@ -218,7 +244,8 @@ export function railFor(r: Route, onboarded: boolean): RailSection[] | null {
     case "addresses":
     case "backup":
     case "restore":
-      return RAIL_SECTIONS;
+    case "display":
+      return sections;
     default:
       return null;
   }
@@ -239,6 +266,8 @@ export function railActive(r: Route): string | null {
       return "backup";
     case "restore":
       return "restore";
+    case "display":
+      return "display";
     default:
       return null;
   }

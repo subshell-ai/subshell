@@ -27,6 +27,7 @@
  * cheap.
  */
 import type { RailSection } from "@internal/assistant";
+import { isMacos } from "@/lib/copy";
 import type { NodeSettings, Probe } from "@/lib/ipc";
 import type { NodeScreenId, NodeUserScreen } from "@/lib/node-assistant-state";
 
@@ -334,8 +335,19 @@ export const CLIENT_RAIL_SECTIONS: RailSection[] = [
   { id: "service", label: "Service" },
   { id: "update", label: "Update" },
   { id: "about", label: "About" },
+  // Virtual Displays is the macOS-only section: the helper it opens is a
+  // BetterDisplay thing, so a Linux node has nothing for the screen to open.
+  // {@link CLIENT_RAIL_SECTIONS_OFF_MAC} is the same list without it, and
+  // {@link railFor} picks between the two by platform.
+  { id: "display", label: "Virtual Displays" },
   { id: "reset", label: "Reset", danger: true },
 ];
+
+/**
+ * The rail on a platform with no display helper, computed once so the two
+ * lists are stable identities rather than a filter run per render.
+ */
+const CLIENT_RAIL_SECTIONS_OFF_MAC: RailSection[] = CLIENT_RAIL_SECTIONS.filter((s) => s.id !== "display");
 
 /**
  * Whether THIS screen gets the rail, and which sections it shows (wave 3;
@@ -355,16 +367,25 @@ export const CLIENT_RAIL_SECTIONS: RailSection[] = [
  * The active section is not folded in here — a `RailSection` is
  * `{id, label}` by design — so {@link railActive} answers it, keyed on the
  * same screen.
+ *
+ * `macos` decides which of the two lists comes back, because one section is
+ * platform fact rather than vocabulary: Virtual Displays opens the macOS
+ * display helper, and a Linux node would get a door onto nothing. It is a
+ * PARAMETER rather than a read of the user agent so both branches are
+ * testable on whichever platform the test process happens to run on
+ * (`copy.ts` explains why a module-level const cannot answer that).
  */
-export function railFor(screen: NodeScreenId | null, settled: boolean): RailSection[] | null {
+export function railFor(screen: NodeScreenId | null, settled: boolean, macos = isMacos()): RailSection[] | null {
   if (!settled) return null;
+  const sections = macos ? CLIENT_RAIL_SECTIONS : CLIENT_RAIL_SECTIONS_OFF_MAC;
   switch (screen) {
     case "status":
     case "service":
     case "plane":
     case "update":
     case "about":
-      return CLIENT_RAIL_SECTIONS;
+    case "display":
+      return sections;
     default:
       return null;
   }
@@ -383,6 +404,8 @@ export function railActive(screen: NodeScreenId | null): string | null {
       return "update";
     case "about":
       return "about";
+    case "display":
+      return "display";
     default:
       return null;
   }

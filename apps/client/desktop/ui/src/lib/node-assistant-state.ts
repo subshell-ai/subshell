@@ -50,7 +50,8 @@ export type NodeScreenId =
   | "plane"
   | "connect"
   | "about"
-  | "update";
+  | "update"
+  | "display";
 
 /**
  * The runtime list beside the type, for whatever has to iterate the set —
@@ -70,6 +71,7 @@ export const NODE_SCREEN_IDS: readonly NodeScreenId[] = [
   "connect",
   "about",
   "update",
+  "display",
 ];
 
 /**
@@ -91,8 +93,12 @@ export const NODE_SCREEN_IDS: readonly NodeScreenId[] = [
  * the machine can nevertheless RAISE: a marker left by an app update is a
  * consented act with a half still outstanding, and `app.tsx` opens this screen
  * once per launch when the probe reports one (spec 2026-09-18 § 4.2).
+ *
+ * `display` joined them on 2026-10-26 with the rail's Virtual Displays
+ * section. It asks nothing of the machine's own state and no probe implies
+ * it: the screen explains and opens a native panel that this app never owns.
  */
-export type NodeUserScreen = "about" | "update" | "service" | "plane" | "status";
+export type NodeUserScreen = "about" | "update" | "service" | "plane" | "status" | "display";
 
 /**
  * ONE word for where you are, on both platforms (operator's call, 2026-09-12).
@@ -175,6 +181,11 @@ export function screenTitle(screen: NodeScreenId): string {
       // differed by a possessive, for one thing a person experiences once.
       // The name became TRUE rather than being disambiguated.
       return "Update Subshell Client";
+    case "display":
+      // The rail section's own words, and the words the control plane's node
+      // settings page puts on the same subject, so the two screens a person
+      // reads in sequence call the thing one thing.
+      return "Virtual Displays";
   }
 }
 

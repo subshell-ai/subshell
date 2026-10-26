@@ -121,6 +121,11 @@ description = "Open ONE of three fixed pages in the system browser: the product'
 commands.allow = ["node_open_web"]
 
 [[permission]]
+identifier = "allow-node-open-display-helper"
+description = "Open the macOS display helper's own settings panel, which is a separate signed program's window and the only place the helper is enabled or disabled. Grants no permission and changes nothing on this machine: macOS asks for screen recording and accessibility itself, and the answer goes to the helper, not to this app. Takes no argument. On a platform with no helper the command refuses, and the Virtual Displays screen never renders there."
+commands.allow = ["node_open_display_helper"]
+
+[[permission]]
 identifier = "allow-node-check-app-update"
 description = "Ask the project's release list whether a newer Subshell Client APP exists, not the node agent it wraps. Takes no argument, downloads nothing and changes nothing: one GET of a public JSON list, and one manifest the updater plugin verifies against the public key compiled into this build. The bundled page only, like every node verb."
 commands.allow = ["node_check_app_update"]
