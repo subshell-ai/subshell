@@ -883,6 +883,12 @@ Route tests live in `__tests__/` next to the route and share
 - `signIn(email, password)` / `authedRequest(...)`: real session cookies
 - `deleteUserByEmailOrId(...)`: per-test cleanup
 
+The composed `api-surface-auth.test.ts` suite owns ordinary anonymous and node-key
+rejection for every guarded route. Don't duplicate bare 401 assertions in each
+resource suite. Keep resource-specific permissions, scoped keys, ownership,
+multipart or conditional authentication, and checks that refused writes leave
+state unchanged; the shared inventory doesn't replace those.
+
 Migrations must be applied by the code under test or the helper, never
 assumed from a developer's local `data/subshell.db`.
 

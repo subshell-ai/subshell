@@ -280,9 +280,4 @@ describe("subshells attention + notify routes", () => {
     expect(other.status).toBe(403);
     expect((await row(idB)).notify).toBe(1);
   });
-
-  it("unauthenticated → 401 on both endpoints", async () => {
-    expect((await req(`/${idA}/attention`, { method: "POST", body: { kind: "turn_complete" } })).status).toBe(401);
-    expect((await req(`/${idA}/notify`, { method: "PATCH", body: { notify: true } })).status).toBe(401);
-  });
 });

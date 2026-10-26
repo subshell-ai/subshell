@@ -396,19 +396,6 @@ describe("Un-enroll", () => {
     mount({ output: { ok: false, stdout: "", stderr: "Failed to restart: Unit is masked." } });
     expect(screen.getByText(/Unit is masked/)).toBeTruthy();
   });
-
-  it("stands the two binding acts on one row with no divider", () => {
-    mount();
-    const re = button("Re-enroll…");
-    const un = button("Un-enroll…");
-    expect(re.parentElement).toBe(un.parentElement);
-    expect(re.parentElement?.className).toContain("flex");
-    // No rule inside the card (the frame's own bar may keep its border;
-    // this asserts the card, not the page).
-    const card = re.closest('[class*="rounded-md"]');
-    expect(card).not.toBeNull();
-    expect(card?.querySelectorAll('[class*="border-t"]').length).toBe(0);
-  });
 });
 
 /**

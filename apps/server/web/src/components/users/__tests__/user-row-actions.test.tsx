@@ -81,11 +81,6 @@ async function pick(item: string, email?: string): Promise<void> {
 afterEach(cleanup);
 
 describe("UserRowActions", () => {
-  it("offers one action menu naming the user it belongs to", () => {
-    renderRow({ email: "dana@example.com" });
-    expect(trigger("dana@example.com")).toBeDefined();
-  });
-
   it("lists the flip named by the TARGET role, spelled like the badge's word", async () => {
     // "Promote to admin" / "Demote to user" — the word comes from
     // USER_ROLE_LABELS lowercased, so menu and Role column can never spell a

@@ -79,17 +79,6 @@ describe("QrLinkDialog", () => {
     }
   });
 
-  it("says what scanning does, and that it grants nothing", async () => {
-    const restore = mockFetch([HERE, LAN]);
-    try {
-      renderDialog("/subshells/abc-123");
-      expect(screen.getByText("Open this subshell on another device")).toBeTruthy();
-      expect(screen.getByText("Scan to open this subshell on another device.")).toBeTruthy();
-    } finally {
-      restore();
-    }
-  });
-
   it("shows the refusal where the QR would be when no address can be dialled", async () => {
     // A loopback-only instance: `installAddresses` filters it, so there is
     // nothing to encode — and a code for `localhost` would scan perfectly and

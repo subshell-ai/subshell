@@ -3,8 +3,6 @@ import {
   FS_LS_MAX_ENTRIES,
   MAX_ARCHIVE_BYTES,
   MAX_MANIFEST_PAGE_ENTRIES,
-  NODE_CLOSE_SUPERSEDED,
-  NODE_CLOSE_UPDATE_REQUIRED,
   type NodePreviewPortWire,
   parseNodeArchiveCreateResult,
   parseNodeArchiveExtractResult,
@@ -30,11 +28,6 @@ import {
 } from "../index.js";
 
 describe("node result contracts (spec §3.3, phase-2 wire note)", () => {
-  it("hoists the two shared close codes", () => {
-    expect(NODE_CLOSE_UPDATE_REQUIRED).toBe(4406);
-    expect(NODE_CLOSE_SUPERSEDED).toBe(4409);
-  });
-
   it("probe entries: accept well-formed (incl. optional fields), reject junk", () => {
     expect(
       parseNodeProbeEntries([

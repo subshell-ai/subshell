@@ -103,12 +103,20 @@ async function exerciseScrollKeys(page: Page, id: string): Promise<void> {
   const bar = page.getByRole("toolbar", { name: "Terminal special keys" });
   await expect(bar).toBeVisible();
   await expect(bar).toBeInViewport();
+  // The WebSocket upgrade can arrive before the pane publishes its terminal
+  // handles. Wait for the connected state so a scroll tap can't race the
+  // terminal's onReady effect.
+  await expect(bar.getByRole("button", { name: "Send Enter" })).toBeEnabled({ timeout: SPAWN_TIMEOUT });
 
   // xterm moves the thumb asynchronously after any scroll: every read goes
   // through `expect.poll`, never a bare synchronous read (that false-negatived
   // in development of this spec).
-  const sliderTop = () =>
-    page
+  const sliderTop = async () => {
+    const terminal = bar.locator("xpath=../div[1]");
+    const screen = terminal.locator(".xterm-screen");
+    const box = await screen.boundingBox();
+    if (box) await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2);
+    return terminal
       .locator(".xterm-scrollbar.xterm-vertical .xterm-slider")
       .first()
       .evaluate((el) => {
@@ -118,11 +126,12 @@ async function exerciseScrollKeys(page: Page, id: string): Promise<void> {
           visible: thumb.parentElement?.classList.contains("xterm-visible") ?? false,
         };
       });
+  };
 
-  // Resting state: the scrollbar is visible (output overflowed the viewport)
-  // and two consecutive reads agree, so the stream has stopped. That stable
-  // value is the bottom anchor; xterm measures the top anchor at exactly
-  // `0px`, so no scroll-direction convention needs to be guessed.
+  // Two consecutive reads agree, so the stream has stopped. The thumb's
+  // inline position is the bottom anchor; its visibility class is transient
+  // on touch browsers and isn't part of the scroll behavior. xterm measures
+  // the top anchor at exactly `0px`, so no direction convention is guessed.
   let resting = -1;
   await expect
     .poll(
@@ -144,9 +153,10 @@ async function exerciseScrollKeys(page: Page, id: string): Promise<void> {
     // must stick for the buttons to be reachable at all.
     await button.scrollIntoViewIfNeeded();
     await expect(button).toBeInViewport();
-    const box = await button.boundingBox();
-    if (!box) throw new Error(`key bar button "${label}" has no bounding box`);
-    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+    // Locator.tap keeps using a touch input in this project and re-checks the
+    // target after scrolling, so a late bar shift can't turn the tap into a
+    // touch on the surrounding terminal.
+    await button.tap();
   };
 
   // Known positions, not mere "it moved": the thumb sits at 0px at the top,
@@ -154,7 +164,7 @@ async function exerciseScrollKeys(page: Page, id: string): Promise<void> {
   // strictly between (the 100-line scrollback overflows a page on any
   // viewport this spec runs on). Only scrolling moves the thumb.
   const bottom = resting;
-  const at = () => sliderTop().then((s) => s.top);
+  const at = async () => (await sliderTop()).top;
 
   // The settle loop's `top >= 0` rule keeps reading here too: the sentinel
   // (-1, thumb with no inline top, e.g. a terminal mid-remount) must not

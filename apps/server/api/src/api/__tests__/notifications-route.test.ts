@@ -108,16 +108,6 @@ describe("notifications route", () => {
     expect(res.status).toBe(400);
   });
 
-  it("unauthenticated → 401", async () => {
-    // A request builder that never attaches the cookie — no mutating shared
-    // state between tests. /subscribe must be POSTed: a GET there is a router
-    // 404 (method mismatch) and never reaches the auth guard.
-    const anon = (path: string, init?: RequestInit) =>
-      app.fetch(new Request(`http://localhost:3080/api/notifications${path}`, init));
-    expect((await anon("/config")).status).toBe(401);
-    expect((await anon("/subscribe", { method: "POST" })).status).toBe(401);
-  });
-
   it("system key bearer → 403 on /config (machine credentials are not browsers)", async () => {
     const key = await mintSystemKey();
     const res = await app.fetch(

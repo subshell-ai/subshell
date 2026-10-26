@@ -300,8 +300,4 @@ describe("/api/prompts (spec 2026-09-28)", () => {
     expect((await call("", { bearer: readOnly })).status).toBe(200);
     expect((await call("/", { bearer: readOnly, body: { description: "d", body: "b" } })).status).toBe(403);
   });
-
-  it("anonymous is 401", async () => {
-    expect((await call("")).status).toBe(401);
-  });
 });

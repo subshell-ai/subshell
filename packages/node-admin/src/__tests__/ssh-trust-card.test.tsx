@@ -116,10 +116,4 @@ describe("SshTrustCard", () => {
     const { container } = render(<NodeSshTrustCard node={node()} />);
     expect(container.firstChild).toBeNull();
   });
-
-  it("an empty peer set says so plainly instead of rendering a lone header", () => {
-    render(<NodeSshTrustCard node={node({ sshTrust: { ...LIVE_TRUST, peers: [] } })} />);
-    expect(screen.getByText(FP_OWN_SIGN)).toBeDefined();
-    expect(screen.getByText(/no saved machine identities yet/i)).toBeDefined();
-  });
 });

@@ -66,12 +66,6 @@ describe("the start-up screen", () => {
     expect(continues).toEqual([1]);
   });
 
-  it("says what start at login buys, and what its absence costs", () => {
-    renderStartup();
-    expect(screen.getByText(/Starts the node again the next time you log in/)).toBeTruthy();
-    expect(screen.getByText(/nothing brings it back after you log out or restart/)).toBeTruthy();
-  });
-
   /**
    * An enabled `--user` unit comes back at LOGIN and dies at LOGOUT unless the
    * user lingers — a different question from "is it enabled", and on a

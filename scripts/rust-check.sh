@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
 # Run exactly what CI's Rust jobs run — `cargo fmt --check`, then
-# `cargo clippy --all-targets -- -D warnings`, then `cargo test` — across
-# `crates/desktop-core` and both Tauri apps.
+# `cargo clippy --all-targets -- -D warnings`, then `cargo test` — in the selected
+# crates. No arguments selects desktop-core and both Tauri apps.
 #
 # This exists because the two app crates CANNOT be compiled from a clean
 # checkout. `tauri-build` refuses to build when an `externalBin` path is
 # missing, and the staged sidecar is a gitignored ~110 MB build input, so
 # `cargo clippy` in `apps/server/desktop/src-tauri` dies in the build script
 # rather than reporting a lint. CI works around it by staging a STUB
-# (.github/workflows/test.yml, "Stage a stub sidecar"); nothing did so
+# (.github/workflows/test.yml); nothing did so
 # locally, which is how a formatting failure reached CI instead of being
 # caught in two seconds — the shape of bug this script exists to prevent.
 #
@@ -34,8 +34,7 @@ env -u SHELLOPTS -u BASHOPTS bash "$ROOT/native/display-helper/test.sh"
 
 TRIPLE="$(rustc --print host-tuple)"
 
-# dir : sidecar stem. The same pairing lives in test.yml's matrix and in each
-# app's tauri.conf.json; the stem names the binary the app WRAPS, not the app.
+# dir : sidecar stem. Each app's tauri.conf.json carries the same stem; the stem names the binary the app WRAPS, not the app.
 APPS=(
   "apps/server/desktop:subshell-server-bundled"
   "apps/client/desktop:subshell-node-bundled"
@@ -61,10 +60,27 @@ run_crate() {
   )
 }
 
-run_crate "$ROOT/crates/desktop-core"
+selected() {
+  [ "$#" -eq 0 ] && return 0
+  local wanted="$1"
+  shift
+  [ "$#" -eq 0 ] && return 0
+  local candidate
+  for candidate in "$@"; do [ "$candidate" = "$wanted" ] && return 0; done
+  return 1
+}
+
+for requested in "$@"; do
+  case "$requested" in
+    crates/desktop-core|apps/server/desktop/src-tauri|apps/client/desktop/src-tauri) ;;
+    *) echo "Unknown Rust crate: $requested" >&2; exit 1 ;;
+  esac
+done
+if selected crates/desktop-core "$@"; then run_crate "$ROOT/crates/desktop-core"; fi
 
 for entry in "${APPS[@]}"; do
   dir="${entry%%:*}"
+  selected "$dir/src-tauri" "$@" || continue
   sidecar="${entry##*:}"
   bin_dir="$ROOT/$dir/src-tauri/binaries"
   stub="$bin_dir/$sidecar-$TRIPLE"
@@ -80,4 +96,4 @@ for entry in "${APPS[@]}"; do
 done
 
 echo
-echo "✓ fmt, clippy (-D warnings) and tests pass in all three Rust crates"
+echo "✓ fmt, clippy (-D warnings) and tests pass in the selected Rust crates"

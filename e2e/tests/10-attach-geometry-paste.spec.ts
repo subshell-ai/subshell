@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import { decodeFrame } from "@internal/subshell-protocol/wire";
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE, dismissDirectoryPanel, pickAgent, renameSubshell, solePaneId } from "./helpers";
+import { ADMIN_STATE, dismissDirectoryPanel, pickAgent, renameSubshell } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -100,11 +100,16 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
   await pickAgent(p1.getByPlaceholder("Choose an agent"), "pi");
   await p1.fill("#picker-working-dir", tmpdir());
   await dismissDirectoryPanel(p1);
+  const attached = p1.waitForEvent("websocket", {
+    predicate: (socket) => socket.url().includes("/ws?subshell="),
+    timeout: 60_000,
+  });
   await p1.getByRole("button", { name: "Start subshell" }).click();
   await expect(p1).toHaveURL(/\/workspaces\/.+/, { timeout: 60_000 });
-  // The landing is the workspace the launch opened; the pane id comes from
-  // its detail (spec 2026-10-17).
-  const subshellId = await solePaneId(p1);
+  // Read the pane actually attached by this launch; a workspace can contain
+  // earlier panes, and its navigation can still be settling.
+  const subshellId = new URL((await attached).url()).searchParams.get("subshell");
+  expect(subshellId).toBeTruthy();
   await renameSubshell(p1, name);
 
   // The replay wait is NODE-SIDE now: the negotiated wire carries every

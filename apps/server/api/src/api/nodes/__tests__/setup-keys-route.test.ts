@@ -191,10 +191,6 @@ describe("/api/nodes/setup-keys", () => {
     expect((await req("DELETE", "/setup-keys/whatever", { bearer: subshellKey })).status).toBe(403);
   });
 
-  it("unauthenticated → 401", async () => {
-    expect((await req("GET", "/setup-keys")).status).toBe(401);
-  });
-
   describe("the allow_node_enrollment setting", () => {
     const settings = new SettingsRepository(db);
     async function setAllowed(value: boolean | null): Promise<void> {

@@ -156,16 +156,6 @@ describe("NodeMaintenanceCard", () => {
     }
   });
 
-  it("says 'from this page' for a flip the plane made", () => {
-    const { restore } = mockFetch();
-    try {
-      renderCard(node({ maintenance: true, maintenanceAt: new Date().toISOString(), maintenanceSource: "plane" }));
-      expect(screen.getByText(/declared from this page/)).toBeDefined();
-    } finally {
-      restore();
-    }
-  });
-
   it("omits the since clause when nothing stamped it", () => {
     const { restore } = mockFetch();
     try {

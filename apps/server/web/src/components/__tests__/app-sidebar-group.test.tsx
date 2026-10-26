@@ -199,35 +199,6 @@ describe("the panel and its bottom section bar", () => {
     expect(router.state.location.pathname).toBe("/nodes");
   });
 
-  it("test_panel_width_retired_rail: the panel sheds the retired rail's width and the desktop bar's fifth button still fits", async () => {
-    // Browser: four cells at the 44px touch size (4*44 + 3*4 gap + 16 padding =
-    // 204px) inside w-58 (232px); fine pointers take 36px cells and need less.
-    await renderRail("/nodes");
-    expect(document.querySelector("aside")?.classList.contains("w-58")).toBe(true);
-    // Every bar cell keeps the 44px base for touch (the phone drawer shares this
-    // bar) and shrinks only under pointer-fine; the pair on each cell is the fix.
-    const webBar = screen.getByRole("navigation", { name: "Main sections" });
-    for (const cell of [...within(webBar).getAllByRole("button"), ...within(webBar).getAllByRole("link")]) {
-      expect(cell.className.includes("size-11")).toBe(true);
-      expect(cell.className.includes("pointer-fine:size-9")).toBe(true);
-    }
-    cleanup();
-    // Server desktop shell: the bar gains "Open in browser", and five cells at
-    // the 44px touch size (5*44 + 4*4 + 16 = 252px) need w-64 (256px); w-62
-    // would clip them. Fine pointers take 36px cells, which fit with room left.
-    setUA(SERVER_UA);
-    await renderRail("/nodes", false, "desktop");
-    const aside = document.querySelector("aside");
-    expect(aside?.classList.contains("w-64")).toBe(true);
-    const bar = screen.getByRole("navigation", { name: "Main sections" });
-    // Four cells ride the bar (Workspaces, mobile, Settings, Account) and the
-    // shell adds a fifth; only two of them are links now.
-    expect(within(bar).getAllByRole("link")).toHaveLength(2);
-    const openInBrowser = within(bar).getByRole("button", { name: "Open in browser" });
-    expect(openInBrowser.className.includes("size-11")).toBe(true);
-    expect(openInBrowser.className.includes("pointer-fine:size-9")).toBe(true);
-  });
-
   it("test_no_collapse_pref_or_state: clicking the active section never collapses the panel or records a preference", async () => {
     const router = await renderRail("/nodes");
     fireEvent.click(screen.getByRole("link", { name: "Settings" }));

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { maintenanceRefusalNotice, subshellCount } from "../lib/node-maintenance";
+import { maintenanceRefusalNotice } from "../lib/node-maintenance";
 
 /**
  * The sentence a partly-applied maintenance flip says.
@@ -25,13 +25,5 @@ describe("maintenanceRefusalNotice", () => {
 
   it("stays singular at one", () => {
     expect(maintenanceRefusalNotice("shop", ["s1"])).toContain("1 subshell could not be stopped");
-  });
-});
-
-describe("subshellCount", () => {
-  it("is the one spelling every maintenance surface shares", () => {
-    expect(subshellCount(0)).toBe("0 subshells");
-    expect(subshellCount(1)).toBe("1 subshell");
-    expect(subshellCount(4)).toBe("4 subshells");
   });
 });

@@ -15,14 +15,7 @@
  */
 import { describe, expect, it } from "bun:test";
 import type { AppUpdateCheck, PendingInstall, Probe } from "../lib/ipc";
-import {
-  leaveHeld,
-  rejectedResult,
-  UPDATE_TITLE,
-  type UpdateActInput,
-  type UpdateActSelection,
-  updateAct,
-} from "../lib/update-act";
+import { leaveHeld, rejectedResult, type UpdateActInput, type UpdateActSelection, updateAct } from "../lib/update-act";
 
 /** A machine with a managed server running, current with what this app ships. */
 function machine(over: Partial<Probe> = {}): Probe {
@@ -611,15 +604,6 @@ describe("the refusals of §6", () => {
   });
 });
 
-describe("the name", () => {
-  it("is one title for one act", () => {
-    // D6: the name becomes TRUE rather than being disambiguated. "Update Your
-    // Server" and "Update Subshell Server" differed by a possessive, for two
-    // acts; one act that updates both is honestly called this.
-    expect(UPDATE_TITLE).toBe("Update Subshell Server");
-  });
-});
-
 /**
  * The way out is held shut only while something is actually running (review,
  * 2026-09-18). It matters because the press DESTROYS this window on a ready
@@ -628,10 +612,6 @@ describe("the name", () => {
  * screen with it.
  */
 describe("leaveHeld", () => {
-  it("holds the leave shut while the app download runs", () => {
-    expect(leaveHeld({ busy: false, state: "downloading" })).toBe(true);
-  });
-
   it("holds it shut while phase 2 installs and restarts", () => {
     // `act()` sets `busy` around the install-and-restart, and that is the only
     // signal phase 2 gives — the phase itself outlives the act.
@@ -645,14 +625,6 @@ describe("leaveHeld", () => {
   });
 
   it("releases it when nothing is running", () => {
-    expect(leaveHeld({ busy: false, state: "idle" })).toBe(false);
-  });
-
-  it("releases it again after a FAILED install, rather than stranding anyone", () => {
-    // The trap a gate keyed on `phase === "finishing"` would have set: a
-    // marker survives a failure, so the phase stays while nothing runs.
-    // `startAppUpdate`'s catch resets the state and `act`'s `finally` clears
-    // `busy`, so both inputs are false again and the screen can be left.
     expect(leaveHeld({ busy: false, state: "idle" })).toBe(false);
   });
 

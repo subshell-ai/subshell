@@ -4,7 +4,6 @@ import {
   consumeWsToken,
   dropUserTokensFor,
   issueWsToken,
-  MAX_PENDING_WS_TOKENS,
   setWsTokenCapForTests,
   WsTokenCapacityError,
 } from "@/ws/ws-token.js";
@@ -32,25 +31,22 @@ describe("ws-token mint cap", () => {
     setWsTokenCapForTests(null);
   });
 
-  it("exports the production cap of 10 000 outstanding tokens", () => {
-    expect(MAX_PENDING_WS_TOKENS).toBe(10_000);
-  });
-
   it("refuses at the cap with the named error rather than growing the store", () => {
     const previous = setWsTokenCapForTests(3);
     try {
       issueWsToken("u1");
       issueWsToken("u1");
       issueWsToken("u1");
-      expect(() => issueWsToken("u1")).toThrow(WsTokenCapacityError);
-      // The refusal is the 503 the mint route surfaces, carried the same way
-      // every other status-bearing error class in this codebase carries it.
+      let refusal: unknown;
       try {
         issueWsToken("u1");
       } catch (err) {
-        expect((err as { status?: number }).status).toBe(503);
-        expect((err as Error).message).toContain("too many outstanding attach tokens");
+        refusal = err;
       }
+      // One refused mint proves the cap and its route-facing error contract.
+      expect(refusal).toBeInstanceOf(WsTokenCapacityError);
+      expect((refusal as { status?: number }).status).toBe(503);
+      expect((refusal as Error).message).toContain("too many outstanding attach tokens");
     } finally {
       setWsTokenCapForTests(previous);
     }

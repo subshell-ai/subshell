@@ -31,3 +31,5 @@ implementation records. Paths and proposed behavior in dated records can
 refer to former files or designs. Use the current implementation and app
 instructions for present behavior; do not maintain a second current user
 guide in these archives.
+
+- [Testing policy and audit](testing.md): test value, affected verification, release gates, and runner measurements.

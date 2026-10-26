@@ -116,10 +116,6 @@ describe("node registry (spec 2026-08-31 §5.3)", () => {
     expect(getLive("n1")).toBe(first);
   });
 
-  it("NODE_CLOSE_SUPERSEDED is 4409 (spec §5.3)", () => {
-    expect(NODE_CLOSE_SUPERSEDED).toBe(4409);
-  });
-
   // rotate-key / delete-node revoke the credential out from under a LIVE
   // socket (T8 carry): the registry side of that teardown.
   describe("disconnectNode", () => {

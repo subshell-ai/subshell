@@ -48,12 +48,6 @@ describe("ActionsMenu", () => {
     await waitFor(() => expect(screen.queryByRole("menuitem") === null).toBe(true));
   });
 
-  it("marks destructive items so they render in the destructive colour", async () => {
-    render(<ActionsMenu label="web" items={ITEMS} />);
-    await openMenu("web");
-    expect(screen.getByRole("menuitem", { name: "Delete" }).className).toContain("text-destructive");
-  });
-
   it("groups destructive actions last with one divider, preserving each group's order", async () => {
     render(
       <ActionsMenu

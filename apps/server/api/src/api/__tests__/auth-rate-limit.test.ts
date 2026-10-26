@@ -7,15 +7,14 @@ describe("auth-rate-limit math", () => {
     expect(authDelayForAttempts(undefined)).toBe(0);
   });
   it("doubles the delay per recorded attempt (2^n seconds, n = attempts)", () => {
-    expect(authDelayForAttempts(0)).toBe(0);
     expect(authDelayForAttempts(1)).toBe(2_000);
     expect(authDelayForAttempts(2)).toBe(4_000);
     expect(authDelayForAttempts(3)).toBe(8_000);
   });
   it("caps the delay at 30 seconds", () => {
     expect(authDelayForAttempts(5)).toBe(30_000);
-    expect(authDelayForAttempts(5)).toBe(maxAuthBackoffMs);
     expect(authDelayForAttempts(10)).toBe(30_000);
+    expect(maxAuthBackoffMs).toBe(30_000);
   });
   it("normalizes email to lowercase", () => {
     expect(normalizeAuthEmail("  Admin@Subshell.Local ")).toBe("admin@subshell.local");

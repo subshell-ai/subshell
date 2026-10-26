@@ -96,7 +96,6 @@ describe("probeFacts", () => {
       enrolledNode: null,
     });
     expect(value(corrupt, "config")?.value).toBe("The node's configuration could not be read.");
-    expect(value(corrupt, "config")?.value).not.toContain("config corrupt");
   });
 
   it("names the teardown cost, which no service manager will state", () => {

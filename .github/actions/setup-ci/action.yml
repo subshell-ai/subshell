@@ -1,0 +1,30 @@
+name: Set up verification
+description: Install the pinned JS toolchain and restore dependency/build caches.
+inputs:
+  cache-suffix:
+    description: Keep independently populated Turbo caches from racing to save the same key.
+    default: checks
+runs:
+  using: composite
+  steps:
+    - name: Trust the workspace
+      shell: bash
+      run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+    - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      with:
+        bun-version: 1.4.4
+    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: 24
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.bun/install/cache
+        key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+        restore-keys: ${{ runner.os }}-bun-
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .turbo/cache
+        key: ${{ runner.os }}-turbo-${{ github.sha }}-${{ inputs.cache-suffix }}
+        restore-keys: ${{ runner.os }}-turbo-
+    - shell: bash
+      run: bun install --frozen-lockfile

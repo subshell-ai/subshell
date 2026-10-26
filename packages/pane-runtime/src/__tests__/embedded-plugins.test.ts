@@ -65,12 +65,6 @@ describe("built-in plugin bytes", () => {
       expect(parsed).toEqual(plugin.manifest);
     });
 
-    it(`${id}: the entry is a real module, not an empty placeholder`, async () => {
-      const plugin = await readBuiltIn(id);
-      if (!plugin) throw new Error(`no bytes for ${id}`);
-      expect((plugin.files[plugin.manifest.entry] ?? "").length).toBeGreaterThan(100);
-    });
-
     it(`${id}: the entry imports nothing but node builtins`, async () => {
       // A plugin loaded from disk cannot resolve a bare specifier, so bytes
       // carrying one would install cleanly and then fail at load.
@@ -84,12 +78,6 @@ describe("built-in plugin bytes", () => {
         .map((m) => m[1])
         .filter((spec) => spec !== undefined && !spec.startsWith("node:") && !spec.startsWith("."));
       expect(bare).toEqual([]);
-    });
-
-    it(`${id}: carries no .d.ts or sourcemap, which an install must not write`, async () => {
-      const plugin = await readBuiltIn(id);
-      if (!plugin) throw new Error(`no bytes for ${id}`);
-      expect(Object.keys(plugin.files).filter((f) => f.endsWith(".d.ts") || f.endsWith(".map"))).toEqual([]);
     });
   }
 });

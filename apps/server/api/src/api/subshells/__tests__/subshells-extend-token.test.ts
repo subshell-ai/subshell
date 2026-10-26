@@ -105,13 +105,6 @@ describe("POST /api/subshells/:id/extend-token", () => {
     expect(((await res.json()) as { extended: boolean }).extended).toBe(false);
   });
 
-  it("anonymous -> 401", async () => {
-    const res = await subshellRoutes.fetch(
-      new Request("http://localhost:3080/api/subshells/any/extend-token", { method: "POST" }),
-    );
-    expect(res.status).toBe(401);
-  });
-
   // A subshell token that is linked (passes the guard's apiKeyId check) but
   // carries a reduced grant set — proves the routes enforce requirePerm, not
   // just that subshell tokens reach them. issueSubshellToken always mints full

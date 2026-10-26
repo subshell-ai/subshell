@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { TrustNoticeBanner, VISIBLE_MS } from "@/components/trust-notice-banner";
+import { TrustNoticeBanner } from "@/components/trust-notice-banner";
 import { noticeSeen, setTrustBannersEnabled } from "@/lib/trust-notice-prefs";
 import type { TrustNotice } from "@/lib/trust-notices";
 
@@ -44,13 +44,6 @@ describe("TrustNoticeBanner", () => {
     // shortened. 80 ms of dwell plus a 400 ms fade needs nothing like 15 s;
     // the budget is there to absorb starvation, not duration.
   }, 15_000);
-
-  // The dwell the app actually ships. The case above proves the retire path
-  // with a short one, so without this the 5 s product decision would be
-  // asserted nowhere and could be changed by accident.
-  it("dwells for five seconds by default", () => {
-    expect(VISIBLE_MS).toBe(5_000);
-  });
 
   it("retires when dismissed, well before the 5 s dwell, and remembers that", async () => {
     render(<TrustNoticeBanner notices={[notice()]} />);

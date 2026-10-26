@@ -141,9 +141,4 @@ describe("PATCH /api/subshells/:id/name", () => {
     const bRow = await new SubshellsRepository(db).findById(b.id);
     expect(bRow?.name).toBe("rename-me");
   });
-
-  it("unauthenticated -> 401", async () => {
-    const s = await subshellWithToken();
-    expect((await patch(s.id, { name: "x" }, {})).status).toBe(401);
-  });
 });

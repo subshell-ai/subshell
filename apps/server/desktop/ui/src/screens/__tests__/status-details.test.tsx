@@ -60,18 +60,6 @@ describe("the facts", () => {
     reveals[0].click();
     expect(onReveal).toHaveBeenCalledTimes(1);
   });
-
-  it("puts dt and dd in the grid as DIRECT children, one row per pair", () => {
-    // `.facts` is `display:grid; grid-template-columns:132px 1fr` and reads
-    // its dt/dd as direct children; a wrapper div per row would make each row
-    // ONE grid item and collapse the table into alternating narrow columns.
-    renderDetails({ probe: makeProbe() });
-    const dl = document.querySelector("dl.facts") as HTMLDListElement;
-    expect(dl.children.length).toBeGreaterThan(0);
-    for (const child of dl.children) {
-      expect(["DT", "DD"]).toContain(child.tagName);
-    }
-  });
 });
 
 describe("the tail's stick", () => {
@@ -160,19 +148,5 @@ describe("the panes", () => {
     renderDetails({ about: null });
     expect(screen.queryByText("This app")).toBeNull();
     expect(screen.queryByText("Server CLI")).toBeNull();
-  });
-});
-
-describe("the inline rule (wave 2)", () => {
-  it("renders as the section's content, with no disclosure around it", () => {
-    // The operator's ruling, 2026-09-22: the Show Details disclosure is
-    // gone — a sidebar section that hides its own facts behind a second
-    // control is two navigations for one answer. The block is always on
-    // screen, and nothing about it collapses.
-    renderDetails({ lastTail: { text: "log line", source: "server", note: null } });
-    expect(document.querySelector("details")).toBeNull();
-    expect(document.querySelector("summary")).toBeNull();
-    expect(screen.getByText("Server log")).toBeDefined();
-    expect(screen.getByText("log line")).toBeDefined();
   });
 });

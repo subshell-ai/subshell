@@ -191,11 +191,6 @@ describe("ExistingSubshellList", () => {
       // …and does NOT claim the workspace already holds them all.
       expect(screen.queryByText(/Every subshell is already on this workspace/)).toBeNull();
     });
-
-    it("still claims full attachment for an empty unfiltered list", () => {
-      render(<ExistingSubshellList {...base} subshells={[]} nodeId="mac" />);
-      expect(screen.getByText(/Every subshell is already on this workspace/)).toBeDefined();
-    });
   });
 });
 

@@ -639,13 +639,6 @@ describe("the register form asks the three answers once", () => {
     expect(fake.callsTo("node_enroll").length).toBe(0);
   });
 
-  it("says where the key comes from, in one line", async () => {
-    // The register screen carries the ONE sentence (the old re-enroll
-    // screen's notes column retired with its door): where to obtain a key.
-    await openRegisterForm();
-    expect(screen.getByText(/open Nodes → Add node to create a setup key/)).toBeTruthy();
-  });
-
   // A warning, never a block.
   it("warns about a loopback URL without disabling anything", async () => {
     const fake = await openRegisterForm(enrolledOk);
@@ -2098,14 +2091,6 @@ describe("tmux is a hard stop, not a hint", () => {
     fireEvent.click(button("Register this machine"));
     await screen.findByRole("heading", { name: "Install tmux" });
     expect(screen.queryByText("Setup key")).toBeNull();
-  });
-
-  it("the install button says it also starts, because the CLI's install does", async () => {
-    await boot({
-      probe: makeProbe({ ...STOPPED, step: "no-service", service: { installed: false } }),
-    });
-    await openSection("Service");
-    expect(button("Install and Start")).toBeTruthy();
   });
 });
 

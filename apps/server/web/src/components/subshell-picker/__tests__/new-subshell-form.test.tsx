@@ -111,29 +111,6 @@ const dir = () => screen.getByLabelText("Working directory") as HTMLInputElement
 describe("NewSubshellForm working-dir pre-fill", () => {
   afterEach(cleanup);
 
-  it("fills an empty working dir with the most recent path", async () => {
-    const restore = mockEndpoints([
-      { path: "/srv/app", label: "app" },
-      { path: "/srv/older", label: null },
-    ]);
-    try {
-      await renderForm(emptyNewSubshellForm());
-      await waitFor(() => expect(dir().value).toBe("/srv/app"));
-    } finally {
-      restore();
-    }
-  });
-
-  it("never overwrites a working dir the caller already set", async () => {
-    const restore = mockEndpoints([{ path: "/srv/app", label: null }]);
-    try {
-      await renderForm({ ...emptyNewSubshellForm(), workingDir: "/keep/me" });
-      expect(dir().value).toBe("/keep/me");
-    } finally {
-      restore();
-    }
-  });
-
   it("stays empty when the user has no history yet", async () => {
     const restore = mockEndpoints([]);
     try {

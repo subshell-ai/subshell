@@ -185,13 +185,14 @@ echo "== 5. update --from, --no-restart (the swap, not the restart)"
 OUT=$("$INSTALLED" update --from "$W/next-subshell-server" --yes --no-restart 2>&1) || {
   echo "$OUT"; fail "update exited non-zero";
 }
-echo "$OUT" | grep -q "Backed up the database to" || { echo "$OUT"; fail "no backup was taken"; }
 echo "$OUT" | grep -q "Installed $NEXT" || { echo "$OUT"; fail "the swap was not reported"; }
 "$INSTALLED" version | grep -q "subshell-server $NEXT" || fail "the installed path still runs the old binary"
 [ -f "$INSTALLED.previous" ] || fail ".previous was not kept"
 [ -f "$SUBSHELL_SERVER_DATA_DIR/update/pending.json" ] || fail "no pending marker was written"
 grep -q "\"to\": \"$NEXT\"" "$SUBSHELL_SERVER_DATA_DIR/update/pending.json" || fail "the marker names the wrong version"
-ls "$SUBSHELL_SERVER_DATA_DIR/backups/"*.db >/dev/null 2>&1 || fail "no backup file on disk"
+ARCHIVE=$(bun -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).archiveBackup ?? "")' "$SUBSHELL_SERVER_DATA_DIR/update/pending.json")
+[ -f "$ARCHIVE" ] || fail "no pre-upgrade archive on disk"
+tar -tzf "$ARCHIVE" >/dev/null || fail "pre-upgrade archive is unreadable"
 ok "swapped to $NEXT, marker open, backup on disk"
 
 echo "== 6. the NEW binary's boot completes the transaction"

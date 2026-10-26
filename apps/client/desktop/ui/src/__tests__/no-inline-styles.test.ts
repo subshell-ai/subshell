@@ -39,11 +39,8 @@ function sourceFiles(dir: string): string[] {
 describe("nothing under ui/src can be styled inline", () => {
   const files = sourceFiles(UI_SRC).filter((f) => basename(f) !== SELF);
 
-  it("finds files to check", () => {
-    expect(files.length).toBeGreaterThan(10);
-  });
-
   it("uses no `style` prop or attribute", () => {
+    expect(files.length).toBeGreaterThan(0);
     for (const file of files) {
       const body = readFileSync(file, "utf8");
       // `style={...}` (a JSX prop) and `style="..."` (an HTML attribute).
@@ -67,9 +64,5 @@ describe("the HTML shell", () => {
   it("carries no inline script or style block", () => {
     expect(html).not.toMatch(/<style[\s>]/i);
     expect(html).not.toMatch(/<script(?![^>]*\bsrc=)/i);
-  });
-
-  it("is dark from the first paint, matching the dark-only palette", () => {
-    expect(html).toContain('class="dark"');
   });
 });

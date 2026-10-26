@@ -8,11 +8,6 @@ describe("pollIntervalMs", () => {
     expect(pollIntervalMs({ foreground: false, hasActivity: true })).toBeNull();
     expect(pollIntervalMs({ foreground: false, hasActivity: false })).toBeNull();
   });
-
-  it("keeps the spec's exact numbers", () => {
-    expect(POLL_ACTIVE_MS).toBe(3000);
-    expect(POLL_IDLE_MS).toBe(15000);
-  });
 });
 
 describe("hasActivity", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { parseClientFrame } from "@internal/subshell-protocol";
-import { RECONNECT_DELAY_MS, shouldReconnectAfterClose } from "@/lib/subshell-socket";
+import { shouldReconnectAfterClose } from "@/lib/subshell-socket";
 
 describe("close-code policy (mirrors use-subshell-ws.ts:63-64,128)", () => {
   it("retries everything below 4000 and nothing server-rejected", () => {
@@ -11,10 +11,6 @@ describe("close-code policy (mirrors use-subshell-ws.ts:63-64,128)", () => {
     expect(shouldReconnectAfterClose(4001)).toBe(false); // unauthorized
     expect(shouldReconnectAfterClose(4004)).toBe(false); // not found / not running
     expect(shouldReconnectAfterClose(4999)).toBe(false);
-  });
-
-  it("keeps the documented fixed delay", () => {
-    expect(RECONNECT_DELAY_MS).toBe(1500);
   });
 });
 

@@ -92,9 +92,4 @@ describe("identities route", () => {
     const res = await identityRoutes.fetch(authedRequest("/api/identities/user:ghost", token));
     expect(res.status).toBe(404);
   });
-
-  it("anonymous -> 401", async () => {
-    const res = await identityRoutes.fetch(new Request("http://localhost:3080/api/identities/user:anyone"));
-    expect(res.status).toBe(401);
-  });
 });

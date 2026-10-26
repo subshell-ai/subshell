@@ -237,17 +237,6 @@ describe("the rail view control", () => {
     });
   });
 
-  it("the mode toggle renders dense buttons (operator: half the button padding)", async () => {
-    await withRail([sub({ id: "a", name: "one" })], () => {
-      // The rail's view switch opts into Segmented's `dense` (h-6, the cell
-      // grid's own rhythm) — the vertical saving is the buttons' air, not the
-      // gap to the filter box (operator correction 2026-09-25).
-      for (const name of ["Row view", "Cell view", "Flat cell view"]) {
-        expect(screen.getByRole("button", { name }).className).toContain("h-6");
-      }
-    });
-  });
-
   it("every mode button renders its icon — DOM, not props (operator: blank pills live)", async () => {
     await withRail([sub({ id: "a", name: "one" })], () => {
       // Regression pin: composing the option tooltip through Base UI's

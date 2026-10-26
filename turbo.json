@@ -52,5 +52,8 @@
       "persistent": true
     },
     "generate": {}
-  }
+  },
+  "globalPassThroughEnv": [
+    "SUBSHELL_TEST_*"
+  ]
 }

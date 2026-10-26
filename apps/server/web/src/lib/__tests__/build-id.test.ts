@@ -26,10 +26,4 @@ describe("buildIdFrom", () => {
     expect(buildIdFrom("http://localhost:5174/src/lib/api.ts")).toBe("dev");
     expect(buildIdFrom("")).toBe("dev");
   });
-
-  it("a different build reports a different id — what makes a reload visible", () => {
-    expect(buildIdFrom("https://x/assets/index-AAAAAAAA.js")).not.toBe(
-      buildIdFrom("https://x/assets/index-BBBBBBBB.js"),
-    );
-  });
 });

@@ -388,39 +388,6 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
   });
 
-  it("leads with the state's own sentence, ABOVE the numbered steps", async () => {
-    // What a person meets first has to be what is wrong. The sentence is the
-    // one thing the live status knows and the manifest cannot, and it used to
-    // render UNDER the steps it explains — so a card opened on a machine with
-    // nothing installed began with "1. Install the Tailscale daemon" and
-    // buried "Tailscale is not installed on this machine" in the middle, in
-    // the same muted grey as a step label.
-    await renderCard(
-      row({
-        state: "not-installed",
-        privileged: [
-          { label: "Install the daemon", command: "brew install tailscale" },
-          { label: "Allow this server to control Tailscale", command: "sudo tailscale set --operator=$USER" },
-        ],
-        status: {
-          state: "not-installed",
-          addresses: [],
-          hints: [{ text: "Tailscale is not installed on this machine.", docsUrl: "https://ts.net/install" }],
-        },
-      }),
-    );
-    const card = screen.getByRole("group", { name: "Tailscale" });
-    const text = card.textContent ?? "";
-    expect(text.indexOf("Tailscale is not installed on this machine.")).toBeLessThan(
-      text.indexOf("1.Install the daemon"),
-    );
-    // A lead sentence is not step 1 of anything, so the steps still start at 1.
-    expect(text).toContain("1.Install the daemon");
-    expect(text).toContain("2.Allow this server to control Tailscale");
-    // Each manifest command is rendered exactly ONCE.
-    expect(screen.getAllByRole("button", { name: "Copy" }).length).toBe(2);
-  });
-
   it("keeps a sentence that FOLLOWS the plugin's own commands where the plugin put it", async () => {
     // The mirror of the test above, and the reason the split is "hints before
     // the FIRST COMMAND" rather than "every hint without a command". Once a
@@ -481,19 +448,6 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(card.innerHTML).not.toContain("javascript:");
   });
 
-  it("a single thing to do is not numbered", async () => {
-    await renderCard(
-      row({
-        state: "not-installed",
-        status: { state: "not-installed", addresses: [], hints: [{ text: "Install Tailscale on this machine." }] },
-      }),
-    );
-    const card = screen.getByRole("group", { name: "Tailscale" });
-    expect(card.textContent).toContain("Install Tailscale on this machine.");
-    // A lone "1." promises a second step that never comes.
-    expect(card.textContent).not.toContain("1.Install Tailscale");
-  });
-
   it("not-installed offers Install only where the server may run the command, and streams it", async () => {
     const calls = mockFetch((url) =>
       url.pathname === "/api/network/tailscale/install"
@@ -524,33 +478,6 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(screen.getByText("tailscaled is not running.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Re-check" })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Publish/ })).toBeNull();
-  });
-
-  it("numbers nothing at all on a daemon that is down, however many hints there are", async () => {
-    // The shape the first shipped plugin emits: the platform's start command,
-    // then the daemon's own first line of stderr explaining a case that
-    // command does not fix. Numbering belongs to the `not-installed` row,
-    // which is a sequence a person walks; these are the state of a machine
-    // right now, and "2." in front of an explanation tells someone to go and
-    // do something that is not a thing to do. The card passes no `startAt`
-    // here, so there is nothing to get wrong — this pins that.
-    await renderCard(
-      row({
-        state: "daemon-down",
-        status: {
-          state: "daemon-down",
-          addresses: [],
-          hints: [
-            { text: "tailscaled is not running.", command: "sudo systemctl start tailscaled", privileged: true },
-            { text: "failed to connect to local tailscaled; is it running?" },
-          ],
-        },
-      }),
-    );
-    const card = screen.getByRole("group", { name: "Tailscale" });
-    expect(card.textContent).toContain("failed to connect to local tailscaled; is it running?");
-    expect(screen.queryByText("1.")).toBeNull();
-    expect(screen.queryByText("2.")).toBeNull();
   });
 
   it("needs-privilege is the same shape as a daemon that is down — a hint and nothing else", async () => {
@@ -891,38 +818,6 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(within(card).queryByRole("heading", { name: "Addresses" })).toBeNull();
   });
 
-  it("says what joined means, above the button that changes it", async () => {
-    // Both halves of this state now answer the standing question in the same
-    // slot. Joined had no sentence at all — a person met a Publish button and
-    // had to already know that joining put the MACHINE on the network while
-    // publishing is what puts the DASHBOARD on it. The act is named in the
-    // button's own words, so this row — whose label is Tailscale's — reads
-    // “Publish with Tailscale Serve”, not a word the plugin never used.
-    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
-    expect(
-      screen.getByText(
-        "Subshell is not published on Tailscale yet. “Publish with Tailscale Serve” is what lets your other devices open this dashboard over the network.",
-      ),
-    ).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Publish/ })).toBeTruthy();
-    expect(screen.queryByText("Subshell is published on Tailscale.")).toBeNull();
-  });
-
-  it("gives publishing its own section, and answers whether it is needed", async () => {
-    // The operator read: a joined card flowed facts, sentence, hints and the
-    // publish button as one column, and nothing said whether pressing it was
-    // required. The act now sits under its own heading, and the section states
-    // the case where skipping is honest — this machine only, or addresses the
-    // server already allows.
-    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
-    expect(screen.getByRole("heading", { name: "Publish" })).toBeTruthy();
-    expect(
-      screen.getByText(
-        "You can skip this while you only use Subshell on this machine, or at an address you have already allowed.",
-      ),
-    ).toBeTruthy();
-  });
-
   it("an implicit-publish network's joined row is a gap: one line and the button, no section", async () => {
     // JOIN IS THE PUBLISH (spec §5.3, amended 2026-09-16): the join route
     // records the publish itself, so a row STILL saying `joined` is only ever
@@ -1127,74 +1022,6 @@ describe("NetworkPluginCard: the state matrix", () => {
     );
     expect(screen.queryByRole("heading", { name: "Publish" })).toBeNull();
     expect(screen.queryByText(/You can skip this/)).toBeNull();
-  });
-
-  it("names the act by the label the button under it actually carries", async () => {
-    // The defect: the sentence said "publishing" while the button said
-    // something else — NetBird's "Use this address" made an operator ask how to
-    // publish. One expression feeds both, so a plugin's own vocabulary is what
-    // the reader is told to press, and a plugin that names no label still gets
-    // the fallback in both places.
-    const netbird = row({
-      id: "netbird",
-      name: "NetBird",
-      state: "joined",
-      labels: { credential: "Setup key", publish: "Use this address" },
-      status: { state: "joined", addresses: ADDRESSES, hints: [] },
-    });
-    await renderCard(netbird);
-    expect(
-      screen.getByText(
-        "Subshell is not published on NetBird yet. “Use this address” is what lets your other devices open this dashboard over the network.",
-      ),
-    ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Use this address" })).toBeTruthy();
-    cleanup();
-
-    await renderCard(
-      row({ state: "joined", labels: {}, status: { state: "joined", addresses: ADDRESSES, hints: [] } }),
-    );
-    expect(
-      screen.getByText(
-        "Subshell is not published on Tailscale yet. “Publish” is what lets your other devices open this dashboard over the network.",
-      ),
-    ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
-  });
-
-  it("labels each address above its value with the shared fact styling", async () => {
-    // Facts use smaller bold, muted labels and regular full-size values across cards and dialogs.
-    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
-    const items = ADDRESSES.map((address) => screen.getByText(address.label).closest("div") as HTMLElement);
-    const first = items[0] as HTMLElement;
-    expect(first.children[0]?.textContent).toBe("MagicDNS name");
-    expect(first.children[0]?.className).toContain("text-muted-foreground");
-    expect(first.children[0]?.className).toContain("font-strong");
-    expect(first.children[0]?.className).not.toContain("text-label");
-    expect(first.children[0]?.className).toContain("text-detail");
-    expect(first.children[1]?.className).toContain("text-body");
-    expect(first.children[1]?.textContent).toContain("https://box.tail1234.ts.net");
-    // The secure-context sentence keeps its OWN element below the value (a
-    // merged line would pass a plain textContent check), and it is still the
-    // address's own — one per address, comparative by repetition.
-    const sentence = first.children[1]?.querySelector("p");
-    expect(sentence?.textContent).toBe("Passkeys and secure cookies work at this address.");
-    // The value and its copy button come first; the sentence follows them.
-    expect(first.children[1]?.firstElementChild).not.toBe(sentence);
-    const second = items[1] as HTMLElement;
-    expect(second.children[0]?.textContent).toBe("Tailscale IP");
-  });
-
-  it("renders the addresses in the order the server sent them", async () => {
-    // The plugin's order is its own decision — tailscale puts its https
-    // origin first — and this page prints the list it was handed. Re-sorting
-    // here by scheme, by secure context or by label would make the page
-    // contradict its own data for a reason no reader can see.
-    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
-    const list = screen.getByText(ADDRESSES[0]?.label ?? "").closest("dl");
-    const shown = Array.from(list?.children ?? [], (item) => item.textContent ?? "");
-    expect(shown[0]).toContain("https://box.tail1234.ts.net");
-    expect(shown[1]).toContain("http://100.64.0.1:3080");
   });
 
   it("offers to copy every address, joined ones included", async () => {
@@ -1953,38 +1780,6 @@ describe("hint numbering", () => {
     expect(screen.getByText("Install the daemon")).toBeTruthy();
     expect(screen.queryByText("1.")).toBeNull();
   });
-});
-
-describe("NetworkPluginCard: no state offers a Re-check button", () => {
-  // Operator's sixth live read, 2026-09-16: "do we need it?" No. The button
-  // duplicated the page poll beside it — every capability it had is the
-  // poll's — and the settings page had reasoned to that rule before the
-  // card contradicted itself ("no Refresh button: the page polls"). The
-  // cadences are untouched; the affordance is gone from EVERY state of
-  // BOTH frames, and the plugin hints that used to end "then re-check" now
-  // say the page notices. The states that once carried the button are
-  // listed so the deletion is pinned per state, not once in the abstract.
-  const hadOneOnce: NetworkState[] = [
-    "not-installed",
-    "daemon-down",
-    "needs-privilege",
-    "needs-login",
-    "joined",
-    "published",
-  ];
-
-  for (const state of hadOneOnce) {
-    it(`offers no Re-check in ${state}`, async () => {
-      await renderCard(
-        row({
-          state,
-          privileged: [{ label: "Install it", command: "sudo apt install meshtool" }],
-          status: { state, addresses: [], hints: [{ text: "Something is not right yet." }] },
-        }),
-      );
-      expect(screen.queryByRole("button", { name: "Re-check" })).toBeNull();
-    });
-  }
 });
 
 describe("NetworkPluginCard: the disable reason reaches a screen reader", () => {

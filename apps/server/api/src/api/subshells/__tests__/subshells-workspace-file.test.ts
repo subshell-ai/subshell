@@ -143,17 +143,6 @@ describe("subshell ↔ workspace filing", () => {
       expect((await get("/api/subshells?workspace=none")).status).toBe(200);
     });
 
-    // The filter reads membership BEFORE the visibility resolver runs, so the
-    // door's own posture needs pinning on both filter shapes (spec 2026-10-17
-    // Testing; .claude/rules/testing.md: new filters retain anonymous and
-    // scoped-bearer checks). The guard, not the filter, is what answers these.
-    it("is 401 for an anonymous caller on every filter shape", async () => {
-      for (const path of ["/api/subshells?workspace=none", `/api/subshells?workspace=${ownWorkspaceId}`]) {
-        const res = await app.fetch(new Request(`http://localhost:3080${path}`));
-        expect(res.status).toBe(401);
-      }
-    });
-
     it("answers a subshell's own token exactly as its owner's cookie (the list-visibility ruling)", async () => {
       // One filed row and one loose row, so both filters have something to
       // separate; the pairs compared below are cookie vs bearer on the SAME

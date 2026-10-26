@@ -3,13 +3,13 @@
 #
 # Default is parallel N (first argument; per-package, measured). Two overrides:
 # SUBSHELL_TEST_PARALLEL changes the width, and SUBSHELL_TEST_SERIAL=1 omits
-# the flag entirely - which CI does. CI's omission is not caution: bun's
+# the flag entirely - which CI does. Bun's
 # --parallel=1 is NOT serial (it still implies --isolate, re-importing each
 # file's modules), and the hosted container runs on a fraction of its 4 labels
 # (0.4 CPU, measured in apps/server/web's 2026-09-17 budgets and again
 # 2026-09-30, where width 1 stretched a 2.5 s react-act chain past 25 s). The
-# suite-level budgets starve at any worker width there; serial is the regime
-# that passes. Developers get the width; CI gets determinism.
+# suite-level budgets starved at any worker width there. Keep that serial
+# regime until the new bare hosted jobs have representative parallel timings.
 #
 # The flag must be omittable, and neither bun's script shell (no ${VAR:+}) nor
 # a package.json string can express omission - hence a script, called as
@@ -24,14 +24,5 @@ sub="$2"
 shift 2
 if [ -z "${SUBSHELL_TEST_SERIAL:-}" ]; then
   set -- --parallel="$n" "$@"
-else
-  # CI's serial regime gets one automatic retry, and it is for a measured
-  # reason: the hosted runner throttles the whole container below its 4
-  # labels (a pure-logic 20 ms test took 5.6 s and died on bun's 5 s default,
-  # PR #278's web job, 2026-09-30, WITH width 1), so a failed test there
-  # cannot be told apart from a starved one by looking at it. A real
-  # assertion fails twice; a starved budget usually does not. Local runs
-  # deliberately keep no retry - a developer's flake should stay visible.
-  set -- --retry=1 "$@"
 fi
 exec "$prog" "$sub" "$@"

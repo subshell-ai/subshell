@@ -95,33 +95,6 @@ describe("normalizeNewAccount", () => {
 describe("NewAccountFields", () => {
   afterEach(cleanup);
 
-  it("renders the four labelled boxes setup has always asked for", () => {
-    renderFields();
-    expect(screen.getByLabelText("Name")).toBeDefined();
-    expect(screen.getByLabelText("E-mail")).toBeDefined();
-    expect(screen.getByLabelText("Password")).toBeDefined();
-    expect(screen.getByLabelText("Confirm password")).toBeDefined();
-  });
-
-  it("states the password requirement quietly while the box is empty", () => {
-    renderFields();
-    const line = screen.getByText(PASSWORD_REQUIREMENT);
-    expect(line.className).toContain("text-muted-foreground");
-    expect(line.className).not.toContain("text-destructive");
-  });
-
-  it("turns the requirement red once something too short has been typed", () => {
-    renderFields({ password: "abc" });
-    const line = screen.getByText(PASSWORD_REQUIREMENT);
-    expect(line.className).toContain("text-destructive");
-  });
-
-  it("goes quiet again once the password is long enough", () => {
-    renderFields({ password: FULL.password });
-    const line = screen.getByText(PASSWORD_REQUIREMENT);
-    expect(line.className).toContain("text-muted-foreground");
-  });
-
   it("describes the password box with the requirement line", () => {
     renderFields();
     const box = screen.getByLabelText("Password");

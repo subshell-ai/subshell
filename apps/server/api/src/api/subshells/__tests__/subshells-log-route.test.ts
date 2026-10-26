@@ -115,11 +115,6 @@ describe("GET /api/subshells/:id/log", () => {
     expect(res.status).toBe(404);
   });
 
-  it("anonymous -> 401", async () => {
-    const res = await subshellRoutes.fetch(new Request(`http://localhost:3080/api/subshells/any/log`));
-    expect(res.status).toBe(401);
-  });
-
   it("SUBSHELL_SERVER_DATA_DIR is absolute — the log path must survive any cwd", () => {
     // The pane log's directory travels to tmux and harness processes; a
     // relative path silently reads from the wrong cwd.

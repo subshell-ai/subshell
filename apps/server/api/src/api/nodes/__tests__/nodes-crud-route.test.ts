@@ -539,11 +539,6 @@ describe("/api/nodes registry CRUD", () => {
     expect((await req("POST", "/local/rotate-key", { bearer: subshellKey })).status).toBe(403);
   });
 
-  it("unauthenticated → 401", async () => {
-    expect((await req("GET", "")).status).toBe(401);
-    expect((await req("GET", "/local")).status).toBe(401);
-  });
-
   // ── rename ────────────────────────────────────────────────────────────────
 
   it("rename: owner ok; per-owner collision → 409 NODE_NAME_TAKEN; view-grantee and admin 403", async () => {

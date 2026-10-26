@@ -12,10 +12,12 @@
     "lint": "biome check --no-errors-on-unmatched --write --unsafe .",
     "lint:check": "biome check --no-errors-on-unmatched .",
     "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged .",
-    "verify-types": "tsc --noEmit"
+    "verify-types": "tsc --noEmit",
+    "test": "bun test ./__tests__/"
   },
   "devDependencies": {
     "@internal/mcp-core": "workspace:*",
+    "@internal/node": "workspace:*",
     "@internal/server": "workspace:*",
     "@internal/server-web": "workspace:*",
     "@internal/subshell-protocol": "workspace:*",

@@ -31,11 +31,6 @@ describe("harness schema route", () => {
     await deleteUserByEmailOrId(email);
   });
 
-  it("anonymous -> 401", async () => {
-    const res = await presetRoutes.fetch(new Request("http://localhost/api/presets/harnesses/claude-code/schema"));
-    expect(res.status).toBe(401);
-  });
-
   it("known harness -> full schema payload", async () => {
     const res = await presetRoutes.fetch(authedRequest("/api/presets/harnesses/claude-code/schema", token));
     expect(res.status).toBe(200);

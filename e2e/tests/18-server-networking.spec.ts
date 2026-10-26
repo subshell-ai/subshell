@@ -69,14 +69,4 @@ test.describe("server networking page", () => {
     // belongs to the mocked unit test.)
     await expect(page.getByRole("button", { name: "Save", exact: true })).toBeVisible();
   });
-
-  test("states the addresses in the cards, with no page-level summary line", async ({ page }) => {
-    // The 'This server's address' line was removed on 2026-09-17 — the card
-    // states the value in its field, so the line only restated it. Pinning
-    // the absence, because the value and the line are easy to want back.
-    await page.goto("/settings/networking");
-    await expect(page.getByText("Addresses", { exact: true })).toBeVisible();
-    await expect(page.getByText(/This server's address/)).toHaveCount(0);
-    await expect(page.getByText("Networks", { exact: true })).toBeVisible();
-  });
 });

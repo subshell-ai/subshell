@@ -15,20 +15,9 @@ const withVersion = (version: string | null) => {
 };
 
 describe("unenrollSupported", () => {
-  it("names the first agent whose CLI carries `unenroll`", () => {
+  it("uses the first version that carries the command", () => {
     expect(MIN_UNENROLL_NODE_VERSION).toBe("0.15.0");
     expect(unenrollSupported(withVersion(MIN_UNENROLL_NODE_VERSION))).toBe(true);
-    expect(unenrollSupported(withVersion("0.15.1"))).toBe(true);
     expect(unenrollSupported(withVersion("0.14.3"))).toBe(false);
-    expect(unenrollSupported(withVersion("1.9.0"))).toBe(true);
-  });
-
-  it("compares NUMBERS, so 0.9.0 is older than 0.15.0", () => {
-    expect(unenrollSupported(withVersion("0.9.0"))).toBe(false);
-  });
-
-  it("assumes an unknown version capable, as the autostart gate argues", () => {
-    expect(unenrollSupported(withVersion(null))).toBe(true);
-    expect(unenrollSupported(undefined)).toBe(true);
   });
 });

@@ -144,11 +144,6 @@ describe("workspaces route", () => {
     expect(((await response.json()) as { id: string }[]).map((w) => w.id)).toEqual([id]);
   });
 
-  it("anonymous -> 401", async () => {
-    const res = await workspaceRoutes.fetch(new Request("http://localhost:3080/api/workspaces"));
-    expect(res.status).toBe(401);
-  });
-
   it("creates a workspace and lists it back, with its panes inline", async () => {
     const token = await signIn(ownerEmail, password);
     const name = `ws-${crypto.randomUUID().slice(0, 8)}`;

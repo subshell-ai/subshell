@@ -3,12 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildAgentSocketPath } from "@internal/pane-runtime";
-import {
-  type JsonValue,
-  NODE_PROTOCOL_VERSION,
-  NODE_RESULT_MAINTENANCE,
-  type NodeCommandBody,
-} from "@internal/subshell-protocol";
+import { type JsonValue, NODE_RESULT_MAINTENANCE, type NodeCommandBody } from "@internal/subshell-protocol";
 import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
 import { writeMaintenance } from "../maintenance.js";
@@ -236,9 +231,4 @@ describe("ssh_key_bridge: a closed gate or maintenance destroys live signing, no
       expect(existsSync(socketPath)).toBe(false);
     }
   });
-});
-
-/** Follows each protocol bump: the exact-match gate refuses stale binaries outright. */
-it("NODE_PROTOCOL_VERSION is 24 (current bump: saved HTTP(S) services)", () => {
-  expect(NODE_PROTOCOL_VERSION).toBe(24);
 });

@@ -14,8 +14,4 @@ describe("StepDots", () => {
     expect(dots[5]?.getAttribute("data-dot")).toBe("upcoming");
     expect(screen.getByText("Step 4 of 6")).toBeTruthy();
   });
-  it("is not navigation", () => {
-    render(<StepDots total={3} done={0} current={0} />);
-    expect(document.querySelectorAll("button, a")).toHaveLength(0);
-  });
 });

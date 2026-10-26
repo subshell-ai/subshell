@@ -253,6 +253,22 @@ jobs:
           create-github-releases: false
 
 
+  # The same workflow as PR verification, forced to run every suite on this SHA.
+  # Version-PR maintenance and a manifest refresh don't publish artifacts.
+  verify:
+    name: Full release verification
+    needs: changesets
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.app != 'refresh') ||
+      (github.event_name == 'push' && vars.NPM_PUBLISH_ENABLED == 'true' &&
+       needs.changesets.outputs.needs_publish == 'true')
+    uses: ./.github/workflows/test.yml
+    with:
+      full: true
+    permissions:
+      contents: read
+      packages: read
+
   # Hosted by necessity rather than by policy: npm's OIDC trusted publishing
   # does not support self-hosted runners ("not currently supported but are
   # planned for future releases", docs.npmjs.com/trusted-publishers, checked
@@ -267,7 +283,7 @@ jobs:
   # silently preferred over OIDC.
   npm-publish:
     name: Publish @subshell-ai/* to npm (OIDC)
-    needs: changesets
+    needs: [changesets, verify]
     if: >-
       github.event_name == 'push' &&
       vars.NPM_PUBLISH_ENABLED == 'true' &&
@@ -335,7 +351,12 @@ jobs:
 
   plan:
     name: Plan the cut
-    needs: changesets
+    needs: [changesets, verify]
+    if: >-
+      !cancelled() && needs.changesets.result == 'success' &&
+      (needs.verify.result == 'success' ||
+       (needs.verify.result == 'skipped' &&
+        (github.event_name == 'push' || inputs.app == 'refresh')))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

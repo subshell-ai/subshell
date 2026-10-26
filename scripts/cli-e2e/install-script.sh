@@ -33,6 +33,10 @@ export SUBSHELL_SERVER_CONFIG_DIR="$W/srv-config"
 export SUBSHELL_SERVER_DATA_DIR="$W/srv-data"
 export SUBSHELL_NODE_ARTIFACTS_DIR="$W/artifacts"
 export SUBSHELL_RELEASE_URL=""      # no internet fallback: prove OUR artifact is used
+# The installer test expects its default destination under the temporary HOME.
+# An inherited override would direct the compiled CLI into a developer's real
+# data directory and make the scenario fail outside its sandbox.
+unset SUBSHELL_DATA_DIR
 mkdir -p "$SUBSHELL_SERVER_CONFIG_DIR" "$SUBSHELL_SERVER_DATA_DIR" "$SUBSHELL_NODE_ARTIFACTS_DIR"
 
 echo "== publish the locally compiled agent as this instance's artifact"

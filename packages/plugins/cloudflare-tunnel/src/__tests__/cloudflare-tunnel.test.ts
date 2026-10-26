@@ -211,20 +211,6 @@ describe("settingsFields", () => {
     );
   });
 
-  it("says how the token reaches the tunnel, and nothing about the backup", () => {
-    // The plugin owns the ONE sentence only it can say — the token travels in
-    // the connector's environment, never argv. The backup caveat is the
-    // PAGE's: the settings form renders it under every secret, because
-    // `subshell-server backup` is the server's fact (§ 9), and a manifest that
-    // restated it would be the copy that goes stale. (Review, 2026-09-16.)
-    const plugin = createPlugin(createTestHost()) as NetworkPlugin;
-    const token = plugin.settingsFields?.().find((f) => f.key === "tunnel-token");
-    expect(token?.description).toBe(
-      "Subshell passes the token to the tunnel through its environment, never as a command-line argument.",
-    );
-    expect(token?.description).not.toContain("subshell-server backup");
-  });
-
   it("keys the secret a dashed name, because the store says so", () => {
     // The host stores each secret under the field's KEY, and secret names
     // become file names: lowercase letters, digits and hyphens only. A

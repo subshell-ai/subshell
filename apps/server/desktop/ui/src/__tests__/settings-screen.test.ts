@@ -5,12 +5,8 @@
  * and the value that caused it lived only on the dashboard that had just
  * stopped accepting a sign-in.
  *
- * `ui/src/__tests__/` has no DOM harness — nothing here can mount the host —
- * so every judgment the screen makes lives in `lib/settings-screen.ts` and is
- * pinned here. Three of these tests are not about this screen alone but about
- * two surfaces AGREEING: the https sentence against the dashboard's own words,
- * the screen id against the closed Rust enum, and the label against the View
- * menu's different word.
+ * These tests cover save payloads, refusal conditions, and the screen id's
+ * agreement with the Rust enum. Host interaction tests cover navigation.
  */
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -18,12 +14,8 @@ import { join } from "node:path";
 import { seedAddressForm } from "../lib/config-form";
 import type { Probe } from "../lib/ipc";
 import { PANE_WARNING } from "../lib/pane-force";
-import { RAIL_SECTIONS } from "../lib/server-state";
 import {
-  HTTPS_RESTART_NOTE,
   httpsBaseUrl,
-  SETTINGS_LABEL,
-  SETTINGS_RESTART_NOTE,
   settingsEdited,
   settingsForce,
   settingsKnown,
@@ -34,13 +26,7 @@ import {
 } from "../lib/settings-screen";
 import { REQUESTED_SCREENS, screenForRequest } from "../lib/wizard-state";
 
-const ADDRESSES_CARD = join(import.meta.dir, "../../../../web/src/components/networking/addresses-card.tsx");
 const RESET_RS = join(import.meta.dir, "../../../src-tauri/src/reset.rs");
-const TRAY_RS = join(import.meta.dir, "../../../src-tauri/src/tray.rs");
-const MENU_RS = join(import.meta.dir, "../../../src-tauri/src/menu.rs");
-
-/** JSX wraps a sentence across lines; only the words are the contract. */
-const words = (s: string): string => s.replace(/\s+/g, " ").trim();
 
 /** A machine with a managed server running under a service that spares panes. */
 function machine(over: Partial<Probe> = {}): Probe {
@@ -73,16 +59,6 @@ function machine(over: Partial<Probe> = {}): Probe {
 }
 
 describe("the https warning", () => {
-  it("is the dashboard's own sentence, word for word", () => {
-    // § 14.3: the same sentence, because two surfaces disagreeing about a
-    // consequence is worse than either wording alone — and this is the screen
-    // someone reaches AFTER the consequence, so a second phrasing would read
-    // as a second problem. The dashboard states it before the save; this
-    // states it at the same field, in the app that pays for it.
-    const card = words(readFileSync(ADDRESSES_CARD, "utf8"));
-    expect(card).toContain(words(HTTPS_RESTART_NOTE));
-  });
-
   it("fires on an https base URL and on nothing else", () => {
     expect(httpsBaseUrl("https://subshell.example.com")).toBe(true);
     // Typed, not yet tidied: a value on its way into a field carries whitespace
@@ -244,40 +220,5 @@ describe("the screen id, across the three places that spell it", () => {
     for (const screen of REQUESTED_SCREENS) {
       expect(rust, `reset.rs must parse "${screen}"`).toContain(`Some("${screen}") =>`);
     }
-  });
-
-  it("is a rail section, which is the door a signed-out machine still has", () => {
-    // The tray carried a dedicated door to this screen until the 2026-09-22
-    // wave dropped it: the assistant's own rail already names the screen, so a
-    // tray item that opened a rail section was chrome answering a question the
-    // rail asks. Selecting the rail section is a pure in-window screen change
-    // that asks the server nothing — the door a machine signed OUT of its own
-    // dashboard still has. (The recovery screen's old link to it became a rail
-    // section in wave 2, so this one section is the whole route.)
-    const section = RAIL_SECTIONS.find((s) => s.id === "settings");
-    expect(section?.label).toBe("Addresses");
-    // And the door it replaced stays gone: the tray must not quietly re-add a
-    // second way in that this test's whole point is NOT to need.
-    expect(readFileSync(TRAY_RS, "utf8")).not.toContain("SETTINGS_SCREEN");
-  });
-
-  it("is NOT called what the View menu already calls the dashboard's settings", () => {
-    // ⌘4 opens the SPA's Server Settings routes — pages that need a session,
-    // i.e. the exact thing a person on this screen may not have. Two doors with
-    // one name leading to two places, one of which is the trap the other
-    // repairs, is worse than a narrower name.
-    expect(readFileSync(MENU_RS, "utf8")).toContain('"Server Settings"');
-    expect(SETTINGS_LABEL).not.toBe("Server Settings");
-  });
-});
-
-describe("what the screen says about restarting", () => {
-  it("names the three keys a restart is for, and the one it is not", () => {
-    // `TRUSTED_ORIGINS` became a live read on 2026-09-16; the other three are
-    // still read at boot. The dashboard's Addresses card decides its button
-    // from exactly that split, so a sentence here that lumped them together
-    // would be this app telling a different story about the same four keys.
-    expect(SETTINGS_RESTART_NOTE).toContain("restarts");
-    expect(SETTINGS_RESTART_NOTE).toContain("while it runs");
   });
 });

@@ -669,22 +669,4 @@ describe("the rail", () => {
     // Status holds the highlight while it stands.
     expect(screen.getByRole("button", { name: "Status" }).getAttribute("aria-current")).toBe("true");
   });
-
-  it("still hands off, and opens the dashboard, when the window ARRIVES on a running machine", async () => {
-    // The select stopped bouncing; the ARRIVAL still hands off — a window
-    // reopened over a running server owes no result to a reader. This is the
-    // same auto-open the boot-gate suite's positive control pins; here it is
-    // the pair that keeps the new status branch from swallowing arrival
-    // (screen null) along with the select (screen "recovery").
-    fake = installFakeIpc({
-      probe: makeProbe({ next: "ready", onboarded: true }),
-      handlers: {
-        desktop_pending_screen: () => null,
-        desktop_open_main: () => undefined,
-      },
-    });
-    render(<Host />);
-    await waitFor(() => expect(routeOf()).toBe("handoff"));
-    await waitFor(() => expect(fake?.callsTo("desktop_open_main")).toHaveLength(1));
-  });
 });

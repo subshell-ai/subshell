@@ -9,11 +9,7 @@ describe("website.yml structure", () => {
     expect(yml).toContain("refs/heads/main");
     expect(yml).toContain("docs deploys off main only".replace("docs", "website"));
   });
-  test("packages three jobs, website-scoped, and no gate", () => {
-    // `ci-gate:` went out on the operator's ruling of 2026-09-25 (a flaky job
-    // in an unrelated package blocked both site deploys), so the pin is now
-    // that NO gate job comes back.
-    expect(yml).not.toContain("ci-gate:");
+  test("builds and deploys the website artifact", () => {
     for (const job of ["plan:", "build:", "deploy:"]) expect(yml).toContain(job);
     expect(yml).toContain("--filter=@internal/website --force");
     expect(yml).toContain('tag="website-v$version"');
