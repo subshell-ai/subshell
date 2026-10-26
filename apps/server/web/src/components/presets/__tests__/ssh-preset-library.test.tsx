@@ -121,7 +121,16 @@ it("refetches the SSH list after a successful toggle", async () => {
   await renderLibrary();
   fireEvent.click(await screen.findByRole("switch", { name: "Build box enabled" }));
   await waitFor(() => expect(mock.calls.some((c) => c.method === "PATCH")).toBe(true));
-  await waitFor(() => expect(sshList(mock.calls) >= 2).toBe(true));
+  // ORDER, not a count: the GETs must bracket the PATCH, one answering the
+  // initial load before it and at least one landing after the invalidation.
+  // `>= 2` alone would pass on a mutation that never refetched. waitFor polls,
+  // so the async refetch is awaited rather than slept on.
+  await waitFor(() => {
+    const patchIndex = mock.calls.findIndex((c) => c.method === "PATCH");
+    expect(patchIndex).toBeGreaterThanOrEqual(0);
+    expect(sshList(mock.calls.slice(0, patchIndex)) >= 1).toBe(true);
+    expect(sshList(mock.calls.slice(patchIndex + 1)) >= 1).toBe(true);
+  });
   mock.restore();
 });
 

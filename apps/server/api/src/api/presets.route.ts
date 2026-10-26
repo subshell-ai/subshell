@@ -6,6 +6,7 @@ import {
   presetLaunchRequirementsMet,
 } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
+import { NoResultError } from "kysely";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { getAllHarnessIds } from "@/api/harness-utils.js";
 import {
@@ -693,7 +694,16 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
         const access = await presetAccess(db, "ssh", sshExisting, user.id);
         if (access === "none") throw new PresetError("not_found", "Preset not found");
         if (access === "view") throw new PresetError("forbidden", "You need edit access to change this preset.", 403);
-        const updated = await sshRepo.update(params.id, { enabled: body.enabled ? 1 : 0 });
+        let updated: Awaited<ReturnType<typeof sshRepo.update>>;
+        try {
+          updated = await sshRepo.update(params.id, { enabled: body.enabled ? 1 : 0 });
+        } catch (err) {
+          // Mirrors the agent branch's race 404: the SSH repo's update throws
+          // NoResultError when the row vanishes between findById and the write,
+          // and the error handler would otherwise render it as a 500.
+          if (err instanceof NoResultError) throw new PresetError("not_found", "Preset not found");
+          throw err;
+        }
         return { ...sshPresetView(updated), access, ownerName: await presetOwnerName(db, sshExisting.userId) };
       }
       const repo = new PresetsRepository(db);

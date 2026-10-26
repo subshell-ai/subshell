@@ -1,9 +1,10 @@
-import { cn, Switch } from "@internal/node-admin";
+import { cn } from "@internal/node-admin";
 import { isPresetCrossCommReady } from "@internal/subshell-protocol";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 import { CopyButton } from "@/components/copy-button";
+import { PresetEnabledCell } from "@/components/presets/preset-enabled-cell";
 import { useTogglePresetEnabled } from "@/hooks/use-presets";
 import { presetLaunchCommand } from "@/lib/launch-command";
 import { canEditPreset, ownsPreset } from "@/lib/preset-access";
@@ -66,15 +67,12 @@ export function PresetTableRow({ preset, binary, items }: { preset: PresetRow; b
           {isPresetCrossCommReady(preset) ? "Yes" : "No"}
         </td>
         <td className="@sm:table-cell hidden h-8 whitespace-nowrap py-0 pr-4">
-          {canEditPreset(preset) ? (
-            <Switch
-              checked={!disabled}
-              aria-label={`${preset.name} enabled`}
-              onCheckedChange={(checked) => toggle.mutate({ id: preset.id, enabled: checked })}
-            />
-          ) : (
-            <span className="text-muted-foreground">{disabled ? "No" : "Yes"}</span>
-          )}
+          <PresetEnabledCell
+            name={preset.name}
+            enabled={!disabled}
+            editable={canEditPreset(preset)}
+            onToggle={(checked) => toggle.mutate({ id: preset.id, enabled: checked })}
+          />
         </td>
         <td
           className="@2xl:table-cell hidden h-8 max-w-0 truncate py-0 pr-4 text-muted-foreground"

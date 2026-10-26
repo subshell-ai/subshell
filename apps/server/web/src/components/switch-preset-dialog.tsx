@@ -60,7 +60,7 @@ export function SwitchPresetDialog({
   // point it at a preset the launch path refuses. A row already holding a
   // disabled one lands on "None" once the list answers - the same arm a
   // deleted preset falls through, so the confirm posts an explicit null.
-  const options = (presets ?? []).filter((p) => p.harnessId === subshell.harnessId).filter((p) => p.enabled === 1);
+  const options = (presets ?? []).filter((p) => p.harnessId === subshell.harnessId && p.enabled === 1);
   // Chosen wins; until then the row's preset, falling back to "none" once
   // the list has ANSWERED and cannot resolve it (a deleted preset, or one a
   // grantee swapped in — spec §3). In-flight is not "missing": the raw id

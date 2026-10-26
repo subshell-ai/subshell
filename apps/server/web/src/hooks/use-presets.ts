@@ -1,5 +1,6 @@
 import { apiFetch, apiPost } from "@internal/node-admin";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import type { PresetPayload } from "@/lib/preset-form";
 import type { PresetRow } from "@/types/preset";
 
@@ -48,6 +49,11 @@ export function useTogglePresetEnabled() {
       // `["presets"]` is a PREFIX match, so this invalidates both the agent
       // list and the `["presets", "ssh"]` list in one call.
       void queryClient.invalidateQueries({ queryKey: PRESETS_QUERY_KEY });
+    },
+    onError: () => {
+      // Without this a refused PATCH is silent: the switch snaps back when the
+      // list refetches and the person never learns why.
+      toast.error("Couldn't update the preset. It's unchanged; try again.");
     },
   });
 }

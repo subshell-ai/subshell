@@ -7,13 +7,13 @@ import {
   cn,
   confirmAction,
   errMessage,
-  Switch,
 } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { Copy, Download, Pencil, Play, Share2, Terminal, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { ActionsMenu } from "@/components/actions-menu";
 import { EmptyState } from "@/components/empty-state";
+import { PresetEnabledCell } from "@/components/presets/preset-enabled-cell";
 import { PresetSharingDialog } from "@/components/presets/preset-sharing-dialog";
 import { SshPresetEditor } from "@/components/presets/ssh-preset-editor";
 import { SshQueryStatus } from "@/components/ssh/query-status";
@@ -163,15 +163,12 @@ export function SshPresetLibrary({
                         {SSH_AUTHENTICATION_LABELS[preset.authentication]}
                       </td>
                       <td className="@lg:table-cell hidden h-8 whitespace-nowrap py-0 pr-4">
-                        {canEditPreset(preset) ? (
-                          <Switch
-                            checked={preset.enabled !== 0}
-                            aria-label={`${preset.name} enabled`}
-                            onCheckedChange={(checked) => toggle.mutate({ id: preset.id, enabled: checked })}
-                          />
-                        ) : (
-                          <span className="text-muted-foreground">{preset.enabled === 0 ? "No" : "Yes"}</span>
-                        )}
+                        <PresetEnabledCell
+                          name={preset.name}
+                          enabled={preset.enabled !== 0}
+                          editable={canEditPreset(preset)}
+                          onToggle={(checked) => toggle.mutate({ id: preset.id, enabled: checked })}
+                        />
                       </td>
                       <td
                         className="@2xl:table-cell hidden h-8 max-w-0 truncate py-0 pr-4 text-muted-foreground"
