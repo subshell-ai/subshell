@@ -1,0 +1,41 @@
+---
+title: "Grok Build"
+description: "Install and launch Grok Build with Subshell, including its MCP and session behavior."
+---
+
+Run Grok Build as a Subshell agent.
+
+## Before you start
+
+Install `grok` using the [vendor instructions](https://github.com/xai-org/grok-build) and authenticate it under the execution account. Ask an administrator to enable the harness under **Settings** → **Server Settings** → **Plugins** in the server dashboard's sidebar. Follow [Install an agent CLI](/agents/install-cli) to confirm detection on the target node.
+
+## Launch
+
+1. Open the new-subshell form using [Launch a subshell](/guides/launch), then choose **Grok Build** under **Agent**.
+2. Select a saved preset if you want custom model, reasoning effort, or agent settings. Configure those settings under **Settings** → **Presets** before launching.
+3. Choose the target node and an existing project directory.
+4. Launch and confirm that the CLI opens normally.
+
+The plugin detects `grok` through PATH and its known locations. `GROK_PATH` can identify the binary explicitly in the execution environment. Before changing that override, see [Files and paths](/reference/paths) for configuration locations and service-environment guidance.
+
+## MCP and session behavior
+
+Register Subshell once under the OS account where Grok runs. In the server dashboard's sidebar, choose **Settings** → **Presets** → **New preset** → **New agent preset**, select **Grok Build**, and use the commands under **Cross-subshell comms**. Those commands use the MCP executable configured for your installation.
+
+For a node with `subshell` on PATH, registration looks like this:
+
+```bash
+grok mcp add --scope user subshell -- subshell mcp
+```
+
+If your preset sets `GROK_HOME`, run the registration command with that same value on the execution machine. Grok reads MCP configuration from that directory, so registration in the default `~/.grok` won't apply. Use the same override when signing in or removing the registration. See [Files and paths](/reference/paths) for environment configuration guidance.
+
+The registration stores the command, not subshell credentials. Grok's MCP child inherits credentials from the subshell where it runs. Subshell disables Grok's shared leader mode to keep that identity tied to the current subshell. Don't add `--leader` to a preset; it conflicts with this isolation.
+
+Presets support model, reasoning effort, agent, and optional tool auto-approval. Auto-approval allows tools to run without asking for permission. The plugin doesn't provide automatic conversation resumption, attention hooks, or subagent tracking. You can resume a specific conversation with Grok's `--resume` flag.
+
+Subshell runs the real CLI rather than proxying its provider API. Provider configuration, usage limits, and CLI-specific permissions remain the agent's own settings.
+
+## Next steps
+
+Read [MCP configuration](/mcp/configure), [Presets](/presets), and [Agent and launch errors](/troubleshooting/agents).

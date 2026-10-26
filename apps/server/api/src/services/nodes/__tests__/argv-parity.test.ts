@@ -66,6 +66,7 @@ const SETTINGS_FIXTURES: Record<string, Record<string, unknown>> = {
   "claude-code": { permissionMode: "acceptEdits", model: "sonnet", maxTokens: 8192 },
   codex: { model: "gpt-5-codex", sandbox: "workspace-write", askForApproval: "on-request" },
   opencode: { model: "anthropic/claude-sonnet-4-5", agent: "plan", auto: true },
+  "grok-build": { model: "grok-4.6", reasoningEffort: "high", agent: "reviewer", alwaysApprove: true },
   hermes: { model: "anthropic/claude-sonnet-4.6", provider: "openrouter", toolsets: "web,files" },
   pi: { model: "sonnet:high", provider: "anthropic", thinking: "high" },
   // Terminal has no settings keys its preset editor can store, so its
@@ -261,13 +262,13 @@ for (const id of BUILTIN_IDS) {
 }
 
 /**
- * Sanity: every built-in under test really is one of the seven, and the
+ * Sanity: every built-in under test really is one of the eight, and the
  * registry is what production reads (`getHarness`, the same accessor
  * `subshell-manager` resolves launches through) — no copies.
  */
-test("argv parity: the matrix covers all seven built-ins through the production registry", () => {
+test("argv parity: the matrix covers all eight built-ins through the production registry", () => {
   const registryIds = BUILTIN_IDS.map((id) => getHarness(id)?.id);
   expect(new Set(registryIds)).toEqual(
-    new Set(["claude-code", "codex", "opencode", "hermes", "pi", "ssh", "terminal"]),
+    new Set(["claude-code", "codex", "grok-build", "opencode", "hermes", "pi", "ssh", "terminal"]),
   );
 });

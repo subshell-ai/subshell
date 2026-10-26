@@ -121,7 +121,7 @@ afterAll(async () => {
 });
 
 describe("an installed plugin resolves on the plane's side of a launch", () => {
-  it("detectSpecs ships acme's lookup rule to nodes, beside the seven built-ins", () => {
+  it("detectSpecs ships acme's lookup rule to nodes, beside the eight built-ins", () => {
     const specs = detectSpecs();
     expect(specs.find((s) => s.id === "acme")).toEqual({
       id: "acme",
@@ -133,7 +133,7 @@ describe("an installed plugin resolves on the plane's side of a launch", () => {
     // terminal's and ssh's rules are here too: terminal's SHELL rule is what
     // makes a clean machine launchable there, and ssh's is the ladder the
     // ssh launcher's resolved binary comes from.
-    for (const id of ["claude-code", "codex", "hermes", "opencode", "pi", "ssh", "terminal"]) {
+    for (const id of ["claude-code", "codex", "grok-build", "hermes", "opencode", "pi", "ssh", "terminal"]) {
       expect(specs.some((s) => s.id === id)).toBe(true);
     }
   });
