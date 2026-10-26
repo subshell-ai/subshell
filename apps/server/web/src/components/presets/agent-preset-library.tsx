@@ -175,6 +175,9 @@ export function AgentPresetLibrary({
                           <th scope="col" className="@lg:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">
                             Cross-agent use
                           </th>
+                          <th scope="col" className="@sm:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">
+                            Enabled
+                          </th>
                           <th scope="col" className="@2xl:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">
                             Owner
                           </th>

@@ -23,7 +23,12 @@ export function SshPresetPicker({
   initialEligible?: boolean;
 }) {
   const query = useSshPresets();
-  const initial = query.data?.find((p) => p.id === initialId);
+  // Enabled rows only, filtered at the source (spec 2026-10-24): a disabled
+  // preset is neither offered in the list nor applied from a URL intent —
+  // the "no longer available" alert below is the visible refusal, the same
+  // arm a deleted row falls through.
+  const presets = (query.data ?? []).filter((p) => p.enabled === 1);
+  const initial = presets.find((p) => p.id === initialId);
   const consumed = useRef(false);
   useEffect(() => {
     if (consumed.current) return;
@@ -45,7 +50,7 @@ export function SshPresetPicker({
           This SSH preset is no longer available. Choose another preset or enter the connection details.
         </p>
       )}
-      {!!query.data?.length && (
+      {presets.length > 0 && (
         <Field>
           <FieldLabel htmlFor="ssh-preset-picker">SSH preset</FieldLabel>
           <SearchableSelect
@@ -53,7 +58,7 @@ export function SshPresetPicker({
             value=""
             placeholder="Choose a preset"
             describedBy="ssh-preset-picker-hint"
-            options={query.data.map((p) => ({
+            options={presets.map((p) => ({
               value: p.id,
               label: presetChoiceLabel(p),
               searchText: p.destination,
@@ -61,7 +66,7 @@ export function SshPresetPicker({
               reason: disabled ? "Wait for the current connection attempt to finish." : undefined,
             }))}
             onValueChange={(id) => {
-              const preset = query.data.find((p) => p.id === id);
+              const preset = presets.find((p) => p.id === id);
               if (preset && !disabled) onApply(preset);
             }}
           />

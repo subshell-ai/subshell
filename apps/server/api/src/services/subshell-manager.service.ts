@@ -1007,6 +1007,13 @@ export class SubshellManagerService {
         if (preset && (await presetAccess(this.#presets.db, "agent", preset, source.userId)) === "none") {
           throw new Error("Preset access was removed. Choose another preset before restarting this subshell.");
         }
+        // A disabled preset starts nothing (spec 2026-10-24). The service's
+        // gate answers HTTP callers before this point; this check is the
+        // backstop for direct calls and races, and it lands before the kill,
+        // so a refused restart never stops the live pane it was reading.
+        if (preset?.enabled === 0) {
+          throw new Error("Preset is disabled. Re-enable it in the dashboard before restarting this subshell.");
+        }
       }
       // Revoke capabilities before stopping the old process: the exit hook may
       // arrive after its token is revoked, and a restart keeps the same row id.
@@ -1464,6 +1471,14 @@ export class SubshellManagerService {
       (!presetRow || (await presetAccess(this.#presets.db, "agent", presetRow, row.userId)) === "none")
     ) {
       throw new Error("Preset access was removed. Choose another preset before restarting this subshell.");
+    }
+    // The auto-restart sweep composes here, and it is a new start like any
+    // other (spec 2026-10-24): a switched-off preset does not get to resurrect
+    // a pane. This throw reads to the sweep as any other compose failure, so
+    // the row stays parked on its backoff schedule and re-enabling the preset
+    // lets the next attempt land.
+    if (presetRow?.enabled === 0) {
+      throw new Error("Preset is disabled. Re-enable it in the dashboard before restarting this subshell.");
     }
     const harness = getHarness(row.harnessId);
     if (!harness) throw new Error("harness missing");

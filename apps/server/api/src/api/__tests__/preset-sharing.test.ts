@@ -67,6 +67,7 @@ async function seed(kind: "agent" | "ssh") {
     keyHome: null,
     fingerprints: null,
     forwards: null,
+    enabled: 1,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });

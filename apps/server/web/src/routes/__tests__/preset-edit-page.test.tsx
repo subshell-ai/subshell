@@ -21,6 +21,7 @@ const ROW: PresetRow = {
   settingsJson: null,
   configIsolation: 0,
   restartOnExit: 0,
+  enabled: 1,
   nodeId: null,
   workingDir: null,
   promptBlocks: null,

@@ -408,6 +408,34 @@ describe("mcp tools (handler-level, real crypto)", () => {
     expect(calls.filter((c) => c.path === "/api/subshells")).toHaveLength(0);
   });
 
+  it("create_subshell refuses a disabled preset and never attempts the launch", async () => {
+    // The agent-facing refusal (spec 2026-10-24 preset enable/disable): the
+    // server's 409 stays as the gate, but the tool names the remedy itself,
+    // before spending the create call.
+    const own = await generateKeypair();
+    const { api, calls } = fakeApi((req) => {
+      if (req.path === "/api/presets")
+        return [
+          {
+            id: "pre-off",
+            name: "Stale",
+            harnessId: "claude-code",
+            crossCommEnabled: 0,
+            enabled: 0,
+            nodeId: null,
+            workingDir: null,
+            promptBlocks: null,
+          },
+        ];
+      throw new Error(`unexpected ${req.method} ${req.path}`);
+    });
+    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
+    await expect(createSubshell(deps, { preset: "pre-off" })).rejects.toThrow(
+      /preset 'pre-off' is disabled; re-enable it in the dashboard, or pass a different preset/,
+    );
+    expect(calls.filter((c) => c.path === "/api/subshells")).toHaveLength(0);
+  });
+
   it("list_presets projects rows down to {id, name, harnessId} — no field passthrough", async () => {
     // M-6a (final review): GET /api/presets redaction for bearers relies on
     // THIS client-side projection — if it ever passed rows through, envJson
@@ -463,6 +491,33 @@ describe("mcp tools (handler-level, real crypto)", () => {
     // A filled preset the operator never switched on makes no agent-facing
     // promise (migration 0043: readiness is opt-in).
     expect(rows[1]?.crossCommReady).toBe(false);
+  });
+
+  it("list_presets hides a disabled preset and keeps the enabled one and the catalog rows", async () => {
+    // Spec 2026-10-24 preset enable/disable: a disabled preset is never
+    // OFFERED. The harness-catalog rows are not presets, so they ride as-is.
+    const own = await generateKeypair();
+    const base = {
+      name: "Dev",
+      harnessId: "claude-code",
+      crossCommEnabled: 0,
+      nodeId: null,
+      workingDir: null,
+      promptBlocks: null,
+    };
+    const { api } = fakeApi((req) => {
+      if (req.path === "/api/presets")
+        return [
+          { ...base, id: "pre-on", enabled: 1 },
+          { ...base, id: "pre-off", name: "Stale", enabled: 0 },
+        ];
+      if (req.path === "/api/plugins")
+        return { plugins: [{ id: "terminal", name: "Terminal", type: "terminal", installed: true, enabled: true }] };
+      throw new Error(`unexpected ${req.method} ${req.path}`);
+    });
+    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
+    const rows = await listPresets(deps);
+    expect(rows.map((r) => r.id)).toEqual(["pre-on", "terminal"]);
   });
 
   it("describeToolError turns a 401 into guidance an AGENT can safely act on", () => {

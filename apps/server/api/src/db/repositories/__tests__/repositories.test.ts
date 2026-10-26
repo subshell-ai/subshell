@@ -17,6 +17,7 @@ import * as presetLaunchFieldsMigration from "@/db/migrations/0042-preset-launch
 import * as presetCrossCommOptInMigration from "@/db/migrations/0043-preset-cross-comm-opt-in.js";
 import * as subshellKeyHomeMigration from "@/db/migrations/0052-subshell-key-home.js";
 import * as subshellParentMigration from "@/db/migrations/0060-subshell-parent.js";
+import * as presetEnabledMigration from "@/db/migrations/0068-preset-enabled.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
@@ -57,6 +58,7 @@ beforeAll(async () => {
   await presetLaunchFieldsMigration.up(db); // presets launch trio (0042) - the repository create enumerates it
   await presetCrossCommOptInMigration.up(db); // presets.cross_comm_enabled (0043) - same reason
   await subshellKeyHomeMigration.up(db); // 0052 subshells.key_home_node_id - SubshellsRepository.create mirrors it on every insert (Task 14)
+  await presetEnabledMigration.up(db); // presets.enabled (0068) - PresetsRepository.create mirrors it on every insert
 });
 
 beforeEach(async () => {

@@ -1,14 +1,17 @@
+import { cn } from "@internal/node-admin";
 import { isPresetCrossCommReady } from "@internal/subshell-protocol";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 import { CopyButton } from "@/components/copy-button";
+import { PresetEnabledCell } from "@/components/presets/preset-enabled-cell";
+import { useTogglePresetEnabled } from "@/hooks/use-presets";
 import { presetLaunchCommand } from "@/lib/launch-command";
-import { ownsPreset } from "@/lib/preset-access";
+import { canEditPreset, ownsPreset } from "@/lib/preset-access";
 import type { PresetRow } from "@/types/preset";
 
 /**
- * One preset in its agent's table: name, auto-restart, cross-agent use, and actions. The optional
+ * One preset in its agent's table: name, auto-restart, cross-agent use, enabled, and actions. The optional
  * command detail spans the columns and wraps without truncation; copying
  * still hands over the exact single-line form for pasting into a shell.
  *
@@ -29,10 +32,15 @@ export function PresetTableRow({ preset, binary, items }: { preset: PresetRow; b
   const [shown, setShown] = useState(false);
   const commandId = useId();
   const command = presetLaunchCommand(preset.envJson, preset.flagsJson, binary);
+  const toggle = useTogglePresetEnabled();
+  const disabled = preset.enabled === 0;
 
   return (
     <>
-      <tr className="border-b align-middle last:border-0">
+      {/* A disabled preset stays in its owner's table, dimmed: hiding it here
+      would leave no way back in. The preview and the row menu are NOT gated,
+      so a parked preset can still be inspected, exported, or re-enabled. */}
+      <tr className={cn("border-b align-middle last:border-0", disabled && "opacity-70")}>
         <td className="h-8 @sm:w-1/3 w-full max-w-0 py-0 pr-4">
           <button
             type="button"
@@ -58,6 +66,14 @@ export function PresetTableRow({ preset, binary, items }: { preset: PresetRow; b
         <td className="@lg:table-cell hidden h-8 whitespace-nowrap py-0 pr-4 text-muted-foreground">
           {isPresetCrossCommReady(preset) ? "Yes" : "No"}
         </td>
+        <td className="@sm:table-cell hidden h-8 whitespace-nowrap py-0 pr-4">
+          <PresetEnabledCell
+            name={preset.name}
+            enabled={!disabled}
+            editable={canEditPreset(preset)}
+            onToggle={(checked) => toggle.mutate({ id: preset.id, enabled: checked })}
+          />
+        </td>
         <td
           className="@2xl:table-cell hidden h-8 max-w-0 truncate py-0 pr-4 text-muted-foreground"
           title={preset.ownerName ?? (ownsPreset(preset) ? "You" : preset.userId)}
@@ -76,7 +92,7 @@ export function PresetTableRow({ preset, binary, items }: { preset: PresetRow; b
           while the row claims it is hidden. */}
       {shown && (
         <tr className="border-b last:border-0">
-          <td colSpan={5} className="max-w-0 bg-muted/40 px-4 py-2">
+          <td colSpan={6} className="max-w-0 bg-muted/40 px-4 py-2">
             <pre id={commandId} className="whitespace-pre-wrap break-words font-mono text-sm leading-relaxed">
               {command}
             </pre>

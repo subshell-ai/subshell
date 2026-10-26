@@ -121,6 +121,9 @@ export async function saveSshPreset(
     // PUT convention, same as `description`: omitted keeps what is stored,
     // null (or an emptied list) clears it.
     forwards: body.forwards === undefined ? (existing?.forwards ?? null) : forwardsJson,
+    // The enable switch (0062): a save composes the whole row, so keep what
+    // is stored, and a fresh preset starts offered, matching the DB default.
+    enabled: existing?.enabled ?? 1,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };

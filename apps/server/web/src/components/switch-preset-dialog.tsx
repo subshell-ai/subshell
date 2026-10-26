@@ -56,7 +56,11 @@ export function SwitchPresetDialog({
   // the failure can say so (the clone dialog's rule) instead of leaving the
   // picker silently inert.
   const { data: presets, isError: presetsFailed } = usePresets();
-  const options = (presets ?? []).filter((p) => p.harnessId === subshell.harnessId);
+  // Enabled rows only (spec 2026-10-24): restarting a live row must not
+  // point it at a preset the launch path refuses. A row already holding a
+  // disabled one lands on "None" once the list answers - the same arm a
+  // deleted preset falls through, so the confirm posts an explicit null.
+  const options = (presets ?? []).filter((p) => p.harnessId === subshell.harnessId && p.enabled === 1);
   // Chosen wins; until then the row's preset, falling back to "none" once
   // the list has ANSWERED and cannot resolve it (a deleted preset, or one a
   // grantee swapped in — spec §3). In-flight is not "missing": the raw id

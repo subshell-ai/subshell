@@ -102,7 +102,7 @@ Pass `{ "subshell_id": "SUBSHELL_ID", "on": true }`, optionally with a CDP `port
 
 ## list_presets
 
-Arguments: `{}`. Returns agent presets and harness catalog entries with `id`, `name`, and `harnessId`; SSH presets are dashboard-only and never appear here.
+Arguments: `{}`. Returns agent presets and harness catalog entries with `id`, `name`, and `harnessId`; SSH presets are dashboard-only and never appear here. Presets switched off in the dashboard aren't listed.
 
 Real presets include `crossCommNotes` for user-authored guidance, plus `nodeId` and `workingDir` for their saved launch defaults. Notes help the calling agent choose a preset; they aren't appended to the launched subshell's prompt.
 

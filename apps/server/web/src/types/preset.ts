@@ -25,6 +25,8 @@ export interface AgentPreset extends PresetSharing {
   settingsJson: string | null;
   configIsolation: number;
   restartOnExit: number;
+  /** 1 = offered; 0 = hidden from pickers and refused at launch */
+  enabled: number;
   /** 1 = cross-subshell comms (MCP) enabled (migration 0043); the badge shows
    *  only when this AND a machine AND a directory are set (prompt optional). */
   crossCommEnabled: number;
@@ -72,6 +74,8 @@ export interface SshPreset extends PresetSharing {
   fingerprints: string[];
   /** Declared port forwards this preset carries to every launch; empty when it stores none (spec 2026-10-15) */
   forwards: SshForwardRow[];
+  /** 1 = offered; 0 = hidden from pickers and refused at launch */
+  enabled: number;
   /** ISO 8601 creation timestamp */
   createdAt: string;
   /** ISO 8601 update timestamp */

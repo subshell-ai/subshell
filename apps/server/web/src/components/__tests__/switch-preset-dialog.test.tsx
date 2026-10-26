@@ -46,6 +46,7 @@ function presetRow(overrides: Partial<PresetRow> & { id: string }): PresetRow {
     settingsJson: null,
     configIsolation: 0,
     restartOnExit: 0,
+    enabled: 1,
     crossCommEnabled: 0,
     nodeId: null,
     workingDir: null,
@@ -205,6 +206,48 @@ describe("SwitchPresetDialog", () => {
       expect(trigger().textContent).toContain("preset-1");
       expect(trigger().matches(":disabled, [aria-disabled=true]")).toBe(true);
       expect(confirmButton().matches(":disabled, [aria-disabled=true]")).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
+  it("offers only the enabled presets of the row's harness", async () => {
+    // A disabled preset is not a choice the restart should make (spec
+    // 2026-10-24): the create path refuses it, so offering it here would
+    // promise a restart that fails.
+    const { restore } = mockFetch({
+      presets: [
+        presetRow({ id: "preset-1", name: "Work" }),
+        presetRow({ id: "preset-2", name: "Deep" }),
+        presetRow({ id: "preset-3", name: "Parked", enabled: 0 }),
+      ],
+    });
+    try {
+      await renderDialog(makeSubshell());
+      await openSelect();
+      expect(optionNames()).toEqual(["None", "Work", "Deep"]);
+      expect(screen.queryByRole("option", { name: "Parked" })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("a row whose current preset was switched off reads None, and the confirm un-links it", async () => {
+    // The edge the enabled-only options create: the held preset itself is
+    // disabled. It is not an option, so once the list answers the selection
+    // falls through the deleted-preset arm to "None" - never the raw uuid,
+    // never a blank - and the unchanged confirm posts the explicit null.
+    const { calls, restore } = mockFetch({
+      presets: [presetRow({ id: "preset-1", name: "Work", enabled: 0 }), presetRow({ id: "preset-2", name: "Deep" })],
+    });
+    try {
+      await renderDialog(makeSubshell({ presetId: "preset-1" }));
+      await waitFor(() => expect(trigger().textContent).toContain("None"));
+      expect(screen.queryByText("preset-1")).toBeNull();
+      fireEvent.click(confirmButton());
+      await waitFor(() =>
+        expect(calls).toContainEqual({ method: "POST", url: "/api/subshells/id-1/restart", body: { presetId: null } }),
+      );
     } finally {
       restore();
     }

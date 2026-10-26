@@ -247,12 +247,19 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
       // Presets are copied only through an explicit selection. Reapplying
       // the last subshell's preset would undo Cancel's fresh-form reset.
     }
-    // The one guard: a preset belongs to exactly one agent. (Agent changes
+    // The one guard: a preset belongs to exactly one agent, and a launch
+    // may only carry an ENABLED preset (spec 2026-10-24). (Agent changes
     // reset the preset at the control; this catches a row that vanished from
-    // under a held pick.)
+    // under a held pick, moved to another agent, or was switched off. The
+    // recent-launch prefill rides this same check: the agent tier above may
+    // have just armed the copy with a preset that the guard now drops, and
+    // because the guard re-reads the full rows on EVERY pass, the prefill
+    // degrades to no preset - the agent, node and directory the same row
+    // copied stay, because only the link is what cannot launch.)
     if (next.presetId !== null && presetRows !== undefined) {
       const held = presetRows.find((p) => p.id === next.presetId);
-      if (held === undefined || held.harnessId !== next.harnessId) next = { ...next, presetId: null };
+      if (held === undefined || held.enabled === 0 || held.harnessId !== next.harnessId)
+        next = { ...next, presetId: null };
     }
     if (next !== value) onChange(next);
     // nodesPending is a dep in its own right: a pending→ERROR transition

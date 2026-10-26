@@ -41,6 +41,8 @@ export interface SshPresetTable {
    * launch until the connecting machine allows it.
    */
   forwards: string | null;
+  /** 1 = the preset is offered; 0 = hidden from pickers and refused at launch */
+  enabled: number;
   /** ISO 8601 creation timestamp (DB default) */
   createdAt: string;
   /** ISO 8601 last-update timestamp */

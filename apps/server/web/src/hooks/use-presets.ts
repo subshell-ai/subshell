@@ -1,5 +1,6 @@
 import { apiFetch, apiPost } from "@internal/node-admin";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import type { PresetPayload } from "@/lib/preset-form";
 import type { PresetRow } from "@/types/preset";
 
@@ -31,6 +32,30 @@ export function usePresets() {
 export function useInvalidatePresets(): () => Promise<void> {
   const queryClient = useQueryClient();
   return () => queryClient.invalidateQueries({ queryKey: PRESETS_QUERY_KEY });
+}
+
+/**
+ * Toggles a preset's enabled flag (`PATCH /api/presets/:id`, cookie-only,
+ * which returns the updated row). Works for both kinds: the SSH rows live
+ * under the same `["presets"]` prefix, so one invalidation refreshes the
+ * agent list and the `["presets", "ssh"]` list at once.
+ */
+export function useTogglePresetEnabled() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      apiFetch(`/api/presets/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ enabled }) }),
+    onSuccess: () => {
+      // `["presets"]` is a PREFIX match, so this invalidates both the agent
+      // list and the `["presets", "ssh"]` list in one call.
+      void queryClient.invalidateQueries({ queryKey: PRESETS_QUERY_KEY });
+    },
+    onError: () => {
+      // Without this a refused PATCH is silent: the switch snaps back when the
+      // list refetches and the person never learns why.
+      toast.error("Couldn't update the preset. It's unchanged; try again.");
+    },
+  });
 }
 
 /**

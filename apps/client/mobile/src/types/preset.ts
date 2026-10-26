@@ -18,4 +18,6 @@ export interface PresetView {
   description: string | null;
   /** 1 = subshells launched from this preset auto-restart on exit */
   restartOnExit: number;
+  /** 1 = offered; 0 = hidden from pickers */
+  enabled: number;
 }

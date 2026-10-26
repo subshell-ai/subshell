@@ -48,6 +48,8 @@ export interface PresetTable {
   crossCommEnabled: number;
   /** User-authored guidance for agents discovering this preset. */
   crossCommNotes?: string | null;
+  /** 1 = the preset is offered; 0 = hidden from pickers and refused at launch */
+  enabled: number;
   /**
    * Optional launch node hint (spec 2026-09-29 preset-launch-fields): a launch
    * with this preset and no explicit node runs here. An EXPLICIT request node
@@ -73,16 +75,24 @@ export interface PresetTable {
   updatedAt: string;
 }
 
-/** Insert shape: DB defaults fill createdAt/updatedAt/restartOnExit when omitted.
+/** Insert shape: DB defaults fill createdAt/updatedAt/restartOnExit/enabled when omitted.
  *  The three launch fields (0042) are optional on insert - a preset created
  *  before the picker's removal, or by an editor that never sets them, carries
  *  all NULL. */
 export type NewPreset = Omit<
   PresetTable,
-  "createdAt" | "updatedAt" | "restartOnExit" | "crossCommEnabled" | "nodeId" | "workingDir" | "promptBlocks"
+  | "createdAt"
+  | "updatedAt"
+  | "restartOnExit"
+  | "crossCommEnabled"
+  | "enabled"
+  | "nodeId"
+  | "workingDir"
+  | "promptBlocks"
 > & {
   restartOnExit?: number;
   crossCommEnabled?: number;
+  enabled?: number;
   nodeId?: string | null;
   workingDir?: string | null;
   promptBlocks?: string | null;

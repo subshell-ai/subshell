@@ -218,6 +218,8 @@ interface PresetsWireRow {
   harnessId: string;
   /** 1 = the operator switched on cross-subshell comms (migration 0043). */
   crossCommEnabled: number;
+  /** 0 = the operator disabled this preset: never offered, never launchable. */
+  enabled: number;
   nodeId: string | null;
   workingDir: string | null;
   promptBlocks: string | null;
@@ -346,8 +348,11 @@ export async function listPresets(deps: ToolDeps): Promise<PresetRow[]> {
     deps.api.req<PresetsWireRow[]>("/api/presets"),
     deps.api.req<{ plugins: PluginWireRow[] }>("/api/plugins"),
   ]);
-  const presets = rows.map(
-    ({ id, name, harnessId, crossCommEnabled, crossCommNotes, nodeId, workingDir, screenConfig }) => ({
+  // A disabled preset is never OFFERED (spec 2026-10-24 preset enable/disable):
+  // the catalog rows are harnesses, not presets, so they keep riding untouched.
+  const presets = rows
+    .filter((row) => row.enabled !== 0)
+    .map(({ id, name, harnessId, crossCommEnabled, crossCommNotes, nodeId, workingDir, screenConfig }) => ({
       id,
       name,
       harnessId,
@@ -356,8 +361,7 @@ export async function listPresets(deps: ToolDeps): Promise<PresetRow[]> {
       ...(workingDir !== undefined ? { workingDir } : {}),
       ...(screenConfig ? { screen: parseStoredVirtualDisplayRequest(screenConfig) } : {}),
       crossCommReady: isPresetCrossCommReady({ crossCommEnabled, nodeId, workingDir }),
-    }),
-  );
+    }));
   const catalog = plugins
     .filter((p) => (p.type === "agent-harness" || p.type === "terminal") && p.installed && p.enabled)
     .map((p) => ({ id: p.id, name: p.name, harnessId: p.id, catalogOnly: true as const }));
@@ -515,6 +519,14 @@ export async function createSubshell(
   if (presetRow === undefined) {
     throw new Error(
       `subshell: no preset with id '${args.preset}'; call list_presets - create_subshell addresses presets by their id`,
+    );
+  }
+  // The agent-facing refusal, before any REST call: the server also refuses a
+  // disabled presetId with a 409, but this names the remedy in the tool's own
+  // voice and saves the round trip (spec 2026-10-24 preset enable/disable).
+  if (presetRow.enabled === 0) {
+    throw new Error(
+      `subshell: preset '${args.preset}' is disabled; re-enable it in the dashboard, or pass a different preset`,
     );
   }
   if (args.harness !== undefined && presetRow.harnessId !== args.harness) {
