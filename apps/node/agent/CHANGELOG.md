@@ -1,5 +1,63 @@
 # @internal/node
 
+## 3.0.0
+
+### Major Changes
+
+- [#426](https://github.com/subshell-ai/subshell/pull/426) [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661) Thanks [@theogravity](https://github.com/theogravity)! - Add web previews, browser watching, saved web services, and virtual displays to subshell workspaces. Open each view in its own draggable tab beside the terminal, move it between splits, or use full screen. Closing a preview leaves its terminal and sibling views running.
+  
+  Node settings independently control web previews and virtual displays. Enabling web previews makes them available to the node’s subshells. Nodes can enable multiple display providers and choose a default. Virtual displays are requested at launch, use the default or a selected enabled provider, and check prerequisites before starting. Xvfb + VNC is the initial provider and requires Linux with Xvfb, x11vnc, and xauth. Presets can save a provider choice. Each subshell keeps its resolved provider and display size on restart, even when the node default changes. Disabling a provider prevents new displays and restarts without stopping existing displays. The server’s built-in node uses the same runtime as enrolled nodes.
+  
+  Expose feature permissions, display-provider selection, prerequisites, and view controls through MCP. The UI explains disabled features and links to setup documentation. Switching nodes clears incompatible agent and display selections, resets the working directory, and explains the corrections. Preview choices use compact rows with plain port numbers, and phone previews preserve the desktop workspace layout.
+  
+  Isolate web-preview scripts from dashboard credentials and browser storage, restrict viewers to authorized resources, and revoke views when access changes or subshells stop. Keep target cookies on the server, bound transport buffers and image dimensions, verify display process ownership before cleanup, and redact preview capability references from diagnostics.
+
+### Minor Changes
+
+- [#443](https://github.com/subshell-ai/subshell/pull/443) [`7c8fd34`](https://github.com/subshell-ai/subshell/commit/7c8fd34efccdb51b202939aa462756c55a69a440) Thanks [@theogravity](https://github.com/theogravity)! - Add the BetterDisplay virtual display provider for macOS. Bundle a shared native display helper in both desktop apps, disabled by default and managed through a separate native settings panel. Require explicit local consent and macOS permissions, support immediate disable, and keep activation outside first-run setup and remote node/MCP controls.
+  
+  Reuse the authenticated screen viewer with bounded native capture and input, retain verified display ownership for cleanup and recovery, and document activation and macOS shared-desktop limitations in node settings.
+  
+  Recheck consent and permissions after native capture startup and on input, and close new displays when node policy changes during allocation.
+  
+  Keep uncertain creation records separate so retries can proceed, explain vanished displays, share probe cleanup guards, and encode frames away from the helper's UI thread. Show platform-appropriate provider settings and prevent equal-version release bundles from replacing each other's helper.
+
+- [#447](https://github.com/subshell-ai/subshell/pull/447) [`f72a30b`](https://github.com/subshell-ai/subshell/commit/f72a30b2073dbd179e10680fdf31018a01b81c1d) Thanks [@theogravity](https://github.com/theogravity)! - Presets can now be switched off. A new toggle in the presets table parks a preset without deleting it: a switched-off preset disappears from every launch picker and from the MCP `list_presets` answer, and starting or restarting a subshell with one is refused until you switch it back on. Panes already running from it are untouched.
+
+- [#426](https://github.com/subshell-ai/subshell/pull/426) [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661) Thanks [@theogravity](https://github.com/theogravity)! - Save HTTP or HTTPS services in Apps & screens, including services started outside a subshell. Open each in its own workspace tab, and remove saved connections without stopping their services. Manual connections work without a virtual display, including on macOS nodes. Node protocol 24 adds explicit destinations and certificate-verified HTTPS.
+
+- [#426](https://github.com/subshell-ai/subshell/pull/426) [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661) Thanks [@theogravity](https://github.com/theogravity)! - Separate node permissions for apps and browsers from virtual displays. Apps and browser features apply to every subshell when enabled; virtual displays still require an explicit launch choice. Preserve existing grants, show feature-specific readiness, and enforce both switches on the server and node.
+
+### Patch Changes
+
+- [#426](https://github.com/subshell-ai/subshell/pull/426) [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661) Thanks [@theogravity](https://github.com/theogravity)! - Separate virtual display providers from viewer connections and launch settings. Allow node owners to enable multiple display providers and choose a default, with Xvfb + VNC as the initial option. Persist per-subshell provider choices for restart and preserve display requests in presets. Check requirements for the selected provider and preserve existing displays when the selection changes.
+  
+  Order provider allocation and cleanup per subshell, recheck permission after asynchronous prerequisites, and verify VNC listener ownership during allocation and recovery. Reserve viewer ports before probing to prevent concurrent displays from selecting the same port.
+
+- [#426](https://github.com/subshell-ai/subshell/pull/426) [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661) Thanks [@theogravity](https://github.com/theogravity)! - Explain when node settings disable a virtual display requested through MCP, and verify independent preview permissions for dashboard and agent access.
+
+- [#446](https://github.com/subshell-ai/subshell/pull/446) [`a1adc0e`](https://github.com/subshell-ai/subshell/commit/a1adc0ebc3d0c137f84b92f08599ba2e3139a843) Thanks [@theogravity](https://github.com/theogravity)! - Add Oh My Pi as a built-in harness, with omp detection, model/provider/thinking settings, and automatic per-launch MCP configuration. Document installation and the integration's session behavior.
+
+- [#426](https://github.com/subshell-ai/subshell/pull/426) [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661) Thanks [@theogravity](https://github.com/theogravity)! - Close a preview permission-downgrade race, bound image decoding and retained
+  resources, and check transport backpressure before encryption. Verify display
+  process identity before cleanup and document the additional security review.
+
+- [#426](https://github.com/subshell-ai/subshell/pull/426) [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661) Thanks [@theogravity](https://github.com/theogravity)! - Add MCP Preview discovery, private connections, browser watching, and virtual-display launches. Include harness health, SSH/Preview settings, and live display prerequisite checks in node discovery, with owner-only access preserved. Document the workflow and capability-link security boundary.
+
+- [#426](https://github.com/subshell-ai/subshell/pull/426) [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661) Thanks [@theogravity](https://github.com/theogravity)! - Cancel pending preview opens when access is revoked, and recheck authorization before publishing them. Keep CDP discovery on its requested loopback endpoint. Bound proxy response buffers, fragmented WebSocket messages, and target cookies, and prevent preview targets from installing dashboard reporting policies.
+
+- [#426](https://github.com/subshell-ai/subshell/pull/426) [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661) Thanks [@theogravity](https://github.com/theogravity)! - Recheck live-screen subscriptions when revocation overtakes their permission check. Limit queued writes to preview targets that stop reading, and clean up node resources after uncertain preview-open replies.
+
+- [#426](https://github.com/subshell-ai/subshell/pull/426) [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661) Thanks [@theogravity](https://github.com/theogravity)! - Rename apps and browsers to Web previews throughout the dashboard, API and MCP permission fields, node protocol, and documentation.
+
+- [#426](https://github.com/subshell-ai/subshell/pull/426) [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661) Thanks [@theogravity](https://github.com/theogravity)! - Name the unreleased Apps & screens API resources views and expose MCP tools list_subshell_views, open_subshell_view, and watch_subshell_browser. Rename node readiness and enablement discovery, align viewer controls and permission labels, and document the persisted and protocol identifiers retained for compatibility.
+
+- [#426](https://github.com/subshell-ai/subshell/pull/426) [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661) Thanks [@theogravity](https://github.com/theogravity)! - Update Zod to 4.6.7 and override Expo CLI’s older Zod dependency to remove the vulnerable version from the dependency tree.
+
+- [#426](https://github.com/subshell-ai/subshell/pull/426) [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661) Thanks [@theogravity](https://github.com/theogravity)! - Prevent late browser-watch requests from reactivating closed or changed views, preserve selected virtual displays during same-node rechecks, and clarify disabled settings and setup guidance. Reject conflicting MCP app/display arguments before creating a connection.
+- Updated dependencies []:
+  - @internal/pane-runtime@1.0.0
+
 ## 2.3.3
 
 ### Patch Changes

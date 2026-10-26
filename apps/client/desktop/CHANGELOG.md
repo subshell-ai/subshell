@@ -1,5 +1,23 @@
 # @internal/desktop-client
 
+## 1.4.0
+
+### Minor Changes
+
+- [#443](https://github.com/subshell-ai/subshell/pull/443) [`7c8fd34`](https://github.com/subshell-ai/subshell/commit/7c8fd34efccdb51b202939aa462756c55a69a440) Thanks [@theogravity](https://github.com/theogravity)! - Add the BetterDisplay virtual display provider for macOS. Bundle a shared native display helper in both desktop apps, disabled by default and managed through a separate native settings panel. Require explicit local consent and macOS permissions, support immediate disable, and keep activation outside first-run setup and remote node/MCP controls.
+  
+  Reuse the authenticated screen viewer with bounded native capture and input, retain verified display ownership for cleanup and recovery, and document activation and macOS shared-desktop limitations in node settings.
+  
+  Recheck consent and permissions after native capture startup and on input, and close new displays when node policy changes during allocation.
+  
+  Keep uncertain creation records separate so retries can proceed, explain vanished displays, share probe cleanup guards, and encode frames away from the helper's UI thread. Show platform-appropriate provider settings and prevent equal-version release bundles from replacing each other's helper.
+
+### Patch Changes
+
+- [#446](https://github.com/subshell-ai/subshell/pull/446) [`a1adc0e`](https://github.com/subshell-ai/subshell/commit/a1adc0ebc3d0c137f84b92f08599ba2e3139a843) Thanks [@theogravity](https://github.com/theogravity)! - Add Oh My Pi as a built-in harness, with omp detection, model/provider/thinking settings, and automatic per-launch MCP configuration. Document installation and the integration's session behavior.
+- Updated dependencies [[`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661), [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661), [`7c8fd34`](https://github.com/subshell-ai/subshell/commit/7c8fd34efccdb51b202939aa462756c55a69a440), [`a1adc0e`](https://github.com/subshell-ai/subshell/commit/a1adc0ebc3d0c137f84b92f08599ba2e3139a843), [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661), [`f72a30b`](https://github.com/subshell-ai/subshell/commit/f72a30b2073dbd179e10680fdf31018a01b81c1d), [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661), [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661), [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661), [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661), [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661), [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661), [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661), [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661), [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661), [`cec0b06`](https://github.com/subshell-ai/subshell/commit/cec0b06e3943cf3ef9270e0b6ae651ec2717d661)]:
+  - @internal/node@3.0.0
+
 ## 1.3.8
 
 ### Patch Changes

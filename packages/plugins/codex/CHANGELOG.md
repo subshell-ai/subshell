@@ -1,5 +1,11 @@
 # @subshell-ai/plugin-codex
 
+## 1.0.2
+
+### Patch Changes
+
+- [#445](https://github.com/subshell-ai/subshell/pull/445) [`6d3ac61`](https://github.com/subshell-ai/subshell/commit/6d3ac61c90a4beafbf340c28bfc82a496dbf8a41) Thanks [@theogravity](https://github.com/theogravity)! - Forward pane identity explicitly to Codex MCP processes so Subshell tools can initialize.
+
 ## 1.0.1
 
 ### Patch Changes
