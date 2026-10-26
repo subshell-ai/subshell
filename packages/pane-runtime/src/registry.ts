@@ -12,6 +12,7 @@ import codexFactory, { manifest as codexManifest } from "@subshell-ai/plugin-cod
 import headscaleFactory, { manifest as headscaleManifest } from "@subshell-ai/plugin-headscale";
 import hermesFactory, { manifest as hermesManifest } from "@subshell-ai/plugin-hermes";
 import netbirdFactory, { manifest as netbirdManifest } from "@subshell-ai/plugin-netbird";
+import ohMyPiFactory, { manifest as ohMyPiManifest } from "@subshell-ai/plugin-oh-my-pi";
 import opencodeFactory, { manifest as opencodeManifest } from "@subshell-ai/plugin-opencode";
 import piFactory, { manifest as piManifest } from "@subshell-ai/plugin-pi";
 import sshFactory, { manifest as sshManifest } from "@subshell-ai/plugin-ssh";
@@ -58,6 +59,7 @@ const BUILT_INS: BuiltIn[] = [
   { manifest: opencodeManifest, factory: opencodeFactory },
   { manifest: hermesManifest, factory: hermesFactory },
   { manifest: piManifest, factory: piFactory },
+  { manifest: ohMyPiManifest, factory: ohMyPiFactory },
   { manifest: codexManifest, factory: codexFactory },
   { manifest: terminalManifest, factory: terminalFactory },
   // The ssh pane is the terminal launch pointed at ssh: same TYPE, same

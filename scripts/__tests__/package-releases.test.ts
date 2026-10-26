@@ -13,6 +13,7 @@ describe("publishedPackages", () => {
       "@subshell-ai/plugin-headscale",
       "@subshell-ai/plugin-hermes",
       "@subshell-ai/plugin-netbird",
+      "@subshell-ai/plugin-oh-my-pi",
       "@subshell-ai/plugin-opencode",
       "@subshell-ai/plugin-pi",
       "@subshell-ai/plugin-ssh",
