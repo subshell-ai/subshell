@@ -34,4 +34,13 @@ describe("isPresetOffered", () => {
     const rows = [preset({ id: "on" }), preset({ id: "off", enabled: 0 }), preset({ id: "on2" })];
     expect(rows.filter(isPresetOffered).map((p) => p.id)).toEqual(["on", "on2"]);
   });
+
+  it("offers rows from an older server that never sends the field", () => {
+    // The plugin-visibility precedent in miniature: an older plane knows
+    // nothing about the switch and sends no `enabled`, and those rows stay
+    // offered exactly as before. The type requires the field because every
+    // CURRENT server sends it, so the fixture drops it on purpose.
+    const { enabled: _dropped, ...olderServer } = preset({ id: "legacy" });
+    expect(isPresetOffered(olderServer as PresetView)).toBe(true);
+  });
 });

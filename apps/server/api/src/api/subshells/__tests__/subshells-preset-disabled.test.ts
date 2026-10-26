@@ -186,9 +186,17 @@ describe("launching a disabled preset (spec 2026-10-24)", () => {
       // NAME-FREE like every other restart-path refusal: an edit grantee can
       // restart a pane whose owner's preset they cannot see, so the refusal
       // says what to fix without disclosing which row it is.
-      expect(((await refused.json()) as { message: string }).message).toBe(
+      const refusedBody = (await refused.json()) as { code: string; message: string };
+      expect(refusedBody.message).toBe(
         "Preset is disabled. Re-enable it in the dashboard before restarting this subshell.",
       );
+      // The body pin, same posture as the create leg above: on the HTTP path
+      // the refusal is answered before the manager (the service gate), and
+      // whichever throw carries it, its private `preset_disabled` code never
+      // serializes - the handler derives the wire code from the status. So
+      // 409 answers EXISTS_ERROR, NOT the structured code.
+      expect(refusedBody.code).not.toBe("preset_disabled");
+      expect(refusedBody.code).toBe("EXISTS_ERROR");
       const row = await subshells.findById(id);
       expect(row?.alive).toBe(1);
       expect(row?.presetId).toBe(presetId);
@@ -204,7 +212,12 @@ describe("launching a disabled preset (spec 2026-10-24)", () => {
         }),
       );
       expect(swapped.status).toBe(409);
-      expect(((await swapped.json()) as { message: string }).message).toContain("is disabled");
+      const swapBody = (await swapped.json()) as { code: string; message: string };
+      expect(swapBody.message).toContain("is disabled");
+      // Same wire-code truth as the leg above: the swap refusal's private code
+      // is status-derived on the wire, EXISTS_ERROR rather than `preset_disabled`.
+      expect(swapBody.code).not.toBe("preset_disabled");
+      expect(swapBody.code).toBe("EXISTS_ERROR");
       expect((await subshells.findById(id))?.presetId).toBe(presetId);
     } finally {
       await patchPreset(presetId, true);

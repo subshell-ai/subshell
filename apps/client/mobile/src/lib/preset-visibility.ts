@@ -10,7 +10,13 @@
  */
 import type { PresetView } from "@/types/preset";
 
-/** True when one preset row is offered to a launch (`enabled === 1`). */
+/**
+ * True when one preset row is offered to a launch. The test is `!== 0`
+ * rather than `=== 1` for the same reason the plugin-visibility precedent
+ * offers rows whose `pickable` field is absent: an older server that never
+ * heard of the switch sends no field, and those rows stay offered. Only a row
+ * that actually says off (`0`) is dropped.
+ */
 export function isPresetOffered(preset: PresetView): boolean {
-  return preset.enabled === 1;
+  return preset.enabled !== 0;
 }

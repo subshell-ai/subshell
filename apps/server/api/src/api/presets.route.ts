@@ -253,10 +253,20 @@ const UpdatePresetBodySchema = t.Object(
  * PUT never carries it on purpose: the SSH half of PUT insists on the complete
  * fields, and letting a settings save speak about the switch would silently
  * re-offer a preset the owner had switched off. A toggle is its own act.
+ *
+ * The `additionalProperties: false` matches its siblings, and like theirs it
+ * DOCUMENTS rather than refuses on this Elysia (see {@link UpdatePresetBodySchema}
+ * for the measurement). PUT carries a transform to make the refusal real;
+ * PATCH deliberately carries none, so an unknown key here is stripped and the
+ * toggle lands - pinned honestly by the presets route test's unknown-key
+ * case, not by a refusal the runtime never gives.
  */
-const SetPresetEnabledBodySchema = t.Object({
-  enabled: t.Boolean({ description: "true = offer the preset; false = hide it and refuse launches" }),
-});
+const SetPresetEnabledBodySchema = t.Object(
+  {
+    enabled: t.Boolean({ description: "true = offer the preset; false = hide it and refuse launches" }),
+  },
+  { additionalProperties: false },
+);
 
 /** The keys `PUT /:id` applies — mirrors {@link UpdatePresetBodySchema}. */
 const UPDATE_PRESET_KEYS = new Set([

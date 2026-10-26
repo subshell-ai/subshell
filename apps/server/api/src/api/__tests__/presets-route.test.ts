@@ -1027,6 +1027,29 @@ describe("PATCH /api/presets/:id (the enabled switch)", () => {
     const row = ((await list.json()) as { id: string; enabled: number }[]).find((p) => p.id === id);
     expect(row, "a disabled preset stays listed to its owner").toBeDefined();
     expect(row?.enabled).toBe(0);
+
+    // Back ON, and the JSON echo is the happy path's other half: both preset
+    // schemas declare `enabled` as t.Number, so the wire spelling of the
+    // toggle is 0/1, never true/false, and each PATCH answers with it.
+    const backOn = await patchPreset(id, ownerCookie, { enabled: true });
+    expect(backOn.status).toBe(200);
+    expect(((await backOn.json()) as { enabled: number }).enabled).toBe(1);
+    expect((await presets.findById(id))?.enabled).toBe(1);
+  });
+
+  it("documents-strictness: an unknown key is stripped, not refused", async () => {
+    // Honest pin, the same fact PUT's comment states about itself:
+    // `additionalProperties: false` on the PATCH body DOCUMENTS (measured on
+    // this Elysia, an unknown key is stripped and validation passes clean),
+    // and PATCH carries no refusal transform - so the toggle lands anyway.
+    // Proving it through a real off-then-on flip, so "the toggle landed" is
+    // shown, not assumed.
+    const id = await seedAgentPreset("enable-strictness");
+    expect((await patchPreset(id, ownerCookie, { enabled: false })).status).toBe(200);
+    const res = await patchPreset(id, ownerCookie, { enabled: true, bogus: 1 });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { enabled: number }).enabled).toBe(1);
+    expect((await presets.findById(id))?.enabled).toBe(1);
   });
 
   it("a view-share cannot toggle (403, the edit-access message); the row stays offered", async () => {

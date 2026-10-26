@@ -1291,6 +1291,49 @@ describe("SSH preset CRUD", () => {
       scripted.detach();
     }
   });
+  it("an update echoes the STORED enabled flag, twice over and with the alias omitted", async () => {
+    // The echo proof (spec 2026-10-24): PUT's body can never speak about the
+    // switch (its transform refuses `enabled` as an unknown property), so the
+    // response's `enabled` can only come from the stored row through
+    // `sshPresetView`. Disabling through the real PATCH route and PUTing twice
+    // - the second save omitting the alias, the field whose omission proves
+    // the view composes from the row, not the request - pins exactly that.
+    const scripted = silentScript(NODE_ON);
+    try {
+      const created = await save(body("Enabled echo"));
+      expect(created.status).toBe(200);
+      const { id } = (await created.json()) as { id: string };
+      const patched = await sshFetch(`/api/presets/${id}`, {
+        method: "PATCH",
+        cookie: ownerCookie,
+        body: { enabled: false },
+      });
+      expect(patched.status).toBe(200);
+      const putBody = {
+        name: "Enabled echo",
+        nodeId: NODE_ON,
+        destination: CANON,
+        authentication: "connecting",
+        fingerprints: [],
+        alias: "work",
+      };
+      const first = await sshFetch(`/api/presets/${id}`, { method: "PUT", cookie: ownerCookie, body: putBody });
+      expect(first.status).toBe(200);
+      expect(await first.json()).toMatchObject({ enabled: 0 });
+      const { alias: _alias, ...omittedAlias } = putBody;
+      const second = await sshFetch(`/api/presets/${id}`, { method: "PUT", cookie: ownerCookie, body: omittedAlias });
+      expect(second.status).toBe(200);
+      const view = (await second.json()) as { enabled: number; alias: string | null };
+      expect(view.enabled).toBe(0);
+      // The kept alias and the echoed flag sit side by side, both row-derived.
+      expect(view.alias).toBe("work");
+      const stored = await db.selectFrom("sshPresets").select("enabled").where("id", "=", id).executeTakeFirst();
+      expect(stored?.enabled).toBe(0);
+      await sshFetch(`/api/presets/${id}`, { method: "DELETE", cookie: ownerCookie });
+    } finally {
+      scripted.detach();
+    }
+  });
   it("refuses cross-kind updates instead of renaming the wrong row", async () => {
     const scripted = silentScript(NODE_ON);
     try {
