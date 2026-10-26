@@ -897,10 +897,17 @@ jobs:
               # which runs BEFORE Tauri's keychain exists (it arrives at bundle
               # time), and a release helper must carry the Developer ID, not an
               # ad-hoc signature, because the permission grant follows the
-              # cdhash. Build a second keychain for exactly that one call, then
-              # take it back OFF the user's search list: the build script names
-              # it explicitly through APPLE_SIGNING_KEYCHAIN (--keychain), so
-              # Tauri still sees one identity in the shared view, not two.
+              # cdhash. Build a second keychain for exactly that one call. The
+              # build script names it explicitly through
+              # APPLE_SIGNING_KEYCHAIN (--keychain), and it also stays on the
+              # user's search list, because that is where codesign resolves
+              # identities: measured on the 2026-10-26 dispatch (run
+              # 40306776766), a --keychain call pointed at an UNLISTED keychain
+              # still died with "The specified item could not be found in the
+              # keychain". When Tauri's bundle-time keychain joins the list
+              # later, both hold the SAME identity from the SAME p12, and the
+              # tauri#11992 trap is about DIFFERENT identities in one view:
+              # with identical material there is no wrong key to pick.
               KC="$CI_TMP/helper-sign.keychain-db"
               KCPW="$(/usr/bin/openssl rand -hex 16)"
               security create-keychain -p "$KCPW" "$KC"
@@ -911,10 +918,9 @@ jobs:
               security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPW" "$KC" >/dev/null 2>&1
               security find-identity -v -p codesigning "$KC" | grep -q "Developer ID Application" \
                 || { echo "imported p12 yielded no valid Developer ID Application identity"; exit 1; }
-              # create-keychain appends to the search list; reset it to the
-              # baseline this step started from, so this keychain is visible
-              # only to the call that names it.
-              security list-keychains -d user -s "$HOME/Library/Keychains/login.keychain-db"
+              # create-keychain left this keychain on the search list; that is
+              # where codesign needs it, so nothing unlists it mid-build. The
+              # trap restores the baseline when the step ends.
               trap 'rm -rf "$CI_TMP"; security delete-keychain "$KC" 2>/dev/null || true; security list-keychains -d user -s "$HOME/Library/Keychains/login.keychain-db"' EXIT
               export APPLE_SIGNING_KEYCHAIN="$KC"
               ;;
@@ -1555,10 +1561,17 @@ jobs:
               # which runs BEFORE Tauri's keychain exists (it arrives at bundle
               # time), and a release helper must carry the Developer ID, not an
               # ad-hoc signature, because the permission grant follows the
-              # cdhash. Build a second keychain for exactly that one call, then
-              # take it back OFF the user's search list: the build script names
-              # it explicitly through APPLE_SIGNING_KEYCHAIN (--keychain), so
-              # Tauri still sees one identity in the shared view, not two.
+              # cdhash. Build a second keychain for exactly that one call. The
+              # build script names it explicitly through
+              # APPLE_SIGNING_KEYCHAIN (--keychain), and it also stays on the
+              # user's search list, because that is where codesign resolves
+              # identities: measured on the 2026-10-26 dispatch (run
+              # 40306776766), a --keychain call pointed at an UNLISTED keychain
+              # still died with "The specified item could not be found in the
+              # keychain". When Tauri's bundle-time keychain joins the list
+              # later, both hold the SAME identity from the SAME p12, and the
+              # tauri#11992 trap is about DIFFERENT identities in one view:
+              # with identical material there is no wrong key to pick.
               KC="$CI_TMP/helper-sign.keychain-db"
               KCPW="$(/usr/bin/openssl rand -hex 16)"
               security create-keychain -p "$KCPW" "$KC"
@@ -1569,10 +1582,9 @@ jobs:
               security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPW" "$KC" >/dev/null 2>&1
               security find-identity -v -p codesigning "$KC" | grep -q "Developer ID Application" \
                 || { echo "imported p12 yielded no valid Developer ID Application identity"; exit 1; }
-              # create-keychain appends to the search list; reset it to the
-              # baseline this step started from, so this keychain is visible
-              # only to the call that names it.
-              security list-keychains -d user -s "$HOME/Library/Keychains/login.keychain-db"
+              # create-keychain left this keychain on the search list; that is
+              # where codesign needs it, so nothing unlists it mid-build. The
+              # trap restores the baseline when the step ends.
               trap 'rm -rf "$CI_TMP"; security delete-keychain "$KC" 2>/dev/null || true; security list-keychains -d user -s "$HOME/Library/Keychains/login.keychain-db"' EXIT
               export APPLE_SIGNING_KEYCHAIN="$KC"
               ;;
