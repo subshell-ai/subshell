@@ -23,7 +23,6 @@ export interface PreviewToolbarProps {
   fullscreen: boolean;
   fullscreenSupported: boolean;
   appUrl?: string;
-  appInBrowserTab?: boolean;
   busy: boolean;
   connection: PreviewConnection;
 }
@@ -38,29 +37,25 @@ export function PreviewToolbar({
   fullscreen,
   fullscreenSupported,
   appUrl,
-  appInBrowserTab = false,
   busy,
   connection,
 }: PreviewToolbarProps) {
   const busyReason = busy ? "Opening the selected view…" : undefined;
-  const status =
-    selected?.startsWith("app:") && appInBrowserTab
-      ? "Ready to open in browser tab"
-      : selected?.startsWith("app:")
-        ? connection === "connected"
-          ? "Web preview loaded"
-          : "Loading web preview…"
-        : selected === "browser"
-          ? connection === "connected"
-            ? "Live browser frames"
-            : connection === "disconnected"
-              ? "No recent browser frames"
-              : "Waiting for browser frames…"
-          : connection === "connected"
-            ? "Connected"
-            : connection === "disconnected"
-              ? "Disconnected"
-              : "Connecting…";
+  const status = selected?.startsWith("app:")
+    ? connection === "connected"
+      ? "Web preview loaded"
+      : "Loading web preview…"
+    : selected === "browser"
+      ? connection === "connected"
+        ? "Live browser frames"
+        : connection === "disconnected"
+          ? "No recent browser frames"
+          : "Waiting for browser frames…"
+      : connection === "connected"
+        ? "Connected"
+        : connection === "disconnected"
+          ? "Disconnected"
+          : "Connecting…";
   const fullscreenAction = (
     <DropdownMenuItem
       aria-disabled={!fullscreenSupported}

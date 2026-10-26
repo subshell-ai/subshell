@@ -24,9 +24,10 @@ import { setConsoleErrorObserver } from "@/test-setup";
  *
  * Each disconnect word is fed the way it ACTUALLY arrives (Task 10's wire
  * shape): every word rides pv-ws's close event (code 1011, the word verbatim
- * in `reason`), while `viewer-left` never rides a close. It is what our own
- * disconnect causes: the socket ends with nothing on it, and the component
- * says so. `revoked` gets its own named line, not a generic loss. `over-cap`
+ * in `reason`), while `viewer-left` never rides a close. It is what the
+ * viewer's own leaving is: the socket ends with nothing on it, and the
+ * unmount that ends it has already dropped the viewer, so nothing says so.
+ * `revoked` gets its own named line, not a generic loss. `over-cap`
  * too: it means the byte-limit death (the node's frame guard, or the plane's
  * oversized message), which rides the word. Only the lane-COUNT refusal is
  * wordless, answered with a 503 at the upgrade before any close exists.
@@ -164,7 +165,7 @@ function controller(over: Partial<UseSubshellPreview> = {}): UseSubshellPreview 
 
 describe("the viewer owns the socket", () => {
   it("mounts one WebSocket at the session's tunnel root and hands the SOCKET to RFB", () => {
-    render(<ScreenViewer protocol="vnc" display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />);
+    render(<ScreenViewer protocol="vnc" proxyBase="/pv/ref1/" />);
     expect(MockSocket.made).toHaveLength(1);
     expect(MockSocket.made[0].url).toBe(tunnelUrl("/pv/ref1/"));
     expect(MockRFB.builds).toHaveLength(1);
@@ -178,7 +179,7 @@ describe("the viewer owns the socket", () => {
   });
 
   it("unmounting disconnects: RFB let go and the socket closed, which is how the lane reads viewer-left", () => {
-    const view = render(<ScreenViewer protocol="vnc" display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />);
+    const view = render(<ScreenViewer protocol="vnc" proxyBase="/pv/ref1/" />);
     const [ws] = MockSocket.made;
     const [rfb] = MockRFB.builds;
     view.unmount();
@@ -194,7 +195,7 @@ describe("disconnect causes render by name", () => {
   // frame guard, the plane's oversized message) ride the wire word.
   for (const word of Object.keys(SCREEN_CLOSE_LINES) as (keyof typeof SCREEN_CLOSE_LINES)[]) {
     it(`a ${word} close, fed as pv-ws sends it (1011 + the word), renders its own line`, () => {
-      render(<ScreenViewer protocol="vnc" display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />);
+      render(<ScreenViewer protocol="vnc" proxyBase="/pv/ref1/" />);
       act(() => {
         MockSocket.made[0].dispatchClose(1011, word);
       });
@@ -215,7 +216,7 @@ describe("disconnect causes render by name", () => {
   });
 
   it("a close carrying a word the protocol never defines reads as a lost link, not a named cause", () => {
-    render(<ScreenViewer protocol="vnc" display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />);
+    render(<ScreenViewer protocol="vnc" proxyBase="/pv/ref1/" />);
     act(() => {
       MockSocket.made[0].dispatchClose(1011, "not-a-reason-of-ours");
     });
@@ -223,18 +224,13 @@ describe("disconnect causes render by name", () => {
     expect(screen.queryByText(SCREEN_CLOSE_LINES["over-cap"])).toBeNull();
   });
 
-  it("the component's own disconnect renders the viewer-left line through the close it causes", () => {
-    render(<ScreenViewer protocol="vnc" display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />);
-    const [ws] = MockSocket.made;
-    // The path pv-ws reserves for the viewer's own leaving: our close, and a
-    // close event with nothing on it. Not a hand-built reason prop.
-    fireEvent.click(screen.getByRole("button", { name: /disconnect/i }));
-    expect(ws.closed).toBe(1);
-    expect(screen.getByText(/you closed this preview/i)).toBeTruthy();
-  });
-
+  // There is no in-viewer Disconnect control any more: leaving a preview is
+  // closing its tab, which unmounts the viewer (pinned by the unmount test
+  // above). The viewer-left LINE stays as the protocol word's mapping: a close
+  // that reaches a mounted viewer names its cause, and the wordless test below
+  // pins that an empty word is read as a lost link, not as a self-inflicted one.
   it("a wordless close we did not start reads as a lost link, never as the user's own leave", () => {
-    render(<ScreenViewer protocol="vnc" display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />);
+    render(<ScreenViewer protocol="vnc" proxyBase="/pv/ref1/" />);
     act(() => {
       MockSocket.made[0].dispatchClose(1006, "");
     });
@@ -250,20 +246,20 @@ describe("the Screen control", () => {
         paneId="pane1"
         access="edit"
         preview={controller({ info: info({ screen: null }) })}
-        isPhone={false}
+        onClose={() => {}}
       />,
     );
     expect(screen.queryByRole("button", { name: "View screen" })).toBeNull();
     cleanup();
-    render(<PreviewSection paneId="pane1" access="edit" preview={controller()} isPhone={false} />);
+    render(<PreviewSection paneId="pane1" access="edit" preview={controller()} onClose={() => {}} />);
     expect(screen.getByRole("button", { name: "View screen" })).toBeTruthy();
   });
 
   it("enabled-ness follows edit", () => {
-    render(<PreviewSection paneId="pane1" access="edit" preview={controller()} isPhone={false} />);
+    render(<PreviewSection paneId="pane1" access="edit" preview={controller()} onClose={() => {}} />);
     expect(screen.getByRole("button", { name: "View screen" }).matches(":disabled, [aria-disabled=true]")).toBe(false);
     cleanup();
-    render(<PreviewSection paneId="pane1" access="view" preview={controller()} isPhone={false} />);
+    render(<PreviewSection paneId="pane1" access="view" preview={controller()} onClose={() => {}} />);
     const gated = screen.getByRole("button", { name: "View screen" });
     expect(gated.matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(gated.getAttribute("aria-description")).toBe(SCREEN_VIEW_REASON);
@@ -275,7 +271,7 @@ describe("the Screen control", () => {
         paneId="pane1"
         access="edit"
         preview={controller({ info: info({ nodeEnabled: false, reason: "preview-disabled" }) })}
-        isPhone={false}
+        onClose={() => {}}
       />,
     );
     const screenButton = screen.getByRole("button", { name: "View screen" });
@@ -295,7 +291,7 @@ describe("the Screen control", () => {
         refreshes++;
       },
     });
-    render(<PreviewSection paneId="pane1" access="edit" preview={preview} isPhone={false} />);
+    render(<PreviewSection paneId="pane1" access="edit" preview={preview} onClose={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: "View screen" }));
     await waitFor(() => expect(opens).toEqual([5901]));
     expect(opens).toHaveLength(1);
@@ -308,19 +304,26 @@ describe("the Screen control", () => {
 });
 
 describe("teardown on the paths that keep the instance alive", () => {
-  /** The live viewer's handle: its Disconnect button, which only the mounted viewer has. */
+  /**
+   * The live viewer's handle: the socket it dials. The viewer in the tab
+   * carries no Disconnect control (leaving is closing the tab, which the
+   * toolbar owns), so liveness is read off the wire: the last socket made,
+   * still unclosed.
+   */
   function viewerAlive(): boolean {
-    return screen.queryByRole("button", { name: /disconnect/i }) !== null;
+    const last = MockSocket.made.at(-1);
+    return last !== undefined && last.closed === 0;
   }
 
   it("StrictMode's simulated cleanup burns no close line into the viewer that survives it", () => {
     // main.tsx wraps the whole app in StrictMode, and dev React double-invokes
     // the effect on the SAME instance. The cleanup's own socket close must not
     // be read as a cause: the viewer never died, and a line burned here poisons
-    // every later genuine close (leftRef is a ref, so it survives the swap).
+    // every later genuine close (the close arrives under the discarded run's own
+    // disposal flag, so it is dropped rather than reported).
     render(
       <StrictMode>
-        <ScreenViewer protocol="vnc" display=":90" proxyBase="/pv/ref1/" onClose={() => {}} />
+        <ScreenViewer protocol="vnc" proxyBase="/pv/ref1/" />
       </StrictMode>,
     );
     // The double-invoke really happened: the discarded first socket, then the live one.
@@ -336,44 +339,65 @@ describe("teardown on the paths that keep the instance alive", () => {
   });
 
   it("repointing the pane in place drops the screen session and the open panel with it", async () => {
-    // The mount site (subshells_.$id.tsx) holds no key on the Section: swipe
-    // navigation changes `paneId` on the SAME instance. Carrying pane A's
-    // state into B would render A's live VNC under B's name forever, and
-    // RFB's pump keeps pv-ws from ever idling the lane, pinning the slot.
+    // The tab holds no key on the Section: repointing changes `paneId` on the
+    // SAME instance. Carrying pane A's state into B would render A's live VNC
+    // under B's name forever, and RFB's pump keeps pv-ws from ever idling the
+    // lane, pinning the slot. One committed viewer at a time is the tab
+    // shape, so the two drops are walked in sequence: screen, then app.
     const preview = controller({
       info: info({ ports: [{ proto: "tcp", port: 8080, pid: 4242 }] }),
       openPort: async (port) => ({ proxyBase: port === 5901 ? "/pv/screen-ref/" : "/pv/port-ref/" }),
     });
-    const view = render(<PreviewSection paneId="paneA" access="edit" preview={preview} isPhone={false} />);
+    const view = render(<PreviewSection paneId="paneA" access="edit" preview={preview} onClose={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: "View screen" }));
     await waitFor(() => expect(viewerAlive()).toBe(true));
-    fireEvent.click(screen.getByRole("button", { name: "Open web preview" }));
-    await waitFor(() => expect(screen.getByText("Port 8080")).toBeTruthy());
-    view.rerender(<PreviewSection paneId="paneB" access="edit" preview={preview} isPhone={false} />);
+    view.rerender(<PreviewSection paneId="paneB" access="edit" preview={preview} onClose={() => {}} />);
     expect(viewerAlive()).toBe(false);
-    expect(screen.queryByText("Port 8080")).toBeNull();
+    // The list returns with the reset, so the app half can be committed and
+    // dropped the same way on the fresh pane.
+    fireEvent.click(screen.getByRole("button", { name: "Open web preview on port 8080" }));
+    await waitFor(() => expect(view.container.querySelector("iframe")).not.toBeNull());
+    view.rerender(<PreviewSection paneId="paneA" access="edit" preview={preview} onClose={() => {}} />);
+    expect(view.container.querySelector("iframe")).toBeNull();
   });
 
-  it("an open whose pane changes mid-POST cannot repopulate the new pane", async () => {
-    // Both presses are in flight when the page repoints; the answers belong
-    // to the pane the user left, not the one now on screen.
+  // One choice at a time is the compact list's own rule: while an open is in
+  // flight its siblings answer "Opening the selected view…", so the two
+  // kinds of late answer are walked as two presses, each alone in flight.
+  it("a screen open that answers after a repoint never dials on the new pane", async () => {
+    const resolvers: ((v: { proxyBase: string }) => void)[] = [];
+    const preview = controller({
+      openPort: () => new Promise((resolve) => void resolvers.push(resolve)),
+    });
+    const view = render(<PreviewSection paneId="paneA" access="edit" preview={preview} onClose={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "View screen" }));
+    expect(resolvers).toHaveLength(1);
+    view.rerender(<PreviewSection paneId="paneB" access="edit" preview={preview} onClose={() => {}} />);
+    await act(async () => {
+      resolvers[0]?.({ proxyBase: "/pv/late-screen/" });
+    });
+    // The answer belongs to the pane the user left: no viewer mounts on B, so
+    // no socket is ever dialed and no session is left to close.
+    expect(MockSocket.made).toHaveLength(0);
+    expect(viewerAlive()).toBe(false);
+  });
+
+  it("an app open that answers after a repoint never renders in the new pane", async () => {
     const resolvers: ((v: { proxyBase: string }) => void)[] = [];
     const preview = controller({
       info: info({ ports: [{ proto: "tcp", port: 8080, pid: 4242 }] }),
       openPort: () => new Promise((resolve) => void resolvers.push(resolve)),
     });
-    const view = render(<PreviewSection paneId="paneA" access="edit" preview={preview} isPhone={false} />);
-    fireEvent.click(screen.getByRole("button", { name: "View screen" }));
-    fireEvent.click(screen.getByRole("button", { name: "Open web preview" }));
-    expect(resolvers).toHaveLength(2);
-    view.rerender(<PreviewSection paneId="paneB" access="edit" preview={preview} isPhone={false} />);
+    const view = render(<PreviewSection paneId="paneA" access="edit" preview={preview} onClose={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open web preview on port 8080" }));
+    expect(resolvers).toHaveLength(1);
+    view.rerender(<PreviewSection paneId="paneB" access="edit" preview={preview} onClose={() => {}} />);
     await act(async () => {
-      resolvers[0]?.({ proxyBase: "/pv/late-screen/" });
-      resolvers[1]?.({ proxyBase: "/pv/late-port/" });
+      resolvers[0]?.({ proxyBase: "/pv/late-port/" });
     });
-    expect(viewerAlive()).toBe(false);
-    expect(MockSocket.made).toHaveLength(0);
-    expect(screen.queryByText("Port 8080")).toBeNull();
+    expect(view.container.querySelector("iframe")).toBeNull();
+    // And B is not left stuck on the old pane's open: its own choices are live.
+    expect(screen.getByRole("button", { name: "Open web preview on port 8080" }).matches(":disabled")).toBe(false);
   });
 });
 
@@ -447,7 +471,7 @@ describe("the secure-context warning speaks only in URL mode", () => {
   });
 });
 
-it("opens a cached screen shortcut once under StrictMode, including in a phone workspace tab", async () => {
+it("opens a cached screen shortcut once under StrictMode", async () => {
   const ports: number[] = [];
   const c = controller({
     info: info({ screen: { display: ":90", viewer: { protocol: "vnc", port: 5910 } } }),
@@ -458,7 +482,7 @@ it("opens a cached screen shortcut once under StrictMode, including in a phone w
   });
   render(
     <StrictMode>
-      <PreviewSection paneId="pane1" access="owner" preview={c} initialView={{ kind: "screen" }} isPhone fill />
+      <PreviewSection paneId="pane1" access="owner" preview={c} initialView={{ kind: "screen" }} onClose={() => {}} />
     </StrictMode>,
   );
   await waitFor(() => expect(MockSocket.made.filter((socket) => socket.closed === 0)).toHaveLength(1));
@@ -469,16 +493,7 @@ it("opens a cached screen shortcut once under StrictMode, including in a phone w
 
 it("reports the RFB connection state instead of treating an allocated lane as connected", () => {
   const states: string[] = [];
-  render(
-    <ScreenViewer
-      protocol="vnc"
-      display=":90"
-      proxyBase="/pv/state/"
-      onClose={() => {}}
-      compact
-      onConnectionChange={(state) => states.push(state)}
-    />,
-  );
+  render(<ScreenViewer protocol="vnc" proxyBase="/pv/state/" onConnectionChange={(state) => states.push(state)} />);
   expect(states).toEqual(["connecting"]);
   act(() => MockRFB.builds[0].onConnect?.());
   expect(states.at(-1)).toBe("connected");
