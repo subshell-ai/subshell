@@ -99,7 +99,7 @@ try {
   const page = await context.newPage();
   page.setDefaultTimeout(20000);
   await page.goto(`/workspaces/${workspace.id}`);
-  await page.getByRole("button", { name: "Web previews & screens", exact: true }).click();
+  await page.getByRole("button", { name: "Open web preview or screen", exact: true }).click();
   await page.getByRole("button", { name: "Open web preview on port 3000" }).click();
   await expect(page.locator("iframe")).toBeVisible();
   const appFrame = page.frames().find((f) => f.url().includes("/pv/"));
@@ -118,8 +118,8 @@ try {
     console.log("Security browser check complete");
   } else {
     // Remove the checked preview so filming shows its real first-open transition.
-    await page.getByRole("button", { name: "More preview actions" }).click();
-    await page.getByRole("menuitem", { name: "Close preview" }).click();
+    await page.getByRole("button", { name: "More view actions" }).click();
+    await page.getByRole("menuitem", { name: "Close view" }).click();
     const cache = path.join(homedir(), ".cache");
     mkdirSync(cache, { recursive: true });
     const codexHome = mkdtempSync(path.join(cache, "subshell-preview-codex-"));
@@ -243,14 +243,14 @@ try {
       page.locator("main"),
       page.locator("main"),
     );
-    await page.getByRole("button", { name: "More preview actions" }).click();
+    await page.getByRole("button", { name: "More view actions" }).click();
     await hold(1);
     await page.getByRole("menuitem", { name: "Maximize pane" }).click();
     await hold(2);
     await page.getByRole("button", { name: "Restore pane", exact: true }).click();
     await hold(1);
-    await page.getByRole("button", { name: "More preview actions" }).click();
-    await page.getByRole("menuitem", { name: "Close preview" }).click();
+    await page.getByRole("button", { name: "More view actions" }).click();
+    await page.getByRole("menuitem", { name: "Close view" }).click();
     await tab("Dev server").click();
     await page.getByRole("button", { name: "Open web preview or screen", exact: true }).click();
     await hold(1);

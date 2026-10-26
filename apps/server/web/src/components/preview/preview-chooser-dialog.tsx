@@ -34,7 +34,6 @@ export function PreviewChooserDialog({ subshellId, onClose }: { subshellId: stri
         )}
         {info && subshell && (
           <PortList
-            compact
             info={info}
             access={subshell.access}
             watching={false}

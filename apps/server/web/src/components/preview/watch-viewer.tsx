@@ -1,4 +1,3 @@
-import { Button } from "@internal/node-admin";
 import type { PreviewStreamFrame } from "@internal/subshell-protocol";
 import { type JSX, useEffect, useRef, useState } from "react";
 import { subscribePreview } from "@/lib/preview-bus";
@@ -27,17 +26,11 @@ export const STALE_MS = 5_000;
 import type { PreviewConnection } from "./preview-toolbar";
 
 export interface WatchViewerProps {
-  compact?: boolean;
   onConnectionChange?: (state: PreviewConnection) => void;
   /** The pane whose screencast this canvas paints. */
   paneId: string;
   /** The pane's browser quit mid-watch (the info poll says `cdpPort: null`). */
   gone?: boolean;
-  /**
-   * Offered only when the browser row is gone: the row's own Watch/Stop
-   * toggle left with it, so the canvas holds the stop.
-   */
-  onStop?: () => void;
   /** Staleness threshold. Defaults to {@link STALE_MS}; exists for the tests. */
   staleMs?: number;
   /** How often the badge/age recomputes. Defaults to 1 s; exists for the tests. */
@@ -47,8 +40,6 @@ export interface WatchViewerProps {
 export function WatchViewer({
   paneId,
   gone = false,
-  onStop,
-  compact = false,
   onConnectionChange,
   staleMs = STALE_MS,
   tickMs = 1_000,
@@ -140,16 +131,6 @@ export function WatchViewer({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col items-start gap-2">
-      {!compact && (
-        <div className="flex w-full items-center justify-between gap-3">
-          <span className="font-strong text-label">Live browser frame</span>
-          {onStop && (
-            <Button variant="outline" size="sm" onClick={onStop}>
-              Stop
-            </Button>
-          )}
-        </div>
-      )}
       <canvas
         ref={canvasRef}
         data-preview-canvas=""

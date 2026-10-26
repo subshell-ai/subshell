@@ -1,4 +1,3 @@
-import { Button, cn } from "@internal/node-admin";
 import type { PreviewCloseReason } from "@internal/subshell-protocol";
 import RFB from "@novnc/novnc";
 import { type JSX, useEffect, useRef, useState } from "react";
@@ -63,33 +62,18 @@ export const LOST_LINK_LINE =
 import type { PreviewConnection } from "./preview-toolbar";
 
 export interface VncScreenViewerProps {
-  compact?: boolean;
   onConnectionChange?: (state: PreviewConnection) => void;
-  /** The pane's virtual display, shown in the header. */
-  display: string;
-  /** The proxy path from `POST /views/open`, ending in a slash. Mount-scoped: the panel keys this viewer on it. */
+  /** The proxy path from `POST /views/open`, ending in a slash. Mount-scoped: the tab keys this viewer on it. */
   proxyBase: string;
-  /** Collapse the panel. The socket closes with the unmount either way. */
-  onClose: () => void;
 }
 
-export function VncScreenViewer({
-  display,
-  proxyBase,
-  onClose,
-  compact = false,
-  onConnectionChange,
-}: VncScreenViewerProps): JSX.Element {
+export function VncScreenViewer({ proxyBase, onConnectionChange }: VncScreenViewerProps): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  // True only when the USER chose to leave (the Disconnect path). pv-ws never
-  // rides a reason word on the viewer's own leave, so this flag is what
-  // separates `viewer-left` from a link that died unattributed (a refused
-  // upgrade, a dropped connection): the cause, not the absence of a word,
-  // decides. The effect's cleanup must NOT set it: main.tsx wraps the app in
-  // StrictMode, whose dev double-invoke runs a cleanup while the component
-  // lives, and a ref set there would outlive the socket it was meant to mark.
-  const leftRef = useRef(false);
+  // The viewer's own leaving is the unmount: nothing is left to tell when the
+  // close it causes arrives, so no cause flag is kept (pv-ws never rides a
+  // word on `viewer-left` either). A close that DOES reach a mounted viewer is
+  // never ours: the word on it names the cause, and a wordless one is an
+  // unattributed link loss.
   const [endLine, setEndLine] = useState<string | null>(null);
   const connectionRef = useRef(onConnectionChange);
   connectionRef.current = onConnectionChange;
@@ -97,7 +81,6 @@ export function VncScreenViewer({
   useEffect(() => {
     connectionRef.current?.("connecting");
     const ws = new WebSocket(tunnelUrl(proxyBase));
-    wsRef.current = ws;
     // This effect's own disposal flag. Its close (a real unmount, or
     // StrictMode's simulated one) is not a cause the viewer has to report:
     // on a real unmount nothing is left to render, and under StrictMode the
@@ -107,15 +90,12 @@ export function VncScreenViewer({
     const onSocketClose = (event: CloseEvent): void => {
       if (disposed) return;
       connectionRef.current?.("disconnected");
-      if (leftRef.current) setEndLine(SCREEN_CLOSE_LINES["viewer-left"]);
-      else {
-        // Every protocol word has a line; anything else on the close (junk,
-        // or the wordless refused-upgrade shape) is an unattributed link loss.
-        const line = (SCREEN_CLOSE_LINES as Partial<Record<PreviewCloseReason, string>>)[
-          event.reason as PreviewCloseReason
-        ];
-        setEndLine(line ?? LOST_LINK_LINE);
-      }
+      // Every protocol word has a line; anything else on the close (junk,
+      // or the wordless refused-upgrade shape) is an unattributed link loss.
+      const line = (SCREEN_CLOSE_LINES as Partial<Record<PreviewCloseReason, string>>)[
+        event.reason as PreviewCloseReason
+      ];
+      setEndLine(line ?? LOST_LINK_LINE);
     };
     ws.addEventListener("close", onSocketClose);
     const host = hostRef.current;
@@ -137,49 +117,15 @@ export function VncScreenViewer({
       // Closing here is the lane's `viewer-left`. `rfb.disconnect()` runs on
       // a timer of its own, so the socket does not wait for it.
       ws.close();
-      wsRef.current = null;
     };
   }, [proxyBase]);
 
-  function handleDisconnect(): void {
-    // The user's own close: the flag makes the arriving wordless close say
-    // `viewer-left`, which is exactly what the lane books for it.
-    leftRef.current = true;
-    wsRef.current?.close();
-  }
-
   return (
-    <div
-      className={cn(
-        "flex min-h-0 flex-1 flex-col bg-background",
-        !compact && "gap-2 rounded-md border border-border p-3",
-      )}
-    >
-      {!compact && (
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
-          <span className="font-strong text-label">Virtual display</span>
-          <span className="text-detail text-muted-foreground">Virtual display {display}</span>
-          {endLine === null ? (
-            <Button variant="outline" size="sm" onClick={handleDisconnect}>
-              Disconnect
-            </Button>
-          ) : (
-            <Button variant="outline" size="sm" onClick={onClose}>
-              Close
-            </Button>
-          )}
-        </div>
-      )}
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
       {endLine !== null ? (
         <p className="text-detail text-muted-foreground">{endLine}</p>
       ) : (
-        <div
-          ref={hostRef}
-          className={cn(
-            "min-h-0 w-full flex-1 overflow-auto bg-background",
-            !compact && "rounded border border-border",
-          )}
-        />
+        <div ref={hostRef} className="min-h-0 w-full flex-1 overflow-auto bg-background" />
       )}
     </div>
   );

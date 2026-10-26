@@ -16,7 +16,6 @@ it("finds a specific port in a large list and keeps display choices reachable", 
   let screens = 0;
   render(
     <PortList
-      compact
       info={info}
       access="owner"
       watching={false}

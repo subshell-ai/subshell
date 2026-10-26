@@ -6,17 +6,15 @@ import { publishPreviewFrame } from "@/lib/preview-bus";
 import type { SubshellAccess, SubshellView } from "@/types/subshell";
 
 /**
- * The Preview section's render contract (spec §7, task-12 brief Step 1).
- * The section is presentational: it takes the hook's controller as a prop, so
- * these tests fake the controller and drive only what the surface decides -
- * which row shows which verb, what a gated control says about itself, when
- * the canvas is stale, and what never renders on a phone.
+ * The preview tab's render contract (spec §7). The section is
+ * presentational: it takes the hook's controller as a prop, so these tests
+ * fake the controller and drive only what the surface decides - which row
+ * shows which verb, what a gated control says about itself, when the canvas
+ * is stale, and how the toolbar's Close routes to the dock tab.
  */
 
 const VIEW_REASON = "Opening a forwarded port needs edit access to this subshell.";
 const SCREEN_VIEW_REASON = "Virtual display needs edit access to this subshell.";
-const SCREEN_PHONE_REASON =
-  "View screen is available on larger screens. You can still watch browser frames on this phone.";
 const SWITCH_OFF_REASON =
   "Web previews & screens is switched off on this node. Its owner can turn it on in node settings.";
 
@@ -70,8 +68,9 @@ function mount(
     info?: PreviewInfo;
     subshell?: SubshellView;
     controller?: Partial<UseSubshellPreview>;
-    isPhone?: boolean;
     bannerVisibleMs?: number;
+    initialView?: Parameters<typeof PreviewSection>[0]["initialView"];
+    onClose?: () => void;
   } = {},
 ) {
   const c = controller({ ...(over.info === undefined ? {} : { info: over.info }), ...over.controller });
@@ -81,7 +80,8 @@ function mount(
       access={over.access ?? "owner"}
       subshell={over.subshell}
       preview={c}
-      isPhone={over.isPhone}
+      onClose={over.onClose ?? (() => {})}
+      initialView={over.initialView}
       bannerVisibleMs={over.bannerVisibleMs}
     />,
   );
@@ -134,21 +134,27 @@ describe("gated controls explain themselves", () => {
 });
 
 describe("Open (edit unlocks it)", () => {
-  it("edit opens the panel hosting the proxy iframe and a new-tab link with the proxy href", async () => {
+  it("edit opens the panel hosting the proxy iframe", async () => {
     const { view } = mount({ access: "edit", info: info() });
     fireEvent.click(screen.getAllByRole("button", { name: /^Open web preview/ })[0]);
     await waitFor(() => expect(view.container.querySelector("iframe")).not.toBeNull());
     expect(view.container.querySelector("iframe")?.getAttribute("src")).toBe("/pv/ref1/");
-    const link = screen.getByRole("link", { name: /open in new tab/i });
-    expect(link.getAttribute("href")).toBe("/pv/ref1/");
   });
 
-  it("the panel closes again", async () => {
-    const { view } = mount({ access: "edit", info: info() });
+  it("the toolbar's Close view hands the dock tab its close", async () => {
+    let closed = 0;
+    mount({
+      access: "edit",
+      info: info(),
+      onClose: () => {
+        closed += 1;
+      },
+    });
     fireEvent.click(screen.getAllByRole("button", { name: /^Open web preview/ })[0]);
-    await waitFor(() => expect(view.container.querySelector("iframe")).not.toBeNull());
-    fireEvent.click(screen.getByRole("button", { name: /close/i }));
-    expect(view.container.querySelector("iframe")).toBeNull();
+    await screen.findByTitle("Preview of port 3000");
+    fireEvent.click(screen.getByRole("button", { name: "More view actions" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Close view" }));
+    expect(closed).toBe(1);
   });
 });
 
@@ -184,7 +190,7 @@ describe("the Watch canvas", () => {
     (globalThis as { __restoreNow?: () => void }).__restoreNow = () => {
       Date.now = realNow;
     };
-    const { view } = mount({ info: info(), controller: { watching: true }, isPhone: false });
+    const { view } = mount({ info: info(), controller: { watching: true } });
     // A tiny tick so the badge recomputes against the fake clock in test time.
     const badge = () => view.container.querySelector("[data-preview-badge]");
     publishPreviewFrame({ type: "preview-stream", id: "pane1", seq: 1, w: 10, h: 8, blob: "AA-BB" });
@@ -231,38 +237,29 @@ describe("the Watch canvas", () => {
   });
 });
 
-describe("Watch verbs drive both halves through the controller", () => {
-  it("pressing Watch starts it on the browser row's port", async () => {
-    let asked: number | undefined;
-    mount({
-      info: info(),
-      controller: {
-        startWatch: async (port) => {
-          asked = port;
-        },
+it("pressing Watch starts it on the browser row's port", async () => {
+  let asked: number | undefined;
+  mount({
+    info: info(),
+    controller: {
+      startWatch: async (port) => {
+        asked = port;
       },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Watch browser" }));
-    await waitFor(() => expect(asked).toBe(9333));
+    },
   });
-
-  it("while watching, the control stops the watch", async () => {
-    let stopped = 0;
-    mount({ info: info(), controller: { watching: true, stopWatch: async () => void stopped++ } });
-    fireEvent.click(screen.getByRole("button", { name: /stop/i }));
-    await waitFor(() => expect(stopped).toBe(1));
-  });
+  fireEvent.click(screen.getByRole("button", { name: "Watch browser" }));
+  await waitFor(() => expect(asked).toBe(9333));
 });
 
 describe("the screen row", () => {
-  it("a live screen shows its display and the Screen action for edit (Task 13's enabled contract; the viewer itself is screen-viewer.test)", () => {
+  it("a live screen offers the Screen action for edit (Task 13's enabled contract; the viewer itself is screen-viewer.test)", () => {
     mount({
       access: "edit",
       info: info({ ports: [], cdpPort: null, screen: { display: ":90", viewer: { protocol: "vnc", port: 5901 } } }),
     });
-    // One render contract (round-14 MINOR): the row always carries the button;
-    // edit clears its reason, and no hint text replaces it.
-    expect(screen.getByText("Virtual display :90")).toBeTruthy();
+    // One render contract (round-14 MINOR): the choice always carries the
+    // button; edit clears its reason, and no hint text replaces it.
+    expect(screen.getByText("Virtual display")).toBeTruthy();
     const button = screen.getByRole("button", { name: "View screen" });
     expect(button.matches(":disabled, [aria-disabled=true]")).toBe(false);
   });
@@ -271,34 +268,6 @@ describe("the screen row", () => {
     mount({ info: info({ ports: [], cdpPort: null, screenLost: "x11vnc" }) });
     expect(screen.getByText("Display stopped: x11vnc exited")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "View screen" })).toBeNull();
-  });
-});
-
-describe("phone layouts trade the panel, never Watch", () => {
-  it("Screen renders present but disabled on a phone, with the layout as the reason", () => {
-    // The ruling after Task 14's mobile walk-through: an enabled Screen press
-    // on a phone opened a real lane no panel would ever host, and the press
-    // read as a failure. The affordance stays, the reason names the layout,
-    // and Watch - the verb a phone CAN serve - stays enabled beside it.
-    mount({
-      access: "edit",
-      info: info({ screen: { display: ":90", viewer: { protocol: "vnc", port: 5900 } } }),
-      isPhone: true,
-    });
-    const showScreen = screen.getByRole("button", { name: "View screen" });
-    expect(showScreen.matches(":disabled, [aria-disabled=true]")).toBe(true);
-    expect(showScreen.getAttribute("aria-description")).toBe(SCREEN_PHONE_REASON);
-    const watch = screen.getByRole("button", { name: "Watch browser" });
-    expect(watch.matches(":disabled, [aria-disabled=true]")).toBe(false);
-  });
-
-  it("prepares a real link on phones so a slow request cannot become a blocked popup", async () => {
-    const { view } = mount({ access: "edit", info: info(), isPhone: true });
-    fireEvent.click(screen.getAllByRole("button", { name: /^Open web preview/ })[0]);
-    const link = await screen.findByRole("link", { name: "Open port 3000 in new tab" });
-    expect(link.getAttribute("href")).toBe("/pv/ref1/");
-    expect(link.getAttribute("target")).toBe("_blank");
-    expect(view.container.querySelector("iframe")).toBeNull();
   });
 });
 
@@ -326,7 +295,7 @@ describe("the shared-pane banner variant", () => {
       timeout: 10000,
     });
     view.unmount();
-    render(<PreviewSection paneId="pane1" access="owner" subshell={shared} preview={controller({ info: info() })} />);
+    mount({ info: info(), subshell: shared });
     expect(screen.queryByText(/shared this subshell with 2 other people/i) === null).toBe(true);
   }, 45000);
 
@@ -358,9 +327,8 @@ it("fills a preview tab and resumes its selected app only once", async () => {
       paneId="pane1"
       access="owner"
       preview={c}
-      fill
       initialView={{ kind: "app", port: 3000 }}
-      isPhone={false}
+      onClose={() => {}}
     />,
   );
   await screen.findByTitle("Preview of port 3000");
@@ -371,35 +339,16 @@ it("fills a preview tab and resumes its selected app only once", async () => {
       paneId="pane1"
       access="owner"
       preview={c}
-      fill
       initialView={{ kind: "app", port: 3000 }}
-      isPhone={false}
+      onClose={() => {}}
     />,
   );
   expect(opened).toEqual([3000]);
 });
 
-it("replaces an app view when the browser watch is selected", async () => {
-  let starts = 0;
-  mount({
-    info: info(),
-    isPhone: false,
-    controller: {
-      startWatch: async () => {
-        starts += 1;
-      },
-    },
-  });
-  fireEvent.click(screen.getAllByRole("button", { name: /^Open web preview/ })[0]);
-  await screen.findByText("Web preview");
-  fireEvent.click(screen.getByRole("button", { name: "Watch browser" }));
-  expect(starts).toBe(1);
-  expect(screen.queryByText("Web preview") === null).toBe(true);
-});
-
 it("keeps the chooser free of a toolbar and shows it only after opening a view", async () => {
   const c = controller({ info: info() });
-  render(<PreviewSection paneId="pane1" access="owner" preview={c} fill isPhone={false} />);
+  render(<PreviewSection paneId="pane1" access="owner" preview={c} onClose={() => {}} />);
   expect(screen.getAllByRole("button", { name: /^Open web preview/ }).length).toBeGreaterThan(0);
   expect(screen.queryByRole("button", { name: "Open another preview" }) === null).toBe(true);
   expect(screen.queryByRole("button", { name: "Refresh view" }) === null).toBe(true);
@@ -418,7 +367,7 @@ it("refreshes the selected app without allocating another forwarded lane", async
       return { proxyBase: "/pv/one-lane/" };
     },
   });
-  render(<PreviewSection paneId="pane1" access="owner" preview={c} fill isPhone={false} />);
+  render(<PreviewSection paneId="pane1" access="owner" preview={c} onClose={() => {}} />);
   fireEvent.click(screen.getAllByRole("button", { name: /^Open web preview/ })[0]);
   const first = await screen.findByTitle("Preview of port 3000");
   fireEvent.load(first);

@@ -3,7 +3,6 @@ import type { ViewersState } from "@internal/subshell-protocol";
 import { RotateCcw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LogTail } from "@/components/log-tail";
-import { WorkspacePreview } from "@/components/preview/workspace-preview";
 import { InjectPromptDialog } from "@/components/prompts/inject-prompt-dialog";
 import { SubshellTerminal, type SubshellTerminalHandles } from "@/components/subshell-terminal";
 import { TerminalKeyBar } from "@/components/terminal-key-bar";
@@ -187,7 +186,6 @@ export function SubshellPane({
     return (
       <div className="relative flex h-full min-h-0 w-full flex-col bg-terminal-strip">
         <div className="relative min-h-0 flex-1">{terminal}</div>
-        {subshellRow && <WorkspacePreview key={pane.subshellId} subshell={subshellRow} active={active} />}
       </div>
     );
   }
@@ -198,7 +196,6 @@ export function SubshellPane({
   return (
     <div className="flex h-full w-full flex-col bg-terminal-strip">
       <div className="relative min-h-0 flex-1">{terminal}</div>
-      {subshellRow && <WorkspacePreview key={pane.subshellId} subshell={subshellRow} active={active} />}
       <TerminalKeyBar
         key={pane.subshellId}
         disabled={!connected}

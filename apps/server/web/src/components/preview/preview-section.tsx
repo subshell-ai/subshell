@@ -1,4 +1,4 @@
-import { Button, cn, errMessage } from "@internal/node-admin";
+import { errMessage } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import { type JSX, useEffect, useMemo, useRef, useState } from "react";
 import { OpenPanel } from "@/components/preview/open-panel";
@@ -11,35 +11,38 @@ import {
 import { ScreenViewer } from "@/components/preview/screen-viewer";
 import { WatchViewer } from "@/components/preview/watch-viewer";
 import { TrustNoticeBanner } from "@/components/trust-notice-banner";
-import { useIsPhoneLayout } from "@/hooks/use-is-phone-layout";
 import type { UseSubshellPreview } from "@/hooks/use-subshell-preview";
 import type { TrustNotice } from "@/lib/trust-notices";
 import type { SubshellAccess, SubshellView } from "@/types/subshell";
 
 /**
- * The Preview section under a pane's terminal (spec §7): what the pane
- * currently offers to watch, and the three named verbs - Open, Watch, Screen.
+ * One workspace preview tab (spec §7): a single app, browser watch, or screen
+ * fills the panel, driven by the chooser's `initialView` or by a row press
+ * while nothing is up yet.
  *
- * It is presentational by choice: the pane route owns `useSubshellPreview`
+ * The band that used to sit under every terminal is gone (operator ruling
+ * 2026-10-26): the header's icon raises the same list with the same reasons,
+ * and a preview now only ever opens as a tab - on phones too, so no viewer
+ * shape here branches on the layout.
+ *
+ * It is presentational by choice: the dock's tab content owns `useSubshellPreview`
  * and hands the controller down, which keeps every protocol half (the REST/
  * socket dance, the throttle) in the hook where it can be tested without
  * DOM. This file only decides what the truth looks like: which row carries
- * which control, what a gate says, and what never renders on a phone (the
- * dock's own tiling-for-tabs trade: the panel is desktop furniture, Watch
- * paints frames fine on any layout).
+ * which control, what a gate says, and where the viewer renders.
  *
- * The disclosure variant is reuse, not a new subsystem: a shared pane's
- * banner fires once per device HERE TOO (its own dismiss key), because this
- * surface shows more than the terminal does - a live screen, not a log.
+ * The disclosure is reuse, not a new subsystem: a shared pane's banner fires
+ * once per device HERE TOO (its own dismiss key), because this surface shows
+ * more than the terminal does - a live screen, not a log.
  */
 
 export type PreviewChoice = import("@internal/subshell-protocol").WorkspacePreviewTarget;
 
 export interface PreviewSectionProps {
   workspace?: PreviewWorkspaceControls;
-  onClose?: () => void;
+  /** Closes the dock tab. */
+  onClose: () => void;
   initialView?: PreviewChoice | null;
-  onViewChange?: (choice: PreviewChoice | null) => void;
   /** The pane being previewed; watch frames key on it. */
   paneId: string;
   /** The caller's resolved access, exactly as the terminal reads it. */
@@ -48,15 +51,8 @@ export interface PreviewSectionProps {
   subshell?: SubshellView;
   /** The hook's controller. */
   preview: UseSubshellPreview;
-  /**
-   * The dock's phone predicate, overridable for the tests: on a phone the
-   * Open panel never renders; a prepared preview opens through a new-tab link.
-   */
-  isPhone?: boolean;
   /** Test seam for the banner's dwell, passed straight through. */
   bannerVisibleMs?: number;
-  onHide?: () => void;
-  fill?: boolean;
 }
 
 /**
@@ -94,25 +90,18 @@ export function PreviewSection({
   access,
   subshell,
   preview,
-  isPhone,
   bannerVisibleMs,
-  onHide,
-  fill = false,
   initialView,
-  onViewChange,
   onClose,
 }: PreviewSectionProps): JSX.Element {
-  const phoneDefault = useIsPhoneLayout();
-  const phone = isPhone ?? phoneDefault;
   const [open, setOpen] = useState<{ port: number; proxyBase: string } | null>(null);
-  // The open screen session: the display is kept from the answer so a later
-  // info poll that reports the display gone cannot retitle the live viewer.
   const [busy, setBusy] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [connection, setConnection] = useState<PreviewConnection>("connecting");
-  const [screenSession, setScreenSession] = useState<{ display: string; protocol: "vnc"; proxyBase: string } | null>(
-    null,
-  );
+  // The open screen session comes from the open answer, not from the info
+  // poll: a later poll that reports the display gone must not disturb the
+  // live viewer.
+  const [screenSession, setScreenSession] = useState<{ protocol: "vnc"; proxyBase: string } | null>(null);
   const sectionRef = useRef<HTMLElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
   useEffect(() => {
@@ -125,21 +114,19 @@ export function PreviewSection({
       if (document.fullscreenElement === sectionRef.current) await document.exitFullscreen();
       else await sectionRef.current?.requestFullscreen();
     } catch {
-      setOpenError("Couldn't enter full screen. Try opening the app in a new tab for more room.");
+      setOpenError("Couldn't enter full screen. Your browser's own full-screen mode can give the view more room.");
     }
   }
   const [openError, setOpenError] = useState<string | null>(null);
   const info = preview.info;
   const notice = useMemo(() => previewSharedNotice(subshell), [subshell]);
 
-  // Repointing this page at another pane must drop everything that belongs
-  // to the pane the user was looking at: the route holds no key on this
-  // Section, so swipe navigation changes `paneId` on the SAME instance (the
-  // route's own `[id]` effects exist for exactly that). Carrying pane A's
-  // screen session into B would render A's live VNC under B's name, and RFB's
-  // pump keeps pv-ws from ever idling the lane (idle expiry needs a silent
-  // side), so A's forward slot would stay pinned indefinitely. The Open panel
-  // and its error are the same pane-scoped state.
+  // Repointing this tab at another pane must drop everything that belongs to
+  // the pane the user was looking at: carrying pane A's screen session into B
+  // would render A's live VNC under B's name, and RFB's pump keeps pv-ws from
+  // ever idling the lane (idle expiry needs a silent side), so A's forward
+  // slot would stay pinned indefinitely. The Open panel and its error are the
+  // same pane-scoped state.
   // The clear-what-is-up half of pane navigation. The other half is in the
   // open handlers: an in-flight POST that answers after the repoint must not
   // repopulate the new pane with the old one's lane, so every handler
@@ -171,7 +158,6 @@ export function PreviewSection({
       if (preview.watching) await preview.stopWatch();
       if (generation.current !== gen) return;
       setOpen({ port, proxyBase });
-      onViewChange?.(serviceId ? { kind: "service", serviceId, port } : { kind: "app", port });
     } catch (err) {
       // The named refusal (the caps, the stale node answer) renders as asked.
       if (generation.current !== gen) return;
@@ -181,8 +167,7 @@ export function PreviewSection({
     }
   }
 
-  // Screen shares the app forwarding path, with a raw RFB lane. Workspace
-  // tabs can host it on phones too; the standalone phone view cannot.
+  // Screen shares the app forwarding path, with a raw RFB lane.
   async function handleScreen(): Promise<void> {
     if (!info?.screen) return;
     resumed.current = true;
@@ -196,8 +181,7 @@ export function PreviewSection({
       setOpen(null);
       if (preview.watching) await preview.stopWatch();
       if (generation.current !== gen) return;
-      setScreenSession({ display: info.screen.display, protocol: info.screen.viewer.protocol, proxyBase });
-      onViewChange?.({ kind: "screen" });
+      setScreenSession({ protocol: info.screen.viewer.protocol, proxyBase });
       // A fresh session is exactly when the info poll should be re-asked:
       // its own throttle still rules (spec §7).
       preview.refresh();
@@ -216,23 +200,11 @@ export function PreviewSection({
     setScreenSession(null);
     setConnection("connecting");
     setBusy(true);
-    onViewChange?.({ kind: "browser" });
     try {
       await preview.startWatch(info?.cdpPort ?? undefined);
     } finally {
       if (generation.current === gen) setBusy(false);
     }
-  }
-
-  function disconnect() {
-    if (onClose) {
-      onClose();
-      return;
-    }
-    onViewChange?.(null);
-    setOpen(null);
-    setScreenSession(null);
-    if (preview.watching) void preview.stopWatch();
   }
 
   function refreshViewer() {
@@ -274,7 +246,7 @@ export function PreviewSection({
   // The info poll is what carries a vanished browser (spec §5): the named
   // state renders beside the canvas, and the canvas stays where it was.
   const browserGone = preview.watching && info != null && info.cdpPort === null;
-  const hasViewer = Boolean((open && (!phone || fill)) || screenSession || preview.watching);
+  const hasViewer = Boolean(open || screenSession || preview.watching);
   const selected = open ? `app:${open.port}` : screenSession ? "screen" : preview.watching ? "browser" : null;
   const nothingToPreview =
     info?.nodeEnabled &&
@@ -288,62 +260,24 @@ export function PreviewSection({
     <section
       aria-label="Web previews & screens"
       ref={sectionRef}
-      className={cn(
-        "flex min-h-0 shrink-0 flex-col bg-card",
-        !fill && "gap-3 border-border border-t p-3",
-        fill
-          ? "h-full w-full overflow-hidden"
-          : hasViewer
-            ? "h-[55%] max-h-[85%] min-h-40 resize-y overflow-hidden"
-            : "max-h-[45%] overflow-y-auto",
-        "[&:fullscreen]:h-screen [&:fullscreen]:max-h-none [&:fullscreen]:resize-none",
-      )}
+      className="flex h-full max-h-full min-h-0 w-full shrink-0 flex-col overflow-hidden bg-card [&:fullscreen]:h-screen [&:fullscreen]:max-h-none [&:fullscreen]:resize-none"
     >
-      {fill ? (
-        (selected || initialView) && (
-          <PreviewToolbar
-            workspace={workspace}
-            selected={selected}
-            busy={busy}
-            connection={connection}
-            onRefresh={refreshViewer}
-            onDisconnect={disconnect}
-            onFullscreen={() => void toggleFullscreen()}
-            fullscreen={fullscreen}
-            fullscreenSupported={Boolean(sectionRef.current?.requestFullscreen)}
-            appUrl={open?.proxyBase}
-            appInBrowserTab={phone && !fill}
-          />
-        )
-      ) : (
-        <div className="flex shrink-0 flex-wrap items-center gap-3">
-          <h2 className="font-strong text-label">Web previews &amp; screens</h2>
-          <Button variant="ghost" size="sm" onClick={preview.refresh}>
-            Refresh
-          </Button>
-          {hasViewer && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => void toggleFullscreen()}
-              disabled={!sectionRef.current?.requestFullscreen}
-              disabledReason="Your browser doesn't support full screen."
-            >
-              {fullscreen ? "Exit full screen" : "Full screen"}
-            </Button>
-          )}
-          {onHide && (
-            <Button variant="ghost" size="sm" onClick={onHide} aria-expanded={true}>
-              Hide web previews and screens
-            </Button>
-          )}
-          {preview.infoLoading && info === undefined && (
-            <span className="text-detail text-muted-foreground">Checking what the pane offers…</span>
-          )}
-        </div>
+      {(selected || initialView) && (
+        <PreviewToolbar
+          workspace={workspace}
+          selected={selected}
+          busy={busy}
+          connection={connection}
+          onRefresh={refreshViewer}
+          onDisconnect={onClose}
+          onFullscreen={() => void toggleFullscreen()}
+          fullscreen={fullscreen}
+          fullscreenSupported={Boolean(sectionRef.current?.requestFullscreen)}
+          appUrl={open?.proxyBase}
+        />
       )}
 
-      {fill && !selected && (busy || !info) && (
+      {!selected && (busy || !info) && (
         <p role="status" className="p-3 text-detail text-muted-foreground">
           {busy ? "Opening view…" : "Checking available views…"}
         </p>
@@ -379,35 +313,22 @@ export function PreviewSection({
           Open node settings
         </Link>
       )}
-      {info &&
-        (!fill || (!hasViewer && !initialView)) &&
-        (fill ? (
-          <div className="overflow-y-auto p-3">
-            <PortList
-              info={info}
-              access={access}
-              watching={preview.watching}
-              onOpen={(port) => void handleOpen(port)}
-              onWatch={() => void handleWatch()}
-              onScreen={() => void handleScreen()}
-              compact
-              busy={busy}
-            />
-          </div>
-        ) : (
-          <details open={!open && !screenSession && !preview.watching} className="max-h-[45%] shrink-0 overflow-y-auto">
-            <summary className="cursor-pointer text-detail text-muted-foreground">Ports and screens</summary>
-            <PortList
-              info={info}
-              access={access}
-              watching={preview.watching}
-              onOpen={(port) => void handleOpen(port)}
-              onWatch={() => void handleWatch()}
-              onScreen={() => void handleScreen()}
-              phone={phone}
-            />
-          </details>
-        ))}
+
+      {/* The chooser's shape inside a tab: until something is up, the tab IS
+          the list; the viewer replaces it the moment one opens. */}
+      {info && !hasViewer && !initialView && (
+        <div className="overflow-y-auto p-3">
+          <PortList
+            info={info}
+            access={access}
+            watching={preview.watching}
+            onOpen={(port) => void handleOpen(port)}
+            onWatch={() => void handleWatch()}
+            onScreen={() => void handleScreen()}
+            busy={busy}
+          />
+        </div>
+      )}
 
       {nothingToPreview && !initialView && (
         <p className="text-detail text-muted-foreground">No apps or screens yet. Ports the pane opens show up here.</p>
@@ -429,56 +350,27 @@ export function PreviewSection({
         </p>
       )}
 
-      {/* Keep Stop beside the picture when its port row is collapsed or disappears. */}
-      {preview.watching && (
-        <WatchViewer
-          paneId={paneId}
-          compact={fill}
-          onConnectionChange={setConnection}
-          gone={browserGone}
-          onStop={() => {
-            onViewChange?.(null);
-            void preview.stopWatch();
-          }}
-        />
-      )}
+      {preview.watching && <WatchViewer paneId={paneId} onConnectionChange={setConnection} gone={browserGone} />}
 
-      {open && phone && !fill && (
-        <a href={open.proxyBase} target="_blank" rel="noreferrer" className="text-label text-primary underline">
-          Open port {open.port} in new tab
-        </a>
-      )}
-      {/* A real link keeps phone navigation inside a user gesture even after a slow request. */}
-      {open && (!phone || fill) && (
+      {open && (
         <OpenPanel
           port={open.port}
-          compact={fill}
           reloadKey={reloadKey}
           onConnectionChange={setConnection}
           proxyBase={open.proxyBase}
-          onClose={() => {
-            onViewChange?.(null);
-            setOpen(null);
-          }}
         />
       )}
 
-      {/* The Screen viewer is a panel too, so it follows the same mobile rule.
-          Keyed on the session's proxy: a re-open is a fresh socket on a fresh
-          mount, never a re-connect over a stale one (the viewer's whole
-          construction assumes a new WebSocket per mount). */}
-      {screenSession && (!phone || fill) && (
+      {/* The Screen viewer is a panel too. Keyed on the session's proxy: a
+          re-open is a fresh socket on a fresh mount, never a re-connect over a
+          stale one (the viewer's own construction assumes a new WebSocket per
+          mount). */}
+      {screenSession && (
         <ScreenViewer
           key={screenSession.proxyBase}
-          compact={fill}
           onConnectionChange={setConnection}
-          display={screenSession.display}
           protocol={screenSession.protocol}
           proxyBase={screenSession.proxyBase}
-          onClose={() => {
-            onViewChange?.(null);
-            setScreenSession(null);
-          }}
         />
       )}
     </section>

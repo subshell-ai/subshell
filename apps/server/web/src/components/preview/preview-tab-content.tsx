@@ -25,7 +25,6 @@ export function PreviewTabContent({
       access={subshell.access}
       subshell={subshell}
       preview={preview}
-      fill
       initialView={choice}
       onClose={onClose}
     />
