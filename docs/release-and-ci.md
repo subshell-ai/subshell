@@ -765,16 +765,22 @@ the experimental probe.
 That signing runs during `cargo build`, before Tauri builds its own throwaway
 keychain at bundle time, so the desktop shards build a dedicated keychain for it
 and hand its path to the build script through `APPLE_SIGNING_KEYCHAIN`. The
-shard then makes that keychain the sole entry of the user's search list, exactly
-as the CLI darwin shards provision theirs: `codesign` resolves a named identity
-through the search list, not the `--keychain` argument, and on this runner image
-`security create-keychain` does not add the keychain to that list. Run
-40306776766 failed with "item could not be found" for exactly that reason, and
-probe run 40325026239 on the same image confirmed the split: the same keychain
-refused the identity while unlisted and signed cleanly once listed. When Tauri's
-bundle-time keychain takes the list over later it carries the same single
-identity from the same p12, so the two views are never in conflict, and the
-step's trap restores the baseline search list when it ends.
+shard then PREPENDS that keychain to the user's search list: `codesign` resolves
+a named identity through the search list, not the `--keychain` argument, and on
+this runner image `security create-keychain` does not add the keychain to that
+list (run 40306776766 failed with "item could not be found"; probe run
+40325026239 confirmed the split: the same keychain refused the identity while
+unlisted and signed cleanly once listed). Prepend, never own: the CLI shards
+share this runner user's keychain domain, and a write that replaces the whole
+list (or an EXIT trap restoring login) takes it back from under a build that is
+still running. Ours leads, so the identity codesign finds is the copy imported
+from this step's p12. A fresh keychain also locks after five idle minutes by
+default, which a cargo build reaches its signing calls past (run 40328004030:
+both `darwin-x64` desktop shards hung with codesign waiting on an unlock no
+headless runner can answer); a bare `security set-keychain-settings` clears the
+timers. When Tauri's bundle-time keychain takes the list over later it carries
+the same single identity from the same p12, so the two views are never in
+conflict. The trap removes only this step's keychain from the list when it ends.
 
 The helper has its own `Info.plist` version, which must increase when its code
 changes. Both apps reuse the newest installed helper; neither may downgrade it

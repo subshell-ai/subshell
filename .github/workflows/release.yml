@@ -714,18 +714,28 @@ jobs:
                 [ -n "${!v:-}" ] || { echo "missing $v secret (mac signing provisioning)"; exit 1; }
               done
               # Ephemeral keychain, alive for exactly this step (trap cleans
-              # up + restores the search list). The login keychain is
-              # deliberately left OFF the search list for the job: any copy
-              # of the identity it happens to hold must never satisfy (or
-              # shadow) the lookup — that is precisely the host-state
-              # dependency this provisioning replaces.
+              # up + removes it from the search list). The keychain is
+              # PREPENDED to the list, never swapped in as the whole list:
+              # concurrent darwin jobs share this runner user's keychain
+              # domain, and a replacing write (or a trap restoring login)
+              # takes the list back from under a sibling build that is still
+              # signing. Ours leads, so the identity found is THIS copy,
+              # imported from this step's p12 - not some host-state copy the
+              # login keychain happens to hold.
               CI_TMP="$(mktemp -d)"
               KC="$CI_TMP/ci-build.keychain-db"
               KCPW="$(/usr/bin/openssl rand -hex 16)"
-              trap 'rm -rf "$CI_TMP"; security delete-keychain "$KC" 2>/dev/null || true; security list-keychains -d user -s "$HOME/Library/Keychains/login.keychain-db"' EXIT
+              trap 'rm -rf "$CI_TMP"; security delete-keychain "$KC" 2>/dev/null || true; REST="$(security list-keychains -d user | tr -d "\"" | grep -v "$KC" || true)"; [ -n "$REST" ] && security list-keychains -d user -s $REST || true' EXIT
               security create-keychain -p "$KCPW" "$KC"
-              security list-keychains -d user -s "$KC"
+              security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
               security unlock-keychain -p "$KCPW" "$KC"
+              # A fresh keychain defaults to locking after five idle minutes.
+              # A slow cargo build reaches its codesign calls well past that
+              # and codesign then waits forever for an unlock no headless
+              # runner can answer (run 40328004030: both darwin-x64 shards
+              # hung ~8 minutes in, the arm64 ones signed inside the window).
+              # Clear the timers before anything can go idle.
+              security set-keychain-settings "$KC"
               printf '%s' "$MACOS_CERT_P12_BASE64" | base64 -d > "$CI_TMP/cert.p12"
               security import "$CI_TMP/cert.p12" -k "$KC" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
               rm -f "$CI_TMP/cert.p12"
@@ -898,30 +908,41 @@ jobs:
               # time), and a release helper must carry the Developer ID, not an
               # ad-hoc signature, because the permission grant follows the
               # cdhash. Build a second keychain for exactly that one call and
-              # make it the SOLE entry of the user's search list, the same way
-              # the CLI shards provision theirs above: codesign resolves a
-              # named identity through the search list, not the --keychain
-              # argument (probe run 40325026239 on this image: the same
-              # keychain failed "item could not be found" while unlisted and
-              # signed cleanly once listed). Login stays off the list exactly
-              # as on the CLI path. When Tauri's bundle-time keychain takes the
-              # list over later, both hold the SAME identity from the SAME p12,
-              # so the tauri#11992 trap - DIFFERENT identities in one view -
-              # cannot bite. The trap restores the baseline at step end.
+              # PREPEND it to the user's search list, the same way the CLI
+              # shards provision theirs above: codesign resolves a named
+              # identity through the search list, not the --keychain argument
+              # (probe run 40325026239 on this image: the same keychain failed
+              # "item could not be found" while unlisted and signed cleanly
+              # once listed). Prepend, never own: concurrent shards share this
+              # runner user's keychain domain, and a write replacing the whole
+              # list (or a trap restoring login) takes it back from under a
+              # build still running - ours leads, so codesign finds THIS copy.
+              # When Tauri's bundle-time keychain takes the list over later,
+              # both hold the SAME identity from the SAME p12, so the
+              # tauri#11992 trap - DIFFERENT identities in one view - cannot
+              # bite. The trap removes only this keychain from the list at
+              # step end.
               KC="$CI_TMP/helper-sign.keychain-db"
               KCPW="$(/usr/bin/openssl rand -hex 16)"
               security create-keychain -p "$KCPW" "$KC"
-              security list-keychains -d user -s "$KC"
+              security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
               security unlock-keychain -p "$KCPW" "$KC"
+              # A fresh keychain defaults to locking after five idle minutes.
+              # A slow cargo build reaches its codesign calls well past that
+              # and codesign then waits forever for an unlock no headless
+              # runner can answer (run 40328004030: both darwin-x64 shards
+              # hung ~8 minutes in, the arm64 ones signed inside the window).
+              # Clear the timers before anything can go idle.
+              security set-keychain-settings "$KC"
               printf '%s' "$MACOS_CERT_P12_BASE64" | base64 -d > "$CI_TMP/cert.p12"
               security import "$CI_TMP/cert.p12" -k "$KC" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
               rm -f "$CI_TMP/cert.p12"
               security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPW" "$KC" >/dev/null 2>&1
               security find-identity -v -p codesigning "$KC" | grep -q "Developer ID Application" \
                 || { echo "imported p12 yielded no valid Developer ID Application identity"; exit 1; }
-              # The keychain is the search list for this step (listed above);
-              # the trap restores the baseline when the step ends.
-              trap 'rm -rf "$CI_TMP"; security delete-keychain "$KC" 2>/dev/null || true; security list-keychains -d user -s "$HOME/Library/Keychains/login.keychain-db"' EXIT
+              # The keychain leads the search list for this step (prepended
+              # above); the trap removes only it when the step ends.
+              trap 'rm -rf "$CI_TMP"; security delete-keychain "$KC" 2>/dev/null || true; REST="$(security list-keychains -d user | tr -d "\"" | grep -v "$KC" || true)"; [ -n "$REST" ] && security list-keychains -d user -s $REST || true' EXIT
               export APPLE_SIGNING_KEYCHAIN="$KC"
               ;;
           esac
@@ -1378,18 +1399,28 @@ jobs:
                 [ -n "${!v:-}" ] || { echo "missing $v secret (mac signing provisioning)"; exit 1; }
               done
               # Ephemeral keychain, alive for exactly this step (trap cleans
-              # up + restores the search list). The login keychain is
-              # deliberately left OFF the search list for the job: any copy
-              # of the identity it happens to hold must never satisfy (or
-              # shadow) the lookup — that is precisely the host-state
-              # dependency this provisioning replaces.
+              # up + removes it from the search list). The keychain is
+              # PREPENDED to the list, never swapped in as the whole list:
+              # concurrent darwin jobs share this runner user's keychain
+              # domain, and a replacing write (or a trap restoring login)
+              # takes the list back from under a sibling build that is still
+              # signing. Ours leads, so the identity found is THIS copy,
+              # imported from this step's p12 - not some host-state copy the
+              # login keychain happens to hold.
               CI_TMP="$(mktemp -d)"
               KC="$CI_TMP/ci-build.keychain-db"
               KCPW="$(/usr/bin/openssl rand -hex 16)"
-              trap 'rm -rf "$CI_TMP"; security delete-keychain "$KC" 2>/dev/null || true; security list-keychains -d user -s "$HOME/Library/Keychains/login.keychain-db"' EXIT
+              trap 'rm -rf "$CI_TMP"; security delete-keychain "$KC" 2>/dev/null || true; REST="$(security list-keychains -d user | tr -d "\"" | grep -v "$KC" || true)"; [ -n "$REST" ] && security list-keychains -d user -s $REST || true' EXIT
               security create-keychain -p "$KCPW" "$KC"
-              security list-keychains -d user -s "$KC"
+              security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
               security unlock-keychain -p "$KCPW" "$KC"
+              # A fresh keychain defaults to locking after five idle minutes.
+              # A slow cargo build reaches its codesign calls well past that
+              # and codesign then waits forever for an unlock no headless
+              # runner can answer (run 40328004030: both darwin-x64 shards
+              # hung ~8 minutes in, the arm64 ones signed inside the window).
+              # Clear the timers before anything can go idle.
+              security set-keychain-settings "$KC"
               printf '%s' "$MACOS_CERT_P12_BASE64" | base64 -d > "$CI_TMP/cert.p12"
               security import "$CI_TMP/cert.p12" -k "$KC" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
               rm -f "$CI_TMP/cert.p12"
@@ -1562,30 +1593,41 @@ jobs:
               # time), and a release helper must carry the Developer ID, not an
               # ad-hoc signature, because the permission grant follows the
               # cdhash. Build a second keychain for exactly that one call and
-              # make it the SOLE entry of the user's search list, the same way
-              # the CLI shards provision theirs above: codesign resolves a
-              # named identity through the search list, not the --keychain
-              # argument (probe run 40325026239 on this image: the same
-              # keychain failed "item could not be found" while unlisted and
-              # signed cleanly once listed). Login stays off the list exactly
-              # as on the CLI path. When Tauri's bundle-time keychain takes the
-              # list over later, both hold the SAME identity from the SAME p12,
-              # so the tauri#11992 trap - DIFFERENT identities in one view -
-              # cannot bite. The trap restores the baseline at step end.
+              # PREPEND it to the user's search list, the same way the CLI
+              # shards provision theirs above: codesign resolves a named
+              # identity through the search list, not the --keychain argument
+              # (probe run 40325026239 on this image: the same keychain failed
+              # "item could not be found" while unlisted and signed cleanly
+              # once listed). Prepend, never own: concurrent shards share this
+              # runner user's keychain domain, and a write replacing the whole
+              # list (or a trap restoring login) takes it back from under a
+              # build still running - ours leads, so codesign finds THIS copy.
+              # When Tauri's bundle-time keychain takes the list over later,
+              # both hold the SAME identity from the SAME p12, so the
+              # tauri#11992 trap - DIFFERENT identities in one view - cannot
+              # bite. The trap removes only this keychain from the list at
+              # step end.
               KC="$CI_TMP/helper-sign.keychain-db"
               KCPW="$(/usr/bin/openssl rand -hex 16)"
               security create-keychain -p "$KCPW" "$KC"
-              security list-keychains -d user -s "$KC"
+              security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
               security unlock-keychain -p "$KCPW" "$KC"
+              # A fresh keychain defaults to locking after five idle minutes.
+              # A slow cargo build reaches its codesign calls well past that
+              # and codesign then waits forever for an unlock no headless
+              # runner can answer (run 40328004030: both darwin-x64 shards
+              # hung ~8 minutes in, the arm64 ones signed inside the window).
+              # Clear the timers before anything can go idle.
+              security set-keychain-settings "$KC"
               printf '%s' "$MACOS_CERT_P12_BASE64" | base64 -d > "$CI_TMP/cert.p12"
               security import "$CI_TMP/cert.p12" -k "$KC" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
               rm -f "$CI_TMP/cert.p12"
               security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPW" "$KC" >/dev/null 2>&1
               security find-identity -v -p codesigning "$KC" | grep -q "Developer ID Application" \
                 || { echo "imported p12 yielded no valid Developer ID Application identity"; exit 1; }
-              # The keychain is the search list for this step (listed above);
-              # the trap restores the baseline when the step ends.
-              trap 'rm -rf "$CI_TMP"; security delete-keychain "$KC" 2>/dev/null || true; security list-keychains -d user -s "$HOME/Library/Keychains/login.keychain-db"' EXIT
+              # The keychain leads the search list for this step (prepended
+              # above); the trap removes only it when the step ends.
+              trap 'rm -rf "$CI_TMP"; security delete-keychain "$KC" 2>/dev/null || true; REST="$(security list-keychains -d user | tr -d "\"" | grep -v "$KC" || true)"; [ -n "$REST" ] && security list-keychains -d user -s $REST || true' EXIT
               export APPLE_SIGNING_KEYCHAIN="$KC"
               ;;
           esac
