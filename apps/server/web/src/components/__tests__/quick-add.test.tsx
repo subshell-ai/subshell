@@ -30,7 +30,7 @@ function Trigger() {
   const quickAdd = useQuickAdd();
   return (
     <div>
-      <button type="button" onClick={() => quickAdd.openLaunch()}>
+      <button type="button" onClick={quickAdd.openLaunch}>
         rail + (subshell)
       </button>
       <button type="button" onClick={quickAdd.openNewWorkspace}>

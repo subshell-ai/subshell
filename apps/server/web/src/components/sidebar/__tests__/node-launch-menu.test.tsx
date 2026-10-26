@@ -166,6 +166,23 @@ it("keeps an explicitly selected server instead of copying the last launch's rem
   expect(creates).toHaveLength(0);
 });
 
+it("keeps defaults when the empty-state CTA hands the launch trigger its own click event", async () => {
+  const { creates, recentNodes } = await setup({ extraTrigger: "empty-state" });
+  fireEvent.click(screen.getByRole("button", { name: "Create your first subshell" }));
+  await screen.findByRole("dialog");
+  // The form opens on the newest prior launch, not on the event: the node
+  // pick reads Laptop, the directory is the prior pane's own, and no
+  // [object Object] ever names a machine to /recent.
+  await waitFor(() =>
+    expect((screen.getByRole("combobox", { name: "Node" }) as HTMLInputElement).value).toContain("Laptop"),
+  );
+  await waitFor(() =>
+    expect((screen.getByLabelText("Working directory") as HTMLInputElement).value).toBe("/remote/previous"),
+  );
+  expect(recentNodes).not.toContain("[object Object]");
+  expect(creates).toHaveLength(0);
+});
+
 for (const [label, overrides] of [
   ["offline", { status: "offline" }],
   ["maintenance", { maintenance: true, canLaunch: false }],

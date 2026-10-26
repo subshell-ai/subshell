@@ -22,7 +22,11 @@ export interface QuickAddApi {
    * called with a real node id.
    */
   openLaunchOnNode: (nodeId: string) => void;
-  /** Open the same launch dialog with SSH choices restored. */
+  /**
+   * Open the same launch dialog with SSH choices restored. The optional
+   * draft is call-by-wrapper only: a direct `onClick` pass seeds it with a
+   * SyntheticEvent, the same trap `openLaunch` closes by taking no argument.
+   */
   openSshLaunch: (initial?: ReturnType<typeof sshConnectSearch>) => void;
   /** Open the New-workspace dialog. */
   openNewWorkspace: () => void;
