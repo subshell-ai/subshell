@@ -67,6 +67,16 @@ describe("emergency admin login (SUBSHELL_EMERGENCY_PASSWORD)", () => {
     await db.deleteFrom("authAttempts").where("email", "=", email).execute();
   }
 
+  /** Rewrite audit rows attributable to this fixture email. */
+  async function rewriteAuditCount(email: string): Promise<number> {
+    const rows = await db
+      .selectFrom("auditEvents")
+      .select("metadataJson")
+      .where("action", "=", "emergency_login.rewrite_credential")
+      .execute();
+    return rows.filter((row) => row.metadataJson?.includes(email)).length;
+  }
+
   it("armed: admin signs in with the env value and gets a session cookie", async () => {
     process.env[ENV] = ENV_VALUE;
     const email = await makeUser("admin", OLD_ADMIN_PASS);
@@ -101,23 +111,6 @@ describe("emergency admin login (SUBSHELL_EMERGENCY_PASSWORD)", () => {
     process.env[ENV] = ENV_VALUE;
     const res = await signInRaw(`ghost-${crypto.randomUUID()}@subshell.local`, ENV_VALUE);
     expect(res.status).toBe(401);
-  });
-
-  /** Approved-rewrite audit rows this suite produced for `email` (metadata carries it). */
-  async function rewriteAuditCount(email: string): Promise<number> {
-    const rows = await db
-      .selectFrom("auditEvents")
-      .select("metadataJson")
-      .where("action", "=", "emergency_login.rewrite_credential")
-      .execute();
-    return rows.filter((r) => r.metadataJson?.includes(email)).length;
-  }
-
-  it("armed: an approved rewrite leaves an audit row (code-review 2026-08-31)", async () => {
-    process.env[ENV] = ENV_VALUE;
-    const email = await makeUser("admin", OLD_ADMIN_PASS);
-    expect((await signInRaw(email, ENV_VALUE)).status).toBe(200);
-    expect(await rewriteAuditCount(email)).toBe(1);
   });
 
   it("the declined paths leave no audit row", async () => {

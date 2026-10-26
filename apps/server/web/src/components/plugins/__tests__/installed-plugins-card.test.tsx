@@ -43,9 +43,4 @@ describe("InstalledPluginsCard", () => {
     expect(screen.queryByRole("button", { name: /uninstall/i })).toBeNull();
     expect(screen.getByText("disabled")).toBeDefined();
   });
-
-  it("says so when nothing is installed", () => {
-    renderCard([]);
-    expect(screen.getByText(/nothing installed yet/i)).toBeDefined();
-  });
 });

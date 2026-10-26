@@ -4,20 +4,29 @@ Read [docs/testing.md](../../docs/testing.md) for the shared policy and commands
 
 ## Test value
 
-Add a test when it can catch a plausible regression in behavior we own. Name
-that failure before writing the test. Prefer an existing suite at the narrowest
-boundary that observes the result. Authorization, privacy, destructive actions,
-migrations, protocol compatibility, and asynchronous ordering deserve focused
-coverage, including the relevant refusal path.
+Correctness is the goal; test count and coverage percentage are not. Add a test
+when it catches a plausible future bug in behavior we own. Name that failure
+and the assertion that would catch it before writing the test. A test is also
+an executable record of expected behavior: make its scenario and observable
+outcome clear, and assert state, data, requests, side effects, or refusal rather
+than only that execution completed. Prioritize
+failures involving authorization, privacy, data loss, protocol/artifact
+compatibility, process lifecycle, cleanup, and asynchronous ordering. Use the
+boundary where the regression becomes observable, and test the refusal path
+when it can fail independently.
 
-Do not require a test per function, component, hook, or file. Do not add tests
-for types already checked by TypeScript, copied implementation logic, fixed
-copy, CSS classes, trivial prop forwarding, or third-party behavior. Review
-layout in a browser. Keep accessibility and interaction tests where they verify
-our behavior. When one test already catches the regression, another layer needs
-a distinct failure to justify its setup and maintenance cost.
+Do not require a test per function, component, hook, branch, or file. Do not add
+tests for types already checked by TypeScript, copied implementation logic,
+fixed explanatory copy, CSS classes, trivial prop forwarding, or third-party
+behavior. Test text only when it is itself a behavior contract, such as a wire
+or CLI format, machine-readable error, or safety warning whose mismatch could
+lead to an unsafe action. Review routine wording and visual layout as content.
+Keep accessibility and interaction tests when they verify behavior we own. A
+second layer must catch a distinct failure; if one test already catches the
+regression, another copy of that assertion adds no confidence.
 
-For a bug fix, reproduce the failure at the appropriate boundary when practical.
+For a bug fix, reproduce the failure at the appropriate boundary when practical
+and confirm the regression assertion would fail against the buggy behavior.
 Prefer adding a case to an existing suite over creating a new file and preload.
 Do not increase test count or coverage percentages as an end in itself.
 

@@ -23,7 +23,6 @@ const m = {
 
 test("server+mac: dmg label, direct asset href, versioned filename, server curl", () => {
   const c = installCopy(m, "server", true);
-  expect(c.downloadLabel).toBe("Download for macOS (.dmg)");
   // The button downloads the file, it does not tour the release page: tag and
   // filename are both known, so the release-page hop was never required.
   expect(c.downloadHref).toBe(
@@ -41,11 +40,9 @@ test("server+mac: dmg label, direct asset href, versioned filename, server curl"
 
 test("client+linux: direct deb href, alt dmg href, client curl", () => {
   const c = installCopy(m, "client", false);
-  expect(c.downloadLabel).toBe("Download for Linux (.deb)");
   expect(c.downloadHref).toBe(
     "https://github.com/subshell-ai/subshell/releases/download/desktop-client-v0.6.0/subshell-client-desktop_0.6.0_amd64.deb",
   );
-  expect(c.altLabel).toBe("macOS (.dmg)");
   expect(c.altHref).toBe(
     "https://github.com/subshell-ai/subshell/releases/download/desktop-client-v0.6.0/Subshell-Client-Desktop-0.6.0-darwin-arm64.dmg",
   );
@@ -60,14 +57,6 @@ test("client without installScript: download only, curl row gone (Review Focus 3
   } as ReleasesManifest;
   expect(installCopy(stripped, "client", true).curlCommand).toBeNull();
   expect(installCopy(stripped, "server", true).curlCommand).not.toBeNull();
-});
-
-test("headings name what each path delivers (operator note, 2026-09-25)", () => {
-  expect(installCopy(m, "server", true).appHeading).toBe("Subshell Server desktop app");
-  // Both choices expose a terminal install command.
-  expect(installCopy(m, "server", true).curlHeading).toBe("or the CLI");
-  expect(installCopy(m, "client", true).appHeading).toBe("Subshell Client desktop app");
-  expect(installCopy(m, "client", true).curlHeading).toBe("or the CLI");
 });
 
 test("missing desktop entry: generic releases href, no filename, no crash (Review Focus 2)", () => {
@@ -127,31 +116,14 @@ test("macIntelAvailable reads the release's verified asset list, never the field
   expect(macIntelAvailable(bothMacs, "client")).toBe(false);
 });
 
-test("with Intel published, the selection drives label, href and the filename line", () => {
+test("with Intel published, each selection resolves to its own artifact", () => {
   const intel = installCopy(bothMacs, "server", true, "darwin-x64");
-  expect(intel.downloadLabel).toBe("Download for Intel (.dmg)");
   expect(intel.downloadHref).toContain("Subshell-Server-Desktop-0.16.0-darwin-x64.dmg");
   expect(intel.artifactFile).toBe("Subshell-Server-Desktop-0.16.0-darwin-x64.dmg");
   const arm = installCopy(bothMacs, "server", true, "darwin-arm64");
-  expect(arm.downloadLabel).toBe("Download for Apple silicon (.dmg)");
+  expect(arm.downloadHref).toContain("Subshell-Server-Desktop-0.16.0-darwin-arm64.dmg");
   expect(arm.artifactFile).toBe("Subshell-Server-Desktop-0.16.0-darwin-arm64.dmg");
   // The Linux alternative is untouched by the choice:
   expect(intel.altLabel).toBe("Linux (.deb)");
   expect(intel.altHref).toContain("subshell-server-desktop_0.16.0_amd64.deb");
-});
-
-test("default selection is Apple silicon — the arch no browser can detect", () => {
-  expect(installCopy(bothMacs, "server", true).downloadLabel).toBe("Download for Apple silicon (.dmg)");
-});
-
-// The label idiom (operator choice, 2026-09-25): the button matches the menu
-// rows and the alt link, `Name (.ext)`, never `Name · .ext`.
-test("without Intel, macOS copy names no arch: the plain button speaks the same way", () => {
-  for (const manifest of [m, armOnly]) {
-    expect(installCopy(manifest, "server", true).downloadLabel).toBe("Download for macOS (.dmg)");
-  }
-});
-
-test("the Linux path ignores the arch parameter entirely", () => {
-  expect(installCopy(bothMacs, "server", false, "darwin-x64").downloadLabel).toBe("Download for Linux (.deb)");
 });

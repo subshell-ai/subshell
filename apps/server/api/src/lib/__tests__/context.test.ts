@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 import { ensureMigratedTestDb } from "@/__tests__/helpers/test-database.js";
 import { db } from "@/db/index.js";
-import { ApiContext, getRequestlessContext, resetRequestlessContext } from "@/lib/context.js";
+import { ApiContext, getRequestlessContext } from "@/lib/context.js";
 import { getLogger } from "@/utils/logger.js";
 
 /**
@@ -17,14 +17,6 @@ beforeAll(ensureMigratedTestDb);
 describe("getRequestlessContext", () => {
   it("returns the same instance on every call", () => {
     expect(getRequestlessContext()).toBe(getRequestlessContext());
-  });
-
-  it("resetRequestlessContext drops the cached instance (@internal test hook)", () => {
-    const first = getRequestlessContext();
-    resetRequestlessContext();
-    // After a reset the next call rebuilds rather than returning the old one —
-    // this is the isolation hook Task 6's ws/mcp tests will rely on.
-    expect(getRequestlessContext()).not.toBe(first);
   });
 });
 

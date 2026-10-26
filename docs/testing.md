@@ -1,23 +1,46 @@
 # Testing
 
-Tests earn their cost by catching a plausible failure in behavior we own.
-Prefer a small regression test at the boundary that can observe the failure.
-A new function or component doesn't automatically need a new test file.
+Tests earn their cost by catching a plausible regression in behavior we own.
+Correctness is the goal; coverage percentage and test count are not. For each
+test, be able to name the future change that could introduce a bug and the
+assertion that would catch it. Prefer a small regression test at the boundary
+where that bug becomes observable. A new function or component doesn't
+automatically need another test file.
 
 ## What to keep and what to remove
 
-Keep coverage for permissions and privacy, data loss, migrations, wire
-compatibility, process lifecycle, cleanup, and asynchronous state transitions.
-Keep browser tests for behavior that depends on real browser layout, input, or
-networking, and compiled CLI tests for behavior source imports can't establish.
-Test both the allowed action and the relevant refusal when a boundary needs it.
+Prioritize failures that could cause unauthorized access, expose private data,
+lose or corrupt user data, break a published protocol or artifact, leave a
+process or resource in the wrong state, or report success after an operation
+failed. Cover important flows at the boundary that can observe those failures:
+permissions and privacy, persistence and migrations, wire compatibility,
+release and installer behavior, process lifecycle, cleanup, and asynchronous
+state changes. Use a browser or compiled CLI when that is where the regression
+would surface. Test both the allowed action and its relevant refusal when each
+can fail independently. This is a priority list, not a requirement to exercise
+every branch or add a test file for every item.
 
 Before adding a test, name the regression it would catch and check whether an
-existing test already catches it. Extend that suite when possible. A second
-layer needs a different failure to justify its setup and maintenance cost.
+existing test already catches it. A useful test exercises production behavior
+and would fail if that regression were reintroduced. It should also record the
+expected behavior: make the relevant setup, action, and observable result clear
+enough that a maintainer can tell what the system promises. Prefer assertions
+about returned state, persisted data, requests, side effects, or a refusal over
+assertions that execution merely completed. Extend the existing suite when
+possible. A second layer needs a distinct failure mode to justify its setup and
+maintenance cost; a second assertion of the same outcome doesn't add confidence
+just because it runs through another component.
 
-Remove tests that only assert fixed copy, CSS classes, wrapper markup, trivial
-prop forwarding, TypeScript guarantees, or third-party implementation details.
+Remove tests that only assert fixed explanatory copy, CSS classes, wrapper
+markup, trivial prop forwarding, TypeScript guarantees, or third-party
+implementation details. Review routine copy as content, not as a product
+regression suite. Keep a text assertion only when the output itself is a
+behavioral contract: for example, a CLI or wire format another program reads,
+a refusal or error that must preserve a machine-readable code, or a warning
+whose mismatch could lead someone to take an unsafe or irreversible action.
+When possible, assert the state, refusal, command, or action that makes the
+output correct instead of freezing the whole sentence. Accessible names merit
+assertions when they let someone find and operate a control.
 Don't test a copy of production logic or a helper that exists only in the test.
 Don't turn every input combination into another test when it exercises the
 same branch. Keep meaningful boundaries, accessibility, and input validation.
@@ -30,10 +53,11 @@ a test-local copy of an algorithm proves nothing about the production function;
 exercise the real function or remove the redundant experiment. Runtime parsing
 tests still matter for untrusted inputs even when TypeScript rejects their shape.
 
-When culling, name the check that retains the important behavior. Remove obsolete
-UI-absence checks and literal internal-default assertions when they add no signal;
-retain wire compatibility, permission boundaries, and anti-vacuity guards. Don't
-hide the same workload in loops merely to lower the reported test count.
+When culling, identify the important regression and point to the remaining
+test that would catch it. If no test catches a critical failure, keep or add the
+smallest test that does. Remove obsolete absence checks and literal internal
+defaults when they add no signal. Don't preserve redundant tests for a coverage
+number, and don't hide the same workload in loops to lower the reported count.
 
 Reuse shared boundary tests where they execute the same production path. For
 example, `api-surface-auth.test.ts` checks every mounted guarded API route with
@@ -201,6 +225,117 @@ fake now echoes the submitted input, so the success test no longer waits for the
 ten-second fallback; the shared delivery suite retains timeout coverage. These
 are individual test durations, not an equivalent reduction in parallel suite wall
 time: the complete workspace run took 44.07 seconds, versus 46.29 previously.
+
+A fourth presentation-focused pass removed seven more cases that only pinned
+static explanatory sentences: setup and welcome copy, descriptions beneath
+first-run choices, a QR dialog's fixed title/description, an empty plugin-list
+message, an empty SSH peer-list message, and the maintenance card's fixed
+“declared from this page” wording. The choice callbacks, QR address/path and
+no-address behavior, maintenance state/action and refusal behavior, SSH trust
+gates/fingerprints, and plugin control permissions remain covered. Runtime
+state distinctions and actionable instructions in the node runtime card also
+remain; those represent changing machine facts or commands a reader may need,
+not merely editorial wording. This targeted pass has not established that every
+remaining assertion in the repository is useful; future candidates should be
+judged by the same behavior-versus-copy boundary above.
+
+A fifth pass removed 15 more low-signal cases, bringing the targeted removal
+count to 225. It removed prose-only assertions from plugin hints, install
+labels/headings and the client setup-column description, the MCP connection
+briefing, and an SEO file that only restated two literal route objects. It also
+removed an empty-subtitle markup check from the assistant frame. The HTTP/API
+auth boundary, install URLs and verified artifact selection, MCP tool
+registration, disabled-control touch and keyboard behavior, and live server
+settings behavior remain covered.
+
+A sixth pass removed two more e2e cases: a login-form smoke already exercised
+by the setup and signed-out authentication journeys, and an assertion that
+only pinned the absence of a redundant address-summary sentence. It also
+deleted the parked `09-mobile-navcrash.spec.ts` file, whose sole `test.fixme`
+was documented as blocked before it could begin and whose crash was already
+fixed. The targeted removal count is now 227. The audit remains in progress;
+the current inventory has 1,082 TypeScript test files, and package-level
+candidate screening is not a file-by-file disposition.
+
+A seventh pass removed the two assertions in `detail-back-header.test.tsx` and
+the file itself. They only checked that a boolean prop hid or showed a link in
+a small wrapper; they didn't verify where the link navigates or any responsive
+header behavior. It also removed two network-card cases that only pinned
+explanatory sentences about a joined network. The joined/published state,
+address, and publish/unpublish actions remain covered elsewhere in that suite.
+An eighth pass removed five banner-layout/style assertions while retaining the
+plain-output check that prevents ANSI escapes in service logs. It also removed
+the test-environment self-check and duplicate non-placeholder case from the
+production auth-secret guard suite; production placeholder rejection and real
+secret acceptance remain. The targeted case removal count is now 238 and the
+current TypeScript test-file inventory is 1,081. The audit remains in progress.
+
+A ninth pass removed two tests of internal cache-reset hooks (`resetAuthForTests`
+and `resetRequestlessContext`). They checked test isolation helpers rather
+than application behavior. The memoized production getters and fresh-context
+service boundaries remain tested. A tenth pass also removed the documentation
+site's one-case SEO test, which only restated literal robots metadata. The
+targeted removal count is now 241, with 1,080 TypeScript test files in the
+current inventory.
+
+An eleventh pass reviewed the client desktop UI test directory file by file
+(31 files, including its shared app-flow suite). It removed four assistant
+heading/copy cases from `node-assistant-state.test.ts`, retaining the non-empty
+heading, update-screen identity and service-action behavior checks. It removed
+two repeated version-order/unknown-version cases from `unenroll-gate.test.ts`;
+the same semantic-version boundary behavior remains in `autostart-gate.test.ts`,
+and the unenroll-specific threshold remains. It removed one redundant negative
+assertion from `probe-facts.test.ts`, retaining the expected safe message for
+an unreadable node configuration. This pass removed six test cases and several
+duplicate assertions, for 248 targeted test-case removals total. A follow-up
+auth review removed a duplicate system-key refusal assertion already exercised
+across mounted admin routes, and duplicate inputs in the rate-limit math test;
+it retained the real-admin/user-cookie boundary and cap checks. The other client UI files in this directory were
+reviewed and retained because they exercise distinct flows or contracts such
+as enrollment and recovery, service lifecycle and pane safety, settings
+persistence, IPC authorization, Rust/TypeScript wire compatibility, or
+production CSP behavior. This is one directory's disposition, not completion
+of the repository-wide file review. The inventory now finds 1,080 TypeScript
+test files and 11,678 direct test calls.
+
+A twelfth pass reviewed the API credential and setup/enrollment slice:
+`api-surface-auth.test.ts`, the bearer and cookie auth-guard suites,
+`auth-rate-limit.test.ts`, `setup-route.test.ts`, `setup-progress.route.test.ts`,
+`setup-agent-install.route.test.ts`, `setup-tmux-install.route.test.ts`, and
+`nodes/enroll-route.test.ts`. These files were retained after review. Their
+cases cover different security principals, first-run versus installed
+authorization, installer refusal before streaming, caller-owned setup state,
+single-use setup-key consumption, recovery transaction rollback and key
+rotation, and encryption/signing key compatibility. The overlapping WebSocket
+URL cases remain because one exercises the route under a configured base path
+and the other checks helper normalization across schemes and path shapes. In
+the auth guard and rate-limit files, a repeated system-key refusal and repeated
+backoff inputs were removed because the mounted admin-route inventory and
+neighboring boundary assertions already cover those outcomes. This pass added
+no new test-case removals. The repository-wide review remains in progress.
+
+A thirteenth pass reviewed backup-recovery credentials, emergency login,
+WebSocket token minting, and the in-memory token store. It removed the
+successful emergency-rewrite audit case because `auth-audit.test.ts` already
+asserts the rewrite row and suppression of the ordinary sign-in row; the
+negative audit check for a declined emergency attempt remains here. The token
+store cap test now makes one refused mint and asserts its error type, status,
+and message, instead of repeating the same refused mint for separate checks.
+Recovery gating, scoped pane ownership, stale-session rejection, emergency
+credential destruction, WebSocket token binding, single-use redemption,
+capacity recovery, expiry cleanup, and disable-time revocation remain covered.
+This pass removed one test case. The inventory now finds 1,080 TypeScript test
+files and 11,678 direct test calls; the audit is still in progress.
+
+A fourteenth pass completed the review of `downloads-route.test.ts` and
+`downloads-shelf-serve.test.ts`; both were retained. The generated-installer
+assertions are paired with shell execution cases for install branches,
+stdin/TTY handling, checksum tools, failed downloads and file replacement.
+The release-shelf tests exercise separate selection and failure cells for
+operator-owned versus fetched bytes, protocol/version compatibility, source
+availability, digest agreement and concurrent responses. These determine
+which executable a node receives, so they protect correctness at the artifact
+boundary. No cases were removed from these two files. The audit continues.
 
 The larger measured cost was orchestration. In
 [PR run 40253886630](https://github.com/subshell-ai/subshell/actions/runs/40253886630),

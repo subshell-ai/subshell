@@ -818,38 +818,6 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(within(card).queryByRole("heading", { name: "Addresses" })).toBeNull();
   });
 
-  it("says what joined means, above the button that changes it", async () => {
-    // Both halves of this state now answer the standing question in the same
-    // slot. Joined had no sentence at all — a person met a Publish button and
-    // had to already know that joining put the MACHINE on the network while
-    // publishing is what puts the DASHBOARD on it. The act is named in the
-    // button's own words, so this row — whose label is Tailscale's — reads
-    // “Publish with Tailscale Serve”, not a word the plugin never used.
-    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
-    expect(
-      screen.getByText(
-        "Subshell is not published on Tailscale yet. “Publish with Tailscale Serve” is what lets your other devices open this dashboard over the network.",
-      ),
-    ).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Publish/ })).toBeTruthy();
-    expect(screen.queryByText("Subshell is published on Tailscale.")).toBeNull();
-  });
-
-  it("gives publishing its own section, and answers whether it is needed", async () => {
-    // The operator read: a joined card flowed facts, sentence, hints and the
-    // publish button as one column, and nothing said whether pressing it was
-    // required. The act now sits under its own heading, and the section states
-    // the case where skipping is honest — this machine only, or addresses the
-    // server already allows.
-    await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
-    expect(screen.getByRole("heading", { name: "Publish" })).toBeTruthy();
-    expect(
-      screen.getByText(
-        "You can skip this while you only use Subshell on this machine, or at an address you have already allowed.",
-      ),
-    ).toBeTruthy();
-  });
-
   it("an implicit-publish network's joined row is a gap: one line and the button, no section", async () => {
     // JOIN IS THE PUBLISH (spec §5.3, amended 2026-09-16): the join route
     // records the publish itself, so a row STILL saying `joined` is only ever

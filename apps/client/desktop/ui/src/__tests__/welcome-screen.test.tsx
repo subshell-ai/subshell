@@ -31,17 +31,6 @@ describe("the Welcome screen", () => {
     expect(advanced).toBe(1);
   });
 
-  /**
-   * This app is a client that can also make its machine a node, and the very
-   * next screen asks which of the two you want. A welcome naming one half
-   * would have taught the wrong shape a screen before the question.
-   */
-  it("names both halves of the app in one sentence", () => {
-    renderApp(<WelcomeScreen shell={shell} onContinue={() => {}} busy={false} />);
-    const sentence = screen.getByText(/connects you to a Subshell server/);
-    expect(sentence.textContent).toMatch(/run subshells on this machine/);
-  });
-
   it("disables Continue while an action is in flight", () => {
     let advanced = 0;
     renderApp(<WelcomeScreen shell={shell} onContinue={() => advanced++} busy={true} />);

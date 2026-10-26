@@ -45,16 +45,6 @@ describe("the Choice screen", () => {
     expect(chosen).toEqual(["watch"]);
   });
 
-  /**
-   * The consequence, not the mechanism: the whole reason to ask is that one
-   * of these two registers this machine and the other does not.
-   */
-  it("says what each option does to this machine", () => {
-    renderChoice();
-    expect(screen.getByText(/Registers this machine as a node/)).toBeTruthy();
-    expect(screen.getByText(/without installing anything or registering this machine/)).toBeTruthy();
-  });
-
   it("disables both options while an action is in flight", () => {
     const chosen = renderChoice(true);
     for (const button of screen.getAllByRole("button") as HTMLButtonElement[]) {

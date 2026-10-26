@@ -499,7 +499,9 @@ turbo build                # Build all packages
 
 ### Testing
 
-Choose checks by the behavior the change can break. **Do not run the full
+Tests should catch plausible regressions and record expected behavior through
+clear scenarios and observable outcomes. Choose checks by the behavior the
+change can break. **Do not run the full
 suite just because a task is ending, a PR is opening, or an agent is handing
 off.** Start with existing covering files; run affected packages once before
 handoff. Pure prose needs the relevant prose/content checks, not product tests. Copy

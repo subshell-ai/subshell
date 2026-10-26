@@ -12,7 +12,6 @@ import {
 } from "@subshell-ai/plugin-api";
 import { createScriptedHost, createTestHost } from "@subshell-ai/plugin-api/testing";
 import pkg from "../../package.json";
-import { httpOnlyHint } from "../hints.js";
 import createPlugin, { manifest } from "../index.js";
 
 /**
@@ -226,17 +225,6 @@ describe("headscale manifest", () => {
         placeholder: "https://headscale.example.com",
       },
     ]);
-  });
-
-  it("ships the § 11 copy verbatim, pinned — the rule the drift would have broken", () => {
-    // § 11 declares every user-visible string verbatim; a reworded hint is
-    // invisible to every check except one that quotes the spec. So this
-    // quotes the spec. (The browser-consequence half is not this line's to
-    // say — the per-address secure-context line already states it.)
-    expect(httpOnlyHint().text).toBe(
-      "Headscale does not issue certificates, so this address is plain http over WireGuard.",
-    );
-    expect(httpOnlyHint().docsUrl).toBe("https://github.com/juanfont/headscale/issues/2527");
   });
 
   it("flags a malformed controlUrl on the form, not minutes later in a join frame", () => {
