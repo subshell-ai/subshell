@@ -58,10 +58,12 @@ async function launchSubshell(page: Page, name: string): Promise<{ subshellId: s
   await page.getByRole("button", { name: "Start subshell" }).click();
   // Not the subshell page any more: the pane is a tab, and the page is its
   // workspace.
-  await expect(page).toHaveURL(/\/workspaces\/.+/, { timeout: SPAWN_TIMEOUT });
+  await expect(page).toHaveURL(/\/workspaces\/[0-9a-f-]{36}(?:[?#]|$)/, { timeout: SPAWN_TIMEOUT });
   const workspaceId = idFromUrl(page);
   await renameSubshell(page, name);
-  const detail = (await (await page.request.get(`/api/workspaces/${workspaceId}`)).json()) as {
+  const response = await page.request.get(`/api/workspaces/${workspaceId}`);
+  expect(response.ok()).toBe(true);
+  const detail = (await response.json()) as {
     panes: { subshellId: string; subshellName: string }[];
   };
   // The row is identified by the name just typed, not by "this workspace has
@@ -143,7 +145,7 @@ test("split a subshell into a real, named workspace", async ({ page }) => {
 
   // The workspace is created around the current subshell and the picked one
   // rides the URL. Long leash: the click launches a real tmux pane first.
-  await expect(page).toHaveURL(/\/workspaces\/.+/, { timeout: SPAWN_TIMEOUT });
+  await expect(page).toHaveURL(/\/workspaces\/[0-9a-f-]{36}(?:[?#]|$)/, { timeout: SPAWN_TIMEOUT });
   const workspaceId = idFromUrl(page);
 
   // Both panes land, and the params are stripped once the add has been
@@ -247,7 +249,7 @@ test("removing panes keeps the workspace until the last tab goes", async ({ page
   await expect(dialog.getByRole("button", { name: new RegExp(rootName) })).toHaveCount(0);
   await dialog.getByRole("button", { name: new RegExp(otherName) }).click();
 
-  await expect(page).toHaveURL(/\/workspaces\/.+/, { timeout: SPAWN_TIMEOUT });
+  await expect(page).toHaveURL(/\/workspaces\/[0-9a-f-]{36}(?:[?#]|$)/, { timeout: SPAWN_TIMEOUT });
   const workspaceId = idFromUrl(page);
   await expect(page.locator(".dv-default-tab")).toHaveCount(2, { timeout: SPAWN_TIMEOUT });
   // The bar is the focused pane's subshell header (no workspace title bar any

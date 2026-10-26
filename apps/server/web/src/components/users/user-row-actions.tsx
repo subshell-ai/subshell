@@ -1,4 +1,5 @@
-import { apiFetch, Button, errMessage, Input, Label } from "@internal/node-admin";
+import { apiFetch, Button, errMessage, Input } from "@internal/node-admin";
+import { useStore } from "@tanstack/react-form";
 import { KeyRound, ShieldCheck, ShieldOff, UserCheck, UserX } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
@@ -10,6 +11,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { makeForm, useSubmitDisabled } from "@/lib/form";
 import { PASSWORD_REQUIREMENT, passwordTooShort } from "@/lib/password";
 import { asUserRole, USER_ROLE_LABELS, type UserRole } from "@/types/user-role";
 
@@ -38,8 +41,6 @@ import { asUserRole, USER_ROLE_LABELS, type UserRole } from "@/types/user-role";
  *   nodes offline** (they reconnect on their own within a minute of a
  *   re-enable), so the one word `nodes` in the confirmation carries that
  *   state: the admin presses it, so the admin hears what it costs;
- * - the new password is shown to the admin ONCE, because they have to be able
- *   to read what they set in order to pass it on;
  * - the last admin cannot be demoted, and the last ENABLED admin cannot be
  *   disabled — two rules, one for each direction of the flip and the disable.
  *   Both are surfaced as the server's own 409 message rather than a client-side
@@ -69,19 +70,28 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
   const [error, setError] = useState<string | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
   const [disableOpen, setDisableOpen] = useState(false);
-  const [password, setPassword] = useState("");
+  const resetForm = makeForm({
+    defaultValues: { password: "", confirmation: "" },
+    validator: ({ password, confirmation }) => {
+      const problems: Record<string, string> = {};
+      if (passwordTooShort(password)) problems.password = PASSWORD_REQUIREMENT;
+      if (password !== confirmation) problems.confirmation = "Passwords do not match.";
+      return problems;
+    },
+    onSubmit: resetPassword,
+  });
+  const { password, confirmation } = useStore(resetForm.store, (state) => state.values);
+  const resetDisabled = useSubmitDisabled(resetForm, busy);
+  const [confirmationBlurred, setConfirmationBlurred] = useState(false);
+  const passwordsMatch = password === confirmation;
+  const showMismatch = confirmationBlurred && !passwordsMatch;
   const [done, setDone] = useState<{ sessionsRevoked: number } | null>(null);
   const [disabledDone, setDisabledDone] = useState<{ sessionsRevoked: number } | null>(null);
   const isSelf = viewerId !== null && viewerId === user.id;
   const errorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // The password lives in component state and, once set, in the DOM as text.
-  // Unmounting — navigating away with the dialog still open — must not be the
-  // one path that leaves it there.
   useEffect(() => {
     return () => {
-      setPassword("");
-      setDone(null);
       if (errorTimer.current) clearTimeout(errorTimer.current);
     };
   }, []);
@@ -125,7 +135,8 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
     }
   }
 
-  async function resetPassword(): Promise<void> {
+  async function resetPassword({ password, confirmation }: { password: string; confirmation: string }): Promise<void> {
+    if (busy || passwordTooShort(password) || password !== confirmation) return;
     setBusy(true);
     clearError();
     try {
@@ -133,6 +144,8 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
         method: "PATCH",
         body: JSON.stringify({ password }),
       });
+      resetForm.reset();
+      setConfirmationBlurred(false);
       setDone({ sessionsRevoked: res.sessionsRevoked });
       onChanged();
     } catch (err) {
@@ -171,10 +184,12 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
   }
 
   function closeReset(): void {
+    if (busy) return;
     setResetOpen(false);
     // Cleared on close, not on open: the password must not survive in memory
     // (or in a re-opened dialog) after the admin has finished with it.
-    setPassword("");
+    resetForm.reset();
+    setConfirmationBlurred(false);
     setDone(null);
     clearError();
   }
@@ -279,29 +294,41 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
           </DialogHeader>
 
           {done ? (
-            <div className="space-y-3">
-              <p className="text-sm">Password changed. {sessionsCut(done.sessionsRevoked)}</p>
-              {/* Shown once, and only here: this is the admin's only chance to
-                  read what they set. */}
-              <div className="space-y-1">
-                <Label>New password</Label>
-                <code className="block rounded-md border px-3 py-2 font-mono text-sm">{password}</code>
-              </div>
-            </div>
+            <p className="text-sm">Password changed. {sessionsCut(done.sessionsRevoked)}</p>
           ) : (
-            <div className="space-y-2">
-              <Label htmlFor={`pw-${user.id}`}>New password</Label>
-              <Input
-                id={`pw-${user.id}`}
-                // Deliberately not a password field: the admin is setting a
-                // value to communicate, not entering their own secret, and
-                // masking it would mean they cannot check what they typed.
-                type="text"
-                autoComplete="off"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={PASSWORD_REQUIREMENT}
-              />
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor={`pw-${user.id}`}>New password</FieldLabel>
+                <Input
+                  id={`pw-${user.id}`}
+                  type="password"
+                  autoComplete="new-password"
+                  disabled={busy}
+                  value={password}
+                  onChange={(e) => resetForm.setFieldValue("password", e.target.value)}
+                  placeholder={PASSWORD_REQUIREMENT}
+                />
+              </Field>
+              <Field data-invalid={showMismatch || undefined}>
+                <FieldLabel htmlFor={`pw-confirm-${user.id}`}>Confirm new password</FieldLabel>
+                <Input
+                  id={`pw-confirm-${user.id}`}
+                  type="password"
+                  autoComplete="new-password"
+                  disabled={busy}
+                  value={confirmation}
+                  onChange={(e) => resetForm.setFieldValue("confirmation", e.target.value)}
+                  onFocus={() => setConfirmationBlurred(false)}
+                  onBlur={() => setConfirmationBlurred(true)}
+                  aria-invalid={showMismatch || undefined}
+                  aria-describedby={showMismatch ? `pw-mismatch-${user.id}` : undefined}
+                />
+                {showMismatch && (
+                  <p id={`pw-mismatch-${user.id}`} className="text-destructive text-detail">
+                    Passwords do not match.
+                  </p>
+                )}
+              </Field>
               {/* Same rule as the disable dialog: the refusal an admin meets
                   here renders here, not on the row behind the scrim. */}
               {error && (
@@ -309,7 +336,7 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
                   {error}
                 </p>
               )}
-            </div>
+            </FieldGroup>
           )}
 
           <DialogFooter>
@@ -326,12 +353,14 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
                   Cancel
                 </Button>
                 <Button
-                  onClick={() => void resetPassword()}
-                  disabled={busy || passwordTooShort(password.trim())}
+                  onClick={() => void resetForm.handleSubmit()}
+                  disabled={resetDisabled}
                   disabledReason={
                     busy
                       ? "Wait for the password reset to finish."
-                      : "Enter a password that meets the minimum length shown above."
+                      : passwordTooShort(password)
+                        ? "Enter a password that meets the minimum length shown above."
+                        : "Enter the same password in both fields."
                   }
                 >
                   Reset and sign out

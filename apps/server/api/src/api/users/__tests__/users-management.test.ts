@@ -932,6 +932,8 @@ describe("admin user management", () => {
       // *something*.
       expect(await verifyPassword({ hash: stored as string, password: next })).toBe(true);
       expect(await verifyPassword({ hash: stored as string, password: pw })).toBe(false);
+      expect((await attemptSignIn(memberEmail, next)).status).toBe(200);
+      expect((await attemptSignIn(memberEmail, pw)).status).toBe(401);
     });
 
     it("revokes every session the target holds, and says how many", async () => {
