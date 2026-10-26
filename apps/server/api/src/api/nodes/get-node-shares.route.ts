@@ -1,11 +1,11 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia } from "elysia";
-import { ForbiddenError } from "@/api/auth-guard.js";
-import { loadNodeGate } from "@/api/nodes/node-gate.js";
+import { apiErrorBody } from "@/api/api-error.js";
 import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
 import { NodeSharesResponseSchema, toNodeShareViews } from "@/api/nodes/node-view.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { loadNodeGate } from "@/modules/nodes/gate.js";
+import { ForbiddenError } from "@/shared/errors.js";
 
 /**
  * `GET /api/nodes/:id/shares` — the current grant set. Manager-only

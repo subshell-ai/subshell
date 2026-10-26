@@ -8,8 +8,8 @@ import { db } from "@/db/index.js";
 import { NodeAllowedDirsRepository } from "@/db/repositories/node-allowed-dirs.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
-import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
 
 /**
  * The LOCAL folder picker under a `local` allowlist.

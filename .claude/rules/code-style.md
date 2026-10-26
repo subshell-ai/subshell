@@ -8,13 +8,13 @@ top-level `import` statements instead.
 **Do this:**
 ```typescript
 import { runMigrations } from "@/db/migrate.js";
-import { getAuth } from "@/auth.js";
+import { getAuth } from "@/modules/auth/auth.js";
 ```
 
 **Not this:**
 ```typescript
 const { runMigrations } = await import("@/db/migrate.js");
-const { getAuth } = await import("@/auth.js");
+const { getAuth } = await import("@/modules/auth/auth.js");
 ```
 
 Dynamic imports break `bun build --compile` because the bundler cannot statically analyse
@@ -61,6 +61,11 @@ Guidelines:
 - Keep related tests alongside the code in `__tests__/` directories
 - Use an `index.ts` only when you need to aggregate exports for external use
 - Do not re-export items that are already accessible from their original location; import directly from the source instead
+
+For the API, use the capability owners and dependency rules in
+[Source organization](../../apps/server/api/docs/source-tree.md). Keep services
+and domain helpers together under `src/modules/`; HTTP and CLI adapters stay
+outside those modules.
 
 ## React Component Organization
 
@@ -123,7 +128,7 @@ interface SubshellTable {
 
 For Elysia route schemas, create corresponding schema definitions using Elysia's `t` module:
 ```typescript
-// Shape to follow — in src/schema/, or beside the route that owns it
+// Shape to follow — in src/api/schemas/, or beside the route that owns it
 export const SubshellStatusSchema = t.Union([t.Literal("running"), t.Literal("terminated")], {
   description: "Lifecycle status of the subshell",
 });
@@ -354,7 +359,7 @@ For simple, self-explanatory properties (like `id`, `name`, `createdAt`), a brie
 For expensive resources that should only be created once (servers, database connections, etc.), use a module-level singleton pattern with a factory function:
 
 ```typescript
-// src/auth.ts — the better-auth handle, built once, lazily
+// src/modules/auth/auth.ts — the better-auth handle, built once, lazily
 let instance: Auth | undefined;
 
 /**

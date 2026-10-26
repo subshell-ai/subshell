@@ -7,9 +7,9 @@ import {
 import type { verifyReleaseManifest } from "@internal/subshell-protocol/release-signature";
 import { Elysia } from "elysia";
 import { adminUpdatesRoutes, adminUpdatesSeams } from "@/api/admin-updates.route.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import {
   beginSelfUpdate,
   beginUpdate,
@@ -18,12 +18,12 @@ import {
   updateOutcomeUnknown,
   updateSwapped,
   updateTrackerSeams,
-} from "@/services/nodes/update-tracker.js";
-import { releaseSeams, resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
-import { resetUpdateJobForTests, tryClaimServerUpdate } from "@/services/server-update.js";
+} from "@/modules/updates/node-tracker.js";
+import { releaseSeams, resetReleaseCacheForTests, setReleaseUrlForTests } from "@/modules/updates/releases.js";
+import { resetUpdateJobForTests, tryClaimServerUpdate } from "@/modules/updates/server-update.js";
 import { SERVER_VERSION } from "@/version.js";
+import { authedRequest } from "../../testing/api/auth-tables.js";
 import { type AdminServerFixture, bearerRequest, setupAdminServerFixture } from "../admin-server/__tests__/fixture.js";
-import { authedRequest } from "./helpers/auth-tables.js";
 
 /**
  * `GET /api/admin/updates` — the whole Updates page in one read (spec §4.6).

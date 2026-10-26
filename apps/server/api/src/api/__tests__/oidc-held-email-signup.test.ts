@@ -2,18 +2,22 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { sql } from "kysely";
+import { authPlugin } from "@/api/middleware/auth.plugin.js";
 import { usersRoutes } from "@/api/users/index.js";
-import { createHeldEmailGuardBeforeHook, heldEmailMessage, oidcHolderNameByEmail } from "@/auth/held-email-guards.js";
-import { getAuth, invalidateAuth, setAuthPolicyDb } from "@/auth.js";
 import { APP_BASE_URL } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { NewAuthProvider } from "@/db/types/auth-providers.db-types.js";
-import { authPlugin } from "@/plugins/auth.plugin.js";
-import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
-import { type FakeIdp, startFakeIdp } from "./helpers/fake-oidc.js";
+import { getAuth, invalidateAuth, setAuthPolicyDb } from "@/modules/auth/auth.js";
+import {
+  createHeldEmailGuardBeforeHook,
+  heldEmailMessage,
+  oidcHolderNameByEmail,
+} from "@/modules/auth/held-email-guards.js";
+import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
+import { type FakeIdp, startFakeIdp } from "../../testing/api/fake-oidc.js";
 
 /**
  * The provider-NAMED refusal of email sign-ups for OIDC-held addresses

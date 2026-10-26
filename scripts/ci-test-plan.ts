@@ -77,7 +77,7 @@ export function scriptsTouched(files: readonly string[]): boolean {
   return files.some(
     (f) =>
       /^packages\/subshell-protocol\/src\/__tests__\/fixtures\/release-signature\//.test(f) ||
-      /^apps\/server\/api\/src\/services\/releases\.ts$/.test(f) ||
+      /^apps\/server\/api\/src\/modules\/updates\/releases\.ts$/.test(f) ||
       /^apps\/(?:server|client)\/desktop\/src-tauri\/tauri\.conf\.json$/.test(f) ||
       ((f.startsWith("scripts/") || !TEST_INPUT.test(f)) &&
         (/^(?:scripts\/|\.github\/|\.changeset\/config\.json|install-[^/]+\.sh|proxmox-[^/]+\.sh|docker(?:\/|-entrypoint\.sh)|releases\.json)/.test(

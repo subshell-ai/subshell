@@ -4,10 +4,8 @@ import { join } from "node:path";
 import { nodeArtifactFileName } from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { PENDING_APPROVAL_EXPIRY_MAX_DAYS, settingsRoutes } from "@/api/settings.route.js";
-import { authDatabase } from "@/auth/database.js";
-import { ensureSystemUser } from "@/auth/system-user.js";
-import { getAuth } from "@/auth.js";
 import { APP_BASE_URL, NODE_ARTIFACTS_DIR, SERVER_PORT } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
@@ -17,14 +15,16 @@ import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { setLanProbeForTests } from "@/services/lan-origins.js";
-import { ensureLocalNode, localHostname } from "@/services/nodes/seed-local.js";
-import { PENDING_APPROVAL_EXPIRY_KEY } from "@/services/pending-approvals.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { originRegistry, resetOriginRegistryForTests } from "@/services/trusted-origins.js";
+import { getAuth } from "@/modules/auth/auth.js";
+import { authDatabase } from "@/modules/auth/database.js";
+import { ensureSystemUser } from "@/modules/auth/system-user.js";
+import { setLanProbeForTests } from "@/modules/network/lan-origins.js";
+import { originRegistry, resetOriginRegistryForTests } from "@/modules/network/trusted-origins.js";
+import { ensureLocalNode, localHostname } from "@/modules/nodes/seed-local.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { PENDING_APPROVAL_EXPIRY_KEY } from "@/modules/users/pending-approvals.js";
 import { SERVER_VERSION } from "@/version.js";
-import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
 
 /**
  * GET/PATCH /api/settings are admin-COOKIE routes.

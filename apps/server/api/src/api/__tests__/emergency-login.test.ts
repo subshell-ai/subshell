@@ -3,7 +3,7 @@ import { hashPassword } from "better-auth/crypto";
 import { authRateLimitRoutes } from "@/api/auth-rate-limit.route.js";
 import { db } from "@/db/index.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { deleteUserByEmailOrId, setupAuthTables } from "./helpers/auth-tables.js";
+import { deleteUserByEmailOrId, setupAuthTables } from "../../testing/api/auth-tables.js";
 
 /**
  * Break-glass admin login (spec 2026-08-31 §6). The wrapper sits ahead of

@@ -74,7 +74,7 @@ function installableHere(info: HarnessInfo | undefined): boolean {
  *
  * The only control is Re-check, gated by the SAME rule the server's recheck
  * route applies — `nodeCanConfigure` (owner or `edit`;
- * `api/src/lib/node-access.ts`, and the security posture states it plainly:
+ * `api/src/modules/nodes/access.ts`, and the security posture states it plainly:
  * "edit (or owner) additionally configures the node (re-checks)"). It is
  * deliberately NOT `canManage`: on an agent that flag is owner-or-admin-on-
  * local, narrower than what the route honours, and hiding a permitted action

@@ -3,7 +3,7 @@ import { isSshKeyBridgePayload, SSH_LOCAL_KEY_MAX_BASE64 } from "@internal/subsh
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { SshDestinationField, SshExpectedDestinationField } from "@/api/ssh/ssh-views.js";
-import { closeLocalSshKey, exchangeLocalSshKey, prepareLocalSshKey } from "@/services/ssh-local-key.service.js";
+import { closeLocalSshKey, exchangeLocalSshKey, prepareLocalSshKey } from "@/modules/ssh/ssh-local-key.service.js";
 
 const PrepareSchema = t.Object({
   node: t.String({ minLength: 1, maxLength: 128, description: "Connecting node id" }),

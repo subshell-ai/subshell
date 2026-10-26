@@ -4,8 +4,8 @@ import { APP_BASE_URL } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { canonicalPluginOrigin, originRegistry } from "@/services/trusted-origins.js";
-import { getLogger } from "@/utils/logger.js";
+import { canonicalPluginOrigin, originRegistry } from "@/modules/network/trusted-origins.js";
+import { getLogger } from "@/shared/logger.js";
 
 /**
  * Rendered body for a missing/invalid setup key. It is a SCRIPT (still exit

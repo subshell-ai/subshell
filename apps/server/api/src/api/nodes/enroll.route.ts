@@ -2,22 +2,22 @@ import { BackendErrorCodes } from "@internal/backend-errors";
 import { NODE_NAME_MAX_UNITS, normalizeNodeName } from "@internal/subshell-protocol";
 import { ensureSodium } from "@internal/subshell-protocol/node-link-crypto";
 import { Elysia, t } from "elysia";
-import { HttpError } from "@/api/auth-guard.js";
-import { assertImportablePublicJwk, assertImportableSigningJwk } from "@/api/public-jwk.js";
-import type { CreatedApiKey, NodeKeyMetadata } from "@/auth/apikey-store.js";
-import { getAuth } from "@/auth.js";
+import { apiErrorBody } from "@/api/api-error.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { APP_BASE_URL } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { isUniqueNameViolation } from "@/lib/node-errors.js";
-import { apiModels } from "@/schema/index.js";
-import { audit } from "@/services/audit.js";
-import { controlPublicJwkJson } from "@/services/nodes/control-keys.js";
-import { nodeEncryptionPublicKey } from "@/services/nodes/node-encryption-keys.js";
-import { reregisterNode } from "@/services/nodes/reregister-node.js";
+import { audit } from "@/modules/audit.js";
+import type { CreatedApiKey, NodeKeyMetadata } from "@/modules/auth/apikey-store.js";
+import { getAuth } from "@/modules/auth/auth.js";
+import { assertImportablePublicJwk, assertImportableSigningJwk } from "@/modules/auth/public-jwk.js";
+import { controlPublicJwkJson } from "@/modules/nodes/control-keys.js";
+import { isUniqueNameViolation } from "@/modules/nodes/errors.js";
+import { nodeEncryptionPublicKey } from "@/modules/nodes/node-encryption-keys.js";
+import { reregisterNode } from "@/modules/nodes/reregister-node.js";
+import { HttpError } from "@/shared/errors.js";
 
 /** Enrollment body (spec 2026-08-31 §5.2) — machine identity facts + the setup key. */
 const EnrollBodySchema = t.Object({

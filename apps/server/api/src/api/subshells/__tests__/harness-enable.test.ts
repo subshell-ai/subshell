@@ -1,14 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { sql } from "kysely";
-import { TRUE_BINARY } from "@/__tests__/helpers/true-binary.js";
 import { presetRoutes } from "@/api/presets.route.js";
 import { setupRoutes } from "@/api/setup.route.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { db } from "@/db/index.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { TRUE_BINARY } from "@/testing/true-binary.js";
+import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
  * The install/uninstall loop on the control-plane host: a plugin this host

@@ -1,0 +1,397 @@
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import type { Kysely } from "kysely";
+import webpush from "web-push";
+import { publishLive } from "@/app/live-bus.js";
+import { APP_BASE_URL, SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
+import { db } from "@/db/index.js";
+import { DeviceTokensRepository } from "@/db/repositories/device-tokens.repository.js";
+import { NotificationsRepository } from "@/db/repositories/notifications.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
+import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
+import type { Database } from "@/db/types/index.js";
+import { beginBackupStateWrite } from "@/modules/backups/backup-capture-lock.js";
+import { isNodeOffline } from "@/modules/nodes/node-registry.js";
+import {
+  badgeCount,
+  buildExpoMessages,
+  createExpoPushSender,
+  type ExpoPushSender,
+  isUnregisteredTicket,
+  looksLikeExpoToken,
+} from "@/modules/notifications/expo-push.js";
+import { logger } from "@/shared/logger.js";
+
+/**
+ * What happened to a subshell. The wire contract with the hooks and the
+ * watcher. `crashed_final` is backend-internal (the reconcile sweep only):
+ * it marks a crash whose auto-restart backoff is exhausted, so the copy must
+ * not promise a restart. `maintenance` is backend-internal for the same
+ * reason and one more: it says somebody ELSE's act stopped this subshell — a
+ * node owner opening a maintenance window, which is the one death an owner
+ * cannot explain from their own screen. Both are deliberately NOT part of the
+ * `/attention` route's body union — hooks can only report
+ * `turn_complete`/`needs_attention`.
+ */
+/** Subshell lifecycle notifications. */
+export type NotifyKind = "turn_complete" | "needs_attention" | "exited" | "crashed" | "crashed_final" | "maintenance";
+
+const BODY: Record<NotifyKind, string> = {
+  turn_complete: "Ready for your next message",
+  needs_attention: "Waiting for you",
+  exited: "Session ended",
+  crashed: "Session stopped unexpectedly. Restarting…",
+  crashed_final: "Session stopped unexpectedly",
+  maintenance: "Stopped for node maintenance",
+};
+
+/**
+ * The unseen gate's ladder (spec 2026-09-23): a delivered push silences its
+ * pane's follow-ups until the owner opens the pane, and only an event that
+ * strictly OUTRANKS the unseen one rings through. `crashed_final` tops it —
+ * the restart loop giving up is news even behind an unseen `crashed`.
+ */
+const PUSH_URGENCY: Record<NotifyKind, number> = {
+  turn_complete: 1,
+  needs_attention: 2,
+  exited: 3,
+  crashed: 3,
+  maintenance: 3,
+  crashed_final: 4,
+};
+
+/**
+ * The push payload the service worker turns into an OS notification. `tag`
+ * is the subshell id so a newer event replaces that subshell's older
+ * notification instead of stacking. The URL is relative (same-origin), the
+ * SW resolves it against its own scope.
+ */
+export function buildNotificationPayload(row: { id: string; name: string }, kind: NotifyKind) {
+  return { title: row.name, body: BODY[kind], url: `/subshells/${row.id}`, tag: row.id };
+}
+
+/**
+ * Minimal seam over web-push so tests inject a fake.
+ *
+ * CONTRACT — subscription pruning relies on HOW this fails: the sender must
+ * REJECT with an error carrying a numeric `statusCode` of 403, 404 or 410
+ * for a permanently-unusable endpoint (404/410 = gone; 403 = the gateway
+ * rejects our VAPID JWT for this binding — Apple's BadJwtToken after a
+ * server key rotation; that is exactly what `web-push` does);
+ * `notifySubshell` deletes the subscription row on those codes. A sender that
+ * instead RESOLVES with `{ statusCode: ... }` does NOT prune — the row is
+ * kept as if the send had succeeded. Any other outcome (rejection with
+ * another code, or a plain success) keeps the row: transient by contract.
+ */
+export type PushSender = (
+  sub: { endpoint: string; p256dh: string; auth: string },
+  payload: string,
+) => Promise<{ statusCode: number }>;
+
+/** VAPID key pair + subject (contact URI), exactly as persisted in `vapid.json`. */
+type VapidPair = { publicKey: string; privateKey: string; subject: string };
+
+export interface NotifyServiceDeps {
+  subshells: Kysely<Database>;
+  subs: NotificationsRepository;
+  sender?: PushSender;
+  /** Native-device transport; absent = pre-mobile behaviour (spec invariant 2). */
+  devices?: DeviceTokensRepository;
+  expoSender?: ExpoPushSender;
+  /** Test escape hatch; production leaves it undefined and loads/generates VAPID from the data dir. */
+  vapid?: VapidPair;
+}
+
+export function createNotifyService(deps: NotifyServiceDeps) {
+  const send: PushSender =
+    deps.sender ??
+    senderOverride ??
+    (async (sub, payload) => {
+      // Only the real web-push path touches VAPID details, applied per send
+      // (not once at boot): setVapidDetails validates the key material, so a
+      // fake sender must never be reached by it.
+      const { publicKey, privateKey, subject } = await keys();
+      webpush.setVapidDetails(subject, publicKey, privateKey);
+      return webpush.sendNotification(
+        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+        payload,
+        { TTL: 3600 },
+      );
+    });
+
+  async function keys(): Promise<VapidPair> {
+    if (deps.vapid) return deps.vapid;
+    return loadOrGenerateVapid();
+  }
+
+  // Resolution order mirrors `send` above: explicit dep wins, then the test
+  // override (which implies a singleton reset), then the production client.
+  const expoSend: ExpoPushSender = deps.expoSender ?? expoSenderOverride ?? createExpoPushSender();
+  // One repository per service — both transports read the same db handle.
+  const subshellsRepo = new SubshellsRepository(deps.subshells);
+  const userMetaRepo = new UserMetaRepository(deps.subshells);
+
+  /**
+   * Device fan-out (spec §Push): opaque messages built from ids and counts,
+   * rows pruned only on the relay's DeviceNotRegistered verdict. A service
+   * built without the device transport behaves exactly as it did before the
+   * mobile app existed (invariant 2).
+   *
+   */
+  /** @returns the number of relay-usable device tokens this fan-out targeted */
+  async function fanOutExpo(
+    userId: string,
+    subjectId: string,
+    kind: NotifyKind,
+    waitingSince: string | null,
+  ): Promise<number> {
+    if (!deps.devices) return 0;
+    const enrolled = await deps.devices.listByUser(userId);
+    if (enrolled.length === 0) return 0;
+    // One pass partitions relay-usable rows from junk; the junk rows are ones
+    // the relay can never use, so they go now rather than on every send.
+    const live: typeof enrolled = [];
+    const junk: typeof enrolled = [];
+    for (const t of enrolled) (looksLikeExpoToken(t.token) ? live : junk).push(t);
+    for (const dead of junk) {
+      await deps.devices.deleteByToken(dead.token);
+      logger.warn(`pruned invalid device token for user ${dead.userId}`);
+    }
+    if (live.length === 0) return 0;
+    // F1: the badge count must ignore waiting rows whose node is
+    // unreachable — the blessed predicate comes from the registry (importing
+    // it from subshell-manager would cycle: subshell-manager already imports
+    // this module).
+    const counts = await subshellsRepo.countsByUser(userId, isNodeOffline);
+    const badge = badgeCount(counts.waiting, kind, waitingSince);
+    const messages = buildExpoMessages(
+      live.map((t) => t.token),
+      subjectId,
+      kind,
+      badge,
+    );
+    try {
+      const tickets = await expoSend(messages);
+      // Tickets zip 1:1 with messages, in order (ExpoPushSender contract).
+      for (let i = 0; i < tickets.length; i += 1) {
+        const ticket = tickets[i];
+        const token = messages[i]?.to;
+        if (!ticket || !token) continue;
+        if (isUnregisteredTicket(ticket)) {
+          await deps.devices.deleteByToken(token); // the relay says the device is gone
+        } else if (ticket.status === "error") {
+          logger.warn(`expo push ticket error (kept): ${ticket.message}`); // e.g. MessageTooBig = our bug
+        }
+      }
+    } catch (err) {
+      // Transport exception is transient BY CONTRACT: every row survives.
+      logger.withError(err).warn(`expo push send failed (kept) for ${live.length} device(s)`);
+    }
+    return live.length;
+  }
+
+  /**
+   * Web-push fan-out for one user, the transport the subshell bell has always
+   * used. Returns the number of subscriptions ATTEMPTED (the unseen gate's
+   * "an attempt happened" test), pruning only the permanently-dead endpoints
+   * (403/404/410) the sender contract names.
+   */
+  async function fanOutWebPush(userId: string, payload: object): Promise<number> {
+    const subs = await deps.subs.listByUser(userId);
+    if (subs.length === 0) return 0;
+    const serialized = JSON.stringify(payload);
+    for (const sub of subs) {
+      try {
+        await send({ endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth }, serialized);
+      } catch (err) {
+        const status = (err as { statusCode?: number }).statusCode;
+        // 404/410 = the endpoint is gone. 403 = the gateway rejects our
+        // VAPID JWT for this binding (Apple's BadJwtToken: the
+        // subscription was made against a different server key — e.g.
+        // after vapid.json rotation). Nothing we sign can ever heal it,
+        // so it joins the prune set; the client re-subscribes on its
+        // next enablePush (which now re-binds unconditionally).
+        if (status === 403 || status === 404 || status === 410) {
+          await deps.subs.deleteByEndpoint(sub.endpoint);
+        } else {
+          logger.withError(err).warn(`push send failed (kept): ${sub.endpoint.slice(0, 60)}…`);
+        }
+      }
+    }
+    return subs.length;
+  }
+
+  return {
+    async vapidPublicKey(): Promise<string> {
+      return (await keys()).publicKey;
+    },
+    /**
+     * Ring every one of the subshell OWNER's devices — web-push subscriptions
+     * and native devices alike — but only if the subshell's bell is on. The
+     * bell check is the SINGLE policy point above both transports (spec
+     * §Push): flipping it takes effect on the next event with nothing to
+     * invalidate. A dead web endpoint (403/404/410) or a DeviceNotRegistered
+     * ticket prunes its row; every other failure keeps it (transient).
+     * The unseen gate (spec 2026-09-23): with the bell on, an event pushes
+     * only if it outranks the pane's last attempted, still-unseen push; the
+     * owner opening the pane clears the state (see `#rememberSeen` in
+     * `subshells.service.ts` and the attach path in `api/ws/attach-resolve.ts`).
+     */
+    async notifySubshell(subshellId: string, kind: NotifyKind): Promise<void> {
+      try {
+        const row = await subshellsRepo.findById(subshellId);
+        if (row?.notify !== 1) return;
+        // Per-user master switch (spec 2026-08-31): off ⇒ total silence
+        // regardless of any subshell bells. Read of user_meta only; a missing
+        // row reads as enabled (getNotifyEnabled defaults to on).
+        if (!(await userMetaRepo.getNotifyEnabled(row.userId))) return;
+        // The unseen gate (spec 2026-09-23): one push per unseen interval,
+        // broken only by an escalation. The waiting chip is deliberately NOT
+        // part of this — recordAttention still stamps every event; only the
+        // bell waits.
+        const urgency = PUSH_URGENCY[kind];
+        if ((row.lastPushUrgency ?? 0) >= urgency) return;
+        // The transports are independent. Start the device fan-out NOW, before
+        // the sequential web-push loop, so a phone never waits behind N HTTPS
+        // round-trips to browser push gateways (review, efficiency #6).
+        const deviceDelivery = fanOutExpo(row.userId, row.id, kind, row.waitingSince);
+        const attempted = await fanOutWebPush(row.userId, buildNotificationPayload(row, kind));
+        const liveDevices = await deviceDelivery;
+        // The urgency sticks only behind an ATTEMPTED delivery: the condition
+        // is targets existing (a send was made to at least one), not a gateway
+        // accepting it. An owner with no subscription and no enrolled device
+        // received nothing and was attempted nothing — such an owner must not
+        // have the pane's future escalations silenced by an attempt that never
+        // existed.
+        if (attempted > 0 || liveDevices > 0) {
+          await subshellsRepo.update(subshellId, { lastPushUrgency: urgency });
+          publishLive({ kind: "subshell.changed", id: subshellId });
+        }
+      } catch (err) {
+        // Notifications must never break the caller (sweep / hook route).
+        logger.withError(err).warn(`notifySubshell(${subshellId}, ${kind}) failed`);
+      }
+    },
+  };
+}
+
+export type NotifyService = ReturnType<typeof createNotifyService>;
+
+let singleton: NotifyService | null = null;
+let senderOverride: PushSender | null = null;
+let expoSenderOverride: ExpoPushSender | null = null;
+
+/** The app-wide service (shared `db` + its own repositories + real senders). */
+export function getNotifyService(): NotifyService {
+  singleton ??= createNotifyService({
+    // The typed app db is structurally the same Kysely<Database> the
+    // repositories already take everywhere.
+    subshells: db,
+    subs: new NotificationsRepository(db),
+    devices: new DeviceTokensRepository(db),
+    // No explicit expoSender: the createExpoPushSender() fallback keeps
+    // __setExpoSenderForTests working like its web-push sibling.
+  });
+  return singleton;
+}
+
+/**
+ * @internal Test isolation: route the app-wide service through `sender`
+ * instead of the real web-push sender. Resetting the singleton makes the
+ * next `getNotifyService()` pick the override up.
+ */
+export function __setSenderForTests(sender: PushSender | null): void {
+  senderOverride = sender;
+  singleton = null;
+}
+
+/**
+ * @internal Test isolation: route the device fan-out through `sender` instead
+ * of the real Expo relay. Resetting the singleton makes the next
+ * `getNotifyService()` pick the override up — same contract as
+ * `__setSenderForTests`.
+ */
+export function __setExpoSenderForTests(sender: ExpoPushSender | null): void {
+  expoSenderOverride = sender;
+  singleton = null;
+}
+
+const VAPID_FILE = "vapid.json";
+
+let cachedVapid: VapidPair | null = null;
+let vapidDirOverride: string | null = null;
+
+/** @internal Test isolation: read VAPID keys from `dir` instead of SUBSHELL_SERVER_DATA_DIR. */
+export function __setVapidDirForTests(dir: string | null): void {
+  vapidDirOverride = dir;
+  cachedVapid = null;
+}
+
+/**
+ * The VAPID `sub` claim is a CONTACT per RFC 8292 — and gateways enforce that
+ * with real teeth measured 2026-09-04: Apple's web push refuses a `mailto:`
+ * on `localhost` (403 BadJwtToken) while FCM accepts the very same JWT, so
+ * the old `mailto:subshell@localhost` default broke iOS pushes silently on
+ * every fresh instance. The instance URL is a valid `https:` contact that is
+ * never fake, so it is both the generated subject and the repair for a
+ * stored one that names localhost.
+ */
+const vapidSubjectOrDefault = (stored: unknown): string =>
+  typeof stored === "string" && stored.length > 0 && !stored.includes("localhost") ? stored : APP_BASE_URL;
+
+/**
+ * Load the instance's VAPID pair, generating and persisting it on first use.
+ *
+ * A stored file is only trusted when BOTH key fields are present non-empty
+ * strings: JSON.parse succeeding says nothing about shape, and a truncated
+ * or foreign file would otherwise serve `undefined` keys straight into
+ * /config (a response-schema violation) and every send. A corrupt key file
+ * is already unusable, so it is regenerated and overwritten in place. A
+ * localhost subject is normalized to {@link vapidSubjectOrDefault} in place —
+ * the pair every live subscription is bound to stays untouched.
+ */
+function writeVapidFile(path: string, pair: VapidPair): void {
+  const release = beginBackupStateWrite();
+  try {
+    writeFileSync(path, JSON.stringify(pair), { mode: 0o600 });
+  } finally {
+    release();
+  }
+}
+
+function loadOrGenerateVapid(): VapidPair {
+  if (cachedVapid) return cachedVapid;
+  const dir = vapidDirOverride ?? SUBSHELL_SERVER_DATA_DIR;
+  const file = join(dir, VAPID_FILE);
+  mkdirSync(dir, { recursive: true });
+  let pair: VapidPair | null = null;
+  try {
+    const parsed = JSON.parse(readFileSync(file, "utf8")) as Partial<VapidPair>;
+    if (
+      typeof parsed.publicKey === "string" &&
+      parsed.publicKey.length > 0 &&
+      typeof parsed.privateKey === "string" &&
+      parsed.privateKey.length > 0
+    ) {
+      pair = {
+        publicKey: parsed.publicKey,
+        privateKey: parsed.privateKey,
+        subject: vapidSubjectOrDefault(parsed.subject),
+      };
+      if (pair.subject !== parsed.subject) {
+        writeVapidFile(file, pair);
+        logger.info(`normalized VAPID subject → ${pair.subject} (Apple refuses a localhost contact)`);
+      }
+    }
+  } catch {
+    // Unreadable or unparseable — falls through to regeneration below.
+  }
+  if (!pair) {
+    const g = webpush.generateVAPIDKeys();
+    pair = { publicKey: g.publicKey, privateKey: g.privateKey, subject: APP_BASE_URL };
+    writeVapidFile(file, pair);
+    logger.info(`generated VAPID keys → ${file}`);
+  }
+  cachedVapid = pair;
+  return pair;
+}

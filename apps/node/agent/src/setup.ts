@@ -24,7 +24,7 @@ import { installService, type ServiceDeps } from "./service.js";
 
 /**
  * The interactive question seam. Same shape as the server CLI's
- * (`apps/server/api/src/cli.ts`), widened by a Promise arm because this CLI's
+ * (`apps/server/api/src/cli/dispatch.ts`), widened by a Promise arm because this CLI's
  * `run()` is already async and the production answerer ({@link promptConfirm})
  * is clack, which is not. Tests keep injecting a plain synchronous function.
  *

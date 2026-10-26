@@ -1,12 +1,13 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
-import { authGuard, ForbiddenError, requireCookieActor } from "@/api/auth-guard.js";
-import { loadNodeGate } from "@/api/nodes/node-gate.js";
-import { isLoopbackUrl } from "@/commands/config-values.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
-import { audit } from "@/services/audit.js";
-import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
+import { apiErrorBody } from "@/api/api-error.js";
+import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { audit } from "@/modules/audit.js";
+import { loadNodeGate } from "@/modules/nodes/gate.js";
+import { NodeRpcError, sendCommand } from "@/modules/nodes/node-rpc.js";
+import { isLoopbackUrl } from "@/modules/server/config/values.js";
+import { ForbiddenError } from "@/shared/errors.js";
 
 const ConfigBodySchema = t.Object({
   serverUrl: t.String({

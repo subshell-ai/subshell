@@ -3,13 +3,13 @@ import { tmpdir } from "node:os";
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/api/__tests__/helpers/auth-tables.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/testing/api/auth-tables.js";
 
 /**
  * An ssh pane refuses `POST /:id/restart` with a named 409 (decision 7): its

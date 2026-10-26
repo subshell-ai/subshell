@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { authRateLimitRoutes } from "@/api/auth-rate-limit.route.js";
 import { db } from "@/db/index.js";
-import { setupAuthTables } from "./helpers/auth-tables.js";
+import { setupAuthTables } from "../../testing/api/auth-tables.js";
 
 /**
  * Route-level test for the sign-in rate limiter (Elysia wrapper over

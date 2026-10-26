@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { nodesRoutes } from "@/api/nodes/index.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { db } from "@/db/index.js";
@@ -10,10 +11,9 @@ import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { ALLOW_SERVER_SUBSHELLS_KEY } from "@/services/server-as-node.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { ALLOW_SERVER_SUBSHELLS_KEY } from "@/modules/server/server-as-node.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
  * The admin's `allow_server_subshells` off-switch (operator ask, 2026-09-24):

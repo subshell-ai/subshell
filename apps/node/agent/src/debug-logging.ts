@@ -4,7 +4,7 @@ import type { LevelledTransport } from "./log-file.js";
 
 /**
  * The agent's debug-logging switch — the node half of the server's own
- * (`apps/server/api/src/services/logging-preference.ts`, spec § 3.4).
+ * (`apps/server/api/src/modules/server/logging-preference.ts`, spec § 3.4).
  *
  * Off by default, applied LIVE by flipping the FILE transport's level, with
  * the environment able to force it on and make the switch read-only. Same

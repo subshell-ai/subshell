@@ -2,12 +2,12 @@ import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 import { NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { apiModels } from "@/schema/index.js";
-import { audit } from "@/services/audit.js";
-import { getLive } from "@/services/nodes/node-registry.js";
-import { runTransfer, type TransferEndpoint } from "@/services/transfers.service.js";
+import { audit } from "@/modules/audit.js";
+import { runTransfer, type TransferEndpoint } from "@/modules/files/transfers.service.js";
+import { getLive } from "@/modules/nodes/node-registry.js";
 
 /**
  * `POST /api/transfers` (spec 2026-10-01 §5): copy (or diff-sync) a directory

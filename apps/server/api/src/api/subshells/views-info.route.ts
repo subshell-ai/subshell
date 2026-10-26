@@ -1,12 +1,12 @@
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
+import { contextPlugin } from "@/api/middleware/context.plugin.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { gatePreview, previewNodeState } from "@/api/subshells/preview-gate.js";
-import { contextPlugin } from "@/plugins/context.plugin.js";
-import { apiModels } from "@/schema/index.js";
-import { NodeRpcError } from "@/services/nodes/node-rpc.js";
-import { getVirtualDisplayEnabled, getWebPreviewsEnabled } from "@/services/nodes/preview-enabled.js";
-import { PREVIEW_PORTS_UNSUPPORTED } from "@/services/nodes/preview-refusals.js";
-import { getPreviewBroker } from "@/services/preview-broker.js";
+import { NodeRpcError } from "@/modules/nodes/node-rpc.js";
+import { getVirtualDisplayEnabled, getWebPreviewsEnabled } from "@/modules/nodes/preview-enabled.js";
+import { getPreviewBroker } from "@/modules/previews/preview-broker.js";
+import { PREVIEW_PORTS_UNSUPPORTED } from "@/modules/previews/refusals.js";
 
 /**
  * `GET /api/subshells/:id/views` (spec §6): what the pane currently offers

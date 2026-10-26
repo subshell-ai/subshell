@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
-import { contextPlugin } from "@/plugins/context.plugin.js";
-import { apiModels } from "@/schema/index.js";
+import { contextPlugin } from "@/api/middleware/context.plugin.js";
+import { apiModels } from "@/api/schemas/index.js";
 
 /**
  * Pane input over REST (spec 2026-09-25 MCP DX). `text` is typed verbatim,

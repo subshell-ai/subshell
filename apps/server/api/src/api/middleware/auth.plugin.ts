@@ -1,0 +1,62 @@
+import { Elysia } from "elysia";
+import { db } from "@/db/index.js";
+import { getAuth } from "@/modules/auth/auth.js";
+import { resolveCookieSession } from "@/modules/auth/session-cookie.js";
+import { backupPasswordChangeRequired } from "@/modules/backups/backup-admin-recovery.js";
+
+/**
+ * Mounts better-auth's fetch handler at /api/auth/*.
+ *
+ * NOTE: We deliberately pass the request through untouched (rather than using
+ * Elysia's `.mount()`, which strips the mount prefix from the URL). better-auth
+ * routes on the full path (`/api/auth/get-session` etc.), so the prefix must
+ * reach the handler.
+ *
+ * The api-key plugin's self-service endpoints are blocked: every credential
+ * this app trusts is minted server-side (per-session tokens) or through the
+ * admin-only /api/system-keys route, and the plugin's public create endpoint
+ * would let any signed-in user mint keys with arbitrary metadata. The auth
+ * guard already rejects such keys (session-link / system-owner checks); this
+ * just refuses to hand them out in the first place.
+ */
+async function handleAuth(request: Request): Promise<Response> {
+  const path = new URL(request.url).pathname;
+  // Enforce this inside the passthrough: Elysia's GET /api/auth/* wins
+  // over a more specific ALL /api/auth/api-key/* for GET requests.
+  if (path === "/api/auth/api-key" || path.startsWith("/api/auth/api-key/")) {
+    return Response.json({ message: "API keys are managed via /api/system-keys" }, { status: 403 });
+  }
+  const cookieHeader = request.headers.get("cookie") ?? "";
+  const session = await resolveCookieSession(cookieHeader);
+  if (!session && cookieHeader.includes("better-auth.session_data")) {
+    // Preserve OAuth/challenge cookies, but never let a copied session cache
+    // resurrect a session row removed by restore or password recovery.
+    const headers = new Headers(request.headers);
+    headers.set(
+      "cookie",
+      cookieHeader
+        .split(";")
+        .filter((part) => {
+          const name = part.trim().split("=", 1)[0] ?? "";
+          return !/^(?:__Secure-|__Host-)?better-auth\.session_data(?:\.\d+)?$/.test(name);
+        })
+        .join(";"),
+    );
+    request = new Request(request, { headers });
+  }
+  if (!["/api/auth/get-session", "/api/auth/sign-out"].includes(path)) {
+    if (session && (await backupPasswordChangeRequired(db, session.user.id))) {
+      return Response.json({ message: "PASSWORD_CHANGE_REQUIRED" }, { status: 403 });
+    }
+  }
+  return getAuth().handler(request);
+}
+
+export const authPlugin = new Elysia({ name: "auth" })
+  // Registered as .get() in ADDITION to .all(): the static plugin's SPA
+  // fallback (a `.get("*")`) outranks `.all()` wildcards in Elysia's router,
+  // so GET /api/auth/get-session would otherwise 404 (or get index.html).
+  // A same-path `.get()` here outranks the fallback on specificity, and the
+  // duplicate registration is harmless — the first matching route wins.
+  .get("/api/auth/*", ({ request }) => handleAuth(request))
+  .all("/api/auth/*", ({ request }) => handleAuth(request));

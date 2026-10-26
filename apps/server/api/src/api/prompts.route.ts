@@ -1,12 +1,12 @@
 import { LIST_SEARCH_MAX } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
-import { matchesListQuery } from "@/api/list-filter.js";
 import { promptStackRoutes } from "@/api/prompt-stacks.route.js";
 import { db } from "@/db/index.js";
 import { PromptsRepository } from "@/db/repositories/prompts.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { PromptTable } from "@/db/types/prompts.db-types.js";
+import { matchesListQuery } from "@/shared/list-filter.js";
 
 const ListPromptsQuerySchema = t.Object({
   q: t.Optional(t.String({ maxLength: LIST_SEARCH_MAX.prompts })),

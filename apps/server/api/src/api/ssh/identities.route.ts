@@ -1,8 +1,9 @@
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
-import { SshAgentIdentityViewSchema, throwCodedRefusal } from "@/api/ssh/ssh-views.js";
-import { apiModels } from "@/schema/index.js";
-import { listNodeAgentIdentities } from "@/services/ssh-launch.service.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { SshAgentIdentityViewSchema } from "@/api/ssh/ssh-views.js";
+import { throwCodedRefusal } from "@/modules/ssh/refusal.js";
+import { listNodeAgentIdentities } from "@/modules/ssh/ssh-launch.service.js";
 
 export const sshIdentitiesRoute = new Elysia()
   .use(authGuard)

@@ -675,7 +675,7 @@ export function DEFAULT_DEPS(hasConfig: () => Promise<boolean>): ServiceDeps {
 
 /**
  * Manager verbs `service` accepts beyond install/uninstall. Ported from
- * `apps/server/api/src/service.ts` (2026-09-05) — same guard, same vocabulary,
+ * `apps/server/api/src/modules/server/supervision.ts` (2026-09-05) — same guard, same vocabulary,
  * async here because this module's seams are async by design.
  */
 export type ServiceVerb = "start" | "stop" | "restart";
@@ -812,7 +812,7 @@ async function serviceArtifactPath(
  * hand the updater a truncated path that does not exist.
  *
  * This is deliberately a SECOND copy of the server's `parseSystemdExec`
- * (`apps/server/api/src/services/installed-binary.ts`) rather than a shared
+ * (`apps/server/api/src/modules/server/installed-binary.ts`) rather than a shared
  * helper: `apps/server/**` is AGPL and this file is Apache-2.0, so an import
  * would entangle the two licences (AGENTS.md, "The licence boundary IS this
  * directory line"). The quoter it inverts is already duplicated for the same

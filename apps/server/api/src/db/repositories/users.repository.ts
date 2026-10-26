@@ -1,8 +1,8 @@
 import { sql } from "kysely";
-import { SYSTEM_USER_EMAIL } from "@/auth/system-user.js";
 import { BaseRepository } from "@/db/repositories/base.repository.js";
 import { type ApprovalState, asApprovalState } from "@/db/types/approval-state.js";
 import type { UserRole } from "@/db/types/user-role.js";
+import { SYSTEM_USER_EMAIL } from "@/modules/auth/system-user.js";
 
 /**
  * App-side user row shape for admin listing (auth `user` + `user_meta` join).
@@ -65,7 +65,7 @@ export interface PendingApprovalRow {
  * Spelled once because two questions must never disagree about what "has
  * anybody registered" means: {@link UsersRepository.countRealAccounts} (the
  * registration gate and the setup window read it) and the first-user
- * promotion in `auth.ts`, which used to decide adminhood from emptiness of
+ * promotion in `modules/auth/auth.ts`, which used to decide adminhood from emptiness of
  * the `user_meta` ROLE side-table instead — the divergence
  * `registration-gate.ts`'s `hasAnyUser` docstring records as a fixed bug on
  * the gate's side, and security-actionable 2026-09 item 9 closes on the

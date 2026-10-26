@@ -3,7 +3,7 @@ import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js"; // no-op when already applied
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
-import { restoreLocalNode } from "@/services/__tests__/helpers/local-node.js";
+import { restoreLocalNode } from "@/testing/local-node.js";
 
 let seq = 0;
 // Salt per file: every test file in one `bun test` invocation shares one process

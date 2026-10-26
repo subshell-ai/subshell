@@ -4,12 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Elysia } from "elysia";
 import { adminServerRoutes } from "@/api/admin-server/index.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { APP_BASE_URL, DATABASE_PATH } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { AuditRepository } from "@/db/repositories/audit.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { originRegistry, resetOriginRegistryForTests } from "@/services/trusted-origins.js";
-import { authedRequest } from "../../__tests__/helpers/auth-tables.js";
+import { originRegistry, resetOriginRegistryForTests } from "@/modules/network/trusted-origins.js";
+import { authedRequest } from "../../../testing/api/auth-tables.js";
 import { type AdminServerFixture, bearerRequest, setupAdminServerFixture } from "./fixture.js";
 
 const app = new Elysia().use(errorHandlerPlugin).use(adminServerRoutes);

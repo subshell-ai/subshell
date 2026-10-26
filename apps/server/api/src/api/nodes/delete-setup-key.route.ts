@@ -1,11 +1,11 @@
 import { Elysia, t } from "elysia";
-import { HttpError } from "@/api/auth-guard.js";
 import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
-import { isCookieAdmin } from "@/api/user-utils.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
-import { apiModels } from "@/schema/index.js";
-import { audit } from "@/services/audit.js";
+import { audit } from "@/modules/audit.js";
+import { isCookieAdmin } from "@/modules/users/roles.js";
+import { HttpError } from "@/shared/errors.js";
 
 const OkResponseSchema = t.Object({
   ok: t.Boolean({ description: "Always true on success" }),

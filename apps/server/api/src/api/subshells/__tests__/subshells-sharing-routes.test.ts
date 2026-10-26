@@ -5,7 +5,7 @@ import { db } from "@/db/index.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
  * The §4.1 capability matrix, exercised through the real routes:

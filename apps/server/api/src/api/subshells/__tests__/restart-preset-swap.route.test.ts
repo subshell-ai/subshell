@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { NodeCommandBody } from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 /**
  * The preset swap inside the restart route (spec 2026-09-23 §2).
  *
@@ -27,13 +28,12 @@ import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { seedPreset } from "@/services/__tests__/helpers/seed-preset.js";
-import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
-import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { attachScriptedNode, ok, probeAllAlive, statDirEcho } from "@/test-helpers/scripted-node.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+import { resetNodeRegistryForTests } from "@/modules/nodes/node-registry.js";
+import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { attachScriptedNode, ok, probeAllAlive, statDirEcho } from "@/testing/scripted-node.js";
+import { seedPreset } from "@/testing/seed-preset.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 const app = new Elysia().use(errorHandlerPlugin).use(subshellRoutes);
 

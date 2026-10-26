@@ -4,23 +4,23 @@ import { ensureSodium, generateLinkKeyPair } from "@internal/subshell-protocol/n
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { exportJWK, generateKeyPair } from "jose";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { nodeWsUrl } from "@/api/nodes/enroll.route.js";
 import { nodesRoutes } from "@/api/nodes/index.js";
-import { authDatabase } from "@/auth/database.js";
 import * as constants from "@/constants.js";
 import { db } from "@/db/index.js";
 import { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
+import { authDatabase } from "@/modules/auth/database.js";
 import {
   attachConnection,
   getLive,
   REVOKED_CLOSE_CODE,
   resetNodeRegistryForTests,
-} from "@/services/nodes/node-registry.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+} from "@/modules/nodes/node-registry.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /** Fresh extractable P-256 keypair exported as a JWK string; `withD` exports the PRIVATE half. */
 async function jwkString(withD = false): Promise<string> {

@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
-import { contextPlugin } from "@/plugins/context.plugin.js";
-import { apiModels } from "@/schema/index.js";
+import { contextPlugin } from "@/api/middleware/context.plugin.js";
+import { apiModels } from "@/api/schemas/index.js";
 
 /** `POST /api/channels/:name/members` — joins the caller to a channel (idempotent). */
 export const joinChannelRoute = new Elysia()

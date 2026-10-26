@@ -5,8 +5,8 @@ import { db } from "@/db/index.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
-import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
  * `PUT /api/nodes/:id/ssh-wide-forwards` (spec 2026-10-15 §6) — the per-node

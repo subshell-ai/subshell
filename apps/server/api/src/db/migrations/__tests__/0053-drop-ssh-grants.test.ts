@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
 import { CamelCasePlugin, Kysely, sql } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
-import { ensureMigratedTestDb } from "@/__tests__/helpers/test-database.js";
 import { db as freshDb } from "@/db/index.js";
 import * as grants from "@/db/migrations/0050-ssh-grants.js";
 import * as destinations from "@/db/migrations/0051-ssh-request-destination.js";
 import * as removal from "@/db/migrations/0053-drop-ssh-grants.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
+import { ensureMigratedTestDb } from "@/testing/test-database.js";
 
 test("SSH grant removal upgrades existing stores and preserves destination trust, saved hosts and audit", async () => {
   const db = new Kysely<any>({

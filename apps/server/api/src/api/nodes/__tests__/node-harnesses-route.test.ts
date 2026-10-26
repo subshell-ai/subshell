@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { getHarness } from "@internal/pane-runtime";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { nodesRoutes } from "@/api/nodes/index.js";
 import { setupRoutes } from "@/api/setup.route.js";
 import { db } from "@/db/index.js";
@@ -11,18 +12,17 @@ import { PluginStateRepository } from "@/db/repositories/plugin-state.repository
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { INVENTORY_TTL_MS, readAgentInventory } from "@/services/nodes/inventory.js";
+import { INVENTORY_TTL_MS, readAgentInventory } from "@/modules/nodes/inventory.js";
 import {
   attachConnection,
   getLive,
   type NodeSocket,
   resetNodeRegistryForTests,
-} from "@/services/nodes/node-registry.js";
-import { resolveResult } from "@/services/nodes/node-rpc.js";
-import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+} from "@/modules/nodes/node-registry.js";
+import { resolveResult } from "@/modules/nodes/node-rpc.js";
+import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
  * Per-node harness state on the node view, `POST /api/nodes/:id/recheck`

@@ -1,6 +1,6 @@
 # Service units: the systemd/launchd definitions, autostart, and linger. Moved verbatim from AGENTS.md ("Standalone binary & CLI"); AGENTS.md keeps the summary and routes here.
 
-`service install` (`src/service.ts`) writes `subshell-server.service` under
+`service install` (`src/modules/server/supervision.ts`) writes `subshell-server.service` under
 `~/.config/systemd/user/`, **one owner per host**: the retired `svc.sh` wrote
 this same path from the repo's `.env`, so a host upgrading from it must
 uninstall that unit before installing this one (README, "Host service"), with
@@ -14,7 +14,7 @@ local subshell's tmux server is a CHILD of this unit, so the default
 control-group kill SIGKILLs every live pane on stop/restart. A host whose unit
 lacks it loses all running subshells on the next `systemctl restart`, and on
 a plain `systemctl stop`, since a restart is a stop plus a start (measured,
-2026-09-03). `src/service.ts` carries the reasoning; the unit text is pinned by
+2026-09-03). `src/modules/server/supervision.ts` carries the reasoning; the unit text is pinned by
 test. Since 2026-09-05 that hazard is ENFORCED rather than merely documented:
 `queryService` asks systemd for the EFFECTIVE `KillMode` (a unit-file grep
 cannot see drop-ins under `subshell-server.service.d/`), `service restart`

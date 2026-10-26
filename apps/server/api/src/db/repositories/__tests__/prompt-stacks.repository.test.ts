@@ -4,7 +4,7 @@ import { db } from "@/db/index.js";
 import { PromptStacksRepository, StackMemberReferenceGone } from "@/db/repositories/prompt-stacks.repository.js";
 import { PromptsRepository } from "@/db/repositories/prompts.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { deleteUserByEmailOrId, setupAuthTables } from "../../../api/__tests__/helpers/auth-tables.js";
+import { deleteUserByEmailOrId, setupAuthTables } from "../../../testing/api/auth-tables.js";
 
 let seq = 0;
 // File-salted ids: every test file in one `bun test` invocation shares a

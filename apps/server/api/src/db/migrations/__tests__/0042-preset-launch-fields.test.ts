@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
-import { ensureMigratedTestDb } from "@/__tests__/helpers/test-database.js";
-import { deleteUserByEmailOrId } from "@/api/__tests__/helpers/auth-tables.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { deleteUserByEmailOrId } from "@/testing/api/auth-tables.js";
+import { ensureMigratedTestDb } from "@/testing/test-database.js";
 
 /**
  * The launch columns (spec 2026-09-29 preset-launch-fields) and, load-bearing,

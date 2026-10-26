@@ -12,15 +12,15 @@
 // command from booting the server underneath itself is the isCliEngaged()
 // gate below, not the exit style.
 // biome-ignore-all assist/source/organizeImports: entry prelude must evaluate first — see comment
-import "./cli-bootstrap.js";
+import "./cli/bootstrap.js";
 import { join, resolve } from "node:path";
 import { getHarness, setPluginDataDir } from "@internal/pane-runtime";
-import { closeAuthDatabase } from "@/auth/database.js";
-import { ensureSystemUser } from "@/auth/system-user.js";
-import { setAuthPolicyDb } from "@/auth.js";
-import { banner } from "@/banner.js";
-import { isCliEngaged } from "@/cli.js";
-import { serverConfigDir } from "@/config-env.js";
+import { closeAuthDatabase } from "@/modules/auth/database.js";
+import { ensureSystemUser } from "@/modules/auth/system-user.js";
+import { setAuthPolicyDb } from "@/modules/auth/auth.js";
+import { banner } from "@/cli/banner.js";
+import { isCliEngaged } from "@/cli/dispatch.js";
+import { serverConfigDir } from "@/modules/server/config/env.js";
 import {
   APP_BASE_URL,
   assertProdAuthSecret,
@@ -36,46 +36,42 @@ import { runMigrations } from "@/db/migrate.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
-import { sweepLocalPreviewDisplays } from "@/preview/local-preview.js";
+import { sweepLocalPreviewDisplays } from "@/modules/previews/local-preview.js";
 import { startServer } from "@/server.js";
-import { sweepBackupDownloads } from "@/services/backup-download-jobs.js";
-import { sweepRestoreStages } from "@/services/backup-staging.js";
-import {
-  assertInstanceRestoreDestination,
-  finalizeInstanceRestore,
-  instanceRestoreJournalPath,
-  rollbackInstanceRestore,
-} from "@/services/backups/index.js";
-import { instanceBackupPaths } from "@/services/instance-backup-source.js";
-import { acquireInstanceLock } from "@/services/instance-state-lock.js";
-import { publishLive } from "@/services/live-bus.js";
-import { loadAndApplyDebugLogging } from "@/services/logging-preference.js";
-import { refreshNetworkOrigins, seedNetworkOrigins, startOriginRefresh } from "@/services/network/origin-refresh.js";
-import { prepareNetworkGuards, prepareNetworkProcesses } from "@/services/network/prepare.js";
-import { stopAllProcesses } from "@/services/network/supervisor.js";
-import { startInventoryRefresh } from "@/services/nodes/inventory-refresh.js";
-import { prepareLocalPlugins } from "@/services/nodes/local-plugins.js";
-import { reconcileMaintenance } from "@/services/nodes/maintenance.js";
-import { setNodeLifecycleHooks } from "@/services/nodes/node-events.js";
-import { listOnline } from "@/services/nodes/node-registry.js";
-import { reconcilePreviewEnabled } from "@/services/nodes/preview-enabled.js";
-import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { reconcileSshEnabled } from "@/services/nodes/ssh-enabled.js";
-import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
-import { getNotifyService } from "@/services/notify.service.js";
-import { createIdleWatcher, IDLE_TICK_MS } from "@/services/notify-idle.js";
-import { sweepExpiredPaneLogs, tightenPaneLogModes } from "@/services/pane-log-hygiene.js";
-import { expirePendingApprovals, remarkUnmarkedArrivals } from "@/services/pending-approvals.js";
-import { hasAnyUser } from "@/services/registration-gate.js";
-import { shutdownRelayBroker } from "@/services/ssh-relay.service.js";
-import { SubshellManagerService } from "@/services/subshell-manager.service.js";
-import { completeUpdate, readPending, recordFailure, revertUpdate } from "@/services/update-transaction.js";
-import { BANNER_GROUP, getLogger } from "@/utils/logger.js";
+import { sweepBackupDownloads } from "@/modules/backups/backup-download-jobs.js";
+import { sweepRestoreStages } from "@/modules/backups/backup-staging.js";
+import { assertInstanceRestoreDestination, instanceRestoreJournalPath } from "@/modules/backups/journal.js";
+import { finalizeInstanceRestore, rollbackInstanceRestore } from "@/modules/backups/transaction.js";
+import { instanceBackupPaths } from "@/modules/backups/instance-backup-source.js";
+import { acquireInstanceLock } from "@/modules/backups/instance-state-lock.js";
+import { publishLive } from "@/app/live-bus.js";
+import { loadAndApplyDebugLogging } from "@/modules/server/logging-preference.js";
+import { refreshNetworkOrigins, seedNetworkOrigins, startOriginRefresh } from "@/modules/network/origin-refresh.js";
+import { prepareNetworkGuards, prepareNetworkProcesses } from "@/modules/network/prepare.js";
+import { stopAllProcesses } from "@/modules/network/supervisor.js";
+import { startInventoryRefresh } from "@/modules/nodes/inventory-refresh.js";
+import { prepareLocalPlugins } from "@/modules/plugins/store.js";
+import { reconcileMaintenance } from "@/modules/nodes/maintenance.js";
+import { setNodeLifecycleHooks } from "@/modules/nodes/node-events.js";
+import { listOnline } from "@/modules/nodes/node-registry.js";
+import { reconcilePreviewEnabled } from "@/modules/nodes/preview-enabled.js";
+import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { reconcileSshEnabled } from "@/modules/nodes/ssh-enabled.js";
+import { subshellLogPath } from "@/modules/subshells/paths.js";
+import { getNotifyService } from "@/modules/notifications/notify.service.js";
+import { createIdleWatcher, IDLE_TICK_MS } from "@/modules/notifications/notify-idle.js";
+import { sweepExpiredPaneLogs, tightenPaneLogModes } from "@/modules/subshells/pane-log-hygiene.js";
+import { expirePendingApprovals, remarkUnmarkedArrivals } from "@/modules/users/pending-approvals.js";
+import { hasAnyUser } from "@/modules/auth/registration-gate.js";
+import { shutdownRelayBroker } from "@/modules/ssh/relay-broker.js";
+import { SubshellManagerService } from "@/modules/subshells/subshell-manager.service.js";
+import { completeUpdate, readPending, recordFailure, revertUpdate } from "@/modules/updates/update-transaction.js";
+import { BANNER_GROUP, getLogger } from "@/shared/logger.js";
 import { SERVER_VERSION } from "@/version.js";
-import { sweepWsTokens } from "@/ws/ws-token.js";
+import { sweepWsTokens } from "@/api/ws/ws-token.js";
 
 export type { App } from "@/server.js";
-export type { BackupAdmin, BackupInspection, InstanceBackupManifest } from "@/services/backups/types.js";
+export type { BackupAdmin, BackupInspection, InstanceBackupManifest } from "@/modules/backups/types.js";
 
 // Plan 2 CLI gate: `isCliEngaged()` flips synchronously inside the prelude's
 // `dispatchCli` call the moment a subcommand is recognised, so an async CLI
@@ -277,7 +273,7 @@ async function bootServer(): Promise<void> {
 
   // ...then ask each daemon what is true now, and keep asking every five
   // minutes — the one detection timer this codebase runs, argued in
-  // `services/network/origin-refresh.ts`.
+  // `modules/network/origin-refresh.ts`.
   try {
     await refreshNetworkOrigins();
   } catch (err) {
@@ -366,7 +362,7 @@ async function bootServer(): Promise<void> {
   }, 3_600_000);
   // The pending-approval queue, kept honest (spec 2026-09-24 §6): unactioned
   // arrivals expire, and an arrival whose marking `account.create.after`
-  // lost is re-queued (`services/pending-approvals.ts` explains both, incl.
+  // lost is re-queued (`modules/users/pending-approvals.ts` explains both, incl.
   // why deleting never-admitted rows does not touch the no-user-deletion
   // rule that shields members). Same hourly cadence as the pane-log pass —
   // the expiry window is measured in days and the re-mark window in hours,
@@ -402,7 +398,7 @@ async function bootServer(): Promise<void> {
 
   // Harness inventories on the online agent nodes, re-asked on a cadence
   // derived from the freshness window the launch gate applies
-  // (`services/nodes/inventory-refresh.ts`, which argues the number and the
+  // (`modules/nodes/inventory-refresh.ts`, which argues the number and the
   // absence of a stagger). It sits between the two neighbours above on
   // purpose: slower than the 60 s sweep, which answers a liveness question
   // that must not lag, and far faster than the hourly pane-log pass, whose

@@ -1,0 +1,608 @@
+import { NODE_CLOSE_SUPERSEDED, type NodeRuntimeReport } from "@internal/subshell-protocol";
+import type { LinkSession } from "@internal/subshell-protocol/node-link-crypto";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
+import { projectNodeOffline } from "./node-presence-announce.js";
+import type { NodeRpcError } from "./node-rpc.js";
+
+/**
+ * Live-connection registry for enrolled agent nodes (spec 2026-08-31 §5.3).
+ * A module-scope `nodeId → NodeConnection` map — the single source of truth
+ * for "is this node reachable right now", shared by the `/ws/node` handler
+ * (who attaches/detaches) and `node-rpc.ts` (who sends and correlates).
+ *
+ * Newest-wins: when a node re-dials while an old socket is still mapped, the
+ * OLD socket is closed with {@link NODE_CLOSE_SUPERSEDED} and flagged `closing`
+ * before the new one is installed. The flag plus the identity guard in
+ * {@link detachConnection} defuse the classic race where the old socket's
+ * `close` event fires AFTER the new attach and would otherwise evict the
+ * fresh entry.
+ *
+ * Deliberately absent: the inbound jti replay LRU. That belongs to the WS
+ * handler (per-NODE, shared across every connection the node makes — spec §4);
+ * outbound commands need no replay state, and `seq` here is a per-CONNECTION
+ * counter that restarts at 0 on every attach.
+ */
+
+/**
+ * Close code sent when the node's credential just stopped working — rotate
+ * and delete revoke the key while its socket is still mapped (spec §5.4).
+ * 4401 mirrors the REST 401 the same dead key would get on an upgrade.
+ */
+export const REVOKED_CLOSE_CODE = 4401;
+
+/**
+ * Close sent when the node's OWNER account was disabled (ruling 2026-09-24) —
+ * the disable route's counterpart to the upgrade-time refusal, which is the
+ * pre-socket half of the same rule. Deliberately NOT {@link REVOKED_CLOSE_CODE}:
+ * the key row survives a disable untouched (re-enabling must restore the
+ * node's access with no second act), so this is not "the credential died" —
+ * it is the account behind it frozen, and 4403 mirrors the HTTP 403 the same
+ * socket now gets from `authenticateNodeUpgrade`. The agent logs the reason
+ * and keeps dialing on its backoff loop, so re-enabling brings the node back
+ * within one reconnect interval (≤ 60 s).
+ */
+export const OWNER_DISABLED_CLOSE_CODE = 4403;
+
+/**
+ * Minimal structural socket shim — same discipline as `WsSocket` in
+ * `api/ws/subshell-ws.ts`: only what the registry/RPC actually touches, so tests
+ * drive fakes and the Bun ws object satisfies it structurally.
+ */
+export interface NodeSocket {
+  getBufferedAmount?(): number;
+  /**
+   * Send one frame; returns like Bun's `ws.send`. Text carries the legacy
+   * JSON envelope; a Buffer carries an encrypted link's binary ciphertext —
+   * and it must ARRIVE as a Buffer, not a bare `Uint8Array` (Elysia's
+   * `send` JSON-stringifies any non-Buffer object into a TEXT frame; see
+   * `binaryPayload` in `node-rpc.ts`).
+   */
+  send(data: string | Buffer): unknown;
+  /** Close the socket with an optional code/reason. */
+  close(code?: number, reason?: string): void;
+}
+
+/** One in-flight command awaiting its `result` frame. */
+export interface PendingEntry {
+  /** Settle the owning `sendCommand` promise with the result payload. */
+  resolve(data: unknown): void;
+  /** Settle it as a failure (clears the timeout first). */
+  reject(err: NodeRpcError): void;
+  /** Deadline armed when the frame hit the socket; cleared on settle. */
+  timer: ReturnType<typeof setTimeout>;
+}
+
+/**
+ * What the agent told us about itself — per-CONNECTION facts stashed so
+ * launch/attach paths can compose paths and compute resume targets without
+ * another round trip. The identity fields arrive on every `ready`; the env
+ * VALUES are refreshed by the plane's own `detect` round trip (the driver in
+ * `inventory.ts` writes them when an answer lands), so a reconnect carries
+ * homeDir from the fresh `ready` and no env until the next detect.
+ */
+export interface NodeFacts {
+  /** agent-side `<dataDir>` — composes log/mcp paths (spec §6.4) */
+  dataDir: string;
+  /** capability strings from ready ("uploads", "mcp") */
+  capabilities: string[];
+  /** hostname reported by the agent (display/diagnosis) */
+  hostname: string;
+  /** agent build version from the ready frame */
+  agentVersion: string;
+  /**
+   * The agent's full self-invocation of its `mcp` subcommand, from `ready`.
+   * The control plane composes the pane's MCP registration from it verbatim —
+   * a bare `process.execPath` was wrong under an interpreter run (`bun mcp`
+   * is not a command). Absent = the agent sent none; the registration then
+   * falls back to `subshell mcp` on PATH.
+   */
+  selfInvoke?: { command: string; args: string[] };
+  /**
+   * The node's home directory, reported at `ready` (spec 2026-09-10 §5) —
+   * the fallback root for resume paths the control plane computes. Absent
+   * when the node reported none; `canResume` still computes a (relative, so
+   * will-not-exist) default rather than skipping the probe.
+   */
+  homeDir?: string;
+  /**
+   * How the agent process runs, reported in `ready` and refreshed by heartbeats (spec
+   * 2026-09-12 § 6.1): its service manager's view of it, whether exiting
+   * would be a restart, and where its config, log and binary live.
+   *
+   * It lives here rather than in the `nodes` table on purpose — these are
+   * facts about a running process, so when the node is offline they are stale
+   * by definition and the absence of a connection is the honest answer.
+   * Absent on agents that predate the field; the detail view then shows no
+   * Runtime card rather than an empty one.
+   */
+  runtime?: NodeRuntimeReport;
+  /**
+   * Values for the environment variables the plane's enabled harness
+   * manifests declared (`subshell.hostEnv`), and only those — answered by
+   * THIS connection's last `detect` round trip (spec §5 as amended by the
+   * final review; the node holds no manifests, so it could not have named
+   * these at `ready`). Absent = no detect has landed since the connect, which
+   * `canResume` reads as "answer {}": the plugin's home-default path is
+   * computed and probed anyway. A key absent WITHIN it = that variable is
+   * unset on the node, which is what triggers the plugin's fallback.
+   */
+  env?: Record<string, string>;
+}
+
+/** Live state for exactly one node's current connection. */
+export interface NodeConnection {
+  /** Node id this socket belongs to (no `node:` prefix). */
+  nodeId: string;
+  /** The live socket. */
+  ws: NodeSocket;
+  /**
+   * Per-CONNECTION monotonic sequence counter; starts at 0, every command
+   * pre-increments it. Restarted per attach — it mirrors the agent's fresh
+   * `SeqTracker` and is an ordering hint, NOT the replay defense (spec §4).
+   */
+  seq: number;
+  /** In-flight commands awaiting correlation: `jti → settle handles`. */
+  pending: Map<string, PendingEntry>;
+  /**
+   * True once a newer connection has superseded this one: the socket is being
+   * closed on purpose, so its own close-handler teardown must not touch the
+   * registry or fail the new connection's pendings.
+   */
+  closing?: boolean;
+  /**
+   * Per-connection FIFO mutex. `sendCommand` appends its (async) send step so
+   * `seq` assignment and `ws.send` stay in call order despite the await on
+   * signing in between — see the invariant note in `node-rpc.ts`.
+   */
+  sendChain: Promise<void>;
+  /**
+   * Self-reported facts from the agent's `ready` frame (spec §6.4). Absent
+   * until `ready` lands — a socket that connects but never readies stays
+   * `agent: undefined` and reads as such to every consumer.
+   */
+  agent?: NodeFacts;
+  /**
+   * The encrypted link negotiated on this socket (spec 2026-09-24), or
+   * `undefined` while the connection speaks the legacy plaintext envelope —
+   * every agent that predates the handshake, and every connection from
+   * before its `kx` completed. The held map now holds TWO kinds: a LEGACY
+   * hold sits with no link (the plaintext rescue, unchanged), while a
+   * binding-arm hold (spec 2026-10-13) has its link set and takes the
+   * sealed arm. `node-rpc.sendCommand` seals outbound commands through it
+   * when present; the `/ws/node` handshake acceptor is its only writer.
+   */
+  link?: LinkSession;
+  /**
+   * Whether a PLAINTEXT frame may be written to this socket at all (ruling
+   * I-2, spec 2026-09-24). `handleNodeOpen` sets it beside the attach: true
+   * for a LEGACY classification (a pin-less row legitimately runs plaintext
+   * until it registers — and every LEGACY hold is one), false for HANDSHAKE
+   * (a protocol-14 socket in the open→established window, where `link` is
+   * not yet set). `sendCommand` refuses with `offline` rather than emit
+   * plaintext while `link` is unset and this is false. Both held arms still
+   * receive the frozen rescue: a LEGACY hold rides the `true` arm
+   * untouched, and a binding-arm hold (spec 2026-10-13) is HANDSHAKE-classified
+   * `false` WITH its link already set — that path wires the link before the
+   * hold, so `sendCommand`'s I-2 refusal cannot fire and its rescue seals.
+   * UNSET means "never classified" (a hand-built test conn): never a
+   * refusal.
+   */
+  plaintextAllowed?: boolean;
+}
+
+const live = new Map<string, NodeConnection>();
+
+/* ------------------------------------------------------------------ */
+/* held connections (spec 2026-09-15 §5.3)                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Why the plane refused to treat this agent as live.
+ *
+ * `below-floor` / `protocol-mismatch` are the two version gates (spec
+ * 2026-09-15 §5.3). `encryption-required` is the third and it is a DIFFERENT
+ * kind of refusal: the agent passed BOTH version gates but its row has no
+ * encryption pin, so the only thing it could have sent that passes is the
+ * plaintext `ready` that is indistinguishable from the downgrade attempt
+ * (spec 2026-09-24 ledger R3). It is offline for every purpose but `update`
+ * exactly like the other two, and the remedy reads the same to an operator —
+ * the node updates and re-registers — which is why it holds through the same
+ * machinery rather than a fourth path.
+ */
+export type HeldReason = "below-floor" | "protocol-mismatch" | "encryption-required";
+
+/** One socket the plane refuses for everything except `update`. */
+export interface HeldConnection {
+  /**
+   * The connection record, so `node-rpc` can sign, send and correlate over it
+   * exactly as it does for a live one. It is a full {@link NodeConnection}
+   * rather than a bare socket because the `update` command is an ordinary
+   * signed command with an ordinary `result` — none of that machinery should
+   * have a second implementation for the one case it exists to serve.
+   */
+  conn: NodeConnection;
+  /** Which gate refused it. */
+  reason: HeldReason;
+  /** The version it reported, so a page can say what is installed there. */
+  agentVersion: string;
+  /** The protocol it speaks. */
+  protocolVersion: number;
+  /** Reported OS, for picking the artifact to offer. */
+  os: string;
+  /** Reported CPU architecture, same. */
+  arch: string;
+  /** ISO 8601 of when the socket was held. */
+  since: string;
+  /** The idle close armed at hold time; cleared when the socket goes. */
+  timer?: ReturnType<typeof setTimeout>;
+}
+
+/** One held node, as a page renders it. */
+export interface HeldRow {
+  /** Node id. */
+  nodeId: string;
+  /** Which gate refused it. */
+  reason: HeldReason;
+  /** The agent version reported on the socket being held. */
+  agentVersion: string;
+  /** The protocol it speaks. */
+  protocolVersion: number;
+  /** Reported OS. */
+  os: string;
+  /** Reported CPU architecture. */
+  arch: string;
+  /** ISO 8601 of when it was held. */
+  since: string;
+}
+
+/**
+ * Sockets the plane refuses to talk to, except for one command.
+ *
+ * A SECOND map, never `live`, and that separation is the whole design. A held
+ * agent speaks a protocol this server does not: parsing its frames would be
+ * worse than refusing, and treating it as reachable would let launches, tails
+ * and every other command travel to a machine that cannot honour them. So
+ * {@link isNodeOffline} and {@link listOnline} read `live` alone and are
+ * untouched — a held node is offline for every purpose but `update`.
+ *
+ * What this replaces is dropping it: `node-ws-handler` used to close 4406 and
+ * leave an operator to walk to the machine. Held, the plane can still send the
+ * one command that fixes it — which is why the `update` command's wire shape
+ * is frozen (`node-frames.ts`): the agent parsing it is, by construction, one
+ * whose protocol this server does not share.
+ */
+const held = new Map<string, HeldConnection>();
+
+/**
+ * How long a held socket may sit unused before it is closed 4406.
+ *
+ * The plane must not accumulate sockets it will not use, and the agent's own
+ * "update required" line must keep appearing where an operator at the machine
+ * would look. Ten minutes is long enough for a person to notice the row, press
+ * Update and have a ~70 MB download finish; after it the node redials and is
+ * held again, so nothing is lost but the socket, same budget on either held
+ * arm. The redial is NOT the agent's own doing: the 4406 is TERMINAL for
+ * every agent that can reach a hold (verified across the tag history back to
+ * `cli-node-v0.13.0` — the daemon reverts any update transaction it left
+ * pending, logs the refusal, and exits), so what brings the node back is
+ * the SERVICE MANAGER's restart, or a human at the machine. An unsupervised
+ * held agent simply stays offline until one of the two runs — which is also
+ * when it can self-rescue with `subshell update`.
+ */
+export const HELD_IDLE_MS = 10 * 60 * 1000;
+
+/** What {@link holdConnection} needs to describe the agent it is holding. */
+export interface HoldInput {
+  /** Which gate refused it. */
+  reason: HeldReason;
+  /** Version from `ready`. */
+  agentVersion: string;
+  /** Protocol from `ready`. */
+  protocolVersion: number;
+  /** OS from `ready`. */
+  os: string;
+  /** Arch from `ready`. */
+  arch: string;
+  /** Close the socket when the idle budget runs out (the handler passes its own closer). */
+  onIdle: () => void;
+}
+
+/**
+ * Move `nodeId`'s socket out of the live registry and into the held one.
+ *
+ * DETACHING FIRST is load-bearing: `handleNodeOpen` attaches every
+ * authenticated socket before `ready` is parsed, so a refused agent is already
+ * in `live` by the time the gates run. Leaving it there would make
+ * `isNodeOffline` answer false for a machine the plane cannot talk to — the
+ * exact confusion the second map exists to prevent.
+ *
+ * Newest-wins applies here too: a second hold for the same node supersedes the
+ * first, because two sockets for one node is the same problem whichever map
+ * they are in.
+ *
+ * @returns the held record
+ */
+export function holdConnection(nodeId: string, conn: NodeConnection, input: HoldInput): HeldConnection {
+  detachConnection(nodeId, conn.ws);
+  const previous = held.get(nodeId);
+  if (previous && previous.conn !== conn) {
+    if (previous.timer) clearTimeout(previous.timer);
+    previous.conn.closing = true;
+    try {
+      previous.conn.ws.close(NODE_CLOSE_SUPERSEDED, "replaced by a newer connection for this node");
+    } catch {
+      // already dead — nothing to close
+    }
+    held.delete(nodeId);
+  }
+  const entry: HeldConnection = {
+    conn,
+    reason: input.reason,
+    agentVersion: input.agentVersion,
+    protocolVersion: input.protocolVersion,
+    os: input.os,
+    arch: input.arch,
+    since: new Date().toISOString(),
+  };
+  const timer = setTimeout(() => {
+    // The socket is closed by the CALLER's closer, not here: this module owns
+    // the maps and knows nothing about close reasons or the handler's socket
+    // wrapper. Releasing first means the close handler finds nothing to
+    // release, which is the cheap ordering.
+    if (held.get(nodeId) === entry) {
+      held.delete(nodeId);
+      input.onIdle();
+    }
+  }, HELD_IDLE_MS);
+  // A held socket must never hold the process (or a test runner) open — the
+  // same rule every other background timer in this tree follows.
+  timer.unref?.();
+  entry.timer = timer;
+  held.set(nodeId, entry);
+  return entry;
+}
+
+/** The held connection for `nodeId`, or undefined when there is none. */
+export function getHeld(nodeId: string): HeldConnection | undefined {
+  return held.get(nodeId);
+}
+
+/**
+ * Every held node, for the Updates page and the node view.
+ *
+ * Shaped as plain data rather than handing out the connection: the only
+ * legitimate use for the socket is `sendCommand`, which finds it itself.
+ */
+export function listHeld(): HeldRow[] {
+  return [...held.entries()].map(([nodeId, entry]) => ({
+    nodeId,
+    reason: entry.reason,
+    agentVersion: entry.agentVersion,
+    protocolVersion: entry.protocolVersion,
+    os: entry.os,
+    arch: entry.arch,
+    since: entry.since,
+  }));
+}
+
+/**
+ * Drop `nodeId`'s held entry when `conn` is still the one held — the same
+ * identity guard {@link detachConnection} applies, for the same race: a
+ * superseded socket's late close must not evict its replacement.
+ * @returns true when an entry was removed
+ */
+export function releaseHeld(nodeId: string, conn: NodeConnection): boolean {
+  const current = held.get(nodeId);
+  if (!current || current.conn !== conn) return false;
+  if (current.timer) clearTimeout(current.timer);
+  held.delete(nodeId);
+  return true;
+}
+
+/**
+ * Install `ws` as the live connection for `nodeId`, newest-wins: an existing
+ * connection is flagged `closing` and its socket closed with 4409 first
+ * (spec §5.3). A throwing close on the stale socket is swallowed — a dead
+ * socket that refuses to die must not block the fresh one.
+ * Re-attaching the socket that is ALREADY mapped returns the existing record
+ * untouched (no close, no fresh seq, no lost pendings).
+ * @param nodeId - node id (no `node:` prefix)
+ * @param ws - the freshly authenticated socket
+ * @returns the new connection record (seq starts at 0, pendings empty)
+ */
+export function attachConnection(nodeId: string, ws: NodeSocket): NodeConnection {
+  // A HELD socket is superseded by a new one exactly as a live one is (spec
+  // 2026-09-15 §5.3). Two sockets for one node is the same problem whichever
+  // map they are in, and the commonest way this fires is the good one: an
+  // agent that was just updated dialing back on the new binary.
+  const heldPrevious = held.get(nodeId);
+  if (heldPrevious && heldPrevious.conn.ws !== ws) {
+    if (heldPrevious.timer) clearTimeout(heldPrevious.timer);
+    held.delete(nodeId);
+    heldPrevious.conn.closing = true;
+    try {
+      heldPrevious.conn.ws.close(NODE_CLOSE_SUPERSEDED, "replaced by a newer connection for this node");
+    } catch {
+      // already dead — nothing to close
+    }
+  }
+  const previous = live.get(nodeId);
+  // Same socket re-attached (defensive: duplicate `open` dispatch): keep the
+  // existing record — seq, pendings, and identity stay untouched.
+  if (previous?.ws === ws) return previous;
+  if (previous) {
+    previous.closing = true;
+    try {
+      previous.ws.close(NODE_CLOSE_SUPERSEDED, "replaced by a newer connection for this node");
+    } catch {
+      // already dead — nothing to close
+    }
+  }
+  const conn: NodeConnection = { nodeId, ws, seq: 0, pending: new Map(), sendChain: Promise.resolve() };
+  live.set(nodeId, conn);
+  return conn;
+}
+
+/**
+ * The current connection for `nodeId`, or `undefined` when offline.
+ */
+export function getLive(nodeId: string): NodeConnection | undefined {
+  return live.get(nodeId);
+}
+
+/**
+ * Whether a subshell's launch node is currently unreachable (spec §5.6): an
+ * AGENT node whose id has no entry in the live-connection registry. Local
+ * rows answer false by definition (the control-plane host has no agent
+ * socket); the check is a Map probe, deliberately NOT a DB query, so it is
+ * cheap in a per-row view loop. True means "the pane may still be running
+ * there" — the UI shows a stale-banner, not a dead subshell.
+ *
+ * The BLESSED liveness predicate — every "is this row's node reachable"
+ * decision must go through it. It lives here because it is pure over the
+ * registry above, which makes it importable by services and repositories'
+ * callers without cycles (`notify.service` → registry is clean while
+ * subshell-manager → notify already exists; the summarizer takes it as an
+ * injected predicate rather than importing this module).
+ */
+export function isNodeOffline(nodeId: string): boolean {
+  return nodeId !== LOCAL_NODE_ID && getLive(nodeId) === undefined;
+}
+
+/**
+ * Remove `nodeId`'s entry ONLY when `ws` is still its current socket — the
+ * identity guard is what keeps a superseded socket's late `close` event from
+ * evicting the replacement.
+ * @returns true when the entry was actually removed
+ */
+export function detachConnection(nodeId: string, ws: NodeSocket): boolean {
+  const current = live.get(nodeId);
+  if (!current || current.ws !== ws) return false;
+  live.delete(nodeId);
+  return true;
+}
+
+/** Ids of every node with a live connection (any order). */
+export function listOnline(): string[] {
+  return [...live.keys()];
+}
+
+/**
+ * Forcibly evict + close `nodeId`'s live connection — the registry side of
+ * credential revocation (rotate-key / delete-node call this AFTER their DB
+ * changes, so the socket can never serve on a key that just died, T8 carry).
+ * Flags the record `closing` and detaches with the same identity guard the
+ * WS close handler uses; a throwing `close()` (already-dead socket) is
+ * swallowed — eviction is the point, the close is courtesy. In-flight
+ * commands are NOT failed here: the registry stays dependency-free (it must
+ * never import `node-rpc`, which imports THIS module). CALLERS therefore own
+ * the drain (P1-T9 carry — "any eviction without real socket close must
+ * failConnPendings itself"): capture the record with {@link getLive} BEFORE
+ * disconnecting and call `failConnPendings(conn, ...)` AFTER (see the
+ * rotate/delete routes). On a real socket the close event drains them too —
+ * the second drain is a no-op.
+ *
+ * **A successful eviction OWNS the status projection**, which is the one
+ * thing the drain note above cannot delegate. The entry leaves the map
+ * BEFORE the socket's close event lands, so `handleNodeClose`'s
+ * `current.ws === mine` guard skips its offline write — by design for a
+ * superseded socket, and the exact hole for every forced eviction: the
+ * disable route, rotate, delete, and the post-attach eviction each closed
+ * the socket while the row went on projecting online and the live feed went
+ * on claiming its panes healthy until the stale sweep. The close path can
+ * only be trusted to project when the close is what took the entry; when
+ * THIS function takes it, `projectNodeOffline` runs here — the same two
+ * acts `holdRefusedNode` performs for the hold that never closes (the row
+ * goes offline, the node's running panes are re-announced). Awaited: the
+ * caller answers in a world where the node is offline, and by then the row
+ * says so. That is why it is `async` — every forced-eviction caller awaits
+ * this call, and none of them projects separately, so the guard's skip is
+ * also what keeps the projection single when the real close lands later.
+ * The two maps hold AT MOST ONE record for one node (a new attach supersedes
+ * a held entry exactly as it supersedes a live one — the held-first branch of
+ * {@link attachConnection}), but the branches below do NOT early-return on
+ * `held`: with a target (`only`) the held-first return would skip checking the
+ * live map for THAT socket, and without one, a pair that can no longer form
+ * still costs nothing to walk. The projection fires once, after whatever was
+ * actually evicted.
+ *
+ * @param nodeId - node id (no `node:` prefix)
+ * @param code - close code (default {@link REVOKED_CLOSE_CODE})
+ * @param reason - close reason sent on the wire
+ * @param only - evict ONLY this connection's records (the post-attach disable
+ *   re-ask). Without it a node's every record goes; with it, a socket that a
+ *   newer one already replaced finds nothing to evict — the replacement asked
+ *   this same question about itself and is not this eviction's property.
+ * @returns true when at least one connection (held or live) was evicted
+ */
+export async function disconnectNode(
+  nodeId: string,
+  code: number = REVOKED_CLOSE_CODE,
+  reason = "node access revoked",
+  only?: NodeConnection,
+): Promise<boolean> {
+  let evicted = false;
+  // Held sockets are evicted too, and they have to be: a rotated or deleted
+  // key must not leave a socket open just because the plane was refusing to
+  // talk to it for a different reason. The `update` command is the ONE thing
+  // it could still have carried, and that is precisely what a revoked
+  // credential must no longer be able to do. The row already reads offline
+  // from the hold's own projection; projecting again is the idempotent
+  // no-op this seam prefers over a branch that has to know why it was held.
+  const heldEntry = held.get(nodeId);
+  if (heldEntry && (!only || heldEntry.conn === only)) {
+    if (heldEntry.timer) clearTimeout(heldEntry.timer);
+    held.delete(nodeId);
+    heldEntry.conn.closing = true;
+    try {
+      heldEntry.conn.ws.close(code, reason);
+    } catch {
+      // already dead — the eviction above is the point
+    }
+    evicted = true;
+  }
+  const conn = live.get(nodeId);
+  if (conn && (!only || conn === only)) {
+    conn.closing = true;
+    try {
+      conn.ws.close(code, reason);
+    } catch {
+      // already dead — nothing to close; the eviction below still matters
+    }
+    // Identity-guarded: a socket replaced between the two reads detaches
+    // nothing and owns no projection — the current entry answers for itself.
+    if (detachConnection(nodeId, conn.ws)) evicted = true;
+  }
+  if (!evicted) return false;
+  await projectNodeOffline(nodeId);
+  return true;
+}
+
+/**
+ * Close every live node socket with one code — the self-restart's node half.
+ *
+ * Each agent's own backoff loop reconnects, so this is a courtesy close rather
+ * than a revocation: 1012 Service Restart tells the agent why its socket went
+ * away instead of leaving it to discover a dropped connection. In-flight
+ * commands drain through each socket's close event, as with
+ * {@link disconnectNode} on a live socket — and each eviction projects its
+ * row offline with its panes announced, which is honest here: for however
+ * long the restart takes, this plane cannot reach those machines.
+ *
+ * @returns how many connections were closed
+ */
+export async function disconnectAllNodes(code: number, reason: string): Promise<number> {
+  let closed = 0;
+  for (const id of listOnline()) if (await disconnectNode(id, code, reason)) closed++;
+  return closed;
+}
+
+/**
+ * Empties the registry. Test seam only — production callers must not call
+ * this; @internal.
+ */
+export function resetNodeRegistryForTests(): void {
+  live.clear();
+  for (const entry of held.values()) if (entry.timer) clearTimeout(entry.timer);
+  held.clear();
+}

@@ -44,7 +44,7 @@ export function apiHeaders(token: string, octet = false): Record<string, string>
 /**
  * The size ceiling for every asset downloaded here, in deliberate parity
  * with the server's `MAX_ARTIFACT_BYTES`
- * (`apps/server/api/src/services/releases.ts`): the same bytes travel the
+ * (`apps/server/api/src/modules/updates/releases.ts`): the same bytes travel the
  * other road too, and an over-large answer there is a failure, not a
  * maybe. A desktop build would otherwise stream a corrupt or replaced
  * asset into memory without limit.

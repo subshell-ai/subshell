@@ -1,14 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
-import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+import { resetNodeRegistryForTests } from "@/modules/nodes/node-registry.js";
+import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
  * GET /api/subshells/:id/log onto an OFFLINE agent node (spec §5.6): the tail

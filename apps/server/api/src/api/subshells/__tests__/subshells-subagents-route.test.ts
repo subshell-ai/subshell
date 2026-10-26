@@ -1,15 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
-import { authDatabase } from "@/auth/database.js";
 import { db } from "@/db/index.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+import { authDatabase } from "@/modules/auth/database.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 // errorHandlerPlugin mounted like createApp() so validation failures
 // serialize like production (400, not Elysia's raw 422).

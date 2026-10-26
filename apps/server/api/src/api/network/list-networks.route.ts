@@ -2,7 +2,7 @@ import { Elysia } from "elysia";
 import { requireNetworkAdmin } from "@/api/network/network-gate.js";
 import { listNetworkRows } from "@/api/network/network-view.js";
 import { NetworkListResponseSchema } from "@/api/network/schemas.js";
-import { apiModels } from "@/schema/index.js";
+import { apiModels } from "@/api/schemas/index.js";
 
 /**
  * `GET /api/network` (spec 2026-09-15 § 5.1).

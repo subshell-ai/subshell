@@ -1,8 +1,9 @@
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
-import { SshRecentDestinationViewSchema, throwCodedRefusal } from "@/api/ssh/ssh-views.js";
-import { apiModels } from "@/schema/index.js";
-import { sshRecentDestinationsView, sshSetDefaultNode } from "@/services/ssh-launch.service.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { SshRecentDestinationViewSchema } from "@/api/ssh/ssh-views.js";
+import { throwCodedRefusal } from "@/modules/ssh/refusal.js";
+import { sshRecentDestinationsView, sshSetDefaultNode } from "@/modules/ssh/ssh-launch.service.js";
 
 /** Recent connections belong to their owner; preferences only choose a default node. */
 export const sshRecentDestinationsRoutes = new Elysia()

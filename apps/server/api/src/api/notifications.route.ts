@@ -1,11 +1,12 @@
 import { Elysia, t } from "elysia";
-import { authGuard, HttpError, requireCookieActor } from "@/api/auth-guard.js";
+import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { db } from "@/db/index.js";
 import { NotificationsRepository } from "@/db/repositories/notifications.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
-import { apiModels } from "@/schema/index.js";
-import { getNotifyService } from "@/services/notify.service.js";
-import { logger } from "@/utils/logger.js";
+import { getNotifyService } from "@/modules/notifications/notify.service.js";
+import { HttpError } from "@/shared/errors.js";
+import { logger } from "@/shared/logger.js";
 
 /**
  * Per-device Web Push subscriptions (spec 2026-08-30-harness-notifications).

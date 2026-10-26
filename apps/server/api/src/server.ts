@@ -2,20 +2,22 @@ import { cors } from "@elysiajs/cors";
 import { Elysia } from "elysia";
 import { authRateLimitRoutes } from "@/api/auth-rate-limit.route.js";
 import { installScriptRoute } from "@/api/install-script.js";
+import { accessGuardPlugin } from "@/api/middleware/access-guard.plugin.js";
+import { authPlugin } from "@/api/middleware/auth.plugin.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
+import { openApiPlugin } from "@/api/middleware/openapi.plugin.js";
+import { selectStaticPlugin } from "@/api/middleware/static.plugin.js";
+import { pvHttpRoute } from "@/api/previews/http.js";
+import { previewWsRoute } from "@/api/previews/ws.js";
 import { routes } from "@/api/routes.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { startLivePublisher } from "@/api/ws/live-publisher.js";
+import { closeAllViewers } from "@/api/ws/viewers.js";
+import { wsPlugin } from "@/api/ws/ws.plugin.js";
 import { EMBEDDED } from "@/generated/embedded-web.js";
-import { accessGuardPlugin } from "@/plugins/access-guard.plugin.js";
-import { authPlugin } from "@/plugins/auth.plugin.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { openApiPlugin } from "@/plugins/openapi.plugin.js";
-import { selectStaticPlugin } from "@/plugins/static.plugin.js";
-import { pvHttpRoute } from "@/preview/pv-http.js";
-import { previewWsRoute } from "@/preview/pv-ws.js";
-import { apiModels } from "@/schema/index.js";
-import { originRegistry } from "@/services/trusted-origins.js";
-import { logger } from "@/utils/logger.js";
-import { startLivePublisher } from "@/ws/live-publisher.js";
-import { wsPlugin } from "@/ws/ws.plugin.js";
+import { originRegistry } from "@/modules/network/trusted-origins.js";
+import { configureRestartViewers } from "@/modules/server/server-restart.js";
+import { logger } from "@/shared/logger.js";
 
 /** Built SPA served by Elysia (prod single-port model). Relative to dist/ */
 const FRONTEND_DIST = new URL("../../web/dist", import.meta.url).pathname;
@@ -43,6 +45,7 @@ export function corsOriginAllowed(request: Request): boolean {
 }
 
 export function createApp() {
+  configureRestartViewers(closeAllViewers);
   const app = new Elysia()
     // Mounted first so the global onError owns every failure thrown anywhere
     // in the app (its hooks are registered before any route exists).

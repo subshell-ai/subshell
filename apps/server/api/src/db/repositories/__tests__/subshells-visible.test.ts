@@ -21,7 +21,7 @@ import {
   detachConnection,
   isNodeOffline,
   resetNodeRegistryForTests,
-} from "@/services/nodes/node-registry.js";
+} from "@/modules/nodes/node-registry.js";
 
 /**
  * Visibility is the WHERE-clause half of the sharing feature; it must be

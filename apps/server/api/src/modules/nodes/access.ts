@@ -1,0 +1,219 @@
+import type { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
+import type { NodesRepository } from "@/db/repositories/nodes.repository.js";
+import type { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
+import type { NodeSharePermission } from "@/db/types/node-shares.db-types.js";
+import type { NodeKind, NodeTable } from "@/db/types/nodes.db-types.js";
+
+/**
+ * A viewer's effective access to one node (spec 2026-08-31 §2). Viewer-relative:
+ * the same node is `owner` to its creator, `edit`/`view` to a grantee, and
+ * `none` to everyone else. Admins resolve to `edit` (spec §1: instance-wide
+ * effective operator access, not ownership) — re-share stays with the real
+ * owner via `nodeCanManage`, while delete and re-registration join the admin
+ * through `nodeCanRetire` (operator ruling 2026-10-09: an admin who can
+ * see every machine must be able to retire one).
+ */
+export type NodeAccess = "owner" | "edit" | "view" | "none";
+
+const RANK: Record<NodeAccess, number> = { none: 0, view: 1, edit: 2, owner: 3 };
+
+/**
+ * Pure resolver — no DB. Given the caller's identity, the node row's ownership,
+ * and its grant rows, returns the highest access that applies.
+ *
+ * Order (spec §2): owner wins outright (an admin viewing their OWN node is
+ * `owner`, not `edit`); else an admin gets `edit`; else the highest of the
+ * Everyone grant and any grant naming this viewer; else `none`.
+ *
+ * @param viewerId - The signed-in user asking
+ * @param isAdmin - Whether that user holds the admin role
+ * @param node - The node being accessed (only `id`/`ownerUserId` read)
+ * @param shares - The node's grant rows (only `granteeUserId`/`permission` read)
+ */
+export function resolveNodeAccess(
+  viewerId: string,
+  isAdmin: boolean,
+  node: { id: string; ownerUserId: string },
+  shares: { granteeUserId: string | null; permission: NodeSharePermission }[],
+): NodeAccess {
+  if (viewerId === node.ownerUserId) return "owner";
+  if (isAdmin) return "edit";
+  let best: NodeAccess = "none";
+  for (const s of shares) {
+    if (s.granteeUserId !== null && s.granteeUserId !== viewerId) continue;
+    if (RANK[s.permission] > RANK[best]) best = s.permission;
+  }
+  return best;
+}
+
+/**
+ * Whether this viewer may LAUNCH on this node, given both readings of their
+ * access (spec 2026-08-31 §2, amended 2026-09-12).
+ *
+ * For an agent node it is the plain rule: any share grants launch.
+ *
+ * **For `local` it is the GRANTED access alone, with the admin boost ignored.**
+ * Switching off launching on the control-plane host is the removal of that
+ * node's seeded Everyone/`edit` row, and an admin resolves to `edit` on every
+ * node — so without this the one person who can turn the switch off is the one
+ * person it never applied to, and the setting quietly means something
+ * different for whoever sets it. `local` is owned by the SYSTEM user, so no
+ * human is its owner and every human's launch access to it is a grant or
+ * nothing.
+ *
+ * This deliberately creates a VISIBLE-BUT-UNLAUNCHABLE node, which no other
+ * node has: an admin must keep seeing `local` to switch it back on. Callers
+ * must therefore refuse it as a 403 rather than the 404 an invisible node
+ * gets — a node the viewer can see on the Nodes page must not answer "not
+ * found" here.
+ *
+ * **Maintenance is ANDed in on every kind** (spec 2026-09-14). It is a
+ * property of the machine rather than of anyone's grants: shares answer WHO
+ * may launch, maintenance answers WHETHER anyone may, and in a window nobody
+ * launches — owner, admins and grantees alike, with `local` meaning exactly
+ * the same thing. It is a REQUIRED argument rather than an optional one so
+ * that every call site fails to compile until it has passed the row's flag; a
+ * defaulted parameter would have let a new caller inherit "not in
+ * maintenance" silently, which is the one wrong answer this gate can give.
+ *
+ * @param kind - the node's kind; only `local` reads `granted`
+ * @param access - the viewer's resolved access, admin boost included
+ * @param granted - the same resolution with `isAdmin` false
+ * @param maintenance - whether the node row's maintenance flag is set
+ */
+export function nodeCanLaunchOn(
+  kind: NodeKind,
+  access: NodeAccess,
+  granted: NodeAccess,
+  maintenance: boolean,
+  serverAsNode = true,
+): boolean {
+  if (maintenance) return false;
+  // The admin's "don't run subshells on the Server" switch: a fact about the
+  // ONE machine, so it never reaches an agent row. Not folded into
+  // `maintenance` — that word says "temporarily out of service, panes killed"
+  // and this says "not a launch target"; the node view keeps them distinct.
+  if (kind === "local" && !serverAsNode) return false;
+  return kind === "local" ? nodeCanLaunch(granted) : nodeCanLaunch(access);
+}
+
+/**
+ * TRUE when ANY share level grants launch — deliberately NOT the subshell rule,
+ * where launch sits at edit. Product decision (spec 2026-08-31 §2): a `view`
+ * grantee may start subshells on a node (launching is not configuring); the
+ * capability rule for nodes is — any share grants launch; edit/owner grants
+ * config; managing SHARES requires the owner (admin on `local`), while DELETE
+ * and RE-REGISTER are the retire gate, owner OR any admin (see `nodeCanRetire`);
+ * the routes layer the seeded-`local` admin exception, since the resolver ranks
+ * admins at `edit`, never `owner`.
+ */
+export function nodeCanLaunch(access: NodeAccess): boolean {
+  return access !== "none";
+}
+
+/** True when the viewer may change node config (shares, harness state, rename). */
+export function nodeCanConfigure(access: NodeAccess): boolean {
+  return access === "owner" || access === "edit";
+}
+
+/**
+ * True only for the real owner — re-share, rename, maintenance, the allowlist
+ * and key rotation (the routes layer on the local-node admin exception via
+ * `nodeCanManageFor`). DELETE and RE-REGISTER are NOT here: they are the wider
+ * retire gate below, which admins hold on every machine.
+ */
+export function nodeCanManage(access: NodeAccess): boolean {
+  return access === "owner";
+}
+
+/**
+ * THE manage rule, in one place: the real owner, or an admin on the seeded
+ * `local` node (T3 ruling — the resolver ranks admins at `edit`, never
+ * `owner`, so the local-node admin exception is layered on here). Both the
+ * route gate (`loadNodeGate`) and the rendered views (`node-view.ts`) derive
+ * `canManage` from this call so the rule can never drift between them.
+ *
+ * @param rowKind - The node's kind (only `local` opens the admin exception)
+ * @param access - The viewer's resolved access on the row
+ * @param isAdmin - Whether the viewer holds the admin role
+ */
+export function nodeCanManageFor(rowKind: NodeKind, access: NodeAccess, isAdmin: boolean): boolean {
+  return nodeCanManage(access) || (rowKind === "local" && isAdmin);
+}
+
+/**
+ * THE retire rule, in one place: the real owner, or ANY admin. It gates the two
+ * acts that end or replace a machine's standing on this plane — DELETE and
+ * RE-REGISTER (the #351 admin arm put every machine on every admin's Nodes
+ * page; operator ruling 2026-10-09: the page must then be able to act on what
+ * it shows, or it reads as broken). It deliberately does NOT extend to
+ * `canManage`: managing SHARES of someone else's machine stays the owner's act
+ * (a retirement ends a node; a re-share widens who can use it), and so do
+ * rename, maintenance and the allowlist.
+ *
+ * On `local` this answers the same as `nodeCanManageFor` (the owner there is
+ * the system user; admin-on-local was already true). No caller can actually
+ * retire `local`: delete 400s on the kind BEFORE this gate, and reregister's
+ * kind 400 is what a retire-authorized admin hits (a plain viewer of `local`
+ * is 403'd by the gate first, but that viewer cannot retire anything either).
+ * Both the route gate
+ * (`loadNodeGate`) and the rendered views (`node-view.ts`) derive `canRetire`
+ * from this call so the rule can never drift between them.
+ *
+ * @param access - The viewer's resolved access on the row
+ * @param isAdmin - Whether the viewer holds the admin role
+ */
+export function nodeCanRetire(access: NodeAccess, isAdmin: boolean): boolean {
+  return nodeCanManage(access) || isAdmin;
+}
+
+/** The repositories `loadNodeAccess` needs — injected so tests use a scratch DB. */
+export interface NodeAccessDeps {
+  nodes: NodesRepository;
+  shares: NodeSharesRepository;
+  userMeta: UserMetaRepository;
+}
+
+/**
+ * Loads a node and resolves one viewer's access to it in a single step, so
+ * every gate (HTTP, RPC, launch) asks the same question the same way — the node
+ * mirror of `loadSubshellAccess` (spec 2026-08-31 §2).
+ *
+ * A missing node is NOT an error here — it returns `{ row: undefined,
+ * access: "none" }` so the caller can map it to the same 404 as an invisible
+ * node (never leaking that the id exists).
+ *
+ * Answers BOTH readings of the viewer's access: `access` includes the admin
+ * boost, and `granted` is the same resolution without it — which is what
+ * `nodeCanLaunchOn` reads for the control-plane host.
+ *
+ * @param opts.allowAdminAndShares - `true` (default) for a human in a browser:
+ * admins get effective edit and shared grants count. Pass `false` for a machine
+ * bearer token — it may act ONLY on its own owner's nodes, never on foreign or
+ * shared ones and never via the admin boost (no grant or role lookup happens at
+ * all, keeping the machine path as strict as a plain owner check).
+ */
+export async function loadNodeAccess(
+  deps: NodeAccessDeps,
+  viewerId: string,
+  nodeId: string,
+  opts: { allowAdminAndShares?: boolean } = {},
+): Promise<{ row: NodeTable | undefined; access: NodeAccess; granted: NodeAccess }> {
+  const row = await deps.nodes.findById(nodeId);
+  if (!row) return { row: undefined, access: "none", granted: "none" };
+  const allow = opts.allowAdminAndShares ?? true;
+  const isAdmin = allow && (await deps.userMeta.getRole(viewerId)) === "admin";
+  const shares = allow ? await deps.shares.listForNode(nodeId) : [];
+  return {
+    row,
+    access: resolveNodeAccess(viewerId, isAdmin, row, shares),
+    // The same resolution WITHOUT the admin boost. `nodeCanLaunchOn` reads it
+    // for `local`, where the boost must not stand in for the launch grant an
+    // admin just removed. Computed here rather than at the call site so the
+    // two readings can never come from two different share sets.
+    granted: resolveNodeAccess(viewerId, false, row, shares),
+  };
+}
+
+/** Access carried by visible node views; invisible nodes have no view. */
+export type NodeViewableAccess = Exclude<NodeAccess, "none">;

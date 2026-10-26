@@ -1,9 +1,10 @@
 import { normalizeLabel } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { authGuard, HttpError, requirePerm } from "@/api/auth-guard.js";
-import { contextPlugin } from "@/plugins/context.plugin.js";
-import { apiModels } from "@/schema/index.js";
-import { HarnessSubagents } from "@/services/harness-subagents.js";
+import { authGuard, requirePerm } from "@/api/auth-guard.js";
+import { contextPlugin } from "@/api/middleware/context.plugin.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { HarnessSubagents } from "@/modules/subshells/harness-subagents.js";
+import { HttpError } from "@/shared/errors.js";
 
 // One registry per database context. The WeakMap key is the app's `ctx.db`;
 // per-file test isolation comes from each test file's fresh module registry.

@@ -68,7 +68,7 @@ faster loop. This package once overrode it to
 `["@internal/backend-errors#build:dev"]`, which let `@internal/server#test` run
 CONCURRENTLY with a dependency's build. `tsdown` cleans `outDir` before writing,
 so `packages/subshell-protocol/dist` vanishes for a moment mid-run, and
-`__tests__/cli-entry.test.ts` spawns a REAL subprocess (`bun src/index.ts`),
+`cli/__tests__/cli-entry.test.ts` spawns a REAL subprocess (`bun src/index.ts`),
 which is the one place that re-resolves the workspace package from disk rather
 than from the parent's module cache. The child died with `Cannot find module
 '@internal/subshell-protocol'`, surfacing as a rare "configure must not boot"
@@ -83,7 +83,7 @@ same DB, so a suite may never assume it starts empty; under the `test`
 script's `--parallel=12` the opposite holds, every file gets a fresh module
 registry and its own DB file, so a suite may never assume another file's
 migrations happened either - DB-touching suites call
-`@/__tests__/helpers/test-database.js` explicitly. Tests never touch
+`@/testing/test-database.js` explicitly. Tests never touch
 `data/`. (The path used to be the URI string `file::memory:?cache=shared`, but
 Bun treats URI strings as file names; every suite was sharing one literal
 CWD file.)

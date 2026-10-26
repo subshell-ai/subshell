@@ -1,8 +1,8 @@
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { db } from "@/db/index.js";
 import { DeviceTokensRepository } from "@/db/repositories/device-tokens.repository.js";
-import { apiModels } from "@/schema/index.js";
 
 // One policy string for both verbs — the notifications route does the same with
 // NOTIFICATIONS_403 so the wire bytes can't drift per endpoint.

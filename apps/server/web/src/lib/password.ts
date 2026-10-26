@@ -8,7 +8,7 @@
  * screen said what it was, leaving a greyed Create Account button and no way
  * to learn why (operator's report, 2026-09-14).
  *
- * **It mirrors better-auth's own default**, which `apps/server/api/src/auth.ts`
+ * **It mirrors better-auth's own default**, which `apps/server/api/src/modules/auth/auth.ts`
  * does not override. If the server ever sets `minPasswordLength`, this is the
  * value that has to move with it — a form that asks for less than the server
  * accepts fails on submit with the server's words instead of its own.

@@ -1,16 +1,21 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { NODE_TARGETS, type NodeTarget, nodeArtifactFileName } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
+import { apiErrorBody } from "@/api/api-error.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { resolveNodeServe } from "@/lib/node-artifact-serve.js";
-import { artifactPath, artifactSha, diskArtifactSha256, staleArtifactRefusal } from "@/lib/node-artifacts.js";
-import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
-import { apiModels } from "@/schema/index.js";
-import { consumeUpdateToken } from "@/services/nodes/update-tokens.js";
-import { autoFetchEnabled, fetchArtifact, fetchDigest } from "@/services/releases.js";
-import { getLogger } from "@/utils/logger.js";
+import { extractSessionToken, resolveCookieSession } from "@/modules/auth/session-cookie.js";
+import { resolveNodeServe } from "@/modules/updates/node-artifact-serve.js";
+import {
+  artifactPath,
+  artifactSha,
+  diskArtifactSha256,
+  staleArtifactRefusal,
+} from "@/modules/updates/node-artifacts.js";
+import { consumeUpdateToken } from "@/modules/updates/node-tokens.js";
+import { autoFetchEnabled, fetchArtifact, fetchDigest } from "@/modules/updates/releases.js";
+import { getLogger } from "@/shared/logger.js";
 
 /**
  * The PATH-SAFETY gate, checked IN-HANDLER as the first statement of every

@@ -288,7 +288,7 @@ describe("NodeHarnessCard", () => {
 
   it("an edit grantee is offered Re-check, because that is the server's gate", async () => {
     // The recheck route gates on `nodeCanConfigure` = owner|edit
-    // (api/src/lib/node-access.ts), and the security posture documents it:
+    // (api/src/modules/nodes/access.ts), and the security posture documents it:
     // "edit (or owner) additionally configures the node (re-checks)".
     // Gating the button on `canManage` hid a permitted action — the button
     // mirrors the route, and the manage affordances stay gone for everyone.

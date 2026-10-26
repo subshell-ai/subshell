@@ -108,7 +108,7 @@ describe("change selection", () => {
       "@internal/desktop-server",
     ]);
     expect(plan(["apps/server/web/src/types/permissions.ts"]).packages).toContain("@internal/desktop-server");
-    expect(plan(["apps/server/api/src/services/releases.ts"]).scripts).toBe(true);
+    expect(plan(["apps/server/api/src/modules/updates/releases.ts"]).scripts).toBe(true);
     expect(
       plan(["packages/subshell-protocol/src/__tests__/fixtures/release-signature/publisher-pubkey.txt"]).scripts,
     ).toBe(true);

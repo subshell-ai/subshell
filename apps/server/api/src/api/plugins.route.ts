@@ -13,26 +13,27 @@ import {
 } from "@internal/pane-runtime";
 import type { PluginReportWire } from "@internal/subshell-protocol";
 import { Elysia, type Static, t } from "elysia";
-import { authGuard, HttpError, requireAdmin } from "@/api/auth-guard.js";
-import { HarnessStateError } from "@/api/harness-utils.js";
-import { beginNetworkOp, busyRefusal, endNetworkOp } from "@/api/network/network-gate.js";
+import { authGuard, requireAdmin } from "@/api/auth-guard.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { IS_TEST, SUBSHELL_PLUGIN_REGISTRY_URL } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
-import { apiModels } from "@/schema/index.js";
-import { audit } from "@/services/audit.js";
-import { refreshNetworkOrigins } from "@/services/network/origin-refresh.js";
-import { forgetNetworkOrigins, syncNetworkOrigins, tombstoneNetworkPlugin } from "@/services/network/origins.js";
-import { clearNetworkState, writeNetworkState } from "@/services/network/state.js";
-import { unpublishNetwork } from "@/services/network/unpublish.js";
+import { audit } from "@/modules/audit.js";
+import { beginNetworkOp, busyRefusal, endNetworkOp } from "@/modules/network/operations.js";
+import { refreshNetworkOrigins } from "@/modules/network/origin-refresh.js";
+import { forgetNetworkOrigins, syncNetworkOrigins, tombstoneNetworkPlugin } from "@/modules/network/origins.js";
+import { clearNetworkState, writeNetworkState } from "@/modules/network/state.js";
+import { unpublishNetwork } from "@/modules/network/unpublish.js";
+import { HarnessStateError } from "@/modules/plugins/availability.js";
 import {
   installLocalPlugin,
   localPluginReports,
   localPluginsDir,
   uninstallLocalPlugin,
-} from "@/services/nodes/local-plugins.js";
+} from "@/modules/plugins/store.js";
+import { HttpError } from "@/shared/errors.js";
 
 /**
  * The instance-level plugins door (spec 2026-09-10 §6, §6.1).
@@ -459,7 +460,7 @@ const adminRoutes = new Elysia()
       // both are live would leave a `public-with-gate` hostname serving
       // traffic that nothing in the UI still claims to be publishing. The
       // sequence — process down, plugin unpublishes, guard off LAST — is
-      // `services/network/unpublish.ts`, the same function the unpublish
+      // `modules/network/unpublish.ts`, the same function the unpublish
       // route runs, so the ordering exists once.
       //
       // A failure REFUSES the disable (409): leaving the flag on is what keeps

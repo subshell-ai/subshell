@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Terminal } from "@xterm/xterm";
-import { captureToReplayText } from "../../../../api/src/ws/capture-text.js";
+import { captureToReplayText } from "../../../../api/src/api/ws/capture-text.js";
 
 /**
  * The CLIENT half of the attach-replay contract (2026-09-04 garble).

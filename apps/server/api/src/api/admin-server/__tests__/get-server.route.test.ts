@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { Elysia } from "elysia";
 import { adminServerRoutes } from "@/api/admin-server/index.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { authedRequest } from "../../__tests__/helpers/auth-tables.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
+import { authedRequest } from "../../../testing/api/auth-tables.js";
 import { type AdminServerFixture, bearerRequest, setupAdminServerFixture } from "./fixture.js";
 
 const app = new Elysia().use(errorHandlerPlugin).use(adminServerRoutes);

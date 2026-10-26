@@ -1,6 +1,6 @@
 import { getMigrations } from "better-auth/db/migration";
-import { authDatabase } from "@/auth/database.js";
-import { AUTH_OPTIONS } from "@/auth.js";
+import { AUTH_OPTIONS } from "@/modules/auth/auth.js";
+import { authDatabase } from "@/modules/auth/database.js";
 
 /**
  * Creates better-auth's own tables (user/session/account/verification) on a

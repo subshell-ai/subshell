@@ -11,7 +11,7 @@ see the release-coherent rule below), never anonymous.
 A binary-only server install ships that dir EMPTY. That used to mean the
 install one-liner 404ed until someone published; since 2026-09-12 the server
 FETCHES a missing binary from the project's own `cli-node-v*` GitHub release the
-first time a machine asks for it (`services/releases.ts`). Binary bytes are
+first time a machine asks for it (`modules/updates/releases.ts`). Binary bytes are
 still lazy: served on request, never warmed up, no admin button, no poll, so a
 plane whose nodes are all one platform never spends a byte on the others.
 Since 2026-10-09 the tiny index/manifest reads behind the serve decision run
@@ -44,7 +44,7 @@ spec 2026-09-17 so is an UNSIGNED or unverifiable one (every cut before
 2026-09-17): `release-manifest.json.sig` must minisign-verify against
 `RELEASE_PUBKEY`, and the digest an install is told comes from the signed
 `assets` map, never from the release source's `.sha256` sidecar (the sidecars
-stay published for `install.sh` alone). `services/releases.ts`'s
+stay published for `install.sh` alone). `modules/updates/releases.ts`'s
 `checkReleaseManifest`/`signedAssetDigest` are that one gate, shared by the
 lazy fetch, `fetchDigest` (so the `update` command's digest), the server's own
 `update`, and the Updates page; the three-way refusal grammar
@@ -85,7 +85,7 @@ read of it, and a `cache: false` fetch runs uncoalesced because its temp
 cleanup belongs to that one caller.
 
 Three surfaces still report what is on disk, so the air-gapped case is visible
-instead of being discovered: the published set (`lib/node-artifacts.ts:publishedNodeTargets`,
+instead of being discovered: the published set (`modules/updates/node-artifacts.ts:publishedNodeTargets`,
 the same regular-non-empty-file rule the download routes 404 on) rides
 `GET /api/settings/public → nodeArtifactTargets` for the dialog (beside
 `nodeArtifactsAutoFetch`, which is what tells the dialog whether an absent
@@ -96,6 +96,6 @@ rendered `install.sh` downloads to a temp path, inspects the HTTP code
 key; network → says so), verifies the digest BEFORE the temp file may
 `mv`-replace `$DEST`, and can therefore never clobber an installed node on
 a failed download;
-and `services/nodes/control-keys.ts` holds the command-signing keypair at
+and `modules/nodes/control-keys.ts` holds the command-signing keypair at
 `<SUBSHELL_SERVER_DATA_DIR>/node-signing.json` (0600); whoever holds it commands
 every enrolled node.

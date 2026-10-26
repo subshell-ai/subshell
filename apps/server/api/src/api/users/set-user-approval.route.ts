@@ -1,13 +1,13 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
+import { apiErrorBody } from "@/api/api-error.js";
 import { requireAdmin } from "@/api/auth-guard.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { requireManageableUser } from "@/api/users/require-manageable-user.js";
 import { db } from "@/db/index.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
-import { audit } from "@/services/audit.js";
+import { audit } from "@/modules/audit.js";
 
 const ApprovalStateSchema = t.Union([t.Literal("approved"), t.Literal("rejected")], {
   description: "The queue decision to record for this person",

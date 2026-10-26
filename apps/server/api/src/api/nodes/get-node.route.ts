@@ -1,17 +1,17 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia } from "elysia";
-import { loadNodeGate } from "@/api/nodes/node-gate.js";
+import { apiErrorBody } from "@/api/api-error.js";
 import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
 import { GetNodeResponseSchema, sshTrustView, toNodeShareViews, toNodeView } from "@/api/nodes/node-view.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { nodeCanConfigure } from "@/lib/node-access.js";
-import { apiModels } from "@/schema/index.js";
-import { detectOnNodeBestEffort } from "@/services/nodes/inventory.js";
-import { getLive } from "@/services/nodes/node-registry.js";
-import { nodeUpdateBlockReason } from "@/services/server-update.js";
-import { localSshTrustReport } from "@/services/ssh-local-participant.js";
+import { nodeCanConfigure } from "@/modules/nodes/access.js";
+import { loadNodeGate } from "@/modules/nodes/gate.js";
+import { detectOnNodeBestEffort } from "@/modules/nodes/inventory.js";
+import { getLive } from "@/modules/nodes/node-registry.js";
+import { localSshTrustReport } from "@/modules/ssh/ssh-local-participant.js";
+import { nodeUpdateBlockReason } from "@/modules/updates/server-update.js";
 
 /**
  * `GET /api/nodes/:id` — one node view for the caller. Missing and invisible

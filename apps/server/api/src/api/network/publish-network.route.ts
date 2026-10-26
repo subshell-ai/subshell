@@ -1,7 +1,12 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { withPluginOutput } from "@internal/pane-runtime";
 import { Elysia } from "elysia";
+import { apiErrorBody } from "@/api/api-error.js";
 import { ndjsonResponse } from "@/api/network/ndjson.js";
+import { requireNetworkAdmin } from "@/api/network/network-gate.js";
+import { NetworkParamsSchema } from "@/api/network/schemas.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { setPluginGuards } from "@/modules/network/access-guards.js";
 import {
   auditNetwork,
   configurationRefusal,
@@ -10,16 +15,11 @@ import {
   prepareNetworkAct,
   readinessRefusal,
   readNetworkStatus,
-  requireNetworkAdmin,
-} from "@/api/network/network-gate.js";
-import { NetworkParamsSchema } from "@/api/network/schemas.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { setPluginGuards } from "@/plugins/access-guard.plugin.js";
-import { apiModels } from "@/schema/index.js";
-import { syncNetworkOrigins } from "@/services/network/origins.js";
-import { resolveNetworkGuard } from "@/services/network/resolve-guard.js";
-import { networkContext, writeNetworkState } from "@/services/network/state.js";
-import { armProcess } from "@/services/network/supervisor.js";
+} from "@/modules/network/operations.js";
+import { syncNetworkOrigins } from "@/modules/network/origins.js";
+import { resolveNetworkGuard } from "@/modules/network/resolve-guard.js";
+import { networkContext, writeNetworkState } from "@/modules/network/state.js";
+import { armProcess } from "@/modules/network/supervisor.js";
 
 /**
  * `POST /api/network/:id/publish` (spec 2026-09-15 § 5.1, § 5.4).
@@ -32,7 +32,7 @@ import { armProcess } from "@/services/network/supervisor.js";
  * `public-with-gate` plugin, any other order leaves an instant in which a
  * tunnel is alive and unguarded, which is the whole exposure this design
  * refuses to take. Unpublishing reverses it — process down first, guard off
- * last (`services/network/unpublish.ts`).
+ * last (`modules/network/unpublish.ts`).
  *
  * **A refusal from the plugin is an ANSWER, not a failure.** `publish()` may
  * return a `PublishRefusal` naming what the operator has to do first; that
@@ -41,7 +41,7 @@ import { armProcess } from "@/services/network/supervisor.js";
  *
  * **Nothing is written to config.env.** The addresses become trusted origins
  * the moment the record says published, through the registry
- * (`services/trusted-origins.ts`); there is no restart and no key the
+ * (`modules/network/trusted-origins.ts`); there is no restart and no key the
  * environment could own.
  */
 export const publishNetworkRoute = new Elysia().use(apiModels).post(

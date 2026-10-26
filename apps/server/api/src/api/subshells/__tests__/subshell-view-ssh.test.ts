@@ -5,8 +5,8 @@ import { db } from "@/db/index.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { effectiveViewerAccess } from "@/services/subshells.service.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+import { effectiveViewerAccess } from "@/modules/subshells/subshells.service.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
  * The ssh view truth (spec 2026-10-07 §5.4, plan 3 decision 1): an ssh pane

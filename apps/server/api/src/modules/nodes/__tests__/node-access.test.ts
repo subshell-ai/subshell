@@ -1,0 +1,324 @@
+import { beforeAll, describe, expect, it } from "bun:test";
+import { db } from "@/db/index.js";
+import { runMigrations } from "@/db/migrate.js"; // no-op when already applied
+import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
+import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
+import type { NodeSharePermission } from "@/db/types/node-shares.db-types.js";
+import {
+  loadNodeAccess,
+  nodeCanConfigure,
+  nodeCanLaunch,
+  nodeCanLaunchOn,
+  nodeCanManage,
+  nodeCanManageFor,
+  nodeCanRetire,
+  resolveNodeAccess,
+} from "@/modules/nodes/access.js";
+
+/**
+ * The node-access resolver (spec 2026-08-31 §2) — one authorization question,
+ * deliberately NOT the subshell rule: on nodes ANY share level grants launch,
+ * `edit`/`owner` grants config, and only the owner manages (delete/shares;
+ * routes add the seeded-`local` admin exception themselves).
+ */
+
+// Salted unique ids (same pattern as nodes.repository.test.ts): every test file
+// in one `bun test` invocation shares the temp DB and seq restarts per file.
+const salt = Math.random().toString(36).slice(2, 8);
+let seq = 0;
+const unique = (p: string) => `${p}-${process.pid}-${salt}-${seq++}`;
+
+const grant = (granteeUserId: string | null, permission: NodeSharePermission) => ({ granteeUserId, permission });
+const node = (id: string, ownerUserId: string) => ({ id, ownerUserId });
+
+describe("resolveNodeAccess (pure)", () => {
+  it("the owner always resolves to owner — even as admin, even with no shares", () => {
+    expect(resolveNodeAccess("alice", false, node("n1", "alice"), [])).toBe("owner");
+    // Owner wins over the admin boost: an admin viewing their OWN node is owner,
+    // not edit — otherwise nodeCanManage would wrongly deny them their own node.
+    expect(resolveNodeAccess("alice", true, node("n1", "alice"), [])).toBe("owner");
+    expect(resolveNodeAccess("alice", true, node("n1", "alice"), [grant(null, "view")])).toBe("owner");
+  });
+
+  it("an admin on a foreign node gets edit (spec §1 instance-wide edit)", () => {
+    expect(resolveNodeAccess("root", true, node("n1", "alice"), [])).toBe("edit");
+    // …and the boost never outranks a real owner-match above; a named grant on
+    // the admin is irrelevant — admin already resolves to edit.
+    expect(resolveNodeAccess("root", true, node("n1", "alice"), [grant("root", "view")])).toBe("edit");
+  });
+
+  it("Everyone(view) alone → view", () => {
+    expect(resolveNodeAccess("bob", false, node("n1", "alice"), [grant(null, "view")])).toBe("view");
+  });
+
+  it("Everyone(edit) → edit; a named/edit grant → edit", () => {
+    expect(resolveNodeAccess("bob", false, node("n1", "alice"), [grant(null, "edit")])).toBe("edit");
+    expect(resolveNodeAccess("bob", false, node("n1", "alice"), [grant("bob", "edit")])).toBe("edit");
+  });
+
+  it("the highest of Everyone + named grants wins (view+edit mix → edit)", () => {
+    expect(resolveNodeAccess("bob", false, node("n1", "alice"), [grant(null, "view"), grant("bob", "edit")])).toBe(
+      "edit",
+    );
+    expect(resolveNodeAccess("bob", false, node("n1", "alice"), [grant(null, "edit"), grant("bob", "view")])).toBe(
+      "edit",
+    );
+  });
+
+  it("a grant naming someone else does not leak to the viewer", () => {
+    expect(resolveNodeAccess("bob", false, node("n1", "alice"), [grant("carol", "edit")])).toBe("none");
+  });
+
+  it("no grant, not owner, not admin → none", () => {
+    expect(resolveNodeAccess("bob", false, node("n1", "alice"), [])).toBe("none");
+  });
+});
+
+describe("capability predicates (spec §2 — NOT the subshell rule)", () => {
+  it("ANY level except none grants launch — view included", () => {
+    expect(nodeCanLaunch("view")).toBe(true); // the §2 delta vs subshells: pinned
+    expect(nodeCanLaunch("edit")).toBe(true);
+    expect(nodeCanLaunch("owner")).toBe(true);
+    expect(nodeCanLaunch("none")).toBe(false);
+  });
+
+  it("config needs edit or owner", () => {
+    expect(nodeCanConfigure("view")).toBe(false);
+    expect(nodeCanConfigure("edit")).toBe(true);
+    expect(nodeCanConfigure("owner")).toBe(true);
+    expect(nodeCanConfigure("none")).toBe(false);
+  });
+
+  it("manage (re-share/rename/maintenance) is owner-only — admins get false here, retire is the wider gate", () => {
+    expect(nodeCanManage("owner")).toBe(true);
+    expect(nodeCanManage("edit")).toBe(false);
+    expect(nodeCanManage("view")).toBe(false);
+    expect(nodeCanManage("none")).toBe(false);
+  });
+
+  it("a view grant launches but does not configure", () => {
+    const access = resolveNodeAccess("bob", false, node("n1", "alice"), [grant(null, "view")]);
+    expect(nodeCanLaunch(access)).toBe(true);
+    expect(nodeCanConfigure(access)).toBe(false);
+    expect(nodeCanManage(access)).toBe(false);
+  });
+});
+
+describe("nodeCanManageFor (ONE rule shared by the gate and the views)", () => {
+  it("owner always manages, on either kind", () => {
+    expect(nodeCanManageFor("agent", "owner", false)).toBe(true);
+    expect(nodeCanManageFor("local", "owner", false)).toBe(true);
+    expect(nodeCanManageFor("local", "owner", true)).toBe(true);
+  });
+
+  it("edit/view manage only via the seeded-`local` admin exception", () => {
+    // Admin on `local` manages (T3 ruling); admin on an agent node does not.
+    expect(nodeCanManageFor("local", "edit", true)).toBe(true);
+    expect(nodeCanManageFor("agent", "edit", true)).toBe(false);
+    expect(nodeCanManageFor("local", "view", true)).toBe(true); // local is Everyone/edit → admin resolves edit anyway
+    // A plain grantee never manages, whatever the kind.
+    expect(nodeCanManageFor("local", "edit", false)).toBe(false);
+    expect(nodeCanManageFor("agent", "edit", false)).toBe(false);
+    expect(nodeCanManageFor("agent", "view", false)).toBe(false);
+    expect(nodeCanManageFor("agent", "none", true)).toBe(false);
+  });
+});
+
+describe("nodeCanRetire (delete + re-register: owner OR any admin)", () => {
+  it("the owner always retires; any admin retires, whatever the access", () => {
+    expect(nodeCanRetire("owner", false)).toBe(true);
+    // The ruling's whole point: an admin resolves to `edit` on a foreign
+    // agent (manage false) yet still retires it.
+    expect(nodeCanRetire("edit", true)).toBe(true);
+    expect(nodeCanRetire("view", true)).toBe(true);
+  });
+
+  it("a plain grantee retires nothing", () => {
+    expect(nodeCanRetire("edit", false)).toBe(false);
+    expect(nodeCanRetire("view", false)).toBe(false);
+    expect(nodeCanRetire("none", false)).toBe(false);
+  });
+
+  it("`none` never pairs with an admin (the resolver ranks admins at edit)", () => {
+    // So the impossible-state question "does an admin retire a node they
+    // cannot even see?" has no answer to pin: `resolveNodeAccess` returns
+    // `edit` for an admin BEFORE the shares loop, and the gate 404s `none`.
+    // The predicate's `|| isAdmin` is therefore only ever reached at edit+.
+    expect(resolveNodeAccess("root", true, node("n1", "alice"), [])).toBe("edit");
+  });
+});
+
+describe("loadNodeAccess", () => {
+  const deps = {
+    nodes: new NodesRepository(db),
+    shares: new NodeSharesRepository(db),
+    userMeta: new UserMetaRepository(db),
+  };
+
+  beforeAll(async () => {
+    await runMigrations();
+  });
+
+  async function mkNode(ownerUserId: string) {
+    return deps.nodes.create({
+      id: unique("n"),
+      ownerUserId,
+      name: unique("node"),
+      kind: "agent",
+      status: "offline",
+    });
+  }
+
+  async function mkAdmin(): Promise<string> {
+    const userId = unique("u");
+    await (db as any).insertInto("userMeta").values({ userId, role: "admin" }).execute();
+    return userId;
+  }
+
+  it("a missing row yields { undefined, 'none' } so routes can 404 uniformly", async () => {
+    const { row, access } = await loadNodeAccess(deps, unique("u"), unique("ghost"));
+    expect(row).toBeUndefined();
+    expect(access).toBe("none");
+  });
+
+  it("resolves owner / admin-edit / grantee-view / none from real rows + roles", async () => {
+    const owner = unique("u");
+    const admin = await mkAdmin();
+    const stranger = unique("u");
+    const grantee = unique("u");
+    const n = await mkNode(owner);
+
+    expect((await loadNodeAccess(deps, owner, n.id)).access).toBe("owner");
+    expect((await loadNodeAccess(deps, admin, n.id)).access).toBe("edit");
+    // Invisible to a stranger — same "none" as a missing row (404, never 403).
+    expect((await loadNodeAccess(deps, stranger, n.id)).access).toBe("none");
+
+    await deps.shares.replaceForNode(n.id, [grant(grantee, "view")], owner);
+    expect((await loadNodeAccess(deps, grantee, n.id)).access).toBe("view");
+    // row comes back for the resolved viewer
+    const loaded = await loadNodeAccess(deps, owner, n.id);
+    expect(loaded.row?.id).toBe(n.id);
+  });
+
+  it("Everyone grant reaches every viewer", async () => {
+    const owner = unique("u");
+    const viewer = unique("u");
+    const n = await mkNode(owner);
+    await deps.shares.replaceForNode(n.id, [grant(null, "edit")], owner);
+    expect((await loadNodeAccess(deps, viewer, n.id)).access).toBe("edit");
+  });
+
+  it("allowAdminAndShares:false (machine actor) — admin loses the boost, grants ignored", async () => {
+    const owner = unique("u");
+    const admin = await mkAdmin();
+    const grantee = unique("u");
+    const n = await mkNode(owner);
+    await deps.shares.replaceForNode(n.id, [grant(grantee, "edit"), grant(null, "view")], owner);
+
+    const opts = { allowAdminAndShares: false } as const;
+    // Admin who is not the owner drops to none…
+    expect((await loadNodeAccess(deps, admin, n.id, opts)).access).toBe("none");
+    // …as does a grantee — no share rows are consulted at all…
+    expect((await loadNodeAccess(deps, grantee, n.id, opts)).access).toBe("none");
+    // …while the owner-match still resolves (a machine key acts on its own owner's rows).
+    expect((await loadNodeAccess(deps, owner, n.id, opts)).access).toBe("owner");
+  });
+});
+
+/**
+ * Switching off launching on the control-plane host is the removal of
+ * `local`'s seeded Everyone/`edit` row — and an admin resolves to `edit` on
+ * every node. Without this rule the one person who can turn the switch off is
+ * the one person it never applied to (operator's call, 2026-09-12).
+ */
+describe("nodeCanLaunchOn", () => {
+  it("ignores the admin boost on the control-plane host", () => {
+    // Admin, no grant left: `access` is the boost, `granted` is the truth.
+    expect(nodeCanLaunchOn("local", "edit", "none", false)).toBe(false);
+    // The same admin on an AGENT node keeps the boost — this rule is `local`'s
+    // alone, and nothing about sharing someone else's machine changed.
+    expect(nodeCanLaunchOn("agent", "edit", "none", false)).toBe(true);
+  });
+
+  it("lets a real grant launch on the host, at any level", () => {
+    for (const granted of ["view", "edit", "owner"] as const) {
+      expect(nodeCanLaunchOn("local", "edit", granted, false)).toBe(true);
+    }
+  });
+
+  it("refuses a viewer with no access at all, on either kind", () => {
+    expect(nodeCanLaunchOn("local", "none", "none", false)).toBe(false);
+    expect(nodeCanLaunchOn("agent", "none", "none", false)).toBe(false);
+  });
+
+  // A non-admin's two readings are the same value, so the rule cannot change
+  // anything for them — which is what makes this safe to apply everywhere.
+  it("changes nothing for a viewer who was never boosted", () => {
+    for (const kind of ["local", "agent"] as const) {
+      for (const a of ["none", "view", "edit", "owner"] as const) {
+        expect(nodeCanLaunchOn(kind, a, a, false)).toBe(nodeCanLaunch(a));
+      }
+    }
+  });
+
+  /**
+   * Maintenance is a property of the MACHINE, so it applies to every reading
+   * of every access level on both kinds — decision 1 of spec 2026-09-14: in a
+   * window nobody launches, owner, admins and grantees alike, and `local`
+   * means the identical thing.
+   */
+  it("refuses every access level on both kinds while the node is in maintenance", () => {
+    for (const kind of ["local", "agent"] as const) {
+      for (const access of ["none", "view", "edit", "owner"] as const) {
+        for (const granted of ["none", "view", "edit", "owner"] as const) {
+          expect(nodeCanLaunchOn(kind, access, granted, true)).toBe(false);
+        }
+      }
+    }
+  });
+
+  it("ANDs: the owner of a node they hold outright is refused in a window and allowed out of one", () => {
+    expect(nodeCanLaunchOn("agent", "owner", "owner", true)).toBe(false);
+    expect(nodeCanLaunchOn("agent", "owner", "owner", false)).toBe(true);
+    // …and a `local` that IS granted still loses to the flag.
+    expect(nodeCanLaunchOn("local", "edit", "edit", true)).toBe(false);
+    expect(nodeCanLaunchOn("local", "edit", "edit", false)).toBe(true);
+  });
+
+  /**
+   * The `allow_server_subshells` setting (operator ask 2026-09-24): an admin
+   * can switch the control-plane host off as a LAUNCH TARGET without touching
+   * maintenance, which keeps its own word and its pane-killing semantics.
+   * It is a fact about the ONE machine, so it changes nothing for an agent.
+   */
+  describe("nodeCanLaunchOn server-as-node flag", () => {
+    it("defaults to on, so a caller that knows nothing of the setting is unchanged", () => {
+      expect(nodeCanLaunchOn("local", "edit", "edit", false)).toBe(true);
+    });
+
+    it("refuses the control-plane host at every access level when off, owner and admin included", () => {
+      for (const access of ["none", "view", "edit", "owner"] as const) {
+        for (const granted of ["none", "view", "edit", "owner"] as const) {
+          expect(nodeCanLaunchOn("local", access, granted, false, false)).toBe(false);
+        }
+      }
+    });
+
+    it("does not reach across to agent nodes — the flag is about the server, not the fleet", () => {
+      // A live, launched agent keeps answering true with the server off; the
+      // access rules are the ONLY thing that govern it then.
+      expect(nodeCanLaunchOn("agent", "owner", "owner", false, false)).toBe(true);
+      expect(nodeCanLaunchOn("agent", "view", "view", false, false)).toBe(true);
+      // …and `none` is still refused, which is the access rule, not the flag.
+      expect(nodeCanLaunchOn("agent", "none", "none", false, false)).toBe(false);
+    });
+
+    it("ANDs like maintenance: a granted local loses to either switch and wins back with both", () => {
+      expect(nodeCanLaunchOn("local", "edit", "edit", false, true)).toBe(true);
+      expect(nodeCanLaunchOn("local", "edit", "edit", true, true)).toBe(false);
+      expect(nodeCanLaunchOn("local", "edit", "edit", false, false)).toBe(false);
+      expect(nodeCanLaunchOn("local", "edit", "edit", true, false)).toBe(false);
+    });
+  });
+});

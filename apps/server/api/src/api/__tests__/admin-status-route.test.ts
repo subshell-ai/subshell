@@ -4,6 +4,7 @@ import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { sql } from "kysely";
 import { adminStatusRoutes } from "@/api/admin-status.route.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { AUTH_SECRET, PLACEHOLDER_AUTH_SECRET } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
@@ -11,10 +12,9 @@ import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
 import { SERVER_VERSION } from "@/version.js";
-import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
 
 /**
  * GET /api/admin/status.

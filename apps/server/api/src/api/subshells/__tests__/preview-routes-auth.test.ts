@@ -2,30 +2,30 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test"
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
-import { authDatabase } from "@/auth/database.js";
-import { ensureSystemUser } from "@/auth/system-user.js";
-import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { holdConnection, resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
-import { NodeRpcError } from "@/services/nodes/node-rpc.js";
-import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { getPreviewBroker, resetForTests, shutdownPreviewBrokerForTests } from "@/services/preview-broker.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
+import { getAuth } from "@/modules/auth/auth.js";
+import { authDatabase } from "@/modules/auth/database.js";
+import { ensureSystemUser } from "@/modules/auth/system-user.js";
+import { holdConnection, resetNodeRegistryForTests } from "@/modules/nodes/node-registry.js";
+import { NodeRpcError } from "@/modules/nodes/node-rpc.js";
+import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { getPreviewBroker, resetForTests, shutdownPreviewBrokerForTests } from "@/modules/previews/preview-broker.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
 import {
   attachScriptedNode,
   ok,
   type ScriptedHandlers,
   type ScriptedNode,
   statDirEcho,
-} from "@/test-helpers/scripted-node.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+} from "@/testing/scripted-node.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
  * The Task 9 authz matrix and shape contract for the preview REST surface:

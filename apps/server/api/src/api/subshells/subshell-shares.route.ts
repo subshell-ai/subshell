@@ -1,8 +1,8 @@
 import { Elysia } from "elysia";
 import { authGuard, requireCookieActor, requirePerm } from "@/api/auth-guard.js";
-import { SetSubshellSharesBodySchema, SubshellSharesResponseSchema } from "@/api/models.js";
-import { contextPlugin } from "@/plugins/context.plugin.js";
-import { apiModels } from "@/schema/index.js";
+import { contextPlugin } from "@/api/middleware/context.plugin.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { SetSubshellSharesBodySchema, SubshellSharesResponseSchema } from "@/api/schemas/models.js";
 
 /**
  * `GET/PUT /api/subshells/:id/shares` — the owner's sharing control (spec

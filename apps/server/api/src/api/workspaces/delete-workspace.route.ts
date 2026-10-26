@@ -1,8 +1,8 @@
 import { Elysia, t } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
+import { contextPlugin } from "@/api/middleware/context.plugin.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { requireCookieActor } from "@/api/workspaces/require-cookie-actor.js";
-import { contextPlugin } from "@/plugins/context.plugin.js";
-import { apiModels } from "@/schema/index.js";
 
 /** `DELETE /api/workspaces/:id` — deletes a workspace; its panes cascade away. */
 export const deleteWorkspaceRoute = new Elysia()

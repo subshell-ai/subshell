@@ -1,9 +1,10 @@
 import { Elysia, t } from "elysia";
-import { authGuard, HttpError, requirePerm } from "@/api/auth-guard.js";
-import { contextPlugin } from "@/plugins/context.plugin.js";
-import { apiModels } from "@/schema/index.js";
-import { getPreviewBroker } from "@/services/preview-broker.js";
-import { logger } from "@/utils/logger.js";
+import { authGuard, requirePerm } from "@/api/auth-guard.js";
+import { contextPlugin } from "@/api/middleware/context.plugin.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { getPreviewBroker } from "@/modules/previews/preview-broker.js";
+import { HttpError } from "@/shared/errors.js";
+import { logger } from "@/shared/logger.js";
 
 const ExitBodySchema = t.Object({
   exitCode: t.Optional(

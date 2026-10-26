@@ -626,7 +626,7 @@ apps/server/desktop/docs/native-chrome.md first.**
   ORGANIZATION** unless the plist declares the app, so an install without
   `AssociatedBundleIdentifiers` shows as "Disaresta, LLC" with no icon, which
   users read as malware, not as their own server. The plist template
-  (`apps/server/api/src/service.ts`) declares `dev.subshell.server`, the one
+  (`apps/server/api/src/modules/server/supervision.ts`) declares `dev.subshell.server`, the one
   string that `DESKTOP_SERVER_BUNDLE_ID` (protocol), the plist label and this
   app's `identifier` all share; pin tests on both sides hold them together,
   because if they drift the association detaches silently and nothing errors.

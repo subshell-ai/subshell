@@ -1,25 +1,25 @@
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
-import { isCookieAdmin } from "@/api/user-utils.js";
 import { APP_BASE_URL, emergencyLoginArmed } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
-import { publishedNodeTargets } from "@/lib/node-artifacts.js";
-import { audit } from "@/services/audit.js";
+import { audit } from "@/modules/audit.js";
+import { ALLOW_NODE_ENROLLMENT_KEY, registrationOpen } from "@/modules/auth/registration-gate.js";
+import { originRegistry } from "@/modules/network/trusted-origins.js";
 import {
   INSTANCE_NAME_KEY,
   INSTANCE_NAME_MAX,
   resolveInstanceName,
   setInstanceName,
-} from "@/services/instance-name.js";
-import { applyLockdown, lockdownEnabled, serverNodeName } from "@/services/lockdown.js";
-import { expiryDays, PENDING_APPROVAL_EXPIRY_KEY } from "@/services/pending-approvals.js";
-import { ALLOW_NODE_ENROLLMENT_KEY, registrationOpen } from "@/services/registration-gate.js";
-import { autoFetchEnabled } from "@/services/releases.js";
-import { ALLOW_SERVER_SUBSHELLS_KEY, serverSubshellsEnabled } from "@/services/server-as-node.js";
-import { originRegistry } from "@/services/trusted-origins.js";
+} from "@/modules/server/instance-name.js";
+import { applyLockdown, lockdownEnabled, serverNodeName } from "@/modules/server/lockdown.js";
+import { ALLOW_SERVER_SUBSHELLS_KEY, serverSubshellsEnabled } from "@/modules/server/server-as-node.js";
+import { publishedNodeTargets } from "@/modules/updates/node-artifacts.js";
+import { autoFetchEnabled } from "@/modules/updates/releases.js";
+import { expiryDays, PENDING_APPROVAL_EXPIRY_KEY } from "@/modules/users/pending-approvals.js";
+import { isCookieAdmin } from "@/modules/users/roles.js";
 import { SERVER_VERSION } from "@/version.js";
 
 /**
@@ -56,7 +56,7 @@ const SettingsWriteSchema = t.Object({
       "Instance-wide emergency stop (absent means false). ON stops every running subshell and starts no new ones on any machine, admins and pane-to-pane launches included; clearing it restarts nothing. Every real flip, either direction, must carry the server's node name in `lockdownConfirm`; re-sending the current state asks nothing. Distinct from node maintenance, which is one machine, its owner, and mirrored onto it",
   }),
   // The expiry window behind the pending-approval sweep (spec 2026-09-24 §6).
-  // The consumer is the hourly pass in `services/pending-approvals.ts`: it
+  // The consumer is the hourly pass in `modules/users/pending-approvals.ts`: it
   // deletes `pending` sign-ins whose clock is older than this number of days,
   // so this is how long an unactioned arrival waits before it is dropped.
   // `0` means those rows never expire. Absent means 30, and the GET answer is

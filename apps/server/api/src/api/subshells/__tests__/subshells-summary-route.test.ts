@@ -4,7 +4,7 @@ import { subshellRoutes } from "@/api/subshells/index.js";
 import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
  * GET /api/subshells/summary — the badge source (spec §Backend diff).

@@ -11,18 +11,18 @@ import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.j
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
-import { loadNodeAccess } from "@/lib/node-access.js";
+import { exploreNodeDirectory } from "@/modules/files/browse.service.js";
 import {
   favoritePathsFor,
   isAllowedRoot,
   launchScopeFor,
   recentPathsFor,
   sortDirEntries,
-} from "@/services/files-path-rules.js";
-import { exploreNodeDirectory } from "@/services/files-remote-browse.service.js";
-import { getLive } from "@/services/nodes/node-registry.js";
-import { FsDeadlineError, newReadBudget, withFsDeadline } from "@/utils/fs-deadline.js";
-import { expandTilde } from "@/utils/path.js";
+} from "@/modules/files/paths.js";
+import { loadNodeAccess } from "@/modules/nodes/access.js";
+import { getLive } from "@/modules/nodes/node-registry.js";
+import { FsDeadlineError, newReadBudget, withFsDeadline } from "@/shared/fs-deadline.js";
+import { expandTilde } from "@/shared/path.js";
 
 interface DirEntry {
   name: string;

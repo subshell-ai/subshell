@@ -2,16 +2,16 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 import type { RequestGuardSpec } from "@internal/pane-runtime";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/api/__tests__/helpers/auth-tables.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { networkRoutes } from "@/api/network/index.js";
-import { invalidateNetworkStatus, setNetworkDepsForTests } from "@/api/network/network-gate.js";
 import { db } from "@/db/index.js";
 import { AuditRepository } from "@/db/repositories/audit.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { activeAccessGuards, setAccessGuards } from "@/plugins/access-guard.plugin.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { clearNetworkState, readNetworkState } from "@/services/network/state.js";
-import { originRegistry, resetOriginRegistryForTests } from "@/services/trusted-origins.js";
+import { activeAccessGuards, setAccessGuards } from "@/modules/network/access-guards.js";
+import { invalidateNetworkStatus, setNetworkDepsForTests } from "@/modules/network/operations.js";
+import { clearNetworkState, readNetworkState } from "@/modules/network/state.js";
+import { originRegistry, resetOriginRegistryForTests } from "@/modules/network/trusted-origins.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/testing/api/auth-tables.js";
 import { FAKE_ID, fakeDeps, makeFakePlugin } from "./fake-network-plugin.js";
 
 /**

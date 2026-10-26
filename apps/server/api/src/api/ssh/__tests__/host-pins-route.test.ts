@@ -6,16 +6,16 @@ import { join } from "node:path";
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
-import { ensureMigratedTestDb } from "@/__tests__/helpers/test-database.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/api/__tests__/helpers/auth-tables.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { sshRoutes } from "@/api/ssh/index.js";
 import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { setSshHostPinsDepsForTests } from "@/services/ssh-host-pins.service.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
+import { setSshHostPinsDepsForTests } from "@/modules/ssh/ssh-host-pins.service.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/testing/api/auth-tables.js";
+import { ensureMigratedTestDb } from "@/testing/test-database.js";
 
 /**
  * `/api/ssh/host-pins` (spec 2026-10-08 §8-§9, Task 12): the destination

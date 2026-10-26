@@ -6,7 +6,7 @@ import { requireManageableUser } from "@/api/users/require-manageable-user.js";
 import { UsersError } from "@/api/users/users-error.js";
 import { db } from "@/db/index.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { audit } from "@/services/audit.js";
+import { audit } from "@/modules/audit.js";
 
 const PasswordBodySchema = t.Object({
   password: t.String({

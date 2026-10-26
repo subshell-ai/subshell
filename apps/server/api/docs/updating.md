@@ -10,12 +10,12 @@ implementation rather than three that agree.
 
 The four modules, and the one fact each exists for:
 
-- **`services/releases.ts`** (was `node-release.ts`): one read of the release
+- **`modules/updates/releases.ts`** (was `node-release.ts`): one read of the release
   list, indexed by component, 15 min TTL. `resolveReleases()`,
   `refreshReleases()`, `compatibleNodeRelease()`, `fetchArtifact`/`fetchDigest`
   (unchanged `.fetched.json` semantics) and `downloadVerified()`, the
   hash-as-you-go download the server's own update shares with the node fetch.
-- **`services/db-backup.ts`**: `VACUUM INTO` on a fresh READ-ONLY
+- **`modules/backups/db-backup.ts`**: `VACUUM INTO` on a fresh READ-ONLY
   `bun:sqlite` connection, which yields a consistent single-file snapshot of a
   LIVE WAL database with no `-wal`/`-shm` beside it (MEASURED, §12.1, bun
   1.4.2 / SQLite 3.51.0). SQLite creates it with the umask, so the `chmod
@@ -24,10 +24,10 @@ The four modules, and the one fact each exists for:
   `SUBSHELL_LOG_RETENTION_DAYS` spelling). It LOGS NOTHING: `backup --json`'s
   contract is one JSON line on stdout and LogLayer's console transport writes
   there too, so a log line here broke every parser (measured in `test:cli`).
-- **`services/installed-binary.ts`**: which file on this host IS the
+- **`modules/server/installed-binary.ts`**: which file on this host IS the
   installed server. The two readers from `apps/server/desktop`'s
   `server_bin.rs` ported to TypeScript: the systemd `ExecStart=` unquoting
-  (the inverse of `service.ts`'s `systemdQuote`, last-wins) and the launchd
+  (the inverse of `modules/server/supervision.ts`'s `systemdQuote`, last-wins) and the launchd
   `ProgramArguments` read through `plutil`, both plist locations, with the XML
   regex only as the no-plutil fallback. **A dev-form install records TWO
   tokens** (`[interpreter, script]`) and is reported as `source`; a reader
@@ -35,7 +35,7 @@ The four modules, and the one fact each exists for:
   app-supervised (`process.execPath`, claim verified against the real parent),
   then a hand-run installed binary, then `unknown` with a reason. Exposed as
   `status --json`'s `paths.binary` and `binary`.
-- **`services/update-transaction.ts`**: `<dataDir>/update/pending.json`
+- **`modules/updates/update-transaction.ts`**: `<dataDir>/update/pending.json`
   (0600, written temp+rename immediately before the swap) and `failed.json`.
   `beginUpdate` refuses a second open transaction; the boot hook in `index.ts`
   reads the marker BEFORE the migrations, reverts on a migration failure
@@ -44,7 +44,7 @@ The four modules, and the one fact each exists for:
   (audit `server.update` with actor null, delete `.previous` and the marker),
   and records a failure when the marker names a version this process is not.
   All three landing paths also RE-CREATE the in-memory update tracker's server
-  entry from the marker (`services/nodes/update-tracker.ts`, through its
+  entry from the marker (`modules/updates/node-tracker.ts`, through its
   `resolveSelfUpdate`): the `beginSelfUpdate` entry died with the swapping
   process, so a refreshed Updates page finds the true story, not silence.
   The swap's front half, `keepPreviousBinary`, hardlinks the RUNNING binary and
@@ -71,7 +71,7 @@ that depends on it lives:
 3. **Kysely refuses a database carrying migration names it does not know**:
    `migrateToLatest()` answers `corrupted migrations: previously executed
    migration … is missing` rather than ignoring the row (kysely 0.29.5).
-   Pinned by `services/__tests__/update-transaction.test.ts`. It is WHY a
+   Pinned by `modules/updates/__tests__/update-transaction.test.ts`. It is WHY a
    revert restores the backup and not just the binary: an old binary cannot
    boot on a newer database at all.
 

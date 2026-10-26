@@ -7,12 +7,12 @@ import {
   type RouteEnvelope,
 } from "@internal/subshell-protocol/node-route";
 import { Elysia, t } from "elysia";
-import { HttpError } from "@/api/auth-guard.js";
+import { authenticateNodeUpgrade, getNodeWsDeps, type NodeWsDeps } from "@/api/ws/node-ws-handler.js";
 import { HOST, SERVER_PORT } from "@/constants.js";
-import { lanOrigins } from "@/services/lan-origins.js";
-import { loadNodeEncryptionKeys } from "@/services/nodes/node-encryption-keys.js";
-import { authenticateNodeUpgrade, getNodeWsDeps, type NodeWsDeps } from "@/services/nodes/node-ws-handler.js";
-import { nodeRouteTickets } from "@/services/nodes/route-tickets.js";
+import { lanOrigins } from "@/modules/network/lan-origins.js";
+import { loadNodeEncryptionKeys } from "@/modules/nodes/node-encryption-keys.js";
+import { nodeRouteTickets } from "@/modules/nodes/route-tickets.js";
+import { HttpError } from "@/shared/errors.js";
 
 const RouteEnvelopeSchema = t.Object({
   ephemeral: t.String({ minLength: 1, maxLength: 64 }),

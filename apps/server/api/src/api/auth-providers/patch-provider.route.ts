@@ -1,6 +1,7 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { normalizeLabel } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
+import { apiErrorBody } from "@/api/api-error.js";
 import { requireAdmin } from "@/api/auth-guard.js";
 import { b2n, PatchProviderSchema } from "@/api/auth-providers/provider-fields.js";
 import {
@@ -10,14 +11,13 @@ import {
   PROVIDER_NAME_MAX,
 } from "@/api/auth-providers/provider-inputs.js";
 import { domainsInput, ProviderViewSchema, toView } from "@/api/auth-providers/provider-view.js";
-import { EntryInputError, normalizeDomains, verifyOnSave } from "@/auth/oidc-discovery.js";
-import { invalidateAuth } from "@/auth.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { db } from "@/db/index.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import type { AuthProviderRow } from "@/db/types/auth-providers.db-types.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
-import { audit } from "@/services/audit.js";
+import { audit } from "@/modules/audit.js";
+import { invalidateAuth } from "@/modules/auth/auth.js";
+import { EntryInputError, normalizeDomains, verifyOnSave } from "@/modules/auth/oidc-discovery.js";
 
 /**
  * `PATCH /api/auth-providers/:id` — changes one provider (cookie-admin only).

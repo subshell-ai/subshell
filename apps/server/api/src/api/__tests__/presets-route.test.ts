@@ -1,11 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
-import { TRUE_BINARY } from "@/__tests__/helpers/true-binary.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { presetRoutes } from "@/api/presets.route.js";
-import { authDatabase } from "@/auth/database.js";
-import { ensureSystemUser } from "@/auth/system-user.js";
-import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
 import { PresetSharesRepository } from "@/db/repositories/preset-shares.repository.js";
@@ -13,11 +10,14 @@ import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SshPresetsRepository } from "@/db/repositories/ssh-presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { installLocalPlugin, uninstallLocalPlugin } from "@/services/nodes/local-plugins.js";
-import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+import { getAuth } from "@/modules/auth/auth.js";
+import { authDatabase } from "@/modules/auth/database.js";
+import { ensureSystemUser } from "@/modules/auth/system-user.js";
+import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { installLocalPlugin, uninstallLocalPlugin } from "@/modules/plugins/store.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { TRUE_BINARY } from "@/testing/true-binary.js";
+import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
 
 /**
  * Preset WRITES (POST /, PUT /:id, PATCH /:id, DELETE /:id) are cookie-only;

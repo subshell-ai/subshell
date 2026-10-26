@@ -1,17 +1,17 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia } from "elysia";
-import { ForbiddenError } from "@/api/auth-guard.js";
-import { loadNodeGate } from "@/api/nodes/node-gate.js";
+import { apiErrorBody } from "@/api/api-error.js";
 import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
 import { NodeSharesResponseSchema, SetNodeSharesBodySchema, toNodeShareViews } from "@/api/nodes/node-view.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { db } from "@/db/index.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
-import { audit } from "@/services/audit.js";
-import { getRelayBroker } from "@/services/ssh-relay.service.js";
+import { audit } from "@/modules/audit.js";
+import { loadNodeGate } from "@/modules/nodes/gate.js";
+import { getRelayBroker } from "@/modules/ssh/relay-broker.js";
+import { ForbiddenError } from "@/shared/errors.js";
 
 /**
  * `PUT /api/nodes/:id/shares` `{shares:[{granteeUserId, permission}]}` —

@@ -14,7 +14,7 @@ export type InventoryEvent = Extract<NodeEvent, { type: "inventory" }>;
  * server is told so: its `inventory` handler treats an EMPTY array as
  * "nothing to apply" and never overwrites the detection rows the plane itself
  * collected via the `detect` command (inversion §4) — pinned by
- * `apps/server/api/src/services/nodes/__tests__/node-ws-handler.test.ts`.
+ * `apps/server/api/src/api/ws/__tests__/node-ws-handler.test.ts`.
  * The honest facts this machine still offers —
  * binary presence and version text — travel as `detect` ANSWERS, built from
  * the plane's own plugin rules, and the pane census travels as

@@ -3,7 +3,7 @@ import { hashPassword } from "better-auth/crypto";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { db } from "@/db/index.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
 
 /**
  * The cookie half of authGuard. better-auth names its session cookie

@@ -1,8 +1,9 @@
 import { Elysia, t } from "elysia";
-import { authGuard, HttpError, requirePerm } from "@/api/auth-guard.js";
-import { assertImportablePublicJwk } from "@/api/public-jwk.js";
+import { authGuard, requirePerm } from "@/api/auth-guard.js";
 import { db } from "@/db/index.js";
 import { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
+import { assertImportablePublicJwk } from "@/modules/auth/public-jwk.js";
+import { HttpError } from "@/shared/errors.js";
 
 const RegisterIdentityBodySchema = t.Object({
   publicKey: t.String({

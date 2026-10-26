@@ -1,12 +1,12 @@
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
-import { loadNodeGate } from "@/api/nodes/node-gate.js";
 import { NodeViewSchema, toNodeView } from "@/api/nodes/node-view.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { apiModels } from "@/schema/index.js";
-import { sshPolicyConfig, sshReadiness } from "@/services/ssh-policy.service.js";
+import { loadNodeGate } from "@/modules/nodes/gate.js";
+import { sshPolicyConfig, sshReadiness } from "@/modules/ssh/policy.js";
 
 export const sshReadinessRoute = new Elysia()
   .use(authGuard)

@@ -45,7 +45,7 @@ use tauri::Manager;
 ///
 /// The Linux directory is `subshell-desktop-server`, NOT `subshell-server`:
 /// `~/.config/subshell-server` is where the SERVER CLI keeps its `config.env`
-/// (`apps/server/api/src/config-env.ts`), and dropping this app's `settings.json`
+/// (`apps/server/api/src/modules/server/config/env.ts`), and dropping this app's `settings.json`
 /// in beside it would put two different programs' state in one directory.
 const SETTINGS_PATHS: SettingsPaths = SettingsPaths {
     macos_bundle_id: "dev.subshell.server",

@@ -2,13 +2,13 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { authProvidersRoutes } from "@/api/auth-providers/index.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { db } from "@/db/index.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
  * The admin provider CRUD (spec 2026-09-24 §8): create with discovery as the save

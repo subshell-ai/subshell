@@ -1,16 +1,17 @@
 import { fingerprintJwk } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { HttpError, requireAdmin } from "@/api/auth-guard.js";
+import { requireAdmin } from "@/api/auth-guard.js";
 import { db } from "@/db/index.js";
 import { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
-import { audit } from "@/services/audit.js";
+import { audit } from "@/modules/audit.js";
+import { getRelayBroker, SshRelayRefusal } from "@/modules/ssh/relay-broker.js";
 import {
   ensureLocalRelayIdentity,
   localRelayIdentityDir,
   readLocalRelayIdentity,
   resetLocalRelayIdentity,
-} from "@/services/ssh-local-identity.js";
-import { getRelayBroker, SshRelayRefusal } from "@/services/ssh-relay.service.js";
+} from "@/modules/ssh/ssh-local-identity.js";
+import { HttpError } from "@/shared/errors.js";
 
 const FingerprintsSchema = t.Object({
   signing: t.String({ description: "Verified server relay signing fingerprint" }),

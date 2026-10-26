@@ -19,7 +19,7 @@ import { clientHome } from "./config.js";
  * The console transport stays beside this one: journald and launchd keep their
  * copy and `subshell run` in a terminal is unchanged.
  *
- * **A deliberate copy of `apps/server/api/src/utils/log-file.ts`, not an
+ * **A deliberate copy of `apps/server/api/src/shared/log-file.ts`, not an
  * import.** That file is AGPL (everything under `apps/server/**` is), this app
  * is Apache-2.0, and an Apache package may reach into the server only for
  * TYPES — so importing the value would entangle the two licences for the sake
@@ -130,7 +130,7 @@ function appendCapped(path: string, line: string, capBytes: number): void {
  * in an artifact operators download for four triples.
  *
  * **`level` is the one thing the debug switch touches**, exactly as on the
- * server (`apps/server/api/src/utils/log-file.ts`). It was omitted here, and
+ * server (`apps/server/api/src/shared/log-file.ts`). It was omitted here, and
  * the omission was invisible: with no level passed, LoggerlessTransport treats
  * an absent level as `trace`, so this wrote whatever it was handed — which is
  * only ever `info` today, because the agent has no debug-level call sites.

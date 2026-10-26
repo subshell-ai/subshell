@@ -8,36 +8,31 @@ import {
 import { Elysia, t } from "elysia";
 import { NoResultError } from "kysely";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
-import { getAllHarnessIds } from "@/api/harness-utils.js";
+import { apiModels } from "@/api/schemas/index.js";
 import {
   HarnessSchemaResponseSchema,
   PresetSchema,
   SetSubshellSharesBodySchema,
   SubshellSharesResponseSchema,
-} from "@/api/models.js";
+} from "@/api/schemas/models.js";
+import { VirtualDisplayRequestSchema } from "@/api/schemas/virtual-display.js";
 import { SshResolveRefusalViewSchema } from "@/api/ssh/ssh-views.js";
-import {
-  CreateSshPresetSchema,
-  SSH_PRESET_KEYS,
-  SshPresetSchema,
-  sshPresetView,
-  UpdateSshPresetSchema,
-} from "@/api/ssh-presets.js";
+import { CreateSshPresetSchema, SSH_PRESET_KEYS, SshPresetSchema, UpdateSshPresetSchema } from "@/api/ssh-presets.js";
 import { db } from "@/db/index.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SshPresetsRepository } from "@/db/repositories/ssh-presets.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
-import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch, nodeCanLaunchOn } from "@/lib/node-access.js";
-import { presetAccess, presetOwnerName, withPresetAccess } from "@/lib/preset-access.js";
-import { duplicatePresetName } from "@/lib/preset-name-error.js";
-import { apiModels } from "@/schema/index.js";
-import { VirtualDisplayRequestSchema } from "@/schema/virtual-display.js";
-import { PORTABLE_MCP_LAUNCH, PORTABLE_REPORTER } from "@/services/mcp-resolve.js";
-import { presetShares } from "@/services/preset-sharing.service.js";
-import { serverSubshellsEnabled } from "@/services/server-as-node.js";
-import { saveSshPreset } from "@/services/ssh-presets.service.js";
+import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch, nodeCanLaunchOn } from "@/modules/nodes/access.js";
+import { getAllHarnessIds } from "@/modules/plugins/availability.js";
+import { presetAccess, presetOwnerName, withPresetAccess } from "@/modules/presets/access.js";
+import { duplicatePresetName } from "@/modules/presets/name-error.js";
+import { presetShares } from "@/modules/presets/preset-sharing.service.js";
+import { serverSubshellsEnabled } from "@/modules/server/server-as-node.js";
+import { sshPresetView } from "@/modules/ssh/preset-view.js";
+import { saveSshPreset } from "@/modules/ssh/ssh-presets.service.js";
+import { PORTABLE_MCP_LAUNCH, PORTABLE_REPORTER } from "@/modules/subshells/mcp-resolve.js";
 
 /** Max joined prompt text, same cap as the launch form's `prompt` field. */
 const MAX_PRESET_PROMPT_CHARS = 20_000;

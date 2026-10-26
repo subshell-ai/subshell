@@ -8,7 +8,7 @@
 //! names its own, and the answer carries WHERE it came from so the UI can say
 //! so.
 //!
-//! The trap worth knowing about is `execLine()` in `apps/server/api/src/service.ts`:
+//! The trap worth knowing about is `execLine()` in `apps/server/api/src/modules/server/supervision.ts`:
 //! a compiled binary is recorded alone, but a dev-form install records
 //! `[interpreter, script]` — `ExecStart=/path/to/bun /repo/apps/server/api/src/index.ts`.
 //! Anything that reads a service definition has to carry BOTH tokens or it
@@ -141,7 +141,7 @@ fn from_systemd_unit() -> Option<Vec<String>> {
 fn from_launchd_plist() -> Option<Vec<String>> {
     let home = home_dir()?;
     // BOTH locations, because "starts at login" is now which directory the
-    // plist is in (`apps/server/api/src/service.ts`, `sessionPlistPath`). A
+    // plist is in (`apps/server/api/src/modules/server/supervision.ts`, `sessionPlistPath`). A
     // service installed with `--no-autostart` lives in the config home, and
     // checking only `~/Library/LaunchAgents` would make this rung — the one
     // documented as the AUTHORITY on what is installed — silently vanish for

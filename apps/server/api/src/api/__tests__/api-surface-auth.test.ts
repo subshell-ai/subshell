@@ -2,15 +2,15 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { authGuard, requireAdmin } from "@/api/auth-guard.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { routes } from "@/api/routes.js";
 import { setHasUsersProbeForTests } from "@/api/setup.route.js";
-import { authDatabase } from "@/auth/database.js";
-import { ensureSystemUser } from "@/auth/system-user.js";
-import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+import { getAuth } from "@/modules/auth/auth.js";
+import { authDatabase } from "@/modules/auth/database.js";
+import { ensureSystemUser } from "@/modules/auth/system-user.js";
+import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
 
 // Every exception must name its credential boundary. A new route without
 // authGuard fails this inventory check even if nobody adds a request case.

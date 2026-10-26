@@ -107,7 +107,7 @@ export async function buildPluginReports(dataDir: string): Promise<PluginReportW
               // control plane.
               //
               // This literal intentionally mirrors `PORTABLE_MCP_LAUNCH` in
-              // `apps/server/api/src/services/mcp-resolve.ts` — the same PATH
+              // `apps/server/api/src/modules/subshells/mcp-resolve.ts` — the same PATH
               // spelling the preset editor shows (issue #57). Spelled twice on
               // purpose: importing the server's constant here would breach the
               // type-only licence carve-out, so `plugin-report.test.ts` pins

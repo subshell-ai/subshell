@@ -28,7 +28,7 @@ import {
   getRelayBroker,
   type RelayBroker,
   setRelayBrokerForTests,
-} from "../../apps/server/api/src/services/ssh-relay.service.js";
+} from "../../apps/server/api/src/modules/ssh/relay-broker.js";
 
 const CAPTURE_ENV = "E2E_RELAY_CAPTURE";
 

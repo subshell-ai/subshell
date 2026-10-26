@@ -8,7 +8,7 @@ Server-specific documentation for the ElysiaJS API server (`apps/server/api`, `@
 - OpenAPI docs (Scalar): http://localhost:3080/docs
 - Local OpenAPI schema: `/openapi.json` (`/docs/json` redirects there)
 - Production single-port model: the same server serves the built SPA
-  (`src/plugins/static.plugin.ts` serves `apps/server/web/dist`); there is no
+  (`src/api/middleware/static.plugin.ts` serves `apps/server/web/dist`); there is no
   separate web server.
 
 ## Commands
@@ -62,8 +62,8 @@ root-mounted `install-script.ts`, because `/install.sh` is a dotted top-level
 path the static SPA plugin would 404; both mount directly in `server.ts`).
 Most sit behind `src/api/auth-guard.ts`, which derives `user` (session cookie
 or bearer key), provides `requireAdmin` (bearer keys are rejected on admin
-surfaces), and defines the `status`-carrying error classes Elysia maps to HTTP
-codes. `src/server.ts` composes the app; `src/index.ts` boots it (runs
+surfaces), and uses the `status`-carrying errors from `src/shared/errors.ts`
+that Elysia maps to HTTP codes. `src/server.ts` composes the app; `src/index.ts` boots it (runs
 migrations, then listens).
 
 `api/__tests__/api-surface-auth.test.ts` checks the composed main router:
@@ -86,20 +86,27 @@ open sign-in provider (409 `LAST_SIGN_IN_PROVIDER`).
 **Working on auth providers or the sign-in policy seams: read
 `apps/server/api/docs/auth-providers.md` first.**
 
-```
+```text
 src/
-├── api/            # Routes: flat *.route.ts (incl. downloads.route.ts, admin-status.route.ts, plugins.route.ts) + per-resource dirs (subshells/, workspaces/, channels/, nodes/, users/, auth-providers/) + auth-guard.ts + routes.ts; install-script.ts renders GET /install.sh (full comments: apps/server/api/docs/source-tree.md)
-├── auth/           # Api-key store, DB handle, system user, the sign-in providers (provider-policy.ts, provider-guards.ts, provider-rows.ts, oidc-discovery.ts; better-auth config: ../auth.ts)
-├── db/             # Kysely setup, migrations (static provider map), types/, repositories/
-├── lib/            # context.ts (ApiContext + getRequestlessContext), api-error.ts (apiErrorBody)
-├── plugins/        # auth.plugin.ts (better-auth handler mount), context.plugin.ts, error-handler.plugin.ts, static.plugin.ts
-├── schema/         # Shared response schemas (error.type.ts: ApiErrorResponseSchema)
-├── scripts/        # e2e seed, embed-web.ts (SPA -> generated/embedded-web.ts), release.ts
-├── services/       # Business logic: subshell-manager, nodes/ (NodeLauncher seam), channels/, uploads, tokens, audit, notify, mcp-launch (TmuxRunner lives in `@internal/pane-runtime` now, so the node CLI can reuse it)
-├── utils/          # Logger and small shared helpers
-├── ws/             # Terminal attach WebSocket (short-lived single-use tokens — cookie-minted ones unscoped, Bearer-minted ones bound to one subshell) + the dashboard's live feed: live-ws.ts, live-topics.ts (the recipient set, diffed against resolveSubshellAccess by an exhaustive test) and live-publisher.ts (coalesced broadcasts). Full comments: apps/server/api/docs/ws-attach.md
-└── test-preload.ts # Loaded by bunfig.toml before every test run
+├── app/          # Context construction, service wiring, and application events
+├── api/          # HTTP routes, middleware/, schemas/, ws/, and previews/ adapters
+├── cli/          # Command dispatch, prompts, and terminal presentation
+├── db/           # Connections, repositories, migrations, and database types
+├── modules/      # Capability-owned workflows, policies, runtime state, and helpers
+├── shared/       # Capability-independent primitives, errors, and logging
+├── testing/      # Fixtures shared across test suites
+├── scripts/      # Build, release, and fixture entrypoints
+├── generated/    # Embedded SPA assets
+└── test-preload.ts
 ```
+
+`index.ts` boots the process; `server.ts` composes the application. Keep their
+bootstrap order and import-time purity intact. The ownership table and dependency
+rules are in [Source organization](docs/source-tree.md). Read it before adding a
+module or moving a responsibility. A service orchestrates business work, whether
+it uses a class or functions; its capability owns it alongside its policies and
+helpers. There is no shared `services/`, `lib/`, or `utils/` bucket.
+
 
 The nodes READ surface widened twice: spec 2026-09-25 (MCP DX) made `GET
 /api/nodes` answer a bearer machine token with its owner's own nodes
@@ -140,8 +147,8 @@ actor; install / enable / impact / uninstall cookie-admin only).
 `<dataDir>/plugins/` is the ONE installed set; "usable" is (instance
 installed ∧ `plugin_state.enabled`, absent row = enabled) × (this
 node's detection found the binary), computed once in
-`api/harness-utils.ts` for every node alike. The plane RESOLVES the
-set: `services/nodes/local-plugins.ts` points the pane-runtime registry
+`modules/plugins/availability.ts` for every node alike. The plane RESOLVES the
+set: `modules/plugins/store.ts` points the pane-runtime registry
 overlay at the store at boot and after every install and uninstall, so
 `getHarness` answers for a registry-installed plugin the moment the
 install returns. Built-in ids always resolve to the compiled copy, and a
@@ -174,18 +181,18 @@ summary; it was auto-loaded everywhere and belongs to these routes):
 
 Repositories (`src/db/repositories/`) are the primary Kysely writers; each
 resource's row types are in `src/db/types/`. A few small writes bypass them
-today (`authAttempts` in `auth-rate-limit.route.ts`, `userMeta` in `auth.ts`).
+today (`authAttempts` in `auth-rate-limit.route.ts`, `userMeta` in `modules/auth/auth.ts`).
 **A subshell write that a person should see must also announce itself.** The
 live feed is event-driven (spec 2026-09-19), so `publishLive({ kind:
 "subshell.changed", id })` beside a write is what makes the dashboard move
-(`services/live-bus.ts`, consumed by `ws/live-publisher.ts`). It belongs in the
+(`app/live-bus.ts`, consumed by `api/ws/live-publisher.ts`). It belongs in the
 SERVICE that owns the act, never in the repository, which contains database
 calls only; and it is announced ONCE PER ACT rather than per write, since one
 launch writes the row, mints its token and patches it post-spawn. The
 publisher coalesces per id over a 40 ms window, so announcing liberally at act
 boundaries costs nothing on the wire. There is ONE announced write that is no
 one's act: the attach relay's output stamp (`persistOutputFor`,
-`ws/viewers.ts`) writes `lastOutputAt` at most every 2 s per pane and announces
+`api/ws/viewers.ts`) writes `lastOutputAt` at most every 2 s per pane and announces
 it, because that stamp IS what the UI renders (the blinking printing dot
 derives from it against the clock) and on an agent node the relay is the ONLY
 fresh writer (the 60 s mtime sweep is LOCAL-ONLY by design). The 2 s throttle
@@ -232,7 +239,7 @@ unresolved self-path. Full accounting: `docs/security.md`, "Pane logs".
 
 **A node's reachability is an announcement too.** `nodeOffline` flips in
 every broadcast row the moment a machine's socket drops, but no write
-touches those rows, so `services/nodes/node-presence-announce.ts`
+touches those rows, so `modules/nodes/node-presence-announce.ts`
 publishes `subshell.changed` for the RUNNING rows on connect, on
 disconnect, and when a refused agent is held (why an agent that simply
 dies would otherwise render healthy, and the SSE stream this replaced:
@@ -243,19 +250,19 @@ pass announced `createSubshell`'s ROLLBACK path and not its success path, so a
 launch published nothing at all and every test stayed green; and the feed's
 own switchover left `persistOutputFor`'s pre-existing `lastOutputAt` write
 without an announce, so a printing pane read idle and its dot never blinked
-(fixed 2026-09-25; `ws/__tests__/viewers-output-announce.test.ts` pins the
+(fixed 2026-09-25; `api/ws/__tests__/viewers-output-announce.test.ts` pins the
 announce, and an agent node was the worst case: no sweep reaches it). **When you add a
 subshell mutation, add its announce, and check it with a real client**; the
 suite cannot see this. The reconnect snapshot is the only backstop.
 
 Services own cross-repo logic; route handlers stay thin. Routes MAY use
-`contextPlugin` (`src/plugins/context.plugin.ts`), which gives handlers `ctx`
+`contextPlugin` (`src/api/middleware/context.plugin.ts`), which gives handlers `ctx`
 (a per-request `ApiContext`: `db`, `log`, `repos`, `services`). The subshells,
 workspaces, and channels routes are converted to `ctx.services.*` and live in
 per-resource directories under `src/api/`; other routes still instantiate
 repositories directly with the shared `db`. Code outside requests (the ws
 handlers) reaches the same graph via `getRequestlessContext()`
-(`src/lib/context.ts`), a singleton context whose log is the app logger
+(`src/app/context.ts`), a singleton context whose log is the app logger
 (no request id).
 
 **Workspaces are work-first, drafts are gone** (spec 2026-10-17, migration
@@ -284,7 +291,7 @@ create and is undone with the subshell row if it fails.
 The pane's size with SEVERAL viewers attached is decided by
 `shared-geometry.ts` in `@internal/subshell-protocol`: the browser has
 to EXPLAIN the same decision the server APPLIES. Both attach paths
-(`ws/subshell-ws.ts`, `ws/remote-subshell-ws.ts`) are the same shape:
+(`api/ws/subshell-ws.ts`, `api/ws/remote-subshell-ws.ts`) are the same shape:
 subscribe to the shared pump BEFORE reading the pane (never overlap
 per-subshell pumps), fit to `sharedGridFor()`, and the `geometry` frame
 carries only a CONFIRMED grid: `paneSize()` answers a real grid or
@@ -331,7 +338,7 @@ A garbled live terminal is diagnosed from the journal first: the
 subshell-server.service | grep "ws attach"` say which bundle is talking
 and what the pane did before the capture. Four invariants on that path
 are load-bearing and easy to regress: capture-text LF normalization
-(`ws/capture-text.ts`; the live tail must NOT be normalized), the
+(`api/ws/capture-text.ts`; the live tail must NOT be normalized), the
 gap-free OVERLAPPING join (a skipped byte desynchronizes a
 diff-rendering TUI permanently; the overlap's visible transient is
 deliberate damage control, and the zero-overlap "quiet join" was tried
@@ -349,17 +356,17 @@ the measurements, and which probe script verifies what.**
 ### Error contract
 
 Every non-2xx response carries the structured body of
-`ApiErrorResponseSchema` (`src/schema/error.type.ts`):
+`ApiErrorResponseSchema` (`src/api/schemas/error.type.ts`):
 `{ errId, code, message, statusCode, reqId?, metadata? }`: `errId` is a nanoid;
 `code` is a machine-readable `BackendErrorCodes` value (`@internal/backend-errors`).
 Two paths produce it:
 
 - A handler that **returns** `status(code, apiErrorBody({ code, message }))`
-  (`src/lib/api-error.ts`), used by `uploads.route.ts` for expected 4xx.
+  (`src/api/api-error.ts`), used by `uploads.route.ts` for expected 4xx.
 - A thrown error mapped by the global `errorHandlerPlugin`
-  (`src/plugins/error-handler.plugin.ts`), mounted first in `createApp()`:
+  (`src/api/middleware/error-handler.plugin.ts`), mounted first in `createApp()`:
   validation failures → 400 `INPUT_VALIDATION_ERROR`; `.status`-carrying errors
-  (auth-guard classes, the service-local `*Error` throws) keep their status with
+  (shared error classes and capability-local `*Error` throws) keep their status with
   a `code` derived from it; anything else → 500 with a generic message (internals
   never leak; outside production the body adds `stack`/`causedBy`).
 
@@ -431,9 +438,9 @@ Four credential kinds; `apps/server/api/src/api/auth-guard.ts` is the only place
 - **Subshell token**: 7-day TTL, self-extending while its MCP child runs; revoked **instantly** on terminate/delete; rotated on restart on the same row. Permissions `{channels:[read,write], subshells:[read,write], prompts:[read,write]}`: a scope gate, not a row fence (§4); a map minted before prompts lacks the key and passes only that resource's check (§4). Mints a WS attach token only for its **own** pane.
 - **Node key**: `/ws/node` and the encrypted, pinned-identity discovery envelope at `/api/nodes/route` only; **no plaintext bearer access on REST** (permanent guard rejection, §5.5); refused at the upgrade chain's final tier while its owner's account is disabled (HTTP-403-shaped close `4403` pre-socket, the check landing after `apiKeyId`; `local`/system-owned rows unaffected); blast radius = impersonating that one node.
 
-**Forgery defense**: the guard never trusts api-key metadata: a key is a subshell principal only when the subshell row's `api_key_id` (written only by `issueSubshellToken`) equals the presenting key's id; `/api/auth/api-key/*` self-service endpoints are blocked inside the auth passthrough on every method (Elysia's broader GET route can outrank an ALL wildcard); a key whose `referenceId` is not the `system` service user is not a system key; a valid key whose subshell row is gone returns 401 (**the row is lifecycle truth**); raw SQL against `apikey` lives only in `src/auth/apikey-store.ts`, scoped with `json_extract`, never `LIKE`.
+**Forgery defense**: the guard never trusts api-key metadata: a key is a subshell principal only when the subshell row's `api_key_id` (written only by `issueSubshellToken`) equals the presenting key's id; `/api/auth/api-key/*` self-service endpoints are blocked inside the auth passthrough on every method (Elysia's broader GET route can outrank an ALL wildcard); a key whose `referenceId` is not the `system` service user is not a system key; a valid key whose subshell row is gone returns 401 (**the row is lifecycle truth**); raw SQL against `apikey` lives only in `src/modules/auth/apikey-store.ts`, scoped with `json_extract`, never `LIKE`.
 
-**Registration**: the first registered user becomes admin. The email gate is the **E-mail provider row's** `registration_enabled` (Settings → Auth is the sole surface; a legacy PATCH of the old `allow_registrations` key translates to the row, audited under the old name). NULL on the row = the legacy dynamic window, open **only while the instance has no users at all**; a stored value fails closed unless exactly 1. Every OIDC provider answers its own `registration_enabled` (explicit 0/1, NULL reads closed). One function decides the email answer (`services/registration-gate.ts`) for all three surfaces.
+**Registration**: the first registered user becomes admin. The email gate is the **E-mail provider row's** `registration_enabled` (Settings → Auth is the sole surface; a legacy PATCH of the old `allow_registrations` key translates to the row, audited under the old name). NULL on the row = the legacy dynamic window, open **only while the instance has no users at all**; a stored value fails closed unless exactly 1. Every OIDC provider answers its own `registration_enabled` (explicit 0/1, NULL reads closed). One function decides the email answer (`modules/auth/registration-gate.ts`) for all three surfaces.
 
 **OIDC providers** (spec 2026-09-24; §2): config lives in `auth_providers`; the E-mail row is a provider too (undeletable, kind-immutable). `/api/auth-providers` is cookie-admin only: the secret is never serialized (lists carry `hasSecret`) and never audited; verification runs only on save, never at build; endpoints and `accountIssuer` are stored so rebuilds run offline and a drifted issuer cannot crash boot. The id slug is `[a-z0-9-]` ≤40 with `email` reserved (`SLUG_TAKEN`); any write closing the LAST open sign-in provider is a `LAST_SIGN_IN_PROVIDER` 409, its guard one transaction with the write. Adding a provider is the same trust decision class as installing a plugin: with `requireLocalEmailVerified: false` the provider's **verified email claim IS the link defense** (§5's inversion; a verified match flips the local `emailVerified`). Provider policy is the global `user.validateUserInfo` hook plus the `hooks.before` guard on `/sign-in/email` and passkey verify (the hook never fires there). A `require_approval` provider's first arrival is created but refused its session; pending and rejected render the identical screen; a pending person never gets a session, never appears in `GET /api/users`; expiry sweeps delete stale `pending` rows (rejected never expire); approval only moves rows OUT of the queue. `kind` is a preset, the slug is unique: N providers per kind are legal, login buttons label by provider NAME. A callback host is never composed from the request: the `redirect_uri` emitted to the IdP is always a stored string (§5a). The provider guard refuses sign-in on EITHER close flag (`enabled` or `sign_in_enabled` = 0) while the registration gate never refuses an existing account (§5a). Response codes and hook specifics: §2. (The architecture-level account: the "Sign-in providers" note under Architecture and `apps/server/api/docs/auth-providers.md`.)
 
@@ -463,7 +470,7 @@ capture child's own account is in Architecture above.
 
 - Panes stream via `tmux pipe-pane` into `<SUBSHELL_SERVER_DATA_DIR>/subshells/<id>.log` (on the node's disk for a remote subshell), plaintext by decision, holding **what was typed** (pasted tokens included) as well as output: the most sensitive artifact the app writes.
 - The capture child is the **self-invoked `pane-log` verb**, never `cat` (uutils coreutils buffers small newline-less writes and froze the live view); `cat >>` stays only as pipePane's no-child fallback.
-- Files 0600 (`O_CREAT` with mode 0600: a umask can only clear bits), dir 0700; `services/pane-log-hygiene.ts` repairs old files at boot.
+- Files 0600 (`O_CREAT` with mode 0600: a umask can only clear bits), dir 0700; `modules/subshells/pane-log-hygiene.ts` repairs old files at boot.
 - Local retention: hourly sweep of **non-running** logs after `SUBSHELL_LOG_RETENTION_DAYS` (default 30; `0` = keep forever); deleting a subshell unlinks its log at once; **running logs are never swept** (live replay buffer); sweeps re-probe liveness PER FILE immediately before each unlink, unknown-not-dead. **Node-side logs sweep on the node itself** (`apps/node/agent/src/pane-log-retention.ts`): boot + hourly, window from the agent's `config.json` or `SUBSHELL_LOG_RETENTION_DAYS`/`_HOURS` env (env wins per field), **default 1 day**, `0+0` = keep forever; a throwing probe counts as running; only `<valid-id>.log` names inside the data dir are eligible (same `pathAllowed`/`isSubshellId` rules as `remove_paths`, never follows symlinks). `remove_paths` at delete stays the prompt removal. (The node's own account of its half: `apps/node/agent/AGENTS.md`, "Pane-log retention".)
 - Never add a code path that copies pane content elsewhere (log line, notification body, diagnostic dump) without deciding its lifetime. `SUBSHELL_ATTACH_DEBUG=1` is the one exception: off by default, world-readable dumps under `/tmp/subshell-attach-debug/`, never swept.
 - Typed input transits argv (`tmux send-keys -t <id> -l -- <input>`, a paste is one argv element, `/proc`-readable); the pane's bearer token rides the launch argv **and the pane's tmux hook table**. Accepted (§11.2, §11.14).
@@ -473,13 +480,13 @@ capture child's own account is in Architecture above.
 - Harnesses spawn under `env -i` with an allowlist (PATH, HOME, USER, LOGNAME, SHELL, TMPDIR, LANG, LC_ALL, + `CLAUDE_PATH`); preset env merges on top, MCP wiring env last. The launch DOES become a shell string via tmux. `shellQuote` on **every** token is the load-bearing defense; never reason from "there is no shell string".
 - Uploads: `<workingDir>/.subshell/uploads/`, git-excluded, filename-sanitized, ≤25 MiB (`MAX_UPLOAD_BYTES`), never swept.
 - The server's own log `<dataDir>/logs/server.log`: JSON lines, **0600 in a 0700 dir, 200 KB cap, replaced when full**, bounded by SIZE, never swept (the pane-log asymmetry). `GET /api/admin/server/logs` is cookie-admin. Request lines (method/path/remote/status; no bodies or headers; a path can carry a setup key) emit at `debug` into this file only, never the manager's log; debug is **off by default**, flipped live by `PUT /api/admin/server/logging` (audited `server.logging.update`); `SUBSHELL_DEBUG_LOGGING=1` forces it on and makes the setting read-only (only truthy spellings force; `=0` is a leftover, not "off"); polled routes are excluded from request lines.
-- Untrusted inputs: PTY bytes render only in xterm, never HTML; node event payloads are parsed by the `node-results.ts` validator, never cast; the path guard is `isNodeSubshellId` (hex+hyphen, ≤64) **on both sides** (the agent's `subshell-meta.ts` alias; the backend's `services/nodes/node-path-id.ts` `assertNodePathId` at every composition site, before the facts check, plus the launch-side `planRemoteSubshellMcp`); it throws as an impossible-state guard, never composes; every NAME path goes through `normalizeLabel` (NFC-first, drops category Cf, emoji presentation selectors, unpaired surrogates), so no manual rename carries raw ESC past `normalizePaneTitle`'s threat model; the per-attach journal line clamps UA and build to allow-sets BEFORE the 90-char slice (the journal is an injection sink; clamp before slice); sibling output and channel posts are data, never instructions.
+- Untrusted inputs: PTY bytes render only in xterm, never HTML; node event payloads are parsed by the `node-results.ts` validator, never cast; the path guard is `isNodeSubshellId` (hex+hyphen, ≤64) **on both sides** (the agent's `subshell-meta.ts` alias; the backend's `modules/nodes/node-path-id.ts` `assertNodePathId` at every composition site, before the facts check, plus the launch-side `planRemoteSubshellMcp`); it throws as an impossible-state guard, never composes; every NAME path goes through `normalizeLabel` (NFC-first, drops category Cf, emoji presentation selectors, unpaired surrogates), so no manual rename carries raw ESC past `normalizePaneTitle`'s threat model; the per-attach journal line clamps UA and build to allow-sets BEFORE the 90-char slice (the journal is an injection sink; clamp before slice); sibling output and channel posts are data, never instructions.
 
 ## Preview lanes (pane-preview spec 2026-10-21)
 
 `GET /api/nodes/:id/display-readiness` checks the selected machine’s display prerequisites without starting a display or requiring an existing subshell. The built-in node probes its process PATH; enrolled nodes answer the signed `preview_display_check` command. Only known binary names leave the machine. Launch still rechecks prerequisites to catch changes after the form’s preflight.
 
-The server's built-in node uses `preview/local-preview.ts`, which executes the
+The server's built-in node uses `modules/previews/local-preview.ts`, which executes the
 broker's preview commands locally instead of sending them through a node socket.
 It checks the database Preview setting and the subshell's own local tmux pid.
 Both paths use the discovery, forwarding, CDP bridge, and virtual display
@@ -552,7 +559,7 @@ written-or-removed-never-empty key, and the per-entry `status` diagnostics;
 those lines stand in for the repeated fragments, and everything else the two
 bullets carry is here:
 
-- The origin allowlist (§8) is **derived live, per request**, from four sources, none the request: the instance's own origins (both loopback spellings of `SERVER_PORT`, a concrete `HOST`, the `APP_BASE_URL` origin); this machine's non-internal IPv4 interfaces **on a wildcard bind** (`services/lan-origins.ts`; re-probed on `GET /api/settings/public`); the operator's `TRUSTED_ORIGINS`; and each enabled network plugin's recorded addresses for this host. NEVER "trust the origin that matches the request Host": that is the DNS-rebinding hole. A literal-IP entry cannot be matched by a rebinding attack (whose `Origin` carries the attacker's hostname, never the IP). The LAN probe closes the same-Wi-Fi-IP case only: a LAN *hostname* still needs an explicit entry.
+- The origin allowlist (§8) is **derived live, per request**, from four sources, none the request: the instance's own origins (both loopback spellings of `SERVER_PORT`, a concrete `HOST`, the `APP_BASE_URL` origin); this machine's non-internal IPv4 interfaces **on a wildcard bind** (`modules/network/lan-origins.ts`; re-probed on `GET /api/settings/public`); the operator's `TRUSTED_ORIGINS`; and each enabled network plugin's recorded addresses for this host. NEVER "trust the origin that matches the request Host": that is the DNS-rebinding hole. A literal-IP entry cannot be matched by a rebinding attack (whose `Origin` carries the attacker's hostname, never the IP). The LAN probe closes the same-Wi-Fi-IP case only: a LAN *hostname* still needs an explicit entry.
 - **Entries are validated by component** (http(s) scheme, a host required, no path/query/fragment; credentials refused, not silently stripped); the canonical `URL.origin` storage and the refusal of wildcards are stated in the config.env section above. **The refusal is load-bearing:** better-auth routes wildcard-carrying entries through `wildcardMatch` (`https://*` measured to trust every https origin), and CORS is no backstop either way (a non-browser client sends any `Origin`). An env var or a hand-edit still bypasses the validator.
 - All writers (CLI `configure --trusted-origins`, the dashboard's Addresses card, the restart route) go through one `applyConfig`, the one writer named in the config.env section above. A value already on disk passes through byte-identical with a warning: only a CHANGED value must validate. `subshell-server status` reports per-entry problems **with the supplying layer** (a diagnostic, not a boot gate; the full account: `apps/server/api/docs/config-env.md`).
 - `APP_BASE_URL` is also better-auth's passkey rpID: changing it moves where passkeys work, the `Secure` cookie marking, and (https) where the Server app window opens. Adding a name to `TRUSTED_ORIGINS` is passkey-neutral, the "also reachable at" lever.
@@ -577,7 +584,7 @@ Design: `docs/superpowers/specs/2026-09-15-updates-design.md` (§15 "Amendments 
 - **One publisher keypair for all four components**; losing `TAURI_SIGNING_PRIVATE_KEY` means no installed component can ever auto-update again. Its three committed spellings (both `tauri.conf.json` pubkeys + `RELEASE_PUBKEY`) are pinned equal by `release-pubkey.test.ts`; a cut refuses the placeholder, every shard fails loudly when the private key is unset.
 - **Server update** (`POST /api/admin/server/update`, cookie-admin, bearer refused, audited at the start AND at the completing boot with actor `null`): the URL comes from the release index, NEVER the request body; `version` only SELECTS among published tags; the downloaded binary must answer `<temp> version` with the version being installed; refused (notably `RESTART_UNAVAILABLE`) rather than updating into nothing; the job slot is a one-synchronous-check-and-set CLAIM taken immediately before start: the claim IS the lock.
 - **Node update** (`POST /api/nodes/:id/update`, `nodeCanConfigure` gate, cookie only, `local` refused, audited): URL, digest and the VERIFIED manifest+signature travel INSIDE the signed command; the node re-verifies against its own compiled-in pubkey; old-protocol agents are refused by the plane, and the AGENT refuses a non-newer `version` unless the command carries `force` (equal version refused even under force; the loopback dashboard's deliberate downgrade path keeps working; the agent's own posture: `apps/node/agent/AGENTS.md`). The `nut_…` download token is not a general credential: in-memory, 10-minute, single-use, checked against the platform triple and named digest; a server restart forgets outstanding tokens.
-- **Every install is a transaction the NEW binary completes at boot**: the swapper FIRST keeps the old binary as `.previous` (`keepPreviousBinary`) then performs **ONE rename onto the live path** (never rename-aside-then-in, whose crash window left NO bootable binary with an unrevertable marker), and it writes the marker. The boot finalizes (migrations pass → audit, delete both) or reverts (restore DB backup, rename `.previous` back, record the failure, exit 1 so the manager respawns the old version). The node mirrors it without the database half. **Never write the installed binary by convention**: it is the file the SERVICE DEFINITION names, else the one this process IS, else nothing (`services/installed-binary.ts`; `selfInvokePrefix()` on the node).
+- **Every install is a transaction the NEW binary completes at boot**: the swapper FIRST keeps the old binary as `.previous` (`keepPreviousBinary`) then performs **ONE rename onto the live path** (never rename-aside-then-in, whose crash window left NO bootable binary with an unrevertable marker), and it writes the marker. The boot finalizes (migrations pass → audit, delete both) or reverts (restore DB backup, rename `.previous` back, record the failure, exit 1 so the manager respawns the old version). The node mirrors it without the database half. **Never write the installed binary by convention**: it is the file the SERVICE DEFINITION names, else the one this process IS, else nothing (`modules/server/installed-binary.ts`; `selfInvokePrefix()` on the node).
 - **Full instance archive before every upgrade**: 0600 in a 0700 dir at `<dataDir>/backups/` (explicit chmod after `VACUUM INTO`); bounded by `SUBSHELL_DB_BACKUPS_KEEP`. Rollback restores **database → binary → marker** (Kysely is forward-only: an old binary cannot boot a newer DB); `restoreDatabase` `wal_checkpoint(TRUNCATE)`s BEFORE unlinking WAL sidecars (a stale self-consistent WAL would REPLAY onto the restored snapshot); a `pending.json` naming a version that is not booting is RECORDED as a failure. Desktop "install the bundled server" on a managed install delegates to `<installed> update --from <sidecar> --yes --no-restart --json`; the FIRST install still copies the sidecar.
 - **Desktop updaters**: `tauri-plugin-updater` verifies minisign over the BUNDLE bytes against the compiled-in pubkey; CLI paths verify over the MANIFEST bytes then match files against the signed digest. One desktop update act spans a relaunch (spec 2026-09-18): pane-safety consent persists as `settings.json` `pendingBundledInstall.forced` (never written by a page; `desktop_install_app_update` takes booleans only and ANDs `forced` with the machine's own `pane_risk_now`: a page can decline, never manufacture, a force); the marker never decides work EXISTS (re-derived at boot); retries bounded at two; the updater commands are BUNDLED-window grants only; no remote window gained one. (The per-app halves: `apps/server/desktop/AGENTS.md` and `apps/client/desktop/AGENTS.md`.)
 
@@ -629,7 +636,7 @@ so a field added later is a decision rather than an accumulation.
   stdout stays `info`, HTTP request lines ride `debug`, polled routes
   excluded. The one exception is `--verbose` / `SUBSHELL_VERBOSE=1`
   (2026-09-26): both raise THE CONSOLE transport to debug for the life of
-  a hand-invoked run (`setConsoleVerbose` in `utils/logger.ts`, the
+  a hand-invoked run (`setConsoleVerbose` in `shared/logger.ts`, the
   deliberate mirror of `applyDebugLogging` that never touches the FILE
   gate, the settings row, or the env-forced read-only rule), and either
   is refused together with `--json` where a command emits JSON. HTTP
@@ -654,7 +661,7 @@ first.**
 ## Instance backup and restore
 
 Full manual archives and offline transactional restoration live in
-`services/backups/`; Settings only downloads, inspects, and stages. Read
+`modules/backups/`; Settings only downloads, inspects, and stages. Read
 `apps/server/api/docs/backups.md` before changing capture locks, pre-config
 recovery, restore receipts, encryption, or temporary admin recovery. User
 procedures live in `apps/docs/content/docs/administration/backups.mdx`.
@@ -671,7 +678,7 @@ subcommand boots the server exactly as before (spec 2026-09-03). That form
 predates the CLI (it is what the removed `svc.sh` wrote), and the tests pin
 it, so never make a bare invocation mean anything else.
 
-The verbs, hand-rolled dispatch in `src/cli.ts`, no flag library. The
+The verbs, hand-rolled dispatch in `src/cli/dispatch.ts`, no flag library. The
 full table (every flag, refusal and exit-code contract) is in
 `apps/server/api/docs/cli.md`: `version`; `status [--json]` (read-only
 view, never boots); `init` (first run, THE headless entry point; the
@@ -709,7 +716,7 @@ the import-purity tests), and the `isCliEngaged()` boot gate in
 keeps a suspended (or sync) command from booting the server underneath
 it. (Historical: on bun 1.4.0, measured not spec, ANY await in the entry
 prelude lets the rest of the entry graph and the boot body evaluate; the
-littering that once made sync-exit load-bearing (`@/auth.js` building
+littering that once made sync-exit load-bearing (`@/modules/auth/auth.js` building
 better-auth, and opening its SQLite file, eagerly at import) is gone
 with the lazy construction, so the boot gate now carries that load.)
 
@@ -722,12 +729,12 @@ the colours do, pinned together by a test) and 24-bit colour is emitted
 only when stdout is a TTY. Full rationale:
 `apps/server/api/docs/cli.md`.
 
-### config.env (`src/config-env.ts`)
+### config.env (`src/modules/server/config/env.ts`)
 
 `~/.config/subshell-server/config.env` (dir 0700, file 0600, temp +
 rename; home from `SUBSHELL_SERVER_CONFIG_DIR`). `constants.ts` itself
 applies it with SETDEFAULT semantics at the top of its own module body,
-BEFORE dotenvx, NOT in `cli-bootstrap.ts` (measured: the bootstrap's
+BEFORE dotenvx, NOT in `cli/bootstrap.ts` (measured: the bootstrap's
 body runs after the whole import graph), so precedence is **process env
 > config.env > `.env` > built-in defaults**, and `bun run dev` honours
 the developer's own config.env (`e2e/stack.ts` overrides the home to
@@ -768,7 +775,7 @@ instructions) are all PRINTED, because silence was the bug this closed.
 **Working on config.env, `applyConfig`, the origin registry or `status`
 diagnostics: read `apps/server/api/docs/config-env.md` first.**
 
-### Service supervision (`src/service.ts`)
+### Service supervision (`src/modules/server/supervision.ts`)
 
 `KillMode=process` on the systemd unit is the load-bearing line: each
 local subshell's tmux server is a CHILD of the unit, so the default
@@ -789,7 +796,7 @@ read `apps/server/api/docs/service-units.md` first.**
 
 ### MCP entrypoint resolution
 
-The pure ladder in `src/services/mcp-resolve.ts`:
+The pure ladder in `src/modules/subshells/mcp-resolve.ts`:
 `SUBSHELL_MCP_COMMAND`/`_ARGS` override → SELF (the server binary IS the
 MCP server) → the `subshell` node CLI on PATH → throw naming the
 override. A deployment matching none 500s on create;
@@ -877,7 +884,7 @@ predates any of this). Follow the `0039-subshell-cross-agent` precedent: append
 the new migration's `.up()` beside the curated anchors.
 
 Route tests live in `__tests__/` next to the route and share
-`src/api/__tests__/helpers/auth-tables.ts`:
+`src/testing/api/auth-tables.ts`:
 
 - `setupAuthTables()`: runs the real app + better-auth migrations once per suite
 - `signIn(email, password)` / `authedRequest(...)`: real session cookies
@@ -893,7 +900,7 @@ Migrations must be applied by the code under test or the helper, never
 assumed from a developer's local `data/subshell.db`.
 
 **`test` must keep turbo's `dependsOn: ["^build"]`**; do not narrow it
-for a faster loop: `__tests__/cli-entry.test.ts` spawns a REAL
+for a faster loop: `cli/__tests__/cli-entry.test.ts` spawns a REAL
 subprocess that re-resolves workspace packages from disk, and a
 concurrent dependency build momentarily blanks their `dist` (the full
 incident: `apps/server/api/docs/testing-notes.md`).

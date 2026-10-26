@@ -2198,7 +2198,7 @@ fn set_supervision_now(
             // more permissive than the restart route it is justified by.**
             //
             // Leaving app mode means `service uninstall`, which by deliberate
-            // design gates on NOTHING (`apps/server/api/src/service.ts`) so a
+            // design gates on NOTHING (`apps/server/api/src/modules/server/supervision.ts`) so a
             // stranded unit can always come down. On a definition that
             // predates `KillMode=process` / `AbandonProcessGroup`, that
             // teardown takes every live subshell's tmux server with it — the

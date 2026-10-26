@@ -188,10 +188,13 @@ describe("cli-release-fetch", () => {
   });
 
   test("the cap matches the server's artifact ceiling", () => {
-    // Two roads, one asset: apps/server/api/src/services/releases.ts refuses
+    // Two roads, one asset: apps/server/api/src/modules/updates/releases.ts refuses
     // the same downloads over 300 MiB. If one moves, both must.
     expect(MAX_ASSET_BYTES).toBe(300 * 1024 * 1024);
-    const serverCap = readFileSync(join(import.meta.dir, "../../apps/server/api/src/services/releases.ts"), "utf8");
+    const serverCap = readFileSync(
+      join(import.meta.dir, "../../apps/server/api/src/modules/updates/releases.ts"),
+      "utf8",
+    );
     const m = /export const MAX_ARTIFACT_BYTES = ([^;]+);/.exec(serverCap);
     expect(m?.[1]).toBe("300 * 1024 * 1024");
   });

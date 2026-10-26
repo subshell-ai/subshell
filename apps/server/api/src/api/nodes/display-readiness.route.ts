@@ -1,11 +1,12 @@
 import { parsePreviewDisplayReadiness } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { authGuard, HttpError } from "@/api/auth-guard.js";
-import { loadNodeGate } from "@/api/nodes/node-gate.js";
-import { getLocalPreviewRuntime } from "@/preview/local-preview.js";
-import { apiModels } from "@/schema/index.js";
-import { DisplayProviderIdSchema } from "@/schema/virtual-display.js";
-import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
+import { authGuard } from "@/api/auth-guard.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { DisplayProviderIdSchema } from "@/api/schemas/virtual-display.js";
+import { loadNodeGate } from "@/modules/nodes/gate.js";
+import { NodeRpcError, sendCommand } from "@/modules/nodes/node-rpc.js";
+import { getLocalPreviewRuntime } from "@/modules/previews/local-preview.js";
+import { HttpError } from "@/shared/errors.js";
 
 /** Read-only launch preflight. Machine actors may inspect owned enrolled nodes only, as in list_nodes; loadNodeGate never inherits shares or admin rights for them. */
 export const displayReadinessRoute = new Elysia()

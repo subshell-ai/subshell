@@ -1,9 +1,9 @@
 import type { NetworkContext, NetworkPluginEntry, NetworkStatus, PluginPlatform } from "@internal/pane-runtime";
 import type { Static } from "elysia";
-import { isSupportedHere, networkDeps, readNetworkStatus } from "@/api/network/network-gate.js";
 import type { NetworkRowSchema } from "@/api/network/schemas.js";
-import { networkContext, publishStateVisible, readNetworkState } from "@/services/network/state.js";
-import { processState } from "@/services/network/supervisor.js";
+import { isSupportedHere, networkDeps, readNetworkStatus } from "@/modules/network/operations.js";
+import { networkContext, publishStateVisible, readNetworkState } from "@/modules/network/state.js";
+import { processState } from "@/modules/network/supervisor.js";
 
 /**
  * One network plugin as the page renders it, and the list of them.

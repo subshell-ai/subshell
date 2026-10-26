@@ -2,12 +2,12 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 import { cors } from "@elysiajs/cors";
 import { betterAuth } from "better-auth";
 import { Elysia } from "elysia";
-import { authDatabase } from "@/auth/database.js";
-import { AUTH_OPTIONS } from "@/auth.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
+import { AUTH_OPTIONS } from "@/modules/auth/auth.js";
+import { authDatabase } from "@/modules/auth/database.js";
+import { originRegistry } from "@/modules/network/trusted-origins.js";
 import { corsOriginAllowed } from "@/server.js";
-import { originRegistry } from "@/services/trusted-origins.js";
-import { setupAuthTables } from "./helpers/auth-tables.js";
+import { setupAuthTables } from "../../testing/api/auth-tables.js";
 
 /**
  * The property the whole change exists for: an Origin the registry learned

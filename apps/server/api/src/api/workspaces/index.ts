@@ -11,7 +11,7 @@ import { updateWorkspaceRoute } from "@/api/workspaces/update-workspace.route.js
 /**
  * `/api/workspaces` — one Elysia instance per endpoint (mounted in the original
  * monolithic route's order); business logic lives in `WorkspacesService`
- * (`src/services/workspaces.service.ts`), reached by handlers via `ctx`.
+ * (`src/modules/workspaces/workspaces.service.ts`), reached by handlers via `ctx`.
  */
 export const workspaceRoutes = new Elysia({ prefix: "/api/workspaces" })
   .use(createWorkspaceRoute)

@@ -1,14 +1,14 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
-import { ForbiddenError } from "@/api/auth-guard.js";
-import { loadNodeGate } from "@/api/nodes/node-gate.js";
+import { apiErrorBody } from "@/api/api-error.js";
 import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
 import { MaintenanceResponseSchema, toNodeView } from "@/api/nodes/node-view.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
-import { setNodeMaintenance } from "@/services/nodes/maintenance.js";
+import { loadNodeGate } from "@/modules/nodes/gate.js";
+import { setNodeMaintenance } from "@/modules/nodes/maintenance.js";
+import { ForbiddenError } from "@/shared/errors.js";
 
 const MaintenanceBodySchema = t.Object({
   on: t.Boolean({

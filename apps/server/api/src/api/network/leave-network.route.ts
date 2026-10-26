@@ -1,19 +1,19 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
+import { apiErrorBody } from "@/api/api-error.js";
+import { requireNetworkAdmin } from "@/api/network/network-gate.js";
+import { NetworkActionResponseSchema, NetworkParamsSchema } from "@/api/network/schemas.js";
+import { apiModels } from "@/api/schemas/index.js";
 import {
   auditNetwork,
   invalidateNetworkStatus,
   prepareNetworkAct,
   readNetworkStatus,
-  requireNetworkAdmin,
-} from "@/api/network/network-gate.js";
-import { NetworkActionResponseSchema, NetworkParamsSchema } from "@/api/network/schemas.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
-import { forgetNetworkOrigins } from "@/services/network/origins.js";
-import { clearNetworkState } from "@/services/network/state.js";
-import { unpublishNetwork } from "@/services/network/unpublish.js";
-import { originRegistry } from "@/services/trusted-origins.js";
+} from "@/modules/network/operations.js";
+import { forgetNetworkOrigins } from "@/modules/network/origins.js";
+import { clearNetworkState } from "@/modules/network/state.js";
+import { originRegistry } from "@/modules/network/trusted-origins.js";
+import { unpublishNetwork } from "@/modules/network/unpublish.js";
 
 const LeaveBodySchema = t.Object(
   {

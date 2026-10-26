@@ -1,5 +1,6 @@
 import { Elysia } from "elysia";
-import { authGuard, HttpError } from "@/api/auth-guard.js";
+import { authGuard } from "@/api/auth-guard.js";
+import { HttpError } from "@/shared/errors.js";
 
 /** Keeps enrollment and configuration opt-in, independently of ordinary REST access. */
 export const nodeManagementGuard = new Elysia({ name: "node-management-guard" })

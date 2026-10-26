@@ -2,9 +2,9 @@ import { expect, test } from "bun:test";
 import { generateLinkKeyPair } from "@internal/subshell-protocol/node-link-crypto";
 import { sealRouteRequest } from "@internal/subshell-protocol/node-route";
 import { Elysia } from "elysia";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
+import { authenticateNodeUpgrade } from "@/api/ws/node-ws-handler.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { authenticateNodeUpgrade } from "@/services/nodes/node-ws-handler.js";
 import { createRouteDiscoveryRoute, type RouteDiscoveryDeps } from "../route-discovery.route.js";
 
 async function fixture() {

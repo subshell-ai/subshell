@@ -1,14 +1,14 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
 import { DeploymentViewSchema } from "@/api/admin-server/schemas.js";
+import { apiErrorBody } from "@/api/api-error.js";
 import { requireAdmin } from "@/api/auth-guard.js";
-import { applyConfig } from "@/commands/configure.js";
-import { configEnvAppliedKeys, resolveConfig, serverConfigDir } from "@/config-env.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
-import { audit } from "@/services/audit.js";
-import { collectDeployment, type DeploymentSettingKey, settingSource } from "@/services/server-deployment.js";
-import { originRegistry } from "@/services/trusted-origins.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { audit } from "@/modules/audit.js";
+import { originRegistry } from "@/modules/network/trusted-origins.js";
+import { applyConfig } from "@/modules/server/config/apply.js";
+import { configEnvAppliedKeys, resolveConfig, serverConfigDir } from "@/modules/server/config/env.js";
+import { collectDeployment, type DeploymentSettingKey, settingSource } from "@/modules/server/server-deployment.js";
 
 const ConfigPatchSchema = t.Object(
   {

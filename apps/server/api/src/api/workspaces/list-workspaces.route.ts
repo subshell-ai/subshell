@@ -1,11 +1,11 @@
 import { LIST_SEARCH_MAX } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
-import { matchesListQuery } from "@/api/list-filter.js";
-import { WorkspaceListItemSchema } from "@/api/models.js";
+import { contextPlugin } from "@/api/middleware/context.plugin.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { WorkspaceListItemSchema } from "@/api/schemas/models.js";
 import { requireCookieActor } from "@/api/workspaces/require-cookie-actor.js";
-import { contextPlugin } from "@/plugins/context.plugin.js";
-import { apiModels } from "@/schema/index.js";
+import { matchesListQuery } from "@/shared/list-filter.js";
 
 const ListWorkspacesQuerySchema = t.Object({
   q: t.Optional(t.String({ maxLength: LIST_SEARCH_MAX.workspaces })),

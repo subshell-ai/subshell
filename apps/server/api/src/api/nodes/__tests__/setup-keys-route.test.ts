@@ -1,17 +1,17 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { nodesRoutes } from "@/api/nodes/index.js";
-import { authDatabase } from "@/auth/database.js";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { ALLOW_NODE_ENROLLMENT_KEY } from "@/services/registration-gate.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+import { authDatabase } from "@/modules/auth/database.js";
+import { ALLOW_NODE_ENROLLMENT_KEY } from "@/modules/auth/registration-gate.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /** One key row as the list route renders it (owner-scoped read). */
 type KeyRow = {

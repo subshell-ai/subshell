@@ -1,8 +1,8 @@
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
+import { contextPlugin } from "@/api/middleware/context.plugin.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { CreateSubshellResponseSchema } from "@/api/subshells/create-subshell.route.js";
-import { contextPlugin } from "@/plugins/context.plugin.js";
-import { apiModels } from "@/schema/index.js";
 
 /**
  * The optional preset swap riding a restart (spec 2026-09-23 §2), and since

@@ -1,16 +1,16 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/api/__tests__/helpers/auth-tables.js";
 import { devicesRoutes } from "@/api/devices.route.js";
-import { authDatabase } from "@/auth/database.js";
-import { ensureSystemUser } from "@/auth/system-user.js";
-import { getAuth } from "@/auth.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { db } from "@/db/index.js";
 import { DeviceTokensRepository } from "@/db/repositories/device-tokens.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { __setVapidDirForTests } from "@/services/notify.service.js";
+import { getAuth } from "@/modules/auth/auth.js";
+import { authDatabase } from "@/modules/auth/database.js";
+import { ensureSystemUser } from "@/modules/auth/system-user.js";
+import { __setVapidDirForTests } from "@/modules/notifications/notify.service.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/testing/api/auth-tables.js";
 
 // errorHandlerPlugin mounted like createApp() so thrown status errors and
 // validation failures serialize like production (400, not Elysia's raw 422).

@@ -19,7 +19,7 @@ export const SERVER_LOG_DEFAULT_LINES = 200;
  * The route affords the rate: it reads the tail of a capped file and spawns
  * nothing — unlike `/api/admin/server`, which probes the port and the service
  * manager — and it is in the request logger's own `ignore` list
- * (`api/src/plugins/context.plugin.ts`), so a debug session cannot fill the
+ * (`api/src/api/middleware/context.plugin.ts`), so a debug session cannot fill the
  * cap with the log card asking after the log. Keep it on that list.
  *
  * Pausing stops the POLLING rather than freezing a still-running one. The

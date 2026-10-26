@@ -32,7 +32,7 @@ so a field added later is a decision rather than an accumulation.
 
 ### Source attribution, and the systemd trap
 
-`settingSource` (`services/server-deployment.ts`) answers which layer a
+`settingSource` (`modules/server/server-deployment.ts`) answers which layer a
 setting's saved value came from, and the PATCH route turns `process env` into a
 **409 refusal**: a file write the next boot would mask is a success report for
 a change that never happens.
@@ -64,7 +64,7 @@ the file (`originRegistry().reloadStored()` in `patch-config.route.ts`): the
 stored extras are RELOADED ON WRITE, because the assembled set is what every
 request CONSULTS, so a reload at the write is what makes a trusted origin that
 changed take effect with no restart. Two seams in
-`services/trusted-origins.ts` (`productionDeps`) make that hold on the primary
+`modules/network/trusted-origins.ts` (`productionDeps`) make that hold on the primary
 Linux deployment:
 
 - **`process.env` is mirrored from the file, but only when the loader had
@@ -104,7 +104,7 @@ Pane safety follows the CLI: a definition without `KillMode=process` /
 `AbandonProcessGroup` takes every live tmux pane down with the process, so the
 route refuses it without `force`, the same bar `service restart --force` sets.
 
-`performRestart` (`services/server-restart.ts`) closes every browser terminal
+`performRestart` (`modules/server/server-restart.ts`) closes every browser terminal
 socket and every node socket with **1012 Service Restart**, then exits 0 after
 a delay that lets the route's own 202 flush. 1012 is chosen for being BELOW
 4000: the SPA's socket treats the 4xxx range as a refusal to report and
@@ -132,7 +132,7 @@ holds.
 was the intended one; the spike (2026-09-12, under plain `bun` and again
 compiled) left FIVE files behind, each one over the 204 800 cap rather than
 under it, deleted none of them, and wrote `<filename>.<n>` rather than the
-filename it was given. `CappedFileTransport` (`utils/log-file.ts`) is the
+filename it was given. `CappedFileTransport` (`shared/log-file.ts`) is the
 replacement: a `BlankTransport` (loglayer's own `LoggerlessTransport` with a
 supplied `shipToLogger`, so the level gate stays the library's and this needs
 no dependency) appending a JSON line and truncating when the next one would
@@ -150,7 +150,7 @@ pinned at `info` and left there, because that is what the service manager
 collects and a debug session must not fill a journal. The FILE transport
 carries the effective level, and `PUT /api/admin/server/logging` flips that one
 field, live, no restart. HTTP request/response lines are emitted at `debug`
-(`autoLogging.logLevel` in `plugins/context.plugin.ts`), so they reach the file
+(`autoLogging.logLevel` in `api/middleware/context.plugin.ts`), so they reach the file
 only in debug mode and the manager's log never; the polled routes
 (`admin/status`, `admin/server`, its `logs`, `setup/status`,
 `settings/public`, `/ws*`) are in that plugin's `ignore` list, or a debug
@@ -267,7 +267,7 @@ definition, and their absence is the honest answer.
 
 A node's harness inventory, which agent CLIs are actually present on that
 machine, is the plane's cached answer to a `detect` command
-(`services/nodes/inventory.ts`). Spec 2026-09-10 §4 made that a REQUEST: the
+(`modules/nodes/inventory.ts`). Spec 2026-09-10 §4 made that a REQUEST: the
 plane ships the lookup rules, the node probes and answers, and no node ever
 scans on its own initiative. **That half is absolute and unchanged.** What
 grew is the set of occasions that count as asking, because the original list
@@ -285,7 +285,7 @@ Two triggers were added, and they answer different questions:
   awaiting it would deadlock, and a failed probe must never fail a handshake.
   A HELD node is never kicked; it returns at the gate.
 - **A periodic pass over the online nodes**
-  (`services/nodes/inventory-refresh.ts`, armed by `index.ts` beside the other
+  (`modules/nodes/inventory-refresh.ts`, armed by `index.ts` beside the other
   timers). The online set comes from the REGISTRY, like the offline sweep's,
   never a DB scan; `local` is skipped by name (its view probes live on every
   read).

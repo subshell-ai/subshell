@@ -17,6 +17,7 @@ import {
 import type { verifyReleaseManifest } from "@internal/subshell-protocol/release-signature";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { nodesRoutes } from "@/api/nodes/index.js";
 import { NODE_ARTIFACTS_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
@@ -24,7 +25,6 @@ import { AuditRepository } from "@/db/repositories/audit.repository.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import {
   attachConnection,
   getHeld,
@@ -33,20 +33,20 @@ import {
   holdConnection,
   type NodeSocket,
   resetNodeRegistryForTests,
-} from "@/services/nodes/node-registry.js";
-import { failConnPendings, resolveResult } from "@/services/nodes/node-rpc.js";
-import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { resetUpdateTokensForTests } from "@/services/nodes/update-tokens.js";
-import { readView, recordNodeReady, resetForTests } from "@/services/nodes/update-tracker.js";
-import { releaseSeams, resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
+} from "@/modules/nodes/node-registry.js";
+import { failConnPendings, resolveResult } from "@/modules/nodes/node-rpc.js";
+import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { resetUpdateTokensForTests } from "@/modules/updates/node-tokens.js";
+import { readView, recordNodeReady, resetForTests } from "@/modules/updates/node-tracker.js";
+import { releaseSeams, resetReleaseCacheForTests, setReleaseUrlForTests } from "@/modules/updates/releases.js";
 import {
   collectServerUpdateView,
   currentUpdateJob,
   resetUpdateJobForTests,
   tryClaimServerUpdate,
-} from "@/services/server-update.js";
-import { beginUpdate as beginServerTransaction, clearPending } from "@/services/update-transaction.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+} from "@/modules/updates/server-update.js";
+import { beginUpdate as beginServerTransaction, clearPending } from "@/modules/updates/update-transaction.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
  * `POST /api/nodes/:id/update` (spec 2026-09-15 §5.3).

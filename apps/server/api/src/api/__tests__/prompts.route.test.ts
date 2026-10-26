@@ -1,13 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { promptsRoutes } from "@/api/prompts.route.js";
-import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+import { getAuth } from "@/modules/auth/auth.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
 
 /**
  * `/api/prompts` (spec 2026-09-28): the saved-prompt library. The rules this

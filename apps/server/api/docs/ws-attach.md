@@ -9,7 +9,7 @@ with a pin overriding all of it. A rung that holds nobody with a usable size is
 skipped, so excluding a device can never shrink the pane below what the
 remaining ones reported.
 
-`ws/subshell-ws.ts` owns the state around it: the per-subshell viewer registry
+`api/ws/subshell-ws.ts` owns the state around it: the per-subshell viewer registry
 (keyed by `viewerId`, NEVER by socket identity; Elysia hands `close` a
 different wrapper than `open`) and the in-memory sizing policy, dropped with
 the last viewer. `resetLiveViewersForTests()` clears ALL of that module's
@@ -17,12 +17,12 @@ per-subshell state together (viewers, policy, heartbeat stamps, pumps, applied
 geometry) because tests reuse subshell ids and any one of those surviving a
 case corrupts the next in a way that reads as a product bug.
 
-**Both attach paths are the same shape**, and the remote one (`ws/remote-subshell-ws.ts`)
+**Both attach paths are the same shape**, and the remote one (`api/ws/remote-subshell-ws.ts`)
 was brought to it late; before that it fitted the pane to whoever attached
 last and ran its own `tail_start` per socket, which `NodeLauncher`'s contract
 forbids ("callers MUST NOT overlap per-subshell pumps"). Both now:
 
-1. subscribe to the shared pump (`ws/pane-stream.ts`) BEFORE reading the pane,
+1. subscribe to the shared pump (`api/ws/pane-stream.ts`) BEFORE reading the pane,
 2. fit to `sharedGridFor()`, seed the geometry queue with what they applied,
 3. capture, send the replay, then `open()` the subscription and broadcast presence.
 
@@ -87,7 +87,7 @@ dumps are real screen contents, which can include secrets.**
 Five invariants on that path are load-bearing and easy to regress:
 
 - Capture text (`replay`, pane-poll deltas) goes through
-  `ws/capture-text.ts`; `capture-pane -p` emits **bare LFs**, and a bare LF
+  `api/ws/capture-text.ts`; `capture-pane -p` emits **bare LFs**, and a bare LF
   keeps the cursor's column, which staircases every row into scrollback where
   nothing ever repaints it. The live tail must NOT be normalized: those bare
   LFs are the app's own deliberate output.
@@ -108,7 +108,7 @@ Five invariants on that path are load-bearing and easy to regress:
   token-by-token from a given cursor row; run it before trusting a mid-screen
   cursor restore.
 - The replay frame carries **no trailing line terminator**
-  (`ws/capture-text.ts:captureToReplayText`). `capture-pane -p` terminates
+  (`api/ws/capture-text.ts:captureToReplayText`). `capture-pane -p` terminates
   every row including the last, and that final terminator scrolls the client
   one row past the pane's grid (measured on real xterm 6: `baseY` 1 vs 0),
   which shifts the whole viewport and makes the pane's viewport-relative
@@ -170,7 +170,7 @@ Five invariants on that path are load-bearing and easy to regress:
 every broadcast row and it flips for every subshell on a machine the moment
 its socket drops; but no write touches those rows, so an event-driven feed
 has nothing to send. The SSE stream this replaced hid that by re-sending the
-whole list on a timer. `services/nodes/node-presence-announce.ts` publishes
+whole list on a timer. `modules/nodes/node-presence-announce.ts` publishes
 `subshell.changed` for the RUNNING rows on a node when it connects, when it
 disconnects, and when a refused agent is held; without it an agent that simply
 dies leaves its subshells rendering as healthy until the viewer reconnects.

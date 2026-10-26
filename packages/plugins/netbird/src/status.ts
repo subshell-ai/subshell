@@ -48,7 +48,7 @@ export interface NetbirdRead {
  * The plugin never claims a state it cannot see; the manifest instead declares
  * `publishImplicit`, which tells the host that for THIS plugin its own publish
  * record is the `published` state — `publishStateVisible` in
- * `apps/server/api/src/services/network/state.ts` reads it and upgrades the
+ * `apps/server/api/src/modules/network/state.ts` reads it and upgrades the
  * row. The daemon's answer stays exactly as honest as it is here.
  */
 export async function readNetwork(host: PluginHost, ctx: NetworkContext): Promise<NetbirdRead> {

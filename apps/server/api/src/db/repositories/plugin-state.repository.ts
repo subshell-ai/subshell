@@ -18,7 +18,7 @@ const enabledCache = new Map<string, boolean>();
  * Whether a plugin is enabled, answered SYNCHRONOUSLY from {@link
  * enabledCache} — never by awaiting the database.
  *
- * It exists for one caller and one reason (`services/network/origins.ts`):
+ * It exists for one caller and one reason (`modules/network/origins.ts`):
  * a status observation that captured its plugin list while the plugin was
  * enabled must not re-trust its addresses into the registry after a disable
  * has forgotten them, and the only check that can carry that promise is one

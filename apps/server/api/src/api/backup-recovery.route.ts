@@ -1,8 +1,12 @@
 import { Elysia, t } from "elysia";
-import { authGuard, HttpError, requireCookieActor } from "@/api/auth-guard.js";
+import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { db } from "@/db/index.js";
-import { audit } from "@/services/audit.js";
-import { backupPasswordChangeRequired, completeBackupPasswordRecovery } from "@/services/backup-admin-recovery.js";
+import { audit } from "@/modules/audit.js";
+import {
+  backupPasswordChangeRequired,
+  completeBackupPasswordRecovery,
+} from "@/modules/backups/backup-admin-recovery.js";
+import { HttpError } from "@/shared/errors.js";
 
 export const backupRecoveryRoutes = new Elysia({ prefix: "/api/account/recovery" })
   .use(authGuard)

@@ -1,22 +1,22 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { presetRoutes } from "@/api/presets.route.js";
+import { getRequestlessContext } from "@/app/context.js";
 import { db } from "@/db/index.js";
 import { PresetSharesRepository } from "@/db/repositories/preset-shares.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SshPresetsRepository } from "@/db/repositories/ssh-presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { getRequestlessContext } from "@/lib/context.js";
-import { presetAccess } from "@/lib/preset-access.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { FakeNodeLauncher } from "@/services/__tests__/helpers/node-fakes.js";
-import { seedPreset } from "@/services/__tests__/helpers/seed-preset.js";
-import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { SubshellManagerService } from "@/services/subshell-manager.service.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { presetAccess } from "@/modules/presets/access.js";
+import { SubshellManagerService } from "@/modules/subshells/subshell-manager.service.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { FakeNodeLauncher } from "@/testing/node-fakes.js";
+import { seedPreset } from "@/testing/seed-preset.js";
+import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
 
 type PresetView = { id: string; access: string; ownerName: string; envJson: string | null };
 async function json<T>(response: Response): Promise<T> {

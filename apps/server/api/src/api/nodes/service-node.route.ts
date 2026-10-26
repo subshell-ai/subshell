@@ -8,14 +8,15 @@ import {
   type NodeServiceVerb,
 } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { authGuard, ForbiddenError, requireCookieActor } from "@/api/auth-guard.js";
-import { loadNodeGate } from "@/api/nodes/node-gate.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { nodeCanConfigure } from "@/lib/node-access.js";
-import { apiModels } from "@/schema/index.js";
-import { audit } from "@/services/audit.js";
-import { getLive } from "@/services/nodes/node-registry.js";
-import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
+import { apiErrorBody } from "@/api/api-error.js";
+import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { audit } from "@/modules/audit.js";
+import { nodeCanConfigure } from "@/modules/nodes/access.js";
+import { loadNodeGate } from "@/modules/nodes/gate.js";
+import { getLive } from "@/modules/nodes/node-registry.js";
+import { NodeRpcError, sendCommand } from "@/modules/nodes/node-rpc.js";
+import { ForbiddenError } from "@/shared/errors.js";
 
 const ServiceBodySchema = t.Object({
   verb: t.Union(

@@ -1,12 +1,12 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 import { Elysia } from "elysia";
 import { adminServerRoutes } from "@/api/admin-server/index.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { db } from "@/db/index.js";
 import { AuditRepository } from "@/db/repositories/audit.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { currentDebugLogging, setDebugLogging } from "@/services/logging-preference.js";
-import { serverLogFile } from "@/utils/log-file.js";
-import { authedRequest } from "../../__tests__/helpers/auth-tables.js";
+import { currentDebugLogging, setDebugLogging } from "@/modules/server/logging-preference.js";
+import { serverLogFile } from "@/shared/log-file.js";
+import { authedRequest } from "../../../testing/api/auth-tables.js";
 import { type AdminServerFixture, bearerRequest, setupAdminServerFixture } from "./fixture.js";
 
 const app = new Elysia().use(errorHandlerPlugin).use(adminServerRoutes);

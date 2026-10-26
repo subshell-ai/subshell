@@ -26,16 +26,16 @@ import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { downloadsRoutes } from "@/api/downloads.route.js";
 import { installScriptRoute } from "@/api/install-script.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { APP_BASE_URL, NODE_ARTIFACTS_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { mintUpdateToken, resetUpdateTokensForTests } from "@/services/nodes/update-tokens.js";
-import { releaseSeams, resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
-import { originRegistry } from "@/services/trusted-origins.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+import { originRegistry } from "@/modules/network/trusted-origins.js";
+import { mintUpdateToken, resetUpdateTokensForTests } from "@/modules/updates/node-tokens.js";
+import { releaseSeams, resetReleaseCacheForTests, setReleaseUrlForTests } from "@/modules/updates/releases.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
 
 // Assembled like createApp(): the GLOBAL error handler is mounted before the
 // routes, so any thrown validation would serialize as 400 INPUT_VALIDATION_ERROR
@@ -769,7 +769,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     // Installer-created dirs are private (also on a shared /opt).
     expect(body).toContain('(umask 077; mkdir -p "$DATA_DIR")');
     expect(body).toContain('BIN_DIR="$DATA_DIR"');
-    expect(body).toContain('SETUP_DATA_DIR_ARGS=(--data-dir "$DATA_DIR")'); // real agent flag (apps/node/agent/src/cli.ts)
+    expect(body).toContain('SETUP_DATA_DIR_ARGS=(--data-dir "$DATA_DIR")'); // real agent flag (apps/node/agent/src/cli/dispatch.ts)
     // Default branch: ~/.local/bin, NO --data-dir arg, guarded against `set -u`.
     expect(body).toContain('BIN_DIR="$HOME/.local/bin"');
     expect(body).toContain("SETUP_DATA_DIR_ARGS=()");

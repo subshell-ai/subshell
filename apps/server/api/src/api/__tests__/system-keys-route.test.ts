@@ -5,11 +5,10 @@ import { Elysia } from "elysia";
 import { exportJWK, generateKeyPair } from "jose";
 import { authGuard, isIssuedCredential } from "@/api/auth-guard.js";
 import { channelRoutes } from "@/api/channels/index.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
+import { openApiPlugin } from "@/api/middleware/openapi.plugin.js";
 import { nodesRoutes } from "@/api/nodes/index.js";
 import { systemKeysRoutes } from "@/api/system-keys.route.js";
-import { authDatabase } from "@/auth/database.js";
-import { intersectSystemPermissions, systemKeyPermissions } from "@/auth/system-key-permissions.js";
-import { ensureSystemUser } from "@/auth/system-user.js";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
@@ -17,12 +16,13 @@ import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { openApiPlugin } from "@/plugins/openapi.plugin.js";
-import { ensureLocalNode } from "@/services/nodes/seed-local.js";
-import { ALLOW_NODE_ENROLLMENT_KEY } from "@/services/registration-gate.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+import { authDatabase } from "@/modules/auth/database.js";
+import { ALLOW_NODE_ENROLLMENT_KEY } from "@/modules/auth/registration-gate.js";
+import { intersectSystemPermissions, systemKeyPermissions } from "@/modules/auth/system-key-permissions.js";
+import { ensureSystemUser } from "@/modules/auth/system-user.js";
+import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
+import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
 
 /**
  * Admin CRUD for system-wide API keys. The property that matters: the key

@@ -11,18 +11,18 @@ import {
 } from "@internal/pane-runtime";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
-import { harnessUsable, usableHarnessIds } from "@/api/harness-utils.js";
+import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { presetRoutes } from "@/api/presets.route.js";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { FakeNodeLauncher } from "@/services/__tests__/helpers/node-fakes.js";
-import { detectSpecs } from "@/services/nodes/inventory.js";
-import { SubshellManagerService } from "@/services/subshell-manager.service.js";
-import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+import { detectSpecs } from "@/modules/nodes/inventory.js";
+import { harnessUsable, usableHarnessIds } from "@/modules/plugins/availability.js";
+import { SubshellManagerService } from "@/modules/subshells/subshell-manager.service.js";
+import { FakeNodeLauncher } from "@/testing/node-fakes.js";
+import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
 
 /**
  * The control plane can launch what the instance store holds (Task 9b).

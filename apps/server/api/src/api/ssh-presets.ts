@@ -1,4 +1,3 @@
-import type { SshForwardWire } from "@internal/subshell-protocol";
 import {
   SSH_FINGERPRINT_PATTERN,
   SSH_MAX_FORWARD_ROWS,
@@ -6,7 +5,6 @@ import {
 } from "@internal/subshell-protocol";
 import { t } from "elysia";
 import { SshExpectedDestinationField, SshForwardRowInputSchema } from "@/api/ssh/ssh-views.js";
-import type { SshPresetTable } from "@/db/types/ssh-presets.db-types.js";
 
 const SshPresetFields = {
   name: t.String({ minLength: 1, maxLength: 120, description: "Preset name, unique per owner" }),
@@ -108,11 +106,3 @@ export const SshPresetSchema = t.Object({
   updatedAt: t.String({ description: "Last update timestamp" }),
 });
 export const SSH_PRESET_KEYS = new Set([...Object.keys(SshPresetFields), "expectedDestination"]);
-export function sshPresetView(row: SshPresetTable) {
-  return {
-    ...row,
-    kind: "ssh" as const,
-    fingerprints: row.fingerprints === null ? [] : (JSON.parse(row.fingerprints) as string[]),
-    forwards: row.forwards === null ? [] : (JSON.parse(row.forwards) as SshForwardWire[]),
-  };
-}

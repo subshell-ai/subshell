@@ -1,14 +1,14 @@
 import { LIST_SEARCH_MAX } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
-import { matchesListQuery } from "@/api/list-filter.js";
 import { type NodeView, NodeViewSchema, toNodeViews } from "@/api/nodes/node-view.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { db } from "@/db/index.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
-import { resolveNodeAccess } from "@/lib/node-access.js";
-import { apiModels } from "@/schema/index.js";
+import { resolveNodeAccess } from "@/modules/nodes/access.js";
+import { matchesListQuery } from "@/shared/list-filter.js";
 
 const ListNodesQuerySchema = t.Object({
   q: t.Optional(t.String({ maxLength: LIST_SEARCH_MAX.nodes })),

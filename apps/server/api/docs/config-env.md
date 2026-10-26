@@ -1,6 +1,6 @@
 # config.env, the trusted-origin registry, and the tmux preflight. Moved verbatim from AGENTS.md ("Standalone binary & CLI" > "config.env"); AGENTS.md keeps the summary and routes here.
 
-### config.env (`src/config-env.ts`)
+### config.env (`src/modules/server/config/env.ts`)
 
 `~/.config/subshell-server/config.env`, home overridden by
 `SUBSHELL_SERVER_CONFIG_DIR`; dir 0700, file 0600, written via temp +
@@ -8,14 +8,14 @@ rename. `constants.ts` itself applies it with SETDEFAULT semantics at the
 top of its own module body, BEFORE its dotenvx call, so the precedence is
 **process env > config.env > `.env` (dotenvx, when the CWD has one) >
 built-in defaults**. The application lives in `constants.ts` rather than in
-`cli-bootstrap.ts` on purpose and by measurement (2026-09-07): the
+`cli/bootstrap.ts` on purpose and by measurement (2026-09-07): the
 bootstrap's body runs AFTER the whole import graph has evaluated: its own
-first import (`@/cli.js` → `commands/status.js` → `constants.js`) reaches
+first import (`@/cli/dispatch.js` → `commands/status.js` → `constants.js`) reaches
 constants first, so a bootstrap-side apply silently did nothing on macOS,
 where launchd has no `EnvironmentFile` to mask the gap the way the systemd
-unit does. `cli-bootstrap.ts` keeps its (idempotent) call for the CLI path;
+unit does. `cli/bootstrap.ts` keeps its (idempotent) call for the CLI path;
 the regression test spawns the real entry and asserts the FILE's value
-reaches the RUNNING process (`__tests__/cli-entry.test.ts`). One visible
+reaches the RUNNING process (`cli/__tests__/cli-entry.test.ts`). One visible
 consequence: `bun run dev` now honours the developer's own config.env too;
 a `configure`d `DATABASE_PATH` relocates the dev server on its next restart.
 That is the point (one machine, one configuration), but it is why
@@ -28,7 +28,7 @@ secret (an existing value is never rotated).
 **`applyConfig` is the ONE writer.** The merge over the stored values, the
 per-key `validateValue`, the origin canonicalization, the two address warnings
 and the atomic preservation-preserving rewrite are one exported function
-(`commands/configure.ts`), called by `runConfigure` and by
+(`cli/commands/configure.ts`), called by `runConfigure` and by
 `PATCH /api/admin/server/config` alike. So the component-wise validation
 `docs/security.md` §8 leans on is true of the web surface because it IS the
 CLI's code, not because a second implementation was kept in step. Be exact
@@ -67,8 +67,8 @@ Two things about that set are load-bearing and were both bugs first:
   production config.
 - **`TRUSTED_ORIGINS` is the OPERATOR's extras; network plugins no longer
   write it (2026-09-16); their addresses are derived from their records by
-  `services/network/origins.ts` into the live registry.** It is written or
-  REMOVED, never written empty (`OPTIONAL_KEYS` in `commands/configure.ts`).
+  `modules/network/origins.ts` into the live registry.** It is written or
+  REMOVED, never written empty (`OPTIONAL_KEYS` in `cli/commands/configure.ts`).
   The other four have a built-in
   default worth writing down; this one's built-in default is a non-empty list
   (the dev Vite origins), so a `TRUSTED_ORIGINS=` line would be a
@@ -93,10 +93,10 @@ on a port-80 deployment matched nothing a browser sends (80 is the scheme
 default, so the `Origin` header carries no port), and a mixed-case `HOST` never
 matched either, a derived entry that LOOKS like it covers the LAN address
 while being dead weight. Extend the `localOriginsFor` describe in
-`__tests__/trusted-origins.test.ts` when touching it; `port: 80` and an
+`modules/network/__tests__/trusted-origins.test.ts` when touching it; `port: 80` and an
 uppercase host are the cases that catch this class.
 
-**The trusted-origin registry.** `services/trusted-origins.ts` owns the live
+**The trusted-origin registry.** `modules/network/trusted-origins.ts` owns the live
 allowlist: `localOriginsFor(port, host, baseUrl)` ∪
 `lanOrigins(port, host)` ∪ the operator's `TRUSTED_ORIGINS` extras ∪ one
 canonicalized set per enabled network plugin.
@@ -106,7 +106,7 @@ minute ago is trusted without a restart, while the SOURCES stay static:
 nothing is ever derived from a request's Host or Origin (§8's DNS-rebinding
 rule, unchanged).
 
-`services/lan-origins.ts` is the fourth source and the only one that reads the
+`modules/network/lan-origins.ts` is the fourth source and the only one that reads the
 KERNEL: this machine's non-internal IPv4 addresses, and ONLY on a wildcard
 bind; a concrete `HOST` already contributes its own origin above, and a
 loopback bind would put rows in the mobile picker that connect to nothing. The
@@ -123,7 +123,7 @@ for plugins a signed-in reader will never fetch for, and this one is re-asked
 exactly when the answer is about to be used. The answer feeds the picker
 THROUGH the same `trustedOrigins` field; no client-side guess at "which of
 these addresses is my LAN", because the picker's promise is that every row
-accepts a sign-in, and only the registry knows what the registry trusts. `services/network/origins.ts` is the single derivation of the
+accepts a sign-in, and only the registry knows what the registry trusts. `modules/network/origins.ts` is the single derivation of the
 plugin sets; every write goes through `originsOf`, and each set derives from
 the plugin's RECORD, never from a status in hand: a `private` network's addresses are trusted from `joined` (the tailnet
 address answers with no publish at all, so membership is the honest scope), a
@@ -136,7 +136,7 @@ vendor value truncated at a query separator; pattern characters after the
 authority are path or query, which `URL.origin` discards, so they are not
 refused), and a refused entry is dropped with a warn, never thrown: a bad
 address costs that plugin one entry, not the allowlist. Boot is three moments
-(`services/network/origin-refresh.ts`): seed from the records BEFORE the
+(`modules/network/origin-refresh.ts`): seed from the records BEFORE the
 listener, one probe per enabled plugin once the processes are armed, then the
 same probe every five minutes. That timer is a deliberate exception to
 "detection runs when someone asks" (`prepare.ts`'s `reportIfDown`), argued at
@@ -166,7 +166,7 @@ correct `config.env` would send the operator to edit the file they got right.
 is what the desktop console reads, so the diagnosis reaches the surface
 someone runs BECAUSE sign-in is failing, and the console renders it beside the
 field that changes it. `originProblem`/`baseUrlProblem` live in
-`commands/config-values.ts` and share primitives with the validator rather than
+`modules/server/config/values.ts` and share primitives with the validator rather than
 duplicating it: a `status` that called a value unusable when `configure` would
 accept it (or the reverse) would make the tool look broken instead of the
 config. Wildcards are the deliberate silence; better-auth honours them, so
@@ -194,7 +194,7 @@ tmux preflight: `init`, `configure` and
 `service install` refuse before any write when tmux is absent (the `local`
 node launches every pane through it); escape hatch
 `SUBSHELL_SERVER_SKIP_TMUX_CHECK=1`. On an INTERACTIVE run the preflight
-first OFFERS to install tmux (`commands/tmux-install.ts`: brew, then
+first OFFERS to install tmux (`modules/server/tmux-install.ts`: brew, then
 MacPorts, then a Homebrew bootstrap on macOS; `sudo apt-get`/`dnf` on Linux;
 fixed argvs, inherited stdio so sudo prompts land in the user's own terminal)
 and CONTINUES the command on success, no rerun.

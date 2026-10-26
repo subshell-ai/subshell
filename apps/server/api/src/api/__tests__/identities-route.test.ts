@@ -4,7 +4,7 @@ import { hashPassword } from "better-auth/crypto";
 import { identityRoutes } from "@/api/identities.route.js";
 import { db } from "@/db/index.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
 
 /** Identity registration is self-only by principal derivation; rotation works. */
 describe("identities route", () => {

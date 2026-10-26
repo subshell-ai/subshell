@@ -1,14 +1,14 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
+import { apiErrorBody } from "@/api/api-error.js";
 import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
-import { isCookieAdmin } from "@/api/user-utils.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
-import { audit } from "@/services/audit.js";
-import { ALLOW_NODE_ENROLLMENT_KEY } from "@/services/registration-gate.js";
+import { audit } from "@/modules/audit.js";
+import { ALLOW_NODE_ENROLLMENT_KEY } from "@/modules/auth/registration-gate.js";
+import { isCookieAdmin } from "@/modules/users/roles.js";
 
 const CreateResponseSchema = t.Object({
   id: t.String({ description: "Setup key id (for later revocation)" }),

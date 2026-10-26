@@ -5,7 +5,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
  * The shape guards a destructive chain runs BEFORE it consents or deletes,
  * the third pinned copy of the same words: the Rust original
  * (`crates/desktop-core/src/reset_guards.rs`), the control plane's CLI twin
- * (`apps/server/api/src/services/reset-guards.ts`), and this node-side one.
+ * (`apps/server/api/src/modules/server/reset-guards.ts`), and this node-side one.
  * The words match on purpose; change one, change the others. Guards exist on
  * every chain that deletes, because the delete plan is assembled from ambient
  * constants and a mistyped data dir (`/`, `$HOME`) is a live `rm -rf` with a

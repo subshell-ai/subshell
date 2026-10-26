@@ -1,10 +1,11 @@
 import { normalizeLabel } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { authGuard, HttpError } from "@/api/auth-guard.js";
-import { WorkspaceSchema } from "@/api/models.js";
+import { authGuard } from "@/api/auth-guard.js";
+import { contextPlugin } from "@/api/middleware/context.plugin.js";
+import { apiModels } from "@/api/schemas/index.js";
+import { WorkspaceSchema } from "@/api/schemas/models.js";
 import { requireCookieActor } from "@/api/workspaces/require-cookie-actor.js";
-import { contextPlugin } from "@/plugins/context.plugin.js";
-import { apiModels } from "@/schema/index.js";
+import { HttpError } from "@/shared/errors.js";
 
 const CreateWorkspaceBodySchema = t.Object({
   name: t.String({ minLength: 1, maxLength: 120, description: "Workspace name" }),

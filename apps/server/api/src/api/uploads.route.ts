@@ -2,15 +2,16 @@ import { accessSync, constants, statSync } from "node:fs";
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { MAX_UPLOAD_BYTES } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { authGuard, ForbiddenError } from "@/api/auth-guard.js";
+import { apiErrorBody } from "@/api/api-error.js";
+import { authGuard } from "@/api/auth-guard.js";
+import { apiModels } from "@/api/schemas/index.js";
 import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { apiModels } from "@/schema/index.js";
-import { isNodeOffline } from "@/services/nodes/node-registry.js";
-import { RemoteUploadError, UploadError, writeUpload, writeUploadRemote } from "@/services/uploads.service.js";
-import { logger } from "@/utils/logger.js";
+import { RemoteUploadError, UploadError, writeUpload, writeUploadRemote } from "@/modules/files/uploads.service.js";
+import { isNodeOffline } from "@/modules/nodes/node-registry.js";
+import { ForbiddenError } from "@/shared/errors.js";
+import { logger } from "@/shared/logger.js";
 
 /** Multipart body: exactly one file per request. */
 const UploadBodySchema = t.Object({
