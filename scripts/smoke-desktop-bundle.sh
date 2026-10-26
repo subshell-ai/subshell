@@ -296,7 +296,10 @@ done
 
 HELPER_BUNDLE="$APP_BUNDLE/Contents/Helpers/Subshell Display Helper.app"
 [ -x "$HELPER_BUNDLE/Contents/MacOS/subshell-display-helper" ] || fail "the native display helper is missing"
-codesign --verify --strict -R 'anchor apple generic and identifier "dev.subshell.display-helper" and certificate leaf[subject.OU] = "DVRYX6BV6J"' "$HELPER_BUNDLE" || fail "the display helper has the wrong signing identity"
+# -R must carry the requirement as -R=<text>: the space-separated -R <text>
+# form is ALWAYS read as a file path, so it fails "invalid requirement
+# specification" on every run no matter what signed the helper.
+codesign --verify --strict '-R=anchor apple generic and identifier "dev.subshell.display-helper" and certificate leaf[subject.OU] = "DVRYX6BV6J"' "$HELPER_BUNDLE" || fail "the display helper has the wrong signing identity"
 helper_sig="$(codesign -dvv "$HELPER_BUNDLE" 2>&1 || true)"
 case "$helper_sig" in *"flags="*"runtime"*) ;; *) fail "the display helper is missing the hardened runtime" ;; esac
 
