@@ -6,7 +6,7 @@ import type { sshConnectSearch } from "@/lib/ssh-connect-search";
 /** Triggers for the rail's quick-add dialogs, callable from anywhere. */
 export interface QuickAddApi {
   /** Open the New-subshell launch dialog. */
-  openLaunch: () => void;
+  openLaunch: (nodeId?: string) => void;
   /** Open the same launch dialog with SSH choices restored. */
   openSshLaunch: (initial?: ReturnType<typeof sshConnectSearch>) => void;
   /** Open the New-workspace dialog. */
@@ -36,6 +36,7 @@ export function useQuickAdd(): QuickAddApi {
  */
 export function QuickAddProvider({ children }: { children: ReactNode }): ReactNode {
   const [initialSsh, setInitialSsh] = useState<ReturnType<typeof sshConnectSearch> | undefined>();
+  const [initialNodeId, setInitialNodeId] = useState<string | undefined>();
   const [launchOpen, setLaunchOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   // A fresh object here would be a new context value on every render of this
@@ -44,11 +45,13 @@ export function QuickAddProvider({ children }: { children: ReactNode }): ReactNo
   // so the empty dependency list is honest.
   const api = useMemo<QuickAddApi>(
     () => ({
-      openLaunch: () => {
+      openLaunch: (nodeId) => {
+        setInitialNodeId(nodeId);
         setInitialSsh(undefined);
         setLaunchOpen(true);
       },
       openSshLaunch: (initial = {}) => {
+        setInitialNodeId(undefined);
         setInitialSsh(initial);
         setLaunchOpen(true);
       },
@@ -59,7 +62,9 @@ export function QuickAddProvider({ children }: { children: ReactNode }): ReactNo
   return (
     <QuickAddContext.Provider value={api}>
       {children}
-      {launchOpen && <LaunchSubshellDialog open onOpenChange={setLaunchOpen} initialSsh={initialSsh} />}
+      {launchOpen && (
+        <LaunchSubshellDialog open onOpenChange={setLaunchOpen} initialSsh={initialSsh} initialNodeId={initialNodeId} />
+      )}
       <NewWorkspaceDialog open={workspaceOpen} onOpenChange={setWorkspaceOpen} />
     </QuickAddContext.Provider>
   );

@@ -179,7 +179,7 @@ function SubshellsPage() {
           <h1 className="font-strong text-heading">Subshells</h1>
           <p className="text-muted-foreground text-sm">Your agents and terminal sessions</p>
         </div>
-        <Button onClick={openLaunch}>
+        <Button onClick={() => openLaunch()}>
           <Plus /> New subshell
         </Button>
       </header>

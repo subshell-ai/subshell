@@ -4,7 +4,7 @@ import { type InfiniteData, useInfiniteQuery, useMutation, useQueryClient } from
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowUp, ChevronRight, FolderOpen, Star } from "lucide-react";
 import type { JSX } from "react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PermissionNotice } from "@/components/desktop/permission-notice";
 import { desktopPlatform, isServerDesktop } from "@/lib/desktop";
 import { patchExploreFavorite, shouldFetchNextPage } from "@/lib/explore-pagination";
@@ -36,10 +36,10 @@ export function blockedByName(deployment: ServerDeployment | undefined): string 
  * new-subshell form's working-directory field.
  *
  * Fully controlled: `value`/`onChange` come from the parent, and the panel
- * always shows the folder the input names. Every row click — folder, Recent,
- * or Favorites — selects the path AND browses the panel to it; nothing but
- * an outside click or Escape closes it. Typing in the input moves the open
- * panel to the typed path, and a path that does not exist says so in place
+ * always shows the folder the input names. Clicking a folder, Recent, or
+ * Favorite row selects the path and closes the panel. The input regains focus
+ * without reopening it; clicking the input again continues browsing. Typing
+ * moves the open panel to the typed path, and a path that doesn't exist says so
  * with a Start-over button that clears the field and returns to home.
  *
  * Every row carries a star (revealed on hover, solid for favorites) that
@@ -93,6 +93,19 @@ export function DirectoryPickerInput({
   const [pickerPath, setPickerPath] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const restoringFocusRef = useRef(false);
+
+  // Move focus before removing a focused picker row. Letting the dialog
+  // repair focus afterwards can focus the input and open the panel again.
+  const closePicker = useCallback(() => {
+    if (document.activeElement !== inputRef.current && rootRef.current?.contains(document.activeElement)) {
+      restoringFocusRef.current = true;
+      inputRef.current?.focus({ preventScroll: true });
+      restoringFocusRef.current = false;
+    }
+    setPickerOpen(false);
+  }, []);
   // The `h-56` listing body, held as state rather than a ref, and it has to
   // be that way: the virtualizer inside `DirRows` can only attach its scroll
   // listeners once the element actually exists, and on the mount commit the
@@ -142,18 +155,21 @@ export function DirectoryPickerInput({
   useEffect(() => {
     if (!pickerOpen) return;
     function onPointerDown(e: PointerEvent) {
-      if (!rootRef.current?.contains(e.target as Node)) setPickerOpen(false);
+      if (!rootRef.current?.contains(e.target as Node)) closePicker();
     }
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setPickerOpen(false);
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        closePicker();
+      }
     }
     document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keydown", onKeyDown, true);
     return () => {
       document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("keydown", onKeyDown, true);
     };
-  }, [pickerOpen]);
+  }, [pickerOpen, closePicker]);
 
   // The node rides the query key too: the same path on a different machine
   // is a different listing, and switching nodes mid-open must refetch.
@@ -296,20 +312,25 @@ export function DirectoryPickerInput({
   }
 
   function openPicker() {
+    if (restoringFocusRef.current) return;
     setPickerPath(value || "~");
     setPickerOpen(true);
   }
 
   /**
-   * Selects `path` — it becomes the input's value — and browses into it,
-   * keeping the panel open. Claiming the change in `lastTypedRef` first is
-   * what keeps this self-inflicted `value` change from being mistaken for
-   * typing by the sync effect above.
+   * Browses to `path` without letting the typing debounce undo navigation.
+   * The parent-directory controls keep the panel open so browsing can continue.
    */
-  function pick(path: string) {
+  function browse(path: string) {
     lastTypedRef.current = path;
     onChange(path);
     setPickerPath(path);
+  }
+
+  /** Commits a directory choice and closes before focus can reopen the panel. */
+  function pick(path: string) {
+    browse(path);
+    closePicker();
   }
 
   /**
@@ -330,16 +351,18 @@ export function DirectoryPickerInput({
   function clearChoice() {
     lastTypedRef.current = "";
     onChange("");
-    setPickerOpen(false);
+    closePicker();
   }
 
   return (
     <div ref={rootRef} className="space-y-2">
       <Input
+        ref={inputRef}
         id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onFocus={openPicker}
+        onClick={openPicker}
         placeholder={placeholder}
       />
 
@@ -451,7 +474,7 @@ export function DirectoryPickerInput({
                 {explore.parent && (
                   <button
                     type="button"
-                    onClick={() => pick(explore.parent ?? "")}
+                    onClick={() => browse(explore.parent ?? "")}
                     className="rounded-md border px-2 py-1 text-detail text-muted-foreground hover:bg-accent hover:text-foreground"
                   >
                     Go up one level
@@ -496,14 +519,13 @@ export function DirectoryPickerInput({
 
               {(explore.parent !== null || allEntries.length > 0) && (
                 <div className="mt-2 border-t pt-2">
-                  {/* One click per folder: it becomes the input's value and
-                      the panel descends into it. */}
+                  {/* Selecting a folder commits it; going up keeps browsing. */}
                   {explore.parent && (
                     <div className="group flex items-center">
                       <button
                         type="button"
                         title="Go up one level"
-                        onClick={() => pick(explore.parent ?? "")}
+                        onClick={() => browse(explore.parent ?? "")}
                         className="flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-accent"
                       >
                         <ArrowUp className="h-3 w-3 shrink-0 text-muted-foreground" />
@@ -677,7 +699,7 @@ function DirRows({
           >
             <button
               type="button"
-              title={`Open ${e.name}`}
+              title={`Select ${e.name}`}
               onClick={() => onPick(e.path)}
               className="flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-accent"
             >

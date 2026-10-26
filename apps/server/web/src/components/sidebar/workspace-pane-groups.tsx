@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { ListLoadError } from "@/components/list-load-error";
+import { NodeLaunchMenu } from "@/components/sidebar/node-launch-menu";
 import { SidebarGroupHeading } from "@/components/sidebar/sidebar-group-heading";
 import { SubshellTreeRow } from "@/components/sidebar/subshell-tree-row";
 import { useNodes } from "@/hooks/use-nodes";
@@ -15,7 +16,9 @@ export function WorkspacePaneGroups({
   workspace,
   focusedId,
   labelsFor,
+  onAction,
 }: {
+  onAction?: () => void;
   workspace: WorkspaceRow;
   focusedId: string | null;
   labelsFor: (subshell: SubshellView) => { nodeLabel: string; agentLabel: string; presetLabel?: string };
@@ -48,7 +51,13 @@ export function WorkspacePaneGroups({
     <>
       {groups.map((group) => (
         <section key={group.nodeId} aria-label={group.label}>
-          <SidebarGroupHeading>{group.label}</SidebarGroupHeading>
+          <SidebarGroupHeading
+            action={
+              <NodeLaunchMenu node={nodes?.nodes?.find((node) => node.id === group.nodeId)} onAction={onAction} />
+            }
+          >
+            {group.label}
+          </SidebarGroupHeading>
           {group.subshells.map((subshell) => (
             <SubshellTreeRow
               key={subshell.id}

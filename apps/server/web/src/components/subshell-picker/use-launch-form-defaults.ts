@@ -39,6 +39,8 @@ export interface LaunchFormDefaults {
   subshellsPending: boolean;
   /** The setup assistant's first launch: hides the Preset row, so the copy tier stands down */
   firstRun: boolean;
+  /** A caller selected the machine, so the last launch must not replace it. */
+  skipPriorLaunch?: boolean;
   /** Readiness belongs to this exact node/provider pair, never a prior render. */
   displayCheck: { nodeId: string; provider?: string; reason?: string; unavailable: boolean };
 }
@@ -61,7 +63,7 @@ export interface LaunchFormActions {
 export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActions {
   const { value, onChange, nodes, nodesPending, plugins, presetRows, recent, subshells, subshellsPending, firstRun } =
     args;
-  const { displayCheck } = args;
+  const { displayCheck, skipPriorLaunch = false } = args;
   const displayReviewNodeRef = useRef<string | null>(null);
   const agentDefaultBlockedRef = useRef(false);
 
@@ -118,6 +120,7 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
       nodes !== null &&
       // First-run setup uses its own starting values.
       !firstRun &&
+      !skipPriorLaunch &&
       isUntouchedForm(next, emptyNewSubshellForm())
     ) {
       priorLaunchAppliedRef.current = true;
@@ -178,8 +181,14 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
       // later retry of the query can still pre-fill, which is the point.)
       const fallback = recent?.paths[0]?.path ?? recent?.home ?? "";
       if (recent !== undefined) {
-        prefillDoneRef.current = true;
-        if (fallback && next.workingDir === "") next = { ...next, workingDir: fallback };
+        if (fallback && next.workingDir === "") {
+          next = { ...next, workingDir: fallback };
+          // Strict Mode can replay this effect before the parent commits the
+          // new value. Keep the seed armed until that value reaches the form,
+          // or a replay with cached paths can overwrite it with a blank.
+        } else {
+          prefillDoneRef.current = true;
+        }
       }
     }
     const heldNode = nodes?.find((n) => n.id === next.nodeId) ?? null;
@@ -279,6 +288,7 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
     subshellsPending,
     recentTemplate,
     firstRun,
+    skipPriorLaunch,
     value,
     onChange,
   ]);

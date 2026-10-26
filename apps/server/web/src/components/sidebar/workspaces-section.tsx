@@ -62,7 +62,9 @@ export function WorkspaceBranch({
   onToggle,
   focusedId,
   labelsFor,
+  onAction,
 }: {
+  onAction?: () => void;
   workspace: WorkspaceRow;
   expanded: boolean;
   active: boolean;
@@ -194,7 +196,12 @@ export function WorkspaceBranch({
       )}
       {open && (
         <div>
-          <WorkspacePaneGroups workspace={workspace} focusedId={active ? focusedId : null} labelsFor={labelsFor} />
+          <WorkspacePaneGroups
+            onAction={onAction}
+            workspace={workspace}
+            focusedId={active ? focusedId : null}
+            labelsFor={labelsFor}
+          />
           {workspace.subshellCount === 0 && (
             <p className="ml-6 py-0.5 text-detail text-muted-foreground opacity-70">No subshells yet</p>
           )}

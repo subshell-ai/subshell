@@ -83,6 +83,7 @@ export function NewSubshellForm({
   onChange,
   ids = DIALOG_IDS,
   firstRun = false,
+  skipPriorLaunch = false,
   onLeave,
 }: {
   value: NewSubshellFormValue;
@@ -95,6 +96,8 @@ export function NewSubshellForm({
    * to choose between).
    */
   firstRun?: boolean;
+  /** Keep an explicitly selected machine, including the default local node. */
+  skipPriorLaunch?: boolean;
   /**
    * Called before the nothing-to-launch state navigates away.
    *
@@ -151,6 +154,7 @@ export function NewSubshellForm({
     subshells,
     subshellsPending,
     firstRun,
+    skipPriorLaunch,
     displayCheck: {
       nodeId: value.nodeId,
       provider: value.displayProvider,

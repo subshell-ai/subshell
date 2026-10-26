@@ -444,31 +444,28 @@ describe("DirectoryPickerInput", () => {
     }
   });
 
-  it("clicking a folder sets the input to it and descends without closing the panel", async () => {
+  it("selecting a folder closes the panel and an explicit click continues browsing", async () => {
     const picks: string[] = [];
     const { requested, restore } = mockExplore({
       "/home": exploreBody("/home", ["projects"]),
       "/home/projects": exploreBody("/home/projects", ["subshell"]),
-      "/home/projects/subshell": exploreBody("/home/projects/subshell", ["src"]),
     });
     try {
-      const field = renderField({ value: "/home", onChange: (p) => picks.push(p) });
-      field.open();
-      // Each click is one action: the input gets the folder AND the panel
-      // descends into it. Two levels deep, no extra button involved.
-      fireEvent.click(await screen.findByText("projects"));
-      fireEvent.click(await screen.findByText("subshell"));
-      await screen.findByText("src");
-      // The listing state uses the same fixed-height body as the loading
-      // state above — scrolls internally instead of growing.
-      expect(field.container.querySelector(".overflow-y-auto")?.className).toContain("h-56");
-      expect(picks).toEqual(["/home/projects", "/home/projects/subshell"]);
-      // The first click's typed-sync timer must not yank the panel back to
-      // /home/projects after the second click has already descended.
-      await new Promise((r) => setTimeout(r, 300));
-      expect(screen.queryByText("subshell")).toBeNull();
-      // "/home" is fetched once at focus; the descend fetches the others.
-      expect(requested.filter((p) => p === "/home/projects")).toHaveLength(1);
+      renderField({ value: "/home", onChange: (p) => picks.push(p) });
+      const input = screen.getByRole("textbox") as HTMLInputElement;
+      fireEvent.focus(input);
+      const folder = await screen.findByTitle("Select projects");
+      folder.focus();
+      fireEvent.click(folder);
+      expect(input.value).toBe("/home/projects");
+      expect(document.activeElement).toBe(input);
+      expect(screen.queryByRole("button", { name: ".." })).toBeNull();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(screen.queryByTitle("Select subshell")).toBeNull();
+      expect(requested).toEqual(["/home"]);
+      fireEvent.click(input);
+      await screen.findByTitle("Select subshell");
+      expect(picks).toEqual(["/home/projects"]);
     } finally {
       restore();
     }
@@ -486,15 +483,15 @@ describe("DirectoryPickerInput", () => {
     try {
       renderField({ value: "/tmp", onChange: (p) => picks.push(p) });
       fireEvent.focus(screen.getByRole("textbox"));
-      await screen.findByTitle("Open dir-0");
-      const rows = screen.getAllByTitle(/^Open dir-/);
+      await screen.findByTitle("Select dir-0");
+      const rows = screen.getAllByTitle(/^Select dir-/);
       // Bounded well below the entry count, and the last directory is not
       // there: this is what used to be 5,000 committed rows.
       expect(rows.length).toBeLessThan(150);
-      expect(screen.queryByTitle("Open dir-4999") === null).toBe(true);
+      expect(screen.queryByTitle("Select dir-4999") === null).toBe(true);
       // A row in the window behaves exactly like the old ordinary rows:
-      // one click selects the path and the panel descends.
-      fireEvent.click(screen.getByTitle("Open dir-0"));
+      // one click selects the path and closes the panel.
+      fireEvent.click(screen.getByTitle("Select dir-0"));
       expect(picks).toEqual(["/tmp/dir-0"]);
       expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("/tmp/dir-0");
     } finally {
@@ -509,15 +506,15 @@ describe("DirectoryPickerInput", () => {
     try {
       renderField({ value: "/tmp" });
       fireEvent.focus(screen.getByRole("textbox"));
-      await screen.findByTitle("Open alpha");
-      expect(screen.getAllByTitle(/^Open /)).toHaveLength(3);
-      expect(screen.getByTitle("Open gamma")).toBeDefined();
+      await screen.findByTitle("Select alpha");
+      expect(screen.getAllByTitle(/^Select /)).toHaveLength(3);
+      expect(screen.getByTitle("Select gamma")).toBeDefined();
     } finally {
       restore();
     }
   });
 
-  it("a recent entry selects and browses the panel to it — closing is not part of it", async () => {
+  it("a recent entry selects its path and closes the panel", async () => {
     const picks: string[] = [];
     const { requested, restore } = mockExplore({
       "/tmp": exploreBody("/tmp", [], [{ path: "/srv/app", label: "app" }]),
@@ -528,10 +525,10 @@ describe("DirectoryPickerInput", () => {
       fireEvent.focus(screen.getByRole("textbox"));
       fireEvent.click(await screen.findByText("app"));
       expect(picks).toEqual(["/srv/app"]);
-      // The panel followed the selection like any other folder click: its
-      // listing now shows /srv/app, and the shortcut stays reachable.
-      await screen.findByText("src");
-      expect(requested).toContain("/srv/app");
+      expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("/srv/app");
+      expect(screen.queryByText("src")).toBeNull();
+      expect(screen.queryByText("Recent")).toBeNull();
+      expect(requested).toEqual(["/tmp"]);
     } finally {
       restore();
     }
@@ -560,8 +557,9 @@ describe("DirectoryPickerInput", () => {
       expect(screen.getByRole("button", { name: "Unfavorite /srv/starred" })).toBeDefined();
       fireEvent.click(screen.getByText("starred repo"));
       expect(picks).toEqual(["/srv/starred"]);
-      // Like every other row: select AND browse, panel stays open.
-      await screen.findByText("nested");
+      expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("/srv/starred");
+      expect(screen.queryByText("Favorites")).toBeNull();
+      expect(screen.queryByText("nested")).toBeNull();
     } finally {
       restore();
     }
@@ -677,6 +675,42 @@ describe("DirectoryPickerInput", () => {
       fireEvent.keyDown(document.body, { key: "Escape" });
       await waitFor(() => expect(screen.queryByRole("button", { name: ".." }) === null).toBe(true));
       expect(picked).toBe("");
+    } finally {
+      restore();
+    }
+  });
+
+  it("returns focus from a dismissed picker row without reopening, and a deliberate click opens it again", async () => {
+    const { restore } = mockExplore({ "/tmp": exploreBody("/tmp", ["child"]) });
+    try {
+      renderField({ value: "/tmp" });
+      const input = screen.getByRole("textbox");
+      fireEvent.focus(input);
+      const row = await screen.findByTitle("Select child");
+      row.focus();
+      fireEvent.keyDown(row, { key: "Escape" });
+      await waitFor(() => expect(screen.queryByTitle("Select child")).toBeNull());
+      expect(document.activeElement).toBe(input);
+      fireEvent.click(input);
+      await screen.findByTitle("Select child");
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps an empty directory choice closed when focus returns to the input", async () => {
+    const { restore } = mockExplore({ "/tmp": exploreBody("/tmp", []) });
+    try {
+      renderField({ value: "/tmp", clearOption: "Decide at launch" });
+      const input = screen.getByRole("textbox") as HTMLInputElement;
+      fireEvent.focus(input);
+      const clear = await screen.findByRole("button", { name: "Decide at launch" });
+      clear.focus();
+      fireEvent.click(clear);
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Decide at launch" })).toBeNull());
+      expect(document.activeElement).toBe(input);
+      expect(input.value).toBe("");
+      expect(screen.queryByRole("button", { name: ".." })).toBeNull();
     } finally {
       restore();
     }
@@ -918,7 +952,7 @@ describe("DirectoryPickerInput", () => {
       try {
         renderField({ value: "/big" });
         fireEvent.focus(screen.getByRole("textbox"));
-        await screen.findByTitle("Open cc");
+        await screen.findByTitle("Select cc");
         // Exactly one follow-up request, and it names the cursor verbatim:
         // percent-encoded on the wire, decoding back to the same value.
         const followups = urls.filter((u) => u.includes("cursor="));
@@ -929,11 +963,11 @@ describe("DirectoryPickerInput", () => {
         expect(second.searchParams.get("cursor")).toBe("c 1");
         expect(second.search).toContain("cursor=c%201");
         // One continuous listing: page 2's folders follow page 1's.
-        expect(screen.getAllByTitle(/^Open /).map((n) => n.getAttribute("title"))).toEqual([
-          "Open aa",
-          "Open bb",
-          "Open cc",
-          "Open dd",
+        expect(screen.getAllByTitle(/^Select /).map((n) => n.getAttribute("title"))).toEqual([
+          "Select aa",
+          "Select bb",
+          "Select cc",
+          "Select dd",
         ]);
         // Page 2 names no cursor, so the walk stops there: two requests total.
         expect(urls).toHaveLength(2);
@@ -964,7 +998,7 @@ describe("DirectoryPickerInput", () => {
       try {
         renderField({ value: "/mixed" });
         fireEvent.focus(screen.getByRole("textbox"));
-        await screen.findByTitle("Open work");
+        await screen.findByTitle("Select work");
         expect(urls.filter((u) => u.includes("cursor=n2"))).toHaveLength(1);
       } finally {
         restore();
@@ -995,7 +1029,7 @@ describe("DirectoryPickerInput", () => {
         await waitFor(() => expect(urls).toHaveLength(1));
         await new Promise((r) => setTimeout(r, 100));
         expect(urls).toHaveLength(1);
-        expect(screen.queryByTitle("Open late-dir") === null).toBe(true);
+        expect(screen.queryByTitle("Select late-dir") === null).toBe(true);
       } finally {
         restore();
       }
@@ -1006,7 +1040,7 @@ describe("DirectoryPickerInput", () => {
       try {
         renderField({ value: "/small" });
         fireEvent.focus(screen.getByRole("textbox"));
-        await screen.findByTitle("Open two");
+        await screen.findByTitle("Select two");
         // Both rows fit the window, the same state that walks a NON-exhausted
         // listing; with no cursor to spend the walk must not ask again.
         await new Promise((r) => setTimeout(r, 50));
@@ -1023,7 +1057,7 @@ describe("DirectoryPickerInput", () => {
       try {
         renderField({ value: "/capped" });
         fireEvent.focus(screen.getByRole("textbox"));
-        await screen.findByTitle("Open a1");
+        await screen.findByTitle("Select a1");
         expect(screen.getAllByText("The listing stops at 1,000 folders, so some may be missing.")).toHaveLength(1);
       } finally {
         restore();
@@ -1035,7 +1069,7 @@ describe("DirectoryPickerInput", () => {
       try {
         renderField({ value: "/full" });
         fireEvent.focus(screen.getByRole("textbox"));
-        await screen.findByTitle("Open one");
+        await screen.findByTitle("Select one");
         expect(screen.queryByText("The listing stops at 1,000 folders, so some may be missing.") === null).toBe(true);
       } finally {
         restore();
@@ -1056,7 +1090,7 @@ describe("DirectoryPickerInput", () => {
         renderField({ value: "/deep" });
         fireEvent.focus(screen.getByRole("textbox"));
         // The chain walks on to exhaustion: 3 pages, one set of sections.
-        await screen.findByTitle("Open cc");
+        await screen.findByTitle("Select cc");
         expect(urls).toHaveLength(3);
         expect(screen.getAllByText("app")).toHaveLength(1);
         expect(screen.getAllByText("/srv/keep")).toHaveLength(1);
@@ -1077,9 +1111,9 @@ describe("DirectoryPickerInput", () => {
       try {
         renderField({ value: "/shift" });
         fireEvent.focus(screen.getByRole("textbox"));
-        await screen.findByTitle("Open b");
-        expect(screen.getAllByTitle("Open a")).toHaveLength(1);
-        expect(screen.getAllByTitle(/^Open /).map((n) => n.getAttribute("title"))).toEqual(["Open a", "Open b"]);
+        await screen.findByTitle("Select b");
+        expect(screen.getAllByTitle("Select a")).toHaveLength(1);
+        expect(screen.getAllByTitle(/^Select /).map((n) => n.getAttribute("title"))).toEqual(["Select a", "Select b"]);
         expect(urls).toHaveLength(2);
       } finally {
         restore();
@@ -1111,11 +1145,11 @@ describe("DirectoryPickerInput", () => {
       try {
         renderField({ value: "/big" });
         fireEvent.focus(screen.getByRole("textbox"));
-        await screen.findByTitle("Open aa");
+        await screen.findByTitle("Select aa");
         await waitFor(() => expect(urls.filter((u) => u.includes("cursor=boom"))).toHaveLength(1));
         // The listing is still the panel: no full-panel error over it.
         expect(screen.queryByText("Couldn't browse this path.")).toBeNull();
-        expect(screen.getByTitle("Open bb")).toBeDefined();
+        expect(screen.getByTitle("Select bb")).toBeDefined();
         // Across a settled wait: exactly page 1 plus the one failed page.
         await new Promise((r) => setTimeout(r, 150));
         expect(urls).toHaveLength(2);

@@ -29,6 +29,14 @@ it; modified clicks retain the real subshell link. The actions menu beside group
 keeps Add subshell and Subshell dashboard. The dashboard is an explicit route
 change, not a separate section.
 
+Machine headings in both lists have a + menu. New terminal launches the
+terminal plugin without a preset or prompt, using that node's newest recent
+path or its home directory. New subshell opens the root-owned launch dialog
+with that node selected; the prior-launch default must not replace an explicit
+selection, including `local`. Both actions keep the normal workspace filing
+and launch gates. Unknown nodes and the shared-session group have no launch
+menu because those headings don't establish access to a machine.
+
 `WorkspaceSidebarDrag` coordinates the two MIME-scoped drop areas. A drag
 exposes a centered Add to workspace or Remove from workspace overlay, without
 moving the lists. Its preview clones just the row, never the subagent tree.
