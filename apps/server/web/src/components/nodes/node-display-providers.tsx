@@ -1,5 +1,5 @@
 import { Label, type NodeDetail } from "@internal/node-admin";
-import { DEFAULT_VIRTUAL_DISPLAY_PROVIDER, VIRTUAL_DISPLAY_PROVIDERS } from "@internal/subshell-protocol";
+import { DEFAULT_VIRTUAL_DISPLAY_PROVIDER, displayProvidersForOs } from "@internal/subshell-protocol";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -15,9 +15,10 @@ export function NodeDisplayProviders({
 }) {
   const enabled = node.virtualDisplayProviders ?? [DEFAULT_VIRTUAL_DISPLAY_PROVIDER];
   const current = node.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER;
-  const providers = VIRTUAL_DISPLAY_PROVIDERS.filter((p) =>
-    p.id === "betterdisplay" ? node.os === "darwin" : node.os === "linux",
-  );
+  // The same "can this machine run it" rule the launch dialog applies, so the
+  // settings page and the launch form cannot disagree about which providers
+  // exist on this OS.
+  const providers = displayProvidersForOs(node.os);
   const choices = providers.filter((p) => enabled.includes(p.id));
   return (
     <div className="flex w-full flex-col gap-4">

@@ -1,6 +1,37 @@
 import { expect, it } from "bun:test";
-import { parseDisplayProviderIds, parseVirtualDisplayRequest, storedDisplayProviderIds } from "../display-providers.js";
+import {
+  DEFAULT_VIRTUAL_DISPLAY_PROVIDER,
+  displayProviderRunsOnOs,
+  displayProvidersForOs,
+  parseDisplayProviderIds,
+  parseVirtualDisplayRequest,
+  storedDisplayProviderIds,
+  VIRTUAL_DISPLAY_PROVIDERS,
+} from "../display-providers.js";
 import { parseNodeCommandBody, parseNodePreviewEnabled } from "../node-frames.js";
+
+it("names one OS per bundled provider, and the pickers ask that OS", () => {
+  // A provider with no platform here is offered everywhere, which is the
+  // defect: the launch dialog showed Xvfb + VNC on a Mac node, and the person
+  // found out at launch. Adding a provider means saying what it runs on.
+  for (const provider of VIRTUAL_DISPLAY_PROVIDERS) {
+    expect(provider.platform).toBeOneOf(["linux", "darwin"]);
+  }
+  expect(displayProvidersForOs("linux").map((p) => p.id)).toEqual(["xvfb-x11vnc"]);
+  expect(displayProvidersForOs("darwin").map((p) => p.id)).toEqual(["betterdisplay"]);
+  // A node that never came ready has no OS, and guessing the default would be
+  // guessing Linux.
+  expect(displayProvidersForOs(null)).toEqual([]);
+  expect(displayProvidersForOs("windows")).toEqual([]);
+  // A stored list is the owner's, so filtering it keeps what the OS runs and
+  // keeps an id this package does not ship: a provider the node installed out
+  // of band has no platform fact here, and its own readiness answer rules.
+  expect(displayProviderRunsOnOs("xvfb-x11vnc", "darwin")).toBe(false);
+  expect(displayProviderRunsOnOs("betterdisplay", "darwin")).toBe(true);
+  expect(displayProviderRunsOnOs("native-example", "darwin")).toBe(true);
+  expect(displayProviderRunsOnOs("native-example", null)).toBe(true);
+  expect(DEFAULT_VIRTUAL_DISPLAY_PROVIDER).toBe("xvfb-x11vnc");
+});
 
 it("preserves explicit providers on readiness commands and signed policy", () => {
   const check = { type: "preview_display_check", provider: "native-example" } as const;

@@ -100,6 +100,36 @@ describe("virtual display prerequisites", () => {
     expect(changes).toEqual(["xvfb-x11vnc"]);
     expect(virtualDisplayReason({ ...linux, virtualDisplayProviders: [] }, ready, "xvfb-x11vnc")).toContain("disabled");
   });
+  it("offers only the providers this machine's OS can run", async () => {
+    // The stored policy is the owner's and can hold both, so the row filters by
+    // the node's reported OS: Xvfb is Linux's display server, and offering it on
+    // a Mac sends the person to a launch the machine refuses.
+    const paths: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      paths.push(String(input));
+      return new Response(JSON.stringify(ready));
+    }) as typeof fetch;
+    render(
+      <VirtualDisplayField
+        node={{
+          ...linux,
+          os: "darwin",
+          virtualDisplayProviders: ["xvfb-x11vnc", "betterdisplay"],
+          virtualDisplayProvider: "betterdisplay",
+        }}
+        provider="betterdisplay"
+        onProviderChange={() => {}}
+        id="display"
+        checked
+        onChange={() => {}}
+      />,
+      { wrapper },
+    );
+    await waitFor(() => expect(paths.some((p) => p.endsWith("?provider=betterdisplay"))).toBe(true));
+    fireEvent.click(screen.getByRole("combobox", { name: "Display provider" }));
+    expect(await screen.findByRole("option", { name: "BetterDisplay" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Xvfb + VNC" })).toBeNull();
+  });
   it("fails closed when a check fails and recovers on recheck", async () => {
     respond({ message: "Bring this node online, then recheck." }, 409);
     render(<VirtualDisplayField node={linux} id="display" checked={false} onChange={() => {}} />, { wrapper });

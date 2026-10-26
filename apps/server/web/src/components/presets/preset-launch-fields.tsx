@@ -1,5 +1,5 @@
 import { Button, FormSectionTitle, HelperCaption, Label, Switch } from "@internal/node-admin";
-import { CROSS_AGENT_NOTES_MAX, VIRTUAL_DISPLAY_PROVIDERS } from "@internal/subshell-protocol";
+import { CROSS_AGENT_NOTES_MAX, displayProvidersForOs, VIRTUAL_DISPLAY_PROVIDERS } from "@internal/subshell-protocol";
 import { X } from "lucide-react";
 import { PromptStackSection } from "@/components/prompts/prompt-stack-section";
 import { DisplayProviderPicker } from "@/components/subshell-picker/display-provider-picker";
@@ -148,7 +148,13 @@ export function PresetLaunchFields({
           <DisplayProviderPicker
             id="preset-display-provider"
             value={value.screen.provider}
-            providers={VIRTUAL_DISPLAY_PROVIDERS.map((p) => p.id)}
+            // A machine named here has an OS, and offering a provider that
+            // cannot run on it is the same dead choice the launch form drops.
+            // With no machine chosen yet the full list is right, and the check
+            // below says when it happens.
+            providers={(selectedNode?.os ? displayProvidersForOs(selectedNode.os) : VIRTUAL_DISPLAY_PROVIDERS).map(
+              (p) => p.id,
+            )}
             defaultProvider={selectedNode?.virtualDisplayProvider}
             onChange={(provider) =>
               onChange({ ...value, screen: { ...(value.screen ?? { width: 1280, height: 800 }), provider } })

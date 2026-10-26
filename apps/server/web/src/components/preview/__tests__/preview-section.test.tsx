@@ -125,6 +125,25 @@ describe("gated controls explain themselves", () => {
     expect(screen.getByText(SWITCH_OFF_REASON)).toBeTruthy();
   });
 
+  /**
+   * The colour of the switch's own sentence (operator ruling 2026-10-26). Gold
+   * marks a control someone can turn on, and the line beside it is the guide
+   * that says who and where; a node that is simply unreachable is not a
+   * setting, so it keeps the muted colour and no link. Colour and link are the
+   * whole assertion here: the sentence itself is tested above.
+   */
+  it("says a switched-off node in gold with the guide beside it, and an unreachable one in muted", () => {
+    mount({ info: info({ ports: [], cdpPort: null, nodeEnabled: false, reason: "preview-disabled" }) });
+    expect(screen.getByText(SWITCH_OFF_REASON).matches(".text-warning")).toBe(true);
+    expect(screen.getByRole("link", { name: /How to enable web previews and screens/ }).getAttribute("href")).toBe(
+      "https://docs.subshell.sh/guides/preview#enable-web-previews-and-displays-on-the-machine",
+    );
+    cleanup();
+    mount({ info: info({ ports: [], cdpPort: null, nodeEnabled: false, reason: "node-offline" }) });
+    expect(screen.getByText(/This node is offline/).matches(".text-warning")).toBe(false);
+    expect(screen.queryByRole("link", { name: /How to enable web previews and screens/ })).toBeNull();
+  });
+
   it("the disabled Watch explains itself the way Open and Screen do", () => {
     mount({ info: info({ nodeEnabled: false, reason: "preview-disabled" }) });
     const watch = screen.getByRole("button", { name: "Watch browser" });
