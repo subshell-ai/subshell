@@ -78,7 +78,7 @@ machine, and its Reset door opens a modal dialog inert to its own dismissal
 while the chain runs. First run is zero-touch (the page FIRES the setup
 chain), and recovery is ONE screen whose title IS the diagnosis. The standing
 screens (**Update**, **Reset**, **How Your Server Runs**, **What macOS Will
-Ask**, **Server Addresses**) never join `screensFor`'s list: they arrive by
+Ask**, **Server Addresses**, **Virtual Displays**) never join `screensFor`'s list: they arrive by
 REQUEST as a member of the closed `reset::Screen` enum, routed off
 `REQUESTED_SCREENS` via `screenForRequest`; adding a screen means the Rust
 enum and that list, and there is no third place to forget. ONE `update` screen
@@ -641,11 +641,24 @@ apps/server/desktop/docs/native-chrome.md first.**
 
 ## macOS display helper
 
-The native application menu's **Virtual Display Helper…** opens a shared
-standalone AppKit settings panel. It is not part of first run and has no
-Tauri IPC command. Both desktop apps bundle the same signed helper identity;
-`desktop-core::display_helper` installs or reuses one per-user copy only on a
-menu selection. The helper owns consent, OS permission requests, and login
+The assistant's **Virtual Displays** rail section and the native menu's
+**Virtual Display Helper…** open the same shared standalone AppKit settings
+panel. The section is the door a person actually finds (added 2026-10-26, after
+the menu bar proved undiscoverable), and it is the one that carries the
+enablement steps: the menu item opened a panel and said nothing about the two
+macOS permissions it then asks for. It is the rail's only platform FACT, dropped
+wherever there is no helper (`railFor`), and it is not part of first run. The
+panel itself stays the helper's: the command this section adds
+(`desktop_open_display_helper`, no argument, assistant-only) opens it and reports
+nothing back, because enabling and granting happen in another program's windows
+and there is no status here to poll; a refusal is Rust's to say, in its native
+dialog. The paragraph's guide link rides the `desktop_open_web` command the whole
+window already has, naming the closed-set `display-guide` target so the docs URL
+stays in Rust rather than the page. `reset::Screen::Display` is in the closed screen enum so the rail holds
+one kind of section rather than two, and it grants no reach the command does not
+already have. Both desktop apps bundle the same signed helper identity;
+`desktop-core::display_helper` installs or reuses one per-user copy only when a
+door is taken. The helper owns consent, OS permission requests, and login
 registration. Read [the helper architecture](../../../docs/macos-display-helper.md)
 before changing bundling, activation, or local control. User instructions live
 in [node management](../../docs/content/docs/nodes/manage.mdx#macos-display-helper).

@@ -268,7 +268,7 @@ export type OpenTarget = "config-env" | "server-dir" | "service-definition" | "l
  * last two are the package managers the tmux screen names when a Mac has
  * neither.
  */
-export type WebTarget = "website" | "license" | "company" | "homebrew" | "macports";
+export type WebTarget = "website" | "license" | "company" | "homebrew" | "macports" | "display-guide";
 
 /**
  * `About`. Who made this, under what terms, and where to read more.
@@ -512,6 +512,19 @@ export const requestPhotos = (): Promise<Permission> => invoke<Permission>("desk
  */
 export const openSystemSettings = (pane: SettingsPane): Promise<void> =>
   invoke<void>("desktop_open_system_settings", { pane });
+
+/**
+ * Open the macOS display helper's own settings panel — the same panel the
+ * application menu's **Virtual Display Helper…** item opens.
+ *
+ * Nothing comes back, because nothing about this machine has changed yet. The
+ * panel is a separate signed program's window; enabling the helper and granting
+ * macOS screen recording and accessibility both happen there, and their answers
+ * belong to that program rather than to this app. A rejection means the panel
+ * could not be opened at all, and Rust puts that in a native dialog, so the
+ * screen has no message left to render.
+ */
+export const openDisplayHelper = (): Promise<void> => invoke<void>("desktop_open_display_helper");
 
 /** `desktop_set_supervision`'s answer: the chain's words, plus where it ended. */
 export interface SupervisionResult extends ActionResult {

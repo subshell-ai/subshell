@@ -27,6 +27,7 @@
     "allow-node-pending-screen",
     "allow-node-about",
     "allow-node-open-web",
+    "allow-node-open-display-helper",
     "allow-node-check-app-update",
     "allow-node-install-app-update"
   ]

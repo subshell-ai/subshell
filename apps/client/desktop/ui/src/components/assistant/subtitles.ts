@@ -112,5 +112,10 @@ export function subtitleFor(
       // is the table's answer and never a subtitle drawn before the probe and
       // the release check have landed.
       return "This app and the node CLI that ships inside it.";
+    case "display":
+      // Says what the thing IS rather than what pressing the button does,
+      // because the screen's one press opens a panel this app does not own:
+      // the steps below the sentence are the part with the choices in it.
+      return "A screen this machine does not have, so a subshell can open a graphical app here with no monitor attached.";
   }
 }

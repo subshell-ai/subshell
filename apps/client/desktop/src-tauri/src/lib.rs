@@ -179,6 +179,7 @@ pub fn run() {
             control::node_service,
             control::node_about,
             control::node_open_web,
+            control::node_open_display_helper,
             control::node_pending_screen,
             control::node_open_path,
             control::node_logs,

@@ -386,8 +386,9 @@ Server's assistant uses (spec 2026-09-12 § 6.4). Routing is ONE router,
 `lib/client-flow.ts`: `clientScreen({probe, settings, step, override})` asks
 what this person came to do before what this machine implies (the in-memory
 `FteStep` walk outranks the machine rules; a configured client lands on
-**Control Plane**), and `railFor` shows the six standing sections (Control
-Plane | Status | Service | Update | About | Reset) only for a settled
+**Control Plane**), and `railFor` shows the standing sections (Control Plane |
+Status | Service | Update | About | Virtual Displays | Reset, the Virtual
+Displays one only where a display helper exists) only for a settled
 machine, every rail select being an override, as are the screens a person
 ASKS for (about, update, enroll). Confirmations answer in a dialog at the
 single `shell.confirm` slot; the rail's Reset is a door, not a section. The
@@ -554,11 +555,24 @@ the first mutation. `planeUrl` is KEPT. **Working on reset: read
 
 ## macOS display helper
 
-The native application menu's **Virtual Display Helper…** opens a shared
-standalone AppKit settings panel. It is not part of first run and has no
-Tauri IPC command. Both desktop apps bundle the same signed helper identity;
-`desktop-core::display_helper` installs or reuses one per-user copy only on a
-menu selection. The helper owns consent, OS permission requests, and login
+The assistant's **Virtual Displays** rail section and the native menu's
+**Virtual Display Helper…** open the same shared standalone AppKit settings
+panel. The section is the door a person actually finds (added 2026-10-26, after
+the menu bar proved undiscoverable), and it is the one that carries the
+enablement steps: the menu item opened a panel and said nothing about the two
+macOS permissions it then asks for. It is the rail's only platform FACT, dropped
+wherever there is no helper (`railFor`), and it is not part of first run. The
+panel itself stays the helper's: the command this section adds
+(`node_open_display_helper`, no argument, assistant-only) opens it and reports
+nothing back, because enabling and granting happen in another program's windows
+and there is no status here to poll; a refusal is Rust's to say, in its native
+dialog. The paragraph's guide link rides the `node_open_web` command the whole
+window already has, naming the closed-set `display-guide` target so the docs URL
+stays in Rust rather than the page. `display` joins `NodeUserScreen`, selected like
+About or Update, and grants no reach beyond the command its press already
+holds. Both desktop apps bundle the same signed helper identity;
+`desktop-core::display_helper` installs or reuses one per-user copy only when a
+door is taken. The helper owns consent, OS permission requests, and login
 registration. Read [the helper architecture](../../../docs/macos-display-helper.md)
 before changing bundling, activation, or local control. User instructions live
 in [node management](../../docs/content/docs/nodes/manage.mdx#macos-display-helper).

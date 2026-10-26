@@ -670,3 +670,44 @@ describe("the rail", () => {
     expect(screen.getByRole("button", { name: "Status" }).getAttribute("aria-current")).toBe("true");
   });
 });
+
+/**
+ * The rail's Virtual Displays section (2026-10-26), which exists because the
+ * only door was in the macOS menu bar and the control plane's node settings
+ * point at this subject by name. What the section has to get right is the
+ * platform: the display helper is BetterDisplay's, so a Linux host must not be
+ * offered a section that opens nothing.
+ */
+describe("the rail's Virtual Displays section", () => {
+  it("opens the helper's instructions on a Mac, and the panel on its press", async () => {
+    fake = installFakeIpc({
+      probe: makeProbe({ onboarded: true, next: "start", platform: "darwin" }),
+      handlers: { desktop_pending_screen: () => null, desktop_open_display_helper: () => undefined },
+    });
+    render(<Host />);
+    await waitFor(() => expect(routeOf()).toBe("status"));
+    fireEvent.click(screen.getByRole("button", { name: "Virtual Displays" }));
+    expect(routeOf()).toBe("display");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Virtual Displays");
+    // The instructions are the point of the screen: the menu item opened a
+    // panel and said nothing about the two macOS permissions it then asks for.
+    expect(screen.getByText(/Grant Screen Recording and Accessibility/)).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Open Display Helper settings" }));
+    await waitFor(() => expect(fake?.callsTo("desktop_open_display_helper")).toHaveLength(1));
+    // The section holds the highlight while it stands, like every other one.
+    expect(screen.getByRole("button", { name: "Virtual Displays" }).getAttribute("aria-current")).toBe("true");
+  });
+
+  it("is not on the rail where there is no display helper", async () => {
+    fake = installFakeIpc({
+      probe: makeProbe({ onboarded: true, next: "start", platform: "linux" }),
+      handlers: { desktop_pending_screen: () => null },
+    });
+    render(<Host />);
+    await waitFor(() => expect(routeOf()).toBe("status"));
+    // The rest of the rail is the same machine's rail; only this one section
+    // is platform fact.
+    expect(screen.getByRole("button", { name: "Addresses" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Virtual Displays" })).toBeNull();
+  });
+});
