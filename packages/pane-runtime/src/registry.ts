@@ -9,6 +9,7 @@ import {
 import claudeCodeFactory, { manifest as claudeCodeManifest } from "@subshell-ai/plugin-claude-code";
 import cloudflareTunnelFactory, { manifest as cloudflareTunnelManifest } from "@subshell-ai/plugin-cloudflare-tunnel";
 import codexFactory, { manifest as codexManifest } from "@subshell-ai/plugin-codex";
+import grokBuildFactory, { manifest as grokBuildManifest } from "@subshell-ai/plugin-grok-build";
 import headscaleFactory, { manifest as headscaleManifest } from "@subshell-ai/plugin-headscale";
 import hermesFactory, { manifest as hermesManifest } from "@subshell-ai/plugin-hermes";
 import netbirdFactory, { manifest as netbirdManifest } from "@subshell-ai/plugin-netbird";
@@ -57,6 +58,7 @@ interface BuiltIn {
 const BUILT_INS: BuiltIn[] = [
   { manifest: claudeCodeManifest, factory: claudeCodeFactory },
   { manifest: opencodeManifest, factory: opencodeFactory },
+  { manifest: grokBuildManifest, factory: grokBuildFactory },
   { manifest: hermesManifest, factory: hermesFactory },
   { manifest: piManifest, factory: piFactory },
   { manifest: ohMyPiManifest, factory: ohMyPiFactory },
