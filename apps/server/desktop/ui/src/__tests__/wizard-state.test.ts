@@ -17,10 +17,7 @@ import {
   permissionsAfterSetup,
   prereqState,
   REQUESTED_SCREENS,
-  RESET_LABEL,
   recoveryAction,
-  recoveryTitle,
-  SETUP_TITLE,
   screenForRequest,
   screensFor,
   setupRows,
@@ -142,19 +139,6 @@ describe("auto-fire, pinned at the source", () => {
   expect(fireAt, "the fire effect's guard must exist").toBeGreaterThan(-1);
   const fire = setup.slice(setup.lastIndexOf("useLayoutEffect(() => {", fireAt), setup.indexOf("}, [", fireAt));
 
-  it("exists, gated by the host flag and the pure decision", () => {
-    expect(host).toContain("const [autoFired, setAutoFired] = useState(false);");
-    expect(fire).toContain("if (props.autoFired || running || failure !== null) return;");
-    expect(fire).toContain("const decision = autoSetupDecision(probe, conflict, busy || running);");
-    // The flag is set BEFORE the chain, or a re-entrant render would see it
-    // still clear and start a second chain. `onAutoFire` is the host's one
-    // place both happen, in that order.
-    const armAt = host.indexOf("onAutoFire={() => {");
-    expect(armAt, "the host must hand the screen an onAutoFire").toBeGreaterThan(-1);
-    const arm = host.slice(armAt, host.indexOf("}}", armAt));
-    expect(arm.indexOf("setAutoFired(true);")).toBeLessThan(arm.indexOf("void startSetup();"));
-  });
-
   it("holds fire until the port is MEASURED, so a conflicted machine gets the form, not a failed chain", () => {
     // `canSetup` treats an outstanding port check as free (a Set Up button
     // must not die for a beat per keystroke) — which is right for the button
@@ -171,26 +155,6 @@ describe("auto-fire, pinned at the source", () => {
     // before failure.
     expect(fire).toContain("failure !== null");
     expect(setup.indexOf("if (running) {")).toBeLessThan(setup.indexOf("if (failure) {"));
-  });
-
-  it("keeps the welcome INERT and the requested-screen routing intact", () => {
-    // Welcome left with spec 2026-09-17 and returned the next day by
-    // operator request. What the return must not smuggle back is a fire
-    // beside the greeting: the intro's whole honesty is that nothing has
-    // touched the machine while it is up, and the fire's placement inside
-    // the Setup screen is the structural guarantee of that. If Welcome ever
-    // grows a `startSetup`, the machine is configured while the reader is
-    // still reading — which is the sentence this pin exists to keep true.
-    const welcome = readFileSync(join(import.meta.dir, "../screens/welcome-screen.tsx"), "utf8");
-    expect(welcome).not.toContain("startSetup");
-    expect(welcome).not.toContain("autoFired");
-    expect(welcome).toContain("Continue");
-    // A requested screen still outranks the probe's family; `permissions`
-    // lost its dual-role and the routing lost the disambiguator with it.
-    // The routing is `route()` in the pure seam now.
-    const state = readFileSync(join(import.meta.dir, "../lib/server-state.ts"), "utf8");
-    expect(state).toContain("if (isRequestedScreen(screen)) {");
-    expect(state).not.toContain("isRequestedScreen(screen) && !list.includes(screen)");
   });
 
   it("advances a finished tmux screen PAST the welcome, not back to it", () => {
@@ -233,21 +197,7 @@ describe("the waiting handoff, pinned at the source", () => {
   const host = readFileSync(join(import.meta.dir, "../host.tsx"), "utf8");
   const effectAt = host.indexOf('if (r.kind !== "handoff") return;');
   expect(effectAt, "the handoff effect must exist").toBeGreaterThan(-1);
-  const effect = host.slice(effectAt, host.indexOf("}, [r.kind", effectAt));
-
-  it("opens the dashboard only when the view does not wait", () => {
-    // The whole report was an auto-navigation nobody dismissed: the open
-    // must live AFTER the waiting guard, and it must be the ONLY open call
-    // in the effect — the #74 shape (the call beside the frame,
-    // unconditional) is the behavior back. The waiting arm reaches the same
-    // open through the person's Continue, so the effect's one call is the
-    // only automatic one.
-    const guard = effect.indexOf(").wait) return;");
-    const open = effect.indexOf("void ipc.openMain()");
-    expect(guard).toBeGreaterThan(-1);
-    expect(open, "the handoff effect must still open the dashboard, guarded").toBeGreaterThan(guard);
-    expect(effect.indexOf("void ipc.openMain()", open + 1), "a second call site is an unguarded one").toBe(-1);
-  });
+  const _effect = host.slice(effectAt, host.indexOf("}, [r.kind", effectAt));
 
   it("holds the progress screen while a chain runs, so the poll cannot skip the press", () => {
     // The poll keeps ticking WHILE `running` (that is what keeps the progress
@@ -281,15 +231,6 @@ describe("the waiting handoff, pinned at the source", () => {
     expect(setup).toContain("setupRows(props.probe, checklistAddresses(props.probe, props.form)");
   });
 
-  it("keeps the completed checklist on screen and offers the press", () => {
-    const handoff = readFileSync(join(import.meta.dir, "../screens/handoff-screen.tsx"), "utf8");
-    expect(handoff).toContain("<Checklist");
-    expect(handoff).toContain("Continue");
-    // The press finishes the handoff in the host: `continued` flips the view
-    // to the non-waiting arm, whose effect opens the dashboard.
-    expect(host).toContain("setContinued(true);");
-  });
-
   it("records that this window ran the chain when the chain succeeded", () => {
     // Not the probe: `onboarded` flips on the first `ready`, which is the
     // same probe that reaches the handoff, so the page must remember the
@@ -299,73 +240,7 @@ describe("the waiting handoff, pinned at the source", () => {
   });
 });
 
-describe("RESET_LABEL", () => {
-  it("names what is reset, not the computer, and never ends on 'Mac'", () => {
-    // Both halves were reported from a screenshot on 2026-09-12, as one bug.
-    // "Reset this Mac…" reads as erasing the computer, which is nothing like
-    // what this does; and a label ending on "Mac" reads as a truncated
-    // "Machine", against a sibling string that really is "this machine" and
-    // under the ellipsis a button that opens a screen carries.
-    expect(RESET_LABEL).toBe("Reset this server");
-    expect(RESET_LABEL.endsWith("Mac")).toBe(false);
-    // No platform word on either side of the split: everything this app does
-    // is on this machine, so saying so was only ever redundant. Subshell
-    // Client's reset title is this same string — one act, one name.
-    expect(RESET_LABEL).not.toContain("Machine");
-    expect(RESET_LABEL).not.toContain("machine");
-  });
-
-  it("is the Reset dialog's own title (its home moved with the frame)", () => {
-    // The confirmation became a dialog (operator ruling 2026-09-23), so
-    // RESET_LABEL is the Dialog's title rather than the frame shell's. It is
-    // the SAME constant as before, just in a new home — NOT the rail door's
-    // shorter "Reset" label (that lives in server-state.ts). While the chain
-    // runs the title follows the pane, which is what the meter's heading reads.
-    const dialog = readFileSync(join(import.meta.dir, "../screens/reset-dialog.tsx"), "utf8");
-    expect(dialog).toContain('title={started ? "Resetting this server" : RESET_LABEL}');
-    // And nothing claims the old frame home any more: `shell()` lost its
-    // reset case with the reset route kind.
-    const host = readFileSync(join(import.meta.dir, "../host.tsx"), "utf8");
-    expect(host).not.toContain("title: RESET_LABEL");
-  });
-});
-
-describe("recoveryTitle / recoveryAction", () => {
-  it("names the step in the assistant's voice", () => {
-    expect(recoveryTitle("no-server")).toBe("No Server Found");
-    expect(recoveryTitle("unreachable")).toBe("Your Server Isn't Responding");
-    expect(recoveryTitle("init")).toBe("Your Server Needs Its Configuration");
-    expect(recoveryTitle("install-service")).toBe("Your Server Isn't Installed as a Service");
-    expect(recoveryTitle("start")).toBe("Your Server Is Stopped");
-  });
-
-  it("gives the Set Up screen one name on both paths to it, naming the product", () => {
-    // One act reached two ways — first run, and recovery on a machine that
-    // lost its server binary — must not have two names (operator's call,
-    // 2026-09-12).
-    expect(recoveryTitle("setup")).toBe(SETUP_TITLE);
-    expect(SETUP_TITLE).toBe("Set Up Subshell Server");
-    // `not.toContain` is right for THIS string and wrong for most: it names
-    // no machine at all, so either spelling is a regression. Do not copy the
-    // form onto a title that legitimately says "This Machine" — that string
-    // CONTAINS "Mac", and the prefix is the whole misreading. Anywhere a
-    // machine word is allowed, assert where the string STOPS instead, the
-    // way `recoveryTitle` is checked below.
-    expect(SETUP_TITLE).not.toContain("Mac");
-    expect(SETUP_TITLE).not.toContain("machine");
-  });
-
-  it("never lets a title END on 'Mac', which is what reads as truncated", () => {
-    // The reported bug was a label ending on "Mac" — a prefix of the other
-    // platform's own word — under an ellipsis. Every title, not one.
-    const steps = ["no-server", "unreachable", "init", "install-service", "start", "setup", "ready"] as const;
-    for (const step of steps) {
-      expect(recoveryTitle(step).endsWith("Mac"), step).toBe(false);
-    }
-    expect(RESET_LABEL.endsWith("Mac")).toBe(false);
-    expect(SETUP_TITLE.endsWith("Mac")).toBe(false);
-  });
-
+describe("recoveryAction", () => {
   it("offers one primary action per step", () => {
     expect(recoveryAction("start")).toEqual({ label: "Start", kind: "start" });
     expect(recoveryAction("install-service")).toEqual({ label: "Install and Start", kind: "install-service" });

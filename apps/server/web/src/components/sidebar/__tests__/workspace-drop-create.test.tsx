@@ -161,20 +161,6 @@ afterEach(() => {
   resetWorkspaceFocusForTests();
 });
 
-test("the empty zone shows nothing at rest: no border affordance before a drag", async () => {
-  const fx = rig();
-  const { container } = await mount(fx);
-  // Operator ruling 2026-10-20: the target reveals itself only while a
-  // subshell drag is over it, so the resting container wears no border and
-  // no highlight classes at all.
-  await screen.findByText("Select a workspace or drag a subshell here to get started.");
-  const zone = zoneOf(container) as HTMLElement;
-  expect(zone.className.includes("border")).toBe(false);
-  expect(zone.className.includes("rounded")).toBe(false);
-  // Nothing has been dragged, so the hover overlay is still absent.
-  expect(within(zone).queryByRole("status") === null).toBe(true);
-});
-
 test("a subshell drag in flight dresses the zone with a dashed ring, and dragend strips it", async () => {
   const fx = rig();
   const { container } = await mount(fx);

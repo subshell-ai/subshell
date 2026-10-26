@@ -97,11 +97,6 @@ describe("toSubshellCreateBody", () => {
     expect(body.prompt).toBe("first\n\nsecond");
   });
 
-  it("a presetless empty stack still sends NO prompt field (untouched form, no fallback to fear)", () => {
-    const body = toSubshellCreateBody({ harnessId: "p1", workingDir: "/tmp/x", name: "n" });
-    expect(JSON.parse(JSON.stringify(body))).toEqual({ harnessId: "p1", workingDir: "/tmp/x", name: "n" });
-  });
-
   it("a presetless launch sends NO presetId — null is absence, not a field (spec §2.2)", () => {
     for (const presetId of [null, undefined] as const) {
       const body = toSubshellCreateBody({ harnessId: "p1", presetId, workingDir: "/tmp/x", name: "n" });

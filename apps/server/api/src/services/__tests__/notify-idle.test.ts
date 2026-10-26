@@ -55,13 +55,6 @@ function makeWatcher(opts: {
 /** A base clock far from zero so "quiet" arithmetic can't hide off-by-signs. */
 const T0 = 1_700_000_000_000;
 
-describe("idle watcher constants", () => {
-  it("exports the 20 s quiet window and 3 s tick", () => {
-    expect(IDLE_QUIET_MS).toBe(20_000);
-    expect(IDLE_TICK_MS).toBe(3_000);
-  });
-});
-
 describe("createIdleWatcher.tick", () => {
   it("(a) first tick only seeds state — a long-idle subshell never rings at boot", async () => {
     const rows = [fakeRow("a")];

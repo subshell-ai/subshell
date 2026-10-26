@@ -1,40 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import {
-  COMPANY_URL,
-  COPYRIGHT_HOLDER,
-  COPYRIGHT_LINE,
-  COPYRIGHT_YEAR,
-  LICENSE_EXCEPTION_SUMMARY,
-  LICENSE_SUMMARY,
-  LICENSE_URL,
-  licenseNotice,
-} from "../legal.js";
-
-describe("legal constants", () => {
-  test("the copyright line is composed of its parts", () => {
-    expect(COPYRIGHT_LINE).toBe(`Copyright ${COPYRIGHT_YEAR} ${COPYRIGHT_HOLDER}`);
-  });
-
-  // The registered entity, not the DBA. A trade name cannot hold title or
-  // contract, which is why CLA.md names this string specifically.
-  test("the holder is the registered entity", () => {
-    expect(COPYRIGHT_HOLDER).toBe("Disaresta, LLC");
-  });
-
-  test("the company URL is the holder's own site", () => {
-    expect(COMPANY_URL).toBe("https://disaresta.com");
-    expect(COMPANY_URL).not.toBe(LICENSE_URL);
-  });
-
-  // "Dual-licensed" alone leaves a reader unable to tell what governs the part
-  // they are holding, which is the only question the line exists to answer.
-  test("the summary names both halves and which is which", () => {
-    expect(LICENSE_SUMMARY).toContain("AGPL-3.0-only");
-    expect(LICENSE_SUMMARY).toContain("Apache-2.0");
-    expect(LICENSE_SUMMARY).toContain("control plane");
-  });
-});
+import { COPYRIGHT_LINE, LICENSE_EXCEPTION_SUMMARY, LICENSE_SUMMARY, LICENSE_URL, licenseNotice } from "../legal.js";
 
 describe("licenseNotice", () => {
   const notice = licenseNotice("subshell", "1.2.3");

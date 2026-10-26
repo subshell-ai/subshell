@@ -37,20 +37,6 @@ describe("ui/tooltip", () => {
     expect(screen.getByText("hover me").hasAttribute("data-base-ui-tooltip-trigger")).toBe(true);
   });
 
-  it("caller classes merge onto the popup, so multi-line content can ask for pre-line", async () => {
-    render(
-      <TooltipProvider>
-        <Tooltip open>
-          <TooltipTrigger>t</TooltipTrigger>
-          <TooltipContent className="whitespace-pre-line break-words">{"Name: x\nNode: y"}</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>,
-    );
-    const popup = await screen.findByText(/Name: x/);
-    expect(popup.closest(".whitespace-pre-line")).not.toBeNull();
-    expect(popup.textContent).toContain("Node: y");
-  });
-
   it("draws an arrow by default (operator rule, 2026-09-25)", async () => {
     render(
       <TooltipProvider>

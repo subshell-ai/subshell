@@ -192,7 +192,10 @@ describe("createSubshell MCP integration", () => {
   });
 
   it("types the prompt after the pane shows output, then presses Enter", async () => {
-    tmux.captureScript = ["", "", "claude> ready"];
+    // The fake must echo input after settling. A permanently unchanged ready
+    // screen exercises the ten-second render timeout instead of this success
+    // path; the shared prompt-delivery suite covers that fallback directly.
+    tmux.captureScript = ["", "", "claude> ready", "claude> fix the flaky test"];
     const created = await manager.createSubshell({
       userId: "u1",
       harnessId: "claude-code",

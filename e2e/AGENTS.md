@@ -14,7 +14,8 @@ E2E_VERBOSE=1 bun run test:e2e     # stream backend stdout/stderr for debugging
 
 Run from the repo root via the root `test:e2e` script (which routes here), or
 inside `e2e/` directly. Never part of `turbo test`, `bun run test`, or the
-pre-push hook; CI runs it as its own job.
+pre-push hook; CI runs it in the selected integration job. The workspace
+`test` script covers only the capture helpers, not browser scenarios.
 
 ## How the stack boots
 
@@ -164,8 +165,8 @@ Spec 25 runs the browser signer against a real sshd on the host (not
 Testcontainers): it needs `ssh`, `sshd` and `ssh-keygen` present, and it skips
 loudly naming the missing binaries where they are not.
 Run all SSH specs together with `01-setup-wizard.spec.ts` (which seeds the account for spec 24).
-CI mounts its Docker socket into the e2e job so Testcontainers can start the
-same destination fixture.
+CI runs integration checks on a bare Ubuntu runner, so Testcontainers uses
+the host Docker daemon and its mapped ports directly.
 
 ## SSH documentation screenshots
 

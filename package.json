@@ -56,7 +56,10 @@
     "release:desktop-client": "bun run --cwd apps/client/desktop compile:release",
     "changeset": "changeset",
     "version-packages": "changeset version && bun run lint:lockfile:fix",
-    "publish-packages": "changeset publish"
+    "publish-packages": "changeset publish",
+    "test:changed": "bun scripts/test-changed.ts",
+    "verify:changed": "bun scripts/test-changed.ts --checks",
+    "test:full": "bun scripts/test-changed.ts --full"
   },
   "dependencies": {
     "@elysiajs/eden": "1.4.9",

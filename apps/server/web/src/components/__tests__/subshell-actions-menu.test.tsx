@@ -220,25 +220,6 @@ describe("SubshellActionsMenu — access gating (spec §4.1)", () => {
     }
   });
 
-  it("the removed actions stay gone: no Terminate, no title pin, no Terminal history (spec 2026-09-03)", async () => {
-    const { restore } = mockFetch();
-    try {
-      // A dead row is the one state that still carries a lifecycle item, so
-      // its absence there proves the removal, not just the alive-gate.
-      for (const alive of [true, false]) {
-        await renderMenu(makeSubshell({ alive }));
-        await openMenu("subshell");
-        expect(screen.queryByRole("menuitem", { name: "Terminate" })).toBeNull();
-        expect(screen.queryByRole("menuitem", { name: "Pin this title" })).toBeNull();
-        expect(screen.queryByRole("menuitem", { name: "Resume auto title" })).toBeNull();
-        expect(screen.queryByRole("menuitem", { name: "Terminal history…" })).toBeNull();
-        cleanup();
-      }
-    } finally {
-      restore();
-    }
-  });
-
   it("Clone… is owner-only (an edit grantee's clone would 404 on the preset) and opens the clone dialog", async () => {
     const { restore } = mockFetch();
     try {

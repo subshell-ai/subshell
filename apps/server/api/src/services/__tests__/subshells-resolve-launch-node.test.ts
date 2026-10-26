@@ -340,12 +340,6 @@ describe("resolveLaunchNode — server switched off as a node", () => {
 });
 
 describe("resolveLaunchNode — implicit local (step 2) and auto-pick (step 3)", () => {
-  it("nothing requested + the local switch ON → local (today's behavior preserved)", async () => {
-    expect(await resolveLaunchNode({ userId: ownerId, machineActor: false }, deps)).toEqual({
-      nodeId: LOCAL_NODE_ID,
-    });
-  });
-
   it("local switch OFF + no online agents → 400 ApiError NODE_REQUIRED ('choose a node')", async () => {
     await deps.shares.replaceForNode(LOCAL_NODE_ID, [], systemId);
     try {

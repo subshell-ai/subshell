@@ -84,24 +84,24 @@ afterEach(cleanup);
 const sshList = (calls: { method: string; url: string }[]) =>
   calls.filter((c) => c.method === "GET" && c.url === "/api/presets?kind=ssh").length;
 
-it("shows a disabled SSH preset's switch as off and dims the row", async () => {
-  const mock = mockFetch([sshPreset({ enabled: 0 })]);
-  await renderLibrary();
-  const switchEl = await screen.findByRole("switch", { name: "Build box enabled" });
-  expect(switchEl.getAttribute("aria-checked")).toBe("false");
-  expect((switchEl.closest("tr") as HTMLElement).className).toContain("opacity-70");
-  mock.restore();
-});
-
 it("flipping an enabled SSH preset off pins the PATCH route and body", async () => {
   const mock = mockFetch([sshPreset({ enabled: 1 })]);
   await renderLibrary();
-  fireEvent.click(await screen.findByRole("switch", { name: "Build box enabled" }));
+  const toggle = await screen.findByRole("switch", { name: "Build box enabled" });
+  expect(toggle.getAttribute("aria-checked")).toBe("true");
+  fireEvent.click(toggle);
   await waitFor(() => {
     const patch = mock.calls.find((c) => c.method === "PATCH");
     expect(patch).toBeTruthy();
     expect(patch?.url).toBe("/api/presets/p1");
     expect(patch?.body).toBe(JSON.stringify({ enabled: false }));
+  });
+  // The list read must follow the PATCH; an initial fetch alone proves no
+  // invalidation. Check it on the same toggle instead of mounting again.
+  await waitFor(() => {
+    const patchIndex = mock.calls.findIndex((c) => c.method === "PATCH");
+    expect(sshList(mock.calls.slice(0, patchIndex))).toBeGreaterThan(0);
+    expect(sshList(mock.calls.slice(patchIndex + 1))).toBeGreaterThan(0);
   });
   mock.restore();
 });
@@ -109,27 +109,11 @@ it("flipping an enabled SSH preset off pins the PATCH route and body", async () 
 it("flipping a disabled SSH preset on PATCHes enabled true", async () => {
   const mock = mockFetch([sshPreset({ enabled: 0 })]);
   await renderLibrary();
-  fireEvent.click(await screen.findByRole("switch", { name: "Build box enabled" }));
+  const toggle = await screen.findByRole("switch", { name: "Build box enabled" });
+  expect(toggle.getAttribute("aria-checked")).toBe("false");
+  fireEvent.click(toggle);
   await waitFor(() => {
     expect(mock.calls.some((c) => c.method === "PATCH" && c.body === JSON.stringify({ enabled: true }))).toBe(true);
-  });
-  mock.restore();
-});
-
-it("refetches the SSH list after a successful toggle", async () => {
-  const mock = mockFetch([sshPreset({ enabled: 1 })]);
-  await renderLibrary();
-  fireEvent.click(await screen.findByRole("switch", { name: "Build box enabled" }));
-  await waitFor(() => expect(mock.calls.some((c) => c.method === "PATCH")).toBe(true));
-  // ORDER, not a count: the GETs must bracket the PATCH, one answering the
-  // initial load before it and at least one landing after the invalidation.
-  // `>= 2` alone would pass on a mutation that never refetched. waitFor polls,
-  // so the async refetch is awaited rather than slept on.
-  await waitFor(() => {
-    const patchIndex = mock.calls.findIndex((c) => c.method === "PATCH");
-    expect(patchIndex).toBeGreaterThanOrEqual(0);
-    expect(sshList(mock.calls.slice(0, patchIndex)) >= 1).toBe(true);
-    expect(sshList(mock.calls.slice(patchIndex + 1)) >= 1).toBe(true);
   });
   mock.restore();
 });

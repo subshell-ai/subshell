@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "make": "bun generate.ts",
-    "check": "bun test"
+    "check": "bun test",
+    "test": "bun test"
   },
   "devDependencies": {
     "@resvg/resvg-js": "2.6.2"

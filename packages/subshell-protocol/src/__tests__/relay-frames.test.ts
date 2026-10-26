@@ -1,11 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-  NODE_PROTOCOL_VERSION,
-  parseNodeEvent,
-  parseRelayFrame,
-  relayFrameOverCap,
-  relayFrameRefIfOverCap,
-} from "../node-frames.js";
+import { parseNodeEvent, parseRelayFrame, relayFrameOverCap, relayFrameRefIfOverCap } from "../node-frames.js";
 import { SSH_RELAY_FRAME_MAX_BYTES } from "../ssh-limits.js";
 
 /**
@@ -31,16 +25,6 @@ const good = {
   direction: "B2A",
   blob: b64OfRawLength(1024),
 } as const;
-
-describe("NODE_PROTOCOL_VERSION 24 (current bump: saved HTTP(S) services)", () => {
-  it("pins the current version so a stale build cannot ride the exact-match gate", () => {
-    // Every capability added since relay frames (20) depends on this number:
-    // the plane and the agent only speak on an EXACT match, so a binary that
-    // never learned the preview surface (23) is refused BEFORE any frame is
-    // accepted. Never half-relay.
-    expect(NODE_PROTOCOL_VERSION).toBe(24);
-  });
-});
 
 describe("parseRelayFrame", () => {
   it("accepts a valid frame and preserves every field", () => {

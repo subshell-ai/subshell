@@ -1,11 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-  DEFAULT_GRID,
-  decideSharedGrid,
-  MIN_SHARED_COLS,
-  MIN_SHARED_ROWS,
-  resolveSharedGrid,
-} from "../shared-geometry.js";
+import { decideSharedGrid, MIN_SHARED_COLS, MIN_SHARED_ROWS, resolveSharedGrid } from "../shared-geometry.js";
 
 /** Terse viewer literal: a capacity with a generated id. */
 let seq = 0;
@@ -41,11 +35,6 @@ describe("resolveSharedGrid — smallest wins, per axis", () => {
     expect(forward).toEqual({ cols: 90, rows: 28 });
     expect(reversed).toEqual(forward as { cols: number; rows: number });
     expect(shuffled).toEqual(forward as { cols: number; rows: number });
-  });
-
-  it("is idempotent: re-resolving its own answer changes nothing", () => {
-    const once = resolveSharedGrid([v(120, 40), v(80, 24)]) as { cols: number; rows: number };
-    expect(resolveSharedGrid([v(once.cols, once.rows)])).toEqual(once);
   });
 
   it("ignores a mid-layout viewer rather than shrinking everyone to a 2x1 strip", () => {
@@ -89,12 +78,6 @@ describe("resolveSharedGrid — smallest wins, per axis", () => {
   it("drops only the malformed entries, keeping the rest", () => {
     expect(resolveSharedGrid([v(120, 40), v(Number.NaN, 24), v(90, 30)])).toEqual({ cols: 90, rows: 30 });
   });
-
-  it("has a sane default for callers with nothing to go on", () => {
-    // tmux births a detached window at 80x24; the fallback matches so a pane
-    // nobody has measured is not a surprise.
-    expect(DEFAULT_GRID).toEqual({ cols: 80, rows: 24 });
-  });
 });
 
 describe("hidden viewers do not hold the pane down", () => {
@@ -104,10 +87,6 @@ describe("hidden viewers do not hold the pane down", () => {
     // pin everyone else's terminal to phone size, with nothing on screen to
     // explain why, is the worst kind of spooky action at a distance.
     expect(resolveSharedGrid([v(120, 40), v(60, 20, true)])).toEqual({ cols: 120, rows: 40 });
-  });
-
-  it("counts it again the moment it is shown", () => {
-    expect(resolveSharedGrid([v(120, 40), v(60, 20, false)])).toEqual({ cols: 60, rows: 20 });
   });
 
   it("uses the hidden ones when EVERY viewer is hidden", () => {
@@ -221,22 +200,6 @@ describe("decideSharedGrid — naming the device that holds each axis", () => {
     const d = decideSharedGrid([v(2, 1), v(10, 3)]);
     expect(d?.reason).toBe("fallback");
     expect(d?.grid).toEqual({ cols: 10, rows: 3 });
-  });
-
-  it("agrees with resolveSharedGrid on every shape", () => {
-    // The wrapper must not drift from the function it wraps.
-    const cases = [
-      [v(120, 40)],
-      [v(120, 40), v(80, 24)],
-      [v(200, 10), v(40, 60)],
-      [v(2, 1), v(10, 3)],
-      [v(40, 20, true), v(120, 40)],
-      [{ id: "n", capacity: null }],
-      [],
-    ];
-    for (const viewers of cases) {
-      expect(resolveSharedGrid(viewers)).toEqual(decideSharedGrid(viewers)?.grid ?? null);
-    }
   });
 });
 

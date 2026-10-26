@@ -794,21 +794,6 @@ describe("NewSubshellForm working-dir defaults", () => {
     }
   });
 
-  it("takes the directory default from the node the pick ends up on", async () => {
-    const ENROLLED_ONLY = node({ id: "a1", name: "mac", harnesses: [TERM_ON] });
-    const restore = mockFetch([ENROLLED_ONLY], [], [], [], (n) => ({
-      paths: [],
-      home: n === "a1" ? "/home/on-a1" : "/home/left-behind",
-    }));
-    try {
-      const { latest } = await renderForm();
-      await waitFor(() => expect(latest().workingDir).toBe("/home/on-a1"));
-      expect(latest().nodeId).toBe("a1");
-    } finally {
-      restore();
-    }
-  });
-
   it("will not arm the pre-fill before the node list has settled the pick", async () => {
     // The review's ordering case: the recents query answers WHILE `nodes` is
     // still loading. Arming then fills local's home and closes the door

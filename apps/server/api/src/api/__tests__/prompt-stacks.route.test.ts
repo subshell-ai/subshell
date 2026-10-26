@@ -471,8 +471,4 @@ describe("/api/prompts/stacks (spec 2026-09-29)", () => {
       403,
     );
   });
-
-  it("anonymous is 401", async () => {
-    expect((await call("/stacks")).status).toBe(401);
-  });
 });

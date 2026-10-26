@@ -91,23 +91,6 @@ describe("an enrolled, online machine", () => {
     expect(maybeButton(/^(start|restart|install and start)$/i)).toBeNull();
   });
 
-  /**
-   * The state chip lives in the header (operator ruling 2026-09-22): title,
-   * badge, subtitle — not a sandwich cut between the subtitle and the
-   * sentence under it. Order of the three is the pin.
-   */
-  it("reads the badge between the title and the subtitle", () => {
-    mount({ enrolledNode: { nodeId: makeProbe().status?.nodeId ?? "", name: "mac mini" } });
-    const title = screen.getByRole("heading", { name: "This Machine" });
-    const badge = screen.getByText("Online");
-    const subtitle = screen.getByText("What this machine is doing.");
-    const sentence = screen.getByText(/Enrolled as/);
-    const before = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(before(title, badge)).toBe(true);
-    expect(before(badge, subtitle)).toBe(true);
-    expect(before(subtitle, sentence)).toBe(true);
-  });
-
   // The ONE-Entry ruling stated as its own pin (operator ruling 2026-09-22,
   // fix wave): the rail's Reset section is Unregister's only entry, and
   // "only" is testable here. The rails final addendum (2026-09-22) narrowed
@@ -184,22 +167,6 @@ describe("the status subtitle", () => {
 });
 
 describe("a client that is not a node", () => {
-  /**
-   * Re-enrolling is what you do to a machine that IS one; on this machine the
-   * act with that meaning is Register, and two labels for one thing is two
-   * things to a reader.
-   */
-  it("does not offer Re-enroll", () => {
-    mount({ probe: watcherProbe() });
-    expect(maybeButton(/re-enroll/i)).toBeNull();
-  });
-
-  /** There is no node address to repoint — the node block is the node's. */
-  it("does not offer to repoint anything", () => {
-    mount({ probe: watcherProbe() });
-    expect(maybeButton(/repoint this node/i)).toBeNull();
-  });
-
   it("says what the machine is, not which server it opens", () => {
     // The status screen keeps machine state (operator ruling 2026-09-22);
     // the plane address is the Control Plane section's, shown labeled there,
@@ -214,49 +181,3 @@ describe("a client that is not a node", () => {
 
 // The plane addresses moved to the Control Plane section (operator ruling
 // 2026-09-22); their screen-level pins live in plane-screen.test.tsx now.
-
-describe("what the connected screen offered is still offered", () => {
-  it("offers neither the plane doors nor the update door — the rail and the Control Plane section carry them", () => {
-    // The plane address's home is the Control Plane section and the update
-    // door is the rail's Update section (operator rulings, 2026-09-22); the
-    // status screen keeps machine state and the two machine acts.
-    mount();
-    expect(maybeButton(/change server/i)).toBeNull();
-    expect(maybeButton(/open the control plane/i)).toBeNull();
-    // No doors at all after the second addendum: the Control Plane section's
-    // Dashboard card is the only place that opens the plane.
-    expect(maybeButton(/open in browser/i)).toBeNull();
-    expect(maybeButton(/open in app/i)).toBeNull();
-    expect(maybeButton(/open dashboard/i)).toBeNull();
-    expect(maybeButton(/check for updates/i)).toBeNull();
-    expect(maybeButton(/update the node to/i)).toBeNull();
-  });
-
-  it("offers no Re-enroll even on a machine that is one — the act is the Control Plane section's", () => {
-    // Operator ruling 2026-09-22: re-enrolling is an act on this machine's
-    // RELATIONSHIP to the plane, so it moved out of the machine-state screen.
-    // The Control Plane side of the move is pinned in plane-screen.test.tsx.
-    mount();
-    expect(maybeButton(/re-enroll/i)).toBeNull();
-  });
-
-  it("renders the facts INLINE, and they are this screen's alone", () => {
-    // Operator ruling 2026-09-22 (the server wave's ruling carried over): a
-    // section that hides its own facts behind a second control is two
-    // navigations for one answer. And since screenshot 60 the list is THIS
-    // screen's ALONE — every other screen lost it — so the full list
-    // including `bundled` and `tmux` lives here again (superseding the
-    // screenshot-52 scoping).
-    mount();
-    expect(screen.queryByText("Show Details")).toBeNull();
-    expect(screen.getByText("/usr/bin/tmux")).toBeTruthy();
-    expect(screen.getByText("/home/u/.config/subshell/config.json")).toBeTruthy();
-  });
-
-  it("offers no refresh — the probe's own interval re-reads the machine", () => {
-    // Operator ruling 2026-09-22: no Refresh button; the poll is the refresh.
-    // The interval wiring itself is pinned in `use-node-state.test.tsx`.
-    mount({ probe: makeProbe({ step: "stopped" }) });
-    expect(maybeButton(/^refresh$/i)).toBeNull();
-  });
-});

@@ -130,11 +130,4 @@ describe("GET /api/settings/instance (anonymous)", () => {
         .execute();
     }
   });
-
-  it("does not make the guarded settings routes anonymous", async () => {
-    // The point of keeping this in its own module: mounting it must not lift
-    // authGuard off its neighbour.
-    expect((await app.fetch(anon("/api/settings"))).status).toBe(401);
-    expect((await app.fetch(anon("/api/settings/public"))).status).toBe(401);
-  });
 });

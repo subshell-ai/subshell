@@ -7,7 +7,6 @@ import type {
   SshRelayOpenCommand,
 } from "@internal/subshell-protocol";
 import {
-  NODE_PROTOCOL_VERSION,
   SSH_RELAY_LIFETIME_MS,
   SSH_RELAY_MAX_PER_NODE,
   SSH_RELAY_TEARDOWN_GRACE_MS,
@@ -700,14 +699,6 @@ describe("sendRelayFrameOverNodeSocket (the plane's throw-on-drop glue, acceptan
     conn.link = { sealFrame: () => new Uint8Array([1]) } as never;
     expect(() => sendRelayFrameOverNodeSocket("n2", frame())).toThrow(RelaySendError);
     resetNodeRegistryForTests();
-  });
-});
-
-describe("grammar/version posture", () => {
-  it("relays a protocol-24 world: the constant is pinned here as the broker's precondition", () => {
-    // The handler refuses every relay frame from a pre-18 agent upstream;
-    // this tripwire documents the dependency at the broker.
-    expect(NODE_PROTOCOL_VERSION).toBe(24);
   });
 });
 

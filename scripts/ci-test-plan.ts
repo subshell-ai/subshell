@@ -1,321 +1,250 @@
 #!/usr/bin/env bun
-/**
- * Decide which of `test.yml`'s test-slice jobs a run actually needs.
- *
- * The workflow split the suites so a red job names its own territory; this is
- * the other half — a green PR that touched one package should not pay for the
- * other nine. Routing uses TURBO's OWN change-impact, never hand-written
- * globs: `turbo run test --filter='...[BASE]'` answers "which packages changed
- * since BASE, plus every package that depends on a changed one" from the real
- * build graph. A `packages/subshell-protocol` edit therefore lands in the
- * mobile slice automatically — which is the defect class `verification.md`
- * records (a protocol change that broke ONLY the mobile build and nothing
- * else), and exactly what directory globs on job triggers would re-hide.
- *
- * The script emits one `flag=true|false` line per slice to $GITHUB_OUTPUT.
- *
- * It fails LOUD-AND-WIDE: every path that cannot answer with confidence — an
- * unreadable base ref (force-push, branch sync), a turbo error, a changed
- * package that maps to no slice (a workspace added without registering it),
- * an edit to `test.yml` itself (the router cannot route its own change) —
- * returns ALL flags true, with the reason printed. A router that silently
- * under-runs is worse than no router; the worst outcome here is today's CI.
- *
- *   bun scripts/ci-test-plan.ts <base-ref>      # writes $GITHUB_OUTPUT, echoes the plan
- */
-import { appendFileSync } from "node:fs";
+/* biome-ignore-all lint/suspicious/noUndeclaredEnvVars: This driver runs outside Turbo. */
+/** Shared change selection for PRs and local verification. No install or build is needed to plan. */
+import { appendFileSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
-/** The ten slice flags `test.yml` gates on, in the order the workflow reads them. */
-export interface SliceFlags {
-  web: boolean;
-  mobile: boolean;
-  desktop: boolean;
-  serverNode: boolean;
-  packages: boolean;
-  scripts: boolean;
-  smoke: boolean;
-  e2e: boolean;
-  /** `crates/desktop-core` — the Rust job for the shared desktop crate. */
-  rustCore: boolean;
-  /** the two desktop apps' `src-tauri/` trees — the Rust matrix legs. */
-  rustApps: boolean;
-}
-
-/** One package the change-impact filter selected. */
-export interface AffectedPackage {
-  /** Package name as turbo reports it, e.g. `@internal/server-web`. */
+export const ROOT = fileURLToPath(new URL("..", import.meta.url));
+export interface Workspace {
   name: string;
-  /** Repo-relative directory, e.g. `apps/server/web`. */
   dir: string;
+  dependencies: string[];
+  scripts: Record<string, string>;
 }
-
-const FLAG_KEYS: readonly (keyof SliceFlags)[] = [
-  "web",
-  "mobile",
-  "desktop",
-  "serverNode",
-  "packages",
-  "scripts",
-  "smoke",
-  "e2e",
-  "rustCore",
-  "rustApps",
-];
-
-/**
- * Workspace → slice, for the packages the impact filter reports by NAME.
- * Everything under `packages/**` folds into the `packages` slice by directory
- * (the plugins nest two deep to enumerate and gain new ones; the AGENTS.md
- * vocabulary says one edit site beats two that drift). `scripts` and `smoke`
- * are decided by the predicates below on top of this.
- */
-const SLICE_BY_PACKAGE: Readonly<Record<string, keyof SliceFlags>> = {
-  "@internal/server-web": "web",
-  "@internal/mobile": "mobile",
-  "@internal/desktop-server": "desktop",
-  "@internal/desktop-client": "desktop",
-  "@internal/server": "serverNode",
-  "@internal/node": "serverNode",
-  "@internal/e2e": "e2e",
-  // The website's suites run in the Scripts job (its `bun test` needs no
-  // browser and no build beyond what that job already runs). Unregistered, a
-  // website change would land in the unknown-package fail-wide — every slice.
-  "@internal/website": "scripts",
-};
-
-/** The all-runs baseline every degraded path returns. */
-export function allFlags(): SliceFlags {
-  return {
-    web: true,
-    mobile: true,
-    desktop: true,
-    serverNode: true,
-    packages: true,
-    scripts: true,
-    smoke: true,
-    e2e: true,
-    rustCore: true,
-    rustApps: true,
-  };
+export interface TestPlan {
+  full: boolean;
+  reason: string;
+  packages: string[];
+  scripts: boolean;
+  e2e: boolean;
+  /** Empty means the complete browser suite; selected specs always include account setup. */
+  e2eFiles: string[];
+  smoke: boolean;
+  cli: boolean;
+  rust: string[];
+  audit: boolean;
 }
+export const RUST_CRATES = ["crates/desktop-core", "apps/server/desktop/src-tauri", "apps/client/desktop/src-tauri"];
 
-/** No flags at all — returned ONLY when the change is provably doc/config-only. */
-function noFlags(): SliceFlags {
-  return {
-    web: false,
-    mobile: false,
-    desktop: false,
-    serverNode: false,
-    packages: false,
-    scripts: false,
-    smoke: false,
-    e2e: false,
-    rustCore: false,
-    rustApps: false,
-  };
-}
-
-/**
- * Which files could the `Test: scripts` suites NOTICE?
- *
- * Those tests are not self-contained the way a package suite is — they READ
- * the repo: `package-releases` enumerates every `package.json` under
- * `packages/` and the CHANGELOGs beside them (its staleness made main red for
- * three pushes when four plugins became publishable without the expectation
- * moving), `license-fields` walks
- * every package.json and Cargo.toml, `lockfile-workspace-versions` reads
- * bun.lock, the design-linter reads the token files under `apps/`. So the
- * trigger is "anything a script could have been asserting about", and a
- * change to ANY of those must run them even though the suites live nowhere
- * near the change.
- */
-export function scriptsTouched(files: readonly string[]): boolean {
-  for (const f of files) {
-    if (f.startsWith("scripts/")) return true;
-    if (f === "bun.lock" || f === "package.json" || f === "turbo.json" || f === "biome.jsonc") return true;
-    if (f.startsWith(".changeset/")) return true;
-    if (/(^|\/)package\.json$/.test(f) && (f.startsWith("packages/") || f.startsWith("apps/") || f.startsWith("e2e/")))
-      return true;
-    if (f.startsWith("apps/") || f.startsWith("packages/")) return true;
+export function readWorkspaces(root = ROOT): Workspace[] {
+  const manifest = JSON.parse(readFileSync(`${root}/package.json`, "utf8"));
+  const paths = new Set<string>();
+  for (const pattern of manifest.workspaces as string[]) {
+    for (const path of new Bun.Glob(`${pattern}/package.json`).scanSync({ cwd: root })) paths.add(path);
   }
-  return false;
-}
-
-/**
- * Which files could the two Rust jobs NOTICE?
- *
- * The three Cargo projects are INDEPENDENT — `crates/desktop-core`,
- * `apps/server/desktop/src-tauri` and `apps/client/desktop/src-tauri` each
- * carry their own `Cargo.lock` and there is no root workspace — so an app's
- * change cannot light the core job, and one app cannot light the other's.
- * But BOTH app crates depend on the core by PATH (measured in each
- * src-tauri/Cargo.toml: `subshell-desktop-core = { path = "../../../../crates/desktop-core" }`),
- * so a core change must relight the app legs, never the reverse. And the
- * Rust toolchain itself lives in the builder IMAGE
- * (`docker/desktop-builder.Dockerfile` installs rustup + Tauri's system
- * deps), so `docker/**` lights both slices.
- *
- * Registered as a predicate HERE, in the router with a unit test, precisely
- * so the workflow needs no YAML globs of its own — the rot objection to
- * gating the Rust jobs (their inputs are not in the turbo graph, so package
- * routing cannot reach them) is answered by WHERE the predicates live, not
- * by leaving the jobs unconditional.
- */
-export function rustTouched(files: readonly string[]): { core: boolean; apps: boolean } {
-  let apps = false;
-  for (const f of files) {
-    // Core or the toolchain image: both slices, and the answer cannot change
-    // with later files — early-return, like scriptsTouched.
-    if (f.startsWith("crates/desktop-core/") || f.startsWith("native/display-helper/") || f.startsWith("docker/"))
-      return { core: true, apps: true };
-    if (f.startsWith("apps/server/desktop/src-tauri/") || f.startsWith("apps/client/desktop/src-tauri/")) apps = true;
-  }
-  return { core: false, apps };
-}
-
-/**
- * Pure routing: the affected set + the changed-file list in, the flags out.
- * `reason` is what gets printed beside the flags — "why ten greys or six
- * greens", so a mis-routed PR is debuggable from the Plan log alone.
- */
-export function computePlan(
-  affected: readonly AffectedPackage[],
-  changedFiles: readonly string[],
-): { flags: SliceFlags; reason: string } {
-  const names = new Set(affected.map((p) => p.name));
-
-  // A change to the CI definition itself: routing the jobs THAT FILE defines
-  // from rules THAT FILE changed is self-reference — the diff being routed
-  // includes the router's contract. Today it would still run the Rust jobs
-  // unconditionally; after the 2026-09-26 gating, running everything is the
-  // only answer that lets a workflow PR prove itself. Grey jobs that a
-  // test.yml edit should have lit are how a CI change merges on faith.
-  if (changedFiles.some((f) => f === ".github/workflows/test.yml")) {
-    return { flags: allFlags(), reason: "the CI definition itself changed — the router cannot route its own change" };
-  }
-
-  // The root pseudo-package in the affected set means a GLOBAL input changed
-  // (lockfile, root tsconfig/biome, turbo.json) — turbo invalidated everything
-  // it hashes; no slice may claim exemption.
-  if (names.has("//"))
-    return { flags: allFlags(), reason: "global inputs changed (root package appears in affected set)" };
-
-  // Unknown packages: a workspace added without registering here. Running all
-  // slices is the loud-and-wide failure; skipping it would be the silent one.
-  const unknown = affected.filter((p) => !(p.name in SLICE_BY_PACKAGE) && !p.dir.startsWith("packages/"));
-  if (unknown.length > 0) {
+  return [...paths].sort().map((path) => {
+    const pkg = JSON.parse(readFileSync(`${root}/${path}`, "utf8"));
     return {
-      flags: allFlags(),
-      reason: `unregistered affected packages (add them to SLICE_BY_PACKAGE): ${unknown.map((p) => p.name).join(", ")}`,
+      name: pkg.name,
+      dir: path.slice(0, -"/package.json".length),
+      dependencies: Object.keys({
+        ...pkg.dependencies,
+        ...pkg.devDependencies,
+        ...pkg.peerDependencies,
+        ...pkg.optionalDependencies,
+      }),
+      scripts: pkg.scripts ?? {},
     };
-  }
+  });
+}
 
-  const flags = noFlags();
-  for (const p of affected) {
-    const slice = SLICE_BY_PACKAGE[p.name];
-    if (slice) flags[slice] = true;
-    if (p.dir.startsWith("packages/")) flags.packages = true;
-  }
-
-  const serverAffected = names.has("@internal/server");
-  // `||=`: a package registered to this slice (website) must not be erased by
-  // the file predicate, which starts from the changed FILES and would answer
-  // false for an affected-set-only trigger.
-  flags.scripts ||= scriptsTouched(changedFiles);
-  // The compiled-binary smoke bundles the server AND everything it imports;
-  // `@internal/server` ∈ affected IS that closure (dependents-of-changed is
-  // how the filter is built). `scripts/**` covers the smoke's own shell script.
-  flags.smoke = serverAffected || changedFiles.some((f) => f.startsWith("scripts/"));
-  // Plain `=`, not `||=`: no package registers into these two — the Rust
-  // jobs' inputs are not in the turbo graph at all, so the file predicate is
-  // the ONLY trigger they can have (see {@link rustTouched}).
-  const rust = rustTouched(changedFiles);
-  flags.rustCore = rust.core;
-  flags.rustApps = rust.apps;
-
-  const why: string[] = [];
-  for (const k of FLAG_KEYS) if (flags[k]) why.push(k);
+export function fullPlan(workspaces: readonly Workspace[], reason: string): TestPlan {
   return {
-    flags,
-    reason: why.length ? `slices with work: ${why.join(", ")}` : "nothing a test slice reads has changed",
+    full: true,
+    reason,
+    packages: workspaces.map((p) => p.name).sort(),
+    scripts: true,
+    e2e: true,
+    e2eFiles: [],
+    smoke: true,
+    cli: true,
+    rust: [...RUST_CRATES],
+    audit: true,
   };
 }
 
-/** Run a command, returning stdout; null on any failure (the caller fails wide). */
-function run(args: string[]): string | null {
-  const proc = Bun.spawnSync({ cmd: args, cwd: new URL("..", import.meta.url).pathname });
-  if (proc.exitCode !== 0) return null;
-  return proc.stdout.toString();
+const GLOBAL_INPUTS =
+  /^(?:package\.json|bun\.lock|bunfig\.toml|turbo\.json|tsconfig[^/]*\.json|biome\.jsonc|patches\/|docker\/desktop-builder\.Dockerfile|scripts\/(?:ci-test-plan|test-changed|check-changed|run-test-plan)\.ts|scripts\/par-test\.sh|\.github\/(?:actions\/|workflows\/(?:test|lint|release|docs|website)\.yml))/;
+const TEST_INPUT =
+  /(?:^|\/)(?:__tests__|__snapshots__|test|tests)\/|\.(?:test|spec)\.[cm]?[jt]sx?$|(?:^|\/)test-(?:setup|preload)\.[jt]s$|(?:^|\/)scripts\/test-run\.sh$|(?:^|\/)bunfig\.toml$|\.bun-test-timings\.json$/;
+
+function documentation(path: string): boolean {
+  return /\.md$/.test(path) || /^(?:docs\/|\.claude\/|\.agents\/)/.test(path);
 }
 
-function main(): void {
-  const out: Record<string, string> = {};
-  const failWide = (reason: string): never => {
-    console.log(`PLAN: ${reason} — running every slice`);
-    for (const k of FLAG_KEYS) out[k] = "true";
-    emit(out);
-    process.exit(0);
-  };
+/** Scripts read a few repository contracts outside their own directory. */
+export function scriptsTouched(files: readonly string[]): boolean {
+  return files.some(
+    (f) =>
+      /^packages\/subshell-protocol\/src\/__tests__\/fixtures\/release-signature\//.test(f) ||
+      /^apps\/server\/api\/src\/services\/releases\.ts$/.test(f) ||
+      /^apps\/(?:server|client)\/desktop\/src-tauri\/tauri\.conf\.json$/.test(f) ||
+      ((f.startsWith("scripts/") || !TEST_INPUT.test(f)) &&
+        (/^(?:scripts\/|\.github\/|\.changeset\/config\.json|install-[^/]+\.sh|proxmox-[^/]+\.sh|docker(?:\/|-entrypoint\.sh)|releases\.json)/.test(
+          f,
+        ) ||
+          /(?:^|\/)(?:package\.json|Cargo\.toml|bun\.lock)$/.test(f) ||
+          /(?:^|\/)(?:tokens\.css|theme\.ts)$/.test(f) ||
+          /^(?:packages\/subshell-protocol\/|apps\/(?:server|client)\/desktop\/src\/scripts\/)/.test(f))),
+  );
+}
 
-  const base = process.argv[2];
-  if (!base) failWide("no base ref given (not a PR/push we can diff)");
+export function rustTouched(files: readonly string[]): string[] {
+  if (
+    files.some(
+      (f) =>
+        /^(?:crates\/desktop-core\/|native\/display-helper\/|docker\/desktop-builder\.Dockerfile|scripts\/(?:rust-check|macos-toolchain-preflight)\.sh)/.test(
+          f,
+        ) && !documentation(f),
+    )
+  )
+    return [...RUST_CRATES];
+  return RUST_CRATES.filter((dir) => files.some((f) => f.startsWith(`${dir}/`) && !documentation(f)));
+}
 
-  // A ref the clone cannot see (force-push, shallow history, deleted head) is
-  // exactly the case a router must not guess about.
-  if (run(["git", "rev-parse", "--verify", "--quiet", `${base}^{commit}`]) === null) {
-    failWide(`base ref ${base} is not resolvable in this checkout`);
-  }
-
-  const diff = run(["git", "diff", "--name-only", `${base}...HEAD`]);
-  if (diff === null) failWide(`git diff against ${base} failed`);
-  const changedFiles = diff.split("\n").filter((f) => f.length > 0);
-
-  if (changedFiles.length === 0) {
-    // Empty diff, legitimately: an empty push or a merge-base that IS HEAD.
-    console.log("PLAN: no changed files — nothing to run");
-    for (const k of FLAG_KEYS) out[k] = "false";
-    emit(out);
-    process.exit(0);
-  }
-
-  const dry = run(["bunx", "turbo", "run", "test", `--filter=...[${base}]`, "--dry=json"]);
-  if (dry === null) failWide(`turbo --filter=...[${base}] failed`);
-
-  let affected: AffectedPackage[];
-  try {
-    const parsed = JSON.parse(dry) as { tasks?: { task?: string; package?: string; directory?: string }[] };
-    const seen = new Map<string, AffectedPackage>();
-    for (const t of parsed.tasks ?? []) {
-      if (t.task !== "test" || typeof t.package !== "string") continue;
-      seen.set(t.package, { name: t.package, dir: t.directory ?? "" });
+export function computePlan(workspaces: readonly Workspace[], files: readonly string[]): TestPlan {
+  if (files.some((f) => GLOBAL_INPUTS.test(f)))
+    return fullPlan(workspaces, "shared toolchain or verification inputs changed");
+  const direct = new Set<string>();
+  const changedCode = new Set<string>();
+  const owners = [...workspaces].sort((a, b) => b.dir.length - a.dir.length);
+  for (const file of files) {
+    if (documentation(file)) continue;
+    // These build inputs are copied/read at runtime rather than imported through a workspace edge.
+    if (/^(?:releases\.json|install-(?:server|client)\.sh)$/.test(file)) direct.add("@internal/website");
+    if (/^scripts\/(?:cli-release-fetch|updater-manifest)\.ts$/.test(file)) {
+      direct.add("@internal/desktop-server");
+      direct.add("@internal/desktop-client");
     }
-    affected = [...seen.values()];
-  } catch {
-    failWide("turbo --dry output was not parseable JSON");
+    if (/^(?:LICENSE|apps\/server\/LICENSE)$/.test(file)) direct.add("@internal/subshell-protocol");
+    // Desktop JS tests also check Rust IPC/wire contracts and signing configuration.
+    if (
+      /^crates\/desktop-core\//.test(file) ||
+      /^scripts\/macos-entitlements\.plist$/.test(file) ||
+      /^apps\/(?:server|client)\/desktop\/src-tauri\/(?:tauri\.conf\.json|entitlements\.plist)$/.test(file)
+    ) {
+      direct.add("@internal/desktop-server");
+      direct.add("@internal/desktop-client");
+    }
+    if (file === "apps/server/web/src/styles.css") direct.add("@internal/desktop-client");
+    if (file === "apps/server/web/src/types/permissions.ts") direct.add("@internal/desktop-server");
+    const owner = owners.find((p) => file.startsWith(`${p.dir}/`));
+    if (owner) {
+      direct.add(owner.name);
+      // Rust runs the app's JS contract tests, but doesn't propagate as a JS dependency change.
+      if (!TEST_INPUT.test(file) && !file.includes("/src-tauri/")) changedCode.add(owner.name);
+      continue;
+    }
+    if (
+      /^(?:scripts\/|\.github\/|\.changeset\/|crates\/|native\/|docker\/|brand\/)/.test(file) ||
+      /^(?:[^/]+\.md|LICENSE|CLA\.md|\.gitignore|\.gitattributes|lefthook\.yml|\.bun-test-timings\.json|releases\.json|(?:install|proxmox)-[^/]+\.sh|docker-entrypoint\.sh)$/.test(
+        file,
+      )
+    )
+      continue;
+    // A deleted/new workspace or an unmodelled root input must never silently disappear.
+    return fullPlan(workspaces, `unclassified input: ${file}`);
   }
-
-  const { flags, reason } = computePlan(affected, changedFiles);
-  console.log(`PLAN: ${reason}`);
-  for (const k of FLAG_KEYS) {
-    out[k] = flags[k] ? "true" : "false";
-    console.log(`  ${k}=${out[k]}`);
+  const affected = new Set(changedCode);
+  let growing = true;
+  while (growing) {
+    growing = false;
+    for (const p of workspaces) {
+      if (!affected.has(p.name) && p.dependencies.some((d) => affected.has(d))) {
+        affected.add(p.name);
+        growing = true;
+      }
+    }
   }
-  emit(out);
-  process.exit(0);
+  const packages = [...new Set([...direct, ...affected])].sort();
+  const e2eCode = affected.has("@internal/e2e");
+  const e2eFiles = files.filter((f) => /^e2e\/tests\/.*\.spec\.ts$/.test(f));
+  const e2e = e2eCode || e2eFiles.length > 0;
+  // A fixture or Playwright configuration change affects all scenarios, even without an import edge.
+  const wholeBrowserSuite =
+    e2eCode || files.some((f) => f.startsWith("e2e/") && !documentation(f) && !e2eFiles.includes(f));
+  const cli = files.some(
+    (f) =>
+      /^(?:scripts\/cli-e2e\/|apps\/node\/web\/|install-(?:server|client)\.sh|apps\/server\/api\/src\/commands\/|apps\/node\/agent\/src\/(?:cli|commands|configure|setup|enroll|service|update|backup))/.test(
+        f,
+      ) && !TEST_INPUT.test(f),
+  );
+  return {
+    full: false,
+    reason: packages.length ? "changed workspaces and their dependents" : "repository checks only",
+    packages,
+    scripts: scriptsTouched(files),
+    e2e,
+    e2eFiles: e2e && !wholeBrowserSuite ? [...new Set(["e2e/tests/01-setup-wizard.spec.ts", ...e2eFiles])].sort() : [],
+    smoke:
+      affected.has("@internal/server") ||
+      files.some((f) => /^scripts\/(?:smoke-mcp-refusal|test-compiled-smoke)\.sh$/.test(f)),
+    cli,
+    rust: rustTouched(files),
+    audit: files.some((f) => /(?:^|\/)(?:package\.json|bun\.lock)$/.test(f) || f.startsWith("scripts/dep-audit")),
+  };
 }
 
-/**
- * Append the flags where Actions reads them. Synchronous on purpose — every
- * caller follows with `process.exit`, and a pending `Bun.write` would die on
- * the way out and leave the plan job emitting empty outputs.
- */
-function emit(flags: Record<string, string>): void {
-  const target = process.env.GITHUB_OUTPUT;
-  if (!target) return;
-  const body = Object.entries(flags)
-    .map(([k, v]) => `${k}=${v}`)
-    .join("\n");
-  appendFileSync(target, `${body}\n`);
+function git(args: string[], root: string): string {
+  const result = Bun.spawnSync(["git", ...args], { cwd: root, stderr: "pipe" });
+  if (result.exitCode !== 0) throw new Error(`git ${args[0]} failed: ${result.stderr.toString().trim()}`);
+  return result.stdout.toString();
 }
 
-if (import.meta.main) main();
+export function changedFiles(base: string, local = false, root = ROOT): string[] {
+  if (!base) throw new Error("No base revision was provided");
+  git(["rev-parse", "--verify", "--quiet", `${base}^{commit}`], root);
+  // Include both sides of renames so moving a file between workspaces checks both consumers.
+  const files = git(["diff", "--name-only", "--no-renames", "-z", `${base}...HEAD`], root).split("\0");
+  if (local) {
+    files.push(...git(["diff", "--name-only", "--no-renames", "-z", "HEAD"], root).split("\0"));
+    files.push(...git(["ls-files", "--others", "--exclude-standard", "-z"], root).split("\0"));
+  }
+  return [...new Set(files.filter(Boolean))].sort();
+}
+
+export function planChanges(base: string, local = false, full = false, root = ROOT): TestPlan {
+  const workspaces = readWorkspaces(root);
+  if (full) return fullPlan(workspaces, "full verification requested");
+  try {
+    return computePlan(workspaces, changedFiles(base, local, root));
+  } catch (error) {
+    return fullPlan(workspaces, `cannot establish changes: ${String(error)}`);
+  }
+}
+
+/** Bound job setup cost to three unit jobs, regardless of the number of workspaces. */
+export function unitLanes(plan: TestPlan, workspaces: readonly Workspace[]) {
+  const tested = plan.packages.filter((name) => workspaces.find((p) => p.name === name)?.scripts.test);
+  const groups = [
+    {
+      name: "server",
+      packages: tested.filter((n) => n === "@internal/server" || n === "@internal/node"),
+      scripts: false,
+    },
+    { name: "web", packages: tested.filter((n) => n === "@internal/server-web"), scripts: false },
+    {
+      name: "other",
+      packages: tested.filter((n) => !["@internal/server", "@internal/node", "@internal/server-web"].includes(n)),
+      scripts: plan.scripts,
+    },
+  ];
+  return groups.filter((g) => g.packages.length || g.scripts);
+}
+
+if (import.meta.main) {
+  const full = process.argv.includes("--full");
+  const base = process.argv[2] ?? "origin/main";
+  const plan = planChanges(base, process.argv.includes("--local"), full);
+  console.log(JSON.stringify(plan, null, 2));
+  if (process.env.GITHUB_OUTPUT) {
+    const output = {
+      plan,
+      units: unitLanes(plan, readWorkspaces()),
+      integration: plan.e2e || plan.cli || plan.smoke,
+      rust: plan.rust.length > 0,
+    };
+    for (const [key, value] of Object.entries(output))
+      appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${JSON.stringify(value)}\n`);
+  }
+}

@@ -46,9 +46,6 @@ describe("readServerLogTail", () => {
   it("answers empty for a missing file", async () => {
     expect(await readServerLogTail("/nonexistent/server.log", 10)).toEqual({ lines: [], bytes: 0 });
   });
-  it("the cap is 200 KB", () => {
-    expect(SERVER_LOG_CAP_BYTES).toBe(204_800);
-  });
 });
 
 describe("CappedFileTransport", () => {

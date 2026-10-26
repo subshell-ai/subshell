@@ -8,13 +8,8 @@
 # release — and the retry semantics differ: a docs tag already on this commit
 # means "redeploy" (below), where for release.yml it would mean "skip".
 #
-# No CI gate, deliberately. There was one: a `ci-gate` job waited for this
-# commit's push-triggered Test + Lint runs and refused anything but success.
-# The operator removed it on 2026-09-25, the day a flaky job in an unrelated
-# package's Test run blocked BOTH site deploys until a human re-ran it. What
-# proves a static site is `lint.yml` building this export on every push (and
-# PR CI before that); the gate only coupled deploy health to server/node test
-# luck, which for a docs site is borrowing someone else's red light.
+# Every release cut requires a fresh full verification of this revision,
+# including site releases. A failure blocks tag creation and deployment.
 #
 # Flow:
 #   plan    — refuse any run not on refs/heads/main, resolve the version
@@ -49,7 +44,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify:
+    name: Full release verification
+    uses: ./.github/workflows/test.yml
+    with:
+      full: true
+    permissions:
+      contents: read
+      packages: read
+
   plan:
+    needs: verify
     name: Plan the deploy
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -124,7 +129,7 @@ jobs:
           bun-version: 1.4.4
 
       # next's bin carries a `#!/usr/bin/env node` shebang — same reason
-      # lint.yml pins node: a runner image floats its own node, and the
+      # test.yml pins node: a runner image floats its own node, and the
       # pinned version (the root package.json's `engines.node`) is the
       # contract, not the image's mood.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

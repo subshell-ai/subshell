@@ -65,26 +65,12 @@ function renderRow(preset: PresetRow) {
 
 afterEach(cleanup);
 
-it("shows an enabled preset's switch as on", () => {
-  const mock = mockFetch();
-  renderRow(rowPreset({ enabled: 1 }));
-  expect(screen.getByRole("switch", { name: "Fast enabled" }).getAttribute("aria-checked")).toBe("true");
-  mock.restore();
-});
-
-it("shows a disabled preset's switch as off and dims the row", () => {
-  const mock = mockFetch();
-  renderRow(rowPreset({ enabled: 0 }));
-  const switchEl = screen.getByRole("switch", { name: "Fast enabled" });
-  expect(switchEl.getAttribute("aria-checked")).toBe("false");
-  expect((switchEl.closest("tr") as HTMLElement).className).toContain("opacity-70");
-  mock.restore();
-});
-
 it("patches the row enabled when the switch is flipped", async () => {
   const mock = mockFetch();
   renderRow(rowPreset({ enabled: 0 }));
-  fireEvent.click(screen.getByRole("switch", { name: "Fast enabled" }));
+  const toggle = screen.getByRole("switch", { name: "Fast enabled" });
+  expect(toggle.getAttribute("aria-checked")).toBe("false");
+  fireEvent.click(toggle);
   await waitFor(() => {
     const patch = mock.calls.find((c) => c.method === "PATCH");
     expect(patch).toBeTruthy();
@@ -97,7 +83,9 @@ it("patches the row enabled when the switch is flipped", async () => {
 it("flips an enabled preset off through the same PATCH", async () => {
   const mock = mockFetch();
   renderRow(rowPreset({ enabled: 1 }));
-  fireEvent.click(screen.getByRole("switch", { name: "Fast enabled" }));
+  const toggle = screen.getByRole("switch", { name: "Fast enabled" });
+  expect(toggle.getAttribute("aria-checked")).toBe("true");
+  fireEvent.click(toggle);
   await waitFor(() => {
     expect(mock.calls.some((c) => c.method === "PATCH" && c.body === JSON.stringify({ enabled: false }))).toBe(true);
   });

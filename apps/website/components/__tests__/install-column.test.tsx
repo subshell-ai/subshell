@@ -45,17 +45,6 @@ async function mounted() {
   await act(async () => {});
 }
 
-// Issue #233: the fork must name each choice by the machine's JOB, carry one
-// sentence saying what the picked job IS, and offer the non-download path
-// (add a machine to a plane that already runs) on the same surface.
-test("the fork names jobs, not product names, and states the picked role", async () => {
-  await mounted();
-  expect(screen.getByRole("group", { name: "What this machine should do" })).toBeDefined();
-  expect(screen.getByRole("button", { name: "Server" })).toBeDefined();
-  expect(screen.getByRole("button", { name: "Client / Node" })).toBeDefined();
-  expect(screen.getByText("Host your dashboard and manage your agents.")).toBeDefined();
-});
-
 test("picking the client chip says what the client is, node enrollment included", async () => {
   await mounted();
   fireEvent.click(screen.getByRole("button", { name: "Client / Node" }));

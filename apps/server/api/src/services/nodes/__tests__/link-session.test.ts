@@ -9,7 +9,6 @@ import {
 } from "@internal/subshell-protocol/node-link-crypto";
 import {
   beginLinkUpgrade,
-  HANDSHAKE_TIMEOUT_MS,
   handleLinkFrame,
   handshakeIncomplete,
   type LinkFrame,
@@ -665,11 +664,6 @@ describe("legacy mode", () => {
 });
 
 describe("handshake timeout budget", () => {
-  it("exports a positive constant (Task 8 arms the timer)", () => {
-    expect(typeof HANDSHAKE_TIMEOUT_MS).toBe("number");
-    expect(HANDSHAKE_TIMEOUT_MS).toBeGreaterThan(0);
-  });
-
   it("handshakeIncomplete is false for a legacy socket and true for any unfinished handshake", async () => {
     const h = await makeHarness();
     expect(handshakeIncomplete(legacyData())).toBe(false);

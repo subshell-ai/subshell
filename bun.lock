@@ -353,6 +353,7 @@
       "version": "1.0.0",
       "devDependencies": {
         "@internal/mcp-core": "workspace:*",
+        "@internal/node": "workspace:*",
         "@internal/server": "workspace:*",
         "@internal/server-web": "workspace:*",
         "@internal/subshell-protocol": "workspace:*",

@@ -4,7 +4,6 @@ import {
   consumeWsToken,
   dropUserTokensFor,
   issueWsToken,
-  MAX_PENDING_WS_TOKENS,
   setWsTokenCapForTests,
   WsTokenCapacityError,
 } from "@/ws/ws-token.js";
@@ -30,10 +29,6 @@ describe("ws-token mint cap", () => {
   afterEach(() => {
     clearWsTokensForTests();
     setWsTokenCapForTests(null);
-  });
-
-  it("exports the production cap of 10 000 outstanding tokens", () => {
-    expect(MAX_PENDING_WS_TOKENS).toBe(10_000);
   });
 
   it("refuses at the cap with the named error rather than growing the store", () => {

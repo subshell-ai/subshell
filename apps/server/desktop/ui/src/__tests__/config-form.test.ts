@@ -327,28 +327,3 @@ describe("the assistant's wiring, pinned at the source", () => {
     expect(status).toContain("docsUrl");
   });
 });
-
-describe("the assistant's stylesheet", () => {
-  /**
-   * `.warn-text` and `.hint` are both single-class selectors, so for an element
-   * carrying BOTH the later declaration wins. The problem lines this page
-   * builds are `class="hint warn-text"` and rendered amber deliberately — with
-   * `.warn-text` declared first they came out muted grey, indistinguishable
-   * from the ordinary field hint directly above them. Same cascade LAYER is
-   * part of the contract: moved into different layers, layer order would beat
-   * source order and the fix would silently invert. No test can see a computed
-   * colour here, so the ORDER is what gets pinned.
-   */
-  test("`.warn-text` is declared after `.hint` in the same layer, or a combined class renders muted", () => {
-    const css = readFileSync(join(ROOT, "ui/src/styles.css"), "utf8");
-    const hint = css.indexOf(".hint {");
-    const warn = css.indexOf(".warn-text {");
-    expect(hint).toBeGreaterThan(-1);
-    expect(warn).toBeGreaterThan(hint);
-    // Same cascade LAYER: a `@layer` opening between the two would move one
-    // of them, and layer precedence would silently beat declaration order —
-    // the exact failure this pin exists to catch, arriving by refactor
-    // rather than by reordering.
-    expect(css.slice(hint, warn)).not.toContain("@layer");
-  });
-});

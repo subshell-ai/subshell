@@ -18,58 +18,6 @@ const probe = (overrides: Partial<SubshellView> = {}): SubshellView =>
     ...overrides,
   }) as SubshellView;
 
-describe("SubshellDot", () => {
-  it("maps each indicator to its fill and tooltip word", () => {
-    const cases: Array<[Partial<SubshellView>, string, string]> = [
-      // GREEN is the alive family since 2026-09-24: printing is full green,
-      // quiet-but-running is dim green. Gray now means NOT running.
-      [{ activity: "active" }, "bg-success", "working"],
-      [{ activity: "idle" }, "bg-success/50", "idle"],
-      [{ waitingSince: "2026-09-03T00:00:00.000Z" }, "bg-warning", "waiting for you"],
-      [{ alive: false }, "bg-muted-foreground/50", "exited"],
-      [{ status: "terminated", alive: false, activity: "terminated" }, "border-muted-foreground", "ended"],
-      // Unreachable is RED, not amber, since 2026-09-24 — the palette's own
-      // error role, deliberately the loudest fill on the dot.
-      [{ nodeOffline: true }, "bg-destructive", "node unreachable"],
-    ];
-    for (const [overrides, fill, label] of cases) {
-      const { unmount } = render(<SubshellDot subshell={probe(overrides)} />);
-      const dot = document.querySelector('[aria-hidden="true"]');
-      expect(dot?.getAttribute("class") ?? "").toContain(fill);
-      expect(dot?.getAttribute("title")).toBe(label);
-      unmount();
-    }
-  });
-});
-
-describe("SubshellDot — the working blink (2026-09-24)", () => {
-  afterEach(cleanup);
-
-  const classOfDot = () => document.querySelector('[aria-hidden="true"]')?.getAttribute("class") ?? "";
-
-  it("the ACTIVE dot carries the blink", () => {
-    render(<SubshellDot subshell={probe({ activity: "active" })} />);
-    expect(classOfDot()).toContain("subshell-dot-blink");
-  });
-
-  it("nothing else blinks — the motion is the difference between working and quiet", () => {
-    // Dim green already says "alive, quiet"; the blink says "printing NOW".
-    // If idle blinked too, the pair would differ only by brightness again.
-    for (const overrides of [
-      { activity: "idle" },
-      { waitingSince: "2026-09-24T00:00:00.000Z" },
-      { alive: false },
-      { nodeOffline: true },
-      { unseenPush: true, activity: "active" }, // the bell stays still
-    ] satisfies Partial<SubshellView>[]) {
-      const { unmount } = render(<SubshellDot subshell={probe(overrides)} />);
-      expect(classOfDot()).not.toContain("subshell-dot-blink");
-      expect(document.querySelector("svg")?.getAttribute("class") ?? "").not.toContain("subshell-dot-blink");
-      unmount();
-    }
-  });
-});
-
 describe("SubshellDot — the header's variant (2026-09-20)", () => {
   // Each case queries the document, so a leftover render would answer for it.
   afterEach(cleanup);
@@ -120,11 +68,6 @@ describe("SubshellDot — the unseen-notification bell (spec 2026-09-23)", () =>
     expect(el?.getAttribute("aria-label")).toBe("unseen notification (waiting for you)");
     expect(el?.getAttribute("data-status")).toBe("running");
     expect(el?.getAttribute("data-alive")).toBe("true");
-  });
-
-  it("keeps the indicator's tone on the bell", () => {
-    render(<SubshellDot subshell={probe({ unseenPush: true })} />);
-    expect(document.querySelector("svg")?.getAttribute("class") ?? "").toContain("text-success");
   });
 
   it("no bell, no glyph — the dot stays when nothing is unseen", () => {

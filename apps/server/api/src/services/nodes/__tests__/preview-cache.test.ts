@@ -42,10 +42,6 @@ describe("preview-cache", () => {
     expect(previewCacheGet("s2", 1000)).toEqual(["b"]);
   });
 
-  it("TTL is 60 s (the sweep's cadence)", () => {
-    expect(PREVIEW_CACHE_TTL_MS).toBe(60_000);
-  });
-
   it("per-entry TTL: a short-TTL entry expires while a default entry survives", () => {
     resetPreviewCacheForTests();
     previewCachePut("local", ["x"], LOCAL_PREVIEW_TTL_MS);

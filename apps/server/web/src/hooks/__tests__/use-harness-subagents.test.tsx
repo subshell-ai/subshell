@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render } from "@testing-library/react";
 import { setFetchRouter } from "@/test-setup";
@@ -16,11 +16,6 @@ function Probe({ id, enabled }: { id: string; enabled: boolean }) {
   return <span>{data ? "ready" : "waiting"}</span>;
 }
 
-/**
- * The budget here rides the REAL poll interval (2 s), not faked timers: each
- * two-settle window straddles exactly the ticks that should fire, with 600 ms
- * of slack per side. `bun test`'s 5 s default is outgrown on purpose.
- */
 test("one batch fetch per tick serves every watching row, and hidden tabs stop watching", async () => {
   let gets = 0;
   setFetchRouter(async (url) => {
@@ -28,37 +23,84 @@ test("one batch fetch per tick serves every watching row, and hidden tabs stop w
     return Response.json({});
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
-    <QueryClientProvider client={client}>
-      <Probe id="a" enabled />
-      <Probe id="b" enabled />
-      <Probe id="c" enabled />
-      <Probe id="dead" enabled={false} />
-    </QueryClientProvider>,
-  );
-  // The window sleeps inside `act`, so refetch-driven observer notifications
-  // land in a wrapped flush instead of the "not wrapped in act" warning, and
-  // a rejection surfaces at its await rather than as an unhandled error.
-  const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 2600)));
-  // The mount fetch plus the two ticks inside the window: three active
-  // observers collapsed to one request each, and the inactive row
-  // registered nothing extra.
-  await settle();
-  await settle();
-  expect(gets, `gets=${gets}`).toBe(3);
-  // A backgrounded tab pauses the ticker, which is the whole point of the
-  // shared interval being ours rather than TanStack's per-observer
-  // `refetchInterval`.
-  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
-  await settle();
-  await settle();
-  expect(gets, `gets=${gets}`).toBe(3);
-  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
-  await settle();
-  expect(gets, `gets=${gets}`).toBe(4);
-  await act(async () => cleanup());
-  await settle();
-  // With no watchers left the interval is gone, not merely skipped.
-  expect(gets, `gets=${gets}`).toBe(4);
-  client.clear();
-}, 30_000);
+  const visibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
+  const show = (state: string) =>
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
+  const realSetInterval = globalThis.setInterval;
+  const realClearInterval = globalThis.clearInterval;
+  const callbacks = new Map<ReturnType<typeof setInterval>, () => void>();
+  // Drive only interval ticks. Fetch promises and React Query notifications
+  // still run normally; waiting through production polling adds no coverage.
+  const schedule = spyOn(globalThis, "setInterval").mockImplementation(((
+    callback: TimerHandler,
+    _delay?: number,
+    ...args: unknown[]
+  ) => {
+    if (typeof callback !== "function") throw new Error("Expected an interval callback");
+    const timer = realSetInterval(() => {}, 86_400_000);
+    callbacks.set(timer, () => callback(...args));
+    return timer;
+  }) as unknown as typeof setInterval);
+  const cancel = spyOn(globalThis, "clearInterval").mockImplementation((timer) => {
+    if (timer !== undefined) callbacks.delete(timer as ReturnType<typeof setInterval>);
+    realClearInterval(timer);
+  });
+  const settled = () =>
+    act(async () => {
+      await Promise.all(
+        client
+          .getQueryCache()
+          .getAll()
+          .map((query) => query.promise),
+      );
+    });
+  const tick = async () => {
+    await act(async () => {
+      for (const callback of [...callbacks.values()]) callback();
+    });
+    await settled();
+  };
+  try {
+    show("visible");
+    const { rerender } = render(
+      <QueryClientProvider client={client}>
+        <Probe id="a" enabled />
+        <Probe id="b" enabled />
+        <Probe id="c" enabled />
+        <Probe id="dead" enabled={false} />
+      </QueryClientProvider>,
+    );
+    await settled();
+    expect(gets).toBe(1);
+    expect(callbacks.size).toBe(1);
+    await tick();
+    await tick();
+    expect(gets).toBe(3);
+
+    show("hidden");
+    await tick();
+    await tick();
+    expect(gets).toBe(3);
+    show("visible");
+    await tick();
+    expect(gets).toBe(4);
+
+    // An inactive observer must not keep the shared ticker alive.
+    rerender(
+      <QueryClientProvider client={client}>
+        <Probe id="dead" enabled={false} />
+      </QueryClientProvider>,
+    );
+    expect(callbacks.size).toBe(0);
+    await tick();
+    expect(gets).toBe(4);
+  } finally {
+    cleanup();
+    for (const timer of callbacks.keys()) realClearInterval(timer);
+    cancel.mockRestore();
+    schedule.mockRestore();
+    client.clear();
+    if (visibility) Object.defineProperty(document, "visibilityState", visibility);
+    else Reflect.deleteProperty(document, "visibilityState");
+  }
+});

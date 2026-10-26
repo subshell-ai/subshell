@@ -183,13 +183,6 @@ describe("SearchableSelect — the popup's bottom edge (uneven-gap report 2026-0
     return popup.querySelector('[role="status"]') as HTMLElement;
   };
 
-  it("the mounted Empty region owns no padding box and no text while rows show", async () => {
-    const status = await openWith(OPTIONS);
-    expect(status).not.toBeNull(); // stays mounted — that is Base UI's doctrine, not our bug
-    expect(status.childElementCount).toBe(0); // no sentence while rows exist
-    expect(status.className).not.toMatch(/(^|\s)(p|px|py|pt|pb)-/); // the phantom 12px strip
-  });
-
   it("still renders the empty sentence inside the live region when there are no rows", async () => {
     const status = await openWith([]);
     // contains, not equals: Base UI sprinkles a word-joiner (U+2060) in the

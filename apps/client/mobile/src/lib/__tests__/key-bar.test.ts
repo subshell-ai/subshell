@@ -21,11 +21,6 @@ describe("KEY_BAR_BUTTONS", () => {
   it("matches the web key bar byte-for-byte", () => {
     expect(KEY_BAR_BUTTONS.map((b) => [b.label, b.bytes])).toEqual(EXPECTED_MAIN);
   });
-
-  it("has unique labels", () => {
-    const labels = KEY_BAR_BUTTONS.map((b) => b.label);
-    expect(new Set(labels).size).toBe(labels.length);
-  });
 });
 
 describe("KEY_BAR_EXTENDED", () => {

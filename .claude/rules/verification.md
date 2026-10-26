@@ -1,84 +1,40 @@
 # Verification
 
-**Run verification focused while iterating, and full at task boundaries** (operator ruling 2026-09-24: the full trio on every edit stopped adding signal and started costing minutes).
+**Verify the affected behavior, including at task boundaries.** A push, PR,
+merge, or handoff does not justify running unrelated packages. The shared
+policy is [docs/testing.md](../../docs/testing.md).
 
-**While iterating**, only what your change can break:
-
-```bash
-bun test <the covering test files you touched>        # check the FILE COUNT — bun silently skips paths that don't exist
-bunx turbo verify-types --filter=<pkg>                # the package you changed, not all 52
-bunx biome check <changed paths>                      # read-only; `bun run lint` to fix
-```
-
-**At a task boundary**, before any push, PR, merge, or handoff, run the full set once:
+While iterating, run covering test files, the package's type check, and Biome
+on changed code. Before handoff, inspect and execute the affected plan:
 
 ```bash
-bun run verify-types
-bun run lint:check
-bun run lint:prose
-bun run test
+bun run test:changed -- --plan
+bun run verify:changed
 ```
 
-`lint:prose` enforces the voice rule (no U+2014 in authored prose, operator
-ruling 2026-09-25) in ~20 ms; it joined this set after PR #269 shipped two em
-dashes that only CI's lint workflow caught, because neither the trio above (as
-it then read) nor pre-push covered it.
+The planner includes committed changes since `origin/main`, staged changes,
+unstaged changes, and untracked files. `--base <ref>` selects another base.
+Unknown inputs or missing history select full verification and explain why.
+Do not silently narrow that fallback; fetch the correct base if it is missing.
+For a documentation-only change, run prose/content validation instead of product
+suites. Do not repeat checks that already passed unless new changes affect them.
 
-If any of these fail, fix the issues before considering the task complete. Do not proceed to commits or other work until the checks relevant to that step pass. Subagent gate contracts should name the focused files for the work and reserve the full suite for the boundary.
+`verify:changed` builds and type-checks changed packages and their transitive
+consumers. This catches failures source-only tests miss, including a shared
+protocol import that Metro cannot bundle. It also runs the selected tests,
+compiled/browser checks, and Rust crates. A Rust app edit checks that app;
+a shared desktop-core change checks both apps too. `rust:check` still stages
+missing sidecar stubs and removes only the stubs it created.
 
-`pre-push` runs the fast static checks (types, `lint:check`, licenses, design
-tokens, prose) but NOT the test suite: CI owns that. Run `bun run test`
-yourself before pushing anything you expect to be green on the first try.
+Fix relevant failures before handoff. Report the checks actually run and any
+blocked tier. Never describe a partial run as the full suite. `bun run test`
+is workspace unit tests only; `bun run test:full` includes the other tiers.
+Full verification belongs to release cuts and explicit broad verification,
+not every task boundary. Release CI requires a fresh full run on the release
+revision before tags or artifacts are published, on Linux and macOS.
 
-## Changes under `packages/` need a build
-
-```bash
-bunx turbo build
-```
-
-`verify-types`, `lint:check` and `test` all run against SOURCE and will pass
-while the workspace build is broken. The trap that catches people is
-`@internal/subshell-protocol`: **`apps/client/mobile` imports its barrel through
-Metro, which cannot resolve `node:*`**, so adding a node-builtin import to
-`src/index.ts` (directly or by re-exporting a module that has one) breaks the
-mobile build and NOTHING ELSE. All three local commands stay green and CI fails
-on a package you never opened. Node-only modules are subpath exports instead
-(`release-artifacts`, `service-test-safety`); `src/index.ts` says so at the
-export site. Measured 2026-09-15, twice in one run.
-
-## Rust changes need a fourth command
-
-Those three commands do not touch Rust at all. If you changed anything under
-`crates/desktop-core` or either `apps/*/desktop/src-tauri`, also run:
-
-```bash
-bun run rust:check
-```
-
-It runs exactly what CI's Rust jobs run (`cargo fmt --check`, then
-`cargo clippy --all-targets -- -D warnings`, then `cargo test`) in all three
-crates.
-
-**`cargo check` on its own is not enough, and the two app crates cannot even be
-compiled without help.** `tauri-build` refuses to build when an `externalBin`
-path is missing, and the staged sidecar is a gitignored ~110 MB build input, so
-a plain `cargo clippy` there dies inside the build script instead of reporting a
-lint. `rust:check` stages a stub for the host triple first (the same trick
-test.yml uses) and removes only what it created, so a real sidecar staged by a
-release in progress is left alone.
-
-This was added after a hand-written import block failed `cargo fmt --check` on
-both desktop shards in CI, caught by neither `cargo check` nor clippy (a
-full CI round trip to discover something a local command finds in seconds).
-
-**On macOS it refuses early when `cc` cannot link** (`scripts/macos-toolchain-preflight.sh`,
-shared with the `tauri dev` launchers). An unaccepted Xcode licence stops every
-cargo build, and cargo reports that as a `note:` about a hundred lines above an
-error naming a SOURCE FILE, so a machine that cannot link anything reads as one
-broken doctest in a file you just edited. Measured on 2026-09-15. The remedy is
-`sudo xcodebuild -license`, or `export DEVELOPER_DIR=/Library/Developer/CommandLineTools`,
-whose toolchain the licence gate does not cover. A link failure the probe does
-not recognise is reported verbatim rather than blamed on the licence.
+The pre-push hook runs affected static checks plus the fast repository contract
+checks. CI owns the affected test tiers; the hook does not duplicate them.
 
 ## The CLI end-to-end suite
 

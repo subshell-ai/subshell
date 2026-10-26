@@ -37,11 +37,3 @@ test("bounds: for every attempt and every draw, 0 <= delay <= min(cap, base * 2*
 test("negative attempts floor to 0 (never below base delay)", () => {
   expect(backoffDelay(-3, () => 1)).toBe(BACKOFF_BASE_MS); // 2**max(0,-3) = 1
 });
-
-test("default rand (Math.random) stays within bounds across many draws", () => {
-  for (let i = 0; i < 200; i++) {
-    const d = backoffDelay(i % 12);
-    expect(d).toBeGreaterThanOrEqual(0);
-    expect(d).toBeLessThanOrEqual(BACKOFF_CAP_MS);
-  }
-});

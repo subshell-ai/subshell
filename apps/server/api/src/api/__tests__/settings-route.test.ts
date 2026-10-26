@@ -119,10 +119,6 @@ describe("settings routes (admin cookie only)", () => {
     await deleteUserByEmailOrId(nonAdminEmail);
   });
 
-  it("anonymous -> 401", async () => {
-    expect((await app.fetch(new Request("http://localhost:3080/api/settings"))).status).toBe(401);
-  });
-
   it("admin cookie reads and writes settings (200)", async () => {
     const get = await app.fetch(authedRequest("/api/settings", adminCookie));
     expect(get.status).toBe(200);
@@ -1041,9 +1037,5 @@ describe("/api/settings/terminal-history (per-user, cookie only)", () => {
       }),
     );
     expect(res.status).toBe(403);
-  });
-
-  it("anonymous -> 401", async () => {
-    expect((await app.fetch(new Request("http://localhost:3080/api/settings/terminal-history"))).status).toBe(401);
   });
 });

@@ -499,16 +499,33 @@ turbo build                # Build all packages
 
 ### Testing
 
-Testing is `bun test` (vitest was removed: its node worker cannot import
-`bun:sqlite`).
+Choose checks by the behavior the change can break. **Do not run the full
+suite just because a task is ending, a PR is opening, or an agent is handing
+off.** Start with existing covering files; run affected packages once before
+handoff. Pure prose needs the relevant prose/content checks, not product tests. Copy
+and styling changes without behavioral changes need focused content/visual
+review and lint; don't add or run broad behavioral suites for them.
+Read [the testing policy](docs/testing.md) for selection, test value, and the
+Bun/Vitest assessment.
 
 ```bash
-bun run test               # Run tests across all packages
-bun run test:e2e           # Playwright end-to-end suite (boots its own backend on :3199)
+bun run test:changed -- --plan               # Inspect affected work, including uncommitted files
+bun run test:changed -- --base origin/main   # Affected unit, integration, and Rust tests
+bun run verify:changed                      # Also build, type-check, and lint affected packages
+bun run test                               # All workspace unit tests (explicit opt-in)
+bun run test:full                          # Every check and test tier; required before release
 ```
 
+`test:changed -- --unit` runs only the selected unit suites during iteration.
+It does not replace integration checks when the change reaches those boundaries.
+Full release verification includes script and brand tests, Playwright, compiled
+CLI scenarios, Rust on Linux and macOS, and native display-helper tests. The
+release workflow runs it on the exact revision before creating tags or publishing
+npm packages; failed, skipped-required, or cancelled checks block publication.
+A local `test:full` verifies the current host; CI supplies both desktop platforms.
+
 **Locally, always run the `test` scripts (`bun run test`,
-`bun run test --filter=<pkg>`, a package's own `bun run test`), never a bare
+`bunx turbo run test --filter=<pkg>`, a package's own `bun run test`), never a bare
 `bun test` for a suite run.** The `--parallel=N` flag that gives the suite its
 worker processes lives IN the scripts (bun silently ignores a `parallel` key
 in `bunfig.toml`, measured on 1.4.0/1.4.2), so a hand-typed `bun test` runs
@@ -597,7 +614,7 @@ wires the hooks up. To resync by hand: `bunx lefthook install`.
 
 `pre-commit` formats/lints staged files; `pre-push` runs `verify-types` and `lint:check`
 only: the test suite belongs to CI (`.github/workflows/test.yml`) so pushes stay fast.
-Run `bun run test` yourself before pushing work you want green on the first try.
+Run `bun run verify:changed` before pushing; do not repeat a successful full suite for unrelated work.
 
 ### Cleaning
 
@@ -614,7 +631,8 @@ user-visible changes to the four releasable apps (or to `@internal/docs`,
 whose bump drives the docs deploy instead of a release cut) → a version PR
 ("chore: release package(s)") maintained on every push to main; merging it
 bumps the app's `package.json` + CHANGELOG and publishes the seven
-`@subshell-ai/*` npm packages. Merging does NOT cut a GitHub Release: cuts
+`@subshell-ai/*` npm packages. Merging does NOT cut a GitHub Release. Publishing npm packages and cutting
+app releases both require fresh full verification of that revision. Cuts
 are an explicit `gh workflow run release.yml -f app=all` (or a single
 component). **Tagging and releasing is owned by the workflow; never cut
 tags by hand.**

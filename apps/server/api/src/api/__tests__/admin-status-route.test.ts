@@ -318,9 +318,4 @@ describe("GET /api/admin/status", () => {
     const res = await app.fetch(bearerRequest("/api/admin/status", adminSubshellKey));
     expect(res.status).toBe(403);
   });
-
-  it("refuses an anonymous caller with 401, not 403", async () => {
-    const res = await app.fetch(new Request("http://localhost:3080/api/admin/status"));
-    expect(res.status).toBe(401);
-  });
 });

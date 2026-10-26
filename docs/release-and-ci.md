@@ -338,10 +338,10 @@ keeping machines cut-ready is standing human attention that stopped being
 paid. A hosted runner is disposable and identical; a fleet runner that has
 drifted is invisible until a job dies on it.
 
-The org fleet still exists, and every workflow is written so it could pick
-them up UNCHANGED: the un-root steps, the `git tag -f`, and the
-`safe.directory` fixes each stay for exactly that reason. But no job names
-its labels any more. `runner-maintenance.yml` and
+The org fleet still exists, but no product job names its labels. Release
+container jobs retain their ownership cleanup and `safe.directory` handling.
+Test jobs now assume ephemeral hosted workspaces; moving them back to the
+fleet would require reviewing container ownership and cleanup first. `runner-maintenance.yml` and
 `reset-linux-runner-workspace.yml` stay as fleet ops; with no jobs selecting
 the fleet, they simply find nothing to do.
 
@@ -355,34 +355,31 @@ the repo variable `NPM_PUBLISH_ENABLED` is `true`, so ordinary pushes never
 attempt a publish. The alternative it displaced, an `NPM_TOKEN` checked
 into repo secrets, remains rejected rather than quietly adopted.
 
-`test.yml`'s eleven jobs run **inside the repo's own builder image**
-(`ghcr.io/subshell-ai/desktop-builder:ubuntu24.04`, which is therefore the CI
-image as well as the release one). The first job routes the other ten:
-`scripts/ci-test-plan.ts` asks turbo which packages changed since the base
-plus their dependents, and the test jobs `if:` on those flags: a docs-only
-PR runs Plan and greys the rest, and every path the router cannot answer
-fails wide to run-everything. Rust inputs are not in the turbo graph, so the
-two Rust jobs route on file predicates registered in that same router
-(`rustTouched`), and a change to `test.yml` itself runs every slice. It
-already carries bun (1.4.2, pinned to
-the root `packageManager` so CI runs what developers run), rustup stable and
-Tauri's system dependencies; `tmux`, `rustfmt` and `clippy` were added for
-CI's sake. That is what lets `setup-bun`, `dtolnay/rust-toolchain` and every
-`sudo apt-get` stay out of the workflow. The repository is public. Container
-package visibility is configured separately, and CI authenticates pulls of the same-repo GHCR image with
-the job token. The `packages: read` permission enables that access; a PAT
-is not needed and none is used. Inside a container we simply ARE
-root, which is also what makes Playwright's `install-deps` possible.
+`test.yml` handles PR and main-branch verification and exposes the same jobs
+as a reusable workflow for releases. The planner reads workspace manifests
+without installing dependencies, follows dependency edges, and selects at most
+three unit jobs. Each runs only selected packages; Turbo builds their required
+dependencies. Build/type/lint checks share that selection. Script tests run for
+the repository contracts they read, not for every app edit. Pure test edits stay
+in their owning package. Unknown inputs or missing history run everything.
 
-`lint.yml` and `cla.yml` run BARE: bun and a JS action need no system
-libraries, and the builder image would buy nothing there.
+Browser and compiled CLI checks share an integration job on a bare Ubuntu
+runner, where Testcontainers can reach the host Docker daemon and mapped ports.
+Rust checks run selected crates on Linux in the builder image and on macOS;
+a shared-core change selects both desktop consumers. The single `Tests passed`
+result requires every selected job to succeed, including after a cancellation
+or upstream failure. See [the testing policy and audit](testing.md).
+
+The remaining `lint.yml` job checks release-manifest freshness on pushes to
+main. Static checks and dependency auditing now live in `test.yml`; PRs don't
+pay for a second full build/lint workflow. `cla.yml` remains separate.
 
 Four things this arrangement makes load-bearing:
 
 - **Toolchains come from the workflow, never from the runner image.** The
   fleet-era lesson (its node 18 broke rolldown's `styleText` floor) applies
   verbatim to hosted images, which float their own versions: `setup-bun`
-  pins 1.4.0 where a job runs bare, `setup-node` pins 24 (the root
+  pins 1.4.4 where a job runs bare, `setup-node` pins 24 (the root
   `package.json`'s `engines.node`), and `actions/setup-node` is not
   optional just because the runner "already has node".
 - **Every job needs `timeout-minutes`.** Minutes are now metered, so a hung
@@ -394,23 +391,16 @@ Four things this arrangement makes load-bearing:
   warm state. The fleet-era defect class (`git tag -f` in the plan job,
   because a tag deleted upstream survived in the runner's clone) cannot
   recur here; the flag stays so the fleet still works if it ever returns.
-- **The un-root steps closing the container jobs are vestigial, kept on
-  purpose.** A hosted runner is ephemeral, so chowning the workspace back
+- **Release container jobs retain ownership cleanup for fleet reuse.** A hosted runner is ephemeral, so chowning the workspace back
   changes nothing. They stay because the org fleet can still run these
   workflows, and there, skipping them poisons the next checkout with
   `EACCES`, the failure `reset-linux-runner-workspace.yml` exists to
   repair.
 
-**Not done: running the containers as a non-root user.** It would restore
-the one test skipped under root (`uploads-route.test.ts`, which chmods a
-directory to 0500; root ignores permission bits) and let both the Chromium
-`--no-sandbox` workaround and the un-root steps go. It needs
-`container.options: --user 1000`; on the fleet that hardcoded a uid the
-un-root step discovers at runtime with `stat`, and a differently-provisioned
-machine made it fail nondeterministically. Hosted runners remove that
-variance, so the trade is better than it was, but it still buys one test
-and re-opens every container step to a CI round trip of proving, while the
-un-root steps have to stay for the fleet's sake regardless.
+JavaScript tests now run on bare hosted runners as the runner user, so file
+permission checks can execute normally. Only the Linux Rust check and release
+builds use the builder container. The browser suite still carries its existing
+CI launch configuration; changing that is separate from test selection.
 
 The wall-clock cost the fleet-era write-up predicted but did not see did
 materialise after the move. The persisted `target/` and `node_modules` made
@@ -637,7 +627,15 @@ which is why they share their own smoke, parameterized by app id.
   `-f version=X.Y.Z`; blank = read `apps/<dir>/package.json`). `all` is the
   input's default: every component is cuttable, and each desktop bundle ships
   the CLI it wraps, so the whole set is the safe cut.
-  The plan job pushes the missing tag(s) FIRST, then one build shard per
+  The reusable full verification workflow must succeed on the dispatch's
+  revision before the plan job can create or push tags. It runs all workspace,
+  script, browser, compiled CLI, Rust, and native-helper tests, plus static
+  checks and the dependency audit. Unit and browser retries are disabled.
+  Failed, cancelled, or missing required checks block the cut; fix the cause
+  and dispatch the corrected revision. npm publication uses the same gate.
+  A manifest-only refresh and version-PR maintenance don't publish binaries or
+  packages and don't need this gate.
+  The plan job then pushes the missing tags, followed by one build shard per
   app×triple on GitHub-hosted runners, each triple on hardware of its own
   arch: linux on `ubuntu-24.04` (linux-x64 native; linux-arm64 cross-built
   there, so it alone gets the `file` magic check and is never exec'd),
@@ -730,19 +728,11 @@ any dispatch not on `main` and any `-f version=` that disagrees with
 refusal, same reason, as release.yml's); the tag has three cases: absent
 creates, **present at THIS commit redeploys** (re-dispatch is how you re-push
 a broken deploy, because for docs the deploy is the release), present at
-another commit refuses until the tag is deleted. There is **no CI gate**: the
-`ci-gate` job that waited for this commit's push-triggered Test + Lint runs
-was removed by operator ruling of 2026-09-25, the day a flaky job in an
-unrelated package's Test run blocked both site deploys until a human re-ran
-it. What proves a site is `lint.yml` building its export on every push, and
-PR CI before that; the gate only borrowed server/node test luck. (The specs
-that designed it, 2026-09-16 docs and 2026-09-23 website, keep their gate
-sections as dated records.) The export is static for now
-(`output: "export"`); the vinext-at-1.0 follow-up lifts that. Broken docs
-fail PR CI, not just the deploy: the package's `build` script runs inside
-`bun run build`, which `lint.yml` runs on every push. The marketing site
-(`apps/website`, `website-v*` tags, `website.yml`, subshell.sh) follows the
-identical deploy shape, gate removed there too.
+another commit refuses until the tag is deleted. Both site workflows call
+`test.yml` with `full: true` before their tag-writing plan, following the same full-verification rule as app and npm releases. This
+replaces the earlier no-gate policy: a failed, cancelled, or missing required
+check blocks tag creation and deployment. The verification runs against the
+same revision the site will build. See [the testing policy](testing.md).
 
 **The website also hosts the install scripts.** The root `install-server.sh`
 and `install-client.sh` are the source, but subshell.sh serves them: the

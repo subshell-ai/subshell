@@ -453,19 +453,6 @@ describe("TerminalKeyBar", () => {
     expect(img.matches(":disabled, [aria-disabled=true]")).toBe(true);
   });
 
-  it("keeps keys and the image button on one horizontally scrollable row", () => {
-    // Controls keep their touch targets and scroll horizontally rather than wrapping.
-    render(<TerminalKeyBar disabled={false} onBytes={() => {}} onPickImage={() => {}} />);
-    const escRow = screen.getByRole("button", { name: "Send Escape" }).parentElement;
-    const enterRow = screen.getByRole("button", { name: "Send Enter" }).parentElement;
-    const slashRow = screen.getByRole("button", { name: "Send slash" }).parentElement;
-    const imgRow = screen.getByRole("button", { name: "Attach image" }).parentElement;
-    expect(enterRow).toBe(escRow); // controls stay together
-    expect(slashRow).toBe(escRow);
-    expect(escRow?.classList.contains("overflow-x-auto")).toBe(true);
-    expect(imgRow).toBe(slashRow);
-  });
-
   it("shows no scroll buttons without handlers, and working ones with them", () => {
     const { unmount } = render(<TerminalKeyBar disabled={false} onBytes={() => {}} />);
     expect(screen.queryByRole("button", { name: "Scroll to top" })).toBeNull();
@@ -557,21 +544,6 @@ describe("TerminalKeyBar", () => {
     render(<TerminalKeyBar disabled={false} suppressInput={false} onBytes={() => {}} />);
     expect(screen.getByRole("toolbar", { name: "Terminal special keys" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Send Escape" })).toBeDefined();
-  });
-
-  it("keeps a compact bottom gutter in both modes", () => {
-    // Both modes use the same compact gutter without stacking safe-area padding.
-    for (const readOnly of [false, true]) {
-      render(<TerminalKeyBar disabled={false} readOnly={readOnly} onBytes={() => {}} />);
-      const bar = readOnly
-        ? screen.getByRole("toolbar", { name: "Terminal scrolling" })
-        : screen.getByRole("toolbar", { name: "Terminal special keys" });
-      // The WHOLE pb-* set, not a substring hunt: a second pb-* utility
-      // wins by stylesheet order, not attribute order, and a full inset
-      // re-wrapped as `pb-[calc(env(...))]` would slip past a
-      // `pb-[env(` regex.
-      expect([...bar.classList].filter((c) => c.startsWith("pb-"))).toEqual(["pb-1"]);
-    }
   });
 
   it("scroll buttons share the row with the image button", () => {

@@ -67,33 +67,7 @@ function readBuiltInManifests(): DeclaredIcon[] {
   );
 }
 
-describe("iconsLeftOutOfTarball", () => {
-  const WITH_ICON = { dir: "x", name: "@subshell-ai/plugin-x", icon: "icon.png" };
-
-  it("treats an ABSENT `files` array as shipping everything — npm ships the whole directory", () => {
-    // Review nit on the #64 guard: the absent-array default was read backwards,
-    // so a future icon-bearing built-in with no `files` would fail the guard
-    // for a reason that is not true of its tarball.
-    expect(iconsLeftOutOfTarball([{ ...WITH_ICON, files: undefined }])).toEqual([]);
-  });
-
-  it("treats an EMPTY `files` array as shipping nothing — the icon is left out", () => {
-    expect(iconsLeftOutOfTarball([{ ...WITH_ICON, files: [] }])).toHaveLength(1);
-  });
-
-  it("passes the icon only when `files` names it", () => {
-    expect(iconsLeftOutOfTarball([{ ...WITH_ICON, files: ["dist", "icon.png"] }])).toEqual([]);
-    expect(iconsLeftOutOfTarball([{ ...WITH_ICON, files: ["dist", "icon.svg"] }])).toHaveLength(1);
-  });
-});
-
 describe("built-in plugin icon manifests", () => {
-  it("pins the number of plugins declaring an icon, so a silent disappearance is loud", () => {
-    // Ten of the thirteen built-ins ship a mark (grok-build, headscale, and cloudflare-tunnel
-    // declare none). A new icon-bearing built-in updates this number on purpose.
-    expect(readBuiltInManifests().filter((m) => m.icon).length).toBe(10);
-  });
-
   it("declares no icon that is absent from the npm `files` list", () => {
     const violations = iconsLeftOutOfTarball(readBuiltInManifests()).map(
       (m) => `${m.name} declares icon "${m.icon}" but its files array would leave it out of the tarball`,

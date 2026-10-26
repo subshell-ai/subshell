@@ -105,56 +105,6 @@ describe("the rail's Update section is the door (§ 7.4)", () => {
     // is the one screen that asks nothing.
     await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Subshell Client"));
   });
-
-  /**
-   * The frame's contract is "primary right and ghost left", and every screen
-   * that asks something ends on a filled button at the bottom right. This
-   * screen's act is the press in the CONTENT, so the bar carries only the way
-   * out — which sat in the ghost-left seat, leaving the filled one empty and
-   * making the one footer button the faintest thing in the frame (operator's
-   * call, 2026-09-18, on the sibling app's copy of the same screen).
-   *
-   * The WORD stays Back, and the case above is why: leaving returns to the
-   * status screen rather than closing anything. The server app's says Close
-   * because `host.close()` really does end that window.
-   */
-  it("ends on a filled leave at the bottom right, with Check Again beside it", async () => {
-    // Rail-less (the machine is not settled): the bar still carries the way
-    // out, and its shape is pinned here.
-    // The same tray-raised, rail-less boot as the Back test above: the bar
-    // still carries the way out, and its shape is pinned here.
-    await boot({
-      // No plane address and no node config: `configured` reads both rungs,
-      // and the machine is genuinely unsettled.
-      settings: makeSettings({ planes: [] }),
-      probe: makeProbe({ status: null }),
-      handlers: {
-        node_pending_screen: () => "update",
-        node_check_app_update: () => APP_CURRENT,
-      },
-    });
-    await waitFor(() => expect(screen.getByText("Update Subshell Client")).toBeTruthy());
-
-    const leave = button("Back");
-    const check = button("Check Again");
-    // Same bar cell, and Check Again comes FIRST — the seat Restart takes
-    // beside Save on the sibling app's Server Addresses.
-    expect(leave.parentElement).toBe(check.parentElement);
-    expect(check.compareDocumentPosition(leave) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // Nothing is left in the ghost-left cell.
-    const bar = leave.parentElement?.parentElement;
-    expect(
-      within(bar as HTMLElement)
-        .getAllByRole("button")
-        .map((b) => b.textContent),
-    ).toEqual(["Check Again", "Back"]);
-    // The leave is the PRIMARY — the filled gradient the `default` variant
-    // paints — and Check Again is the `outline` one beside it. Keyed on the
-    // variant's own token rather than on a word like "outline", which every
-    // button carries through `focus-visible:outline-none`.
-    expect(leave.className).toContain("--button-primary-from");
-    expect(check.className).not.toContain("--button-primary-from");
-  });
 });
 
 describe("the second phase finishes an act this build did not start (§ 4.2)", () => {

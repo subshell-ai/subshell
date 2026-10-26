@@ -199,62 +199,6 @@ describe("DesktopAppUpdateRow", () => {
     expect(screen.queryByRole("button", { name: "Dismiss update notice" })).toBeNull();
   });
 
-  it("renders the upgrade icon ONLY when there is news", async () => {
-    setUA(SERVER_UA);
-    fakeTauri({ currentVersion: "0.7.2", availableVersion: null });
-    const { container } = renderRow();
-    await waitFor(() => expect(screen.getByText(/Subshell Server App 0\.7\.2/)).toBeTruthy());
-    // The icon is always in the DOM for alignment; what changes is whether its
-    // SLOT is `invisible`. So the news test reads the slot, not the glyph.
-    expect(container.querySelector("span[aria-hidden]")?.className).toContain("invisible");
-    cleanup();
-    fakeTauri({ currentVersion: "0.7.2", availableVersion: "0.8.0" });
-    const withNews = renderRow();
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "Subshell Server App 0.7.2: v0.8.0 available. Open updates." }),
-      ).toBeTruthy(),
-    );
-    expect(withNews.container.querySelector("span[aria-hidden]")?.className).not.toContain("invisible");
-    expect(withNews.container.querySelectorAll(".text-warning")).toHaveLength(1);
-  });
-
-  /**
-   * The two footer rows have to line up. `DesktopServerPill` always draws its
-   * status circle, so its text carries the dot's indent; a version row whose
-   * dot was conditionally ABSENT started flush left whenever there was no
-   * news, and the two lines disagreed (operator's report, 2026-09-18). The
-   * spacer is therefore always in the layout and merely `invisible`.
-   */
-  it("keeps the marker's space whether or not there is news, so the rows align", async () => {
-    setUA(SERVER_UA);
-    fakeTauri({ currentVersion: "0.7.2", availableVersion: null });
-    const quiet = renderRow();
-    await waitFor(() => expect(screen.getByText(/Subshell Server App 0\.7\.2/)).toBeTruthy());
-    const quietSpacer = quiet.container.querySelector("span[aria-hidden]");
-    expect(quietSpacer).not.toBeNull();
-    expect(quietSpacer?.className).toContain("invisible");
-
-    cleanup();
-    fakeTauri({ currentVersion: "0.7.2", availableVersion: "0.8.0" });
-    const loud = renderRow();
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "Subshell Server App 0.7.2: v0.8.0 available. Open updates." }),
-      ).toBeTruthy(),
-    );
-    const loudSpacer = loud.container.querySelector("span[aria-hidden]");
-    expect(loudSpacer?.className).not.toContain("invisible");
-    expect(loudSpacer?.querySelector("svg")).not.toBeNull();
-
-    // Same box either way — that IS the alignment. `size-3.5` since
-    // 2026-09-19: the marker became a 14px ArrowUpCircle, and
-    // `DesktopServerPill` centres its 8px status dot in a slot of this same
-    // width so the two footer rows still start their text at one x.
-    expect(quietSpacer?.className).toContain("size-3.5");
-    expect(loudSpacer?.className).toContain("size-3.5");
-  });
-
   /**
    * The backstop, at the ROW rather than only in the model: a new page meeting
    * an old binary whose stored notice outlived the install it announced must

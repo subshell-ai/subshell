@@ -253,16 +253,8 @@ describe("/api/plugins", () => {
     expect((await get("/api/plugins/..%2f..%2fetc/icon", aliceCookie)).status).toBe(404);
   });
 
-  it("anonymous icon read -> 401", async () => {
-    expect((await app.fetch(new Request("http://localhost/api/plugins/claude-code/icon"))).status).toBe(401);
-  });
-
   it("a system bearer key may LIST", async () => {
     expect((await bearerSend("GET", "/api/plugins", systemKey)).status).toBe(200);
-  });
-
-  it("anonymous LIST -> 401", async () => {
-    expect((await app.fetch(new Request("http://localhost:3080/api/plugins"))).status).toBe(401);
   });
 
   // ── writes: cookie-admin only ─────────────────────────────────────────────

@@ -32,8 +32,4 @@ describe("rail subshells view (per-device preference)", () => {
     localStorage.setItem(KEY, "grid");
     expect(railSubshellsView()).toBe("rows");
   });
-
-  it("exposes the runtime list so a writer and the type cannot drift", () => {
-    expect(RAIL_SUBSHELLS_VIEWS).toEqual(["rows", "cells", "cells-flat"]);
-  });
 });

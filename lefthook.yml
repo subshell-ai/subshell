@@ -34,11 +34,11 @@ pre-push:
   parallel: true
   commands:
     "verify types":
-      run: bun run verify-types
+      run: bun scripts/check-changed.ts types
       tags:
         - types
     "lint":
-      run: bun run lint:check
+      run: bun scripts/check-changed.ts lint
       tags:
         - lint
     "licenses":
@@ -54,4 +54,4 @@ pre-push:
       tags:
         - lint
     # NOTE: the test suite deliberately does NOT run here — CI (.github/workflows/test.yml)
-    # owns it; a local push shouldn't cost 30+ s. Run `bun run test` by hand when you want it.
+    # owns it; a local push shouldn't cost 30+ s. Run `bun run verify:changed` for the affected checks before handoff.

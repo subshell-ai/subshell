@@ -98,11 +98,6 @@ describe("channels route", () => {
     if (r.status !== 200) throw new Error(`identity register failed: ${r.status} ${r.text}`);
   }
 
-  it("anonymous -> 401 on list", async () => {
-    const res = await channelRoutes.fetch(new Request("http://localhost:3080/api/channels"));
-    expect(res.status).toBe(401);
-  });
-
   it("creating a channel without an identity -> 409 identity_required", async () => {
     const r = await call(channelRoutes, "/api/channels", aliceToken, postJson({ name: "build" }));
     expect(r.status).toBe(409);

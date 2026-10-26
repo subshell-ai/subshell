@@ -1,4 +1,4 @@
-import { stripSyncMarkers } from "@/ws/sync-stripper.js";
+import { stripSyncMarkers } from "./sync-stripper.js";
 
 /**
  * The one boundary that turns a `capture-pane` payload into bytes safe to

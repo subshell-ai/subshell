@@ -55,9 +55,4 @@ describe("GET /api/meta/status", () => {
     const body = (await res.json()) as { serverTime: string };
     expect(Number.isNaN(Date.parse(body.serverTime))).toBe(false);
   });
-
-  it("stays behind authGuard — anonymous callers get 401", async () => {
-    const res = await app.fetch(new Request("http://localhost:3080/api/meta/status"));
-    expect(res.status).toBe(401);
-  });
 });

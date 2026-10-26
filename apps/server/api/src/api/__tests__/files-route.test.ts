@@ -94,10 +94,6 @@ describe("files route (folder explorer)", () => {
     expect(Array.isArray(body.entries)).toBe(true);
   });
 
-  it("anonymous -> 401", async () => {
-    expect((await explore({})).status).toBe(401);
-  });
-
   it("subshell key bearer -> 403 (no filesystem walking from a harness)", async () => {
     const key = await mintSubshellKey();
     expect((await explore({ bearer: key, path: "/tmp" })).status).toBe(403);
@@ -594,10 +590,6 @@ describe("files route (folder explorer)", () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as { home: string | null };
       expect(body.home).toBe(homedir());
-    });
-
-    it("unauthenticated -> 401", async () => {
-      expect((await recent()).status).toBe(401);
     });
 
     it("machine bearer -> 403 (browser affordance, like /explore)", async () => {

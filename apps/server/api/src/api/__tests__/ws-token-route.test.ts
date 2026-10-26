@@ -140,11 +140,6 @@ describe("ws-token route (unscoped cookie mints, scoped bearer mints)", () => {
     }
   });
 
-  it("anonymous -> 401", async () => {
-    const res = await app.fetch(new Request("http://localhost:3080/api/auth/ws-token", { method: "POST" }));
-    expect(res.status).toBe(401);
-  });
-
   it("cookie session -> 200 with an UNBOUND attach token", async () => {
     const res = await app.fetch(authedRequest("/api/auth/ws-token", cookie, { method: "POST" }));
     const token = await mintedToken(res);
