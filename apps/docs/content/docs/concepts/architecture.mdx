@@ -46,70 +46,28 @@ The server relays ciphertext, but terminal output and channel metadata have diff
 
 ## Web previews and virtual displays
 
-Web previews & screens brings a subshell's dev server, browser frames, or virtual display into
-the workspace. Your browser connects to the server; it doesn't need direct
-network access to the node's ports.
+Web previews bring a website running on a node into your workspace. A browser
+watch shows live images from a browser on that node, while a virtual display
+lets you control its graphical apps. All three connect through the server, so
+your browser doesn't need direct network access to the node's ports.
 
-```mermaid
-%% The dashboard authenticates to the server. App HTTP and WebSocket traffic use a capability URL and a node-side tunnel; CDP JPEG frames return through the authorized live feed. The built-in node uses the same runtime in process.
-flowchart LR
-  B[Dashboard browser] -->|Open preview with user access| S[Server preview broker]
-  B -->|HTTP or WS capability URL| P[Server preview proxy]
-  P <-->|Encrypted preview lanes| N[Node runtime]
-  N <-->|HTTP/S service or loopback RFB| A[Dev server or virtual display]
-  N -->|CDP JPEG frames| S
-  S -->|Authorized live feed| B
-  S -->|In-process adapter| L[Built-in node runtime]
-```
+The node owner enables web previews and virtual displays separately. Opening
+a website or controlling a display requires edit access to the subshell.
+View access lets you watch the browser discovered for that subshell.
 
-The server checks subshell access and the node's separate web-preview or virtual-display permission before opening
-a view. App forwarding and screen input need edit access. Watching browser
-frames needs view access; view-only shares are restricted to the browser
-discovered for their subshell.
+Linux displays use Xvfb and x11vnc. macOS displays use BetterDisplay and the
+Subshell Display Helper, which requires local consent and macOS permissions.
+A macOS virtual screen shares the signed-in account's desktop, focus, and
+pointer. Neither provider sandboxes the programs you run.
 
-The REST resource is `/api/subshells/:id/views`. Clients open a connection at
-`/views/open` and start or stop browser watching at `/views/browser/watch`.
-Node responses expose `webPreviewsEnabled` for web previews and `virtualDisplayEnabled` for virtual displays.
-Node configuration uses `/views-enabled` with `feature: "web-previews"` or `feature: "display"`,
-and display prerequisites use `/display-readiness`. The corresponding MCP tools
-are `list_subshell_views`, `open_subshell_view`, and `watch_subshell_browser`.
-See the [MCP tool reference](/mcp/tools#list_subshell_views) for their arguments.
+Preview websites are isolated from the dashboard's browser storage and
+credentials. The server can still read forwarded website content and screen
+images. Preview links grant access to anyone who holds them while they're
+valid; see [Preview security](/concepts/security#preview-security).
 
-For web previews, the server creates a private capability URL and forwards each
-HTTP or WebSocket connection through a lane to loopback or the saved service destination on the execution
-machine. Proxied documents have an opaque browser origin so website scripts
-don't inherit dashboard authority. Target cookies stay in a server-side jar.
-The server's built-in node uses the same discovery, forwarding, CDP, and display
-runtime through an in-process adapter.
-
-Browser watches use Chrome DevTools Protocol to emit JPEG frames. Virtual
-displays use a shared provider interface for requirements, allocation, launch
-settings, recovery, and cleanup. Node owners enable providers and choose a
-default; each subshell can request an enabled provider and saves that choice
-for restarts. Both the server and the node enforce the selection.
-
-The Linux provider is **Xvfb + VNC**. It creates a private
-Xvfb display and loopback x11vnc listener; a separate VNC viewer adapter renders
-and controls the RFB stream with noVNC. Other providers can reuse that viewer
-if they expose VNC. Providers are bundled with Subshell, rather than installed
-through the harness-plugin manager. Local launch credentials stay on the node;
-the server receives only the display identifier and viewer connection. These are separate from the agent's
-terminal stream and from encrypted agent-to-agent channels. The trusted server
-can read preview bytes and frames.
-
-On macOS, **BetterDisplay** creates a virtual screen and the opt-in **Subshell
-Display Helper** captures it through ScreenCaptureKit. A local VNC bridge
-reuses the same authenticated viewer path. Both desktop apps include the
-helper; only its native settings panel can enable it or request macOS
-permissions. See [macOS display helper setup](/nodes/manage#macos-display-helper).
-
-Each app port, browser watch, and display is a separate workspace tab with a
-parent subshell. Desktop previews initially split to the right. The phone tab
-strip leaves the desktop split layout unchanged. Saved layouts retain only
-previews whose parent pane is still authorized and present.
-
-See [Web previews & screens](/guides/preview), [Preview transport](/reference/node-protocol#preview-transport),
-and [Preview security](/concepts/security#preview-security).
+For setup, follow [Web previews & screens](/guides/preview). For the implementation,
+read [Web preview architecture](/developers/web-preview-architecture) or
+[Virtual display architecture](/developers/virtual-display-architecture).
 
 ## See also
 

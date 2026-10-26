@@ -188,18 +188,16 @@ stack. Keep target tests separate from proxy and authorization tests. A working
 sample page doesn't establish that credentials stay out of target requests or
 that a revoked viewer loses access.
 
-Run the relevant package scripts from the repository root, building the frontend
-first because the proxy integration tests load the production application:
+Use the repository's affected-test runner to choose checks for your change:
 
 ```bash
-bunx turbo build --filter=@internal/server-web
-env -u SHELLOPTS -u BASHOPTS bun run --cwd packages/pane-runtime test
-env -u SHELLOPTS -u BASHOPTS bun run --cwd apps/node/agent test
-env -u SHELLOPTS -u BASHOPTS bun run --cwd apps/server/api test
-env -u SHELLOPTS -u BASHOPTS bun run --cwd apps/server/web test
+env -u SHELLOPTS -u BASHOPTS bun run test:changed -- --plan
+env -u SHELLOPTS -u BASHOPTS bun run verify:changed
 ```
 
-Add regression coverage at the changed boundary:
+If you run proxy integration tests directly, build their production frontend
+first with `bunx turbo build --filter=@internal/server-web`.
+Choose regression coverage for the behavior you're changing:
 
 - Unauthorized discovery/open/watch, view-only port selection, and
   share/account revocation while a request is awaiting the node.

@@ -95,8 +95,10 @@ it remains valid. Keep it out of public issues, shared browser history, and
 reverse-proxy access logs. Closing the tab releases its connections but doesn't
 immediately revoke a copied link. Forward sessions expire after 15 minutes
 without traffic; grant removal, account disable, subshell death, and node loss
-also cut off affected access. Switching Web previews & screens off prevents new operations,
-but isn't an emergency close for existing connections.
+also cut off affected access. Turning off **Allow web previews** or **Allow
+virtual displays** blocks new operations for that feature without immediately
+closing existing connections. To revoke access, remove the sharing grant or
+end the subshell.
 
 #### Transport and network reach
 
@@ -128,9 +130,6 @@ shared with untrusted local OS users. GUI apps and agents retain their normal
 execution-account permissions. Don't expose the VNC port through a network
 port forward. A copied preview link also grants control until it expires or
 is revoked; view-only sharing doesn't offer a read-only VNC viewer.
-
-For message formats and limits, see
-[BetterDisplay integration protocol](/developers/betterdisplay-protocol).
 
 Follow [Web previews & screens](/guides/preview) for setup and the
 [preview architecture](/concepts/architecture#web-previews-and-virtual-displays) for the data path.

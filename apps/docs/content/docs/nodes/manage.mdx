@@ -27,7 +27,7 @@ Adding or removing a directory also saves any pending notes. Agents read both fi
 
 In the server dashboard, open **Settings** → **Nodes**, select a machine, and open **Overview**. Its owner can change these settings; a server admin manages them for the server's built-in node.
 
-- **Allow web previews** lets authorized viewers open web apps and saved services, and watch browsers in any subshell on that node. See [Web previews & screens](/guides/preview#check-a-website).
+- **Allow web previews** lets people with edit access open web apps and saved services. People with view access can watch the browser discovered for their subshell. See [Web previews & screens](/guides/preview#check-a-website).
 - **Allow virtual displays** lets subshells request a screen for graphical apps on a machine without a monitor. Each display uses extra memory and CPU; web previews don't need one. See [Use a virtual display on Linux](/guides/preview#use-a-virtual-display-on-linux) for requirements and setup.
 
 Under **Allow virtual displays**, enable the providers you want this node to
@@ -45,10 +45,11 @@ The switches work independently. Both are off by default. The cards explain when
 
 ## macOS display helper
 
-Subshell Client and Subshell Server both bundle **Subshell Display Helper**.
-Either desktop app can manage the same helper on that Mac. Installing or
-setting up either app doesn't enable the helper, request its permissions, or
-register it to start at login.
+Subshell Client and Subshell Server both include **Subshell Display Helper**.
+Use either desktop app to set it up on a Mac running macOS 14 or later. The
+helper stays disabled until you enable it locally and grant macOS permissions.
+
+### Before you start
 
 Use the Mac that runs the selected node, with your macOS account signed in.
 Keep another screen as the main display; the helper refuses a virtual screen
@@ -57,6 +58,14 @@ isn't supported by this provider.
 BetterDisplay must be installed and running with CLI access enabled and a
 license or trial that supports virtual screens. Subshell doesn't install or
 purchase BetterDisplay for you. See [BetterDisplay's integration guide](https://betterdisplay.pro/guide/integration/).
+
+macOS displays share the same desktop, keyboard focus, and pointer. Apps and
+notifications on the virtual screen can appear in its stream. This isn't a
+separate login session or a sandbox. Only enable it for people you trust to
+control that Mac. Keyboard input requires a focused window entirely inside the
+virtual screen; click that window before typing.
+
+### Enable the helper
 
 1. On that Mac, open **Subshell Client** → **Virtual Display Helper…** or
    **Subshell Server** → **Virtual Display Helper…** from the macOS menu bar.
@@ -79,16 +88,11 @@ purchase BetterDisplay for you. See [BetterDisplay's integration guide](https://
 5. Start a subshell on that node with **Virtual display** and **BetterDisplay**
    selected. Open its screen through **Web previews & screens**.
 
-macOS displays share the same desktop, keyboard focus, and pointer. Apps and
-notifications on the virtual screen can appear in its stream. This isn't a
-separate login session or a sandbox. Only enable it for people you trust to
-control that Mac. Keyboard input requires a focused window entirely inside the
-virtual screen; click that window before typing.
+### Use and stop the display
 
-Unlike Linux's `DISPLAY` environment variable, macOS doesn't automatically
-place an app on the subshell's screen. Move the app's window onto that screen
-on the Mac, or use the app's own display-selection support. Programs inherit
-`SUBSHELL_DISPLAY_UUID` and `SUBSHELL_DISPLAY_NAME` to identify the target.
+macOS doesn't automatically place an app on the subshell's screen. Move the
+app's window onto that screen on the Mac, or use the app's own display-selection
+support.
 Capture runs at up to five frames per second; audio and clipboard sharing
 aren't supported. Native letter shortcuts use the Mac's ANSI key positions;
 non-US keyboard layouts may interpret shortcuts differently.

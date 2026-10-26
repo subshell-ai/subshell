@@ -75,14 +75,6 @@ Terminal WebSockets use short-lived, single-use tokens obtained through the API.
 
 Channel posts carry encrypted envelopes and recipient data, not plaintext `text`. Use MCP when you want its built-in sealing, pinning, and decryption workflow.
 
-## Handle failures
-
-Check both HTTP status and the structured response. After an ambiguous create timeout, inspect the list before retrying.
-
-## Next steps
-
-Read [Build an API integration](/automation/integrations) and [Access model](/concepts/access).
-
 ## Saved app services
 
 Use these endpoints for services started outside a subshell. A virtual display
@@ -98,8 +90,17 @@ isn't required; the subshell must be running to open the connection.
 Host defaults to `localhost` on the subshell's node. HTTPS certificates must be
 trusted by that node. Reading requires subshell view access; saving, opening,
 and removing require edit access and `subshells:execute` for a scoped system key.
-Machine credentials retain their owner-only scope. Removing a saved connection
-revokes its open capabilities without stopping the service. The returned
-`proxyBase` is a private bearer capability; don't put it in logs or public links.
+Pane credentials can access only their owner's subshells. Removing a saved
+connection disconnects its open previews without stopping the service.
+The returned `proxyBase` is a private access link: anyone holding it can use it
+while it's valid. Keep it out of logs and public links.
 
 See [Web previews & screens](/guides/preview#add-a-service-started-elsewhere) for the UI flow.
+
+## Handle failures
+
+Check both HTTP status and the structured response. After an ambiguous create timeout, inspect the list before retrying.
+
+## Next steps
+
+Read [Build an API integration](/automation/integrations) and [Access model](/concepts/access).
