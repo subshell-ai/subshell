@@ -1061,6 +1061,21 @@ describe("PATCH /api/presets/:id (the enabled switch)", () => {
     expect((await presets.findById(id))?.enabled).toBe(1);
   });
 
+  it("an edit-share can toggle (200, and the flip lands on the row)", async () => {
+    // The other half of the share axis the view test above pins: `edit` is a
+    // real write grant here, not just terminal input. Same second account and
+    // the same replace helper the view case uses, one word changed.
+    const id = await seedAgentPreset("enable-editshare");
+    await shares.replace("agent", id, [{ granteeUserId: viewerId, permission: "edit" }], ownerId);
+    const res = await patchPreset(id, viewerCookie, { enabled: false });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { enabled: number; kind: string; access: string };
+    expect(body.enabled).toBe(0);
+    expect(body.kind).toBe("agent");
+    expect(body.access).toBe("edit");
+    expect((await presets.findById(id))?.enabled).toBe(0);
+  });
+
   it("a bearer token cannot toggle (403, the sign-in message); the row stays offered", async () => {
     const id = await seedAgentPreset("enable-bearer");
     const res = await bearerPatch(id, subshellKey, { enabled: false });
@@ -1099,6 +1114,71 @@ describe("PATCH /api/presets/:id (the enabled switch)", () => {
     expect((await sshPresets.findById(id))?.enabled).toBe(0);
   });
 
+  it("the SSH toggle refreshes updatedAt, like the agent half does", async () => {
+    // The SSH repo's update writes the row as given and stamps nothing, so
+    // without a stamp in the PATCH call the toggle would leave a stale
+    // updatedAt behind. Seeded with an old stamp so "it moved" is certain
+    // rather than a same-millisecond coin flip.
+    const id = crypto.randomUUID();
+    createdSshIds.push(id);
+    await sshPresets.create({
+      id,
+      userId: ownerId,
+      name: "enable-ssh-stamp",
+      description: null,
+      nodeId: null,
+      destination: "example.test:22",
+      alias: null,
+      resolutionAlias: null,
+      authentication: "connecting",
+      keyHome: null,
+      fingerprints: null,
+      forwards: null,
+      enabled: 1,
+      createdAt: "2020-01-01T00:00:00.000Z",
+      updatedAt: "2020-01-01T00:00:00.000Z",
+    });
+    expect((await patchPreset(id, ownerCookie, { enabled: false })).status).toBe(200);
+    const stored = await sshPresets.findById(id);
+    expect(stored?.enabled).toBe(0);
+    expect(stored?.updatedAt).not.toBe("2020-01-01T00:00:00.000Z");
+    expect(stored?.createdAt).toBe("2020-01-01T00:00:00.000Z");
+  });
+
+  it("an SSH preset toggles for an edit-grantee too (same DB-only shape)", async () => {
+    // The SSH half of the edit grant. Seeded straight into the table exactly
+    // like the owner test above (shares.replace takes the kind, and the grant
+    // cascades with the row), so no node fixture is needed for the write.
+    const now = new Date().toISOString();
+    const id = crypto.randomUUID();
+    createdSshIds.push(id);
+    await sshPresets.create({
+      id,
+      userId: ownerId,
+      name: "enable-ssh-editshare",
+      description: null,
+      nodeId: null,
+      destination: "example.test:22",
+      alias: null,
+      resolutionAlias: null,
+      authentication: "connecting",
+      keyHome: null,
+      fingerprints: null,
+      forwards: null,
+      enabled: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await shares.replace("ssh", id, [{ granteeUserId: viewerId, permission: "edit" }], ownerId);
+    const res = await patchPreset(id, viewerCookie, { enabled: false });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { kind: string; enabled: number; access: string };
+    expect(body.kind).toBe("ssh");
+    expect(body.enabled).toBe(0);
+    expect(body.access).toBe("edit");
+    expect((await sshPresets.findById(id))?.enabled).toBe(0);
+  });
+
   it("a non-boolean enabled is 400 (schema validation), and nothing lands", async () => {
     const id = await seedAgentPreset("enable-badtype");
     const res = await patchPreset(id, ownerCookie, { enabled: "yes" });
@@ -1109,5 +1189,16 @@ describe("PATCH /api/presets/:id (the enabled switch)", () => {
   it("an absent id answers 404 like a foreign one", async () => {
     const res = await patchPreset(crypto.randomUUID(), ownerCookie, { enabled: false });
     expect(res.status).toBe(404);
+  });
+
+  it("a foreign preset answers 404 to a PATCH, not 403, and its row is untouched", async () => {
+    // The 404 above walks the `if (!existing)` throw; a real foreign row gets
+    // PAST that check and out through the separate access === "none" throw,
+    // so it needs its own pin. Ownership stays invisible (404, never a 403
+    // that confirms the row exists), docs/security.md §3.
+    const id = await seedAgentPreset("enable-foreign");
+    const res = await patchPreset(id, viewerCookie, { enabled: false });
+    expect(res.status).toBe(404);
+    expect((await presets.findById(id))?.enabled).toBe(1);
   });
 });

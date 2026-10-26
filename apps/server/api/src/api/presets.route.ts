@@ -696,7 +696,14 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
         if (access === "view") throw new PresetError("forbidden", "You need edit access to change this preset.", 403);
         let updated: Awaited<ReturnType<typeof sshRepo.update>>;
         try {
-          updated = await sshRepo.update(params.id, { enabled: body.enabled ? 1 : 0 });
+          // The SSH repo writes the row exactly as given and stamps nothing
+          // (the agent repo's update rewrites updatedAt itself), so the toggle
+          // carries its own stamp here, in the same ISO spelling saveSshPreset
+          // passes on the PUT path, so both halves of the row stay coherent.
+          updated = await sshRepo.update(params.id, {
+            enabled: body.enabled ? 1 : 0,
+            updatedAt: new Date().toISOString(),
+          });
         } catch (err) {
           // Mirrors the agent branch's race 404: the SSH repo's update throws
           // NoResultError when the row vanishes between findById and the write,
