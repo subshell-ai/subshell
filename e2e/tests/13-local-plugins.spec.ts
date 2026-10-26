@@ -91,10 +91,9 @@ test.describe("instance plugins", () => {
       // once.)
       await page.goto("/new");
       await openAgentPicker(page.getByPlaceholder("Choose an agent"));
-      const piOption = page.getByRole("option", { name: "pi" });
+      const piOption = page.getByRole("option", { name: /^pi(?:\s|$)/ });
       await expect(piOption).toHaveCount(1); // greyed ≠ gone
-      // No `exact` name: a greyed option's accessible name carries its
-      // reason ("pi not installed on this server"). Only pi's name has "pi".
+      // Match pi's name plus its disabled reason without matching Oh My Pi.
       await expect(piOption).toBeDisabled();
       await expect(piOption.getByText("not installed on this server")).toBeVisible();
       await page.keyboard.press("Escape");
