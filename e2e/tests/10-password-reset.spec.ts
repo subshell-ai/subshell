@@ -27,6 +27,14 @@ test("an admin resets a password with masked matching fields and the user can si
     const submit = dialog.getByRole("button", { name: "Reset and sign out" });
     await expect(password).toHaveAttribute("type", "password");
     await expect(confirmation).toHaveAttribute("type", "password");
+    await password.fill("cancelled-password");
+    await confirmation.fill("cancelled-confirmation");
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.getByRole("button", { name: `Actions for ${email}`, exact: true }).click();
+    await page.getByRole("menuitem", { name: "Reset password", exact: true }).click();
+    await expect(password).toHaveValue("");
+    await expect(confirmation).toHaveValue("");
+    await expect(submit).toBeDisabled();
     await password.fill(newPassword);
     await expect(submit).toBeDisabled();
     await confirmation.fill("different-password");
@@ -35,6 +43,13 @@ test("an admin resets a password with masked matching fields and the user can si
     await submit.click();
     await expect(dialog.getByText(/Password changed\./)).toBeVisible();
     await expect(dialog.getByText(newPassword, { exact: true })).toHaveCount(0);
+    await dialog.getByRole("button", { name: "Done", exact: true }).click();
+    await page.getByRole("button", { name: `Actions for ${email}`, exact: true }).click();
+    await page.getByRole("menuitem", { name: "Reset password", exact: true }).click();
+    await expect(password).toHaveValue("");
+    await expect(confirmation).toHaveValue("");
+    await expect(submit).toBeDisabled();
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
     expect((await member.request.get("/api/subshells")).status()).toBe(401);
     const rejected = await member.request.post("/api/auth/sign-in/email", {
       headers: { origin: BASE_URL },

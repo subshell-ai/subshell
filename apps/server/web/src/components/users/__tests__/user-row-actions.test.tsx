@@ -296,6 +296,31 @@ describe("UserRowActions", () => {
     }
   });
 
+  it("clears both passwords and validation when cancelled and reopened", async () => {
+    const { patches, restore } = mockFetch(() => ok({ sessionsRevoked: 0 }));
+    try {
+      renderRow();
+      await pick("Reset password");
+      fireEvent.change(screen.getByLabelText("New password"), { target: { value: "cancelled-password" } });
+      fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "mismatch" } });
+      fireEvent.blur(screen.getByLabelText("Confirm new password"));
+      expect(screen.getByText("Passwords do not match.")).toBeDefined();
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      await pick("Reset password");
+      expect((screen.getByLabelText("New password") as HTMLInputElement).value).toBe("");
+      expect((screen.getByLabelText("Confirm new password") as HTMLInputElement).value).toBe("");
+      expect(screen.queryByText("Passwords do not match.")).toBeNull();
+      expect(
+        (screen.getByRole("button", { name: "Reset and sign out" }) as HTMLButtonElement).matches(
+          ":disabled, [aria-disabled=true]",
+        ),
+      ).toBe(true);
+      expect(patches).toEqual([]);
+    } finally {
+      restore();
+    }
+  });
+
   it("opens the password dialog from the menu, requires matching masked passwords and clears them after resetting", async () => {
     const { patches, restore } = mockFetch(() => ok({ sessionsRevoked: 3 }));
     try {

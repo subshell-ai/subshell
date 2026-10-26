@@ -144,7 +144,7 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
         method: "PATCH",
         body: JSON.stringify({ password }),
       });
-      resetForm.reset();
+      clearPasswordDraft();
       setConfirmationBlurred(false);
       setDone({ sessionsRevoked: res.sessionsRevoked });
       onChanged();
@@ -183,12 +183,19 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
     }
   }
 
+  function clearPasswordDraft(): void {
+    resetForm.reset();
+    // Reset clears validation too; recheck the empty draft so reopening
+    // cannot enable submission before either required field is filled.
+    void resetForm.validate("change");
+  }
+
   function closeReset(): void {
     if (busy) return;
     setResetOpen(false);
     // Cleared on close, not on open: the password must not survive in memory
     // (or in a re-opened dialog) after the admin has finished with it.
-    resetForm.reset();
+    clearPasswordDraft();
     setConfirmationBlurred(false);
     setDone(null);
     clearError();
