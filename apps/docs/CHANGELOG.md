@@ -1,5 +1,11 @@
 # @internal/docs
 
+## 0.11.1
+
+### Patch Changes
+
+- [#455](https://github.com/subshell-ai/subshell/pull/455) [`6cfd763`](https://github.com/subshell-ai/subshell/commit/6cfd763294a9c7094585bbe709376bb18b3c9fbd) Thanks [@theogravity](https://github.com/theogravity)! - Remove the Web previews & screens band under the terminal. The subshell header's preview icon is the one way in, everywhere including the standalone subshell page, where it now opens the preview as a workspace tab. The picker dialog carries the same rows, and the guide follows.
+
 ## 0.11.0
 
 ### Minor Changes
