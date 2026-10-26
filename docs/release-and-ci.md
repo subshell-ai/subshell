@@ -763,11 +763,15 @@ is `dev.subshell.display-helper`, shared by both desktop apps and distinct from
 the experimental probe.
 
 That signing runs during `cargo build`, before Tauri builds its own throwaway
-keychain at bundle time, so the desktop shards hand it a dedicated unlisted
-keychain through `APPLE_SIGNING_KEYCHAIN`: it is created, imported, and then
-taken back off the user's search list, which is what lets the build script name
-it explicitly while Tauri stays the sole owner of the shared identity lookup
-(tauri#11992).
+keychain at bundle time, so the desktop shards build a dedicated keychain for it
+and hand its path to the build script through `APPLE_SIGNING_KEYCHAIN`. The
+keychain stays on the user's search list for the build: `codesign` resolves a
+named identity through the search list, not the `--keychain` argument, so the
+keychain has to be listed for the identity to be found (run 40306776766 failed
+with "item could not be found" when it was created, imported, and then taken
+back off the list). It carries the same single identity as Tauri's later bundle
+keychain, so listing both is no ambiguity, and the step's trap restores the
+baseline search list when it ends.
 
 The helper has its own `Info.plist` version, which must increase when its code
 changes. Both apps reuse the newest installed helper; neither may downgrade it
