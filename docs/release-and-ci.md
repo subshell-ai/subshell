@@ -762,6 +762,13 @@ must not replace a user's permission-approved helper. The production bundle ID
 is `dev.subshell.display-helper`, shared by both desktop apps and distinct from
 the experimental probe.
 
+That signing runs during `cargo build`, before Tauri builds its own throwaway
+keychain at bundle time, so the desktop shards hand it a dedicated unlisted
+keychain through `APPLE_SIGNING_KEYCHAIN`: it is created, imported, and then
+taken back off the user's search list, which is what lets the build script name
+it explicitly while Tauri stays the sole owner of the shared identity lookup
+(tauri#11992).
+
 The helper has its own `Info.plist` version, which must increase when its code
 changes. Both apps reuse the newest installed helper; neither may downgrade it
 or replace it while running. The native installer checks code signatures,
