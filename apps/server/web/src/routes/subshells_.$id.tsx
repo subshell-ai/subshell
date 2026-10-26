@@ -10,6 +10,7 @@ import { DetailBackHeader } from "@/components/detail-back-header";
 import { EditableText } from "@/components/editable-text";
 import { HarnessSubagentTitle } from "@/components/harness-subagents";
 import { SubshellNotFoundCard } from "@/components/not-found-page";
+import { PreviewSection } from "@/components/preview/preview-section";
 import { InjectPromptDialog } from "@/components/prompts/inject-prompt-dialog";
 import { SplitSubshellButton } from "@/components/split-subshell-button";
 import { SshPaneLabels } from "@/components/ssh-pane-labels";
@@ -23,17 +24,20 @@ import { TerminalKeyBar } from "@/components/terminal-key-bar";
 import { TranscriptSearch } from "@/components/transcript-search";
 import { TrustIndicators } from "@/components/trust-indicators";
 import { TrustNoticeBanner } from "@/components/trust-notice-banner";
+import { VirtualDisplayIndicator } from "@/components/virtual-display-indicator";
 import { useClockTick } from "@/hooks/use-clock-tick";
 import { useHarnessSubagents } from "@/hooks/use-harness-subagents";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
 import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
 import { useNodes } from "@/hooks/use-nodes";
+import { useOpenVirtualDisplay } from "@/hooks/use-open-virtual-display";
 import { useSwipeOrderedSubshells } from "@/hooks/use-ordered-subshells";
 import { usePaneCopyMode } from "@/hooks/use-pane-copy-mode";
 import { usePresets } from "@/hooks/use-presets";
 import { useSubshellData } from "@/hooks/use-subshell-data";
 import { useSubshellLog } from "@/hooks/use-subshell-log";
 import { useSubshellMutations } from "@/hooks/use-subshell-mutations";
+import { useSubshellPreview } from "@/hooks/use-subshell-preview";
 import { useSwipeNav } from "@/hooks/use-swipe-nav";
 import { useTrustNotices } from "@/hooks/use-trust-notices";
 import { invalidateAfterRename } from "@/hooks/use-workspaces";
@@ -87,6 +91,9 @@ function SubshellPage() {
   // What this subshell discloses and to whom (foreign node / shared). The
   // icons render always; the banner shows once per exposure.
   const trustNotices = useTrustNotices(subshell);
+  // What the pane currently offers to watch (pane-preview spec §7): the
+  // info poll, the three verbs, and the watch protocol's two halves.
+  const preview = useSubshellPreview(id, subshell);
   // The diagnostics HUD toggle (spec 2026-09-21 Wave C): a per-DEVICE,
   // per-subshell preference (lib/pane-diagnostics-pref), offered by the
   // actions menu and honoured by the terminal's overlay column. Re-read on
@@ -117,6 +124,7 @@ function SubshellPage() {
   // a failed background refresh keeps the cache, and relabeling resolved
   // names on a blip is the bug that shape caused once.
   const { data: nodesData } = useNodes();
+  const openVirtualDisplay = useOpenVirtualDisplay(subshell);
   const nodeLabel = useMemo(() => {
     if (!subshell) return null;
     const nodeId = subshell.nodeId || FALLBACK_NODE_ID;
@@ -336,6 +344,7 @@ function SubshellPage() {
                     off (spec 2026-10-07 §5.4). The badge is the label; the
                     enforcement is the server's access downgrade the terminal
                     already honours. */}
+                <VirtualDisplayIndicator display={subshell?.virtualDisplay} onOpen={openVirtualDisplay} />
                 <SshPaneLabels subshell={subshell} nodeLabel={nodeLabel} />
                 {/* Permanent disclosure: whose machine this runs on, and who
                     else can read it. Never suppressible — see
@@ -435,6 +444,11 @@ function SubshellPage() {
         )}
         {showPill && <StatusPill tone="warning">reconnecting…</StatusPill>}
       </div>
+
+      {/* Under the terminal, in the same column (spec §7). Needs a settled
+          row: a not-found card already returned, and previewing a row that
+          does not resolve would only poll a 404. */}
+      {subshell && <PreviewSection paneId={id} access={subshell.access} subshell={subshell} preview={preview} />}
 
       {/* The accessory key bar is an input affordance — a `view` grantee
           (spec §4.1) gets the reading half only: no byte keys, no image

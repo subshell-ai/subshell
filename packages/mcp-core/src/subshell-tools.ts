@@ -1,5 +1,11 @@
-import type { NodeSystemSpecs } from "@internal/subshell-protocol";
-import { isPresetCrossCommReady, joinPresetPrompt, parsePresetPromptBlocks } from "@internal/subshell-protocol";
+import {
+  isPresetCrossCommReady,
+  joinPresetPrompt,
+  type NodeSystemSpecs,
+  parsePresetPromptBlocks,
+  parseStoredVirtualDisplayRequest,
+  type VirtualDisplayRequest,
+} from "@internal/subshell-protocol";
 import type { ToolDeps } from "./tools.js";
 
 /**
@@ -11,6 +17,8 @@ import type { ToolDeps } from "./tools.js";
 
 /** One subshell as the API sends it: the fields the projection reads. The server row carries more (UI fields an agent has no surface for: shares, pushes, backoff, bell); they are dropped, never passed through. */
 interface SubshellWireRow {
+  virtualDisplay?: string | null;
+  screen?: VirtualDisplayRequest | null;
   id: string;
   name: string;
   harnessId: string;
@@ -30,6 +38,8 @@ interface SubshellWireRow {
 
 /** The honest projection list_subshells and get_subshell answer with (spec 2026-09-25 MCP DX). */
 export interface SubshellView {
+  virtualDisplay?: string | null;
+  screen?: VirtualDisplayRequest | null;
   id: string;
   name: string;
   harnessId: string;
@@ -63,6 +73,8 @@ function toSubshellView(row: SubshellWireRow): SubshellView {
     alive: row.alive,
     workingDir: row.workingDir,
     preview: row.preview,
+    ...(row.virtualDisplay !== undefined ? { virtualDisplay: row.virtualDisplay } : {}),
+    ...(row.screen !== undefined ? { screen: row.screen } : {}),
     waitingSince: row.waitingSince,
     exitCode: row.exitCode,
     access: row.access,
@@ -73,6 +85,11 @@ function toSubshellView(row: SubshellWireRow): SubshellView {
 
 /** One node's harness entry as GET /api/nodes sends it (identity + the refusal reason). */
 interface NodeHarnessWireRow {
+  version?: string;
+  broken?: string;
+  restartRequired?: boolean;
+  checkedAt?: string;
+
   harnessId: string;
   name: string;
   installed: boolean;
@@ -81,6 +98,16 @@ interface NodeHarnessWireRow {
 
 /** One node as GET /api/nodes answers it, bearer edition: only the fields the projection reads. */
 interface NodeWireRow {
+  webPreviewsEnabled?: boolean;
+  virtualDisplayEnabled?: boolean;
+  virtualDisplayProvider?: string;
+  virtualDisplayProviders?: string[];
+  sshEnabled?: boolean;
+  sshWideForwards?: boolean;
+  protocolVersion?: number | null;
+  agentVersion?: string | null;
+  held?: { reason: string; agentVersion: string } | null;
+
   /** Operating system, CPU architecture, and reported host capacity. */
   os?: string | null;
   arch?: string | null;
@@ -103,6 +130,11 @@ interface NodeWireRow {
 
 /** One harness row as list_nodes answers it. */
 export interface NodeHarnessView {
+  version?: string;
+  broken?: string;
+  restartRequired?: boolean;
+  checkedAt?: string;
+
   harnessId: string;
   name: string;
   /** False until a node's first detection lands, or when the binary is missing. */
@@ -113,6 +145,16 @@ export interface NodeHarnessView {
 
 /** One machine, projected to what an agent launches with. */
 export interface NodeView {
+  webPreviewsEnabled?: boolean;
+  virtualDisplayEnabled?: boolean;
+  virtualDisplayProvider?: string;
+  virtualDisplayProviders?: string[];
+  sshEnabled?: boolean;
+  sshWideForwards?: boolean;
+  protocolVersion?: number | null;
+  agentVersion?: string | null;
+  held?: { reason: string; agentVersion: string } | null;
+
   /** Operating system, CPU architecture, and reported host capacity. */
   os?: string | null;
   arch?: string | null;
@@ -140,6 +182,7 @@ export interface NodeView {
 
 /** A preset row, or a harness-catalog entry (see `listPresets`). */
 export interface PresetRow {
+  screen?: VirtualDisplayRequest | null;
   /** User-authored guidance for choosing a preset. */
   crossCommNotes?: string | null;
   /** Saved launch defaults, when supplied by the server. */
@@ -168,6 +211,7 @@ export interface PresetRow {
 
 /** One preset row as GET /api/presets sends it (the launch trio rides every bearer row; envJson is redacted server-side). */
 interface PresetsWireRow {
+  screenConfig?: string | null;
   crossCommNotes?: string | null;
   id: string;
   name: string;
@@ -217,7 +261,7 @@ function nameMatches<T>(rows: T[], want: string, nameOf: (row: T) => string): T[
  * create_subshell's preset and presetless branches (and every future node
  * argument) answering a name, an id, and a tie identically.
  */
-async function resolveNodeId(deps: ToolDeps, want: string | undefined): Promise<string | undefined> {
+export async function resolveNodeId(deps: ToolDeps, want: string | undefined): Promise<string | undefined> {
   if (want === undefined) return undefined;
   // Same `{ nodes: [...] }` wrapper as listNodes (see the note there).
   const nodes = (await deps.api.req<{ nodes: NodeWireRow[] }>("/api/nodes")).nodes;
@@ -308,13 +352,14 @@ export async function listPresets(deps: ToolDeps): Promise<PresetRow[]> {
   // the catalog rows are harnesses, not presets, so they keep riding untouched.
   const presets = rows
     .filter((row) => row.enabled !== 0)
-    .map(({ id, name, harnessId, crossCommEnabled, crossCommNotes, nodeId, workingDir }) => ({
+    .map(({ id, name, harnessId, crossCommEnabled, crossCommNotes, nodeId, workingDir, screenConfig }) => ({
       id,
       name,
       harnessId,
       ...(crossCommNotes !== undefined ? { crossCommNotes } : {}),
       ...(nodeId !== undefined ? { nodeId } : {}),
       ...(workingDir !== undefined ? { workingDir } : {}),
+      ...(screenConfig ? { screen: parseStoredVirtualDisplayRequest(screenConfig) } : {}),
       crossCommReady: isPresetCrossCommReady({ crossCommEnabled, nodeId, workingDir }),
     }));
   const catalog = plugins
@@ -338,6 +383,15 @@ export async function listNodes(deps: ToolDeps): Promise<NodeView[]> {
     ...(r.os !== undefined ? { os: r.os } : {}),
     ...(r.arch !== undefined ? { arch: r.arch } : {}),
     ...(r.systemSpecs !== undefined ? { systemSpecs: r.systemSpecs } : {}),
+    ...(r.webPreviewsEnabled !== undefined ? { webPreviewsEnabled: r.webPreviewsEnabled } : {}),
+    ...(r.virtualDisplayProvider !== undefined ? { virtualDisplayProvider: r.virtualDisplayProvider } : {}),
+    ...(r.virtualDisplayProviders !== undefined ? { virtualDisplayProviders: r.virtualDisplayProviders } : {}),
+    ...(r.virtualDisplayEnabled !== undefined ? { virtualDisplayEnabled: r.virtualDisplayEnabled } : {}),
+    ...(r.sshEnabled !== undefined ? { sshEnabled: r.sshEnabled } : {}),
+    ...(r.sshWideForwards !== undefined ? { sshWideForwards: r.sshWideForwards } : {}),
+    ...(r.protocolVersion !== undefined ? { protocolVersion: r.protocolVersion } : {}),
+    ...(r.agentVersion !== undefined ? { agentVersion: r.agentVersion } : {}),
+    ...(r.held !== undefined ? { held: r.held } : {}),
     ...(r.capabilities !== undefined ? { capabilities: r.capabilities } : {}),
     ...(r.crossCommNotes !== undefined ? { crossCommNotes: r.crossCommNotes } : {}),
     ...(r.recommendedStartingDirs !== undefined ? { recommendedStartingDirs: r.recommendedStartingDirs } : {}),
@@ -346,6 +400,10 @@ export async function listNodes(deps: ToolDeps): Promise<NodeView[]> {
       harnessId: h.harnessId,
       name: h.name,
       installed: h.installed,
+      ...(h.version !== undefined ? { version: h.version } : {}),
+      ...(h.broken !== undefined ? { broken: h.broken } : {}),
+      ...(h.restartRequired !== undefined ? { restartRequired: h.restartRequired } : {}),
+      ...(h.checkedAt !== undefined ? { checkedAt: h.checkedAt } : {}),
       ...(h.reason !== undefined ? { reason: h.reason } : {}),
     })),
     inventoryStale: r.inventoryStale,
@@ -396,6 +454,7 @@ export async function createSubshell(
     /** "append" (default) or "replace"; only read when `prompt` is given. */
     promptMode?: "append" | "replace";
     node?: string;
+    screen?: VirtualDisplayRequest | null;
   },
 ): Promise<{ id: string; promptDelivered: boolean }> {
   // The presetless path (spec 2026-10-01 §1): the operator ruling kept the
@@ -447,6 +506,7 @@ export async function createSubshell(
         name: args.name,
         prompt: args.prompt,
         nodeId: presetlessNodeId,
+        ...(args.screen !== undefined ? { screen: args.screen } : {}),
       },
     });
     return { id: res.id, promptDelivered: res.promptDelivered };
@@ -517,6 +577,7 @@ export async function createSubshell(
       name: args.name,
       prompt,
       nodeId,
+      ...(args.screen !== undefined ? { screen: args.screen } : {}),
     },
   });
   return { id: res.id, promptDelivered: res.promptDelivered };

@@ -1,4 +1,8 @@
-import type { PresetPromptBlock } from "@internal/subshell-protocol";
+import {
+  type PresetPromptBlock,
+  parseStoredVirtualDisplayRequest,
+  type VirtualDisplayRequest,
+} from "@internal/subshell-protocol";
 import { type PromptBlock, presetBlocksToWire, wireToPresetBlocks } from "@/lib/prompt-stack";
 import type { PresetRow } from "@/types/preset";
 
@@ -27,6 +31,7 @@ export interface FlagRow {
  * happens only on submit.
  */
 export interface PresetFormValue {
+  screen?: VirtualDisplayRequest | null;
   /** Preserve stored fields this editor doesn't expose, and exact argv until flags change. */
   source?: {
     description: string | null;
@@ -119,6 +124,7 @@ export function presetFormFromRow(row: PresetRow): PresetFormValue {
       flags: tokens,
       flagRows: flagTokensToRows(tokens),
     },
+    screen: row.screenConfig ? parseStoredVirtualDisplayRequest(row.screenConfig) : undefined,
     harnessId: row.harnessId,
     name: row.name,
     envRows: envRows.length > 0 ? envRows : [{ key: "", value: "" }],
@@ -201,6 +207,7 @@ export function formToFlagTokens(rows: FlagRow[]): string[] {
 
 /** API body for `POST /api/presets` — see {@link toPresetPayload}. */
 export interface PresetPayload {
+  screen?: VirtualDisplayRequest | null;
   /** Harness the preset configures (the form's pre-check makes empty impossible) */
   harnessId: string;
   /** Preset name; blank input falls back to "Untitled" */
@@ -247,6 +254,7 @@ export function toPresetPayload(form: PresetFormValue): PresetPayload {
     restartOnExit: form.restartOnExit,
     crossCommEnabled: form.crossCommEnabled,
     crossCommNotes: form.crossCommNotes ?? "",
+    ...(form.screen !== undefined ? { screen: form.screen } : {}),
     nodeId: form.nodeId,
     workingDir: form.workingDir.trim() || null,
     promptBlocks: presetBlocksToWire(form.promptBlocks),
@@ -255,6 +263,7 @@ export function toPresetPayload(form: PresetFormValue): PresetPayload {
 
 /** API body for `PUT /api/presets/:id` — see {@link toPresetUpdatePayload}. */
 export interface PresetUpdatePayload {
+  screen?: VirtualDisplayRequest | null;
   /** Preset name; blank input falls back to "Untitled" */
   name: string;
   /** Env vars, empty-key rows dropped */
@@ -300,6 +309,7 @@ export function toPresetUpdatePayload(form: PresetFormValue): PresetUpdatePayloa
     // The trio rides EVERY update (explicit nulls): the editor is the whole
     // truth about the preset, and "absent means untouched" would make a
     // cleared field impossible to save away.
+    ...(form.screen !== undefined ? { screen: form.screen } : {}),
     nodeId: form.nodeId,
     workingDir: form.workingDir.trim() || null,
     promptBlocks: presetBlocksToWire(form.promptBlocks),

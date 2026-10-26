@@ -1,0 +1,40 @@
+import { AppWindow, Globe } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+
+export function VirtualDisplayIndicator({
+  display,
+  compact = false,
+  onOpen,
+}: {
+  display?: string | null;
+  compact?: boolean;
+  onOpen?: () => void;
+}) {
+  if (!display && (compact || !onOpen)) return null;
+  const label = `Virtual display ${display}`;
+  if (compact)
+    return (
+      <span role="img" aria-label={label} className="inline-flex shrink-0 text-primary">
+        <AppWindow className="size-3.5" aria-hidden="true" />
+      </span>
+    );
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        aria-label="Open web preview or screen"
+        aria-haspopup="dialog"
+        onClick={onOpen}
+        className="inline-flex shrink-0 items-center text-primary"
+      >
+        {display ? (
+          <AppWindow className="size-3.5" aria-hidden="true" />
+        ) : (
+          <Globe className="size-3.5" aria-hidden="true" />
+        )}
+      </TooltipTrigger>
+      <TooltipContent>
+        {display ? "Virtual display enabled - click to activate" : "Open web preview or screen"}
+      </TooltipContent>
+    </Tooltip>
+  );
+}

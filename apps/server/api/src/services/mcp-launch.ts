@@ -20,6 +20,9 @@ import type { NodeFacts } from "@/services/nodes/node-registry.js";
 /**
  * The SUBSHELL_* env the `subshell mcp` child reads (contract: `env.ts` in
  * `@internal/mcp-core`).
+ * The Codex harness filters a child's environment and forwards an explicit
+ * name list (`MCP_ENV_VARS` in `@subshell-ai/plugin-codex`), so a new key here
+ * must join that list too.
  * Single producer so the create path and the auto-restart path can never
  * drift apart on the variables the child depends on. (HOW the command itself
  * is found lives in `mcp-resolve.ts` — the pure, side-effect-free half.)

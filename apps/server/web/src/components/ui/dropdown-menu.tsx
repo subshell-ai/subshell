@@ -14,14 +14,19 @@ import type { JSX } from "react";
  * were dropped, not ported — no consumer used them.
  */
 export const DropdownMenu = Menu.Root;
+export const DropdownMenuGroup = Menu.Group;
 export const DropdownMenuTrigger = Menu.Trigger;
 
 export interface DropdownMenuContentProps
   extends Pick<Menu.Positioner.Props, "side" | "sideOffset" | "align" | "alignOffset" | "anchor">,
-    Menu.Popup.Props {}
+    Menu.Popup.Props {
+  /** A fullscreen viewer must contain its menus to keep them in the browser's top layer. */
+  container?: Menu.Portal.Props["container"];
+}
 
 export function DropdownMenuContent({
   className,
+  container,
   sideOffset = 4,
   align,
   alignOffset,
@@ -30,7 +35,7 @@ export function DropdownMenuContent({
   ...props
 }: DropdownMenuContentProps): JSX.Element {
   return (
-    <Menu.Portal>
+    <Menu.Portal container={container}>
       {/* Declared, destructured, forwarded to the Positioner — Base UI
           requires positioning props on this node; letting them fall through
           onto the Popup silently breaks anchoring. `anchor` likewise: pass a
@@ -51,7 +56,17 @@ export function DropdownMenuContent({
             // focus ring around the whole menu box. The keyboard affordance
             // is the item's own data-highlighted background below — the box
             // ring is noise, the same call the item rows already make.
-            "min-w-[12rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground opacity-100 shadow-md outline-none transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0",
+            //
+            // max-h + overflow-y-auto clamp the popup to the viewport and let
+            // it scroll within that room — the same available-height pattern
+            // the Select and Combobox popups use. Without it a long menu (the
+            // subshell actions menu on a phone-shaped window) runs past the
+            // screen and its last items are unreachable, and a box taller
+            // than the viewport cannot flip either. The popup is the scroll
+            // container on purpose: Base UI's menu scrolls the highlighted
+            // item into view inside its popup, so keyboard nav works in a
+            // clamped menu too.
+            "max-h-[var(--available-height)] min-w-[12rem] overflow-y-auto overscroll-contain rounded-md border bg-popover p-1 text-popover-foreground opacity-100 shadow-md outline-none transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0",
             className,
           )}
           {...props}
@@ -73,13 +88,8 @@ export function DropdownMenuItem({ className, onSelect, onClick, ...props }: Dro
     <Menu.Item
       data-slot="menu-item"
       className={cn(
-        // min-h-9 (36px) + py-1.5 — the same row grammar as the Select and
-        // combobox lists — keeps every entry a real touch target (the split
-        // menu is the path a touch or keyboard user relies on entirely, since
-        // drag never reaches them) without spending half a phone screen on a
-        // seven-item menu (operator call 2026-09-24; still well above the
-        // WCAG 2.5.8 24px floor).
-        "relative flex min-h-9 cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50",
+        // Keep action menus compact while retaining a 28px pointer target.
+        "relative flex min-h-7 cursor-default select-none items-center gap-2 rounded-sm px-2 py-0.5 text-detail outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50",
         className,
       )}
       onClick={(event) => {

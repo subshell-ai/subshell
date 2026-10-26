@@ -2,6 +2,8 @@ import { Elysia, t } from "elysia";
 import { authGuard, HttpError, requirePerm } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
+import { getPreviewBroker } from "@/services/preview-broker.js";
+import { logger } from "@/utils/logger.js";
 
 const ExitBodySchema = t.Object({
   exitCode: t.Optional(
@@ -49,6 +51,22 @@ export const subshellExitRoute = new Elysia()
         throw new HttpError(403, "Only a subshell's own key may report its exit");
       }
       await ctx.services.subshells.reportExit(params.id, body.exitCode ?? null);
+      // The pane is gone, so everything hanging off it goes too: every
+      // forward lane, the screencast bridge, and the display-audit fact
+      // (the broker files the display close through its own bookkeeping,
+      // so the route never calls `onDisplayClosed` beside it). Best-effort
+      // by design: the death row is already written, and a preview that
+      // refuses to tear down must not turn the pane's own report into a 500.
+      // This is the FAST path, not the only close: the shared death
+      // transition (`#applyDeath`, where the sweep and the exit census
+      // land) belts the same `closeForPane` for a dead pane, and the node's
+      // link-drop pass still catches a whole node. The broker's close is
+      // idempotent, so a fast path racing a belt audits one close, not two.
+      try {
+        await getPreviewBroker().closeForPane(params.id, "pane-gone");
+      } catch (err) {
+        logger.warn(`preview teardown after exit report for ${params.id} failed: ${String(err)}`);
+      }
       return { ok: true } as const;
     },
     {

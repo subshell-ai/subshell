@@ -653,6 +653,13 @@ describe("NewSubshellForm preset row", () => {
     }
   });
 
+  it("blocks a requested display until its selected provider is ready", () => {
+    const form = { harnessId: "terminal", nodeId: "local", workingDir: "/tmp", presetId: null, promptBlocks: [] };
+    expect(canSubmit({ ...form, virtualDisplay: true, displayUnavailable: "This provider is disabled." })).toBe(false);
+    expect(canSubmit({ ...form, virtualDisplay: false, displayUnavailable: "This provider is disabled." })).toBe(true);
+    expect(canSubmit({ ...form, virtualDisplay: true })).toBe(true);
+  });
+
   it("canSubmit: a checked Save-as-preset without a name never submits", () => {
     const base = { harnessId: "claude-code", presetId: null, workingDir: "/x", nodeId: "local", promptBlocks: [] };
     expect(canSubmit({ ...base })).toBe(true);
@@ -738,7 +745,7 @@ describe("NewSubshellForm honest hints", () => {
     }
   });
 
-  it("chosen agent runnable on no visible node → the mirror hint", async () => {
+  it("clears an agent that cannot run on the chosen node and explains the correction", async () => {
     const restore = mockFetch([ENROLLED_INCOMPAT], [CLAUDE]);
     try {
       await renderForm({
@@ -748,7 +755,7 @@ describe("NewSubshellForm honest hints", () => {
         nodeId: "a3",
         promptBlocks: [],
       });
-      expect(await screen.findByText(/No available node can run Claude Code/)).toBeDefined();
+      expect(await screen.findByText(/Claude Code can.t run on studio|Claude Code can.t run on node/)).toBeDefined();
     } finally {
       restore();
     }
@@ -888,7 +895,7 @@ describe("NewSubshellForm prior-launch defaults", () => {
     };
   }
 
-  it("opens on the newest row's full launch: node, dir, agent AND preset", async () => {
+  it("uses the newest node, directory and agent without restoring its preset", async () => {
     const PI_NODE = node({ id: "a1", name: "mac mini", harnesses: [PI_ON] });
     const restore = mockFetch(
       [LOCAL, PI_NODE],
@@ -900,7 +907,8 @@ describe("NewSubshellForm prior-launch defaults", () => {
     try {
       const { latest } = await renderForm();
       await waitFor(() => expect(latest().harnessId).toBe("pi"));
-      expect(latest().presetId).toBe("p-pi");
+      expect(latest().presetId).toBeNull();
+      expect(screen.queryByText(/Settings copied from/)).toBeNull();
       expect(latest().nodeId).toBe("a1");
       // The copied directory outranks the recents seed — the row's own dir is
       // the answer, not the node's generic most-recent path.
@@ -1373,7 +1381,7 @@ describe("preset prefill of the launch fields (spec 2026-09-29)", () => {
   it("a preset fills the agent it belongs to (the row leads the form)", async () => {
     const pi = plugin({ id: "pi", name: "Pi", type: "agent-harness" });
     const restore = mockFetch(
-      [LOCAL, ENROLLED_ONLINE],
+      [{ ...LOCAL, harnesses: [CLAUDE_ON, { harnessId: "pi", name: "Pi", installed: true }] }, ENROLLED_ONLINE],
       [CLAUDE, pi],
       [preset({ id: "p-pi", harnessId: "pi", name: "Pi one" })],
     );

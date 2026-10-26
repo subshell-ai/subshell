@@ -14,6 +14,19 @@ import {
   validateGenericPreset,
 } from "@subshell-ai/plugin-api";
 
+// Codex filters the MCP child's environment. Forward names only so pane
+// credentials are resolved at launch, never written into config or argv.
+// SUBSHELL_SERVER_DATA_DIR is the one name no pane bakes; it's here for the
+// data-dir fallback mcp-core reads when Codex runs outside Subshell.
+const MCP_ENV_VARS = [
+  "SUBSHELL_API_KEY",
+  "SUBSHELL_BASE_URL",
+  "SUBSHELL_ID",
+  "SUBSHELL_NAME",
+  "SUBSHELL_DATA_DIR",
+  "SUBSHELL_SERVER_DATA_DIR",
+];
+
 /** Known Codex settings, applied as per-invocation CLI flags. */
 const CODEX_SETTINGS_FIELDS: SettingsField[] = [
   {
@@ -85,7 +98,8 @@ function tomlStringArray(values: string[]): string {
  * (a user may put it in their own preset flags — that is their call).
  *
  * subshell MCP is wired automatically WITHOUT touching user state: every
- * launch carries `-c mcp_servers.subshell.command=… -c mcp_servers.subshell.args=…`
+ * launch carries `-c mcp_servers.subshell.command=…`,
+ * `-c mcp_servers.subshell.args=…` and `-c mcp_servers.subshell.env_vars=…`
  * config overrides (dotted path, value parsed as TOML — verified against the
  * real binary), which codex merges over ~/.codex/config.toml for that run
  * only. The subagent monitoring hooks ride the same mechanism as
@@ -93,9 +107,9 @@ function tomlStringArray(values: string[]): string {
  * `hooks.*` table is REPLACED for the duration of a subshell-launched run —
  * the documented limitation, same shape as claude-code's; nothing on disk
  * changes. No config file the harness must read, no CODEX_HOME redirect (that
- * dir holds the user's auth.json). The spawned `subshell mcp` child inherits
- * the subshell's baked SUBSHELL_* pane env for its credential, like every
- * harness.
+ * dir holds the user's auth.json). The spawned `subshell mcp` child needs the
+ * pane's SUBSHELL_* identity, and Codex filters a child's environment, so the
+ * env_vars override re-forwards those names (never values) at each launch.
  * (Flags/values verified against @openai/codex 2026-09 help output.)
  *
  * Identity, detection and install guidance live in this package's
@@ -162,6 +176,7 @@ const createPlugin: HarnessPluginFactory = (host: PluginHost): SubshellPlugin =>
       `[mcp_servers.${MCP_SERVER_NAME}]`,
       `command = ${tomlString(launch.command)}`,
       `args = ${tomlStringArray(launch.args)}`,
+      `env_vars = ${tomlStringArray(MCP_ENV_VARS)}`,
       "",
     ].join("\n");
     return {
@@ -171,11 +186,12 @@ const createPlugin: HarnessPluginFactory = (host: PluginHost): SubshellPlugin =>
         `mcp_servers.${MCP_SERVER_NAME}.command=${tomlString(launch.command)}`,
         "-c",
         `mcp_servers.${MCP_SERVER_NAME}.args=${tomlStringArray(launch.args)}`,
+        "-c",
+        `mcp_servers.${MCP_SERVER_NAME}.env_vars=${tomlStringArray(MCP_ENV_VARS)}`,
       ],
       // No wiring env on purpose (contrast opencode's OPENCODE_CONFIG): the -c
       // argv IS the wiring, and CODEX_HOME must stay on the user's dir (auth).
-      // The spawned `subshell mcp` child inherits the SUBSHELL_* credentials
-      // the backend bakes into the pane regardless of this registration.
+      // env_vars explicitly forwards the pane identity to the MCP child.
       env: undefined,
     };
   },

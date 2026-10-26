@@ -657,24 +657,29 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
     const [row] = await listNodes(deps);
     expect(Object.keys(row).sort()).toEqual([
       "access",
+      "agentVersion",
       "arch",
       "canLaunch",
       "capabilities",
       "harnesses",
+      "held",
       "id",
       "inventoryStale",
       "kind",
       "maintenance",
       "name",
       "os",
+      "protocolVersion",
       "status",
     ]);
     // `maintenance` is on NodeViewSchema (checked there), so it is required,
     // not optional, in the projection.
     expect(row.maintenance).toBe(false);
     expect(row.inventoryStale).toBe(true);
-    // Harness entries keep identity + the refusal reason, drop the version.
-    expect(row.harnesses).toEqual([{ harnessId: "claude-code", name: "Claude Code", installed: true }]);
+    // Harness entries retain version and health alongside identity.
+    expect(row.harnesses).toEqual([
+      { harnessId: "claude-code", name: "Claude Code", installed: true, version: "2.0.1" },
+    ]);
     const withReason = await listNodes(
       (
         await depsFor(() => ({
@@ -689,11 +694,11 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
     expect(withReason[0].harnesses).toEqual([
       { harnessId: "codex", name: "Codex", installed: false, reason: "not-on-path" },
     ]);
-    // Machine noise never rides along: hostname, paths, versions, held state.
+    // Hostnames and directory policy remain outside the launch projection.
     expect(JSON.stringify(row)).not.toContain("buildbox");
     expect(JSON.stringify(row)).not.toContain("/srv/secret");
-    expect(JSON.stringify(row)).not.toContain("1.2.3");
-    expect(JSON.stringify(row)).not.toContain("2.0.1");
+    expect(row.agentVersion).toBe("1.2.3");
+    expect(row.harnesses[0].version).toBe("2.0.1");
   });
 
   it("create_subshell resolves node by exact id, then exact name, then insensitive name", async () => {

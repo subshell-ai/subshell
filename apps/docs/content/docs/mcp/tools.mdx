@@ -19,7 +19,11 @@ Successful MCP responses contain JSON encoded in a text content block. Failures 
 | --- | --- |
 | `list_subshells` | List visible sessions and output previews. |
 | `get_subshell` | Inspect one session. |
-| `list_nodes` | List owned machines and launch availability. |
+| `list_nodes` | List owned machines, harness health, and SSH and Web previews & screens settings. |
+| `get_node` | Inspect an owned machine and check display prerequisites. |
+| `list_subshell_views` | Discover a subshell's apps, browser, and virtual display. |
+| `open_subshell_view` | Create a private app or screen connection. |
+| `watch_subshell_browser` | Start or stop browser screencast interest. |
 | `list_presets` | List saved agent presets and harness catalog entries. |
 | `create_subshell` | Launch from a saved preset, or open a plain terminal without one. |
 | `restart_subshell` | Revive a session in place. |
@@ -64,7 +68,37 @@ Arguments: `{}`. Returns an array of owned nodes with `id`, `name`, `kind`, `sta
 
 `crossCommNotes` contains user-authored context about the node. `recommendedStartingDirs` lists suggested absolute paths. These suggestions don't grant or restrict directory access; launch permissions still apply. Read the guidance before choosing a node or working directory.
 
-Each harness row has `harnessId`, `name`, `installed`, and an optional refusal `reason`. `inventoryStale` identifies cached detection. Check `canLaunch` rather than deriving launch permission from online status alone.
+Each harness row has `harnessId`, `name`, and `installed`, plus `version`, refusal `reason`, `broken`, `restartRequired`, and `checkedAt` when reported. A `broken` plugin can't launch even if its binary is installed. `restartRequired` concerns the server's loaded plugin, not the harness binary. `inventoryStale` identifies cached detection. Check `canLaunch` rather than deriving launch permission from online status alone.
+
+`webPreviewsEnabled` reports permission for web previews; `virtualDisplayEnabled` reports permission for virtual displays. `virtualDisplayProviders` lists enabled provider IDs, and `virtualDisplayProvider` names the default. These fields, `sshEnabled`, and `sshWideForwards` report configuration, not live readiness. `protocolVersion`, `agentVersion`, and `held` describe the daemon connection when reported. Missing fields from older servers mean unknown, not disabled. Subshell SSH still requires a browser session; these tools don't grant SSH access or change node settings.
+
+## get_node
+
+Pass `{ "node": "NODE_ID" }`, or an unambiguous node name. Returns the same fields as `list_nodes`, plus `virtualDisplay` readiness: `ready`, `missing-programs`, `unsupported`, or `unavailable`. A completed probe includes `supported`, unmet `missing` requirements, the checked `provider`, and `enabled` for that provider’s node permission. Pass `provider` to check a specific choice; otherwise the node default is checked. Pass `check_display: false` to skip the live probe and return `unchecked`.
+
+For BetterDisplay on macOS, `enabled` describes node policy, not local helper
+consent. `missing-programs` can include a disabled helper or missing macOS
+permissions as well as missing software; read the `missing` list. MCP cannot
+enable the helper or grant those permissions. Follow
+[macOS helper setup](/nodes/manage#macos-display-helper) on that node.
+
+A ready display check means its requirements are met. Virtual displays and the chosen provider must also be enabled, the node must permit launches, and launch performs its own checks. Only the token owner's enrolled nodes are available; shares, admin status, and the server's built-in node don't widen this access.
+
+## list_subshell_views
+
+Pass `{ "subshell_id": "SUBSHELL_ID" }`. Returns discovered `ports`, `cdpPort`, `screen`, `nodeEnabled`, and availability reasons when present. A subshell's `virtualDisplay` field in `list_subshells` and `get_subshell` also identifies its allocated display when reported.
+
+## open_subshell_view
+
+For an app, pass `{ "subshell_id": "SUBSHELL_ID", "kind": "app", "port": 3000 }`. For a virtual display, pass `{ "subshell_id": "SUBSHELL_ID", "kind": "screen" }`; the tool uses that display's actual port.
+
+Returns `proxyBase`, a private capability path relative to the server URL, plus `kind`, `port`, and usage guidance. An app path serves HTTP; a screen path carries the viewer's WebSocket protocol and isn't a web page. The call doesn't launch a program or open a workspace tab. Use the dashboard's Web previews & screens picker to open tabs.
+
+Treat the complete link as a secret. Anyone holding it can use the connection while it's valid, and closing a tab doesn't revoke it. Delete temporary helper subshells when finished; see [Web previews & screens](/guides/preview#browser-compatibility-and-private-links).
+
+## watch_subshell_browser
+
+Pass `{ "subshell_id": "SUBSHELL_ID", "on": true }`, optionally with a CDP `port`, to start browser screencast interest. Pass `on: false` to release it when finished. Frames go to authorized dashboard live subscriptions, not the MCP response. This doesn't provide mouse or keyboard input. The server applies the same ownership, Web previews & screens enablement, and port checks as it does for dashboard requests.
 
 ## list_presets
 
@@ -86,6 +120,7 @@ The tool has two shapes. From a preset (the default) it launches saved settings;
 | `node` | Optional string | Node ID or unambiguous display name override. |
 | `working_dir` | Optional string | Absolute directory on that node. Omitted, a presetless terminal starts in the node's home. |
 | `prompt` | Optional string | Task text added to or replacing the preset prompt, or typed once a presetless shell settles. |
+| `screen` | Optional object or null | Allocate a virtual display with integer `width` and `height`, each 320 to 4096, and an optional enabled `provider` ID. Omitting the provider uses the node default. Omitting `screen` inherits the preset’s display; `null` opts out. Check `get_node` first. This doesn’t enable providers or install programs. |
 | `prompt_mode` | Optional enum | `append` by default, or `replace`. Needs a preset. |
 
 Returns `{ id, promptDelivered }`. Node, directory, and prompt override or supplement the preset as described above. The final composed prompt is limited to 20,000 characters.

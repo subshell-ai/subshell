@@ -1,4 +1,5 @@
 import { Elysia } from "elysia";
+import { browserWatchRoute } from "@/api/subshells/browser-watch.route.js";
 import { createSubshellRoute } from "@/api/subshells/create-subshell.route.js";
 import { deleteSubshellRoute } from "@/api/subshells/delete-subshell.route.js";
 import { execSubshellRoute } from "@/api/subshells/exec-subshell.route.js";
@@ -16,6 +17,9 @@ import { summarySubshellRoute } from "@/api/subshells/summary-subshell.route.js"
 import { terminateSubshellRoute } from "@/api/subshells/terminate-subshell.route.js";
 import { updateSubshellNameRoute } from "@/api/subshells/update-subshell-name.route.js";
 import { updateSubshellNotifyRoute } from "@/api/subshells/update-subshell-notify.route.js";
+import { viewsInfoRoute } from "@/api/subshells/views-info.route.js";
+import { viewsOpenRoute } from "@/api/subshells/views-open.route.js";
+import { servicesRoute } from "./services.route.js";
 import { subshellSubagentsRoute } from "./subshell-subagents.route.js";
 
 /**
@@ -31,6 +35,10 @@ export const subshellRoutes = new Elysia({ prefix: "/api/subshells" }).use([
   summarySubshellRoute,
   getSubshellRoute,
   getSubshellLogRoute,
+  viewsInfoRoute,
+  viewsOpenRoute,
+  servicesRoute,
+  browserWatchRoute,
   subshellSharesRoutes,
   updateSubshellNotifyRoute,
   subshellAttentionRoute,

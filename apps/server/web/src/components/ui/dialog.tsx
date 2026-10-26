@@ -33,8 +33,8 @@ export function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.
 /**
  * The scroll cap lives on an INNER wrapper, not the Popup: a scrolling Popup
  * would scroll the absolutely-positioned close button out of view with the
- * content. The wrapper's negative margin absorbs the Popup's `p-6` so the
- * scroll area spans edge-to-edge, and its own `p-6` restores the padding —
+ * content. The wrapper's negative margins absorb the Popup's padding so the
+ * scroll area spans edge-to-edge, and its own padding restores the inset —
  * the Popup itself never scrolls, so the X stays pinned.
  *
  * Both grid columns are `minmax(0,1fr)` (and the wrapper `min-w-0`). A grid
@@ -51,16 +51,16 @@ export function DialogContent({ className, children, ...props }: DialogPrimitive
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "fixed top-[50%] left-[50%] z-50 grid w-[calc(100vw-1.5rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] grid-cols-[minmax(0,1fr)] gap-4 border bg-card p-6 opacity-100 shadow-lg transition-[opacity,scale] duration-150 data-ending-style:scale-95 data-starting-style:scale-95 data-ending-style:opacity-0 data-starting-style:opacity-0 sm:w-full sm:rounded-lg",
+          "fixed top-[50%] left-[50%] z-50 grid w-[calc(100vw-1.5rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] grid-cols-[minmax(0,1fr)] gap-4 border bg-card p-4.5 opacity-100 shadow-lg transition-[opacity,scale] duration-150 data-ending-style:scale-95 data-starting-style:scale-95 data-ending-style:opacity-0 data-starting-style:opacity-0 sm:w-full sm:rounded-lg",
           className,
         )}
         {...props}
       >
-        <div className="-m-6 grid max-h-[85dvh] min-w-0 grid-cols-[minmax(0,1fr)] gap-4 overflow-y-auto p-6">
+        <div className="-m-4.5 grid max-h-[85dvh] min-w-0 grid-cols-[minmax(0,1fr)] gap-4 overflow-y-auto p-4.5">
           {children}
         </div>
         <DialogPrimitive.Close
-          className="absolute top-4 right-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring"
+          className="absolute top-4.5 right-4.5 inline-flex size-4.5 items-center justify-center rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring"
           aria-label="Close"
         >
           <X className="h-4 w-4" />
@@ -91,22 +91,35 @@ export function DialogHeader({ className, ...props }: HTMLAttributes<HTMLDivElem
   // breakpoint, but that tests the WINDOW, not the dialog — page zoom or a
   // narrow shell put a comfortably wide dialog back in its centered branch
   // (same trap as the footer, operator report 2026-09-25).
-  return <div className={cn("flex flex-col space-y-1.5 text-left", className)} {...props} />;
+  return <div className={cn("flex flex-col space-y-1.5 pr-8 text-left", className)} {...props} />;
 }
 
-export function DialogFooter({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
+export function DialogFooter({
+  className,
+  sticky = false,
+  ...props
+}: HTMLAttributes<HTMLDivElement> & { sticky?: boolean }) {
   // Always one row, right-aligned. The shadcn stock stacks the actions on
   // narrow VIEWPORTS (`flex-col-reverse sm:flex-row`), which read as a bug
   // inside a dialog that is comfortably wide on screen: the breakpoint tests
   // the window, not the dialog (operator report, 2026-09-25).
-  return <div className={cn("flex flex-row justify-end gap-2", className)} {...props} />;
+  return (
+    <div
+      className={cn(
+        "flex flex-row justify-end gap-2",
+        sticky && "sticky -bottom-4.5 z-10 -mx-4.5 -mb-4.5 border-t bg-card p-4.5",
+        className,
+      )}
+      {...props}
+    />
+  );
 }
 
 export function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn("font-strong text-heading leading-none tracking-tight", className)}
+      className={cn("font-strong text-dialog-title leading-none tracking-tight", className)}
       {...props}
     />
   );

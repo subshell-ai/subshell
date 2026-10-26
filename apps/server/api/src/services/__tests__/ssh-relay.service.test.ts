@@ -704,10 +704,10 @@ describe("sendRelayFrameOverNodeSocket (the plane's throw-on-drop glue, acceptan
 });
 
 describe("grammar/version posture", () => {
-  it("relays a protocol-22-only world: the constant is pinned here as the broker's precondition", () => {
+  it("relays a protocol-24 world: the constant is pinned here as the broker's precondition", () => {
     // The handler refuses every relay frame from a pre-18 agent upstream;
     // this tripwire documents the dependency at the broker.
-    expect(NODE_PROTOCOL_VERSION).toBe(22);
+    expect(NODE_PROTOCOL_VERSION).toBe(24);
   });
 });
 

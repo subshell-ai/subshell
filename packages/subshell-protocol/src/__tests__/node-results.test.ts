@@ -5,6 +5,7 @@ import {
   MAX_MANIFEST_PAGE_ENTRIES,
   NODE_CLOSE_SUPERSEDED,
   NODE_CLOSE_UPDATE_REQUIRED,
+  type NodePreviewPortWire,
   parseNodeArchiveCreateResult,
   parseNodeArchiveExtractResult,
   parseNodeCaptureResult,
@@ -13,10 +14,14 @@ import {
   parseNodeEvent,
   parseNodeFileReadResult,
   parseNodeFsLsResult,
+  parseNodeLaunchResult,
   parseNodeLogReadResult,
   parseNodePaneCursorResult,
   parseNodePaneSizeResult,
   parseNodePathExistsResult,
+  parseNodePreviewCloseResult,
+  parseNodePreviewOpenResult,
+  parseNodePreviewPortsResult,
   parseNodeProbeEntries,
   parseNodePromptDeliver,
   parseNodeStatDirResult,
@@ -320,4 +325,113 @@ describe("detect result contract (inversion spec §4)", () => {
       expect(parseNodeTreeManifestPage(bad)).toBeNull();
     }
   });
+});
+
+// Protocol 23 (pane-preview spec 2026-10-21 §4). Imported through the barrel:
+// these are the shapes Task 4's node answers and the plane reads, and both
+// ends validate them, so a drift here is a node that cannot report.
+describe("preview results (protocol 23)", () => {
+  const REF = "a".repeat(32);
+
+  it("preview_open answers by kind: a pending forward, a subscriber count for a screencast", () => {
+    expect(parseNodePreviewOpenResult({ ref: REF, pending: true })).toEqual({ ref: REF, pending: true });
+    expect(parseNodePreviewOpenResult({ ref: REF, subscribers: 2 })).toEqual({ ref: REF, subscribers: 2 });
+    expect(parseNodePreviewOpenResult({ ref: REF, subscribers: 0 })).toEqual({ ref: REF, subscribers: 0 }); // first, nobody else watching yet
+    expect(parseNodePreviewOpenResult({ ref: REF, pending: false })).toBeNull(); // no such answer exists
+    expect(parseNodePreviewOpenResult({ ref: REF })).toBeNull(); // neither shape
+    expect(parseNodePreviewOpenResult({ ref: "short", pending: true })).toBeNull();
+    expect(parseNodePreviewOpenResult({ ref: REF, subscribers: 1.5 })).toBeNull();
+    expect(parseNodePreviewOpenResult(null)).toBeNull();
+  });
+
+  it("preview_close says whether a lane was actually closed", () => {
+    expect(parseNodePreviewCloseResult({ ref: REF, closed: true })).toEqual({ ref: REF, closed: true });
+    expect(parseNodePreviewCloseResult({ ref: REF, closed: false })).toEqual({ ref: REF, closed: false }); // already gone is still an answer
+    expect(parseNodePreviewCloseResult({ ref: REF })).toBeNull();
+    expect(parseNodePreviewCloseResult({ closed: true })).toBeNull();
+    expect(parseNodePreviewCloseResult({ ref: REF, closed: "yes" })).toBeNull();
+  });
+
+  it("ports_get reports ports, a nullable CDP hint, a nullable screen, and an optional screenLost", () => {
+    const ports: NodePreviewPortWire[] = [{ proto: "tcp", port: 5173, pid: 42 }];
+    expect(parseNodePreviewPortsResult({ ports, cdpPort: null, screen: null })).toEqual({
+      ports,
+      cdpPort: null,
+      screen: null,
+    });
+    expect(
+      parseNodePreviewPortsResult({ ports: [{ proto: "tcp6", port: 3000, pid: 7 }], cdpPort: 9222, screen: null }),
+    ).not.toBeNull();
+    expect(
+      parseNodePreviewPortsResult({
+        ports: [],
+        cdpPort: null,
+        screen: { display: ":1", viewer: { protocol: "vnc", port: 5901 } },
+      }),
+    ).not.toBeNull();
+    // screenLost rides ONLY with a null screen: the answer says the display
+    // died and there is nothing left to report, never both at once.
+    expect(parseNodePreviewPortsResult({ ports, cdpPort: null, screen: null, screenLost: "Xvfb" })).toEqual({
+      ports,
+      cdpPort: null,
+      screen: null,
+      screenLost: "Xvfb",
+    });
+    expect(
+      parseNodePreviewPortsResult({
+        ports,
+        cdpPort: null,
+        screen: { display: ":1", viewer: { protocol: "vnc", port: 5901 } },
+        screenLost: "x11vnc",
+      }),
+    ).toBeNull();
+    expect(parseNodePreviewPortsResult({ ports, cdpPort: null, screen: null, screenLost: "" })).toBeNull();
+    expect(
+      parseNodePreviewPortsResult({ ports: [{ proto: "udp", port: 53, pid: 1 }], cdpPort: null, screen: null }),
+    ).toBeNull();
+    expect(
+      parseNodePreviewPortsResult({ ports: [{ proto: "tcp", port: 0, pid: 1 }], cdpPort: null, screen: null }),
+    ).toBeNull();
+    expect(parseNodePreviewPortsResult({ ports, cdpPort: null })).toBeNull(); // screen is required and nullable, not absent
+    expect(parseNodePreviewPortsResult({ ports, cdpPort: 0, screen: null })).toBeNull();
+    expect(
+      parseNodePreviewPortsResult({
+        ports,
+        cdpPort: null,
+        screen: { display: "", viewer: { protocol: "vnc", port: 5901 } },
+      }),
+    ).toBeNull();
+    expect(
+      parseNodePreviewPortsResult({
+        ports,
+        cdpPort: null,
+        screen: { display: ":1", viewer: { protocol: "vnc", port: 70_000 } },
+      }),
+    ).toBeNull();
+  });
+
+  it("launch echoes a screen when it allocated one, and the absent answer stays absent", () => {
+    // This optional echo is why `launch` leaves the header's dataless set.
+    // null/undefined/{} all read as "no screen": the command carries data only
+    // when a display was allocated.
+    expect(parseNodeLaunchResult(undefined)).toEqual({});
+    expect(parseNodeLaunchResult(null)).toEqual({});
+    expect(parseNodeLaunchResult({})).toEqual({});
+    expect(parseNodeLaunchResult({ screen: { display: ":1", viewer: { protocol: "vnc", port: 5901 } } })).toEqual({
+      screen: { display: ":1", viewer: { protocol: "vnc", port: 5901 } },
+    });
+    expect(parseNodeLaunchResult({ screen: { display: ":1" } })).toBeNull();
+    expect(parseNodeLaunchResult({ screen: { display: ":1", viewer: { protocol: "vnc", port: 0 } } })).toBeNull();
+    expect(parseNodeLaunchResult({ screen: "yes" })).toBeNull();
+    expect(parseNodeLaunchResult("screen")).toBeNull();
+  });
+});
+
+it("accepts opaque display identifiers and rejects unknown viewer protocols", () => {
+  const screen = { display: "native-monitor-123", viewer: { protocol: "vnc" as const, port: 6001 } };
+  expect(parseNodeLaunchResult({ screen })).toEqual({ screen });
+  expect(
+    parseNodeLaunchResult({ screen: { ...screen, viewer: { protocol: "unimplemented", port: 6001 } } }),
+  ).toBeNull();
+  expect(parseNodeLaunchResult({ screen: { ...screen, viewer: { protocol: "vnc", port: 0 } } })).toBeNull();
 });

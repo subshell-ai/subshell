@@ -4,13 +4,6 @@
     "advisories": [
       "GHSA-86w9-cpqp-85rv"
     ],
-    "reason": "Expo mobile build/dev tooling only (@expo/cli and @expo/code-signing-certificates); not part of the server/node/desktop runtime. Advisory covers RSA signature verification with low-exponent keys. Latest npm version 1.4.0 remains affected and no patched version is published; track upstream and remove this exception when a fix is available (2026-10-02)."
-  },
-  {
-    "package": "zod",
-    "advisories": [
-      "GHSA-mrhx-c7xc-m3w5"
-    ],
-    "reason": "Mobile-only sub-4.6.6 copy: the lockfile's one zod@3 resolution sits under @expo/cli (build tooling), and no server, node, docs, or website code imports the 3.x API (grep-verified 2026-10-23; the lock test cannot tell @expo/cli's copy from a hypothetical direct 3.x pin, so that fact is stated here, not asserted there). Every 4.x copy is pinned to 4.6.6 by the root \"zod@4\" override, and the lock test fails if the sub-4.6.6 set grows beyond this one copy. The advisory's fix exists on the 4.x line only. Remove when @expo/cli moves to zod 4 (2026-10-23)."
+    "reason": "Expo mobile build/dev tooling only. node-forge 1.4.0 has no published fixed release (checked 2026-10-25). patches/node-forge@1.4.0.patch backports the nested DigestAlgorithm element-count check proposed in https://github.com/digitalbazaar/forge/pull/1152. scripts/__tests__/dependency-security.test.ts checks the installed copies used by Expo CLI and code-signing-certificates: malformed signatures are rejected while valid signatures and certificates work. bun audit still matches the original version; replace the patch and remove this exception when a fixed release ships."
   }
 ]

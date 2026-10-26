@@ -1,0 +1,276 @@
+---
+title: "Web previews & screens"
+description: "Check websites beside your coding agent, open dev-server previews, and control a subshell's virtual display."
+---
+
+Web previews & screens lets you check a website or graphical app alongside the agent building it.
+
+## Enable web previews and displays on the machine
+
+In the dashboard sidebar, open **Nodes** and select the machine running your
+subshell. Its owner can change these settings; an administrator manages them
+for the server's built-in node.
+
+- **Allow web previews** enables web previews, saved services, and
+  browser watching for every subshell on that node. No per-subshell option or
+  virtual display is required.
+- **Allow virtual displays** lets a subshell request a virtual screen at launch.
+  Enabling this node setting alone starts no display processes. Each subshell
+  that requests a display uses extra memory and CPU.
+
+Both settings are off by default for new nodes and can be changed independently.
+
+You need edit access to open an app or control a virtual display. View access
+lets you discover available views and watch browser frames. Switching either feature off prevents new operations; it doesn't stop your subshell or immediately close
+an existing connection.
+
+## Use Web previews & screens from a Mac
+
+You can view and control previews from your Mac in a browser or **Subshell
+Client** while the subshell runs on a Linux node. The server's built-in node
+also works when the server runs on Linux.
+
+1. Open your server's dashboard on the Mac and
+   [enable web previews and displays](#enable-web-previews-and-displays-on-the-machine) for the Linux node.
+2. Launch your subshell on that node and start the project's dev server there.
+3. Follow [Check a website](#check-a-website) to open its web preview. For an
+   interactive browser or GUI app, follow
+   [Use a virtual display on Linux](#use-a-virtual-display-on-linux).
+
+Install Xvfb, x11vnc, xauth, and the browser on the Linux node when you need a
+virtual display. Your Mac doesn't need those programs or its own node to view
+that screen.
+
+If the subshell runs directly on macOS, the picker cannot automatically discover
+its app ports or browser. Use **Add service** to connect to a web service by port on macOS. Virtual displays require Linux, and Web previews & screens does not
+capture native Mac app windows. Installing the Linux display programs on a Mac
+doesn't add that support.
+
+## Check a website
+
+1. Start your project's dev server inside a subshell. Keep it listening on
+   loopback; you don't need to expose its port to your network.
+2. Choose **Web previews & screens** below the terminal, or use the Web previews & screens icon in the
+   subshell header. A window icon means the subshell has a virtual display;
+   otherwise the header uses a globe.
+3. In **Open web preview or screen**, choose the **Web preview** row for your dev server's port.
+4. Check the site in the preview beside the terminal. Try navigation, forms,
+   filters, and other interactions, then give your agent specific feedback.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/preview-picker.png" alt="Open web preview or screen dialog with a website on port 3000 and a virtual display, each opened by selecting its row." width="1072" height="420" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Choose the dev-server port to check the website, or Virtual display to control a browser running on the node. Select the image to enlarge it.</figcaption>
+</figure>
+
+Each app, browser watch, or display opens in its own workspace tab. On desktop,
+a new preview splits to the right of its terminal. Reopening the same view
+focuses its existing tab. Each open preview also appears beneath its subshell
+in the sidebar.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/preview-workspace.png" alt="Codex's completed filter fix and passing tests beside a website preview showing the selected Brand category." width="1560" height="1280" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Check the actual interaction beside the agent's result. The Brand filter now shows one matching project. Select the image to enlarge it.</figcaption>
+</figure>
+
+## Add a service started elsewhere
+
+A virtual display isn't required for web services. The **Web previews & screens** button
+below the terminal and the globe icon in the subshell header open the same dialog,
+even when the subshell has no display.
+
+1. Open **Web previews & screens**, then choose **Add service** under **Saved services**.
+2. Enter the service's **Port** and choose **HTTP** or **HTTPS**. You can add a name
+   to make it easier to recognize.
+3. Leave **Host** under **Advanced** as `localhost` for a service on the subshell's
+   node. For a service on another machine, enter a hostname or IP that the node can
+   reach. Hostnames resolve on the node, not on the device viewing the dashboard.
+4. Choose **Save service**, then select the saved row to open its workspace tab.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/add-service.png" alt="Add service form with a port, HTTP protocol, optional name, and collapsed Advanced host setting." width="512" height="534" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Save a connection to a web service without creating a virtual display.</figcaption>
+</figure>
+
+This also works for web services running on a macOS node, where automatic port
+discovery isn't available. The subshell must be running and its node must have
+**Allow web previews** enabled. HTTPS requires a certificate the node trusts and whose
+name matches the host; Subshell doesn't bypass certificate checks.
+
+Saved connections stay with the subshell across reloads and closed tabs. Use the
+remove button beside a saved row to delete the connection and disconnect its open
+views. Removing a connection doesn't stop the service. You need edit access to
+add, open, or remove connections; people with view access can see the list.
+
+## Arrange and refresh views
+
+Drag preview tabs to keep several apps or screens visible together. Closing a
+preview leaves its subshell and other previews running. Hidden previews release
+their viewer connections and reopen when you select them again.
+
+The viewer toolbar has refresh and a **More view actions** menu:
+
+- **Maximize pane** enlarges that workspace pane. **Restore pane** appears
+  directly in the toolbar while maximized.
+- **Full screen** uses your browser's fullscreen mode. **Exit full screen**
+  appears directly in the toolbar while active.
+- **Open in browser tab** opens a web preview in a separate browser tab.
+- **Close view** closes the current viewer.
+
+Use the subshell header's Web previews & screens icon to open another view. When there are
+more than six choices, the picker adds search and a scrollable app list with
+ports in numeric order. Browser and virtual-display choices stay above that list.
+
+On a phone, previews use the workspace's tab strip without changing your desktop
+split layout. The standalone subshell page provides a link for opening an app
+in a separate browser tab.
+
+## Use a virtual display on Linux
+
+A virtual display gives GUI programs in a subshell their own screen, without a
+physical monitor. Launch a browser there when you need to check browser storage,
+login flows, or another graphical app.
+
+1. Install **Xvfb**, **x11vnc**, and **xauth** on the Linux machine running the
+   subshell. In **Nodes**, select that machine and turn on **Allow virtual displays**.
+   Enable **Allow Xvfb + VNC** and select it as the **Default display provider**.
+   This is currently the only bundled provider, and it requires Linux.
+   Each provider has its own enable switch and requirements check.
+2. When launching a subshell, enable **Virtual display**. The form checks the
+   selected node, which may be different from the device viewing the dashboard.
+   If more than one provider is enabled, choose one under
+   **Display provider**, or keep **Node default**. Missing requirements prevent
+   launch until you resolve them or turn off Virtual display.
+   Missing programs show a **Set up virtual display** link to this guide.
+   After installing the prerequisites, use **Recheck**. The button disappears
+   once the requirements pass.
+3. Launch your browser or GUI app from that subshell so it inherits the display
+   settings. Install the browser on the node separately if it isn't available.
+4. Use the window icon in the subshell header, then choose **Virtual display**.
+   You can see and control the screen in its own workspace tab.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/preview-display.png" alt="A development terminal beside the Northstar website running in the subshell's virtual-display browser." width="1560" height="1280" loading="lazy" decoding="async" unoptimized />
+  <figcaption>The virtual display shows the browser running on the node. Keyboard and pointer input require edit access. Select the image to enlarge it.</figcaption>
+</figure>
+
+Changing the node’s default affects new subshells that use **Node default**. Each
+subshell saves the provider it actually uses, so restarting keeps the same
+provider and display size. Disabling a provider leaves existing displays
+running, but prevents new displays and restarts that need it. A manual restart
+is refused before stopping the current subshell.
+
+Presets can save a specific provider or follow the node default. Loading a
+preset keeps its display choice visible even when the node cannot support it.
+Choose another enabled provider or turn off Virtual display to continue.
+If you switch nodes and the new node disables the chosen provider, doesn’t
+support it, or lacks its requirements, the form turns Virtual display off and
+explains why. A pending or failed check keeps your choice and blocks launch
+until it can be checked.
+Enabling providers in node settings starts no display processes; resources
+are allocated when you launch a subshell with Virtual display.
+
+A virtual display isn't a sandbox for the programs you run. They keep the
+execution account's permissions. Don't enable it on a host shared with untrusted
+local OS users; see [Preview security](/concepts/security#preview-security).
+
+## Use a virtual display on macOS
+
+Choose the **BetterDisplay** provider after following
+[macOS display helper setup](/nodes/manage#macos-display-helper) on the node's
+Mac. Both Subshell desktop apps include the helper, which stays disabled until
+you enable it in its native settings panel and grant macOS permissions.
+
+Unlike a private Linux display, a macOS virtual screen shares your login
+session, keyboard focus, and pointer. Apps don't automatically open on it;
+move their windows onto the screen before using its viewer. The helper's
+**Disable helper** control stops capture and input without closing terminals.
+
+### How the macOS connection works
+
+BetterDisplay creates the virtual screen. Subshell's locally enabled helper
+captures that screen and handles keyboard and pointer input. The node converts
+the captured images into a VNC-compatible stream and carries it through
+Subshell's authenticated preview connection to your browser. You don't need
+to configure BetterDisplay as a VNC server or expose a VNC port to the network.
+
+The node's local VNC listener has no separate password. Don't enable virtual
+displays on a Mac shared with untrusted local OS users. For message formats,
+limits, and versioning, see
+[BetterDisplay integration protocol](/developers/betterdisplay-protocol).
+
+## Watch browser frames
+
+If a subshell runs Chrome or Chromium with remote debugging enabled on loopback,
+the picker can show **Browser**. Select it to watch live frames of that browser.
+This view is a screencast; use **Virtual display** when you need keyboard and
+pointer control.
+
+A view-only share can watch the browser discovered for that subshell. It cannot
+select another browser port on the node. Close the preview tab when you're done.
+
+## Launch a preview from another subshell
+
+An agent can use MCP to start a helper on another enrolled node owned by the
+same account. The example below uses a Linux node. A configured macOS node
+can use `betterdisplay` instead; MCP can check its requirements but cannot
+enable the helper or grant macOS permissions. Shared nodes and the server's built-in node aren't available
+through the subshell token's node discovery tools.
+
+1. Call `list_nodes` to choose an online node with `canLaunch: true`, virtual displays
+   enabled, and an installed, working terminal harness. Call
+   `get_node` with its ID to check the default provider, or include `provider`
+   to check another enabled choice. Confirm `virtualDisplay.enabled` is true
+   and its status is `ready`. If anything is
+   missing, follow [Linux setup](#use-a-virtual-display-on-linux) on that node.
+2. Call `create_subshell` with the node ID and a display:
+
+   ```json
+   { "harness": "terminal", "node": "NODE_ID", "name": "Website check", "screen": { "width": 1280, "height": 800, "provider": "xvfb-x11vnc" } }
+   ```
+
+3. Use `exec_in_terminal` with the returned subshell ID to start your development
+   server and browser. Programs started there inherit `DISPLAY` and
+   `XAUTHORITY`. Keep long-running programs in the background so the command
+   can finish. For example, if Chromium is installed and your site is already
+   serving port 3000 on that node:
+
+   ```json
+   { "subshell_id": "SUBSHELL_ID", "command": "chromium http://127.0.0.1:3000 > browser.log 2>&1 &" }
+   ```
+
+4. Call `list_subshell_views` with `subshell_id` to discover its views. In the dashboard,
+   select the helper's Web previews & screens action and open its app or virtual display.
+   Each opens in its own workspace tab. `open_subshell_view` can create a private
+   connection path for a client, but it doesn't open a dashboard tab or return
+   a screenshot.
+5. Collect the results, then call `delete_subshell` to remove the temporary
+   helper and its history. Stop any `watch_subshell_browser` interest with `on: false`
+   when you finish watching.
+
+See the [MCP tool reference](/mcp/tools#get_node) for arguments and readiness
+fields, including harness health and SSH settings.
+
+## Browser compatibility and private links
+
+App previews use an isolated browser document so the website's JavaScript can't
+read your dashboard's DOM, storage, or authenticated API responses. Target
+cookies stay in the preview's server-side cookie jar. Sites that need browser
+storage, service workers, JavaScript-managed cookies, or full browser login
+flows should be checked in the node's browser through **Virtual display**.
+
+The proxy preserves your app's paths rather than rewriting HTML or JavaScript.
+If a dev server assumes it's hosted at `/`, configure relative asset URLs or a
+matching base path. A target's strict content policy can also prevent embedding;
+the virtual display gives you the browser's normal website context.
+
+Preview rewrites the target's `Host` to loopback. An app that still refuses it
+needs its own host or origin configuration checked; Subshell doesn't rewrite
+all application security checks.
+
+Treat a preview URL as a private access link. Anyone who receives it can use it
+while its session remains valid, and closing a tab doesn't immediately revoke
+a copied link. The server can read forwarded bytes and browser frames. See
+[Preview security](/concepts/security#preview-security) for the trust boundaries
+and [Architecture](/concepts/architecture#web-previews-and-virtual-displays) for the data path.
+
+For implementation details, read [Web preview architecture](/developers/web-preview-architecture) and [Develop and extend web previews](/developers/web-preview-development).

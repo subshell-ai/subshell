@@ -36,6 +36,7 @@ import { runMigrations } from "@/db/migrate.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
+import { sweepLocalPreviewDisplays } from "@/preview/local-preview.js";
 import { startServer } from "@/server.js";
 import { sweepBackupDownloads } from "@/services/backup-download-jobs.js";
 import { sweepRestoreStages } from "@/services/backup-staging.js";
@@ -57,6 +58,7 @@ import { prepareLocalPlugins } from "@/services/nodes/local-plugins.js";
 import { reconcileMaintenance } from "@/services/nodes/maintenance.js";
 import { setNodeLifecycleHooks } from "@/services/nodes/node-events.js";
 import { listOnline } from "@/services/nodes/node-registry.js";
+import { reconcilePreviewEnabled } from "@/services/nodes/preview-enabled.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { reconcileSshEnabled } from "@/services/nodes/ssh-enabled.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
@@ -224,6 +226,10 @@ async function bootServer(): Promise<void> {
     getLogger().withError(err).warn("could not prepare this host's plugins at boot; will retry next start");
   }
 
+  await sweepLocalPreviewDisplays().catch((err: unknown) =>
+    getLogger().withError(err).warn("could not restore virtual displays at boot"),
+  );
+
   // The trusted-origin registry, from the RECORDS, before the listener: a
   // network that survived the restart is reachable the millisecond the port
   // opens, and a browser on it must not be 403'd on the first request. Reads
@@ -328,6 +334,9 @@ async function bootServer(): Promise<void> {
     // The SSH mirror's sibling (spec 2026-10-07 §4.3): same door, opposite
     // direction — the row is the record, so this reconcile only pushes.
     onSshEnabled: (nodeId, reported) => reconcileSshEnabled(nodeId, reported),
+    // The preview switch's sibling (pane-preview spec Task 3): same door, same
+    // direction rule: the row is the record, so this reconcile only pushes.
+    onPreviewEnabled: (nodeId, reported) => reconcilePreviewEnabled(nodeId, reported),
   });
   // Restore alive/exit state at boot: a backend restart mid-subshell must not
   // leave stale alive=1 rows (tmux subshells died with the old process).

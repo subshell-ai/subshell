@@ -52,6 +52,14 @@ export interface CreateSubshellInput {
   saveAsPreset?: boolean;
   /** Its name; the form gates submit on it while `saveAsPreset` is set. */
   presetName?: string;
+  /**
+   * "Virtual display" (pane-preview spec §7): checked puts `screen` on the
+   * create body, unchecked or absent sends NO `screen` field. The default
+   * size is fixed at 1280x800; the API schema owns the 320..4096 bounds.
+   */
+  virtualDisplay?: boolean;
+  displayProvider?: string;
+  displaySize?: { width: number; height: number };
 }
 
 /**
@@ -74,6 +82,9 @@ export function toSubshellCreateBody({
   name,
   nodeId,
   promptBlocks,
+  virtualDisplay,
+  displayProvider,
+  displaySize,
 }: CreateSubshellInput): {
   harnessId: string;
   presetId?: string;
@@ -81,6 +92,7 @@ export function toSubshellCreateBody({
   name?: string;
   nodeId?: string;
   prompt?: string;
+  screen?: { width: number; height: number; provider?: string } | null;
 } {
   // The joined stack when it is non-empty. With a PRESET
   // chosen and the stack emptied (nothing added, or every copied block removed
@@ -99,6 +111,17 @@ export function toSubshellCreateBody({
     name: name?.trim() || undefined,
     nodeId: nodeId ? nodeId : undefined,
     prompt,
+    // Null explicitly clears a preset display. Omitting it would inherit the
+    // saved preset, undoing the user's choice to uncheck Virtual display.
+    screen:
+      virtualDisplay === true
+        ? {
+            ...(displaySize ?? { width: 1280, height: 800 }),
+            ...(displayProvider ? { provider: displayProvider } : {}),
+          }
+        : presetId != null
+          ? null
+          : undefined,
   };
 }
 
@@ -168,6 +191,7 @@ export function useCreateSubshell({ autoFile = true }: { autoFile?: boolean } = 
                 configIsolation: source.configIsolation === 1,
                 restartOnExit: source.restartOnExit === 1,
               }),
+          screen: toSubshellCreateBody(input).screen ?? null,
           nodeId: input.nodeId && input.nodeId !== "" ? input.nodeId : null,
           // TRIMMED like the preset editor's payload; the server refuses a
           // leading space and canSubmit only requires non-empty content.

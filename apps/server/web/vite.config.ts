@@ -82,6 +82,20 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
+        // Preview lanes: the session ref is the credential, but the plane's
+        // upgrade gate still reads the Origin, so /pv rides the same
+        // origin-retranslation as /ws. Without this the Open iframe and the
+        // Screen viewer's WS have no backend behind the dev origin.
+        "/pv": {
+          target: backendOrigin,
+          ws: true,
+          configure(proxy) {
+            proxy.on("proxyReqWs", (proxyReq, req) => {
+              const origin = devProxyOrigin(req.headers.origin, devOrigins);
+              if (origin) proxyReq.setHeader("origin", origin);
+            });
+          },
+        },
       },
     },
   };

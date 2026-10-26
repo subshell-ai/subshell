@@ -242,6 +242,180 @@ describe("TerminalKeyBar", () => {
     expect(sent).toEqual(["\x03", "\x1b[A", "/", "\x1b[1;2D"]);
   });
 
+  it("acts on the pointerup itself, because WebKit skips the click after a cancelled pointerdown", () => {
+    // The iPhone break (issue: tab-surface scroll keys "do not work"): the
+    // pointerdown preventDefault pins terminal focus, and WebKit treats a
+    // cancelled pointerdown as suppressing the synthesized click — so a
+    // control that acted from `onClick` alone never fired under a real
+    // finger. Chromium still clicked, which is why every prior test here
+    // (and the mobile e2e project, one browser) stayed green.
+    const sent: string[] = [];
+    render(
+      <TerminalKeyBar disabled={false} onBytes={(b) => sent.push(b)} onScrollPageUp={() => sent.push("page-up")} />,
+    );
+    const byte = screen.getByRole("button", { name: "Send Ctrl-C" });
+    fireEvent.pointerDown(byte, { pointerType: "touch", button: 0, isPrimary: true });
+    fireEvent.pointerUp(byte, { pointerType: "touch", button: 0, isPrimary: true });
+    const scroll = screen.getByRole("button", { name: "Scroll page up" });
+    fireEvent.pointerDown(scroll, { pointerType: "touch", button: 0, isPrimary: true });
+    fireEvent.pointerUp(scroll, { pointerType: "touch", button: 0, isPrimary: true });
+    // No click dispatched at all: that is precisely what iOS Safari does.
+    expect(sent).toEqual(["\x03", "page-up"]);
+  });
+
+  it("sends once, not twice, on a browser that does click after the pointerup", () => {
+    const sent: string[] = [];
+    render(<TerminalKeyBar disabled={false} onBytes={(b) => sent.push(b)} />);
+    const button = screen.getByRole("button", { name: "Send Ctrl-C" });
+    fireEvent.pointerDown(button, { pointerType: "mouse", button: 0, isPrimary: true });
+    fireEvent.pointerUp(button, { pointerType: "mouse", button: 0, isPrimary: true });
+    fireEvent.click(button);
+    expect(sent).toEqual(["\x03"]);
+  });
+
+  it("a right- or middle-button release sends nothing (only the click path owns those)", () => {
+    // Pointerup fires for every pointer button while a right/middle gesture
+    // produces no click, so an ungated pointerup actuation would push a byte
+    // into the live pane on any right-click over the bar. Coarse-primary
+    // devices with a mouse (iPad + trackpad, touchscreen laptop) hit this.
+    const sent: string[] = [];
+    render(<TerminalKeyBar disabled={false} onBytes={(b) => sent.push(b)} />);
+    const button = screen.getByRole("button", { name: "Send Ctrl-C" });
+    fireEvent.pointerDown(button, { pointerType: "mouse", button: 2, isPrimary: true });
+    fireEvent.pointerUp(button, { pointerType: "mouse", button: 2, isPrimary: true });
+    fireEvent.pointerDown(button, { pointerType: "mouse", button: 1, isPrimary: true });
+    fireEvent.pointerUp(button, { pointerType: "mouse", button: 1, isPrimary: true });
+    expect(sent).toEqual([]);
+  });
+
+  it("a release for a gesture that never started on the control sends nothing", () => {
+    // A mouse has no implicit capture, so a drag begun on a neighbour
+    // delivers its pointerup to whatever button the cursor ends on. That
+    // release must not press the key the user never touched. The same gate
+    // covers a second finger: its pointerup is not the primary pointer's.
+    const sent: string[] = [];
+    render(<TerminalKeyBar disabled={false} onBytes={(b) => sent.push(b)} />);
+    const button = screen.getByRole("button", { name: "Send Ctrl-C" });
+    fireEvent.pointerUp(button, { pointerType: "mouse", button: 0, isPrimary: true });
+    // And a non-primary finger that lands inside a real press's button must
+    // not double-send: only the primary pointer actuates.
+    fireEvent.pointerDown(button, { pointerType: "touch", button: 0, isPrimary: true });
+    fireEvent.pointerUp(button, { pointerType: "touch", button: 0, isPrimary: false });
+    expect(sent).toEqual([]);
+  });
+
+  it("a real press still actuates when a second finger lifts first", () => {
+    // Implicit touch capture delivers EVERY finger's pointerup to the control
+    // the primary press began on. Consuming the press arm on the first
+    // release — the non-primary one — strands the primary finger that lands
+    // afterward, so only a release that could actuate may clear the arm.
+    const sent: string[] = [];
+    render(<TerminalKeyBar disabled={false} onBytes={(b) => sent.push(b)} />);
+    const button = screen.getByRole("button", { name: "Send Ctrl-C" });
+    fireEvent.pointerDown(button, { pointerType: "touch", button: 0, isPrimary: true });
+    fireEvent.pointerDown(button, { pointerType: "touch", button: 0, isPrimary: false });
+    fireEvent.pointerUp(button, { pointerType: "touch", button: 0, isPrimary: false });
+    expect(sent).toEqual([]); // the secondary finger lifting is not a press
+    // The primary finger, which started the press, now lifts: it must actuate.
+    fireEvent.pointerUp(button, { pointerType: "touch", button: 0, isPrimary: true });
+    expect(sent).toEqual(["\x03"]);
+  });
+
+  it("the tap after a panned-off release actuates on its first press", () => {
+    // A release that slid off the button (the row panning under the finger)
+    // must leave nothing behind that a later real tap has to press through.
+    // It cannot: every primary button-0 release consumes the arm — actuated,
+    // containment-rejected, or disabled-gated — and a fresh press re-arms
+    // anyway, so the press following a pan lands on its first down-up.
+    const sent: string[] = [];
+    render(<TerminalKeyBar disabled={false} onBytes={(b) => sent.push(b)} />);
+    const button = screen.getByRole("button", { name: "Send Ctrl-C" });
+    fireEvent.pointerDown(button, { pointerType: "touch", button: 0, isPrimary: true });
+    fireEvent.pointerUp(button, {
+      pointerType: "touch",
+      button: 0,
+      isPrimary: true,
+      clientX: 5000,
+      clientY: 5000,
+    });
+    expect(sent).toEqual([]); // the pan itself sends nothing
+    // The next real tap must actuate on its own, with no extra press.
+    fireEvent.pointerDown(button, { pointerType: "touch", button: 0, isPrimary: true });
+    fireEvent.pointerUp(button, { pointerType: "touch", button: 0, isPrimary: true });
+    expect(sent).toEqual(["\x03"]);
+  });
+
+  it("a secondary touch pointer's press does not arm the control", () => {
+    // Only a primary button-0 pointerdown arms. A second finger landing
+    // first must leave the control un-armed, so the primary release that
+    // follows finds nothing to run. Drop the isPrimary clause from the arm
+    // and this sends a byte nobody pressed.
+    const sent: string[] = [];
+    render(<TerminalKeyBar disabled={false} onBytes={(b) => sent.push(b)} />);
+    const button = screen.getByRole("button", { name: "Send Ctrl-C" });
+    fireEvent.pointerDown(button, { pointerType: "touch", button: 0, isPrimary: false });
+    fireEvent.pointerUp(button, { pointerType: "touch", button: 0, isPrimary: true });
+    expect(sent).toEqual([]);
+  });
+
+  it("a keyboard activation actuates after a tap, whose mark the keydown resets", () => {
+    // A WebKit tap actuates on pointerup and NO click arrives to consume
+    // its mark, so the mark stands until the next gesture starts. A
+    // keyboard press is such a start: its keydown resets the mark, letting
+    // the Enter-generated click actuate. Drop that reset and the keyboard
+    // user's first Enter after a tap is silently swallowed.
+    const sent: string[] = [];
+    render(<TerminalKeyBar disabled={false} onBytes={(b) => sent.push(b)} />);
+    const button = screen.getByRole("button", { name: "Send Ctrl-C" });
+    fireEvent.pointerDown(button, { pointerType: "touch", button: 0, isPrimary: true });
+    fireEvent.pointerUp(button, { pointerType: "touch", button: 0, isPrimary: true });
+    expect(sent).toEqual(["\x03"]);
+    fireEvent.keyDown(button, { key: "Enter" });
+    fireEvent.keyUp(button, { key: "Enter" });
+    fireEvent.click(button);
+    expect(sent).toEqual(["\x03", "\x03"]);
+  });
+
+  it("holds the disabled gate when the bar disables itself between press and release", () => {
+    // The bar goes disabled while a press is still down (the terminal WS
+    // drops mid-press). aria-disabled stays event-transparent, so the
+    // release reaches this handler carrying the fresh `disabled` value,
+    // and the `disabled` term of the pointerup gate is what keeps that
+    // byte off a socket that has stopped answering. A tap started on an
+    // already-disabled control cannot probe the gate: Base UI's focusable
+    // suppressor keeps those pointer events away from it.
+    const sent: string[] = [];
+    const view = render(<TerminalKeyBar disabled={false} onBytes={(b) => sent.push(b)} />);
+    const button = screen.getByRole("button", { name: "Send Ctrl-C" });
+    fireEvent.pointerDown(button, { pointerType: "touch", button: 0, isPrimary: true });
+    view.rerender(<TerminalKeyBar disabled onBytes={(b) => sent.push(b)} />);
+    fireEvent.pointerUp(button, { pointerType: "touch", button: 0, isPrimary: true });
+    expect(sent).toEqual([]);
+  });
+
+  it("keyboard activation still sends, with no pointer events before the click", () => {
+    const sent: string[] = [];
+    render(<TerminalKeyBar disabled={false} onBytes={(b) => sent.push(b)} />);
+    const button = screen.getByRole("button", { name: "Send Ctrl-C" });
+    fireEvent.keyDown(button, { key: "Enter" });
+    fireEvent.keyUp(button, { key: "Enter" });
+    fireEvent.click(button);
+    expect(sent).toEqual(["\x03"]);
+  });
+
+  it("a release that slid off the control sends nothing (a bar pan must not press keys)", () => {
+    // The row scrolls horizontally under the finger; a swipe that starts on
+    // a button and ends past its edge must not fire it into a live pane.
+    const sent: string[] = [];
+    render(<TerminalKeyBar disabled={false} onBytes={(b) => sent.push(b)} />);
+    const button = screen.getByRole("button", { name: "Send Ctrl-C" });
+    fireEvent.pointerDown(button, { pointerType: "touch", button: 0, isPrimary: true, clientX: 5, clientY: 5 });
+    // getBoundingClientRect is all-zeros in this DOM, so any real offset is
+    // outside; that stands in for a finger that panned past the edge.
+    fireEvent.pointerUp(button, { pointerType: "touch", button: 0, isPrimary: true, clientX: 5000, clientY: 5000 });
+    expect(sent).toEqual([]);
+  });
+
   it("cancels pointerdown so taps never steal focus from the terminal", () => {
     render(<TerminalKeyBar disabled={false} onBytes={() => {}} />);
     for (const btn of screen.getAllByRole("button")) {

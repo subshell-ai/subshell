@@ -69,3 +69,10 @@ describe("toSubshellView notification fields", () => {
     expect(toSubshellView(row(), "running", [], "edit").access).toBe("edit");
   });
 });
+
+it("reports a virtual display only while its subshell is running", () => {
+  expect(toSubshellView(row(), "running", [], "owner", false, ":91").virtualDisplay).toBe(":91");
+  expect(toSubshellView(row({ alive: 0 }), "running", [], "owner", false, ":91").virtualDisplay).toBeNull();
+  expect(toSubshellView(row(), "terminated", [], "owner", false, ":91").virtualDisplay).toBeNull();
+  expect(toSubshellView(row(), "running").virtualDisplay).toBeNull();
+});

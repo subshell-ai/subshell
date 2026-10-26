@@ -9,7 +9,7 @@ import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.j
 import * as presetsMigration from "@/db/migrations/0027-presets.js";
 import * as sshLaunchMigration from "@/db/migrations/0048-ssh-launch-and-saved-hosts.js";
 import * as sshPresetsMigration from "@/db/migrations/0054-ssh-presets.js";
-import * as presetEnabledMigration from "@/db/migrations/0062-preset-enabled.js";
+import * as presetEnabledMigration from "@/db/migrations/0068-preset-enabled.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 
 /**
@@ -23,7 +23,7 @@ import { openSqliteDatabase } from "@/db/open-database.js";
  * which needs the saved-hosts table 0048 created first. A re-run of `up` is a
  * no-op (guarded on the column), and `down` removes the column again.
  */
-describe("migration 0062-preset-enabled", () => {
+describe("migration 0068-preset-enabled", () => {
   let dbFile: string;
   let db: Kysely<any>;
 
@@ -35,7 +35,7 @@ describe("migration 0062-preset-enabled", () => {
   }
 
   beforeAll(async () => {
-    dbFile = `/tmp/subshell-0062-${Math.random().toString(36).slice(2)}.db`;
+    dbFile = `/tmp/subshell-0068-${Math.random().toString(36).slice(2)}.db`;
     db = new Kysely<any>({ dialect: new BunSqliteDialect({ database: openSqliteDatabase(dbFile) }) });
     await initMigration.up(db);
     await remoteOpsMigration.up(db);

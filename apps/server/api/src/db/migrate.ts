@@ -59,9 +59,15 @@ import * as workspaceFirstMigration from "@/db/migrations/0058-workspace-first.j
 import * as crossAgentGuidanceMigration from "@/db/migrations/0059-cross-agent-guidance.js";
 import * as subshellParentMigration from "@/db/migrations/0060-subshell-parent.js";
 import * as nodeSystemSpecsMigration from "@/db/migrations/0061-node-system-specs.js";
-import * as presetEnabledMigration from "@/db/migrations/0062-preset-enabled.js";
+import * as nodePreviewEnabledMigration from "@/db/migrations/0062-node-preview-enabled.js";
+import * as subshellServicesMigration from "@/db/migrations/0063-subshell-services.js";
+import * as presetEnabledMigration from "@/db/migrations/0068-preset-enabled.js";
 import * as dropSshGrantsMigration from "./migrations/0053-drop-ssh-grants.js";
 import * as presetSharingMigration from "./migrations/0057-preset-sharing.js";
+import * as nodeVirtualDisplayEnabledMigration from "./migrations/0064-node-virtual-display-enabled.js";
+import * as subshellScreenConfigMigration from "./migrations/0065-subshell-screen-config.js";
+import * as nodeDisplayProviderMigration from "./migrations/0066-node-display-provider.js";
+import * as displayProviderChoicesMigration from "./migrations/0067-display-provider-choices.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -178,7 +184,13 @@ export async function runMigrations(): Promise<void> {
           "0059-cross-agent-guidance": crossAgentGuidanceMigration,
           "0060-subshell-parent": subshellParentMigration,
           "0061-node-system-specs": nodeSystemSpecsMigration,
-          "0062-preset-enabled": presetEnabledMigration,
+          "0062-node-preview-enabled": nodePreviewEnabledMigration,
+          "0063-subshell-services": subshellServicesMigration,
+          "0064-node-virtual-display-enabled": nodeVirtualDisplayEnabledMigration,
+          "0065-subshell-screen-config": subshellScreenConfigMigration,
+          "0066-node-display-provider": nodeDisplayProviderMigration,
+          "0067-display-provider-choices": displayProviderChoicesMigration,
+          "0068-preset-enabled": presetEnabledMigration,
         };
       },
     },

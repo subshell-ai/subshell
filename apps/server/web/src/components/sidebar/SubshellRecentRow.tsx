@@ -9,6 +9,7 @@ import { useWorkspaceSidebarDrag } from "@/components/sidebar/workspace-sidebar-
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDot } from "@/components/subshell-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { VirtualDisplayIndicator } from "@/components/virtual-display-indicator";
 import { useCloseSubshellLanding } from "@/hooks/use-close-subshell-landing";
 import { useHarnessSubagents, useSelectHarnessAgent } from "@/hooks/use-harness-subagents";
 import { filedWorkspaceFor, useOpenPaneAsTab } from "@/hooks/use-open-pane-as-tab";
@@ -232,6 +233,7 @@ export function SubshellRecentRow({
           <span className="min-w-0 flex-1">
             <span className="flex min-w-0 items-center gap-1.5">
               <span className="truncate">{subshell.name}</span>
+              <VirtualDisplayIndicator display={subshell.virtualDisplay} compact />
               {inActiveWorkspace && (
                 <span role="img" aria-label="In active workspace" className="flex shrink-0 text-muted-foreground">
                   <LayoutDashboard className="size-3.5" aria-hidden="true" />
@@ -269,7 +271,7 @@ export function SubshellRecentRow({
                        Derived from the line-height token, not a font-size
                        multiple, so a type-scale edit moves it in step. */
                     className="absolute top-[calc(var(--spacing)+var(--text-detail)*var(--text-detail--line-height)*1.5)] left-1 size-5 -translate-y-1/2 text-muted-foreground [&_svg]:size-3"
-                    aria-label={expanded ? "Collapse subagents" : "Expand subagents"}
+                    aria-label={expanded ? "Collapse subshell details" : "Expand subshell details"}
                     aria-expanded={expanded}
                     aria-controls={childrenId}
                     onClick={() => setExpanded((value) => !value)}
@@ -278,7 +280,9 @@ export function SubshellRecentRow({
               >
                 {expanded ? <ChevronDown /> : <ChevronRight />}
               </TooltipTrigger>
-              <TooltipContent side="bottom">{expanded ? "Collapse subagents" : "Expand subagents"}</TooltipContent>
+              <TooltipContent side="bottom">
+                {expanded ? "Collapse subshell details" : "Expand subshell details"}
+              </TooltipContent>
             </Tooltip>
           </TooltipProvider>
         )}

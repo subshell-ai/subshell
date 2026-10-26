@@ -24,8 +24,14 @@ import type { SubshellView } from "@/types/subshell";
  * `components/trust-notice-banner.tsx` / `components/trust-indicators.tsx`.
  */
 
-/** Which disclosure a notice is about. */
-export type TrustNoticeKind = "foreign-node" | "shared";
+/**
+ * Which disclosure a notice is about. `preview` is the shared-exposure fact
+ * raised on the PREVIEW surface (its own copy, its own seen-mark); no notice
+ * of this kind ever reaches the header icons, because the header machinery
+ * stays unchanged (pane-preview spec §7) - the kind exists so one
+ * `TrustNotice` type serves both surfaces.
+ */
+export type TrustNoticeKind = "foreign-node" | "shared" | "preview";
 
 /** One disclosure worth telling the user about. */
 export interface TrustNotice {

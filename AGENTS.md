@@ -355,6 +355,15 @@ DCO would not substitute.
 
 ## Cross-session coordination (the subshell MCP)
 
+**If Subshell MCP is unavailable**, report that before using a fallback. For
+Codex startup failures, follow [MCP troubleshooting](apps/docs/content/docs/mcp/troubleshooting.mdx):
+a shell with `SUBSHELL_*` variables does not prove the MCP child received them.
+A direct HTTP request from the shell is an API fallback, never an MCP call.
+Use only the current pane's credentials and endpoints that accept them, within
+the user's authorized task; do not bypass disabled features or permissions.
+Never print credentials or copy them into persistent configuration. Keep
+encrypted channel coordination on the MCP protocol.
+
 **Other panes are agents.** In a pane, `list_subshells`/`get_subshell` give a
 sibling's live status and output; use them instead of polling git to guess
 what another session does. Coordinate on channels: `create_channel` +

@@ -1,4 +1,9 @@
-import type { NodeEvent, NodeMaintenanceWire, NodeSshEnabledWire } from "@internal/subshell-protocol";
+import type {
+  NodeEvent,
+  NodeMaintenanceWire,
+  NodePreviewEnabledWire,
+  NodeSshEnabledWire,
+} from "@internal/subshell-protocol";
 
 /**
  * The backend event plane for `/ws/node` (spec 2026-08-31 §3.3, phase 2).
@@ -112,6 +117,22 @@ export interface NodeLifecycleHooks {
    *   field the lenient parser dropped — all of which mean REFUSED there)
    */
   onSshEnabled(nodeId: string, reported: NodeSshEnabledWire | undefined): Promise<void> | void;
+  /**
+   * The machine's own copy of its preview switch (pane-preview spec Task 3):
+   * from `ready.previewEnabled` at connect, or from the `preview_enabled`
+   * event when the mirror moved underneath the connection (in practice:
+   * corruption).
+   *
+   * The same hook-not-repository shape as {@link onSshEnabled}, the same one
+   * reconciler for both frames, and the same DIRECTION rule: the plane is
+   * this flag's only writer, so reconciliation never adopts, it pushes.
+   *
+   * @param nodeId - the SOCKET's authenticated identity, never a frame's claim
+   * @param reported - the machine's mirror answer, or undefined when it
+   *   reported none (no file, a file that says off, or a malformed `ready`
+   *   field the lenient parser dropped, all of which mean REFUSED there)
+   */
+  onPreviewEnabled(nodeId: string, reported: NodePreviewEnabledWire | undefined): Promise<void> | void;
 }
 
 let lifecycleHooks: NodeLifecycleHooks | undefined;

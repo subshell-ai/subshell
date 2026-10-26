@@ -2,6 +2,7 @@ import { Elysia } from "elysia";
 import { createSetupKeyRoute } from "@/api/nodes/create-setup-key.route.js";
 import { deleteNodeRoute } from "@/api/nodes/delete-node.route.js";
 import { deleteSetupKeyRoute } from "@/api/nodes/delete-setup-key.route.js";
+import { displayReadinessRoute } from "@/api/nodes/display-readiness.route.js";
 import { enrollRoute } from "@/api/nodes/enroll.route.js";
 import { getNodeRoute } from "@/api/nodes/get-node.route.js";
 import { getNodeSharesRoute } from "@/api/nodes/get-node-shares.route.js";
@@ -22,6 +23,7 @@ import { setNodeMaintenanceRoute } from "@/api/nodes/set-node-maintenance.route.
 import { setNodeServerUrlRoute } from "@/api/nodes/set-node-server-url.route.js";
 import { setNodeSharesRoute } from "@/api/nodes/set-node-shares.route.js";
 import { setNodeSshEnabledRoute } from "@/api/nodes/set-node-ssh-enabled.route.js";
+import { setNodeViewsEnabledRoute } from "@/api/nodes/set-node-views-enabled.route.js";
 import { updateNodeRoute } from "@/api/nodes/update-node.route.js";
 import { routeDiscoveryRoute } from "./route-discovery.route.js";
 
@@ -57,6 +59,8 @@ const nodeRegistryRoutes = new Elysia()
 const nodeOperationsRoutes = new Elysia()
   .use(setNodeMaintenanceRoute)
   .use(setNodeSshEnabledRoute)
+  .use(setNodeViewsEnabledRoute)
+  .use(displayReadinessRoute)
   .use(repairNodeMachinePinRoute)
   .use(rotateNodeKeyRoute)
   .use(reregisterNodeRoute)

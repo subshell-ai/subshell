@@ -15,6 +15,32 @@ Run `subshell-server status` on the server host to see which MCP executable it u
 
 `subshell mcp: SUBSHELL_API_KEY is not set` and `subshell mcp: SUBSHELL_ID is not set` mean the process lacks pane identity. Don't invent credentials or reuse another pane's environment.
 
+## Codex starts, but Subshell MCP fails
+
+Open `/mcp` in Codex to check the Subshell server. A handshake failure alone doesn't identify the cause; inspect the MCP startup error. If it says `SUBSHELL_API_KEY is not set`, the MCP child lacks the credential even if Codex's shell can access it.
+
+Codex uses `env_vars` to explicitly forward environment variables to stdio MCP servers. Registrations that supply only `command` and `args` can leave Subshell without its identity. See [Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp).
+
+For an affected installation:
+
+1. On the node where Codex runs, edit `~/.codex/config.toml` under the execution account. Add the following key to the existing `[mcp_servers.subshell]` table, or create the table if it doesn't exist. Keep any existing command and arguments; a complete registration block lives in [MCP configuration](/mcp/configure).
+
+   ```toml
+   [mcp_servers.subshell]
+   env_vars = ["SUBSHELL_API_KEY", "SUBSHELL_BASE_URL", "SUBSHELL_ID", "SUBSHELL_NAME", "SUBSHELL_DATA_DIR", "SUBSHELL_SERVER_DATA_DIR"]
+   ```
+
+2. Save your work and restart Codex inside the Subshell-launched pane so it reads the configuration and receives the pane's environment.
+3. Open `/mcp` again, then ask Codex to call `list_subshells`. A successful startup alone doesn't verify an authenticated tool call.
+
+The configuration stores variable names, not credential values. It cannot supply identity when Codex is launched outside Subshell. Don't copy a pane token into `config.toml`. For configuration locations, see [Files and paths](/reference/paths).
+
+## Working while MCP is unavailable
+
+An agent may use the HTTP API from its shell for an already-authorized task if the pane's identity environment is available and the endpoint supports pane credentials. This is a direct API fallback, not an MCP tool call or proof that MCP is healthy.
+
+Keep requests within the pane's existing permissions. Don't substitute an administrator credential, bypass a disabled feature, or print credentials in commands or logs. Verify the endpoint and its authorization before sending a request. Encrypted channel coordination requires the MCP channel protocol; a plain HTTP post isn't a substitute.
+
 ## Rejected tokens or actions
 
 Stopping a pane revokes its credential; restarting it creates a new one. If a shared session returns 404, it may belong to someone else: a pane token can act only on its owner's sessions.

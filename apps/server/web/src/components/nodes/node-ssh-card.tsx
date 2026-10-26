@@ -74,6 +74,14 @@ export function NodeSshCard({ node, children }: { node: NodeDetail; children?: R
             )}
           </div>
         )}
+        <a
+          href="https://docs.subshell.sh/guides/ssh"
+          target="_blank"
+          rel="noreferrer"
+          className="text-detail text-primary underline"
+        >
+          Learn about SSH
+        </a>
         {children}
       </CardContent>
     </Card>

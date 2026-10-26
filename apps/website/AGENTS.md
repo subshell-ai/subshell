@@ -26,6 +26,10 @@ it is a site, not one of server/node/client, which is why it sits directly under
   the SPA design system; `lint:design` does not scan this app.
 - Apply the shared content guide to routine copy edits. Ask Theo when wording would change product meaning or positioning.
 
+For a private dev proxy, set `WEBSITE_DEV_ORIGINS` to comma-separated hostnames
+in the gitignored `.env.local`, then restart the dev server. This allows Next.js
+to establish its development connection through those hosts. Never commit private hostnames.
+
 ## Product demonstration clips
 
 ### Editorial expectations
@@ -140,3 +144,21 @@ documentation site. Capture at 2× with `e2e/screenshot.ts`, retain lossless Web
 encoding, and use the product-colored screenshot frame tokens. The PNGs already
 include a consistent 12px margin; don't add another inset or a modal backdrop.
 Keep the image dimensions in `feature-showcase.tsx` in sync with the actual files.
+
+### Website preview demonstration
+
+`PreviewShowcase` is the first desktop video section below the hero's mobile
+video. The former At the desk section and separate full-size demo link are
+removed; keep the demonstration inline. `website-preview.mp4` shows a real Codex subshell
+fixing the Northstar sample website's category filters and passing tests, then
+checking those filters in an app preview, maximizing/restoring it, and opening
+the node browser's virtual display. Its viewport is 1000×640 at 2× density,
+encoded as silent H.264 at 15 fps, with a lossless WebP poster.
+
+Run `bun e2e/capture-preview-demo.ts` after building the SPA. It uses a disposable
+stack, temporary sample project, and a fresh Codex home with authentication
+copied off camera. It captures the picker, workspace, and display PNGs for the
+Preview guide in the same pass. `--security-only` checks embedded and direct
+app browser isolation, modules, JSON POST, and WebSocket traffic without an
+agent or display. Fixed backend/registry/IdP ports honor the normal e2e overrides.
+Never record the developer's private test account, hostnames, or project.

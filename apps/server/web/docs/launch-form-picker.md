@@ -123,13 +123,12 @@ ready).
 the form's node and directory pre-fill from the newest prior subshell.
 `launchTemplateFromList` (`lib/launch-defaults.ts`) reads the SAME
 `sortByCreation` head as `defaultAgentId`'s recent tier, so the agent default
-and the full-settings default can never disagree about which row is "recent";
-the agent and its preset ride the existing blank-only tier, which consumes the
-armed template and applies the preset only when ITS agent survived the
-usability check. The auto arm fires once, only while the form still holds
+and the full-settings default can never disagree about which row is "recent".
+The agent uses the existing blank-only tier. A preset is never inherited from
+the previous launch: it applies only when explicitly selected, so cancelling
+and reopening does not restore discarded preset settings. The auto arm fires once, only while the form still holds
 `emptyNewSubshellForm()`. A Split `initialForm`, a caller seed, pre-settle
-typing, or `firstRun` (whose Preset row is hidden, so a preset landed there
-would be invisible) all disqualify it. Degradation is never a second rule: a
+typing, or `firstRun` all disqualify it. Degradation is never a second rule: a
 newest row on an offline node re-homes the pick and the existing
 machine-switch arm clears the copied directory and re-arms the per-node seed;
 the preset-membership guard drops a preset that does not belong to the landed

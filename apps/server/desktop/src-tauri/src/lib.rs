@@ -21,6 +21,8 @@ mod ssh_key;
 // dashboard, is `about.rs`) — and a module compiled there would be entirely
 // dead code.
 #[cfg(target_os = "macos")]
+mod display_helper;
+#[cfg(target_os = "macos")]
 mod menu;
 mod quit;
 mod reset;

@@ -7,6 +7,7 @@ import type { NodeCommandBody, NodeProbeEntry } from "@internal/subshell-protoco
 import { spawnSync } from "bun";
 import { CamelCasePlugin, Kysely } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
+import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import * as initMigration from "@/db/migrations/0001-init.js";
 import * as operatorUxMigration from "@/db/migrations/0002-operator-ux.js";
@@ -26,7 +27,7 @@ import * as presetCrossCommOptInMigration from "@/db/migrations/0043-preset-cros
 import * as sshLaunchMigration from "@/db/migrations/0048-ssh-launch-and-saved-hosts.js";
 import * as keyHomeMigration from "@/db/migrations/0052-subshell-key-home.js";
 import * as subshellParentMigration from "@/db/migrations/0060-subshell-parent.js";
-import * as presetEnabledMigration from "@/db/migrations/0062-preset-enabled.js";
+import * as presetEnabledMigration from "@/db/migrations/0068-preset-enabled.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -46,6 +47,7 @@ import {
 } from "@/services/nodes/preview-cache.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { EMPTY_PRESET, parsePreset } from "@/services/preset-definition.js";
+import { getPreviewBroker, resetForTests, shutdownPreviewBrokerForTests } from "@/services/preview-broker.js";
 import {
   defaultSubshellName,
   RestartInFlightSwapError,
@@ -161,7 +163,7 @@ beforeAll(async () => {
   await presetCrossCommOptInMigration.up(db); // presets.cross_comm_enabled (0043) - same reason
   await sshLaunchMigration.up(db); // 0048 subshells.ssh — SubshellsRepository.create writes it on EVERY create now (null for a non-ssh pane), and the delete sweep reads it as the kind fact (plan-2 Task 7)
   await keyHomeMigration.up(db); // 0052 subshells.key_home_node_id - SubshellsRepository.create mirrors it on every insert (Task 14)
-  await presetEnabledMigration.up(db); // presets.enabled (0062) - PresetsRepository.create mirrors it on every insert
+  await presetEnabledMigration.up(db); // presets.enabled (0068) - PresetsRepository.create mirrors it on every insert
   presetsRepo = new PresetsRepository(db);
   subshellsRepo = new SubshellsRepository(db);
   subshellManager = new SubshellManagerService({
@@ -1774,6 +1776,166 @@ describe("applyRemoteExit — shared death transition (idempotent against sweep 
     } finally {
       off();
       previewCacheDrop(id);
+      await subshellsRepo.delete(id);
+    }
+  });
+
+  /* The preview belt over the shared death transition: the exit hook's close
+   * is the fast path, not the only close. If a crash loses the hook report,
+   * the sweep and the exit census land in #applyDeath, and THAT transition —
+   * not the route — must tear down the broker's state too, or a forward
+   * session and its browser stream sockets outlive the pane to the idle and
+   * lifetime caps. These tests fake the broker's wire seams but keep the
+   * real audit seam: the `node.preview_forward.close` row is the observable
+   * the belt is asserted through, and the same one an operator reads. */
+
+  /** The minimal broker seams: record the preview commands, answer like a node. */
+  function previewBeltHarness(): { sent: NodeCommandBody[] } {
+    const sent: NodeCommandBody[] = [];
+    resetForTests({
+      send: async (_nodeId: string, cmd: NodeCommandBody): Promise<unknown> => {
+        sent.push(cmd);
+        switch (cmd.type) {
+          case "preview_open":
+            return { ref: cmd.ref, pending: true };
+          case "preview_close":
+            return { ref: cmd.ref, closed: true };
+          case "preview_ports_get":
+            return { ports: [], cdpPort: null, screen: null };
+          default:
+            throw new Error(`manager preview belt test: unexpected command ${cmd.type}`);
+        }
+      },
+      linkSend: () => {},
+    });
+    return { sent };
+  }
+
+  /** The pane's `node.preview_forward.close` audit metadata as landed. */
+  async function forwardCloseRows(paneId: string): Promise<Record<string, unknown>[]> {
+    const rows = await db
+      .selectFrom("auditEvents")
+      .where("action", "=", "node.preview_forward.close")
+      .select(["metadataJson"])
+      .execute();
+    return rows
+      .map((r) => JSON.parse(String(r.metadataJson)) as Record<string, unknown>)
+      .filter((m) => m.paneId === paneId);
+  }
+
+  /** Polls a condition over 1 s: the belt is fire-and-forget by design. */
+  async function untilDone(cond: () => Promise<boolean>): Promise<boolean> {
+    for (let i = 0; i < 100; i++) {
+      if (await cond()) return true;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    return cond();
+  }
+
+  for (const action of ["terminate", "delete", "restart"] as const) {
+    it(`${action} revokes preview access before stopping the pane, without an exit hook`, async () => {
+      const nodeId = `explicit-${action}-preview`;
+      const off = nodeOnline(nodeId, []);
+      const f = remoteFixture();
+      previewBeltHarness();
+      const id = await seedNodeRow(nodeId, { alive: 1, presetId: null });
+      try {
+        const { ref } = await getPreviewBroker().openForward({
+          viewerUserId: "u-recon",
+          paneId: id,
+          nodeId,
+          port: 8080,
+        });
+        let stopped = false;
+        f.launcher.killSubshell = async () => {
+          expect(getPreviewBroker().sessionFor(ref)).toBeNull();
+          stopped = true;
+          if (action === "restart") throw new Error("stop test before revival");
+        };
+        // A foreign caller cannot revoke the owner's preview either.
+        if (action === "restart") {
+          expect(await f.manager.restartSubshell("foreign", id)).toBeNull();
+        } else if (action === "delete") {
+          expect(await f.manager.deleteSubshell("foreign", id)).toBe(false);
+        } else {
+          expect(await f.manager.terminateSubshell("foreign", id)).toBe(false);
+        }
+        expect(getPreviewBroker().sessionFor(ref)).not.toBeNull();
+        if (action === "restart") {
+          await expect(f.manager.restartSubshell("u-recon", id)).rejects.toThrow("stop test before revival");
+        } else if (action === "delete") {
+          await f.manager.deleteSubshell("u-recon", id);
+        } else {
+          await f.manager.terminateSubshell("u-recon", id);
+        }
+        expect(stopped).toBe(true);
+        expect(getPreviewBroker().sessionFor(ref)).toBeNull();
+        expect(await forwardCloseRows(id)).toHaveLength(1);
+      } finally {
+        off();
+        shutdownPreviewBrokerForTests();
+        await subshellsRepo.delete(id);
+      }
+    });
+  }
+
+  it("a forward session closes with pane-gone when death lands WITHOUT the exit hook", async () => {
+    const nodeId = "exit-node-preview-belt";
+    const off = nodeOnline(nodeId, []);
+    const f = remoteFixture();
+    previewBeltHarness();
+    const id = await seedNodeRow(nodeId, { alive: 1 });
+    try {
+      const { ref } = await getPreviewBroker().openForward({
+        viewerUserId: "u-recon",
+        paneId: id,
+        nodeId,
+        port: 8080,
+      });
+      expect(getPreviewBroker().sessionFor(ref)?.kind).toBe("forward");
+      // The crash case: the pane-died hook never reaches the plane, and the
+      // death is discovered by the sweep/census path — the shared transition.
+      await f.manager.applyRemoteExit(nodeId, id, 1, new Date().toISOString());
+      const landed = await untilDone(async () => (await forwardCloseRows(id)).length > 0);
+      expect(landed).toBe(true); // the belt closed the session with an audit row
+      expect(getPreviewBroker().sessionFor(ref)).toBeNull();
+      await expect(getPreviewBroker().openLaneForConnection(ref)).rejects.toThrow(/no live preview session/);
+      const rows = await forwardCloseRows(id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ paneId: id, nodeId, port: 8080, kind: "forward", reason: "pane-gone" });
+    } finally {
+      off();
+      shutdownPreviewBrokerForTests();
+      await subshellsRepo.delete(id);
+    }
+  });
+
+  it("the hook fast path plus the death belt close ONCE: double-close is a no-op", async () => {
+    const nodeId = "exit-node-preview-double";
+    const off = nodeOnline(nodeId, []);
+    const f = remoteFixture();
+    previewBeltHarness();
+    const id = await seedNodeRow(nodeId, { alive: 1 });
+    try {
+      const { ref } = await getPreviewBroker().openForward({
+        viewerUserId: "u-recon",
+        paneId: id,
+        nodeId,
+        port: 8080,
+      });
+      // The exit hook's fast-path close, exactly as the route performs it...
+      await getPreviewBroker().closeForPane(id, "pane-gone");
+      // ...then the death lands through the shared transition, and the belt
+      // re-closes a pane already closed. The close must not double-audit and
+      // must not disturb the death's own effects.
+      await f.manager.applyRemoteExit(nodeId, id, 1, new Date().toISOString());
+      expect(f.pushes).toEqual([[id, "exited"]]);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(await forwardCloseRows(id)).toHaveLength(1); // ONE close row, not two
+      expect(getPreviewBroker().sessionFor(ref)).toBeNull();
+    } finally {
+      off();
+      shutdownPreviewBrokerForTests();
       await subshellsRepo.delete(id);
     }
   });

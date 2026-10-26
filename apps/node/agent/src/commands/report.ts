@@ -1,9 +1,15 @@
 import { rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { buildSshConfigPath } from "@internal/pane-runtime";
-import type { NodeEvent, NodeMaintenanceWire, NodeSshEnabledWire } from "@internal/subshell-protocol";
+import type {
+  NodeEvent,
+  NodeMaintenanceWire,
+  NodePreviewEnabledWire,
+  NodeSshEnabledWire,
+} from "@internal/subshell-protocol";
 import { log } from "../log.js";
 import { readMaintenance, reportableMaintenance, writeMaintenance } from "../maintenance.js";
+import { readPreviewEnabled, reportablePreviewEnabled } from "../preview/flags.js";
 import { readSshEnabled, reportableSshEnabled } from "../ssh-enabled.js";
 import type { CommandContext, WatcherRegistration } from "./context.js";
 
@@ -206,6 +212,68 @@ export function maybeReportSshEnabled(ctx: CommandContext): void {
 export function seedSshEnabledMemo(ctx: CommandContext): NodeSshEnabledWire | undefined {
   ctx.lastReportedSshEnabled = reportableSshEnabled(readSshEnabled(ctx.config.dataDir));
   return ctx.lastReportedSshEnabled;
+}
+
+/**
+ * Announce one preview-switch mirror state to the plane and remember having
+ * done so (pane-preview spec Task 3). The SSH twin's rule, cloned: the memo
+ * update is what keeps the next heartbeat tick silent about a value the plane
+ * already holds, and what keeps a `set_preview_enabled` the plane just
+ * pushed from coming back as an event.
+ *
+ * @param ctx - the daemon's command context (owns the socket seam and the memo)
+ * @param state - the mirror's answer, sent verbatim (never re-stamped here)
+ */
+export function reportPreviewEnabled(ctx: CommandContext, state: NodePreviewEnabledWire): void {
+  ctx.ws.send({ type: "preview_enabled", ...state });
+  ctx.lastReportedPreviewEnabled = state;
+}
+
+/**
+ * Report the preview mirror IF it has moved since this connection last spoke
+ * about it: the heartbeat belt, the SSH twin's posture in full.
+ *
+ * With no node-side writer, the common steady state says nothing: an
+ * off-or-absent mirror has nothing to announce (the plane's own row is
+ * authoritative, and silence reads as refusal on both ends), and an on mirror
+ * only speaks up once. What this loop exists to catch is the file changing
+ * UNDER the connection (corruption flipping a machine from allowed to
+ * refused mid-session, or a hand-edit), so the plane learns it now and pushes
+ * its row (the repair) rather than discovering the disagreement at the next
+ * reconnect. There is no absent-restore half: the plane is the only writer,
+ * so a deleted mirror is silence, and the next `ready` reconciles it.
+ *
+ * @param ctx - the daemon's command context
+ */
+export function maybeReportPreviewEnabled(ctx: CommandContext): void {
+  const state = reportablePreviewEnabled(readPreviewEnabled(ctx.config.dataDir));
+  if (!state) return;
+  const last = ctx.lastReportedPreviewEnabled;
+  if (
+    last?.on === state.on &&
+    last.changedAt === state.changedAt &&
+    last.webPreviewsOn === state.webPreviewsOn &&
+    last.displayOn === state.displayOn
+  )
+    return;
+  reportPreviewEnabled(ctx, state);
+}
+
+/**
+ * Seed this connection's preview memo from the mirror on disk.
+ *
+ * Called once per connect, immediately before `ready` (which carries the same
+ * value, so the first heartbeat must not repeat it), and again on every
+ * reconnect, because a new socket has told the plane nothing. The one read of
+ * the file builds both, so the frame and the memo cannot disagree.
+ *
+ * @param ctx - the daemon's command context
+ * @returns the value `ready` should carry, or undefined when there is nothing
+ * truthful to report
+ */
+export function seedPreviewEnabledMemo(ctx: CommandContext): NodePreviewEnabledWire | undefined {
+  ctx.lastReportedPreviewEnabled = reportablePreviewEnabled(readPreviewEnabled(ctx.config.dataDir));
+  return ctx.lastReportedPreviewEnabled;
 }
 
 /** Stop the shared tick if one is running (idempotent). */
@@ -437,6 +505,19 @@ async function reportDeath(ctx: CommandContext, socket: string, subshellId: stri
       } catch (err) {
         log(`ssh config sweep failed for ${subshellId}: ${err instanceof Error ? err.message : String(err)}`);
       }
+    }
+    // Close the pane's virtual display (pane-preview spec §5: "the sweep and
+    // the death report close displays"). Same re-check, same best-effort
+    // posture: the pane was the display's only reader, so a death without
+    // this leaves an Xvfb + x11vnc pair and a locked `:90..:199` number
+    // running forever. `closeFor` deregisters before it signals, so the
+    // child-exit watch reads our own kill as teardown, never as a loss;
+    // a throwing reap costs nothing here. A pane that never asked for a
+    // screen pays an entry miss and one absent-dir check.
+    try {
+      await ctx.previewDisplays?.closeFor(subshellId);
+    } catch (err) {
+      log(`display close failed for ${subshellId}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 }

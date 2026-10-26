@@ -417,3 +417,42 @@ describe("useCreateSubshell filing (always in a workspace)", () => {
     }
   });
 });
+
+describe("the virtual-display launch option (task 12)", () => {
+  it("a checked Virtual display puts screen { width, height } on the POST body", async () => {
+    const m = mockFetch();
+    try {
+      const out = await launch({ ...BASE, virtualDisplay: true });
+      expect(out.ok).toBe(true);
+      const launchPost = m.calls.find((c) => c.url === "/api/subshells" && c.method === "POST");
+      expect(launchPost?.body?.screen).toEqual({ width: 1280, height: 800 });
+    } finally {
+      m.restore();
+      setCurrentWorkspace(null);
+    }
+  });
+
+  it("an unchecked box clears any display inherited from a preset", async () => {
+    const m = mockFetch();
+    try {
+      await launch({ ...BASE });
+      const launchPost = m.calls.find((c) => c.url === "/api/subshells" && c.method === "POST");
+      expect(launchPost?.body?.screen).toBeNull();
+    } finally {
+      m.restore();
+      setCurrentWorkspace(null);
+    }
+  });
+
+  it("an explicitly false box clears the preset display", async () => {
+    const m = mockFetch();
+    try {
+      await launch({ ...BASE, virtualDisplay: false });
+      const launchPost = m.calls.find((c) => c.url === "/api/subshells" && c.method === "POST");
+      expect(launchPost?.body?.screen).toBeNull();
+    } finally {
+      m.restore();
+      setCurrentWorkspace(null);
+    }
+  });
+});

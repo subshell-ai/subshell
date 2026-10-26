@@ -1,0 +1,20 @@
+diff --git a/core/rfb.js b/core/rfb.js
+index 80011e4a10203806f14df1ffc3b8425861a965a7..4378c0af9c487ae9448f65a101e5f96c2cce6bb9 100644
+--- a/core/rfb.js
++++ b/core/rfb.js
+@@ -96,9 +96,12 @@ export default class RFB extends EventTargetMixin {
+             throw new Error("Must specify URL, WebSocket or RTCDataChannel");
+         }
+ 
+-        // We rely on modern APIs which might not be available in an
+-        // insecure context
+-        if (!window.isSecureContext) {
++        // URL mode will later reach for TLS, crypto, and clipboard APIs
++        // that may not be available in an insecure context. A caller that
++        // hands RFB a ready WebSocket or RTCDataChannel drives the
++        // connection itself, so an insecure page is fine when it owns the
++        // socket.
++        if (!window.isSecureContext && typeof urlOrChannel === "string") {
+             Log.Error("noVNC requires a secure context (TLS). Expect crashes!");
+         }
+ 

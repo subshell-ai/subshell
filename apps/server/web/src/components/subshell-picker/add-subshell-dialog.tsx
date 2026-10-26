@@ -109,6 +109,12 @@ export function AddSubshellDialog({
     setError(null);
   }
 
+  function dismiss() {
+    if (creating || busyId !== null) return;
+    onOpenChange(false);
+    reset();
+  }
+
   /** Adds an existing subshell, closing the dialog on success. */
   async function handlePick(subshellId: string) {
     setError(null);
@@ -167,8 +173,8 @@ export function AddSubshellDialog({
       // only a deliberate act closes this - X, Cancel, or a successful add.
       onOpenChange={formDialogOpenChange((next) => {
         if (creating) return;
-        onOpenChange(next);
-        if (!next) reset();
+        if (next) onOpenChange(true);
+        else dismiss();
       })}
     >
       <DialogContent className="sm:max-w-2xl">
@@ -220,7 +226,7 @@ export function AddSubshellDialog({
                 onDraftChange={setSshDraft}
                 onPendingChange={setCreating}
                 initial={{ node: form.nodeId || undefined }}
-                onLeave={() => onOpenChange(false)}
+                onLeave={dismiss}
                 onCreated={async (id) => {
                   try {
                     await onAdd(id, "within");
@@ -236,7 +242,7 @@ export function AddSubshellDialog({
                 }}
               />
             ) : (
-              <NewSubshellForm value={form} onChange={setForm} onLeave={() => onOpenChange(false)} />
+              <NewSubshellForm value={form} onChange={setForm} onLeave={dismiss} />
             )}
           </div>
         )}
@@ -244,10 +250,10 @@ export function AddSubshellDialog({
         {error && <p className="text-destructive text-detail">{error}</p>}
 
         {visibleMode === "new" && kind === "agent" && (
-          <DialogFooter>
+          <DialogFooter sticky>
             <Button
               variant="outline"
-              onClick={() => onOpenChange(false)}
+              onClick={dismiss}
               disabled={creating}
               disabledReason={"Wait for the subshell to start."}
             >

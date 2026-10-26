@@ -33,6 +33,7 @@ import type { WorkspaceTable } from "@/db/types/workspaces.db-types.js";
  * them separately.)
  */
 export interface Database {
+  subshellServices: import("./subshell-services.db-types.js").SubshellServiceTable;
   presetShares: PresetShareTable;
   sshPresetShares: PresetShareTable;
   authAttempts: AuthAttemptsTable;

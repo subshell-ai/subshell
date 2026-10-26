@@ -12,6 +12,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { WorkspaceTab, WorkspaceTabs } from "@/components/workspace-tabs";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import { requestWorkspacePaneFocus, resetWorkspaceFocusForTests } from "@/lib/workspace-focus";
+import { requestWorkspacePreview } from "@/lib/workspace-preview";
 import { setFetchRouter } from "@/test-setup";
 import type { WorkspaceDetail, WorkspacePaneRow } from "@/types/workspace";
 
@@ -213,4 +214,45 @@ describe("WorkspaceTabs: the active tab scrolls into view", () => {
       Element.prototype.scrollIntoView = original;
     }
   });
+});
+
+it("opens one phone preview tab and closes it without removing the subshell", async () => {
+  const deletes: string[] = [];
+  setFetchRouter((input, init) => {
+    const url = new URL(String(input), "http://localhost");
+    if (init?.method === "DELETE") deletes.push(url.pathname);
+    if (url.pathname === "/api/subshells") return Promise.resolve(new Response("[]"));
+    if (url.pathname === "/api/auth/ws-token") return Promise.resolve(new Response("{}", { status: 503 }));
+    return Promise.resolve(new Response("{}"));
+  });
+  try {
+    renderStrip();
+    await waitFor(() => expect(Boolean(document.querySelector("[data-terminal-controls-scroller]"))).toBe(true));
+    act(() => {
+      expect(requestWorkspacePreview("s-1", { kind: "screen" })).toBe(true);
+    });
+    await screen.findByRole("button", { name: "Virtual display · s-1" });
+    act(() => {
+      requestWorkspacePreview("s-1", { kind: "screen" });
+    });
+    expect(screen.getAllByRole("button", { name: "Virtual display · s-1" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Close Virtual display for s-1" }));
+    expect(screen.queryByRole("button", { name: "Virtual display · s-1" }) === null).toBe(true);
+    expect(document.querySelector('[data-pane-id="p0"]')).toBeTruthy();
+    act(() => {
+      requestWorkspacePreview("s-1", { kind: "app", port: 41430 });
+    });
+    await screen.findByRole("button", { name: "App · 41430 · s-1" });
+    act(() => {
+      requestWorkspacePreview("s-1", { kind: "screen" });
+    });
+    await screen.findByRole("button", { name: "Virtual display · s-1" });
+    expect(screen.getByRole("button", { name: "App · 41430 · s-1" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close Virtual display for s-1" }));
+    expect(screen.getByRole("button", { name: "App · 41430 · s-1" })).toBeTruthy();
+    expect(deletes).toEqual([]);
+  } finally {
+    cleanup();
+    setFetchRouter(null);
+  }
 });

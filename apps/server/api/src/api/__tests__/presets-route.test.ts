@@ -401,6 +401,33 @@ describe("preset writes carry the launch fields (spec 2026-09-29)", () => {
     delete process.env.CLAUDE_PATH;
   });
 
+  it("persists a display provider on create, preserves it on unrelated edits, and clears it explicitly", async () => {
+    const screen = { width: 1440, height: 900, provider: "xvfb-x11vnc" };
+    const created = await app.fetch(
+      authedRequest("/api/presets", ownerCookie, {
+        method: "POST",
+        body: JSON.stringify({ harnessId: "claude-code", name: "display-preset", screen }),
+      }),
+    );
+    expect(created.status).toBe(200);
+    const body = (await created.json()) as { id: string; screenConfig: string };
+    createdPresetIds.push(body.id);
+    expect(JSON.parse(body.screenConfig)).toEqual(screen);
+    const changed = await app.fetch(
+      authedRequest(`/api/presets/${body.id}`, ownerCookie, {
+        method: "PUT",
+        body: JSON.stringify({ name: "display-renamed" }),
+      }),
+    );
+    expect(changed.status).toBe(200);
+    expect((await repo.findById(body.id))?.screenConfig).toBe(JSON.stringify(screen));
+    const cleared = await app.fetch(
+      authedRequest(`/api/presets/${body.id}`, ownerCookie, { method: "PUT", body: JSON.stringify({ screen: null }) }),
+    );
+    expect(cleared.status).toBe(200);
+    expect((await repo.findById(body.id))?.screenConfig).toBeNull();
+  });
+
   it("POST carries the three launch fields, all null when the body says none", async () => {
     // The "no node dimension" posture is reversed by spec 2026-09-29: the row
     // now NAMES a launch (node, dir, prompt) as optional columns. A body that
@@ -436,6 +463,7 @@ describe("preset writes carry the launch fields (spec 2026-09-29)", () => {
         "promptBlocks",
         "restartOnExit",
         "settingsJson",
+        "screenConfig",
         "updatedAt",
         "userId",
         "workingDir",

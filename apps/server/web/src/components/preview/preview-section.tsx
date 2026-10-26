@@ -1,0 +1,486 @@
+import { Button, cn, errMessage } from "@internal/node-admin";
+import { Link } from "@tanstack/react-router";
+import { type JSX, useEffect, useMemo, useRef, useState } from "react";
+import { OpenPanel } from "@/components/preview/open-panel";
+import { nodeReasonLine, PortList } from "@/components/preview/port-list";
+import {
+  type PreviewConnection,
+  PreviewToolbar,
+  type PreviewWorkspaceControls,
+} from "@/components/preview/preview-toolbar";
+import { ScreenViewer } from "@/components/preview/screen-viewer";
+import { WatchViewer } from "@/components/preview/watch-viewer";
+import { TrustNoticeBanner } from "@/components/trust-notice-banner";
+import { useIsPhoneLayout } from "@/hooks/use-is-phone-layout";
+import type { UseSubshellPreview } from "@/hooks/use-subshell-preview";
+import type { TrustNotice } from "@/lib/trust-notices";
+import type { SubshellAccess, SubshellView } from "@/types/subshell";
+
+/**
+ * The Preview section under a pane's terminal (spec §7): what the pane
+ * currently offers to watch, and the three named verbs - Open, Watch, Screen.
+ *
+ * It is presentational by choice: the pane route owns `useSubshellPreview`
+ * and hands the controller down, which keeps every protocol half (the REST/
+ * socket dance, the throttle) in the hook where it can be tested without
+ * DOM. This file only decides what the truth looks like: which row carries
+ * which control, what a gate says, and what never renders on a phone (the
+ * dock's own tiling-for-tabs trade: the panel is desktop furniture, Watch
+ * paints frames fine on any layout).
+ *
+ * The disclosure variant is reuse, not a new subsystem: a shared pane's
+ * banner fires once per device HERE TOO (its own dismiss key), because this
+ * surface shows more than the terminal does - a live screen, not a log.
+ */
+
+export type PreviewChoice = import("@internal/subshell-protocol").WorkspacePreviewTarget;
+
+export interface PreviewSectionProps {
+  workspace?: PreviewWorkspaceControls;
+  onClose?: () => void;
+  initialView?: PreviewChoice | null;
+  onViewChange?: (choice: PreviewChoice | null) => void;
+  /** The pane being previewed; watch frames key on it. */
+  paneId: string;
+  /** The caller's resolved access, exactly as the terminal reads it. */
+  access: SubshellAccess;
+  /** The row, for the shared-exposure disclosure. */
+  subshell?: SubshellView;
+  /** The hook's controller. */
+  preview: UseSubshellPreview;
+  /**
+   * The dock's phone predicate, overridable for the tests: on a phone the
+   * Open panel never renders; a prepared preview opens through a new-tab link.
+   */
+  isPhone?: boolean;
+  /** Test seam for the banner's dwell, passed straight through. */
+  bannerVisibleMs?: number;
+  onHide?: () => void;
+  fill?: boolean;
+}
+
+/**
+ * The shared-pane disclosure, in the PREVIEW surface's own copy and under its
+ * own seen-mark key. The terminal's banner (same exposure, `shared:` prefix)
+ * may already be dismissed on this device; "I know it's shared" does not yet
+ * mean "I know previews show more", and the spec raises it exactly once more.
+ */
+export function previewSharedNotice(subshell: SubshellView | undefined): TrustNotice | null {
+  const count = subshell?.shareCount ?? 0;
+  if (!subshell || count <= 0) return null;
+  const everyone = subshell.sharedWithEveryone ?? false;
+  const who = everyone
+    ? "everyone signed in to this instance"
+    : count === 1
+      ? "1 other person"
+      : `${count} other people`;
+  const owned = subshell.access === "owner";
+  return {
+    kind: "preview",
+    // The count is in the key, like the terminal's notice: a wider audience
+    // is new information, not a dismissed one.
+    dismissKey: `preview:shared:${subshell.id}:${count}:${everyone}`,
+    banner: owned
+      ? `You've shared this subshell with ${who}. A preview here is a live view of the pane, not just its log, so what you open or watch shows them the same thing.`
+      : `This subshell belongs to someone else and is shared with ${who}. Previews show a live view of the pane, visible the same way from the outside.`,
+    tooltip: `Shared with ${who}. Previews show a live view, not just the log.`,
+    label: owned ? `Shared with ${who}` : "Someone else's subshell",
+  };
+}
+
+export function PreviewSection({
+  workspace,
+  paneId,
+  access,
+  subshell,
+  preview,
+  isPhone,
+  bannerVisibleMs,
+  onHide,
+  fill = false,
+  initialView,
+  onViewChange,
+  onClose,
+}: PreviewSectionProps): JSX.Element {
+  const phoneDefault = useIsPhoneLayout();
+  const phone = isPhone ?? phoneDefault;
+  const [open, setOpen] = useState<{ port: number; proxyBase: string } | null>(null);
+  // The open screen session: the display is kept from the answer so a later
+  // info poll that reports the display gone cannot retitle the live viewer.
+  const [busy, setBusy] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [connection, setConnection] = useState<PreviewConnection>("connecting");
+  const [screenSession, setScreenSession] = useState<{ display: string; protocol: "vnc"; proxyBase: string } | null>(
+    null,
+  );
+  const sectionRef = useRef<HTMLElement>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  useEffect(() => {
+    const onChange = () => setFullscreen(document.fullscreenElement === sectionRef.current);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  async function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement === sectionRef.current) await document.exitFullscreen();
+      else await sectionRef.current?.requestFullscreen();
+    } catch {
+      setOpenError("Couldn't enter full screen. Try opening the app in a new tab for more room.");
+    }
+  }
+  const [openError, setOpenError] = useState<string | null>(null);
+  const info = preview.info;
+  const notice = useMemo(() => previewSharedNotice(subshell), [subshell]);
+
+  // Repointing this page at another pane must drop everything that belongs
+  // to the pane the user was looking at: the route holds no key on this
+  // Section, so swipe navigation changes `paneId` on the SAME instance (the
+  // route's own `[id]` effects exist for exactly that). Carrying pane A's
+  // screen session into B would render A's live VNC under B's name, and RFB's
+  // pump keeps pv-ws from ever idling the lane (idle expiry needs a silent
+  // side), so A's forward slot would stay pinned indefinitely. The Open panel
+  // and its error are the same pane-scoped state.
+  // The clear-what-is-up half of pane navigation. The other half is in the
+  // open handlers: an in-flight POST that answers after the repoint must not
+  // repopulate the new pane with the old one's lane, so every handler
+  // captures this counter and ignores its answer once the counter moved.
+  const generation = useRef(0);
+  const resumed = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the paneId dependency IS the reset, the React prop-change pattern. The body never reads paneId (its setters are stable), which is what the exhaustive-deps autofix would strip and what shipped the bug this pins.
+  useEffect(() => {
+    generation.current += 1;
+    setScreenSession(null);
+    setOpen(null);
+    setOpenError(null);
+    setBusy(false);
+    return () => {
+      generation.current += 1;
+    };
+  }, [paneId]);
+
+  async function handleOpen(port: number, serviceId?: string): Promise<void> {
+    resumed.current = true;
+    const gen = generation.current;
+    setOpenError(null);
+    setBusy(true);
+    setConnection("connecting");
+    try {
+      const { proxyBase } = await preview.openPort(port, serviceId);
+      if (generation.current !== gen) return;
+      setScreenSession(null);
+      if (preview.watching) await preview.stopWatch();
+      if (generation.current !== gen) return;
+      setOpen({ port, proxyBase });
+      onViewChange?.(serviceId ? { kind: "service", serviceId, port } : { kind: "app", port });
+    } catch (err) {
+      // The named refusal (the caps, the stale node answer) renders as asked.
+      if (generation.current !== gen) return;
+      setOpenError(errMessage(err, "Couldn't connect to that app."));
+    } finally {
+      if (generation.current === gen) setBusy(false);
+    }
+  }
+
+  // Screen shares the app forwarding path, with a raw RFB lane. Workspace
+  // tabs can host it on phones too; the standalone phone view cannot.
+  async function handleScreen(): Promise<void> {
+    if (!info?.screen) return;
+    resumed.current = true;
+    const gen = generation.current;
+    setOpenError(null);
+    setBusy(true);
+    setConnection("connecting");
+    try {
+      const { proxyBase } = await preview.openPort(info.screen.viewer.port);
+      if (generation.current !== gen) return;
+      setOpen(null);
+      if (preview.watching) await preview.stopWatch();
+      if (generation.current !== gen) return;
+      setScreenSession({ display: info.screen.display, protocol: info.screen.viewer.protocol, proxyBase });
+      onViewChange?.({ kind: "screen" });
+      // A fresh session is exactly when the info poll should be re-asked:
+      // its own throttle still rules (spec §7).
+      preview.refresh();
+    } catch (err) {
+      if (generation.current !== gen) return;
+      setOpenError(errMessage(err, "Couldn't connect to the virtual display."));
+    } finally {
+      if (generation.current === gen) setBusy(false);
+    }
+  }
+
+  async function handleWatch(): Promise<void> {
+    resumed.current = true;
+    const gen = generation.current;
+    setOpen(null);
+    setScreenSession(null);
+    setConnection("connecting");
+    setBusy(true);
+    onViewChange?.({ kind: "browser" });
+    try {
+      await preview.startWatch(info?.cdpPort ?? undefined);
+    } finally {
+      if (generation.current === gen) setBusy(false);
+    }
+  }
+
+  function disconnect() {
+    if (onClose) {
+      onClose();
+      return;
+    }
+    onViewChange?.(null);
+    setOpen(null);
+    setScreenSession(null);
+    if (preview.watching) void preview.stopWatch();
+  }
+
+  function refreshViewer() {
+    if (open) {
+      setConnection("connecting");
+      setReloadKey((value) => value + 1);
+    } else if (screenSession) void handleScreen();
+    else if (preview.watching) void handleWatch();
+    else if (initialView?.kind === "app") void handleOpen(initialView.port);
+    else if (initialView?.kind === "service") void handleOpen(initialView.port, initialView.serviceId);
+    else if (initialView?.kind === "screen") void handleScreen();
+    else if (initialView?.kind === "browser") void handleWatch();
+    preview.refresh();
+  }
+
+  const reopen = useRef({ handleOpen, handleScreen, startWatch: handleWatch });
+  reopen.current = { handleOpen, handleScreen, startWatch: handleWatch };
+  useEffect(() => {
+    if (resumed.current || !initialView || !info?.nodeEnabled || (info.reason && initialView.kind !== "service"))
+      return;
+    if (initialView.kind === "screen" && (!info.screen || info.virtualDisplayEnabled === false)) return;
+    if (initialView.kind !== "screen" && info.webPreviewsEnabled === false) return;
+    // Wait until mount effects settle, so StrictMode's replay cannot consume
+    // the shortcut while invalidating its in-flight viewer request.
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled || resumed.current) return;
+      resumed.current = true;
+      if (initialView.kind === "app") void reopen.current.handleOpen(initialView.port);
+      else if (initialView.kind === "service") void reopen.current.handleOpen(initialView.port, initialView.serviceId);
+      else if (initialView.kind === "screen") void reopen.current.handleScreen();
+      else void reopen.current.startWatch();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [initialView, info]);
+
+  // The info poll is what carries a vanished browser (spec §5): the named
+  // state renders beside the canvas, and the canvas stays where it was.
+  const browserGone = preview.watching && info != null && info.cdpPort === null;
+  const hasViewer = Boolean((open && (!phone || fill)) || screenSession || preview.watching);
+  const selected = open ? `app:${open.port}` : screenSession ? "screen" : preview.watching ? "browser" : null;
+  const nothingToPreview =
+    info?.nodeEnabled &&
+    !info.reason &&
+    info.ports.length === 0 &&
+    info.screen === null &&
+    info.screenLost === undefined &&
+    !preview.watching;
+
+  return (
+    <section
+      aria-label="Web previews & screens"
+      ref={sectionRef}
+      className={cn(
+        "flex min-h-0 shrink-0 flex-col bg-card",
+        !fill && "gap-3 border-border border-t p-3",
+        fill
+          ? "h-full w-full overflow-hidden"
+          : hasViewer
+            ? "h-[55%] max-h-[85%] min-h-40 resize-y overflow-hidden"
+            : "max-h-[45%] overflow-y-auto",
+        "[&:fullscreen]:h-screen [&:fullscreen]:max-h-none [&:fullscreen]:resize-none",
+      )}
+    >
+      {fill ? (
+        (selected || initialView) && (
+          <PreviewToolbar
+            workspace={workspace}
+            selected={selected}
+            busy={busy}
+            connection={connection}
+            onRefresh={refreshViewer}
+            onDisconnect={disconnect}
+            onFullscreen={() => void toggleFullscreen()}
+            fullscreen={fullscreen}
+            fullscreenSupported={Boolean(sectionRef.current?.requestFullscreen)}
+            appUrl={open?.proxyBase}
+            appInBrowserTab={phone && !fill}
+          />
+        )
+      ) : (
+        <div className="flex shrink-0 flex-wrap items-center gap-3">
+          <h2 className="font-strong text-label">Web previews &amp; screens</h2>
+          <Button variant="ghost" size="sm" onClick={preview.refresh}>
+            Refresh
+          </Button>
+          {hasViewer && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void toggleFullscreen()}
+              disabled={!sectionRef.current?.requestFullscreen}
+              disabledReason="Your browser doesn't support full screen."
+            >
+              {fullscreen ? "Exit full screen" : "Full screen"}
+            </Button>
+          )}
+          {onHide && (
+            <Button variant="ghost" size="sm" onClick={onHide} aria-expanded={true}>
+              Hide web previews and screens
+            </Button>
+          )}
+          {preview.infoLoading && info === undefined && (
+            <span className="text-detail text-muted-foreground">Checking what the pane offers…</span>
+          )}
+        </div>
+      )}
+
+      {fill && !selected && (busy || !info) && (
+        <p role="status" className="p-3 text-detail text-muted-foreground">
+          {busy ? "Opening view…" : "Checking available views…"}
+        </p>
+      )}
+
+      {initialView?.kind === "screen" && info?.nodeEnabled && !info.reason && !info.screen && !screenSession && (
+        <p className="p-3 text-detail text-muted-foreground">
+          {info.virtualDisplayEnabled === false
+            ? "Virtual displays are disabled in this node’s settings."
+            : "This virtual display is no longer available. Restart the subshell with Virtual display enabled to create a new one."}
+        </p>
+      )}
+
+      {initialView && initialView.kind !== "screen" && info?.webPreviewsEnabled === false && (
+        <p className="p-3 text-detail text-muted-foreground">Web previews are disabled in this node’s settings.</p>
+      )}
+
+      {notice && <TrustNoticeBanner notices={[notice]} visibleMs={bannerVisibleMs} />}
+
+      {/* The switch's remedy line: the info answer is always the full shape,
+          so a switched-off node says so in words rather than showing a blank
+          list that reads as "nothing is listening". */}
+      {info && (!info.nodeEnabled || info.reason) && (
+        <p className="text-detail text-muted-foreground">{nodeReasonLine(info.reason)}</p>
+      )}
+
+      {info?.reason === "preview-disabled" && subshell && (
+        <Link
+          to="/nodes/$id"
+          params={{ id: subshell.nodeId ?? "local" }}
+          className="text-detail text-primary underline"
+        >
+          Open node settings
+        </Link>
+      )}
+      {info &&
+        (!fill || (!hasViewer && !initialView)) &&
+        (fill ? (
+          <div className="overflow-y-auto p-3">
+            <PortList
+              info={info}
+              access={access}
+              watching={preview.watching}
+              onOpen={(port) => void handleOpen(port)}
+              onWatch={() => void handleWatch()}
+              onScreen={() => void handleScreen()}
+              compact
+              busy={busy}
+            />
+          </div>
+        ) : (
+          <details open={!open && !screenSession && !preview.watching} className="max-h-[45%] shrink-0 overflow-y-auto">
+            <summary className="cursor-pointer text-detail text-muted-foreground">Ports and screens</summary>
+            <PortList
+              info={info}
+              access={access}
+              watching={preview.watching}
+              onOpen={(port) => void handleOpen(port)}
+              onWatch={() => void handleWatch()}
+              onScreen={() => void handleScreen()}
+              phone={phone}
+            />
+          </details>
+        ))}
+
+      {nothingToPreview && !initialView && (
+        <p className="text-detail text-muted-foreground">No apps or screens yet. Ports the pane opens show up here.</p>
+      )}
+
+      {preview.watchError && (
+        <p role="alert" className="text-destructive text-detail">
+          {preview.watchError}
+        </p>
+      )}
+      {openError && (
+        <p role="alert" className="text-destructive text-detail">
+          {openError}
+        </p>
+      )}
+      {preview.error && (
+        <p role="alert" className="text-destructive text-detail">
+          {preview.error}
+        </p>
+      )}
+
+      {/* Keep Stop beside the picture when its port row is collapsed or disappears. */}
+      {preview.watching && (
+        <WatchViewer
+          paneId={paneId}
+          compact={fill}
+          onConnectionChange={setConnection}
+          gone={browserGone}
+          onStop={() => {
+            onViewChange?.(null);
+            void preview.stopWatch();
+          }}
+        />
+      )}
+
+      {open && phone && !fill && (
+        <a href={open.proxyBase} target="_blank" rel="noreferrer" className="text-label text-primary underline">
+          Open port {open.port} in new tab
+        </a>
+      )}
+      {/* A real link keeps phone navigation inside a user gesture even after a slow request. */}
+      {open && (!phone || fill) && (
+        <OpenPanel
+          port={open.port}
+          compact={fill}
+          reloadKey={reloadKey}
+          onConnectionChange={setConnection}
+          proxyBase={open.proxyBase}
+          onClose={() => {
+            onViewChange?.(null);
+            setOpen(null);
+          }}
+        />
+      )}
+
+      {/* The Screen viewer is a panel too, so it follows the same mobile rule.
+          Keyed on the session's proxy: a re-open is a fresh socket on a fresh
+          mount, never a re-connect over a stale one (the viewer's whole
+          construction assumes a new WebSocket per mount). */}
+      {screenSession && (!phone || fill) && (
+        <ScreenViewer
+          key={screenSession.proxyBase}
+          compact={fill}
+          onConnectionChange={setConnection}
+          display={screenSession.display}
+          protocol={screenSession.protocol}
+          proxyBase={screenSession.proxyBase}
+          onClose={() => {
+            onViewChange?.(null);
+            setScreenSession(null);
+          }}
+        />
+      )}
+    </section>
+  );
+}

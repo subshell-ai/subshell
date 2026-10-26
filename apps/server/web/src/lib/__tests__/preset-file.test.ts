@@ -43,6 +43,11 @@ const ssh: SshPreset = {
   updatedAt: "now",
 };
 describe("preset files v1", () => {
+  it("round-trips the display choice without enabling the destination node", () => {
+    const screen = { width: 1440, height: 900, provider: "native-example" };
+    const file = presetFileFromRow({ ...agent, screenConfig: JSON.stringify(screen) });
+    expect(presetImportPayload(parsePresetFile(JSON.stringify(file)).preset)).toMatchObject({ screen });
+  });
   it("accepts 8,000 characters of notes and rejects 8,001 on import", () => {
     const file = (length: number) =>
       JSON.stringify(presetFileFromRow({ ...agent, crossCommNotes: "x".repeat(length) }));

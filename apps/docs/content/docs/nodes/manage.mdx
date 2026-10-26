@@ -23,6 +23,88 @@ On the node's **Overview** page, find **Cross-agent communication**. Only the no
 
 Adding or removing a directory also saves any pending notes. Agents read both fields through MCP discovery. Directory suggestions don't grant or restrict access; the node's [Directory restrictions](/nodes/directories) still apply.
 
+## Apps, browsers, and virtual displays
+
+In the server dashboard, open **Settings** → **Nodes**, select a machine, and open **Overview**. Its owner can change these settings; a server admin manages them for the server's built-in node.
+
+- **Allow web previews** lets authorized viewers open web apps and saved services, and watch browsers in any subshell on that node. See [Web previews & screens](/guides/preview#check-a-website).
+- **Allow virtual displays** lets subshells request a screen for graphical apps on a machine without a monitor. Each display uses extra memory and CPU; web previews don't need one. See [Use a virtual display on Linux](/guides/preview#use-a-virtual-display-on-linux) for requirements and setup.
+
+Under **Allow virtual displays**, enable the providers you want this node to
+use and choose a **Default display provider**. Each enabled provider can be
+selected when starting a subshell. **Xvfb + VNC** requires Linux.
+**BetterDisplay** requires macOS 14 or later and the separately enabled helper described below. The card checks requirements on the selected node,
+which may be a different machine from the one displaying the dashboard.
+
+Changing the default doesn't change existing subshells: their restarts retain
+the saved provider. Disabling a provider prevents new allocations and restarts
+that need it, while existing displays keep running. Enabling a provider starts
+no processes until a subshell requests a display.
+
+The switches work independently. Both are off by default. The cards explain when a feature is disabled or required display programs are missing. Turning either setting off blocks new operations without stopping existing subshells or immediately closing existing connections.
+
+## macOS display helper
+
+Subshell Client and Subshell Server both bundle **Subshell Display Helper**.
+Either desktop app can manage the same helper on that Mac. Installing or
+setting up either app doesn't enable the helper, request its permissions, or
+register it to start at login.
+
+Use the Mac that runs the selected node, with your macOS account signed in.
+Keep another screen as the main display; the helper refuses a virtual screen
+that is main or mirrored. A Mac whose only screen is the new virtual display
+isn't supported by this provider.
+BetterDisplay must be installed and running with CLI access enabled and a
+license or trial that supports virtual screens. Subshell doesn't install or
+purchase BetterDisplay for you. See [BetterDisplay's integration guide](https://betterdisplay.pro/guide/integration/).
+
+1. On that Mac, open **Subshell Client** → **Virtual Display Helper…** or
+   **Subshell Server** → **Virtual Display Helper…** from the macOS menu bar.
+   This opens settings; the helper stays disabled until you choose otherwise.
+2. Read the shared-desktop warning, then choose **Enable helper**. This also
+   registers the helper to start when you sign in. It can keep running after
+   you close the desktop app. If the panel reports pending background approval,
+   choose **Open login items…** and allow it in System Settings.
+3. Choose **Allow screen recording…** and **Allow accessibility…**. In macOS
+   System Settings, grant both permissions to **Subshell Display Helper**.
+   Screen Recording lets it capture the virtual screen; Accessibility lets it
+   send keyboard and pointer input. Subshell can't grant these permissions
+   through node settings or MCP. If macOS requires a restart, choose **Quit
+   Helper** from the helper's display icon in the menu bar, reopen its settings
+   through either desktop app, and enable it again.
+4. In the server dashboard, open **Settings** → **Nodes**, select that Mac,
+   and open **Overview**. Enable **Allow virtual displays** and **Allow
+   BetterDisplay**, then choose it as the default if desired. Choose **Recheck**
+   if requirements still show as missing.
+5. Start a subshell on that node with **Virtual display** and **BetterDisplay**
+   selected. Open its screen through **Web previews & screens**.
+
+macOS displays share the same desktop, keyboard focus, and pointer. Apps and
+notifications on the virtual screen can appear in its stream. This isn't a
+separate login session or a sandbox. Only enable it for people you trust to
+control that Mac. Keyboard input requires a focused window entirely inside the
+virtual screen; click that window before typing.
+
+Unlike Linux's `DISPLAY` environment variable, macOS doesn't automatically
+place an app on the subshell's screen. Move the app's window onto that screen
+on the Mac, or use the app's own display-selection support. Programs inherit
+`SUBSHELL_DISPLAY_UUID` and `SUBSHELL_DISPLAY_NAME` to identify the target.
+Capture runs at up to five frames per second; audio and clipboard sharing
+aren't supported. Native letter shortcuts use the Mac's ANSI key positions;
+non-US keyboard layouts may interpret shortcuts differently.
+
+To stop access, open the same panel and choose **Disable helper**, or choose
+**Disable Helper** from its menu-bar icon. This disconnects all helper captures
+and stops input for both desktop apps, and unregisters startup at login.
+Your terminal subshells keep running. macOS permission grants remain in place;
+you can revoke them separately in System Settings. **Quit Helper** also
+disables it. Existing virtual screens can remain until their subshells close
+or recovery can contact BetterDisplay again.
+
+Turning off **Allow virtual displays** in node settings blocks new allocations;
+it doesn't replace the helper's immediate disable control. If the Mac has no
+running helper, the node reports that requirement instead of launching it.
+
 ## Names and ownership
 
 Node names are display labels. Renaming a node doesn't change its identity, and launch pickers use the current display name.

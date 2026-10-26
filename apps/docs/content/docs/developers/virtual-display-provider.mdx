@@ -1,0 +1,311 @@
+---
+title: "Implement a virtual display provider"
+description: "Build and test a bundled Linux display provider, register it in Subshell, and apply the same lifecycle contract to another backend."
+---
+
+Implement a working provider by composing Subshell's Xvfb backend, then register it as a separate node-selectable choice.
+
+## Before you start
+
+Follow [Contribute to Subshell](/developers/contribute) to prepare a source
+checkout and install workspace dependencies. Read
+[Virtual display architecture](/developers/virtual-display-architecture)
+for the contract and trust boundaries. This example uses the checkout's internal
+interfaces, not a published provider package or versioned plugin SDK.
+
+Run the example on Linux with `Xvfb`, `x11vnc`, and `xauth` available on PATH.
+Follow [Linux display setup](/guides/preview#use-a-virtual-display-on-linux)
+for installation. The tests create real temporary displays and loopback VNC
+listeners; use a development machine without untrusted local OS users. They
+don't require a running Subshell server or an account, and don't use port 3080.
+
+The example creates an actual private X11 screen using the existing backend.
+It deliberately reuses that backend's process identity checks, Xauthority,
+rollback, and recovery. It doesn't implement another native display system.
+The final sections explain what a new platform adapter must supply.
+
+## Implement the provider
+
+Create this file in the checkout:
+
+```ts title="packages/pane-runtime/src/preview/tutorial-xvfb-provider.ts"
+import { join } from "node:path";
+import type { VirtualDisplayRequest } from "@internal/subshell-protocol";
+import type { VirtualDisplayProvider } from "./display-provider.js";
+import { XvfbDisplayProvider } from "./xvfb-display-provider.js";
+
+/** A runnable composition example with its own resource namespace. */
+export class TutorialXvfbProvider implements VirtualDisplayProvider {
+  readonly id = "tutorial-xvfb";
+  private readonly backend: XvfbDisplayProvider;
+
+  constructor(dataDir: string, log?: (line: string) => void) {
+    // The backend appends its own layout below this directory. Keep this
+    // example separate from the built-in provider's ownership records.
+    this.backend = new XvfbDisplayProvider(
+      join(dataDir, "display-providers", this.id),
+      { log },
+    );
+  }
+
+  readiness() {
+    return this.backend.readiness();
+  }
+
+  openFor(paneId: string, size: VirtualDisplayRequest) {
+    return this.backend.openFor(paneId, size);
+  }
+
+  getFor(paneId: string) {
+    return this.backend.getFor(paneId);
+  }
+
+  launchEnv(paneId: string) {
+    return this.backend.launchEnv(paneId);
+  }
+
+  lostFor(paneId: string) {
+    return this.backend.lostFor(paneId);
+  }
+
+  closeFor(paneId: string) {
+    return this.backend.closeFor(paneId);
+  }
+
+  sweepOrphans(alivePaneIds: string[]) {
+    return this.backend.sweepOrphans(alivePaneIds);
+  }
+}
+```
+
+Use it through `PreviewDisplays`, not directly from launch routes. The shared
+runtime supplies feature/provider policy and orders operations per subshell.
+This provider adds no new permission setting, install command, npm package,
+or desktop helper.
+
+## Test policy, allocation, and recovery
+
+Create this test beside the provider. It fails clearly if prerequisites are
+missing rather than silently skipping native validation.
+
+```ts title="packages/pane-runtime/src/preview/tutorial-xvfb-provider.test.ts"
+import { expect, test } from "bun:test";
+import { mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { PreviewDisplays } from "./display.js";
+import { TutorialXvfbProvider } from "./tutorial-xvfb-provider.js";
+
+const size = { width: 640, height: 480 };
+
+test("disabled policy creates no display resources", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "subshell-provider-policy-"));
+  const displays = new PreviewDisplays(dataDir, {
+    provider: new TutorialXvfbProvider(dataDir),
+    isEnabled: () => false,
+  });
+  const id = crypto.randomUUID();
+  try {
+    await expect(displays.openFor(id, size)).rejects.toThrow("preview-node-off");
+    expect(readdirSync(dataDir)).toEqual([]);
+  } finally {
+    await displays.closeFor(id);
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("a real display is idempotent, recoverable, and private", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "subshell-provider-native-"));
+  const provider = new TutorialXvfbProvider(dataDir);
+  const recovered = new TutorialXvfbProvider(dataDir);
+  const displays = new PreviewDisplays(dataDir, {
+    provider,
+    isEnabled: () => true,
+    getEnabledProviderIds: () => [provider.id],
+  });
+  const id = crypto.randomUUID();
+  try {
+    expect(provider.readiness()).toEqual({ supported: true, missing: [] });
+    const screen = await displays.openFor(id, size);
+    expect(await displays.openFor(id, size)).toEqual(screen);
+    expect(screen.viewer.protocol).toBe("vnc");
+    const env = displays.launchEnv(id);
+    expect(env.DISPLAY).toBe(screen.display);
+    expect(statSync(env.XAUTHORITY).mode & 0o777).toBe(0o600);
+    expect(JSON.stringify(screen)).not.toContain(env.XAUTHORITY);
+
+    // A new provider instance has no in-memory state. Recovery must verify
+    // the recorded processes and listening socket before returning a screen.
+    expect(recovered.getFor(id)).toBeNull();
+    expect((await recovered.sweepOrphans([id])).rehydrated).toBe(1);
+    expect(recovered.getFor(id)).toEqual(screen);
+    recovered.closeFor(id);
+    expect(recovered.getFor(id)).toBeNull();
+    recovered.closeFor(id);
+  } finally {
+    recovered.closeFor(id);
+    await displays.closeFor(id);
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+}, 15_000);
+```
+
+Run from the repository root:
+
+```bash
+bun test packages/pane-runtime/src/preview/tutorial-xvfb-provider.test.ts
+bun run --cwd packages/pane-runtime verify-types
+```
+
+Both tests should pass. These tests validate the example against the real Linux
+processes; the runtime's existing provider tests separately exercise concurrent
+opens, policy changes during startup, unknown providers, and ownership conflicts.
+
+## Check the compiled runtime
+
+A source-only test doesn't establish that the provider works inside a compiled
+binary. Add this temporary smoke program beside the provider. It creates a
+screen, verifies the RFB greeting, and cleans up without opening a dashboard.
+
+```ts title="packages/pane-runtime/src/preview/tutorial-xvfb-smoke.ts"
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { connect } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { PreviewDisplays } from "./display.js";
+import { TutorialXvfbProvider } from "./tutorial-xvfb-provider.js";
+
+const dataDir = mkdtempSync(join(tmpdir(), "subshell-provider-smoke-"));
+const provider = new TutorialXvfbProvider(dataDir);
+const displays = new PreviewDisplays(dataDir, {
+  provider,
+  isEnabled: () => true,
+  getEnabledProviderIds: () => [provider.id],
+});
+const id = crypto.randomUUID();
+try {
+  const screen = await displays.openFor(id, { width: 640, height: 480 });
+  const greeting = await new Promise<string>((resolve, reject) => {
+    const socket = connect(screen.viewer.port, "127.0.0.1");
+    let bytes = Buffer.alloc(0);
+    const timer = setTimeout(() => finish(new Error("RFB greeting timed out")), 2000);
+    function finish(error?: Error) {
+      clearTimeout(timer);
+      socket.destroy();
+      if (error) reject(error);
+      else resolve(bytes.subarray(0, 12).toString("ascii"));
+    }
+    socket.on("error", finish);
+    socket.on("end", () => {
+      if (bytes.length < 12) finish(new Error("RFB closed before its greeting"));
+    });
+    socket.on("data", (chunk: Buffer) => {
+      bytes = Buffer.concat([bytes, chunk]);
+      if (bytes.length >= 12) finish();
+    });
+  });
+  assert.match(greeting, /^RFB 003\.[0-9]{3}\n$/);
+  console.log("Compiled provider opened a real VNC display.");
+} finally {
+  await displays.closeFor(id);
+  rmSync(dataDir, { recursive: true, force: true });
+}
+```
+
+Build and run it from the repository root. This requires the same external
+Linux programs as the source test; compilation doesn't bundle Xvfb or x11vnc.
+
+```bash
+example_bin_dir=$(mktemp -d)
+bun build --compile packages/pane-runtime/src/preview/tutorial-xvfb-smoke.ts \
+  --outfile "$example_bin_dir/provider-smoke"
+"$example_bin_dir/provider-smoke"
+rm -rf "$example_bin_dir"
+```
+
+The expected message is `Compiled provider opened a real VNC display.` This
+checks allocation and RFB readiness, not visual rendering or application input.
+Remove the temporary smoke source after validation.
+
+## Register the provider
+
+After the isolated tests work, make these source changes:
+
+1. In `packages/pane-runtime/src/preview/display.ts`, statically import
+   `TutorialXvfbProvider` and append `new TutorialXvfbProvider(dataDir, log)` to
+   `createDisplayProviders`. Keep the existing providers.
+2. In `packages/subshell-protocol/src/display-providers.ts`, append
+   `{ id: "tutorial-xvfb", name: "Tutorial Xvfb", description: "Example Linux display provider." }`
+   to `VIRTUAL_DISPLAY_PROVIDERS`. Don't change the default provider.
+3. Build both consumers first so workspace package exports include the catalog
+   change, then run the package test scripts:
+
+   ```bash
+   bunx turbo build --filter=@internal/server --filter=@internal/node
+   env -u SHELLOPTS -u BASHOPTS bun run --cwd packages/pane-runtime test
+   env -u SHELLOPTS -u BASHOPTS bun run --cwd apps/node/agent test
+   ```
+
+The registry test requires the runtime and catalog to contain the same IDs.
+The catalog drives provider selection and labels; the runtime implements the
+behavior. No npm manifest entry or plugin installation endpoint is involved.
+
+Use an [isolated development server](/developers/contribute#run-an-isolated-server)
+for the UI check. In its dashboard, open **Nodes**, select your development
+node, enable **Allow virtual displays**, and enable **Tutorial Xvfb**. The node
+owner manages enrolled nodes; an administrator manages the built-in node.
+Create a terminal subshell with **Virtual display** selected and choose the
+new provider. Open its **Virtual display** view from **Web previews & screens**.
+Launch an installed X11 application from that terminal and verify frames and
+keyboard/pointer input. Confirm that stopping the display doesn't affect an
+unrelated display or terminal. Don't use a production instance for these checks.
+
+For enrolled-node testing, run the rebuilt node too. Updating the server's
+catalog doesn't install implementation code into an older node. Unknown
+providers must be refused; they must not silently fall back to another provider.
+
+## Replace the backend for another platform
+
+The example delegates native mechanics. A new backend replaces those delegates
+with real behavior while preserving the same contract:
+
+- **Readiness:** detect platform support, programs, running services, and
+  permissions without activating them. Report actionable missing requirements.
+- **Allocation:** validate input, reserve shared resources before awaiting,
+  journal ownership before an external create, bound commands and output,
+  and verify the returned screen and listener before publishing them.
+- **Launch:** return only the environment that applications actually understand.
+  Document placement limitations; macOS has no X11-style `DISPLAY` equivalent.
+- **Loss and cleanup:** stop viewer access, release held input, mark loss, and
+  delete only resources whose ownership you can prove. Retain uncertain
+  allocations for reconciliation rather than treating a failed query as absence.
+- **Recovery:** use a complete subshell census, verify persisted identity against
+  live resources, respect another daemon's ownership, and avoid racing startup.
+
+If the backend needs a native helper, design its consent, signing, installation,
+version compatibility, and disable behavior too. Reusing an executable under
+a different permission identity can invalidate macOS grants. See
+[BetterDisplay integration protocol](/developers/betterdisplay-protocol) for
+one concrete capture/input boundary, not a universal provider protocol.
+
+## Before shipping
+
+Test invalid IDs and dimensions, unsupported platforms, missing requirements,
+partial creation, command timeout with late completion, identity mismatch,
+helper/process loss, repeated close, daemon restart, incomplete census, and
+concurrent allocations. A failed operation must not expose a viewer; uncertain
+cleanup must retain ownership evidence. Test node/provider revocation during
+startup and native consent revocation during capture and input.
+
+Verify loopback binding, descriptor secrecy, private on-disk state, bounded
+frames and buffers, and the existing view-versus-edit rules. A new transport
+needs descriptor validators, server/node handling, and a browser adapter;
+provider registration alone isn't enough. Document shared-desktop and local-user
+risks rather than assuming a virtual screen provides isolation.
+
+Run the owning app's required checks, add release changesets for affected
+packages/apps, and update user setup, architecture, protocol, and security docs.
+For native helpers, validate the signed release bundle's install, update,
+permission persistence, and disable behavior on the target OS. Passing a fake
+adapter test or compiling Swift isn't a substitute for those checks.

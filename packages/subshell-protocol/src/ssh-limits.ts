@@ -263,3 +263,34 @@ export const SSH_EXEC_RETAIN_BYTES = 8192;
  * the plane never sees a machine that simply did not cap itself.
  */
 export const SSH_EXEC_RESULT_MAX_CHARS = 32_768;
+
+/** Byte cap on a preview lane frame's RAW payload, base64 aside (spec §4). Shared by both ends. */
+export const PREVIEW_FRAME_MAX_BYTES = 262_144;
+/** Bytes the link will not take before a lane calls it slow-link (spec §5: 1 MiB, both sides). */
+export const PREVIEW_LANE_BUFFER_MAX_BYTES = 1_048_576;
+/** Screencast rates. The bridge CLAMPS the wire fps into [MIN, MAX]; the grammar is looser. */
+export const PREVIEW_WATCH_FPS_MIN = 1;
+export const PREVIEW_WATCH_FPS_DEFAULT = 5;
+export const PREVIEW_WATCH_FPS_MAX = 5;
+export const PREVIEW_FPS_GRAMMAR_MAX = 60;
+export const PREVIEW_WATCH_JPEG_QUALITY = 60;
+/** Frames the bridge holds queued at the emit boundary (produced but not yet accepted);
+ * the queue drains as the pump accepts, so this never becomes a counter with no decrement.
+ * Full means NEW frames drop and emission resumes on drain - never backpressure the
+ * browser (spec §5). The link never acks events individually; this counts bridge-held frames. */
+export const PREVIEW_WATCH_FRAMES_BUFFERED = 5;
+/** Lane quotas: per pane, per node, and per watch bridge. */
+export const PREVIEW_FORWARD_SESSIONS_PER_PANE = 4;
+export const PREVIEW_SESSIONS_PER_NODE = 16;
+export const PREVIEW_WATCH_SUBSCRIBERS_MAX = 8;
+/** Lane waiters queued beyond the pane cap before a refusal (decision 2's burst posture). */
+export const PREVIEW_LANE_QUEUE_MAX = 8;
+/** Per-viewer-socket queued-bytes ceiling on the live fan-out; Task 8 detaches past it (`slow-link`). ~10 s of q60 at the 5 fps cap, generous against Bun's own WS backpressure. */
+export const PREVIEW_STREAM_DEBT_MAX = 4_194_304;
+/** A forward lane with no bytes either way for this long self-closes (spec §6: 15 min). */
+export const PREVIEW_IDLE_MS = 900_000;
+/** Lanes ride a lifetime inside this window; the command refuses outside it. */
+export const PREVIEW_LIFETIME_MIN_MS = 60_000;
+export const PREVIEW_LIFETIME_MAX_MS = 4 * 3_600_000;
+/** Lane refs double as proxy path secrets: 128 bits of lowercase hex. */
+export const PREVIEW_REF_RE = /^[0-9a-f]{32}$/;

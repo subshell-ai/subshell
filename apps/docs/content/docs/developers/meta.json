@@ -7,6 +7,11 @@
     "plugin-api",
     "harness-plugin",
     "network-plugin",
-    "publish-plugin"
+    "publish-plugin",
+    "web-preview-architecture",
+    "web-preview-development",
+    "virtual-display-architecture",
+    "virtual-display-provider",
+    "betterdisplay-protocol"
   ]
 }

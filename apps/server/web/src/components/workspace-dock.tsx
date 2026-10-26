@@ -14,9 +14,11 @@ import { useNavigate } from "@tanstack/react-router";
 import { type JSX, type DragEvent as ReactDragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
 import { PaneFocusHeader } from "@/components/pane-focus-header";
+import { PreviewChooserDialog } from "@/components/preview/preview-chooser-dialog";
 import { SubshellPicker } from "@/components/subshell-picker";
 import { type WorkspaceDockContextValue, WorkspaceDockProvider } from "@/components/workspace-dock/context";
 import { DockedPane, type DockedPaneParams } from "@/components/workspace-dock/docked-pane";
+import { DockedPreview, type DockedPreviewParams } from "@/components/workspace-dock/docked-preview";
 import { GroupHeaderActions } from "@/components/workspace-dock/group-header-actions";
 import { SubshellTab } from "@/components/workspace-dock/subshell-tab";
 import { useCloseSubshellLanding } from "@/hooks/use-close-subshell-landing";
@@ -32,6 +34,15 @@ import {
   panesMissingFromLayout,
   resolveAddPosition,
 } from "@/lib/workspace-layout";
+import {
+  flushWorkspacePreview,
+  onWorkspacePreviewRequest,
+  parseWorkspacePreviewId,
+  previewPanelId,
+  previewParentId,
+  publishWorkspacePreviews,
+  workspacePreviewLabel,
+} from "@/lib/workspace-preview";
 import type { SplitIntent } from "@/lib/workspace-split-intent";
 import type { SubshellView } from "@/types/subshell";
 import type { SplitDirection, WorkspaceDetail, WorkspacePaneRow } from "@/types/workspace";
@@ -46,6 +57,7 @@ function isSubshellDrag(e: ReactDragEvent): boolean {
 
 /** Panel content renderers, keyed by the `component` id passed to `addPanel`. */
 const components = {
+  preview: (props: IDockviewPanelProps<DockedPreviewParams>) => <DockedPreview {...props} />,
   subshell: (props: IDockviewPanelProps<DockedPaneParams>) => <DockedPane {...props} />,
 };
 
@@ -112,6 +124,7 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
   // has not reached a poll yet, and must not be mistaken for a deleted one.
   const serverSeenPaneIdsRef = useRef<Set<string>>(new Set());
   const [searchAddons, setSearchAddons] = useState<ReadonlyMap<string, SearchAddon>>(new Map());
+  const [chooserId, setChooserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Sidebar-drag affordance (spec 2026-09-03 sidebar-quickadd §5c): true while
   // our payload hovers the dock. The depth counter is what keeps the overlay
@@ -134,7 +147,13 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
   workspaceIdRef.current = detail.workspace.id;
   // Publish the dock's focused pane to the rail (it lives in the app shell, a
   // separate tree). Cleared on unmount so a stale focus never outlives the page.
-  useEffect(() => () => setWorkspaceFocusedId(null), []);
+  useEffect(
+    () => () => {
+      setWorkspaceFocusedId(null);
+      publishWorkspacePreviews([], null);
+    },
+    [],
+  );
   // One focus publisher for every moment focus can change: dockview's events
   // AND the reconciliation effect. The event alone is not enough — when
   // `handleAdd` places a new panel, dockview fires `onDidAddPanel`
@@ -145,7 +164,27 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
   // spec caught). Re-running on `detail.panes` changes is what heals that.
   const publishFocus = useCallback(() => {
     const activeId = apiRef.current?.activePanel?.id;
-    const pane = activeId ? panesRef.current.find((p) => p.id === activeId) : undefined;
+    const pane = activeId ? panesRef.current.find((p) => p.id === (previewParentId(activeId) ?? activeId)) : undefined;
+    const api = apiRef.current;
+    publishWorkspacePreviews(
+      (api?.panels ?? []).flatMap((panel) => {
+        const parsed = parseWorkspacePreviewId(panel.id);
+        const parent = parsed?.paneId;
+        const row = panesRef.current.find((p) => p.id === parent);
+        return row && parsed
+          ? [
+              {
+                id: panel.id,
+                paneId: row.id,
+                subshellId: row.subshellId,
+                workspaceId: workspaceIdRef.current,
+                view: parsed.view,
+              },
+            ]
+          : [];
+      }),
+      activeId && previewParentId(activeId) ? activeId : null,
+    );
     setWorkspaceFocusedId(pane?.subshellId ?? null);
   }, []);
   // A rail click that had to NAVIGATE here first (the pane was not on screen
@@ -181,6 +220,41 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
       }),
     [],
   );
+
+  useEffect(
+    () =>
+      onWorkspacePreviewRequest((subshellId, view) => {
+        const pane = panesRef.current.find((row) => row.subshellId === subshellId);
+        const api = apiRef.current;
+        if (!pane || !api) return false;
+        if (!view) {
+          setChooserId(subshellId);
+          return true;
+        }
+        const id = previewPanelId(pane.id, view);
+        const existing = api.getPanel(id);
+        if (existing) existing.api.setActive();
+        else {
+          api.exitMaximizedGroup();
+          api.getPanel(pane.id)?.api.setActive();
+          api.addPanel<DockedPreviewParams>({
+            id,
+            component: "preview",
+            title: `${workspacePreviewLabel(view)} · ${pane.subshellName}`,
+            renderer: "always",
+            params: { paneId: pane.id, view },
+            position: { referencePanel: pane.id, direction: "right" },
+          });
+        }
+        publishFocus();
+        return true;
+      }),
+    [publishFocus],
+  );
+
+  useEffect(() => {
+    if (ready) flushWorkspacePreview();
+  }, [ready]);
 
   const setSearchAddon = useCallback((paneId: string, addon: SearchAddon | null) => {
     setSearchAddons((prev) => {
@@ -244,6 +318,9 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
         // over — fall through and lay the panes out fresh below.
       }
     }
+    for (const panel of [...event.api.panels]) {
+      if (panel.id.startsWith("preview:") && !parseWorkspacePreviewId(panel.id)) panel.api.close();
+    }
     // Everything already in the restored layout counts as known even
     // though `addPanel` was never called for it here.
     if (restored) {
@@ -264,6 +341,7 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
     // unmount); the id→subshell mapping is re-read each fire, so a pane added
     // or removed elsewhere still resolves on the next layout/add event.
     event.api.onDidActiveGroupChange(() => publishFocus());
+    event.api.onDidActivePanelChange(() => publishFocus());
     event.api.onDidLayoutChange(() => publishFocus());
     event.api.onDidAddPanel(() => publishFocus());
     publishFocus();
@@ -306,6 +384,16 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
     // panel added here a moment ago, still absent from the in-flight poll,
     // is never closed as though it had been deleted.
     for (const panel of [...api.panels]) {
+      const previewParent = previewParentId(panel.id);
+      if (previewParent) {
+        const owner = detail.panes.find((pane) => pane.id === previewParent);
+        if (!owner) panel.api.close();
+        else {
+          const target = parseWorkspacePreviewId(panel.id);
+          if (target) panel.api.setTitle(`${workspacePreviewLabel(target.view)} · ${owner.subshellName}`);
+        }
+        continue;
+      }
       if (live.has(panel.id)) continue;
       if (!serverSeenPaneIdsRef.current.has(panel.id)) continue;
       panel.api.close();
@@ -323,6 +411,7 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
     // after `handleAdd`, the active panel's pane row exists only NOW, and
     // without this the header would sit on its workspace-name fallback.
     publishFocus();
+    flushWorkspacePreview();
   }, [detail.panes, addPanel, publishFocus]);
 
   const { addPane, removePane, restartSubshell } = useWorkspacePaneMutations(detail.workspace.id);
@@ -349,6 +438,11 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
 
   const handleRemovePane = useCallback(
     async (paneId: string) => {
+      if (previewParentId(paneId)) {
+        apiRef.current?.getPanel(paneId)?.api.close();
+        publishFocus();
+        return;
+      }
       let workspaceDeleted = false;
       try {
         ({ workspaceDeleted } = await removePane(paneId));
@@ -374,7 +468,7 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
       apiRef.current?.getPanel(paneId)?.api.close();
       void onRefetch();
     },
-    [removePane, onRefetch, detail.panes, navigate],
+    [removePane, onRefetch, detail.panes, navigate, publishFocus],
   );
 
   const handleCloseSubshell = useCallback(
@@ -553,6 +647,7 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
           per-tile, and this control adds panes that belong to no particular
           one. It used to float over the bottom-right tile, where it covered
           that subshell's output. */}
+      {chooserId && <PreviewChooserDialog subshellId={chooserId} onClose={() => setChooserId(null)} />}
       <PaneFocusHeader
         fallbackName={detail.workspace.name}
         panes={detail.panes}

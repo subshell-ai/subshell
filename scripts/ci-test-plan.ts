@@ -166,7 +166,8 @@ export function rustTouched(files: readonly string[]): { core: boolean; apps: bo
   for (const f of files) {
     // Core or the toolchain image: both slices, and the answer cannot change
     // with later files — early-return, like scriptsTouched.
-    if (f.startsWith("crates/desktop-core/") || f.startsWith("docker/")) return { core: true, apps: true };
+    if (f.startsWith("crates/desktop-core/") || f.startsWith("native/display-helper/") || f.startsWith("docker/"))
+      return { core: true, apps: true };
     if (f.startsWith("apps/server/desktop/src-tauri/") || f.startsWith("apps/client/desktop/src-tauri/")) apps = true;
   }
   return { core: false, apps };

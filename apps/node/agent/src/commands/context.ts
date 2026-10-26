@@ -1,14 +1,16 @@
-import type { TmuxRunner } from "@internal/pane-runtime";
+import type { TmuxRunner, VirtualDisplayRuntime } from "@internal/pane-runtime";
 import type {
   JsonValue,
   NodeCommandBody,
   NodeEvent,
   NodeMaintenanceWire,
+  NodePreviewEnabledWire,
   NodeRuntimeReport,
   NodeSshEnabledWire,
   RelayFrame,
 } from "@internal/subshell-protocol";
 import type { NodeConfig } from "../config.js";
+import type { PreviewForward, PreviewLaneEvent } from "../preview/forward.js";
 import type { ServiceDeps } from "../service.js";
 import type { SubshellMetaStore } from "../subshell-meta.js";
 import type { NodeBinaryDeps } from "../update.js";
@@ -131,6 +133,36 @@ export interface CommandContext {
     sendRelayFrame(frame: RelayFrame): void;
   };
   /**
+   * The preview forward-lane registry (pane-preview spec 2026-10-21 §4, Task
+   * 5): the ref→lane map the `preview_open` forward branch registers into and
+   * `preview_close` cuts from. OPTIONAL by type so every pre-preview context
+   * fake keeps compiling; the real daemon always provides it, and the preview
+   * arms refuse loudly when a context does not (the relay precedent).
+   */
+  previewForward?: PreviewForward;
+  /**
+   * Hand one preview event to the CURRENT established link: a lane's byte
+   * frame, a bridge's screencast frame, or either one's death notice.
+   * DELIVER-OR-THROW, and the SAME sender the relay frames ride
+   * (`relay-send.ts`): the lane's slow-link accounting reads the throw — an
+   * event that silently returned would be a byte the plane believes left —
+   * and both registries must flow through the one path so that accounting and
+   * the link-drop sweep stay true for each. Optional for the same
+   * fake-compiling reason as {@link previewForward}.
+   */
+  sendPreviewEvent?: (ev: PreviewLaneEvent) => void;
+  /**
+   * The virtual-display registry: the provider allocation the `launch` frame's `screen`
+   * path opens into, the ports arm reads for its `screen` half, and the
+   * death report closes. OPTIONAL by the same fake-compiling reason as
+   * {@link previewForward}; the real daemon always provides it. The launch
+   * arm refuses LOUDLY when a `screen` launch meets a context without one
+   * (a machine silently dropping the screen it was asked for would be the
+   * bug), while the ports arm answers `screen: null` without it, which is
+   * exactly the pre-Task-7 behavior every fake keeps.
+   */
+  previewDisplays?: VirtualDisplayRuntime;
+  /**
    * The panes supervised for natural death, keyed by subshellId →
    * {@link WatcherRegistration} (socket + registration token + unreachable
    * counter; filled by
@@ -192,6 +224,17 @@ export interface CommandContext {
    * repair), so there is no failing restore to say anything about.
    */
   lastReportedSshEnabled?: NodeSshEnabledWire;
+  /**
+   * The last preview-switch value this connection spoke about, the same echo
+   * memo as {@link lastReportedSshEnabled}, cloned with the same reasoning:
+   * the plane is the mirror's ONLY writer, so the belt reports a mirror that
+   * moved by accident (corruption, mostly) and never the plane's own push
+   * come back one tick later. Seeded at every connect from the same read
+   * that built `ready`. No restore-from-memo partner here either: a
+   * hand-deleted plane-only file is not an interface, and the next `ready`
+   * makes the plane push the row value back.
+   */
+  lastReportedPreviewEnabled?: NodePreviewEnabledWire;
   /**
    * Whether this connection has already reported a mirror it could not
    * rewrite (see `restoreMirrorFromMemo`).

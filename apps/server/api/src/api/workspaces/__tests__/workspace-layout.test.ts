@@ -216,3 +216,53 @@ describe("pruneLayout", () => {
     expect("edgeGroups" in pruned).toBe(false);
   });
 });
+
+describe("preview tabs follow their parent pane's visibility", () => {
+  function layout() {
+    return {
+      grid: {
+        root: {
+          type: "branch",
+          data: [
+            {
+              type: "leaf",
+              data: {
+                id: "group",
+                views: [
+                  "a",
+                  "preview:a:screen",
+                  "preview:a:app:41430",
+                  "preview:b:screen",
+                  "preview:a:app:99999",
+                  "preview:a",
+                ],
+                activeView: "preview:a:screen",
+              },
+            },
+          ],
+        },
+      },
+      panels: {
+        a: { id: "a" },
+        "preview:a:screen": { id: "preview:a:screen", contentComponent: "preview", params: { paneId: "foreign" } },
+        "preview:a:app:41430": { id: "preview:a:app:41430" },
+        "preview:a:app:99999": { id: "preview:a:app:99999" },
+        "preview:a": { id: "preview:a" },
+        "preview:b:screen": { id: "preview:b:screen" },
+      },
+    };
+  }
+  it("preserves the preview with its authorized parent and binds its content to that parent", () => {
+    const pruned = pruneLayout(layout(), new Set(["a"]));
+    expect(panelIdsInLayout(pruned)).toEqual(["a", "preview:a:screen", "preview:a:app:41430"]);
+    expect((pruned?.panels as Record<string, unknown> | undefined)?.["preview:a:screen"]).toEqual({
+      id: "preview:a:screen",
+      contentComponent: "preview",
+      params: { paneId: "a", view: { kind: "screen" } },
+      renderer: "always",
+    });
+  });
+  it("removes the preview when its parent is deleted or access is revoked", () => {
+    expect(pruneLayout(layout(), new Set())).toBeNull();
+  });
+});

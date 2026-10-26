@@ -65,6 +65,8 @@ describe("CodexPlugin MCP registration", () => {
       'mcp_servers.subshell.command="/usr/bin/bun"',
       "-c",
       'mcp_servers.subshell.args=["/opt/subshell/dist/mcp/main.js"]',
+      "-c",
+      'mcp_servers.subshell.env_vars=["SUBSHELL_API_KEY", "SUBSHELL_BASE_URL", "SUBSHELL_ID", "SUBSHELL_NAME", "SUBSHELL_DATA_DIR", "SUBSHELL_SERVER_DATA_DIR"]',
     ]);
     // The written file is a manual-setup reference only — its shape is the
     // exact [mcp_servers.NAME] block codex's config.toml expects.
@@ -73,7 +75,23 @@ describe("CodexPlugin MCP registration", () => {
   });
   it("carries no secrets in the generated file", () => {
     const reg = getHarness("codex")!.mcpRegistration?.(launch, "/x.json");
-    expect(reg?.fileContent).not.toMatch(/KEY|TOKEN/);
+    // env_vars forwards names (SUBSHELL_API_KEY and friends), never values,
+    // so a blanket /KEY|TOKEN/ scan trips on legitimate forwarding. Pin the
+    // contract instead: the registry-resolved plugin carries exactly the
+    // forwarded names and no wiring env map.
+    const doc = Bun.TOML.parse(reg?.fileContent ?? "") as {
+      mcp_servers: { subshell: Record<string, unknown> };
+    };
+    const block = doc.mcp_servers.subshell;
+    expect(block.env).toBeUndefined();
+    expect(block.env_vars).toEqual([
+      "SUBSHELL_API_KEY",
+      "SUBSHELL_BASE_URL",
+      "SUBSHELL_ID",
+      "SUBSHELL_NAME",
+      "SUBSHELL_DATA_DIR",
+      "SUBSHELL_SERVER_DATA_DIR",
+    ]);
   });
   it("reports auto setup", () => {
     expect(getHarness("codex")!.mcpSetup(launch).mode).toBe("auto");

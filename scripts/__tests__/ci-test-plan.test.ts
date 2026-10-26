@@ -137,6 +137,9 @@ describe("computePlan", () => {
 });
 
 describe("rustTouched", () => {
+  test("native helper changes reach both desktop builds", () => {
+    expect(rustTouched(["native/display-helper/Consent.swift"])).toEqual({ core: true, apps: true });
+  });
   test("fires per the Cargo dependency arrows and the toolchain image", () => {
     expect(rustTouched(["crates/desktop-core/src/lib.rs"])).toEqual({ core: true, apps: true });
     // Core first, app later: the early `{core:true, apps:true}` must not

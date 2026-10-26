@@ -551,3 +551,14 @@ the first mutation. `planeUrl` is KEPT. **Working on reset: read
   plum here, near-black for the server), which is also why the tray icon is
   NOT `icon_as_template(true)` on macOS: a template icon is drawn from the alpha
   channel alone and both would collapse to the same filled square.
+
+## macOS display helper
+
+The native application menu's **Virtual Display Helper…** opens a shared
+standalone AppKit settings panel. It is not part of first run and has no
+Tauri IPC command. Both desktop apps bundle the same signed helper identity;
+`desktop-core::display_helper` installs or reuses one per-user copy only on a
+menu selection. The helper owns consent, OS permission requests, and login
+registration. Read [the helper architecture](../../../docs/macos-display-helper.md)
+before changing bundling, activation, or local control. User instructions live
+in [node management](../../docs/content/docs/nodes/manage.mdx#macos-display-helper).

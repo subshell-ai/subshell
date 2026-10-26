@@ -8,6 +8,7 @@ import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { audit } from "@/services/audit.js";
 import { disconnectNode, getHeld, getLive, OWNER_DISABLED_CLOSE_CODE } from "@/services/nodes/node-registry.js";
 import { failConnPendings } from "@/services/nodes/node-rpc.js";
+import { getPreviewBroker } from "@/services/preview-broker.js";
 import { logger } from "@/utils/logger.js";
 import { dropLiveSocketsFor } from "@/ws/live-registry.js";
 import { dropTerminalSocketsFor } from "@/ws/viewers.js";
@@ -82,6 +83,27 @@ export const setUserDisabledRoute = new Elysia().use(requireAdmin).patch(
     const tokensRevoked = body.disabled ? dropUserTokensFor(target.id) : 0;
     const terminalSocketsClosed = body.disabled ? dropTerminalSocketsFor(target.id, "account disabled") : 0;
     const droppedSockets = body.disabled ? dropLiveSocketsFor(target.id, "account disabled") : 0;
+    // The preview broker's revoke cut, on the same disable-only edge (spec
+    // 2026-10-21 §7: "disable closes live sessions revoked"). A preview
+    // session is broker state, not a socket: the feed and terminal drops
+    // cannot touch a forward lane's node-side lane or a watch count, and
+    // without this a disabled account's lane keeps proxying to its target
+    // port until the 15-minute idle sweep. Awaited like the set-node-shares
+    // relay twin: the answer must not race the cut it describes. Re-enabling
+    // sweeps nothing, same rule as the three lines above.
+    const previewSessionsClosed = body.disabled
+      ? await getPreviewBroker()
+          .closeAllForUser(target.id, "revoked")
+          .catch((err: unknown) => {
+            // Degraded-and-honest, the node-sweep rule below: the disable
+            // has committed, and a swept-so-far broker is strictly better
+            // than an unswept one. The row reports ZERO on this path whatever
+            // was swept before the throw — the count under-claims rather than
+            // promising a number the catch cannot know.
+            logger.withError(err).warn(`users: disable of ${target.id} committed, but its preview sweep failed`);
+            return 0;
+          })
+      : 0;
     // Operator ruling 2026-09-24: disabling an account takes its enrolled
     // nodes offline too, and this is the half that makes it true NOW —
     // `authenticateNodeUpgrade` refuses every later dial-in while the flag
@@ -154,7 +176,7 @@ export const setUserDisabledRoute = new Elysia().use(requireAdmin).patch(
         // when the act cut something and are absent on a re-enable, so the
         // shape says which edge ran. `tokensRevoked` first because the
         // sweep order above starts there.
-        ...(body.disabled ? { tokensRevoked, terminalSocketsClosed, nodesDisconnected } : {}),
+        ...(body.disabled ? { tokensRevoked, terminalSocketsClosed, nodesDisconnected, previewSessionsClosed } : {}),
       }),
     });
     return {

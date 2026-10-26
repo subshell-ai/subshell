@@ -1,4 +1,5 @@
-import type { RelayFrame } from "@internal/subshell-protocol";
+import type { NodeEvent, PreviewCloseReason, PreviewDataFrame, RelayFrame } from "@internal/subshell-protocol";
+import { getPreviewBroker } from "@/services/preview-broker.js";
 import { getRelayBroker } from "@/services/ssh-relay.service.js";
 import { logger } from "@/utils/logger.js";
 
@@ -152,4 +153,132 @@ export function relayOverCapsSeenFor(nodeId: string): RelayOverCapRecord | undef
 export function resetRelayFramesForTests(): void {
   routedByNode.clear();
   overCapByNode.clear();
+  resetPreviewFramesForTests();
+}
+
+/* ------------------------------------------------------------------ */
+/* the preview intake (pane-preview spec §4, Task 8)                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The same door for the preview surface (protocol 23): `preview_data`,
+ * `preview_stream`, and `preview_closed` arrive on the identical
+ * authenticated, grammar-validated path the relay frames ride, and the
+ * preview broker owns everything past here (lane pumping, screencast
+ * fan-out, the reported-close teardown). Fire-and-forget for the same reason
+ * the relay legs are: a broker throw must not cost the socket the frames
+ * behind it. These records are also what the handler's dispatch rows assert,
+ * because the event switch has no default branch and only these rows can see
+ * a missing `case`.
+ */
+
+/** What the seam records for one node's lane frames: counters and the lane ref, never a blob. */
+export interface PreviewLaneRouteRecord {
+  /** How many `preview_data` frames have been routed from this node. */
+  frames: number;
+  /** The lane ref of the most recent frame (an opaque id). */
+  lastRef: string;
+  /** The direction of the most recent frame (only `out` legs pump, but the record keeps either). */
+  lastDir: PreviewDataFrame["dir"];
+}
+
+/** What the seam records for one node's screencast events. */
+export interface PreviewStreamRouteRecord {
+  /** How many `preview_stream` events have been routed from this node. */
+  events: number;
+  /** The bridge ref of the most recent event. */
+  lastRef: string;
+  /** The bridge counter of the most recent event (gap reporting is the broker's problem, not this seam's). */
+  lastSeq: number;
+}
+
+/** What the seam records for one node's reported closes. */
+export interface PreviewCloseRouteRecord {
+  /** How many `preview_closed` reports have been routed from this node. */
+  reports: number;
+  /** The ref of the most recent report. */
+  lastRef: string;
+  /** The named reason of the most recent report. */
+  lastReason: string;
+}
+
+const laneFramesByNode = new Map<string, PreviewLaneRouteRecord>();
+const streamEventsByNode = new Map<string, PreviewStreamRouteRecord>();
+const closeReportsByNode = new Map<string, PreviewCloseRouteRecord>();
+
+/** Route one lane frame to the broker's pump (the `out` leg to its subscribers). */
+export function onPreviewFrame(nodeId: string, frame: PreviewDataFrame): void {
+  const record = laneFramesByNode.get(nodeId);
+  if (record) {
+    record.frames += 1;
+    record.lastRef = frame.ref;
+    record.lastDir = frame.dir;
+  } else {
+    laneFramesByNode.set(nodeId, { frames: 1, lastRef: frame.ref, lastDir: frame.dir });
+  }
+  try {
+    getPreviewBroker().onNodeLaneFrame(nodeId, frame);
+  } catch (err: unknown) {
+    logger.withError(err).warn(`preview lane routing for node ${nodeId} threw (contained): ${String(err)}`);
+  }
+}
+
+/** Route one screencast frame to the broker's fan-out. */
+export function onPreviewStreamEvent(nodeId: string, ev: Extract<NodeEvent, { type: "preview_stream" }>): void {
+  const record = streamEventsByNode.get(nodeId);
+  if (record) {
+    record.events += 1;
+    record.lastRef = ev.ref;
+    record.lastSeq = ev.seq;
+  } else {
+    streamEventsByNode.set(nodeId, { events: 1, lastRef: ev.ref, lastSeq: ev.seq });
+  }
+  try {
+    getPreviewBroker().onStreamEvent(nodeId, ev);
+  } catch (err: unknown) {
+    logger.withError(err).warn(`preview stream fan-out for node ${nodeId} threw (contained): ${String(err)}`);
+  }
+}
+
+/** Route one node-reported close (a lane, or the plane's half of a bridge with it). */
+export function onPreviewClosedReport(nodeId: string, ref: string, reason: PreviewCloseReason): void {
+  const record = closeReportsByNode.get(nodeId);
+  if (record) {
+    record.reports += 1;
+    record.lastRef = ref;
+    record.lastReason = reason;
+  } else {
+    closeReportsByNode.set(nodeId, { reports: 1, lastRef: ref, lastReason: reason });
+  }
+  void getPreviewBroker()
+    .onNodeReportedClose(nodeId, ref, reason)
+    .catch((err: unknown) =>
+      logger.withError(err).warn(`preview reported-close cut for ${nodeId} threw: ${String(err)}`),
+    );
+}
+
+/** What the seam recorded for one node's lane frames (no blob slot; mirrors {@link relayFramesSeenFor}).
+ * @internal test-only */
+export function previewFramesSeenFor(nodeId: string): PreviewLaneRouteRecord | undefined {
+  return laneFramesByNode.get(nodeId);
+}
+
+/** What the seam recorded for one node's screencast events.
+ * @internal test-only */
+export function previewStreamEventsSeenFor(nodeId: string): PreviewStreamRouteRecord | undefined {
+  return streamEventsByNode.get(nodeId);
+}
+
+/** What the seam recorded for one node's reported closes.
+ * @internal test-only */
+export function previewClosesSeenFor(nodeId: string): PreviewCloseRouteRecord | undefined {
+  return closeReportsByNode.get(nodeId);
+}
+
+/** Drop every preview seam record.
+ * @internal test-only */
+export function resetPreviewFramesForTests(): void {
+  laneFramesByNode.clear();
+  streamEventsByNode.clear();
+  closeReportsByNode.clear();
 }

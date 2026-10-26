@@ -46,6 +46,19 @@ describe("toSubshellCreateBody", () => {
     });
   });
 
+  it("forwards the selected display provider and dimensions", () => {
+    expect(
+      toSubshellCreateBody({
+        harnessId: "terminal",
+        workingDir: "/tmp",
+        name: "",
+        virtualDisplay: true,
+        displayProvider: "native-example",
+        displaySize: { width: 1440, height: 900 },
+      }).screen,
+    ).toEqual({ width: 1440, height: 900, provider: "native-example" });
+  });
+
   it("omits nodeId only for an absent/unmade pick", () => {
     // An unmade selection blocks submit upstream (canSubmit), never leaks "".
     expect(toSubshellCreateBody({ harnessId: "p1", workingDir: "/tmp/x", name: "" }).nodeId).toBeUndefined();
@@ -65,6 +78,7 @@ describe("toSubshellCreateBody", () => {
       workingDir: "/tmp/x",
       name: "n",
       prompt: "",
+      screen: null,
     });
   });
 

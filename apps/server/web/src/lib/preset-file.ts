@@ -42,6 +42,18 @@ const agent = z
     nodeId: node,
     workingDir: z.string().max(4096).startsWith("/").nullable(),
     promptBlocks: z.array(prompt).max(50).nullable(),
+    screen: z
+      .object({
+        width: z.number().int().min(320).max(4096),
+        height: z.number().int().min(320).max(4096),
+        provider: z
+          .string()
+          .regex(/^[a-z][a-z0-9-]{0,63}$/)
+          .optional(),
+      })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict();
 const forward = z
@@ -171,6 +183,7 @@ export function presetFileFromRow(row: PresetRow | SshPreset): PresetFile {
           nodeId: row.nodeId,
           workingDir: row.workingDir,
           promptBlocks: row.promptBlocks ? JSON.parse(row.promptBlocks) : null,
+          ...(row.screenConfig ? { screen: JSON.parse(row.screenConfig) } : {}),
         };
   return parsePresetFile(JSON.stringify({ format: "subshell-preset", version: 1, preset }));
 }

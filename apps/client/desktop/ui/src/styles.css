@@ -159,6 +159,8 @@
      not quietly resolve to it. `detail` (13px) is the floor. */
   --text-display: 30px;
   --text-display--line-height: 1.2;
+  --text-dialog-title: 18px;
+  --text-dialog-title--line-height: 1.2;
   --text-heading: 20px;
   --text-heading--line-height: 1.2;
   --text-label: 15px;

@@ -71,6 +71,14 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
                 }),
             )?,
             &PredefinedMenuItem::separator(app)?,
+            &MenuItem::with_id(
+                app,
+                crate::display_helper::MENU_ID,
+                "Virtual Display Helper…",
+                true,
+                None::<&str>,
+            )?,
+            &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::hide(app, None)?,
             &PredefinedMenuItem::hide_others(app, None)?,
             &PredefinedMenuItem::show_all(app, None)?,
@@ -155,6 +163,10 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 /// Route a menu click. Only this app's own items are handled; the predefined
 /// ones are the system's.
 pub fn on_event(app: &AppHandle, id: &str) {
+    if id == crate::display_helper::MENU_ID {
+        crate::display_helper::open_settings(app);
+        return;
+    }
     if id == NODE_ID {
         crate::windows::focus_node(app);
     }

@@ -3,6 +3,7 @@ import { Elysia, t } from "elysia";
 import { authGuard, HttpError, requirePerm } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
+import { VirtualDisplayRequestSchema } from "@/schema/virtual-display.js";
 
 const CreateSubshellBodySchema = t.Object({
   harnessId: t.String({ minLength: 1, description: "Harness plugin id to launch" }),
@@ -34,6 +35,7 @@ const CreateSubshellBodySchema = t.Object({
         "Workspace to file the new subshell in: a tab row is written for it beside the launch. 404 when it is not the caller's (or absent). Omitted = the pane starts ungrouped",
     }),
   ),
+  screen: t.Optional(t.Nullable(VirtualDisplayRequestSchema)),
 });
 
 /** Shared with restart (same response shape). */
@@ -88,6 +90,7 @@ export const createSubshellRoute = new Elysia()
         prompt: body.prompt,
         nodeId: body.nodeId,
         workspaceId: body.workspaceId,
+        screen: body.screen,
         machineActor: actor !== "cookie",
         // A launch that arrives on a PANE'S OWN token is an agent opening a
         // sibling to talk to it (`create_subshell`); a system key is admin

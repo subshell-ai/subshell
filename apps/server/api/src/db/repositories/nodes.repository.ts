@@ -63,6 +63,11 @@ export class NodesRepository extends BaseRepository {
         // and the gate is opt-in per machine (spec 4.3); mirror it the same way.
         sshEnabled: input.sshEnabled ?? 0,
         sshEnabledAt: input.sshEnabledAt ?? null,
+        // A new node watches no panes: `0` is the column default (migration
+        // 0062) and preview is opt-in per machine; mirror it the same way.
+        webPreviewsEnabled: input.webPreviewsEnabled ?? 0,
+        virtualDisplayEnabled: input.virtualDisplayEnabled ?? 0,
+        previewEnabledAt: input.previewEnabledAt ?? null,
         sshWideForwards: 0,
         createdAt: input.createdAt ?? now,
         updatedAt: now,
@@ -290,6 +295,44 @@ export class NodesRepository extends BaseRepository {
       .set({
         sshEnabled: state.on ? 1 : 0,
         sshEnabledAt: state.changedAt,
+        updatedAt: new Date().toISOString(),
+      })
+      .where("id", "=", id)
+      .returningAll()
+      .executeTakeFirst();
+  }
+
+  /**
+   * Write the preview switch and its stamp (pane-preview spec Task 3).
+   *
+   * Same shape as {@link setSshEnabled}: both fields move together, and the
+   * CALLER supplies `changedAt`: the stamp is the reconciliation protocol
+   * between the plane's row and the node's mirror file, so a relay must not
+   * re-stamp the fact it is carrying.
+   */
+  async setPreviewEnabled(
+    id: string,
+    state: {
+      /** True = this machine's panes may be watched. */
+      on: boolean;
+      feature?: "web-previews" | "display";
+      provider?: string;
+      providers?: string[];
+      /** ISO 8601 of the write that produced `on`. Never re-stamped on relay. */
+      changedAt: string;
+    },
+  ): Promise<NodeTable | undefined> {
+    return await this.db
+      .updateTable("nodes")
+      .set({
+        ...(state.feature === "display"
+          ? {
+              virtualDisplayEnabled: state.on ? 1 : 0,
+              ...(state.provider ? { virtualDisplayProvider: state.provider } : {}),
+              ...(state.providers ? { virtualDisplayProviders: JSON.stringify(state.providers) } : {}),
+            }
+          : { webPreviewsEnabled: state.on ? 1 : 0 }),
+        previewEnabledAt: state.changedAt,
         updatedAt: new Date().toISOString(),
       })
       .where("id", "=", id)

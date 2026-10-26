@@ -7,6 +7,8 @@ import type { SubshellStatus } from "./subshell-status.js";
  * subshell at query time (tmux is the source of truth).
  */
 export interface SubshellTable {
+  /** Requested virtual display dimensions, retained across manual and automatic restarts. */
+  screenConfig: string | null;
   /** Unique subshell id (uuid) */
   id: string;
   /** Owning user id */
@@ -118,6 +120,7 @@ export interface SubshellTable {
  */
 export type NewSubshell = Omit<
   SubshellTable,
+  | "screenConfig"
   | "presetId"
   | "createdAt"
   | "endedAt"
@@ -142,6 +145,7 @@ export type NewSubshell = Omit<
   | "keyHomeNodeId"
   | "terminalReplayLines"
 > & {
+  screenConfig?: string | null;
   /** Preset launched with; omitted = NULL (presetless launch). Defaults on insert. */
   presetId?: string | null;
   /** Node to launch on; omitted = DB default 'local' */

@@ -81,3 +81,15 @@ integration arguments are added only when the session launches. The expanded
 preview’s inline “edit the preset” action opens the shared preset fields in a
 dialog. Save and apply updates the stored preset and reapplies the returned
 launch fields; cancelling or a failed save leaves the launch untouched.
+
+The launch form reconciles node changes in `use-launch-form-defaults.ts`,
+including readiness state, so separate effects cannot restore stale selections.
+The node picker permits a node without the current harness: switching clears
+an unavailable harness and its preset, with a visible explanation. It does not
+silently substitute another agent. Compatible choices and prompts stay. The
+working directory resets to the new node’s own recents or home. Virtual display
+is unchecked only after a node change confirms that its selected provider is
+disabled, unsupported, or missing requirements. Pending and failed probes block
+submission without clearing it; results from a prior node never change the
+current choice. Selecting a preset deliberately copies its display intent and
+shows unmet requirements until the user changes the display or node.

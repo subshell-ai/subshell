@@ -67,6 +67,21 @@ exact-pin rule.
 native build works at the repo's pins. Don't "fix" them by guessing; the real
 constraint is the one below.
 
+**Forge carries a security patch.** `patches/node-forge@1.4.0.patch` applies
+the nested DigestAlgorithm validation proposed in
+[digitalbazaar/forge#1152](https://github.com/digitalbazaar/forge/pull/1152).
+No patched release is published yet. The dependency security tests exercise
+Expo’s installed copies under Node, rejecting malformed signatures and
+checking valid signatures and certificates. Replace the patch and remove its
+audit exception when upstream publishes a fixed release.
+
+**Expo CLI uses the root Zod override.** `@expo/cli>zod` pins 4.6.7 because
+Expo 57 still requests Zod 3, which is covered by GHSA-mrhx-c7xc-m3w5.
+Its plugin manifest, plugin output, and MCP command schemas were checked with
+Zod 4, including invalid inputs and JSON Schema conversion. Keep this scoped
+override until Expo requests a patched version itself; when updating the CLI,
+check those schemas as well as the mobile export.
+
 **⚠️ Never let a `*` peer resolve freely.** `expo-router` declares
 `react-native-reanimated: "*"`, so bun installed reanimated 4.6.0, which needs
 `react-native-worklets@0.12.x`, and 0.12 removed
