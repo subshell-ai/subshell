@@ -1,3 +1,4 @@
+import { NodeUnavailableNote } from "@/components/preview/node-unavailable-note";
 import { nodeReasonLine, PortList } from "@/components/preview/port-list";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useSubshellPreview } from "@/hooks/use-subshell-preview";
@@ -29,9 +30,7 @@ export function PreviewChooserDialog({ subshellId, onClose }: { subshellId: stri
             {preview.error}
           </p>
         )}
-        {info && (!info.nodeEnabled || info.reason) && (
-          <p className="text-detail text-muted-foreground">{nodeReasonLine(info.reason)}</p>
-        )}
+        {info && (!info.nodeEnabled || info.reason) && <NodeUnavailableNote info={info} />}
         {info && subshell && (
           <PortList
             info={info}

@@ -1,8 +1,9 @@
 import { errMessage } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import { type JSX, useEffect, useMemo, useRef, useState } from "react";
+import { NodeUnavailableNote } from "@/components/preview/node-unavailable-note";
 import { OpenPanel } from "@/components/preview/open-panel";
-import { nodeReasonLine, PortList } from "@/components/preview/port-list";
+import { PortList } from "@/components/preview/port-list";
 import {
   type PreviewConnection,
   PreviewToolbar,
@@ -300,9 +301,7 @@ export function PreviewSection({
       {/* The switch's remedy line: the info answer is always the full shape,
           so a switched-off node says so in words rather than showing a blank
           list that reads as "nothing is listening". */}
-      {info && (!info.nodeEnabled || info.reason) && (
-        <p className="text-detail text-muted-foreground">{nodeReasonLine(info.reason)}</p>
-      )}
+      {info && (!info.nodeEnabled || info.reason) && <NodeUnavailableNote info={info} className="p-3" />}
 
       {info?.reason === "preview-disabled" && subshell && (
         <Link
