@@ -240,6 +240,7 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
         {active && (
           <WorkspaceActionsMenu workspace={active}>
             <WorkspaceBranch
+              onAction={onQuickAdd}
               workspace={active}
               expanded
               active={workspaceIdFromPath(location.pathname) === active.id || standaloneId !== null}

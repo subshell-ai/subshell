@@ -125,6 +125,7 @@ describe("the panel and its bottom section bar", () => {
   it("opens the workspace page even when the remembered landing route would redirect", async () => {
     const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
       openLaunch() {},
+      openLaunchOnNode() {},
       openSshLaunch() {},
       openNewWorkspace() {},
     });
@@ -274,6 +275,7 @@ describe("the panel and its bottom section bar", () => {
   it("shows only the chosen workspace and recovers a failed workspace read", async () => {
     const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
       openLaunch() {},
+      openLaunchOnNode() {},
       openSshLaunch() {},
       openNewWorkspace() {},
     });

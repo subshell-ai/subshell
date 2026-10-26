@@ -5,9 +5,28 @@ import type { sshConnectSearch } from "@/lib/ssh-connect-search";
 
 /** Triggers for the rail's quick-add dialogs, callable from anywhere. */
 export interface QuickAddApi {
-  /** Open the New-subshell launch dialog. */
+  /**
+   * Open the New-subshell launch dialog with its ordinary defaults.
+   *
+   * Takes no argument on purpose: these triggers get handed to `onClick`
+   * and `onAction` props, and React calls those with the click event. A
+   * node-id parameter here would then SEED the form with a SyntheticEvent
+   * (the empty-state CTA regression) — an optional parameter still passes
+   * that assignment check, so the explicit pick lives in its own required-
+   * argument function, which handler-shaped props cannot accept.
+   */
   openLaunch: () => void;
-  /** Open the same launch dialog with SSH choices restored. */
+  /**
+   * Open the same launch dialog with one machine pre-selected. The pick
+   * outranks the prior-launch default, `local` included, so it can only be
+   * called with a real node id.
+   */
+  openLaunchOnNode: (nodeId: string) => void;
+  /**
+   * Open the same launch dialog with SSH choices restored. The optional
+   * draft is call-by-wrapper only: a direct `onClick` pass seeds it with a
+   * SyntheticEvent, the same trap `openLaunch` closes by taking no argument.
+   */
   openSshLaunch: (initial?: ReturnType<typeof sshConnectSearch>) => void;
   /** Open the New-workspace dialog. */
   openNewWorkspace: () => void;
@@ -36,6 +55,7 @@ export function useQuickAdd(): QuickAddApi {
  */
 export function QuickAddProvider({ children }: { children: ReactNode }): ReactNode {
   const [initialSsh, setInitialSsh] = useState<ReturnType<typeof sshConnectSearch> | undefined>();
+  const [initialNodeId, setInitialNodeId] = useState<string | undefined>();
   const [launchOpen, setLaunchOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   // A fresh object here would be a new context value on every render of this
@@ -45,10 +65,17 @@ export function QuickAddProvider({ children }: { children: ReactNode }): ReactNo
   const api = useMemo<QuickAddApi>(
     () => ({
       openLaunch: () => {
+        setInitialNodeId(undefined);
+        setInitialSsh(undefined);
+        setLaunchOpen(true);
+      },
+      openLaunchOnNode: (nodeId) => {
+        setInitialNodeId(nodeId);
         setInitialSsh(undefined);
         setLaunchOpen(true);
       },
       openSshLaunch: (initial = {}) => {
+        setInitialNodeId(undefined);
         setInitialSsh(initial);
         setLaunchOpen(true);
       },
@@ -59,7 +86,9 @@ export function QuickAddProvider({ children }: { children: ReactNode }): ReactNo
   return (
     <QuickAddContext.Provider value={api}>
       {children}
-      {launchOpen && <LaunchSubshellDialog open onOpenChange={setLaunchOpen} initialSsh={initialSsh} />}
+      {launchOpen && (
+        <LaunchSubshellDialog open onOpenChange={setLaunchOpen} initialSsh={initialSsh} initialNodeId={initialNodeId} />
+      )}
       <NewWorkspaceDialog open={workspaceOpen} onOpenChange={setWorkspaceOpen} />
     </QuickAddContext.Provider>
   );

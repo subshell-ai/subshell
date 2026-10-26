@@ -42,7 +42,9 @@ export function LaunchSubshellDialog({
   open,
   onOpenChange,
   initialSsh,
+  initialNodeId,
 }: {
+  initialNodeId?: string;
   initialSsh?: ReturnType<typeof sshConnectSearch>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -54,7 +56,10 @@ export function LaunchSubshellDialog({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const create = useCreateSubshell();
-  const [form, setForm] = useState<NewSubshellFormValue>(emptyNewSubshellForm);
+  const [form, setForm] = useState<NewSubshellFormValue>(() => ({
+    ...emptyNewSubshellForm(),
+    ...(initialNodeId ? { nodeId: initialNodeId } : {}),
+  }));
   const [error, setError] = useState<string | null>(null);
 
   function reset() {
@@ -156,7 +161,12 @@ export function LaunchSubshellDialog({
           />
         ) : (
           <>
-            <NewSubshellForm value={form} onChange={setForm} onLeave={dismiss} />
+            <NewSubshellForm
+              skipPriorLaunch={initialNodeId !== undefined}
+              value={form}
+              onChange={setForm}
+              onLeave={dismiss}
+            />
             {error && <p className="text-destructive text-detail">{error}</p>}
             <DialogFooter sticky>
               <Button

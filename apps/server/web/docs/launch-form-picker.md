@@ -30,6 +30,14 @@ byte-identical; a node star is 404'd for invisible nodes (the no-oracle
 rule `/recent` and `/explore` apply) and 400'd for relative paths: the
 plane never resolves a node path against this host's filesystem.
 
+**Selecting a directory closes the inline picker.** Folder, Recent, and
+Favorite rows commit their path and restore focus to the input without
+reopening the panel. Clicking the input again continues browsing from the
+selected path. Going up a level and Start over keep the picker open; Escape
+closes the picker before the surrounding dialog handles it. Only an Escape
+addressed inside the picker is claimed, so a popup the person tabbed to while
+the panel sat open still receives its own.
+
 **The launch form asks nothing it cannot answer.** `new-subshell-form.tsx`
 filters its node options on the server's own `canLaunch` (never a re-derived
 rule), hides the Machine field when the sole target is the control-plane host (a single AGENT node keeps it, because once a second machine exists the answer

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ActionsMenu } from "@/components/actions-menu";
 import { ListLoadError } from "@/components/list-load-error";
 import { useQuickAdd } from "@/components/quick-add";
+import { NodeLaunchMenu } from "@/components/sidebar/node-launch-menu";
 import { SidebarGroupHeading } from "@/components/sidebar/sidebar-group-heading";
 import { SubshellTreeRow } from "@/components/sidebar/subshell-tree-row";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -131,7 +132,20 @@ export function AllSubshellsSection({
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1 pb-2">
           {sections.map((section) => (
             <div key={section.key}>
-              {section.label && <SidebarGroupHeading>{section.label}</SidebarGroupHeading>}
+              {section.label && (
+                <SidebarGroupHeading
+                  action={
+                    groupBy === "machine" ? (
+                      <NodeLaunchMenu
+                        node={nodes?.nodes?.find((node) => node.id === section.key)}
+                        onAction={onAction}
+                      />
+                    ) : undefined
+                  }
+                >
+                  {section.label}
+                </SidebarGroupHeading>
+              )}
               {section.subshells.map((subshell) => (
                 <SubshellTreeRow
                   key={subshell.id}

@@ -24,6 +24,7 @@ import { setFetchRouter } from "@/test-setup";
 const spy = () =>
   spyOn(quickAdd, "useQuickAdd").mockReturnValue({
     openLaunch: () => {},
+    openLaunchOnNode: () => {},
     openSshLaunch: () => {},
     openNewWorkspace: () => {},
   });
