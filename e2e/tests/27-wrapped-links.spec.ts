@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE, dismissDirectoryPanel, pickAgent, solePaneId } from "./helpers";
+import { ADMIN_STATE, dismissDirectoryPanel, pickAgent } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE, permissions: ["clipboard-read", "clipboard-write"] });
 
@@ -88,10 +88,13 @@ test("a soft-wrapped URL links and copies as one line, live and across a reload"
   });
   await page.getByRole("button", { name: "Start subshell" }).click();
   await expect(page).toHaveURL(/\/workspaces\/.+/, { timeout: SPAWN_TIMEOUT });
-  await socket;
+  const attached = await socket;
   await expect(page.getByText("reconnecting…")).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
 
-  const id = await solePaneId(page);
+  // The active socket identifies the new pane even when this workspace
+  // already contains another pane from an earlier scenario.
+  const id = new URL(attached.url()).searchParams.get("subshell");
+  expect(id).toBeTruthy();
   const logText = async () => {
     const res = await page.request.get(`/api/subshells/${id}/log`);
     if (!res.ok()) return "";
