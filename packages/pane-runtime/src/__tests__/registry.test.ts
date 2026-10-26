@@ -4,6 +4,7 @@ import claudeCode from "@subshell-ai/plugin-claude-code";
 import codex from "@subshell-ai/plugin-codex";
 import grokBuild from "@subshell-ai/plugin-grok-build";
 import hermes from "@subshell-ai/plugin-hermes";
+import ohMyPi from "@subshell-ai/plugin-oh-my-pi";
 import opencode from "@subshell-ai/plugin-opencode";
 import pi from "@subshell-ai/plugin-pi";
 import { createPluginHost } from "../plugin-host.js";
@@ -22,7 +23,7 @@ describe("the built-in registry", () => {
       allHarnesses()
         .map((h) => h.id)
         .sort(),
-    ).toEqual(["claude-code", "codex", "grok-build", "hermes", "opencode", "pi", "ssh", "terminal"]);
+    ).toEqual(["claude-code", "codex", "grok-build", "hermes", "oh-my-pi", "opencode", "pi", "ssh", "terminal"]);
   });
 
   it("ships with nothing broken", () => {
@@ -75,7 +76,7 @@ describe("the built-in registry", () => {
     // built-in that got it wrong would be held to a lower standard than the
     // plugins it ships alongside.
     const host = createPluginHost({ pluginId: "test" });
-    for (const [id, factory] of Object.entries({ claudeCode, opencode, hermes, pi, codex, grokBuild })) {
+    for (const [id, factory] of Object.entries({ claudeCode, opencode, hermes, pi, ohMyPi, codex, grokBuild })) {
       expect([id, capabilityMismatches(factory(host), "agent-harness")]).toEqual([id, []]);
     }
   });

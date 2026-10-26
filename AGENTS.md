@@ -210,7 +210,7 @@ Package names follow the same words: `@internal/server`, `@internal/server-web`,
 ### Plugins are packages, and the control plane loads them
 
 A **plugin** teaches Subshell how to drive one thing in a pane (an agent CLI,
-or a plain shell) **or how to connect this host to one network**. Six harness
+or a plain shell) **or how to connect this host to one network**. Harness
 plugins ship built in (`packages/plugins/*`, published as
 `@subshell-ai/plugin-<id>`; `terminal` is the one that drives no agent and
 needs nothing installed, which is what makes a clean machine launchable), and

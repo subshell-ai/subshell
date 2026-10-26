@@ -22,6 +22,7 @@ const BUILT_INS = [
   "headscale",
   "hermes",
   "netbird",
+  "oh-my-pi",
   "opencode",
   "pi",
   "ssh",

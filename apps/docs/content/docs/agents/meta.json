@@ -10,6 +10,7 @@
     "grok-build",
     "hermes",
     "pi",
+    "oh-my-pi",
     "terminal"
   ]
 }

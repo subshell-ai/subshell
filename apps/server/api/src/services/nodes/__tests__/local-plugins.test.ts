@@ -56,6 +56,7 @@ describe("the control-plane host's plugins", () => {
       "headscale",
       "hermes",
       "netbird",
+      "oh-my-pi",
       "opencode",
       "pi",
       "ssh",

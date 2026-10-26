@@ -370,18 +370,21 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     const disabled = await page.request.patch("/api/plugins/pi", { data: { enabled: false } });
     expect(disabled.ok(), await disabled.text()).toBe(true);
 
-    await page.goto("/new"); // fresh load — the client refetches the plugin views
-    await openAgentPicker(page.getByPlaceholder("Choose an agent"));
-    // No `exact` name: a greyed option's accessible name carries its reason
-    // ("pi disabled on this server"). Only pi's name contains "pi".
-    const piOption = page.getByRole("option", { name: "pi" });
-    await expect(piOption).toHaveCount(1); // greyed ≠ gone
-    await expect(piOption).toBeDisabled(); // aria-disabled row (Base UI item)
-    await expect(piOption.getByText("disabled on this server")).toBeVisible(); // server-level reason
-    await page.keyboard.press("Escape");
-
-    const enabled = await page.request.patch("/api/plugins/pi", { data: { enabled: true } });
-    expect(enabled.ok(), await enabled.text()).toBe(true);
+    try {
+      await page.goto("/new"); // fresh load: the client refetches the plugin views
+      await openAgentPicker(page.getByPlaceholder("Choose an agent"));
+      // Disabled options include a reason after the name. Anchor the name so
+      // Oh My Pi doesn't also match this assertion.
+      const piOption = page.getByRole("option", { name: /^pi(?:\s|$)/ });
+      await expect(piOption).toHaveCount(1); // greyed ≠ gone
+      await expect(piOption).toBeDisabled(); // aria-disabled row (Base UI item)
+      await expect(piOption.getByText("disabled on this server")).toBeVisible();
+      await page.keyboard.press("Escape");
+    } finally {
+      // Later specs share this instance and launch pi, including after a retry.
+      const enabled = await page.request.patch("/api/plugins/pi", { data: { enabled: true } });
+      expect(enabled.ok(), await enabled.text()).toBe(true);
+    }
     // The re-enable is out-of-band (no mutation to invalidate the query) and
     // /new does not poll nodes — reload so the pickers refetch and see pi
     // offered again (the cached detection on THIS node is seconds old, so the
