@@ -5,8 +5,23 @@ import type { sshConnectSearch } from "@/lib/ssh-connect-search";
 
 /** Triggers for the rail's quick-add dialogs, callable from anywhere. */
 export interface QuickAddApi {
-  /** Open the New-subshell launch dialog. */
-  openLaunch: (nodeId?: string) => void;
+  /**
+   * Open the New-subshell launch dialog with its ordinary defaults.
+   *
+   * Takes no argument on purpose: these triggers get handed to `onClick`
+   * and `onAction` props, and React calls those with the click event. A
+   * node-id parameter here would then SEED the form with a SyntheticEvent
+   * (the empty-state CTA regression) — an optional parameter still passes
+   * that assignment check, so the explicit pick lives in its own required-
+   * argument function, which handler-shaped props cannot accept.
+   */
+  openLaunch: () => void;
+  /**
+   * Open the same launch dialog with one machine pre-selected. The pick
+   * outranks the prior-launch default, `local` included, so it can only be
+   * called with a real node id.
+   */
+  openLaunchOnNode: (nodeId: string) => void;
   /** Open the same launch dialog with SSH choices restored. */
   openSshLaunch: (initial?: ReturnType<typeof sshConnectSearch>) => void;
   /** Open the New-workspace dialog. */
@@ -45,7 +60,12 @@ export function QuickAddProvider({ children }: { children: ReactNode }): ReactNo
   // so the empty dependency list is honest.
   const api = useMemo<QuickAddApi>(
     () => ({
-      openLaunch: (nodeId) => {
+      openLaunch: () => {
+        setInitialNodeId(undefined);
+        setInitialSsh(undefined);
+        setLaunchOpen(true);
+      },
+      openLaunchOnNode: (nodeId) => {
         setInitialNodeId(nodeId);
         setInitialSsh(undefined);
         setLaunchOpen(true);

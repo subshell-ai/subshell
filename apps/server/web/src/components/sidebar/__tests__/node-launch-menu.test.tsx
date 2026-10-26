@@ -10,7 +10,7 @@ import {
 } from "@tanstack/react-router";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
-import { QuickAddProvider } from "@/components/quick-add";
+import { QuickAddProvider, useQuickAdd } from "@/components/quick-add";
 import { NodeLaunchMenu } from "@/components/sidebar/node-launch-menu";
 import { setCurrentWorkspace } from "@/lib/current-workspace";
 import { setFetchRouter } from "@/test-setup";
@@ -37,14 +37,32 @@ afterEach(() => {
   setCurrentWorkspace(null);
 });
 
+/**
+ * Mirrors the `/subshells` empty-state CTA wiring: the handler is handed to a
+ * Button's `onClick` directly (not wrapped), so React calls it with the click
+ * event. A node-id argument on `openLaunch` would seed the form with that
+ * SyntheticEvent — a blank machine pick and a `/recent?node=[object Object]`
+ * request. This is the shape that regression arrives in.
+ */
+function EmptyStateTrigger() {
+  const quickAdd = useQuickAdd();
+  return (
+    <button type="button" onClick={quickAdd.openLaunch}>
+      Create your first subshell
+    </button>
+  );
+}
+
 async function setup({
   node = machine("remote"),
   paths = [{ path: "/project", label: null }],
   lockdown = false,
+  extraTrigger,
 }: {
   node?: Node;
   paths?: { path: string; label: null }[];
   lockdown?: boolean;
+  extraTrigger?: "empty-state";
 } = {}) {
   const creates: Record<string, unknown>[] = [];
   const recentNodes: (string | null)[] = [];
@@ -84,6 +102,7 @@ async function setup({
   const root = createRootRoute({
     component: () => (
       <QuickAddProvider>
+        {extraTrigger === "empty-state" && <EmptyStateTrigger />}
         <NodeLaunchMenu node={node} />
       </QuickAddProvider>
     ),

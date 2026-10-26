@@ -32,7 +32,7 @@ function ResolvedNodeLaunchMenu({ node, onAction }: { node: Node; onAction?: () 
   const busyRef = useRef(false);
   const [busy, setBusy] = useState(false);
   const reason = busy
-    ? "Wait for the terminal to start."
+    ? "Wait for the launch to finish."
     : settings?.lockdown
       ? "Subshells can't start while lockdown is on."
       : node.maintenance
@@ -90,7 +90,7 @@ function ResolvedNodeLaunchMenu({ node, onAction }: { node: Node; onAction?: () 
           <DropdownMenuItem
             onSelect={() => {
               if (reason) return;
-              quickAdd.openLaunch(node.id);
+              quickAdd.openLaunchOnNode(node.id);
               onAction?.();
             }}
           >

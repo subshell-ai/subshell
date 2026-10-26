@@ -159,7 +159,11 @@ export function DirectoryPickerInput({
     }
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        e.stopPropagation();
+        // Claim only the Escape that belongs to the panel (a row or the
+        // input has focus) — stopping another one would swallow the dismiss
+        // of a popup the user tabbed to while the panel sat open. The panel
+        // closes either way.
+        if (rootRef.current?.contains(e.target as Node)) e.stopPropagation();
         closePicker();
       }
     }
@@ -615,7 +619,7 @@ function DirRows({
    *  as a value (null until the listing state has committed it, since the panel
    *  renders this component and the scroller in the same commit). */
   scrollerEl: HTMLDivElement | null;
-  /** Selects and browses into a folder, exactly as a row click does. */
+  /** Commits the folder and closes the panel, exactly as a row click does. */
   onPick: (path: string) => void;
   /** Stars or unstars a folder row's path. */
   onToggleFavorite: (path: string, on: boolean) => void;

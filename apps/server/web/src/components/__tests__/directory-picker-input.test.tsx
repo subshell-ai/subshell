@@ -698,6 +698,46 @@ describe("DirectoryPickerInput", () => {
     }
   });
 
+  /**
+   * The picker's Escape handler runs on the document in the CAPTURE phase,
+   * upstream of every other keydown listener, including a dialog's own
+   * dismissal. Stopping the event there is what keeps one Escape from closing
+   * the panel and the launch dialog at once. Stopping EVERY Escape is a
+   * different bug: a popup the person tabbed to while the panel sat open
+   * never receives its Escape. So only an Escape whose target lives inside the
+   * picker gets claimed; any other one closes the panel and travels on.
+   */
+  it("claims only the Escape addressed to the panel", async () => {
+    const { restore } = mockExplore({ "/tmp": exploreBody("/tmp", ["child"]) });
+    // Stands in for a dialog's dismiss listener: same document/bubble seat
+    // Base UI's useDismiss occupies.
+    let escapesReachedBubble = 0;
+    const watcher = (e: KeyboardEvent) => {
+      if (e.key === "Escape") escapesReachedBubble += 1;
+    };
+    document.addEventListener("keydown", watcher);
+    try {
+      renderField({ value: "/tmp" });
+      const input = screen.getByRole("textbox");
+      fireEvent.focus(input);
+      await screen.findByTitle("Select child");
+      // Inside the panel: claimed, the bubble seat never sees it.
+      fireEvent.keyDown(input, { key: "Escape" });
+      await waitFor(() => expect(screen.queryByTitle("Select child") === null).toBe(true));
+      expect(escapesReachedBubble).toBe(0);
+      // Outside the panel (the launch dialog holds focus): the panel still
+      // closes, and the event travels on to whoever else is listening.
+      fireEvent.click(input);
+      await screen.findByTitle("Select child");
+      fireEvent.keyDown(document.body, { key: "Escape" });
+      await waitFor(() => expect(screen.queryByTitle("Select child") === null).toBe(true));
+      expect(escapesReachedBubble).toBe(1);
+    } finally {
+      document.removeEventListener("keydown", watcher);
+      restore();
+    }
+  });
+
   it("keeps an empty directory choice closed when focus returns to the input", async () => {
     const { restore } = mockExplore({ "/tmp": exploreBody("/tmp", []) });
     try {

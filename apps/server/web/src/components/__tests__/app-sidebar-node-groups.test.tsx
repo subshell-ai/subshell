@@ -237,6 +237,7 @@ const withRail = async (
   const restoreFetch = stubFetch(subshells, state);
   const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
     openLaunch: () => {},
+    openLaunchOnNode: () => {},
     openSshLaunch: () => {},
     openNewWorkspace: () => {},
   });
@@ -673,6 +674,7 @@ describe("the Workspaces tree (spec 2026-10-17)", () => {
   const quickAddSpy = () =>
     spyOn(quickAdd, "useQuickAdd").mockReturnValue({
       openLaunch: () => {},
+      openLaunchOnNode: () => {},
       openSshLaunch: () => {},
       openNewWorkspace: () => {},
     });

@@ -104,6 +104,7 @@ function stubFetch() {
   // none of it under test.
   const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
     openLaunch: () => {},
+    openLaunchOnNode: () => {},
     openSshLaunch: () => {},
     openNewWorkspace: () => {},
   });
