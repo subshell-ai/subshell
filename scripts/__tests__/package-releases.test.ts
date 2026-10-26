@@ -10,6 +10,7 @@ describe("publishedPackages", () => {
       "@subshell-ai/plugin-claude-code",
       "@subshell-ai/plugin-cloudflare-tunnel",
       "@subshell-ai/plugin-codex",
+      "@subshell-ai/plugin-grok-build",
       "@subshell-ai/plugin-headscale",
       "@subshell-ai/plugin-hermes",
       "@subshell-ai/plugin-netbird",

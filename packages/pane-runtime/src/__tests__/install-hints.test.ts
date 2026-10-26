@@ -25,6 +25,6 @@ describe("install hints", () => {
       expect(install?.command, id).toContain("http");
       expect(install?.docsUrl, id).toMatch(/^https:\/\//);
     }
-    expect(harnessesChecked).toBe(5);
+    expect(harnessesChecked).toBe(6);
   });
 });
