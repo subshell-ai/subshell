@@ -49,26 +49,22 @@ struct HelperTests {
         UserDefaults.standard.set(true, forKey: "enabled")
         precondition(HelperConsent().enabled, "The default init must read the app's own domain")
         UserDefaults.standard.removeObject(forKey: "enabled")
-        // The palette mirrors apps/server/web/src/styles.css; these are the
-        // tokens the panel actually paints with. If the web file moves and
-        // this drifts, the fix is to move the numbers here, not to pass.
+        // The three tokens the native chrome still paints with, mirrored from
+        // packages/assistant/tokens.css. If that file moves and this drifts,
+        // the fix is to move the numbers here, not to pass.
         func close(_ a: Double, _ b: Double) -> Bool { abs(a - b) < 0.02 }
-        let primary = Theme.srgb("primary")
-        precondition(close(primary.red, 0.875) && close(primary.green, 0.525) && close(primary.blue, 0.929), "primary token drifted")
         let warning = Theme.srgb("warning")
         precondition(close(warning.red, 1.0) && close(warning.green, 0.727) && close(warning.blue, 0.0), "warning token drifted")
         let ground = Theme.srgb("background")
         precondition(close(ground.red, 0.113) && close(ground.green, 0.094) && close(ground.blue, 0.165), "background token drifted")
+        let muted = Theme.srgb("muted-foreground")
+        precondition(close(muted.red, 0.700) && close(muted.green, 0.644) && close(muted.blue, 0.746), "muted-foreground token drifted")
         // The awareness copy: a dot on the menu bar is only useful if the
         // words say who is doing what, and the idle state must not claim
         // anyone is watching.
         precondition(AccessReport.tooltip(enabled: true, viewers: 2) == "Subshell is viewing a virtual display on this Mac (2 viewers)")
         precondition(AccessReport.tooltip(enabled: true, viewers: 1) == "Subshell is viewing a virtual display on this Mac")
         precondition(AccessReport.tooltip(enabled: false, viewers: 0) == "Subshell virtual display helper disabled")
-        let watching = AccessReport.panelLine(viewers: 1)
-        precondition(watching.warning && watching.text.contains("viewer is"))
-        let quiet = AccessReport.panelLine(viewers: 0)
-        precondition(!quiet.warning && quiet.text.contains("No one"))
         // The pointer rescue: a viewer's cursor lives on the virtual display,
         // so losing that screen strands it off every display the person at
         // this Mac can see. Only a point inside no frame counts as stranded.

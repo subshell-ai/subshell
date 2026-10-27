@@ -1,61 +1,65 @@
 import AppKit
 import ApplicationServices
 import ServiceManagement
+import WebKit
 
-/// The helper's own panel. It is the consent surface, so it is native AppKit:
-/// a local prompt the person can trust should not be HTML, and the buttons
-/// that open System Settings must be the real thing.
+/// Where the panel's own files live inside the helper bundle.
 ///
-/// It is styled from `Theme`, the mirror of the dashboard's token file, so a
-/// person who knows Subshell from the browser recognizes the product here:
-/// the void ground, the plum accent, heading/label/body/detail at the sizes
-/// the web uses, gold for what the owner can fix and red for what the machine
-/// refused.
-@MainActor
-private final class SettingsStack: NSStackView {
-    override var isFlipped: Bool { true }
-}
+/// File-scope rather than a member of `HelperSettings` because the navigation
+/// check has to run on whatever thread WebKit calls the delegate on, and a
+/// `@MainActor` type's statics are main-actor state.
+private enum PanelBundle {
+    /// Staged by `build_support.rs` from `packages/helper-panel/dist`.
+    static func indexURL() -> URL? {
+        Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "panel")
+    }
 
-@MainActor
-private final class FlippedView: NSView {
-    override var isFlipped: Bool { true }
-}
+    /// The one directory the page may load from, and the only one the file
+    /// read is scoped to.
+    static func directoryURL() -> URL? { indexURL()?.deletingLastPathComponent() }
 
-/// One column, one rhythm. The panel is a settings card, not a report: a
-/// width this text can actually be read at, and everything measured from it.
-private enum Layout {
-    static let windowWidth: CGFloat = 420
-    static let inset: CGFloat = 20
-    static var contentWidth: CGFloat { windowWidth - 2 * inset }
-}
-
-private extension NSTextField {
-    /// The gold the design system reserves for "the person who owns this can
-    /// fix it here" - the same role the dashboard's `text-warning` holds.
-    func withWarningColor() -> NSTextField {
-        textColor = Theme.warning
-        return self
+    /// Allow a main-frame navigation only while the document stays inside the
+    /// bundle. The bridge can enable capture, so a page loaded from anywhere
+    /// else would be handed that button.
+    static func allows(_ url: URL?) -> Bool {
+        guard let url, let directory = directoryURL(), url.isFileURL else { return false }
+        return url.path.hasPrefix(directory.path + "/") || url.path == directory.path
     }
 }
 
+/// The helper's panel: its one consent surface.
+///
+/// The page is `packages/helper-panel`, built on the shared design system
+/// (`packages/assistant/tokens.css`), so the panel reads as the same product as
+/// the dashboard instead of as a hand-rolled approximation of it. It is still
+/// not an authority. It is loaded with `loadFileURL` scoped to its own
+/// directory, from a non-persistent data store, with no window opening and no
+/// navigation off-bundle, so it can fetch nothing and hold nothing: what it
+/// shows comes from the helper process, and every act it offers is re-checked
+/// in Swift. A page that somehow posts `requestCapture` while consent is off
+/// gets the same refusal as a person who cannot click it.
 @MainActor
-final class HelperSettings: NSObject {
+final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+    private static let bridge = "subshell"
+    private static let docsURL = "https://docs.subshell.sh/nodes/manage#macos-display-helper"
+
     private let consent: HelperConsent
     private let enable: () throws -> Void
     private let disable: () -> Void
     private let accessCount: () -> Int
+    private var web: WKWebView?
     private var window: NSWindow?
-    private let status = NSTextField(wrappingLabelWithString: "")
-    private let access = NSTextField(wrappingLabelWithString: "")
-    private let error = NSTextField(wrappingLabelWithString: "")
-    private let captureStatus = NSTextField(labelWithString: "")
-    private let inputStatus = NSTextField(labelWithString: "")
-    // Built once in `build()`; these placeholders exist so a state change
-    // arriving before the first `show()` has something safe to address.
-    private var toggle = NSButton()
-    private var capture = NSButton()
-    private var input = NSButton()
+    /// The page's own entry point, so a state push before it exists is skipped
+    /// rather than swallowed by a rejected script.
+    private var loaded = false
+    /// The last JSON handed to the page. The poll runs every two seconds, and
+    /// re-rendering an unchanged panel would move the caret and the selection.
+    private var lastPushed = ""
+    private var errorMessage = ""
     private var timer: Timer?
+    /// What the person sees when the bundle has no panel: a named problem on
+    /// the window itself, not an empty dark rectangle.
+    private let fallback = NSTextField(wrappingLabelWithString: "")
 
     init(consent: HelperConsent,
          enable: @escaping () throws -> Void,
@@ -84,239 +88,228 @@ final class HelperSettings: NSObject {
     /// there to bring it back.
     func minimize() { window?.orderOut(nil) }
 
-    private func heading(_ text: String) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
-        label.font = Theme.headingFont
-        label.textColor = Theme.foreground
-        return label
-    }
-
-    private func section(_ text: String) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
-        label.font = Theme.labelFont
-        label.textColor = Theme.foreground
-        return label
-    }
-
-    private func body(_ text: String) -> NSTextField {
-        let label = NSTextField(wrappingLabelWithString: text)
-        label.font = Theme.bodyFont
-        label.textColor = Theme.foreground
-        label.isSelectable = false
-        label.preferredMaxLayoutWidth = Layout.contentWidth
-        return label
-    }
-
-    private func detail(_ text: String) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
-        label.font = Theme.detailFont
-        label.textColor = Theme.mutedForeground
-        return label
-    }
-
-    /// A 1px rule in the border token: the only separator the panel needs,
-    /// because grouping is carried by headings and spacing, not by lines.
-    private func rule() -> NSView {
-        let line = NSView()
-        line.wantsLayer = true
-        line.layer?.backgroundColor = Theme.border.cgColor
-        line.translatesAutoresizingMaskIntoConstraints = false
-        line.heightAnchor.constraint(equalToConstant: 1).isActive = true
-        line.widthAnchor.constraint(equalToConstant: Layout.contentWidth).isActive = true
-        return line
-    }
-
-    /// Standard push buttons: native chrome, consistent height, alignment the
-    /// layout can trust. `isDefault` makes the window's default button, which
-    /// is how macOS shows the primary action - fake filled bezels (setting
-    /// `bezelColor` on `.regularSquare`) render as mismatched tall boxes,
-    /// which is what made this panel look broken.
-    private func push(_ title: String, _ action: Selector, `default`: Bool = false) -> NSButton {
-        let button = NSButton(title: title, target: self, action: action)
-        button.bezelStyle = .rounded
-        button.controlSize = .regular
-        button.font = Theme.bodyFont
-        if `default` {
-            button.keyEquivalent = "\r"
-        }
-        return button
-    }
+    /// Push the machine's current truth to the page. Cheap to call: identical
+    /// state is not sent twice.
+    func refresh() { pushState() }
 
     private func build() {
-        let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: Layout.windowWidth, height: 480),
+        let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: Layout.windowWidth, height: Layout.initialHeight),
                              styleMask: [.titled, .closable, .miniaturizable],
                              backing: .buffered, defer: false)
         panel.title = "Subshell virtual display helper"
         panel.isReleasedWhenClosed = false
         // The web theme is dark-only, so the panel pins it rather than mixing a
-        // light-mode aqua control onto the void ground.
+        // light-mode aqua title bar onto the void ground.
         panel.appearance = NSAppearance(named: .darkAqua)
         panel.backgroundColor = Theme.background
 
-        let stack = SettingsStack()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 10
-        stack.translatesAutoresizingMaskIntoConstraints = false
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
 
-        // Header: the brand mark, the name, and what it does in one line.
-        let mark = NSImageView()
-        mark.image = NSImage(systemSymbolName: "display", accessibilityDescription: nil)
-        mark.contentTintColor = Theme.primary
-        mark.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
-        mark.setFrameSize(NSSize(width: 24, height: 24))
-        let header = NSStackView(views: [mark, heading("Subshell virtual display helper")])
-        header.orientation = .horizontal
-        header.spacing = 10
+        let config = WKWebViewConfiguration()
+        // Nothing persists: no cookies, no storage, no cache. The panel is a
+        // render of the helper's state, and it has no business remembering
+        // anything between launches.
+        config.websiteDataStore = .nonPersistent()
+        config.userContentController.add(self, name: Self.bridge)
+        config.preferences.javaScriptCanOpenWindowsAutomatically = false
 
-        stack.addArrangedSubview(header)
-        stack.addArrangedSubview(detail("Capture and control of Subshell's virtual displays on this Mac."))
-        stack.addArrangedSubview(body(
-            "macOS shares one desktop: a viewer's pointer is the real cursor, and other windows can appear in the stream. Enable this only for people you trust to control this Mac."
-        ).withWarningColor())
-        stack.addArrangedSubview(rule())
+        let view = WKWebView(frame: .zero, configuration: config)
+        view.navigationDelegate = self
+        view.underPageBackgroundColor = Theme.background
+        view.translatesAutoresizingMaskIntoConstraints = false
 
-        stack.addArrangedSubview(section("Access"))
-        status.font = Theme.detailFont
-        status.textColor = Theme.mutedForeground
-        status.preferredMaxLayoutWidth = Layout.contentWidth
-        stack.addArrangedSubview(status)
-        access.font = Theme.detailFont
-        access.textColor = Theme.mutedForeground
-        access.preferredMaxLayoutWidth = Layout.contentWidth
-        stack.addArrangedSubview(access)
-        toggle = push("Enable helper", #selector(toggleHelper), default: true)
-        stack.addArrangedSubview(toggle)
-        stack.addArrangedSubview(detail(
-            "While enabled the helper runs in the background and starts at sign-in. Disabling stops capture and input; your subshells and macOS permissions stay."
-        ))
-        stack.addArrangedSubview(rule())
+        fallback.font = Theme.detailFont
+        fallback.textColor = Theme.mutedForeground
+        fallback.maximumNumberOfLines = 0
+        fallback.isSelectable = true
+        fallback.preferredMaxLayoutWidth = Layout.windowWidth - 2 * Layout.inset
+        fallback.isHidden = true
+        fallback.translatesAutoresizingMaskIntoConstraints = false
 
-        // Permissions read as a table: the state on the left, its action on
-        // the same row, so the two states line up instead of floating.
-        stack.addArrangedSubview(section("macOS permissions"))
-        captureStatus.font = Theme.detailFont
-        captureStatus.textColor = Theme.mutedForeground
-        inputStatus.font = Theme.detailFont
-        inputStatus.textColor = Theme.mutedForeground
-        capture = push("Allow screen recording…", #selector(requestCapture))
-        input = push("Allow accessibility…", #selector(requestInput))
-        let grid = NSGridView(views: [[captureStatus, capture], [inputStatus, input]])
-        grid.rowSpacing = 10
-        grid.columnSpacing = 14
-        grid.column(at: 0).xPlacement = .leading
-        grid.column(at: 1).xPlacement = .trailing
-        grid.translatesAutoresizingMaskIntoConstraints = false
-        stack.addArrangedSubview(grid)
-        stack.addArrangedSubview(rule())
-
-        error.font = Theme.detailFont
-        error.textColor = Theme.destructive
-        error.preferredMaxLayoutWidth = Layout.contentWidth
-        stack.addArrangedSubview(error)
-
-        // Secondary actions left, the way out right.
-        let docs = push("Setup instructions…", #selector(openDocs))
-        let loginItems = push("Open login items…", #selector(openLoginItems))
-        let minimize = push("Minimize helper", #selector(minimizePanel))
-        let quit = push("Quit helper", #selector(quitHelper))
-        let leading = NSStackView(views: [docs, loginItems])
-        leading.orientation = .horizontal
-        leading.spacing = 10
-        let trailing = NSStackView(views: [minimize, quit])
-        trailing.orientation = .horizontal
-        trailing.spacing = 10
-        let foot = NSGridView(views: [[leading, trailing]])
-        foot.column(at: 0).xPlacement = .leading
-        foot.column(at: 1).xPlacement = .trailing
-        foot.translatesAutoresizingMaskIntoConstraints = false
-        stack.addArrangedSubview(foot)
-
-        let container = FlippedView()
-        container.addSubview(stack)
+        container.addSubview(view)
+        container.addSubview(fallback)
         NSLayoutConstraint.activate([
             container.widthAnchor.constraint(equalToConstant: Layout.windowWidth),
-            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Layout.inset),
-            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -Layout.inset),
-            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: Layout.inset),
-            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -Layout.inset),
+            view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            view.topAnchor.constraint(equalTo: container.topAnchor),
+            view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            fallback.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Layout.inset),
+            fallback.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -Layout.inset),
+            fallback.topAnchor.constraint(equalTo: container.topAnchor, constant: Layout.inset),
         ])
         panel.contentView = container
-        panel.layoutIfNeeded()
-        panel.setContentSize(NSSize(width: Layout.windowWidth, height: max(360, stack.fittingSize.height + 2 * Layout.inset)))
-        panel.center()
-        window = panel
-        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refresh() }
-        }
-    }
 
-    func refresh() {
-        let enabled = consent.enabled
-        let recording = CGPreflightScreenCaptureAccess()
-        let accessibility = AXIsProcessTrusted()
-        status.stringValue = enabled
-            ? "Helper enabled. Capture and control also require both macOS permissions below."
-            : "Helper disabled. No capture or input is allowed."
-        if enabled && SMAppService.mainApp.status == .requiresApproval {
-            status.stringValue += " Allow background startup in System Settings → General → Login Items to resume it after signing in."
-        }
-        let line = AccessReport.panelLine(viewers: accessCount())
-        access.stringValue = line.text
-        access.textColor = line.warning ? Theme.warning : Theme.mutedForeground
-        toggle.title = enabled ? "Disable helper" : "Enable helper"
-        captureStatus.stringValue = "Screen Recording: \(recording ? "Allowed" : "Not allowed")"
-        inputStatus.stringValue = "Accessibility: \(accessibility ? "Allowed" : "Not allowed")"
-        capture.isEnabled = enabled
-        input.isEnabled = enabled
-        let reason = enabled ? nil : "Enable the helper before requesting macOS permissions."
-        capture.toolTip = reason
-        input.toolTip = reason
-        if !enabled { status.stringValue += " Enable it before requesting macOS permissions." }
-    }
-
-    @objc private func toggleHelper() {
-        error.stringValue = ""
-        if consent.enabled {
-            disableHelper()
+        if let index = PanelBundle.indexURL(), let directory = PanelBundle.directoryURL() {
+            view.loadFileURL(index, allowingReadAccessTo: directory)
         } else {
-            do {
-                try enable()
-                try SMAppService.mainApp.register()
-            } catch {
-                disable()
-                self.error.stringValue = "Couldn't enable the helper: \(error.localizedDescription)"
+            reportMissingBundle()
+        }
+
+        web = view
+        window = panel
+        panel.center()
+        // Permissions are granted in System Settings, two clicks and a dialog
+        // away from this panel, and macOS sends no notification when they
+        // change. Polling the two preflight calls is how the row catches up.
+        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.window?.isVisible == true else { return }
+                self.pushState()
             }
         }
-        refresh()
+    }
+
+    private func reportMissingBundle() {
+        errorMessage = "The panel files are missing from this helper bundle. Reinstall Subshell to restore them."
+        fallback.stringValue = errorMessage
+        fallback.isHidden = false
+        web?.isHidden = true
+    }
+
+    /// The state shape `packages/helper-panel/src/state.ts` renders. The keys
+    /// are the contract between the two, so they stay in step by name.
+    private func snapshot() -> [String: Any] {
+        [
+            "enabled": consent.enabled,
+            "screenRecording": CGPreflightScreenCaptureAccess(),
+            "accessibility": AXIsProcessTrusted(),
+            "viewers": accessCount(),
+            "error": errorMessage,
+            "loginItemNeedsApproval": consent.enabled && SMAppService.mainApp.status == .requiresApproval,
+        ]
+    }
+
+    private func pushState(force: Bool = false) {
+        guard loaded, let view = web,
+              let data = try? JSONSerialization.data(withJSONObject: snapshot()),
+              let json = String(data: data, encoding: .utf8) else { return }
+        if !force, json == lastPushed { return }
+        lastPushed = json
+        view.evaluateJavaScript("window.subshellSetState(\(json))", completionHandler: nil)
+    }
+
+    private func resize(toHeight height: Double) {
+        guard height > 0, let window else { return }
+        let wanted = min(max(CGFloat(height), Layout.minHeight), Layout.maxHeight)
+        window.setContentSize(NSSize(width: Layout.windowWidth, height: wanted))
+    }
+
+    private func handle(action: String) {
+        switch action {
+        case "enable": enableHelper()
+        case "disable": disableHelper()
+        case "requestCapture": requestCapture()
+        case "requestInput": requestInput()
+        case "openLoginItems": SMAppService.openSystemSettingsLoginItems()
+        case "openDocs":
+            if let url = URL(string: Self.docsURL) { NSWorkspace.shared.open(url) }
+        case "minimize": minimize()
+        case "quit":
+            disableHelper()
+            NSApp.terminate(nil)
+        // An action this binary does not know is a page newer than the
+        // helper: ignore it rather than guess at what it asked for.
+        default: break
+        }
+        pushState(force: true)
+    }
+
+    private func enableHelper() {
+        errorMessage = ""
+        do {
+            try enable()
+            try SMAppService.mainApp.register()
+        } catch {
+            // A half-registered helper is worse than a refused one: the login
+            // item would outlive the consent it stands for.
+            disable()
+            errorMessage = "Couldn't enable the helper: \(error.localizedDescription)"
+        }
     }
 
     func disableHelper() {
         disable()
+        errorMessage = ""
         do { try SMAppService.mainApp.unregister() }
-        catch { self.error.stringValue = "The helper is disabled. Remove its login item in macOS System Settings if it still appears there." }
-        refresh()
+        catch { errorMessage = "The helper is disabled. Remove its login item in macOS System Settings if it still appears there." }
+        pushState(force: true)
     }
 
-    @objc private func requestCapture() {
+    private func requestCapture() {
+        // Consent gates the prompt as well as the capture: a helper that is
+        // off has no business asking macOS for someone's screen.
         guard consent.enabled else { return }
         _ = CGRequestScreenCaptureAccess()
-        refresh()
     }
 
-    @objc private func requestInput() {
+    private func requestInput() {
         guard consent.enabled else { return }
         _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
-        refresh()
     }
 
-    @objc private func openLoginItems() { SMAppService.openSystemSettingsLoginItems() }
+    // MARK: - WebKit bridge
 
-    @objc private func minimizePanel() { minimize() }
-
-    @objc private func quitHelper() { disableHelper(); NSApp.terminate(nil) }
-
-    @objc private func openDocs() {
-        NSWorkspace.shared.open(URL(string: "https://docs.subshell.sh/nodes/manage#macos-display-helper")!)
+    nonisolated func userContentController(_ userContentController: WKUserContentController,
+                                           didReceive message: WKScriptMessage) {
+        // Read everything out of the message here, then hop: the bridge is the
+        // page's only door into the helper, so it carries a name and a number
+        // and nothing else, and no object the page controls crosses onto main.
+        guard let body = message.body as? [String: Any] else { return }
+        let action = body["action"] as? String
+        let height = (body["height"] as? NSNumber)?.doubleValue
+        Task { @MainActor in
+            if action == "resize" {
+                if let height { self.resize(toHeight: height) }
+            } else if let action {
+                self.handle(action: action)
+            }
+        }
     }
+
+    nonisolated func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                             decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        decisionHandler(PanelBundle.allows(navigationAction.request.url) ? .allow : .cancel)
+    }
+
+    nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        Task { @MainActor in
+            self.loaded = true
+            self.fallback.isHidden = true
+            self.web?.isHidden = false
+            self.pushState(force: true)
+        }
+    }
+
+    nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+        reportLoadFailure(error.localizedDescription)
+    }
+
+    nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
+                             withError error: any Error) {
+        reportLoadFailure(error.localizedDescription)
+    }
+
+    private nonisolated func reportLoadFailure(_ words: String) {
+        Task { @MainActor in
+            // Only the first load can leave the person with a blank panel; a
+            // failure after that is some subresource the page no longer needs.
+            guard !self.loaded else { return }
+            self.errorMessage = "The panel failed to load: \(words)"
+            self.fallback.stringValue = self.errorMessage
+            self.fallback.isHidden = false
+        }
+    }
+}
+
+/// One width, measured from the page: `packages/helper-panel/src/styles.css`
+/// sets `.panel { width: var(--panel-width) }` at 420px, so the window and the
+/// document agree and no horizontal scrollbar appears.
+private enum Layout {
+    static let windowWidth: CGFloat = 420
+    static let inset: CGFloat = 20
+    static let initialHeight: CGFloat = 480
+    static let minHeight: CGFloat = 200
+    static let maxHeight: CGFloat = 1400
 }

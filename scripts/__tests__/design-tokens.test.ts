@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   agreementProblems,
@@ -16,7 +16,9 @@ import {
   parseCssTokens,
   parseOklch,
   REPO_ROOT,
+  SCAN_ROOTS,
   SHARED_TOKENS,
+  SURFACE_GLOBS,
   sharedRedeclarationProblems,
   TYPE_ROLES,
   WEB_SCALE,
@@ -443,5 +445,18 @@ describe("the shared token file", () => {
       expect(agreementProblems(surface, parseCssTokens(merged), WEB_SCALE)).toEqual([]);
     }
     expect(contrastProblems(`${shared}\n${readFileSync(join(REPO_ROOT, CSS_SURFACES.spa), "utf8")}`)).toEqual([]);
+  });
+});
+
+describe("a package page that joins a surface", () => {
+  test("the helper panel is walked under the assistant rules, by name", () => {
+    // Nothing else checks the registration itself. A scan root pointing at a
+    // moved directory, or a stylesheet whose name the surface's include glob
+    // never matches, leaves that page unswept while `lint:design` still prints
+    // its green tick, which is how "extracted into a package" has historically
+    // meant "escaped the role system".
+    expect(SCAN_ROOTS.assistant).toContain("packages/helper-panel/src");
+    expect(existsSync(join(REPO_ROOT, "packages/helper-panel/src/styles.css"))).toBe(true);
+    expect(SURFACE_GLOBS.assistant.include.test("styles.css")).toBe(true);
   });
 });
