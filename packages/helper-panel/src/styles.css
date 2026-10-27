@@ -22,13 +22,14 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* The window's width and the document's agree by one number, so the content
-   never grows a horizontal scrollbar. 420 = the assistant's 560 column minus
-   its two 32px gutters, rounded to the grid: what a settings card needs. */
+/* The document owns its width and the Swift window sizes to it, which is why
+   the number appears once. It sits on the assistant's column: 520 fits the
+   card's longest row (a status line beside the control that fixes it) without
+   wrapping, and the bar's three controls on one line. */
 .panel {
   display: flex;
   flex-direction: column;
-  width: 420px;
+  width: 520px;
 }
 
 .content {
@@ -179,22 +180,12 @@ body {
   color: var(--button-primary-foreground);
 }
 
-/* The look the assistant gives a control that really does something, as
-   opposed to the ghost ones that read as links. */
+/* The look the assistant gives a control that really does something. Every
+   control in this card wears it except the one primary, so a row of actions
+   reads as a row of actions. */
 .btn-outline {
   border-color: var(--input);
   background: var(--background);
-}
-
-.btn-link {
-  padding: 8px 4px;
-  color: var(--primary);
-  text-underline-offset: 4px;
-}
-
-.btn-link:hover {
-  background: none;
-  text-decoration: underline;
 }
 
 /* One hairline for the whole window, the frame's bar top. Nothing else in the
@@ -220,4 +211,10 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* Keeps the exits against the right edge even when the row wraps and the help
+   button has a line to itself. */
+.bar-exits {
+  margin-left: auto;
 }

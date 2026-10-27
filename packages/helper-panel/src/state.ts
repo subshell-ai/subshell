@@ -36,6 +36,13 @@ export type PanelAction =
   | "minimize"
   | "quit";
 
+/**
+ * What the page sends back. `{ action: "resize" }` is the one message the
+ * helper answers without a person asking: the window sizes to the document, so
+ * the document reports what it needs and nothing inside it scrolls.
+ */
+export type PanelMessage = { action: PanelAction } | { action: "resize"; width: number; height: number };
+
 /** Everything the helper must refuse while consent is off. */
 export function isPermissionAction(action: PanelAction): boolean {
   return action === "requestCapture" || action === "requestInput";
