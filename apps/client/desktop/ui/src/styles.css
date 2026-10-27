@@ -6,6 +6,7 @@
    nothing. */
 @import "tailwindcss" source(none);
 @import "tw-animate-css";
+@import "../../../../../packages/assistant/tokens.css";
 @source "./";
 @source "../index.html";
 @source "../../../../../packages/assistant/src";
@@ -27,42 +28,7 @@
  */
 :root,
 .dark {
-  /* Ground is the operator-approved slate-indigo #1d182a (oklch 0.224); the ramp
-     steps around it, hue 296° — indigo side of the family, calmer than the
-     318° magenta first pass. */
-  --background: oklch(0.224 0.035 296);
-  --foreground: oklch(0.92 0.03 312);
-
-  --card: oklch(0.255 0.032 296);
-  --card-foreground: oklch(0.92 0.03 312);
-
-  --popover: oklch(0.255 0.032 296);
-  --popover-foreground: oklch(0.92 0.03 312);
-
-  --primary: oklch(0.75 0.17 322);
-  --primary-foreground: oklch(0.16 0.05 322);
-
-  --secondary: oklch(0.29 0.034 296);
-  --secondary-foreground: oklch(0.9 0.025 312);
-
-  --muted: oklch(0.29 0.034 296);
-  --muted-foreground: oklch(0.74 0.04 310);
-
-  --accent: oklch(0.33 0.04 296);
-  --accent-foreground: oklch(0.95 0.02 315);
-
-  --destructive: oklch(0.65 0.2 25);
-  --destructive-foreground: oklch(0.98 0 0);
-
-  --border: oklch(0.33 0.035 296);
-  --input: oklch(0.33 0.035 296);
-  --ring: oklch(0.62 0.13 322);
-
-  /* Status colors for anything outside Badge (dots, inline confirmations).
-     Seeded from ui/badge.tsx's success/warning variant values (Tailwind
-     emerald-400 / amber-400) so chips and dots finally share one palette. */
-  --success: oklch(0.765 0.177 163.223);
-  --warning: oklch(0.828 0.189 84.429);
+  /* The palette, and why each value is what it is, lives in packages/assistant/tokens.css. */
 
   /* The modal scrim, behind a dialog or sheet. Hex with alpha rather than a
      role colour: it is BLACK at 70%, not a tint of the palette, and every
@@ -70,7 +36,6 @@
      `lint:design` compares them. It was `bg-black/70` written twice at the
      callsites, which is the one colour literal Tailwind's own utility made
      invisible to the scanner (it sees hex and oklch, not colour WORDS). */
-  --scrim: #000000b3;
 
   /* Emphasis surfaces the role palette has no name for: the sunk-plum
      primary-button gradient, the sidebar's active-nav gradient and the

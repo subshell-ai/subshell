@@ -26,7 +26,9 @@ Colours by their shadcn names (`--foreground`, `--muted-foreground`,
 `--border`, …) on every surface; mobile in camelCase from `tokens.ts`.
 Spacing on the 4px grid. A `text-[13px]`, a `font-size: 14.5px`, a
 `fontSize: 17` or a hex outside a token file is refused by the check; if
-the system lacks what you need, add the token to every surface in one change.
+the system lacks what you need, add the colour to `packages/assistant/tokens.css`
+once (every surface imports it); a type role is restated in each surface's
+`@theme` block, so change those together.
 
 **Aim for one or two short sentences per UI explanation.** Use more when
 consequences or limits need it. Keep warnings at the decision point; move

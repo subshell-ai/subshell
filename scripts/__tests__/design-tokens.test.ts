@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   agreementProblems,
   COLOR_ROLES,
+  CSS_SURFACES,
   contrastProblems,
   contrastRatio,
   cssColorAgreement,
@@ -12,6 +15,9 @@ import {
   oklchToSrgb,
   parseCssTokens,
   parseOklch,
+  REPO_ROOT,
+  SHARED_TOKENS,
+  sharedRedeclarationProblems,
   TYPE_ROLES,
   WEB_SCALE,
 } from "../design-tokens";
@@ -387,5 +393,55 @@ describe("contrastProblems", () => {
     const problems = contrastProblems(spa);
     expect(problems.length).toBeGreaterThan(0);
     expect(problems[0]).toContain("4.5");
+  });
+});
+
+describe("the shared token file", () => {
+  const shared = readFileSync(join(REPO_ROOT, SHARED_TOKENS), "utf8");
+
+  test("every colour role the system requires is declared once, in the shared file", () => {
+    const t = parseCssTokens(shared);
+    for (const role of COLOR_ROLES) expect(t.colors[role]).toBeDefined();
+    // scrim is optional per surface but must have one value to be optional against.
+    expect(t.colors.scrim).toBe("#000000b3");
+  });
+
+  test("names a surface that re-declares a shared colour with a near-miss value", () => {
+    // The assistant once carried six "near-Dreamframe" values under Dreamframe's
+    // names; comparing names only called that agreement. Same guard, now that
+    // the colours live in one file.
+    const tuned = ":root {\n  --warning: oklch(0.828 0.189 90);\n}";
+    expect(sharedRedeclarationProblems("assistant", shared, tuned)).toEqual([
+      expect.stringContaining("assistant: --warning is oklch(0.828 0.189 90)"),
+    ]);
+  });
+
+  test("tolerates a surface restating a shared value identically", () => {
+    // Tailwind's @theme block re-states the type roles literally in several
+    // files; that is a build convention, and var() indirection does not work
+    // there. Only a different value is drift.
+    const t = parseCssTokens(shared);
+    const same = `:root {\n  --warning: ${t.colors.warning};\n  --text-label: 15px;\n}`;
+    expect(sharedRedeclarationProblems("client", shared, same)).toEqual([]);
+  });
+
+  test("names a type role or weight a surface restates at a different value", () => {
+    expect(sharedRedeclarationProblems("spa", shared, ":root {\n  --text-detail: 12px;\n}")).toEqual([
+      expect.stringContaining("--text-detail is 12px"),
+    ]);
+    expect(sharedRedeclarationProblems("spa", shared, ":root {\n  --font-weight-strong: 700;\n}")).toEqual([
+      expect.stringContaining("--font-weight-strong is 700"),
+    ]);
+  });
+
+  test("the three real surfaces still resolve a complete palette through the import", () => {
+    // The refactor's risk is a role that existed only in a surface file and now
+    // exists nowhere: each surface read as shared-plus-own must still satisfy
+    // every required role and clear contrast.
+    for (const surface of ["spa", "client", "assistant"] as const) {
+      const merged = `${shared}\n${readFileSync(join(REPO_ROOT, CSS_SURFACES[surface]), "utf8")}`;
+      expect(agreementProblems(surface, parseCssTokens(merged), WEB_SCALE)).toEqual([]);
+    }
+    expect(contrastProblems(`${shared}\n${readFileSync(join(REPO_ROOT, CSS_SURFACES.spa), "utf8")}`)).toEqual([]);
   });
 });
