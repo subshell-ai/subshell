@@ -48,10 +48,119 @@ fn read_parts(sources: &[PathBuf], plist: &Path, architecture: &str, identity: &
     parts
 }
 
-/// Copy `from` over `to` only when the bytes differ, so an unchanged rebuild
+/// Where vite puts the panel page, relative to the workspace root.
+fn panel_dist(root: &Path) -> PathBuf {
+    root.join("packages/helper-panel/dist")
+}
+
+/// Every regular file under `dir`, sorted by its path relative to `dir`, so
+/// the fingerprint and the copy do not depend on the order the OS hands out
+/// directory entries.
+fn tree_files(dir: &Path) -> Vec<PathBuf> {
+    let mut found: Vec<PathBuf> = Vec::new();
+    let mut stack: Vec<PathBuf> = vec![dir.to_path_buf()];
+    while let Some(current) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&current) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(file_type) = entry.file_type() else { continue };
+            // A symlinked or nested directory is not something this bundle
+            // should carry; only real files inside the tree are copied.
+            if file_type.is_dir() {
+                stack.push(path);
+            } else if file_type.is_file() {
+                found.push(path);
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// What a debug bundle carries when the page was never built: a message that
+/// names the command instead of a blank window. The release path refuses to
+/// build at all, so this text can never reach a person who downloaded Subshell.
+const PLACEHOLDER: &str = "<!doctype html>\n\
+<html lang=\"en\">\n\
+<meta charset=\"utf-8\">\n\
+<meta name=\"color-scheme\" content=\"dark\">\n\
+<title>Subshell virtual display helper</title>\n\
+<p>The panel was not built. Run <code>bunx turbo run build \
+--filter=@internal/helper-panel</code>, then rebuild this helper.</p>\n";
+
+/// The sentence every "no panel" path shares, so the fix is named in one place.
+fn missing_panel_message(dist: &Path) -> String {
+    format!(
+        "{} has no index.html: build the display helper's panel before bundling it \
+         (`bunx turbo run build --filter=@internal/helper-panel`).",
+        dist.display()
+    )
+}
+
+/// Every file of the panel's build, as `(relative path, bytes)` sorted by path.
+///
+/// The error is a value rather than a panic so it is quotable in a test, and so
+/// the release/debug split can decide what to do with it.
+fn dist_files(dist: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
+    if !dist.join("index.html").is_file() {
+        return Err(missing_panel_message(dist));
+    }
+    Ok(tree_files(dist)
+        .into_iter()
+        .map(|path| {
+            let rel = path.strip_prefix(dist).expect("path under the panel dist");
+            let bytes = std::fs::read(&path).unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+            (rel.to_string_lossy().into_owned(), bytes)
+        })
+        .collect())
+}
+
+/// What goes into `Contents/Resources/panel`.
+///
+/// A release must not ship a helper whose consent page was never built: the
+/// panel is the only place a person can say yes, and a bundle without it is a
+/// dark window. A debug build carries the placeholder instead, because the CI
+/// Rust lanes and a bare `cargo clippy` run with no `bun install` at all, and
+/// failing them over a file no Rust test reads would trade a real guard for a
+/// red lane nobody can act on.
+fn panel_files(root: &Path, release: bool) -> Vec<(String, Vec<u8>)> {
+    let dist = panel_dist(root);
+    if let Ok(files) = dist_files(&dist) {
+        return files;
+    }
+    let reason = missing_panel_message(&dist);
+    assert!(
+        !release,
+        "{reason} A release must not ship a helper whose consent page was never built."
+    );
+    println!("cargo:warning={reason}");
+    vec![("index.html".to_string(), PLACEHOLDER.as_bytes().to_vec())]
+}
+
+/// Make `to` hold exactly `files`, writing only what differs and removing what
+/// the list no longer has. The removal matters: vite names its assets by
+/// content hash, so appending would leave every bundle carrying the pages of
+/// its predecessors, and the signature would cover all of them.
+fn sync_panel(files: &[(String, Vec<u8>)], to: &Path) -> bool {
+    let mut wrote = false;
+    for (name, bytes) in files {
+        wrote = write_if_changed(bytes, &to.join(name)) || wrote;
+    }
+    for stale in tree_files(to) {
+        let rel = stale.strip_prefix(to).expect("path under the panel directory");
+        if !files.iter().any(|(name, _)| Path::new(name) == rel) {
+            let _ = std::fs::remove_file(&stale);
+            wrote = true;
+        }
+    }
+    wrote
+}
+
+/// Write `wanted` to `to` only when the bytes differ, so an unchanged rebuild
 /// leaves no new mtime for the dev watcher to chase. Returns whether it wrote.
-fn copy_if_changed(from: &Path, to: &Path) -> bool {
-    let wanted = std::fs::read(from).unwrap_or_else(|error| panic!("read {}: {error}", from.display()));
+fn write_if_changed(wanted: &[u8], to: &Path) -> bool {
     if std::fs::read(to).is_ok_and(|existing| existing == wanted) {
         return false;
     }
@@ -62,6 +171,12 @@ fn copy_if_changed(from: &Path, to: &Path) -> bool {
     true
 }
 
+/// The same, from a file on disk.
+fn copy_if_changed(from: &Path, to: &Path) -> bool {
+    let wanted = std::fs::read(from).unwrap_or_else(|error| panic!("read {}: {error}", from.display()));
+    write_if_changed(&wanted, to)
+}
+
 pub fn build() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
         return;
@@ -70,6 +185,11 @@ pub fn build() {
     let root = manifest.ancestors().nth(4).expect("desktop workspace root");
     let source = root.join("native/display-helper");
     println!("cargo:rerun-if-changed={}", source.display());
+    // The page is part of the bundle, so a panel rebuild has to re-run this
+    // script. Cargo watches a directory recursively, and the fingerprint below
+    // carries the bytes anyway.
+    let dist = panel_dist(root);
+    println!("cargo:rerun-if-changed={}", dist.display());
     println!("cargo:rerun-if-env-changed=APPLE_SIGNING_IDENTITY");
     println!("cargo:rerun-if-env-changed=APPLE_SIGNING_KEYCHAIN");
     let bundle = manifest.join("resources").join(BUNDLE_NAME);
@@ -86,16 +206,27 @@ pub fn build() {
         .filter(|path| path.extension().is_some_and(|extension| extension == "swift"))
         .collect();
     sources.sort();
-    let parts = read_parts(&sources, &source.join("Info.plist"), architecture, &identity, &keychain);
+    let release = std::env::var("PROFILE").as_deref() == Ok("release");
+    // The page is bundle content, so its bytes decide whether this pass has to
+    // touch anything. Read once, then carried into both the fingerprint and the
+    // copy, which is what keeps the two from disagreeing.
+    let panel = panel_files(root, release);
+    let mut parts = read_parts(&sources, &source.join("Info.plist"), architecture, &identity, &keychain);
+    for (name, bytes) in &panel {
+        parts.push(name.clone().into_bytes());
+        parts.push(bytes.clone());
+    }
     let bytes: Vec<&[u8]> = parts.iter().map(Vec::as_slice).collect();
     let stamp_value = fingerprint(&bytes).to_string();
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
     let stamp = out_dir.join("display-helper.stamp");
     let staged = bundle.join("Contents/MacOS/subshell-display-helper");
     let staged_plist = bundle.join("Contents/Info.plist");
+    let bundled_panel = bundle.join("Contents/Resources/panel");
     if std::fs::read_to_string(&stamp).is_ok_and(|stored| stored == stamp_value)
         && staged.is_file()
         && staged_plist.is_file()
+        && bundled_panel.join("index.html").is_file()
     {
         // Nothing about the bundle changed since the last pass: touch no file,
         // which is what keeps `tauri dev` from rebuilding itself forever.
@@ -120,7 +251,10 @@ pub fn build() {
         .status()
         .expect("start Swift compiler");
     assert!(status.success(), "display helper compilation failed");
-    assert!(std::env::var("PROFILE").as_deref() != Ok("release") || identity != "-",
+    // Carried into the stage BEFORE signing, so the signature covers the page
+    // and a swapped asset fails `codesign --verify` the way a swapped binary does.
+    sync_panel(&panel, &stage_contents.join("Resources/panel"));
+    assert!(!release || identity != "-",
         "release display helpers require APPLE_SIGNING_IDENTITY; ad-hoc signatures cannot preserve macOS permission grants");
     let mut sign = Command::new("/usr/bin/codesign");
     sign.args(["--force", "--sign", &identity, "--identifier", HELPER_ID]);
@@ -156,6 +290,10 @@ pub fn build() {
             }
         }
     }
+    // The page into the bundle, from the same bytes that were signed a moment
+    // ago. Per file rather than wholesale, so an unchanged rebuild stamps no
+    // mtime for `tauri dev` to chase.
+    sync_panel(&panel, &bundled_panel);
     // Record the fingerprint whether or not anything was copied, so the next
     // pass short-circuits before the swiftc call.
     std::fs::write(&stamp, stamp_value).expect("write helper stamp");
@@ -192,6 +330,93 @@ mod tests {
         assert_eq!(std::fs::read(&to).unwrap(), b"v2-longer");
         assert!(std::fs::metadata(&to).unwrap().modified().unwrap() > before);
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let directory = std::env::temp_dir().join(format!("subshell-helper-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        directory
+    }
+
+    fn write(path: &Path, bytes: &[u8]) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    #[test]
+    fn dist_files_lists_the_built_page_and_refuses_an_absent_build_by_command() {
+        let empty = scratch("dist-empty");
+        let error = dist_files(&empty).expect_err("a dist with no page must not pass");
+        assert!(
+            error.contains("bunx turbo run build --filter=@internal/helper-panel"),
+            "{error}"
+        );
+
+        let dist = scratch("dist-built");
+        write(&dist.join("index.html"), b"<html>");
+        write(&dist.join("assets/index-abc.js"), b"js");
+        write(&dist.join("assets/index-abc.css"), b"css");
+        let files = dist_files(&dist).unwrap();
+        let names: Vec<&str> = files.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, ["assets/index-abc.css", "assets/index-abc.js", "index.html"]);
+        assert_eq!(files[2].1, b"<html>");
+        std::fs::remove_dir_all(empty).unwrap();
+        std::fs::remove_dir_all(dist).unwrap();
+    }
+
+    #[test]
+    fn a_debug_bundle_carries_a_placeholder_that_names_the_build_and_a_release_refuses() {
+        // The natural reading of "the bundle has no panel" is that someone
+        // deleted it, so both paths have to say what to run instead.
+        let root = scratch("panel-missing");
+        let files = panel_files(&root, false);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].0, "index.html");
+        let page = String::from_utf8(files[0].1.clone()).expect("utf-8 placeholder");
+        assert!(
+            page.contains("bunx turbo run build --filter=@internal/helper-panel"),
+            "{page}"
+        );
+
+        // The release path refuses rather than placeholdering. Quietly, and
+        // with the directory removed, because a panic that prints a stack and
+        // leaves a temp tree behind is noise a looped run accumulates.
+        let hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let refused = std::panic::catch_unwind(|| panel_files(&root, true));
+        std::panic::set_hook(hook);
+        assert!(
+            refused.is_err(),
+            "a release must not ship a helper whose consent page was never built"
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn sync_panel_replaces_stale_assets_and_writes_nothing_when_already_current() {
+        let to = scratch("sync-to");
+        let v1: Vec<(String, Vec<u8>)> = vec![
+            ("index.html".into(), b"v1".to_vec()),
+            ("assets/new.js".into(), b"js".to_vec()),
+        ];
+        // A previous vite pass emitted a differently hashed file; the bundle
+        // must not accumulate the pages of its predecessors.
+        write(&to.join("assets/old.js"), b"stale");
+
+        assert!(sync_panel(&v1, &to), "new files must be written");
+        assert!(!to.join("assets/old.js").exists(), "the stale hashed asset is pruned");
+        assert_eq!(std::fs::read(to.join("index.html")).unwrap(), b"v1");
+        assert!(
+            !sync_panel(&v1, &to),
+            "an identical set must leave no new mtime for the dev watcher"
+        );
+
+        let v2: Vec<(String, Vec<u8>)> = vec![("index.html".into(), b"v2".to_vec())];
+        assert!(sync_panel(&v2, &to));
+        assert_eq!(std::fs::read(to.join("index.html")).unwrap(), b"v2");
+        assert!(!to.join("assets/new.js").exists(), "a dropped asset leaves with it");
+        std::fs::remove_dir_all(to).unwrap();
     }
 
     #[test]

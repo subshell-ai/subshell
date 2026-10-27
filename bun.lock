@@ -51,6 +51,7 @@
       },
       "devDependencies": {
         "@happy-dom/global-registrator": "21.0.4",
+        "@internal/helper-panel": "workspace:*",
         "@internal/tsconfig": "workspace:*",
         "@tailwindcss/vite": "4.3.3",
         "@tauri-apps/cli": "2.11.4",
@@ -245,6 +246,7 @@
       },
       "devDependencies": {
         "@happy-dom/global-registrator": "21.0.4",
+        "@internal/helper-panel": "workspace:*",
         "@internal/tsconfig": "workspace:*",
         "@tailwindcss/vite": "4.3.3",
         "@tauri-apps/cli": "2.11.4",
@@ -411,6 +413,16 @@
         "@types/sprintf-js": "1.1.4",
         "hash-runner": "4.0.0",
         "tsdown": "0.22.14",
+      },
+    },
+    "packages/helper-panel": {
+      "name": "@internal/helper-panel",
+      "version": "1.0.0",
+      "devDependencies": {
+        "@internal/tsconfig": "workspace:*",
+        "@types/bun": "1.3.14",
+        "typescript": "7.0.2",
+        "vite": "8.2.4",
       },
     },
     "packages/mcp-core": {
@@ -1244,6 +1256,8 @@
     "@internal/docs": ["@internal/docs@workspace:apps/docs"],
 
     "@internal/e2e": ["@internal/e2e@workspace:e2e"],
+
+    "@internal/helper-panel": ["@internal/helper-panel@workspace:packages/helper-panel"],
 
     "@internal/mcp-core": ["@internal/mcp-core@workspace:packages/mcp-core"],
 

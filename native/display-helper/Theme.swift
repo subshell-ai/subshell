@@ -1,8 +1,13 @@
 import AppKit
 
-/// The Subshell palette and type roles, mirrored from
-/// `apps/server/web/src/styles.css` so this panel reads as the same product as
-/// the dashboard rather than as a foreign system dialog.
+/// The three colours and one type role the native chrome still needs.
+///
+/// The panel's own page draws the palette itself, from
+/// `packages/assistant/tokens.css`, so this file is no longer a mirror of the
+/// whole theme: what is left is what AppKit must still paint by hand, the
+/// window's ground behind the web view, the muted text and `detail` size of the
+/// "the bundle has no panel" label, and the gold the status item takes on while
+/// someone is watching.
 ///
 /// The numbers are the CSS tokens themselves (L, C, H) converted here, not
 /// retyped hexes: a re-typed hex is a second source of truth that drifts the
@@ -10,48 +15,26 @@ import AppKit
 /// mobile halves. The conversion is pure and tested.
 ///
 /// The web theme is dark-only, so the panel pins `darkAqua` instead of
-/// following the system appearance: a light-mode aqua button sitting on the
+/// following the system appearance: a light-mode aqua title bar sitting on the
 /// void ground looks broken, not themed.
 enum Theme {
-    /// Token name to (oklch L, C, H) exactly as `styles.css` declares them.
+    /// Token name to (oklch L, C, H) exactly as `packages/assistant/tokens.css`
+    /// declares them. Add a row only when native chrome has to draw it.
     static let tokens: [String: (l: Double, c: Double, h: Double)] = [
         "background": (0.224, 0.035, 296),
-        "card": (0.255, 0.032, 296),
-        "foreground": (0.92, 0.03, 312),
-        "primary": (0.75, 0.17, 322),
-        "primary-foreground": (0.16, 0.05, 322),
-        "secondary": (0.29, 0.034, 296),
         "muted-foreground": (0.74, 0.04, 310),
-        "destructive": (0.65, 0.2, 25),
         "warning": (0.828, 0.189, 84.429),
-        "success": (0.765, 0.177, 163.223),
-        "border": (0.33, 0.035, 296),
     ]
 
     /// The panel's ground: the same void the dashboard draws.
     static let background = color("background")
-    /// Section plates, the token cards use.
-    static let card = color("card")
-    static let foreground = color("foreground")
-    /// Secondary text: metadata, permission lines, timestamps.
+    /// Secondary text: metadata and anything the page could not render.
     static let mutedForeground = color("muted-foreground")
-    /// Brand accent: links, the enabled state, the primary control.
-    static let primary = color("primary")
-    static let primaryForeground = color("primary-foreground")
-    static let secondary = color("secondary")
     /// Gold: the operator can fix this (the same role `text-warning` holds).
     static let warning = color("warning")
-    /// Red: what the machine refused (the same role `text-destructive` holds).
-    static let destructive = color("destructive")
-    static let success = color("success")
-    static let border = color("border")
 
-    /// Type roles at two weights, the sizes the web token file declares:
-    /// heading 20/600, label 15/600, body 14/400, detail 13/400. There is no
-    /// 12px: detail is the floor, same rule the dashboard obeys.
-    static let headingFont = NSFont.systemFont(ofSize: 20, weight: .semibold)
-    static let labelFont = NSFont.systemFont(ofSize: 15, weight: .semibold)
-    static let bodyFont = NSFont.systemFont(ofSize: 14, weight: .regular)
+    /// The `detail` role (13px at 400). There is no 12px: detail is the floor,
+    /// the same rule the dashboard obeys.
     static let detailFont = NSFont.systemFont(ofSize: 13, weight: .regular)
 
     /// The token as sRGB components. Oklab's inverse transform, then the
@@ -82,8 +65,10 @@ enum Theme {
     }
 }
 
-/// What the menu bar and the panel say while someone is watching a screen.
-/// Pure so the wording is testable without a window or a status item.
+/// What the menu bar says while someone is watching a screen. Pure so the
+/// wording is testable without a status item. The panel's own copy lives in
+/// `packages/helper-panel/src/strings.ts`; keep a sentence in one of the two,
+/// not both.
 enum AccessReport {
     /// The tooltip on the status item: honest about who is doing what.
     static func tooltip(enabled: Bool, viewers: Int) -> String {
@@ -92,14 +77,5 @@ enum AccessReport {
                 + (viewers == 1 ? "" : " (\(viewers) viewers)")
         }
         return enabled ? "Subshell virtual display helper enabled" : "Subshell virtual display helper disabled"
-    }
-
-    /// The panel's live line. Gold while anyone is watching, muted otherwise:
-    /// same role split the dashboard uses for "the machine's owner should see
-    /// this" versus plain metadata.
-    static func panelLine(viewers: Int) -> (text: String, warning: Bool) {
-        guard viewers > 0 else { return ("No one is viewing a virtual display on this Mac.", false) }
-        let plural = viewers == 1 ? "viewer is" : "viewers are"
-        return ("A Subshell \(plural) watching this Mac's virtual display right now.", true)
     }
 }

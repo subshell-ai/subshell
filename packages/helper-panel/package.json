@@ -1,0 +1,22 @@
+{
+  "name": "@internal/helper-panel",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "vite build",
+    "clean": "rm -rf .turbo node_modules dist",
+    "lint": "biome check --no-errors-on-unmatched --write --unsafe src",
+    "lint:check": "biome check --no-errors-on-unmatched src",
+    "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src",
+    "test": "bash \"$(git rev-parse --show-toplevel)/scripts/par-test.sh\" 4 bun test",
+    "verify-types": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@internal/tsconfig": "workspace:*",
+    "@types/bun": "1.3.14",
+    "typescript": "7.0.2",
+    "vite": "8.2.4"
+  }
+}

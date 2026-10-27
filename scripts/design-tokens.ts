@@ -437,9 +437,17 @@ export const SURFACE_GLOBS: Record<Surface, { root: string; include: RegExp; exc
  * identical surface. It is not a fifth `CSS_SURFACES` entry (nothing compares
  * its values cross-surface; it simply must not escape the role system either),
  * which is why it joins `spa` as a scan root rather than as a new surface.
+ *
+ * `packages/helper-panel` is the macOS display helper's settings page. It is
+ * bundled into the helper's own `.app`, so it sits under no `apps/` directory,
+ * and a page nobody scans is a page that drifts. It answers to the assistant
+ * rules because it imports that surface's tokens and renders on the same
+ * plain-CSS roles, which is the point of moving the palette to
+ * `packages/assistant/tokens.css` in the first place.
  */
-const SCAN_ROOTS: Partial<Record<Surface, string[]>> = {
+export const SCAN_ROOTS: Partial<Record<Surface, string[]>> = {
   spa: ["packages/node-admin/src", "apps/node/web/src"],
+  assistant: ["packages/helper-panel/src"],
 };
 
 // ---------------------------------------------------------------------------

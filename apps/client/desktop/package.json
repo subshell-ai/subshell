@@ -38,6 +38,7 @@
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "21.0.4",
+    "@internal/helper-panel": "workspace:*",
     "@internal/tsconfig": "workspace:*",
     "@tailwindcss/vite": "4.3.3",
     "@tauri-apps/cli": "2.11.4",
