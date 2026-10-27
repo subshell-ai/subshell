@@ -1,6 +1,6 @@
 import "./styles.css";
 import { EMPTY_STATE, type PanelAction, type PanelState } from "./state";
-import { permissionLine, stateLine, strings, viewerLine } from "./strings";
+import { loginItemLine, permissionLine, stateLine, strings, viewerLine } from "./strings";
 
 /** The bridge the Swift side installs. Absent in a browser, which is how the
  *  page stays previewable while every real act needs the helper process. */
@@ -14,56 +14,78 @@ declare global {
   }
 }
 
+/** Which of the assistant's button looks to wear, in plain CSS. */
+type Variant = "primary" | "ghost" | "outline" | "link";
+
 function bridge(): PanelBridge | undefined {
   return window.webkit?.messageHandlers?.subshell;
 }
 
-function button(label: string, action: PanelAction, primary = false): HTMLButtonElement {
-  const el = document.createElement("button");
+function element<Tag extends keyof HTMLElementTagNameMap>(
+  tag: Tag,
+  className: string,
+  content?: string,
+): HTMLElementTagNameMap[Tag] {
+  const el = document.createElement(tag);
+  el.className = className;
+  if (content !== undefined) el.textContent = content;
+  return el;
+}
+
+function button(label: string, action: PanelAction, variant: Variant = "ghost"): HTMLButtonElement {
+  const el = element("button", `btn btn-${variant}`);
   el.type = "button";
   el.textContent = label;
-  el.className = primary ? "btn btn-primary" : "btn";
   el.addEventListener("click", () => bridge()?.postMessage({ action }));
   return el;
 }
 
-/** A paragraph-class element with the right tag for its role. */
-function line(tag: "p" | "h1" | "span", className: string, content: string): HTMLElement {
-  const el = document.createElement(tag);
-  el.className = className;
-  el.textContent = content;
-  return el;
-}
-
-/** A section heading with the trailing rule: the assistant's `FormSectionTitle` shape. */
+/**
+ * A section heading with the trailing rule: the assistant's `FormSectionTitle`.
+ * That rule is the only divider a section brings, so grouping reads as heading
+ * and spacing rather than as a stack of hairlines.
+ */
 function sectionTitle(label: string): HTMLElement {
-  const heading = document.createElement("h2");
-  heading.className = "section-title";
-  const caption = document.createElement("span");
-  caption.textContent = label;
-  const rule = document.createElement("span");
+  const heading = element("h2", "section-title");
+  const rule = element("span", "section-rule");
   rule.setAttribute("aria-hidden", "true");
-  rule.className = "section-rule";
-  heading.append(caption, rule);
+  heading.append(element("span", "section-caption", label), rule);
   return heading;
 }
 
+function section(label: string, children: Node[]): HTMLElement {
+  const el = element("section", "section");
+  el.append(sectionTitle(label), ...children);
+  return el;
+}
+
 /**
- * A permission row: the machine's answer on the left, the request on the
- * right. The buttons are `disabled` rather than hidden while consent is off,
- * with the reason as the title, because a control that is not there cannot be
- * explained. The helper refuses these requests as well, so a page that
- * somehow fires one still gets a refusal instead of a prompt.
+ * A row: the machine's answer on the left, the one control that changes it on
+ * the right. The button never wraps its own label, so a long status line and a
+ * label that must not clip share the row honestly instead of fighting for it.
+ */
+function row(status: string, control?: HTMLElement): HTMLElement {
+  const el = element("div", "row");
+  el.append(element("span", "status", status));
+  if (control) el.append(control);
+  return el;
+}
+
+/**
+ * A permission row. The buttons are `disabled` rather than hidden while consent
+ * is off, with the reason as the title, because a control that is not there
+ * cannot be explained. The helper refuses these requests as well, so a page
+ * that somehow fires one still gets a refusal instead of a prompt.
  */
 function permissionRow(label: string, granted: boolean, requestLabel: string, action: PanelAction, consented: boolean) {
-  const row = document.createElement("div");
-  row.className = "row";
-  const status = line("span", "detail", permissionLine(label, granted));
-  const btn = button(requestLabel, action);
+  // Granted, there is nothing left to ask macOS for: the row states the fact
+  // and offers no control. A button that opens a prompt which cannot appear is
+  // worse than none, because pressing it and seeing nothing looks like a hang.
+  if (granted) return row(permissionLine(label, true));
+  const btn = button(requestLabel, action, "outline");
   btn.disabled = !consented;
   if (!consented) btn.title = strings.permissionNeedsConsent;
-  row.append(status, btn);
-  return row;
+  return row(permissionLine(label, granted), btn);
 }
 
 function render(state: PanelState): void {
@@ -71,51 +93,67 @@ function render(state: PanelState): void {
   if (!root) return;
   root.replaceChildren();
 
-  const head = document.createElement("header");
-  head.className = "head";
-  head.append(line("h1", "title", strings.title), line("span", "detail", strings.subtitle));
-  root.append(head);
+  const content = element("div", "content");
+  const header = element("header", "head");
+  header.append(element("h1", "title", strings.title), element("p", "subtitle", strings.subtitle));
+  content.append(header);
 
-  root.append(line("p", "warning", strings.warning));
-
-  const access = document.createElement("section");
-  access.className = "section";
-  access.append(
-    sectionTitle(strings.access),
-    line("p", "body", stateLine(state)),
-    line("p", state.viewers > 0 ? "viewers-live" : "viewers", viewerLine(state)),
-    button(state.enabled ? strings.disable : strings.enable, state.enabled ? "disable" : "enable", true),
-    line("p", "detail", strings.enableNote),
-  );
-  const login = button(strings.openLoginItems, "openLoginItems");
-  login.classList.add("alone");
-  access.append(login);
-  root.append(access);
-
-  const permissions = document.createElement("section");
-  permissions.className = "section";
-  permissions.append(
-    sectionTitle(strings.permissions),
-    permissionRow("Screen Recording", state.screenRecording, strings.requestCapture, "requestCapture", state.enabled),
-    permissionRow("Accessibility", state.accessibility, strings.requestInput, "requestInput", state.enabled),
-  );
-  root.append(permissions);
-
-  // role=alert so a refusal that arrives while the panel is open is announced,
-  // not just painted red.
+  // The refusal goes above the card, the way the assistant's frame puts its
+  // problem line under the subtitle: it is why the screen still looks like
+  // this, so it has to be read before the button that failed is pressed again.
+  // role=alert announces it while the panel is open; it is the only live
+  // region, because the whole card is rebuilt on every push.
   if (state.error) {
-    const err = line("p", "error", state.error);
+    const err = element("p", "error", state.error);
     err.setAttribute("role", "alert");
-    root.append(err);
+    content.append(err);
   }
 
-  const foot = document.createElement("footer");
-  foot.className = "foot";
-  const right = document.createElement("div");
-  right.className = "foot-right";
+  // The warning sits above the button it warns about, not under it where a
+  // person has already pressed the thing.
+  const toggle = button(
+    state.enabled ? strings.disable : strings.enable,
+    state.enabled ? "disable" : "enable",
+    "primary",
+  );
+  const note = element("p", "note", strings.enableNote);
+  note.id = "enable-note";
+  toggle.setAttribute("aria-describedby", "enable-note");
+  const accessRows: Node[] = [
+    element("p", "state", stateLine(state)),
+    element("p", state.viewers > 0 ? "viewers is-live" : "viewers", viewerLine(state)),
+    element("p", "warning", strings.warning),
+    toggle,
+    note,
+  ];
+  // macOS only lists the login item once the helper registers it, so the row
+  // and its button appear with the consent that created them.
+  if (state.enabled) {
+    accessRows.push(
+      row(loginItemLine(state.loginItemNeedsApproval), button(strings.openLoginItems, "openLoginItems", "outline")),
+    );
+  }
+  content.append(section(strings.access, accessRows));
+
+  content.append(
+    section(strings.permissions, [
+      permissionRow("Screen Recording", state.screenRecording, strings.requestCapture, "requestCapture", state.enabled),
+      permissionRow("Accessibility", state.accessibility, strings.requestInput, "requestInput", state.enabled),
+    ]),
+  );
+
+  // The frame's bottom bar: help on the left, the way out on the right. The
+  // primary is deliberately not here. In a card this narrow it belongs with the
+  // state it changes and the warning that says what it costs, and the bar is
+  // left with what a person reaches for last.
+  const bar = element("footer", "bar");
+  const left = element("div", "bar-side");
+  left.append(button(strings.openDocs, "openDocs", "link"));
+  const right = element("div", "bar-side");
   right.append(button(strings.minimize, "minimize"), button(strings.quit, "quit"));
-  foot.append(button(strings.openDocs, "openDocs"), right);
-  root.append(foot);
+  bar.append(left, right);
+
+  root.append(content, bar);
 
   // The Swift window sizes to the content, so the page reports what it needs.
   bridge()?.postMessage({ action: "resize", height: Math.ceil(root.getBoundingClientRect().height) });

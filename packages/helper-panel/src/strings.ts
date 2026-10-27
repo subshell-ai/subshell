@@ -16,8 +16,10 @@ export const strings = {
   disable: "Disable helper",
   enableNote:
     "While enabled the helper runs in the background and starts at sign-in. Disabling stops capture and input; your subshells and macOS permissions stay.",
+  loginItemPending: "Needs approval in System Settings under Login Items.",
+  loginItemRegistered: "Starts at sign-in with macOS.",
   openLoginItems: "Open login items…",
-  openDocs: "Setup instructions…",
+  openDocs: "Setup instructions",
   minimize: "Minimize helper",
   quit: "Quit helper",
   requestCapture: "Allow screen recording…",
@@ -25,13 +27,10 @@ export const strings = {
   permissionNeedsConsent: "Enable the helper before requesting macOS permissions.",
 } as const;
 
-/** The one-line answer to "is anyone looking at this machine right now". */
+/** The one-line answer to "is this machine exposing itself right now". */
 export function stateLine(state: PanelState): string {
   if (!state.enabled) return "Disabled. Nothing is captured and no input is accepted.";
-  const base = "Enabled. Capture and input also need both macOS permissions below.";
-  return state.loginItemNeedsApproval
-    ? `${base} Allow background startup in System Settings under General, Login Items so it resumes after you sign in.`
-    : base;
+  return "Enabled. Capture and input also need both macOS permissions below.";
 }
 
 /** Gold while a viewer holds a screen, muted when nobody does. */
@@ -40,6 +39,14 @@ export function viewerLine(state: PanelState): string {
   return state.viewers === 1
     ? "A Subshell viewer is watching this Mac's virtual display right now."
     : `${state.viewers} Subshell viewers are watching this Mac's virtual displays right now.`;
+}
+
+/**
+ * The login item's own line, shown only while the helper is enabled: a person
+ * who turned it off has not registered anything to approve.
+ */
+export function loginItemLine(needsApproval: boolean): string {
+  return needsApproval ? strings.loginItemPending : strings.loginItemRegistered;
 }
 
 export function permissionLine(label: string, granted: boolean): string {
