@@ -562,9 +562,12 @@ export class TmuxRunner {
     /**
      * `replace: true` re-issues WITHOUT `-o`, which REPLACES the running
      * capture child (the exit watcher's re-arm). With `-o` tmux treats a
-     * configured pipe as an already-on one — and `#{pane_pipe}` stays 1 even
-     * after the child dies (measured on tmux 3.6), so the flag cannot tell a
-     * dead writer from a live one, and only the replacing form re-arms it.
+     * configured pipe as an already-on one, so re-issuing the launch command
+     * through `-o` can no-op on a pipe whose child has died — and the
+     * `#{pane_pipe}` flag cannot be consulted to decide (it has been measured
+     * reading both 0 and 1 for a dead writer on the same tmux build). The
+     * replacing form re-arms under either behavior; that is why the guard
+     * uses it rather than probing the flag first.
      */
     opts: { replace?: boolean } = {},
   ): void {

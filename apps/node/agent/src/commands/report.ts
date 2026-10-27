@@ -47,16 +47,19 @@ export const NODE_EXIT_UNREACHABLE_TICKS = 2;
 
 /**
  * How many shared ticks (≈2 s each) between two looks at a live pane's
- * capture child. The child dies silently: tmux keeps `#{pane_pipe}` at 1
- * whatever happens to it (measured on tmux 3.6 — kill the writer and the
- * flag stays), so the honest signal is the invariant the whole path serves:
+ * capture child. `#{pane_pipe}` is NOT relied on as a liveness signal: two
+ * measurements of the same tmux 3.6 disagreed on what a killed writer leaves
+ * it reading (0 vs 1, depending on whether the tracked shell or its grandchild
+ * died), which is exactly the unreliability that makes the flag unusable as
+ * the detector. The honest signal is the invariant the whole path serves:
  * if the pane's SCREEN moves and the LOG does not, the writer is dead.
  */
 export const PIPE_GUARD_CHECK_TICKS = 10;
 
 /**
- * Consecutive drift observations before re-arming, across checks (so ≈2
- * minutes of "printing into a dead pipe"). Generous on purpose: the check
+ * Consecutive drift observations before re-arming, across checks (so the
+ * re-arm lands a little over a minute into "printing into a dead pipe").
+ * Generous on purpose: the check
  * itself spawns tmux, and a single race (output landing between the capture
  * and the stat) must not spend a re-arm — replacing the pipe closes the old
  * child and opens the new one, and bytes in that microsecond gap are lost.

@@ -2,7 +2,7 @@ import { forensicsEnabled, recordAttachPaint } from "@/api/ws/attach-forensics.j
 import type { AttachParams } from "@/api/ws/attach-params.js";
 import { captureToReplayText } from "@/api/ws/capture-text.js";
 import { captureStable, fitPaneAndRepaint, paneReadsAsBooting, RESIZE_SETTLE_MS } from "@/api/ws/pane-repaint.js";
-import { createRemoteTailSource } from "@/api/ws/pane-sources.js";
+import { createRemoteTailSource, tailCloseReason } from "@/api/ws/pane-sources.js";
 import type { Subscription } from "@/api/ws/pane-stream.js";
 import {
   applySharedGeometry,
@@ -243,8 +243,7 @@ export async function attachRemoteSubshellWs(
           // a sub-4000 code (the client's retry signal), and the re-attach
           // that follows builds a fresh `tail_start` against the current EOF
           // instead of inheriting a corpse that only ever paints replays.
-          onDead: (reason) =>
-            closeViewersForSubshell(row.id, 1011, reason.startsWith("stalled") ? "tail stalled" : "tail refused"),
+          onDead: (reason) => closeViewersForSubshell(row.id, 1011, tailCloseReason(reason)),
         }),
       (text) => {
         // Spec §3.4: a browser that cannot keep up is cut, not queued into —

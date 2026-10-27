@@ -87,10 +87,10 @@ describe("TmuxRunner", () => {
 
   it("pipe-pane with replace:true drops the -o, which is what re-arms a dead child", async () => {
     // The capture-child guard (apps/node/agent report.ts) re-arms the writer.
-    // `#{pane_pipe}` stays 1 after the child dies (measured on tmux 3.6), so
-    // tmux considers the pipe "already on" and -o would no-op; only the form
-    // WITHOUT -o replaces the running child. Pin that the flag alone changes
-    // exactly that word, nothing else in the command.
+    // -o lets tmux treat a configured pipe as "already on" and no-op the
+    // re-arm (the flag cannot arbitrate: measured both 0 and 1 for a dead
+    // writer on the same build), so the guard re-issues WITHOUT -o. Pin that
+    // the option changes exactly that word, nothing else in the command.
     const stubDir = mkdtempSync(join(tmpdir(), "subshell-tmux-stub-"));
     const argvFile = join(stubDir, "argv.txt");
     const stub = join(stubDir, "tmux-stub");

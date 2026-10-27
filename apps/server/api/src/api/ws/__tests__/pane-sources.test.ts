@@ -2,7 +2,12 @@ import { describe, expect, it } from "bun:test";
 import { appendFileSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createLogTailSource, createPanePollSource, createRemoteTailSource } from "@/api/ws/pane-sources.js";
+import {
+  createLogTailSource,
+  createPanePollSource,
+  createRemoteTailSource,
+  tailCloseReason,
+} from "@/api/ws/pane-sources.js";
 import type { NodeLauncher } from "@/modules/nodes/node-launcher.js";
 import type { RemoteLauncher } from "@/modules/nodes/remote-launcher.js";
 
@@ -267,6 +272,8 @@ describe("createRemoteTailSource", () => {
     size: () => number;
     /** When set, probes park until `releaseProbe`. */
     holdProbes?: boolean;
+    /** The first N size probes reject (transient RPC failure); later ones answer. */
+    probeRejects?: number;
   }): RemoteTailFake {
     const fake: RemoteTailFake = {
       deliveries: [],
@@ -294,6 +301,9 @@ describe("createRemoteTailSource", () => {
       },
       readLogSized: async () => {
         fake.sizeCalls += 1;
+        if (opts.probeRejects && fake.sizeCalls <= opts.probeRejects) {
+          throw new Error("transient node RPC failure");
+        }
         // Snapshot at command time, like the node answers; the hold then lets
         // a test deliver bytes into the flight and prove the verdict re-check.
         const size = opts.size();
@@ -457,6 +467,31 @@ describe("createRemoteTailSource", () => {
     }
   });
 
+  it("a transient probe failure does not burn the pump or wedge the watchdog", async () => {
+    // MINOR 4: the .catch that resets probeInFlight on a failed probe is
+    // load-bearing. If it left probeInFlight stuck true, a real stall later
+    // would never report — the 2026-10-27 freeze reborn behind green suites.
+    // The first probes reject (simulating a flaky node RPC); once they
+    // recover, the genuine stall must STILL be caught and reported.
+    const fake = remoteTailStub({ size: () => 1200, probeRejects: 2 });
+    const deaths: string[] = [];
+    const stop = createRemoteTailSource({
+      launcher: fake.launcher,
+      subshellId: "s1",
+      fromByte: 400,
+      ...FAST,
+      onDead: (why) => deaths.push(why),
+    }).start(() => {});
+    try {
+      // Two rejected probes must NOT strand the watchdog: it keeps ticking.
+      await waitFor(() => deaths.length > 0, "the verdict after recovered probes");
+      expect(deaths[0]).toContain("stalled");
+      expect(fake.sizeCalls).toBeGreaterThanOrEqual(3); // it probed past the two failures
+    } finally {
+      stop();
+    }
+  });
+
   it("treats a rewind (log smaller than the cursor) as a stall too", async () => {
     // The retention-sweep-then-relaunch shape: the log under the pump got
     // replaced, so `size > cursor` would wait forever for a byte that can
@@ -501,5 +536,17 @@ describe("createRemoteTailSource", () => {
     await Bun.sleep(200);
     expect(fake.sizeCalls).toBe(atStop); // no interval left to tick
     expect(deaths).toEqual([]); // and nothing left to report to
+  });
+});
+
+describe("tailCloseReason (pure mapper)", () => {
+  it("maps the stall family to 'tail stalled' and the refusal family to 'tail refused'", () => {
+    // Both arms pinned: an operator reads this string to pick which path to
+    // chase (relay silence vs node-link refusal); a collapse to a constant is
+    // the bug this guards.
+    expect(tailCloseReason("stalled: EOF 1200, delivered 400, silent 30000ms")).toBe("tail stalled");
+    expect(tailCloseReason("tail_start refused: node refused")).toBe("tail refused");
+    // Anything not clearly a stall reads as a refusal (conservative default).
+    expect(tailCloseReason("weird")).toBe("tail refused");
   });
 });

@@ -1059,10 +1059,11 @@ describe("exit watcher (report.ts) — one shared tick", () => {
  */
 describe("exit watcher — the capture-child guard", () => {
   // The child tmux pipes pane bytes to (our `pane-log` verb) can die on its
-  // own — an OOM killer takes it, and `#{pane_pipe}` keeps reporting the pipe
-  // as on. The guard's signal is the invariant itself: screen moves, log
-  // does not. It re-arms WITHOUT -o, which is the form that replaces a child
-  // tmux still believes is running.
+  // own — an OOM killer takes it. `#{pane_pipe}` is not consulted (measured
+  // both on and off for a dead writer on the same build), so the guard's
+  // signal is the invariant itself: screen moves, log does not. It re-arms
+  // WITHOUT -o, the form that cannot be no-op'd by tmux believing the pipe is
+  // already on.
 
   /** Enough checks to reach the strike limit after the first (baseline) check. */
   const ticksToArm = PIPE_GUARD_CHECK_TICKS * (PIPE_GUARD_MISSED_LIMIT + 1);
@@ -1078,9 +1079,17 @@ describe("exit watcher — the capture-child guard", () => {
   it("a pane printing into a dead writer gets the child re-armed, once per drift storm", async () => {
     let frame = 0;
     const { ctx, calls, dataDir } = await aliveCtx({ capturePane: () => `screen-${++frame}` });
-    for (let i = 0; i < ticksToArm; i++) await runExitWatchTick(ctx);
+    const { lines, restore } = captureLogs();
+    try {
+      for (let i = 0; i < ticksToArm; i++) await runExitWatchTick(ctx);
+    } finally {
+      restore();
+    }
     const rearms = calls.filter((c) => c.method === "pipePane");
     expect(rearms).toHaveLength(1); // not once per strike: the counter resets
+    // The agent log is the only field trace of a re-arm (there is no wire
+    // event for it); deleting the log line must not stay green.
+    expect(lines.some((l) => l.includes("re-arming the capture child") && l.includes(S1))).toBe(true);
     const rearms0 = rearms[0];
     expect(rearms0).toBeDefined();
     const [socket, id, out, child, opts] = (rearms0 as { args: unknown[] }).args as [
@@ -1094,7 +1103,6 @@ describe("exit watcher — the capture-child guard", () => {
     expect(out).toBe(join(dataDir, "subshells", `${S1}.log`));
     expect(child.args.at(-1)).toBe("pane-log"); // the same verb the launch armed, not cat
     expect(opts).toEqual({ replace: true });
-    // The log is the record; the guard says so on the agent log.
     stopWatcher(ctx, S1);
   });
 
