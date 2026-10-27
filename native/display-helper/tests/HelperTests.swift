@@ -86,14 +86,25 @@ struct HelperTests {
         // strings are compared against it by the helper-panel suite.
         precondition(QuitCopy.title.hasSuffix("?"), "a confirmation names the act as a question")
         for state in ["registered", "needsApproval", "notRegistered"] {
-            precondition(QuitCopy.body(loginItem: state).contains("loses it now"), "every variant says what stopping means")
+            for consented in [true, false] {
+                let body = QuitCopy.body(loginItem: state, consented: consented)
+                precondition(body.contains("loses it now"), "every variant says what stopping means")
+                precondition(body.contains("virtual display settings") || body.contains("login list"),
+                             "every variant says how the helper comes back")
+            }
         }
-        // The sentence that used to be shared: only a registered item comes
-        // back at sign-in, and only Stop at sign-in stops it, not disabling.
-        precondition(QuitCopy.body(loginItem: "registered").contains("starts again at sign-in"))
-        precondition(QuitCopy.body(loginItem: "registered").contains("Stop at sign-in"))
-        precondition(!QuitCopy.body(loginItem: "notRegistered").contains("starts again at sign-in"))
-        precondition(!QuitCopy.body(loginItem: "needsApproval").contains("starts again at sign-in"))
+        // The sentences that used to be shared: only a registered helper that is
+        // switched on comes back at sign-in, and only Stop at sign-in removes it.
+        precondition(QuitCopy.body(loginItem: "registered", consented: true).contains("starts again at sign-in"))
+        let registeredOff = QuitCopy.body(loginItem: "registered", consented: false)
+        precondition(registeredOff.contains("without capturing anything"), "a disabled start captures nothing")
+        precondition(registeredOff.contains("Stop at sign-in"))
+        precondition(!registeredOff.contains("starts again at sign-in"))
+        for state in ["notRegistered", "needsApproval"] {
+            for consented in [true, false] {
+                precondition(!QuitCopy.body(loginItem: state, consented: consented).contains("starts again at sign-in"))
+            }
+        }
         precondition(QuitCopy.confirm != QuitCopy.cancel && !QuitCopy.cancel.isEmpty)
         // The pointer rescue: a viewer's cursor lives on the virtual display,
         // so losing that screen strands it off every display the person at

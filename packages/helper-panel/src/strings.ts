@@ -108,19 +108,37 @@ export function showsSignInSection(state: PanelState): boolean {
  * warning that exists to inform a decision ends up misleading instead. Every
  * variant names what stops, what stays, and how to get it back.
  */
-const QUIT_BODIES: Record<LoginItemState, string> = {
-  // One whole sentence per state rather than a shared prefix, so the helper's
-  // Swift copy can be compared to these literal for literal.
-  registered:
-    "Anyone watching a virtual display on this Mac loses it now. Your consent and the macOS permissions stay. The helper starts again at sign-in, or sooner from Subshell's virtual display settings. To stop it coming back, use the panel's Stop at sign-in button first.",
-  needsApproval:
-    "Anyone watching a virtual display on this Mac loses it now. Your consent and the macOS permissions stay. macOS is still waiting for your approval before it would start at sign-in, so it comes back when you open Subshell's virtual display settings.",
-  notRegistered:
-    "Anyone watching a virtual display on this Mac loses it now. Your consent and the macOS permissions stay. Nothing starts it at sign-in; it comes back when you open Subshell's virtual display settings.",
+const LOSS = "Anyone watching a virtual display on this Mac loses it now.";
+const STAYS = "Your consent and the macOS permissions stay.";
+
+/**
+ * One whole sentence per reachable pair rather than a shared prefix, so the
+ * helper's Swift copy can be compared to these literal for literal.
+ *
+ * The consent half matters as much as the registration half. A registered
+ * helper that is switched off does come back at sign-in, and then exits
+ * without capturing anything (`main.swift` terminates a consentless start), so
+ * promising "it starts again at sign-in" to that person describes a return that
+ * delivers no screen and sends them to a button they do not need. Naming the
+ * state is what makes the sentence actionable in the right direction.
+ */
+const QUIT_BODIES: Record<LoginItemState, { enabled: string; disabled: string }> = {
+  registered: {
+    enabled: `${LOSS} ${STAYS} The helper starts again at sign-in, or sooner from Subshell's virtual display settings. To stop it coming back, use the panel's Stop at sign-in button first.`,
+    disabled: `${LOSS} ${STAYS} The helper is disabled, so at sign-in it starts and exits without capturing anything. To take it out of macOS's login list, choose Stop at sign-in in the panel first.`,
+  },
+  needsApproval: {
+    enabled: `${LOSS} ${STAYS} macOS is still waiting for your approval before it would start at sign-in, so it comes back when you open Subshell's virtual display settings.`,
+    disabled: `${LOSS} ${STAYS} macOS is still waiting for your approval before it would start at sign-in, so it comes back when you open Subshell's virtual display settings.`,
+  },
+  notRegistered: {
+    enabled: `${LOSS} ${STAYS} Nothing starts it at sign-in; it comes back when you open Subshell's virtual display settings.`,
+    disabled: `${LOSS} ${STAYS} Nothing starts it at sign-in; it comes back when you open Subshell's virtual display settings.`,
+  },
 };
 
-export function quitBody(loginItem: LoginItemState): string {
-  return QUIT_BODIES[loginItem];
+export function quitBody(loginItem: LoginItemState, enabled: boolean): string {
+  return QUIT_BODIES[loginItem][enabled ? "enabled" : "disabled"];
 }
 
 /**
