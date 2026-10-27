@@ -303,6 +303,26 @@ describe("the consent button's note", () => {
   });
 });
 
+describe("the consent copy's reachability", () => {
+  test("the four consent strings are not properties of the exported object", () => {
+    // Everything else here rests on this. The sweep cannot recognise every way to
+    // name a property, and round 23 proved it should not try, so the notes and
+    // labels are simply not on `strings`: there is nothing for a page module to
+    // read, by any spelling, escape, or index. Re-attach one to the exported
+    // object and this fails, which is the load-bearing invariant of the design
+    // rather than a restatement of the strings above.
+    for (const key of ["enable", "disable", "enableNote", "disableNote"]) {
+      expect(Object.hasOwn(strings, key), `strings still exports "${key}"`).toBe(false);
+    }
+    // And the door still hands back the private pair, so the test above cannot be
+    // satisfied simply by deleting the copy.
+    expect(consentControl(stateWith({ enabled: false })).note).toBe(ENABLE_NOTE);
+    expect(consentControl(stateWith({ enabled: true })).note).toBe(DISABLE_NOTE);
+    expect(consentControl(stateWith({ enabled: false })).label).toBe("Enable helper");
+    expect(consentControl(stateWith({ enabled: true })).label).toBe("Disable helper");
+  });
+});
+
 describe("the page sweep", () => {
   test("descends into directories and exempts only the copy module", async () => {
     // Every guard above is a claim about the files this walk returns, so the
