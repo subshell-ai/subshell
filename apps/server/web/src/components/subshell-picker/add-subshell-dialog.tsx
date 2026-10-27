@@ -169,11 +169,12 @@ export function AddSubshellDialog({
     }
   }
 
-  // Where a refusal renders: the Virtual display checkbox owns it while the agent form
-  // is mounted, and the form line takes it back when that branch is gone.
+  // Where a refusal renders: the Virtual display checkbox owns it while that control
+  // is on screen and switched on, and the form line takes it back when either is
+  // not, so a display refusal is never both invisible and orphaned.
   const { field: displayLaunchError, form: formLaunchError } = splitLaunchError(
     error,
-    visibleMode !== "existing" && !(kind === "ssh" && open),
+    visibleMode !== "existing" && !(kind === "ssh" && open) && form.virtualDisplay === true,
   );
   return (
     <Dialog

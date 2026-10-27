@@ -34,7 +34,12 @@ export function usePaneDiagnostics(id: string | undefined): [boolean, () => void
   }, [id]);
   const toggle = useCallback((): void => {
     if (!id) return;
-    setPaneDiagnosticsIds(togglePaneDiagnostics(paneDiagnosticsIds(), id));
+    // Bind the render to what the store actually holds, the way the subshell
+    // page does: `setPaneDiagnosticsIds` returns the set it tried to persist,
+    // and a refused write (private mode, quota) still holds for this page load.
+    // Reading the preference back instead would drop the click on the floor.
+    const next = setPaneDiagnosticsIds(togglePaneDiagnostics(paneDiagnosticsIds(), id));
+    setOn(next.includes(id));
   }, [id]);
   return [on, toggle];
 }

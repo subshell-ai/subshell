@@ -71,7 +71,11 @@ const PROBE = {
 
 const dimensions: Record<string, { width: number; height: number }> = {};
 
-const vite = spawn("bun", ["run", "dev:ui"], { cwd: APP, stdio: "ignore" });
+// Its own process group, killed by negative pid on the way out: `bun run` is a
+// wrapper, and signalling only the wrapper leaves Vite holding port 5177 for
+// the next run (and for a developer's own `bun run dev:desktop-client`, whose
+// devUrl is a fixed string and would then load this script's orphan server).
+const vite = spawn("bun", ["run", "dev:ui"], { cwd: APP, stdio: "ignore", detached: true });
 const unstubbed = new Set<string>();
 
 try {
@@ -164,7 +168,15 @@ try {
     await browser.close();
   }
 } finally {
-  vite.kill();
+  // The wrapper's process GROUP: `bun run` spawns Vite as a child, and
+  // signalling the wrapper alone leaves the server holding port 5177.
+  const group = vite.pid;
+  try {
+    if (group === undefined) vite.kill();
+    else process.kill(-group, "SIGTERM");
+  } catch {
+    vite.kill(); // the group is already gone
+  }
 }
 
 console.log(JSON.stringify(dimensions, null, 2));
