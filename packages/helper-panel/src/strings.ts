@@ -22,8 +22,13 @@ export const strings = {
   openDocs: "Setup instructions",
   minimize: "Minimize helper",
   quit: "Quit helper",
-  requestCapture: "Allow screen recording…",
-  requestInput: "Allow accessibility…",
+  /* What the button says, and what it says to a screen reader. The visible
+   * label is one word because the row already names the permission; the
+   * accessible name has to stand alone in a list of controls, where two
+   * buttons called "Allow" would be indistinguishable. */
+  allow: "Allow",
+  requestCapture: "Allow screen recording",
+  requestInput: "Allow accessibility",
   permissionNeedsConsent: "Enable the helper before requesting macOS permissions.",
 } as const;
 
@@ -49,6 +54,12 @@ export function loginItemLine(needsApproval: boolean): string {
   return needsApproval ? strings.loginItemPending : strings.loginItemRegistered;
 }
 
-export function permissionLine(label: string, granted: boolean): string {
-  return `${label}: ${granted ? "Allowed" : "Not allowed"}`;
+/**
+ * The state word, and whether it is something the person can still act on.
+ * Gold is the design system's "the owner can fix this here"; white is a
+ * settled fact. Reading both the same way is how an ungranted permission stops
+ * being the thing to notice.
+ */
+export function permissionValue(granted: boolean): { text: string; blocked: boolean } {
+  return granted ? { text: "Allowed", blocked: false } : { text: "Not allowed", blocked: true };
 }
