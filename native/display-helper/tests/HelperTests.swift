@@ -1,4 +1,5 @@
 import Foundation
+import ServiceManagement
 import Darwin
 import CoreVideo
 
@@ -65,6 +66,13 @@ struct HelperTests {
         precondition(AccessReport.tooltip(enabled: true, viewers: 2) == "Subshell is viewing a virtual display on this Mac (2 viewers)")
         precondition(AccessReport.tooltip(enabled: true, viewers: 1) == "Subshell is viewing a virtual display on this Mac")
         precondition(AccessReport.tooltip(enabled: false, viewers: 0) == "Subshell virtual display helper disabled")
+        // The login item's three macOS states stay three, because collapsing
+        // notRegistered into "approved" is what made a turned-off sign-in start
+        // still read "Starts at sign-in with macOS."
+        precondition(LoginItem.pageState(.enabled) == "registered")
+        precondition(LoginItem.pageState(.requiresApproval) == "needsApproval")
+        precondition(LoginItem.pageState(.notRegistered) == "notRegistered")
+        precondition(LoginItem.pageState(.notFound) == "notRegistered")
         // The menu's one consent item flips with the state, in both directions.
         precondition(AccessReport.toggleTitle(enabled: true) == "Disable helper")
         precondition(AccessReport.toggleTitle(enabled: false) == "Enable helper")

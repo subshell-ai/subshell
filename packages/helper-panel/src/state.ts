@@ -12,9 +12,21 @@ export interface PanelState {
   viewers: number;
   /** The last refusal, shown in red. Empty when there is nothing to report. */
   error: string;
-  /** macOS lists the login item but has not been told to start it. */
-  loginItemNeedsApproval: boolean;
+  /** macOS's own answer about the sign-in registration, not a guess built from one case. */
+  loginItem: LoginItemState;
 }
+
+/**
+ * The three states `SMAppService.Status` can report about this helper's login
+ * item that a person can act on. They are kept apart because each needs a
+ * different sentence: `requiresApproval` means macOS is waiting for a switch
+ * the person has not thrown, while `notRegistered` means the item is gone from
+ * the list, which is what turning it OFF in System Settings does. Collapsing
+ * the two is how a disabled sign-in start kept reading "Starts at sign-in".
+ */
+export type LoginItemState = "registered" | "needsApproval" | "notRegistered";
+
+export const LOGIN_ITEM_STATES: readonly LoginItemState[] = ["registered", "needsApproval", "notRegistered"];
 
 export const EMPTY_STATE: PanelState = {
   enabled: false,
@@ -22,7 +34,7 @@ export const EMPTY_STATE: PanelState = {
   accessibility: false,
   viewers: 0,
   error: "",
-  loginItemNeedsApproval: false,
+  loginItem: "notRegistered",
 };
 
 /**
@@ -39,6 +51,8 @@ export interface StateValue {
 export type PanelAction =
   | "enable"
   | "disable"
+  | "registerLoginItem"
+  | "unregisterLoginItem"
   | "requestCapture"
   | "requestInput"
   | "openLoginItems"

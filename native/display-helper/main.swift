@@ -10,6 +10,14 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var installLock: Int32 = -1
     private var started = false
+    /// macOS naps a background app whose windows are not in front, and a napped
+    /// app's timers are coalesced to minutes. This helper's job includes
+    /// reporting consent and permission state truthfully while the person is
+    /// sitting in System Settings, so it stays awake enough to poll.
+    private let activity = ProcessInfo.processInfo.beginActivity(
+        options: [.userInitiatedAllowingIdleSystemSleep],
+        reason: "Keeping the helper's consent and permission state current"
+    )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hold the install lock even while disabled: another desktop app must

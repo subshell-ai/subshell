@@ -64,34 +64,46 @@ describe("stateLine", () => {
     // The login item got its own row once the panel stopped being a report, so
     // the state line carries the permission facts only. Two sentences telling
     // one person the same thing in two places is how they start to disagree.
-    const line = stateLine(stateWith({ enabled: true, loginItemNeedsApproval: true }));
+    const line = stateLine(stateWith({ enabled: true, loginItem: "needsApproval" }));
     expect(line).toContain("Enabled");
     expect(line).not.toContain("Login Items");
   });
 });
 
 describe("loginItemLine", () => {
-  test("names where to fix a login item macOS has not approved", () => {
-    const pending = loginItemLine(true);
-    expect(pending.text).toContain("System Settings");
-    expect(pending.text).toContain("Login Items");
+  test("tells the three macOS states apart instead of collapsing them", () => {
+    // Turning the switch OFF in System Settings leaves the item NOT REGISTERED,
+    // which is a different fact from "registered but awaiting approval". The
+    // panel once read both as approved, so a disabled sign-in start kept
+    // claiming it starts at sign-in.
+    expect(loginItemLine("registered")).toEqual({ text: "Starts at sign-in with macOS.", blocked: false });
+    const pending = loginItemLine("needsApproval");
     expect(pending.blocked).toBe(true);
-    const registered = loginItemLine(false);
-    expect(registered.text).toContain("Starts at sign-in");
-    expect(registered.text).not.toContain("Login Items");
-    // White, not gold: a login item macOS already runs is not something the
-    // person still has to fix, and gold is reserved for what they can act on.
-    expect(registered.blocked).toBe(false);
+    expect(pending.text).toContain("Login Items");
+    const missing = loginItemLine("notRegistered");
+    expect(missing.blocked).toBe(true);
+    expect(missing.text).toContain("will not start at sign-in");
+    // Enabling the helper no longer registers anything, so the sentence must
+    // not send the person to toggle consent to get a sign-in start back. The
+    // button beside the row does it.
+    expect(missing.text.toLowerCase()).not.toContain("re-enable");
   });
 });
 
 describe("enableNote", () => {
   test("says only what turning it off costs", () => {
-    // The sign-in fact has its own section now. Saying it in two places is how
-    // one of them ends up contradicting the other after the next change.
     expect(strings.enableNote).toContain("stops capture and input");
-    expect(strings.enableNote.toLowerCase()).not.toContain("sign-in");
-    expect(strings.enableNote.toLowerCase()).not.toContain("sign in");
+    // The note must not promise a sign-in start. Enabling no longer registers
+    // anything by itself, and that choice has its own row and its own control,
+    // so a second place claiming it is how the two start to disagree.
+    expect(strings.enableNote).not.toContain("starts at sign-in");
+  });
+
+  test("offers the sign-in act that matches the state it leaves", () => {
+    // Two verbs, one per direction, plus the setting that waits for approval.
+    expect(strings.startAtSignIn).toBe("Start at sign-in");
+    expect(strings.stopAtSignIn).toBe("Stop at sign-in");
+    expect(strings.openLoginItems.endsWith("…")).toBe(true);
   });
 });
 
