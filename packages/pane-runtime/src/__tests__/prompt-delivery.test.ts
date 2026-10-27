@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { unlinkSync } from "node:fs";
-import { deliverPromptInto, type PromptDeliveryPane } from "../prompt-delivery.js";
+import { deliverPromptInto, type PromptDeliveryPane, submitPaneInput } from "../prompt-delivery.js";
 import { freshSocket, runner } from "./helpers/tmux-test-harness.js";
 
 /**
@@ -204,20 +204,43 @@ describe("deliverPrompt (shared policy)", () => {
     ).toBe(false);
   });
 
-  it("a prompt longer than the needle clears the gate on the shown head alone", async () => {
-    // The screen can lag the tail mid-render: matching the first 48
-    // normalized chars is what lets the gate pass while the rest renders.
-    const text = `${"x".repeat(30)} ${"y".repeat(30)}`;
-    const head = "x".repeat(30) + "y".repeat(18); // the 48 normalized chars
-    const { pane, calls } = fakePane(["", "boot", `boot\n❯ ${head}`]);
+  it("waits for the end of a long prompt instead of submitting its partial render", async () => {
+    const text = `${"x".repeat(60)} ${"y".repeat(60)}`;
+    const { pane, calls } = fakePane(["boot", `❯ ${"x".repeat(60)}`, "y".repeat(60)]);
     const delivered = await deliverPromptInto(pane, "sock", "s1", text, {
       settleTimeoutMs: 10_000,
       pollMs: 1,
       nowMs: steppingClock(1),
     });
     expect(delivered).toBe(true);
-    const kinds = calls.map((c) => c.kind);
-    expect(kinds.indexOf("pressEnter")).toBe(kinds.indexOf("sendInput") + 2); // one gate capture, no spin
+    expect(calls.filter((call) => call.kind === "capture").map((call) => call.detail)).toEqual([
+      "boot",
+      `❯ ${"x".repeat(60)}`,
+      "y".repeat(60),
+    ]);
+    expect(calls.at(-1)?.kind).toBe("pressEnter");
+  });
+
+  it("submits from a blank running pane after its paste parser has had time to settle", async () => {
+    let renderedAt = 0;
+    let submitted = false;
+    let typed = false;
+    const pane: PromptDeliveryPane = {
+      async capturePane() {
+        if (!typed) return "";
+        renderedAt = Date.now();
+        return "❯ pasted prompt";
+      },
+      async sendInput() {
+        typed = true;
+      },
+      async pressEnter() {
+        // A TUI can still treat Enter as pasted text just after rendering.
+        submitted = Date.now() - renderedAt >= 150;
+      },
+    };
+    await submitPaneInput(pane, "sock", "s1", "pasted prompt", { pollMs: 1 });
+    expect(submitted).toBe(true);
   });
 
   it("never settles ⇒ false, no input, no Enter", async () => {

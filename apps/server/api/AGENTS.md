@@ -207,8 +207,10 @@ launcher's existing seams rather than new ones. `POST /api/subshells/:id/input`
 RUNNING pane over REST, gated at `edit` like terminal input on the attach
 socket, through the one `NodeLauncher.sendInput` member: it writes no row, so
 it is the deliberate exception beside the announce rule above (no `publishLive`,
-no audit row), and `submit` appends Enter as a second frame, so the pair is
-ordered but not atomic. RUNNING means the row's TWO facts: a self-exited pane
+no audit row). Automated `submit` waits for the prompt's tail to render and
+for the paste parser to settle before sending Enter as a second frame; the pair
+is ordered but not atomic. This uses the same `submitPaneInput` policy as
+create/restart; `submit:false` and live terminal keystrokes remain raw input. RUNNING means the row's TWO facts: a self-exited pane
 parks at `status: "running"` with `alive: 0` and its session already reaped, so
 the guard reads `alive` beside `status`, or that window types into nothing and
 answers 500 on a remote node (measured 2026-09-25). `POST /:id/restart` gained an optional `prompt` that
