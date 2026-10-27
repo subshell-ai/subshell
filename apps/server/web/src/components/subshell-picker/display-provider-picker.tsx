@@ -15,7 +15,19 @@ export function DisplayProviderPicker({
   defaultProvider?: string;
 }) {
   const name = (id: string) => VIRTUAL_DISPLAY_PROVIDERS.find((p) => p.id === id)?.name ?? id;
-  const choices = [...new Set([...providers, ...(value ? [value] : [])])];
+  // An echoed pick is there so a saved choice the caller's list happens not to
+  // carry still renders its own row. A provider this package SHIPS is not in
+  // that list by accident: the caller filtered it out because the selected
+  // machine's OS cannot run it, and echoing it back would re-offer, and keep
+  // launching with, the exact choice the gate removed. An id we do not ship
+  // belongs to the node, we hold no fact about its platform, and it stays.
+  const isBundled = (id: string) => VIRTUAL_DISPLAY_PROVIDERS.some((p) => p.id === id);
+  const echo = value !== undefined && (providers.includes(value) || !isBundled(value)) ? [value] : [];
+  const choices = [...new Set([...providers, ...echo])];
+  // The trigger can only read as a row that exists: a pick that is not among
+  // the choices (see above) displays as the node default rather than as a
+  // blank field that quietly still carries the old id.
+  const selected = echo.length > 0 && value !== undefined ? value : "node-default";
   const items = [
     { value: "node-default", label: defaultProvider ? `Node default (${name(defaultProvider)})` : "Node default" },
     ...choices.map((id) => ({ value: id, label: name(id) })),
@@ -25,7 +37,7 @@ export function DisplayProviderPicker({
       <Label htmlFor={id}>Display provider</Label>
       <Select
         items={items}
-        value={value ?? "node-default"}
+        value={selected}
         onValueChange={(v) => {
           if (v) onChange(v === "node-default" ? undefined : v);
         }}

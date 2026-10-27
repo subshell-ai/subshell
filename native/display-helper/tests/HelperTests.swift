@@ -50,9 +50,11 @@ struct HelperTests {
         UserDefaults.standard.set(true, forKey: "enabled")
         precondition(HelperConsent().enabled, "The default init must read the app's own domain")
         UserDefaults.standard.removeObject(forKey: "enabled")
-        // The three tokens the native chrome still paints with, mirrored from
-        // packages/assistant/tokens.css. If that file moves and this drifts,
-        // the fix is to move the numbers here, not to pass.
+        // The conversion, not the palette: these pins catch a broken oklch
+        // → sRGB here, and can see nothing about the shared file (they read
+        // Theme.tokens, the same source they check). The drift guard against
+        // packages/assistant/tokens.css is the helper-panel suite's palette
+        // test, which parses that file and compares the triples by name.
         func close(_ a: Double, _ b: Double) -> Bool { abs(a - b) < 0.02 }
         let warning = Theme.srgb("warning")
         precondition(close(warning.red, 1.0) && close(warning.green, 0.727) && close(warning.blue, 0.0), "warning token drifted")

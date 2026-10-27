@@ -257,3 +257,30 @@ describe("the menu's quit confirmation", () => {
     expect(strings.quit).not.toBe(strings.cancel);
   });
 });
+
+describe("the native chrome's palette", () => {
+  // The helper still paints three colours by hand (its window ground, the
+  // muted label, the watching gold). Their numbers live in Theme.swift as
+  // oklch triples copied from packages/assistant/tokens.css, and a copy that
+  // is only compared against itself proves nothing: an editor who moves
+  // --warning in the shared file changes every web surface and leaves the
+  // menu bar's gold behind, with every native check still green. This reads
+  // both files, so that drift fails here.
+  const themePath = new URL("../../../../native/display-helper/Theme.swift", import.meta.url);
+  const tokensPath = new URL("../../../assistant/tokens.css", import.meta.url);
+  test("the swift triples are the shared file's triples, token by token", async () => {
+    const [swift, css] = await Promise.all([Bun.file(themePath).text(), Bun.file(tokensPath).text()]);
+    const native = new Map<string, string>();
+    for (const match of swift.matchAll(/"([a-z-]+)": \(([\d.]+), ([\d.]+), ([\d.]+)\)/g)) {
+      native.set(match[1] as string, `${match[2]} ${match[3]} ${match[4]}`);
+    }
+    expect([...native.keys()].sort()).toEqual(["background", "muted-foreground", "warning"]);
+    for (const [name, triple] of native) {
+      const declared = new RegExp(`--${name}: oklch\\(([^)]+)\\)`).exec(css);
+      expect(declared, `packages/assistant/tokens.css declares --${name}`).not.toBeNull();
+      // The shared file writes the same three numbers; whitespace is the only
+      // thing allowed to differ.
+      expect((declared as RegExpExecArray)[1]?.replace(/\s+/g, " ").trim()).toBe(triple);
+    }
+  }, 10_000);
+});
