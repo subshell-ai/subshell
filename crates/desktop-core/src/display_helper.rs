@@ -1,6 +1,7 @@
 //! The native menus and both assistants' Virtual Displays screens install the
 //! same helper. Nothing calls this at startup.
-//! Consent and permission prompts belong to the helper's own native panel.
+//! Consent and permission prompts belong to the helper itself: its panel and its
+//! status-menu toggle are the only doors, and neither is a page in this app.
 use std::fs::{self, File, OpenOptions};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::io::AsRawFd;

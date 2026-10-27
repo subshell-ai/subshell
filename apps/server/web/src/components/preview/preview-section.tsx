@@ -1,7 +1,7 @@
 import { errMessage } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import { type JSX, useEffect, useMemo, useRef, useState } from "react";
-import { NodeUnavailableNote } from "@/components/preview/node-unavailable-note";
+import { isSwitchOff, NodeUnavailableNote } from "@/components/preview/node-unavailable-note";
 import { OpenPanel } from "@/components/preview/open-panel";
 import { PortList } from "@/components/preview/port-list";
 import {
@@ -303,7 +303,7 @@ export function PreviewSection({
           list that reads as "nothing is listening". */}
       {info && (!info.nodeEnabled || info.reason) && <NodeUnavailableNote info={info} className="p-3" />}
 
-      {info?.reason === "preview-disabled" && subshell && (
+      {isSwitchOff(info?.reason) && subshell && (
         <Link
           to="/nodes/$id"
           params={{ id: subshell.nodeId ?? "local" }}

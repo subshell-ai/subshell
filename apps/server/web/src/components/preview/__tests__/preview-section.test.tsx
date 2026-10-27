@@ -1,4 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { PreviewSection } from "@/components/preview/preview-section";
 import type { PreviewInfo, UseSubshellPreview } from "@/hooks/use-subshell-preview";
@@ -62,6 +69,22 @@ function row(over: Partial<SubshellView> = {}): SubshellView {
   } as unknown as SubshellView;
 }
 
+type MountProps = Exclude<Parameters<typeof mount>[0], undefined>;
+
+function sectionProps(over: MountProps, c: UseSubshellPreview) {
+  return (
+    <PreviewSection
+      paneId="pane1"
+      access={over.access ?? "owner"}
+      subshell={over.subshell}
+      preview={c}
+      onClose={over.onClose ?? (() => {})}
+      initialView={over.initialView}
+      bannerVisibleMs={over.bannerVisibleMs}
+    />
+  );
+}
+
 function mount(
   over: {
     access?: SubshellAccess;
@@ -74,17 +97,36 @@ function mount(
   } = {},
 ) {
   const c = controller({ ...(over.info === undefined ? {} : { info: over.info }), ...over.controller });
-  const view = render(
-    <PreviewSection
-      paneId="pane1"
-      access={over.access ?? "owner"}
-      subshell={over.subshell}
-      preview={c}
-      onClose={over.onClose ?? (() => {})}
-      initialView={over.initialView}
-      bannerVisibleMs={over.bannerVisibleMs}
-    />,
-  );
+  const view = render(sectionProps(over, c));
+  return { view, c };
+}
+
+/**
+ * The same mount under a router. The switch's remedy line carries a
+ * "Open node settings" link, and a `Link` with no router above it throws, so
+ * every test here up to now passed no `subshell` at all - which is precisely
+ * why the link's own gating was never exercised. `row()` supplies the pane the
+ * link needs.
+ */
+async function mountRouted(over: MountProps) {
+  const c = controller({ ...(over.info === undefined ? {} : { info: over.info }), ...over.controller });
+  const rootRoute = createRootRoute();
+  // The section rides a route component, not RouterProvider's children: this
+  // version paints children only while loading, so the idiom the launch
+  // harness uses is the one that actually renders.
+  const indexRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/",
+    component: () => sectionProps(over, c),
+  });
+  const nodeRoute = createRoute({ getParentRoute: () => rootRoute, path: "/nodes/$id", component: () => null });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([indexRoute, nodeRoute]),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+    defaultPreload: false,
+  });
+  await router.load();
+  const view = render(<RouterProvider router={router} />);
   return { view, c };
 }
 
@@ -159,6 +201,26 @@ describe("gated controls explain themselves", () => {
     });
     expect(screen.getByText(/switched off on this node/).matches(".text-warning")).toBe(true);
     expect(screen.getByRole("link", { name: /How to enable web previews and screens/ })).toBeTruthy();
+  });
+
+  it("offers the jump to the switch on every path that names it", async () => {
+    // The gold sentence and the "Open node settings" link are one answer: the
+    // switch is off, and here is where to turn it. Matching the note by prefix
+    // and the link by whole string left the node's own named word
+    // (`preview-node-off: turn on Preview for this node`) explaining the setting
+    // without offering the way to it, which is the pair disagreeing again.
+    await mountRouted({ info: info({ nodeEnabled: false, reason: "preview-disabled" }), subshell: row() });
+    expect(screen.getByRole("link", { name: "Open node settings" })).toBeTruthy();
+    cleanup();
+    await mountRouted({
+      info: info({ nodeEnabled: false, reason: "preview-node-off: turn on Preview for this node" }),
+      subshell: row(),
+    });
+    expect(screen.getByRole("link", { name: "Open node settings" })).toBeTruthy();
+    cleanup();
+    // And not for a node that is merely unreachable: there is no switch to find.
+    await mountRouted({ info: info({ nodeEnabled: false, reason: "node-offline" }), subshell: row() });
+    expect(screen.queryByRole("link", { name: "Open node settings" })).toBeNull();
   });
 
   it("the disabled Watch explains itself the way Open and Screen do", () => {

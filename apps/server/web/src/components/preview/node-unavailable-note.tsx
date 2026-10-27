@@ -20,8 +20,8 @@ import { nodeReasonLine } from "./port-list";
  */
 const SWITCH_OFF_REASONS: readonly string[] = ["preview-disabled", "preview-node-off"];
 
-/** Whether the note is describing a switch the person can turn. */
-function isSwitchOff(reason: string | undefined): boolean {
+/** Whether the reason names a switch the person can turn. Exported because the "Open node settings" link beside this note has to appear for exactly the same set of words, and matching one by prefix while the other compares whole is how the two disagree. */
+export function isSwitchOff(reason: string | undefined): boolean {
   return reason !== undefined && SWITCH_OFF_REASONS.some((word) => reason.startsWith(word));
 }
 

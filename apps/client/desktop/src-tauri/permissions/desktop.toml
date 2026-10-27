@@ -122,7 +122,7 @@ commands.allow = ["node_open_web"]
 
 [[permission]]
 identifier = "allow-node-open-display-helper"
-description = "Open the macOS display helper's own settings panel, which is a separate signed program's window and the only place the helper is enabled or disabled. Grants no permission and changes nothing on this machine: macOS asks for screen recording and accessibility itself, and the answer goes to the helper, not to this app. Takes no argument. On a platform with no helper the command refuses, and the Virtual Displays screen never renders there."
+description = "Open the macOS display helper's own settings panel, which is a separate signed program's window and one of its two consent doors: the panel's Enable/Disable button and the helper's own status-menu toggle write consent, and neither is this app. The command opens a window and nothing else. Grants no permission and changes nothing on this machine: macOS asks for screen recording and accessibility itself, and the answer goes to the helper, not to this app. Takes no argument. On a platform with no helper the command refuses, and the Virtual Displays screen never renders there."
 commands.allow = ["node_open_display_helper"]
 
 [[permission]]

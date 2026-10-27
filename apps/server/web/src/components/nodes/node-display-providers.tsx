@@ -1,8 +1,9 @@
 import { Label, type NodeDetail } from "@internal/node-admin";
-import { DEFAULT_VIRTUAL_DISPLAY_PROVIDER, displayProvidersForOs } from "@internal/subshell-protocol";
+import { DEFAULT_VIRTUAL_DISPLAY_PROVIDER } from "@internal/subshell-protocol";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { bundledProvidersForMachine } from "@/lib/display-provider-choice";
 import { NodeViewReadiness } from "./node-view-readiness";
 export function NodeDisplayProviders({
   node,
@@ -15,10 +16,13 @@ export function NodeDisplayProviders({
 }) {
   const enabled = node.virtualDisplayProviders ?? [DEFAULT_VIRTUAL_DISPLAY_PROVIDER];
   const current = node.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER;
-  // The same "can this machine run it" rule the launch dialog applies, so the
-  // settings page and the launch form cannot disagree about which providers
-  // exist on this OS.
-  const providers = displayProvidersForOs(node.os);
+  // The same "can this machine run it" reading the launch form and the preset
+  // editor apply, so the settings page and the launch cannot disagree about
+  // which providers exist here. An OS the node has not reported yet is no
+  // verdict: filtering on it would tell the owner no provider supports an
+  // operating system this machine never named, and strand the only place a
+  // provider can be pre-enabled.
+  const providers = bundledProvidersForMachine(node.os);
   const choices = providers.filter((p) => enabled.includes(p.id));
   return (
     <div className="flex w-full flex-col gap-4">
