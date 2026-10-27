@@ -7,6 +7,15 @@ living reference; the decision record is
 `docs/superpowers/specs/2026-09-14-design-system-design.md`, and the check
 that enforces it is `bun run lint:design` (`scripts/design-tokens.ts`).
 
+**Colours live in one file**: `packages/assistant/tokens.css`, imported by every
+CSS surface. It sits in `packages/` (Apache-2.0) rather than beside the surfaces
+so that anything rendering the product may import it, including the macOS
+display helper's panel; the old alternative was each surface keeping a copy and
+the checker policing the copies, which is how the assistant once came to carry
+six near-miss values under Dreamframe's names. Type roles stay declared
+literally inside each surface's Tailwind `@theme` block (`var()` indirection
+does not work there), and the check compares them to the shared scale.
+
 **The one rule:** pick a ROLE, never a number. Sizes, weights and colours are
 tokens; a literal outside a token file is refused. Refused by the scanner
 specifically means: class literals (`text-[13px]`), CSS `font-size:` /
@@ -452,6 +461,8 @@ admitted here.
 
 ## When you need something the system lacks
 
-Add the token, with its reason, to every surface's token file in one change,
-and let `lint:design` confirm they agree. Do not add a literal at the callsite;
-that is the exact move that produced eleven font sizes.
+A colour goes in `packages/assistant/tokens.css` once, with its reason, and
+every surface picks it up. A type role has to be restated in each surface's
+`@theme` block, so change them together; `lint:design` fails the run if one
+surface's value disagrees with the shared scale. Do not add a literal at the
+callsite: that is the exact move that produced eleven font sizes.

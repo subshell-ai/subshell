@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "../../../../../packages/assistant/tokens.css";
 /* The shared Frame (`@internal/assistant`) renders with Tailwind utilities but
    lives OUTSIDE this app's Vite root, so Tailwind v4's auto-detection never
    scans it and every utility it names generated nothing — measured in the dev
@@ -23,24 +24,6 @@
      (spec 2026-09-14 § 3.2) — so a rule here reads the same as one in the
      SPA, and `lint:design` can compare the three files by name. Values are
      unchanged. */
-  --background: oklch(0.224 0.035 296);
-  --card: oklch(0.255 0.032 296);
-  --border: oklch(0.33 0.035 296);
-  --foreground: oklch(0.92 0.03 312);
-  --muted-foreground: oklch(0.74 0.04 310);
-  --primary: oklch(0.75 0.17 322);
-  --primary-foreground: oklch(0.16 0.05 322);
-  --success: oklch(0.765 0.177 163.223);
-  --warning: oklch(0.828 0.189 84.429);
-  --destructive: oklch(0.65 0.2 25);
-  --destructive-foreground: oklch(0.98 0 0);
-  --secondary: oklch(0.29 0.034 296);
-  --secondary-foreground: oklch(0.9 0.025 312);
-  --muted: oklch(0.29 0.034 296);
-  --accent: oklch(0.33 0.04 296);
-  --accent-foreground: oklch(0.95 0.02 315);
-  --input: oklch(0.33 0.035 296);
-  --ring: oklch(0.62 0.13 322);
   /* The primary button's "sunk plum" gradient (Dreamframe: quiet at the
      component, bright at the token). Named here because `lint:design`
      refuses colour literals outside a token block, and a gradient IS a
