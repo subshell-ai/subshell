@@ -144,6 +144,23 @@ describe("gated controls explain themselves", () => {
     expect(screen.queryByRole("link", { name: /How to enable web previews and screens/ })).toBeNull();
   });
 
+  it("colours the node's own switch answer gold, and its silence about the machine muted", () => {
+    // Two producers of one fact. The plane answers the node's master switch with
+    // `preview-disabled`; the node answers it itself with a named word and the
+    // explanation attached, which the prefix rule has to catch or the same
+    // setting reads muted on one path and gold on the other.
+    mount({
+      info: info({
+        ports: [],
+        cdpPort: null,
+        nodeEnabled: false,
+        reason: "preview-node-off: turn on Preview for this node",
+      }),
+    });
+    expect(screen.getByText(/switched off on this node/).matches(".text-warning")).toBe(true);
+    expect(screen.getByRole("link", { name: /How to enable web previews and screens/ })).toBeTruthy();
+  });
+
   it("the disabled Watch explains itself the way Open and Screen do", () => {
     mount({ info: info({ nodeEnabled: false, reason: "preview-disabled" }) });
     const watch = screen.getByRole("button", { name: "Watch browser" });

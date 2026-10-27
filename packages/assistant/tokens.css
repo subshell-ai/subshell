@@ -1,7 +1,10 @@
 /**
  * The Subshell palette and type scale: one source, imported by every surface
- * that renders the product — the SPA, both desktop assistants, the node
- * dashboard, and the macOS display helper's panel.
+ * that renders the product — the SPA, both desktop assistants, and the macOS
+ * display helper's panel. The node's own dashboard (`apps/node/web`) still
+ * carries its own copy of these values; `bun run lint:design` walks it under the
+ * SPA's rules so it cannot escape the role system, but nothing yet compares its
+ * palette to this file, so a new surface should import rather than copy.
  *
  * This file deliberately lives in `packages/` (Apache-2.0) rather than beside
  * the surfaces that use it. The alternative, keeping the block in

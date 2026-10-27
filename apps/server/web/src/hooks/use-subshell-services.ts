@@ -17,7 +17,9 @@ export function useSubshellServices(id: string, enabled = true) {
   const query = useQuery({
     queryKey,
     queryFn: () => apiFetch<SavedService[]>(path),
-    refetchInterval: 5000,
+    // 5 s while the caller wants an answer, and no interval at all while it does
+    // not: a disabled query with a live interval still schedules work.
+    refetchInterval: enabled ? 5000 : false,
     enabled,
   });
   async function save(input: Omit<SavedService, "id">) {

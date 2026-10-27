@@ -10,8 +10,15 @@ import type { SubshellView } from "@/types/subshell";
  * header with no row yet asks for nothing.
  */
 export function useUnsavedPreviewCount(id: string | undefined, subshell: SubshellView | undefined): number {
-  const preview = useSubshellPreview(id ?? "", id ? subshell : undefined);
-  const services = useSubshellServices(id ?? "", id !== undefined && subshell !== undefined);
-  if (!id || !subshell) return 0;
-  return unsavedPreviewItemCount(preview.info, services.data);
+  // Both hooks run on every render, and what varies is whether they ask: an
+  // early return above them would change the hook order between renders. The
+  // guard covers an empty id as well as its absence, because `""` would build
+  // the path `/api/subshells//services` under a key no one else uses.
+  const usable = id !== undefined && id !== "" && subshell !== undefined;
+  const preview = useSubshellPreview(id ?? "", usable ? subshell : undefined);
+  // The saved-services poll waits for the node to say it can serve previews at
+  // all: with the switch off, or the node offline, the count is 0 either way and
+  // an idle workspace stops costing two reads every five seconds.
+  const services = useSubshellServices(id ?? "", usable && preview.info?.nodeEnabled === true);
+  return usable ? unsavedPreviewItemCount(preview.info, services.data) : 0;
 }

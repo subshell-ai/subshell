@@ -2,9 +2,19 @@
  * The operating system one bundled provider can drive. It sits in the catalog
  * rather than in each surface that asks, because the answer is a fact about the
  * provider: Xvfb is Linux's display server and BetterDisplay is macOS's, and a
- * picker that offers the other one is offering a choice the machine refuses.
+ * picker that offers the other one is offering a choice the machine refuses. The
+ * catalog `satisfies` it, so a provider added without a platform is a compile
+ * error rather than an entry that silently matches no OS.
  */
 export type DisplayProviderPlatform = "linux" | "darwin";
+
+/** One row of the catalog. `platform` is the type's whole point: see above. */
+export interface DisplayProviderCatalogEntry {
+  id: string;
+  name: string;
+  description: string;
+  platform: DisplayProviderPlatform;
+}
 
 /** Bundled display choices. Add implementations to pane-runtime's registry too. */
 export const VIRTUAL_DISPLAY_PROVIDERS = [
@@ -20,7 +30,7 @@ export const VIRTUAL_DISPLAY_PROVIDERS = [
     description: "macOS virtual screens using BetterDisplay and the opt-in Subshell Display Helper.",
     platform: "darwin",
   },
-] as const;
+] as const satisfies readonly DisplayProviderCatalogEntry[];
 export const DEFAULT_VIRTUAL_DISPLAY_PROVIDER = "xvfb-x11vnc";
 
 /**

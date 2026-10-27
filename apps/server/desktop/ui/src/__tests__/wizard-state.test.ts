@@ -418,9 +418,9 @@ describe("screens entered by request", () => {
     // (the app itself) were two screens. They are ONE act now, under `update`,
     // because the app ships the server. `settings` is not that member coming
     // back — it is the way out of a base URL that signed this app's own window
-    // out (spec 2026-09-18 § 14), and it was the only one none of the dashboards
-    // dashboard names. The sorted comparison is what makes the retired id
-    // returning — or any of these five being dropped — loud.
+    // out (spec 2026-09-18 § 14), and it is the only member no dashboard names.
+    // The sorted comparison is what makes a retired id returning, or any of the
+    // eight being dropped, loud rather than quiet.
     // `display` is the newest (2026-10-26), and the only member no door outside
     // this window names yet: the rail's Virtual Displays section asks for it, and
     // Rust's enum carries the word so a rail section is one kind of thing here

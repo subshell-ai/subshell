@@ -15,6 +15,66 @@ use std::process::Command;
 const BUNDLE_NAME: &str = "Subshell Display Helper.app";
 const HELPER_ID: &str = "dev.subshell.display-helper";
 
+/// The deployment target every helper build is compiled against.
+const DEPLOYMENT_TARGET: &str = "macos14.0";
+
+/// The compiler switches, in one place so {@link flag_parts} can cover them.
+/// A flag is as much a part of the bundle's content as a source byte is: a
+/// stamp that predates a change to one would otherwise keep shipping the old
+/// binary on every machine that has built once, while a fresh clone gets the
+/// new one, which is the drift the content gating exists to prevent.
+const COMPILE_FLAGS: &[&str] = &["-O"];
+
+/// The hardened-runtime switches, added only when there is a real identity to
+/// sign with (an ad-hoc seal cannot survive them, and dev builds must not
+/// depend on a timestamp authority being reachable).
+const SIGN_FLAGS: &[&str] = &["--options", "runtime", "--timestamp"];
+
+/// The `swiftc` invocation. Pure, so the test can prove the fingerprint covers
+/// every flag it passes.
+fn swiftc_argv(architecture: &str, sources: &[PathBuf], out: &Path) -> Vec<String> {
+    let mut argv = vec!["swiftc".to_string()];
+    argv.extend(COMPILE_FLAGS.iter().map(|flag| (*flag).to_string()));
+    argv.push("-target".to_string());
+    argv.push(format!("{architecture}-apple-{DEPLOYMENT_TARGET}"));
+    argv.extend(sources.iter().map(|path| path.display().to_string()));
+    argv.push("-o".to_string());
+    argv.push(out.display().to_string());
+    argv
+}
+
+/// The `codesign` invocation. Pure, for the same reason.
+fn codesign_argv(identity: &str, keychain: &str, bundle: &Path) -> Vec<String> {
+    let mut argv = vec![
+        "--force".to_string(),
+        "--sign".to_string(),
+        identity.to_string(),
+        "--identifier".to_string(),
+        HELPER_ID.to_string(),
+    ];
+    if identity != "-" {
+        argv.extend(SIGN_FLAGS.iter().map(|flag| (*flag).to_string()));
+        if !keychain.is_empty() {
+            argv.push("--keychain".to_string());
+            argv.push(keychain.to_string());
+        }
+    }
+    argv.push(bundle.display().to_string());
+    argv
+}
+
+/// The flags and the helper's own identity, as fingerprint input.
+fn flag_parts() -> Vec<u8> {
+    let mut line = COMPILE_FLAGS.join(" ");
+    line.push_str(" -target ");
+    line.push_str(DEPLOYMENT_TARGET);
+    line.push(' ');
+    line.push_str(&SIGN_FLAGS.join(" "));
+    line.push_str(" --identifier ");
+    line.push_str(HELPER_ID);
+    line.into_bytes()
+}
+
 /// FNV-1a over every byte that decides the bundle's content. Cheap, stable,
 /// and dependency-free; a mismatch costs one rebuild, never correctness.
 fn fingerprint(parts: &[&[u8]]) -> u64 {
@@ -212,6 +272,7 @@ pub fn build() {
     // copy, which is what keeps the two from disagreeing.
     let panel = panel_files(root, release);
     let mut parts = read_parts(&sources, &source.join("Info.plist"), architecture, &identity, &keychain);
+    parts.push(flag_parts());
     for (name, bytes) in &panel {
         parts.push(name.clone().into_bytes());
         parts.push(bytes.clone());
@@ -227,6 +288,11 @@ pub fn build() {
         && staged.is_file()
         && staged_plist.is_file()
         && bundled_panel.join("index.html").is_file()
+        // ...and the seal it was signed with. An outside hand (a sync tool, a
+        // cleanup, a crash between copying and stamping) can leave the bundle
+        // otherwise complete but unsigned, and every later pass would call that
+        // current because the bytes still match.
+        && bundle.join("Contents/_CodeSignature").is_dir()
     {
         // Nothing about the bundle changed since the last pass: touch no file,
         // which is what keeps `tauri dev` from rebuilding itself forever.
@@ -243,11 +309,13 @@ pub fn build() {
     }
     std::fs::create_dir_all(stage_contents.join("MacOS")).expect("staged helper directory");
     std::fs::copy(source.join("Info.plist"), stage_contents.join("Info.plist")).expect("staged helper Info.plist");
+    let compiler = swiftc_argv(
+        architecture,
+        &sources,
+        &stage_contents.join("MacOS/subshell-display-helper"),
+    );
     let status = Command::new("/usr/bin/xcrun")
-        .args(["swiftc", "-O", "-target", &format!("{architecture}-apple-macos14.0")])
-        .args(&sources)
-        .arg("-o")
-        .arg(stage_contents.join("MacOS/subshell-display-helper"))
+        .args(&compiler)
         .status()
         .expect("start Swift compiler");
     assert!(status.success(), "display helper compilation failed");
@@ -256,16 +324,13 @@ pub fn build() {
     sync_panel(&panel, &stage_contents.join("Resources/panel"));
     assert!(!release || identity != "-",
         "release display helpers require APPLE_SIGNING_IDENTITY; ad-hoc signatures cannot preserve macOS permission grants");
-    let mut sign = Command::new("/usr/bin/codesign");
-    sign.args(["--force", "--sign", &identity, "--identifier", HELPER_ID]);
-    if identity != "-" {
-        sign.args(["--options", "runtime", "--timestamp"]);
-        if !keychain.is_empty() {
-            sign.args(["--keychain", &keychain]);
-        }
-    }
+    let signer = codesign_argv(&identity, &keychain, &stage);
     assert!(
-        sign.arg(&stage).status().expect("sign display helper").success(),
+        Command::new("/usr/bin/codesign")
+            .args(&signer)
+            .status()
+            .expect("sign display helper")
+            .success(),
         "display helper signing failed"
     );
 
@@ -302,6 +367,39 @@ pub fn build() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_fingerprint_covers_every_flag_the_commands_actually_pass() {
+        // The drift this guards: someone adds a switch to an argv builder and
+        // forgets the fingerprint, so machines that already built once keep the
+        // old bundle while a fresh clone gets the new one.
+        let covered = String::from_utf8(flag_parts()).expect("utf-8 flags");
+        let argv = swiftc_argv("arm64", &[PathBuf::from("a.swift")], &PathBuf::from("out"));
+        for token in &["-O", "-target", DEPLOYMENT_TARGET, "swiftc"] {
+            assert!(argv.iter().any(|arg| arg.contains(token)), "swiftc passes {token}");
+        }
+        for flag in COMPILE_FLAGS
+            .iter()
+            .chain(["-target"].iter())
+            .chain([DEPLOYMENT_TARGET].iter())
+        {
+            assert!(covered.contains(flag), "the fingerprint omits the compiler flag {flag}");
+        }
+        let adhoc = codesign_argv("-", "", &PathBuf::from("bundle"));
+        let real = codesign_argv("Developer ID Application: X", "", &PathBuf::from("bundle"));
+        assert!(
+            !adhoc.iter().any(|arg| arg == "--options"),
+            "an ad-hoc seal gets no hardened runtime"
+        );
+        for flag in SIGN_FLAGS {
+            assert!(real.iter().any(|arg| arg == *flag), "a real identity passes {flag}");
+            assert!(covered.contains(flag), "the fingerprint omits the sign flag {flag}");
+        }
+        assert!(
+            covered.contains(HELPER_ID),
+            "the fingerprint omits the bundle identifier"
+        );
+    }
 
     #[test]
     fn the_fingerprint_follows_every_input_byte_and_their_order() {
