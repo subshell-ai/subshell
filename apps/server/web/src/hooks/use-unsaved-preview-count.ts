@@ -1,6 +1,6 @@
 import { useSubshellPreview } from "@/hooks/use-subshell-preview";
 import { useSubshellServices } from "@/hooks/use-subshell-services";
-import { unsavedPreviewItemCount } from "@/lib/preview-badge";
+import { shouldPollSavedServices, unsavedPreviewItemCount } from "@/lib/preview-badge";
 import type { SubshellView } from "@/types/subshell";
 
 /**
@@ -16,9 +16,11 @@ export function useUnsavedPreviewCount(id: string | undefined, subshell: Subshel
   // the path `/api/subshells//services` under a key no one else uses.
   const usable = id !== undefined && id !== "" && subshell !== undefined;
   const preview = useSubshellPreview(id ?? "", usable ? subshell : undefined);
-  // The saved-services poll waits for the node to say it can serve previews at
-  // all: with the switch off, or the node offline, the count is 0 either way and
-  // an idle workspace stops costing two reads every five seconds.
-  const services = useSubshellServices(id ?? "", usable && preview.info?.nodeEnabled === true);
+  // The saved-services poll asks the same question the badge asks before
+  // counting: node switched on and no reason attached. `preview-ports-
+  // unsupported` answers with both at once, which is why the switch alone is
+  // not the gate: on a macOS pane it would hold a five-second poll whose data
+  // is always discarded.
+  const services = useSubshellServices(id ?? "", usable && shouldPollSavedServices(preview.info));
   return usable ? unsavedPreviewItemCount(preview.info, services.data) : 0;
 }

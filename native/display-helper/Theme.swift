@@ -119,3 +119,16 @@ enum AccessReport {
         return enabled ? "Subshell virtual display helper enabled" : "Subshell virtual display helper disabled"
     }
 }
+
+/// The quit confirmation, worded once for both doors. The panel's Quit and the
+/// status menu's Quit ask the same question, because the consequence (everyone
+/// watching loses the screen now) belongs to the act, not to which control
+/// started it. `packages/helper-panel/src/strings.ts` carries the originals the
+/// panel renders; the helper-panel suite fails if these drift from them.
+enum QuitCopy {
+    static let title = "Quit the display helper?"
+    static let body =
+        "Anyone watching a virtual display on this Mac loses it now. Your consent and the macOS permissions stay, and the helper starts again at sign-in, or sooner from Subshell's virtual display settings. To stop it coming back, disable it first."
+    static let confirm = "Quit helper"
+    static let cancel = "Cancel"
+}

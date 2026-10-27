@@ -8,19 +8,31 @@ settings using LaunchServices. This identity is distinct from the experimental
 
 ## Consent and lifecycle
 
-Installation and first-run setup never call the helper. The native menu opens
-settings without opting in. Only the AppKit Enable button writes the shared
-UserDefaults consent flag and registers `SMAppService.mainApp`. OS privacy
-prompts have their own buttons, available only after consent. A remote web
-page has no Tauri command for any of these operations.
+Installation and first-run setup never call the helper. The status menu opens
+the panel without opting in. The panel is a `WKWebView` over a bundled page: it
+draws the controls and posts actions, and Swift re-checks every one of them, so
+the page is presentation and never authority. Consent is written only by the
+enable act, whether it arrives from the panel's **Enable helper** button or from
+the status menu's toggle. Starting at sign-in is its own act with its own
+button (**Start at sign-in** / **Stop at sign-in**), offered by the panel and
+the menu alike; enabling never registers it, because agreeing to be captured
+and agreeing to launch at sign-in are two choices. OS privacy prompts have
+their own buttons, available only after consent. A remote web page has no
+Tauri command for any of these operations.
 
-After consent, login may resume the helper. Disable clears consent first,
-closes every capture and input connection, releases held keys/buttons, and
-unregisters startup. Quit also disables; normal logout preserves consent.
-Disabling does not revoke TCC grants, close terminals, or guarantee removal
-of virtual screens while BetterDisplay is unreachable. A disabled running
-helper answers read-only status requests, but refuses all other RPCs. No RPC
-can enable it, register login startup, or request a privacy prompt.
+After consent, login may resume the helper. Disable clears consent first and
+closes every capture and input connection, releasing held keys/buttons; it
+leaves the login item alone, so a helper that returns at the next sign-in is
+found disabled and exits at once. **Quit helper** asks first, in the panel and
+in the status menu alike, then ends the process: captures close, consent and
+the TCC grants stay, and a registered login item brings it back at the next
+sign-in, so disabling rather than quitting is how you stop it returning.
+Normal logout preserves consent. Disabling does not revoke TCC grants, close
+terminals, or guarantee removal of virtual screens while BetterDisplay is
+unreachable. A disabled running helper answers the read-only `status` request
+and accepts `rescue-cursor` (which does nothing while no viewer held the
+pointer there), but refuses every other RPC. No RPC can enable it, register
+login startup, or request a privacy prompt.
 
 User procedures belong in [node management](../apps/docs/content/docs/nodes/manage.mdx#macos-display-helper).
 

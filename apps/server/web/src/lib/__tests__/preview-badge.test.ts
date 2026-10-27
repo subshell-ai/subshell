@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { PreviewInfo } from "@/hooks/use-subshell-preview";
 import type { SavedService } from "@/hooks/use-subshell-services";
-import { unsavedPreviewItemCount } from "@/lib/preview-badge";
+import { shouldPollSavedServices, unsavedPreviewItemCount } from "@/lib/preview-badge";
 
 /**
  * The header badge's rule: discovered items with no saved service row. The
@@ -55,5 +55,22 @@ describe("unsavedPreviewItemCount", () => {
     // The list is still in flight: hiding the badge would tell the person
     // there is nothing to open when there may be several things.
     expect(unsavedPreviewItemCount(info({ ports: [port(3000)] }), undefined)).toBe(1);
+  });
+});
+
+describe("shouldPollSavedServices", () => {
+  it("holds the services poll off in exactly the states the count ignores", () => {
+    expect(shouldPollSavedServices(undefined)).toBe(false);
+    expect(shouldPollSavedServices(info({ nodeEnabled: false }))).toBe(false);
+    expect(shouldPollSavedServices(info({ reason: "node-offline" }))).toBe(false);
+    expect(shouldPollSavedServices(info())).toBe(true);
+  });
+
+  it("holds the poll off for a switch-on refusal like preview-ports-unsupported", () => {
+    // The route answers `nodeEnabled: true` alongside the reason whenever the
+    // node has no /proc to scan, which is every macOS pane. Gating the poll on
+    // the switch alone left those panes asking for a list for a count that is
+    // always 0; the reason is what says there is nothing to ask.
+    expect(shouldPollSavedServices(info({ nodeEnabled: true, reason: "preview-ports-unsupported" }))).toBe(false);
   });
 });

@@ -114,9 +114,26 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
         }
         settings.show()
     }
-    // Same split as the panel's button: leaving the menu's Quit does not revoke
-    // consent, and `applicationWillTerminate` tears down every capture.
-    @objc private func quitHelper() { NSApp.terminate(nil) }
+    /// The menu's Quit asks the same question the panel asks, because the
+    /// consequence lives in the act rather than in the control. An accessory
+    /// app has no window to host a sheet while the panel is closed, so this is
+    /// a native alert; Cancel is the button Return presses, the way the panel
+    /// focuses the way out rather than the act. `applicationWillTerminate`
+    /// closes every capture, and leaving consent alone is deliberate: a quit is
+    /// not a revocation.
+    @objc private func quitHelper() {
+        let alert = NSAlert()
+        alert.messageText = QuitCopy.title
+        alert.informativeText = QuitCopy.body
+        alert.alertStyle = .warning
+        // Added first, so Return and the rightmost position land on the way out.
+        alert.addButton(withTitle: QuitCopy.cancel)
+        let confirm = alert.addButton(withTitle: QuitCopy.confirm)
+        confirm.hasDestructiveAction = true
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn { return }
+        NSApp.terminate(nil)
+    }
 }
 
 umask(0o077)

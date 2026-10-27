@@ -166,3 +166,31 @@ describe("permissionValue", () => {
     expect(permissionValue(false)).toEqual({ text: "Not allowed", blocked: true });
   });
 });
+
+describe("the menu's quit confirmation", () => {
+  // The status menu asks the panel's question before ending the helper, in
+  // Swift. Two copies of a consent sentence drift, and the drift is invisible
+  // to both sides: the menu would quietly stop explaining what quitting costs
+  // while the panel still did. Pin the menu's words to these.
+  const swiftPath = new URL("../../../../native/display-helper/Theme.swift", import.meta.url);
+  test("the native menu carries the same question, body, and buttons", async () => {
+    // Whitespace collapsed, so swift-format-style re-wrapping on either side cannot
+    // fail a check that is about the words.
+    const swift = (await Bun.file(swiftPath).text()).replace(/\s+/g, " ");
+    for (const [name, value] of Object.entries({
+      title: strings.quitTitle,
+      body: strings.quitBody,
+      confirm: strings.quit,
+      cancel: strings.cancel,
+    })) {
+      expect(swift).toContain(`static let ${name} = ${JSON.stringify(value)}`);
+    }
+  }, 10_000);
+
+  test("the panel's own strings keep the shape the alert depends on", () => {
+    // The Swift side treats the first button as the safe one; an empty label
+    // would hand Return to the destructive act.
+    expect(strings.cancel).toBeTruthy();
+    expect(strings.quit).not.toBe(strings.cancel);
+  });
+});
