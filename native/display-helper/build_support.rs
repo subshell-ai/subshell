@@ -399,6 +399,27 @@ mod tests {
             covered.contains(HELPER_ID),
             "the fingerprint omits the bundle identifier"
         );
+        // The other direction, which is the half that bites: a switch added to
+        // a builder without a name in the constants above changes what lands
+        // in the bundle while the fingerprint, and so the replacement check,
+        // stays put. Every dash-lead token either command passes must appear in
+        // one of the declared lists.
+        let mut declared: Vec<String> = COMPILE_FLAGS.iter().map(|flag| (*flag).to_string()).collect();
+        declared.extend(SIGN_FLAGS.iter().map(|flag| (*flag).to_string()));
+        declared.extend(["-target", "-o", "--force", "--sign", "--identifier", "--keychain"].map(str::to_string));
+        for probe in [
+            argv,
+            codesign_argv("Developer ID Application: X", "keychain", &PathBuf::from("bundle")),
+        ] {
+            for token in probe {
+                if token.starts_with('-') {
+                    assert!(
+                        declared.contains(&token),
+                        "an undeclared flag {token} reaches the bundle without reaching the fingerprint"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

@@ -2,6 +2,20 @@ import type { PreviewInfo } from "@/hooks/use-subshell-preview";
 import type { SavedService } from "@/hooks/use-subshell-services";
 
 /**
+ * Whether the pane's saved-services read is worth asking for, which is the
+ * same test the badge makes before counting anything: a node that has not
+ * switched previews on, or one that answered with a reason, can only produce a
+ * count of 0. `preview-ports-unsupported` is the case that shows why both
+ * halves matter: it arrives with `nodeEnabled: true` on every macOS pane, so
+ * gating on the switch alone would keep polling a list whose result is thrown
+ * away. One predicate, so the poll and the count can never disagree about when
+ * there is nothing to ask.
+ */
+export function shouldPollSavedServices(info: PreviewInfo | undefined): boolean {
+  return info?.nodeEnabled === true && info.reason === undefined;
+}
+
+/**
  * How many things the preview picker could offer that this pane has no saved
  * service for - the number behind the header icon's badge.
  *
@@ -14,7 +28,7 @@ import type { SavedService } from "@/hooks/use-subshell-services";
  * A port discovered on both IPv4 and IPv6 counts once.
  */
 export function unsavedPreviewItemCount(info: PreviewInfo | undefined, services: SavedService[] | undefined): number {
-  if (!info?.nodeEnabled || info.reason) return 0;
+  if (!info || !shouldPollSavedServices(info)) return 0;
   const savedPorts = new Set((services ?? []).map((service) => service.port));
   const discoveredPorts = new Set(info.ports.map((row) => row.port));
   let count = 0;

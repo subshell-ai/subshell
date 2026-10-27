@@ -82,6 +82,11 @@ struct HelperTests {
         precondition(AccessReport.toggleTitle(enabled: false) == "Enable helper")
         // The bar item is an icon, so the menu it opens has to say what it is.
         precondition(AccessReport.heading == "Subshell virtual display helper", "the status menu must name the helper")
+        // Both Quit doors ask, and the menu's copy is this. The panel's own
+        // strings are compared against it by the helper-panel suite.
+        precondition(QuitCopy.title.hasSuffix("?"), "a confirmation names the act as a question")
+        precondition(QuitCopy.body.contains("loses it now"), "the question says what stopping means")
+        precondition(QuitCopy.confirm != QuitCopy.cancel && !QuitCopy.cancel.isEmpty)
         // The pointer rescue: a viewer's cursor lives on the virtual display,
         // so losing that screen strands it off every display the person at
         // this Mac can see. Only a point inside no frame counts as stranded.
