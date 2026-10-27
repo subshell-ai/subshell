@@ -25,6 +25,16 @@ export const EMPTY_STATE: PanelState = {
   loginItemNeedsApproval: false,
 };
 
+/**
+ * A state word and whether it still needs the person to act on it. Gold is the
+ * design system's "the owner can fix this here"; the page's own ink is a fact
+ * that is already true.
+ */
+export interface StateValue {
+  text: string;
+  blocked: boolean;
+}
+
 /** What the page sends back. One field, an action name, keeps the bridge small enough to audit. */
 export type PanelAction =
   | "enable"

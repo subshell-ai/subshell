@@ -1,12 +1,4 @@
-import type { PanelState } from "./state";
-
-/** A state word and whether it still needs the person to act on it. Gold is
- *  the design system's "the owner can fix this here"; the page's own ink is a
- *  fact that is already true. */
-export interface StateValue {
-  text: string;
-  blocked: boolean;
-}
+import type { PanelState, StateValue } from "./state";
 
 /**
  * Every word the panel shows, in one file. The copy is the interface: a
@@ -30,6 +22,7 @@ export const strings = {
   enableNote: "Disabling stops capture and input. Your subshells and macOS permissions stay.",
   loginItemPending: "Needs approval in System Settings under Login Items.",
   loginItemRegistered: "Starts at sign-in with macOS.",
+  loginItemLabel: "Login item",
   openLoginItems: "Open login items…",
   openDocs: "Setup instructions",
   minimize: "Minimize helper",
