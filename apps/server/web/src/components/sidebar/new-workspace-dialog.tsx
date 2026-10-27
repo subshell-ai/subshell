@@ -275,7 +275,12 @@ export function NewWorkspaceDialog({
           </div>
         )}
 
-        {formLaunchError && <p className="text-destructive text-detail">{formLaunchError}</p>}
+        {/* Announced, like the field-side half of the same refusal in `VirtualDisplayField`. */}
+        {formLaunchError && (
+          <p role="alert" className="text-destructive text-detail">
+            {formLaunchError}
+          </p>
+        )}
         {!createdId && selected.length > 0 && (
           <p className="text-detail text-muted-foreground">
             {selected.length === 1 ? "1 subshell" : `${selected.length} subshells`} to add

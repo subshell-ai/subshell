@@ -262,7 +262,12 @@ export function AddSubshellDialog({
           </div>
         )}
 
-        {formLaunchError && <p className="text-destructive text-detail">{formLaunchError}</p>}
+        {/* Announced, like the field-side half of the same refusal in `VirtualDisplayField`. */}
+        {formLaunchError && (
+          <p role="alert" className="text-destructive text-detail">
+            {formLaunchError}
+          </p>
+        )}
 
         {visibleMode === "new" && kind === "agent" && (
           <DialogFooter sticky>

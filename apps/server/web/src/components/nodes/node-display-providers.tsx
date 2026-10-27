@@ -73,9 +73,10 @@ export function NodeDisplayProviders({
             <p className="text-detail text-muted-foreground">{p.description}</p>
             {p.id === "betterdisplay" && (
               <p className="text-detail text-warning">
-                On this node's Mac (macOS 14 or later), open Subshell Client or Subshell Server → Virtual Display
-                Helper… to enable the helper and grant macOS permissions. You can disable it from that panel at any
-                time. This node setting cannot activate it. macOS displays share keyboard focus and the pointer.{" "}
+                On this node's Mac (macOS 14 or later), open Subshell Client or Subshell Server, choose Virtual Displays
+                in the assistant window's sidebar, then Open Display Helper settings to enable the helper and grant
+                macOS permissions. You can disable it from that panel at any time. This node setting cannot activate it.
+                macOS displays share keyboard focus and the pointer.{" "}
                 <a
                   href="https://docs.subshell.sh/nodes/manage#macos-display-helper"
                   target="_blank"
