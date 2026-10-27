@@ -77,11 +77,22 @@ const READS_A_CONSENT_STRING =
   /[A-Za-z_$][\w$]*\s*(?:\.\s*(?:enable|disable|enableNote|disableNote)\b|\[\s*["'`](?:enable|disable|enableNote|disableNote)["'`]\s*\])|[{,]\s*(?:enable|disable|enableNote|disableNote)\s*(?:[,}]|\s*:)/;
 
 /**
- * The two note names, anywhere. They are distinctive enough to ban outright,
- * which is what closes the rest: a module cannot pick the note for a button
- * without spelling one of these words, however it obtains the object.
+ * Any spelling of a note, in a page module. The two full names are distinctive
+ * enough to ban outright, and banning them alone was not enough: a module can
+ * read a note by assembling its key, and `strings["disable" + "Note"]`, a
+ * template key like `` strings[`${on ? "disable" : "enable"}Note`] `` and
+ * `strings[["enable", "Note"].join("")]` all pick the note while never writing
+ * its name in one piece. So the word `Note` is what's banned, wherever it
+ * appears, because reaching a note means spelling it somewhere.
  */
-const NAMES_A_NOTE = /\b(?:enableNote|disableNote)\b/;
+const NAMES_A_NOTE = /\bNote\b|\benableNote\b|\bdisableNote\b/;
+
+/**
+ * Copy taken out of `strings` by position instead of by name, which is the one
+ * route the `Note` ban cannot see: `Object.values(strings)[3]` never names the
+ * thing it hands back, so it re-pairs the button and its sentence silently.
+ */
+const INDEXES_INTO_COPY = /Object\.(?:values|entries|keys)\s*\(\s*strings\b|strings\s*\[\s*\d/;
 
 describe("the consent warning", () => {
   test("says plainly what enabling exposes, so the decision is informed", () => {
@@ -199,8 +210,8 @@ describe("the consent button's note", () => {
     // One sentence served both states, so a screen reader reaching "Enable
     // helper" heard "Disabling stops capture and input", and the person
     // deciding whether this Mac may be captured has only that announcement to
-    // decide from. `main.ts` picks by `state.enabled`; these two must not be
-    // interchangeable.
+    // decide from. `consentControl` picks by `state.enabled`; these two must not
+    // be interchangeable.
     expect(strings.enable).toBe("Enable helper");
     expect(strings.disable).toBe("Disable helper");
     expect(strings.enableNote).toContain("Enabling starts capture and input");
@@ -254,6 +265,7 @@ describe("the consent button's note", () => {
     for (const { file, code } of files) {
       if (READS_A_CONSENT_STRING.test(code)) offenders.push(`${file} reads a consent string off an object`);
       if (NAMES_A_NOTE.test(code)) offenders.push(`${file} names a consent note, so it pairs them itself`);
+      if (INDEXES_INTO_COPY.test(code)) offenders.push(`${file} takes copy out of strings by position`);
     }
     expect(offenders).toEqual([]);
   });

@@ -196,8 +196,10 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
         // outside that lane (`test.sh` excludes `main.swift`), and the desktop
         // build passes no `-warnings-as-errors`, so a warning here would go
         // unheard. A hard error would not: that build compiles every `.swift` in
-        // this directory, so the no-argument `activate()`, which arrived with the
-        // macOS 14 SDK, would have failed the release rather than shipped.
+        // this directory, so a call naming something the compiler does not know
+        // would have failed the release rather than shipped. Both lanes target
+        // macos14.0, which is why the deprecated form is a warning here and not
+        // an unknown symbol.
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertFirstButtonReturn { return }
         NSApp.terminate(nil)

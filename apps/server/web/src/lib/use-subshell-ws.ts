@@ -126,6 +126,20 @@ export function resetAttachTimingsForTests(): void {
 }
 
 /**
+ * What the four attach timings hold right now, so a suite can assert the reset
+ * actually ran instead of trusting that it did.
+ * @internal
+ */
+export function attachTimingsForTests(): {
+  baseMs: number;
+  maxMs: number;
+  debounceMs: number;
+  minGapMs: number;
+} {
+  return { baseMs: retryBaseMs, maxMs: retryMaxMs, debounceMs: resyncDebounceMs, minGapMs: resyncMinGapMs };
+}
+
+/**
  * Whether a viewer's base has gone untrustworthy: the replay painted at one
  * grid, the pane has spoken since, and the client now stands on another.
  * Bytes emitted across that transition addressed a grid this terminal never

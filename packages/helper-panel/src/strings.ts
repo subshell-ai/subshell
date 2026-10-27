@@ -24,7 +24,8 @@ export const strings = {
    * "Enable helper" control heard "Disabling stops capture and input", and the
    * person deciding whether to be captured has only that announcement. Both are
    * `detail` text at one size in muted ink (gold belongs to what the owner can
-   * still act on); `main.ts` picks which sentence by `state.enabled`. */
+   * still act on); `consentControl` picks which sentence by `state.enabled`, so
+   * a page module never chooses between them itself. */
   enableNote:
     "Enabling starts capture and input on this Mac. Your subshells, macOS permissions, and sign-in choice stay.",
   disableNote: "Disabling stops capture and input. Your subshells, macOS permissions, and sign-in choice stay.",

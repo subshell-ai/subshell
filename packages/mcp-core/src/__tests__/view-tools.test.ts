@@ -62,10 +62,13 @@ describe("MCP preview discovery and launch", () => {
     expect(calls.at(-1)?.path).toBe(`/api/nodes/${node.id}/display-readiness?provider=betterdisplay`);
   });
   it("calls a provider outside the catalog disabled, the way create refuses it", async () => {
-    // The stored enabled list accepts any slug, so an owner (or an old row) can
-    // hold a provider id this build does not ship. `resolveNodeDisplayRequest`
-    // refuses that at create with `preview-display-unsupported`; an agent that
-    // read `enabled: true` here would launch into a 400 it was told was ready.
+    // The route that writes this list checks it against the catalog, so a row
+    // reaching an id this build does not ship arrives by some other door: a
+    // hand-edit, a restore, or a later release shrinking the catalog out from
+    // under a stored value. `resolveNodeDisplayRequest` refuses it at create
+    // with `preview-display-unsupported` whatever its source, so this mirrors
+    // that check rather than the writer's, and an agent is never told a thing is
+    // ready by the same tool that would recommend the launch which 400s.
     const stored = ["xvfb-x11vnc", "my-x11-thing"];
     const { deps } = fixture((path) =>
       path === "/api/nodes"

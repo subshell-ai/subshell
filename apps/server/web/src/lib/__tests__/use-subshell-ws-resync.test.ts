@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { renderHook, waitFor } from "@testing-library/react";
 import type { Terminal } from "@xterm/xterm";
 import {
+  attachTimingsForTests,
   needsGridResync,
   resetAttachTimingsForTests,
   setAttachResyncTimingsForTests,
@@ -274,5 +275,23 @@ describe("useSubshellWs grid resync", () => {
     send(instances[1], { type: "geometry", cols: 60, rows: 20 });
     await new Promise<void>((r) => setTimeout(r, 50));
     expect(instances.length).toBe(2); // gap still open: no third connect
+  });
+
+  it("leaves a hostile reconnect backoff behind, unrestored", () => {
+    // Asserts nothing about the attach path on purpose: its whole job is to put
+    // the module where a suite would leak it, so the test after it can show what
+    // puts it back.
+    setAttachRetryDelaysForTests(1, 2);
+    expect(attachTimingsForTests().baseMs).toBe(1);
+  });
+
+  it("is the afterEach's reset, not this file's beforeEach, that restores the backoff", () => {
+    // The `beforeEach` above sets only the resync pair, so shipped values here
+    // can only have come from `resetAttachTimingsForTests()` running after the
+    // previous test. Delete that call and every behavioral test in this file
+    // stays green while the next file in the same process inherits a 1 ms
+    // reconnect - which is the leak the reset exists for. The two numbers are
+    // the shipped pair, so changing one without saying so here also fails.
+    expect(attachTimingsForTests()).toMatchObject({ baseMs: 1500, maxMs: 15000 });
   });
 });
