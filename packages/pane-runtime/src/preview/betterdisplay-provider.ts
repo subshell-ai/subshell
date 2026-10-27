@@ -191,8 +191,16 @@ export class BetterDisplayProvider implements VirtualDisplayProvider {
       if (!this.supported()) throw new Error("preview-display-unsupported");
       const status = await this.status();
       const readiness = await this.checkReadiness(status);
-      if (readiness.missing.length)
+      if (readiness.missing.length) {
+        // The missing list alone could not tell us whether the helper answered
+        // nothing or answered `{enabled:true,…,betterDisplayExecutable:null}`;
+        // that distinction cost a long debugging session, so the raw answer
+        // rides the refusal.
+        this.deps.log?.(
+          `betterdisplay refused pane ${id}: missing [${readiness.missing.join("; ")}] status ${JSON.stringify(status)}`,
+        );
         throw new Error(`preview-display-missing-requirements: ${readiness.missing.join(", ")}`);
+      }
       if (![size.width, size.height].every((n) => Number.isInteger(n) && n >= 320 && n <= 4096))
         throw new Error("Invalid display dimensions");
       if (!status?.betterDisplayExecutable) throw new Error(PREVIEW_DISPLAY_NOT_READY);
