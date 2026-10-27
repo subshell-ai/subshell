@@ -628,13 +628,18 @@ export function useSubshellWs(
       const provider = capacityRef.current;
       if (!provider) {
         sendResize(wsRef.current, cols, rows);
-        return;
+      } else {
+        // A null measurement is NOT a reason to fall back to `cols`/`rows`:
+        // those are the echo this whole handler exists to avoid, and a
+        // momentarily unmeasurable box (a sash mid-drag) would reintroduce it.
+        const fit = provider();
+        if (fit) sendResize(wsRef.current, fit.cols, fit.rows);
       }
-      // A null measurement is NOT a reason to fall back to `cols`/`rows`:
-      // those are the echo this whole handler exists to avoid, and a
-      // momentarily unmeasurable box (a sash mid-drag) would reintroduce it.
-      const fit = provider();
-      if (fit) sendResize(wsRef.current, fit.cols, fit.rows);
+      // The terminal's own grid just moved. That is the fact the resync
+      // check was waiting for when adoption lands LATER than the geometry
+      // frame's settle check ran (pin → letterbox → fit is asynchronous), so
+      // re-ask on the resize itself, not only on the announcement.
+      scheduleResyncCheck();
     });
 
     // A viewer that stops being rendered stops taking part in sizing, and
