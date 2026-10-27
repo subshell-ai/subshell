@@ -31,21 +31,24 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
                 NSApp.terminate(nil); return
             }
         } catch { NSApp.terminate(nil); return }
+        // A viewer's pointer is the real cursor, so the screen it was parked on
+        // can go away while this process is not running: the docs promise an
+        // existing virtual screen may outlive the helper, and whoever closes the
+        // last pane over it cannot ask a dead socket to warp the cursor back. Any
+        // start heals that here rather than leaving the person at the Mac without
+        // a pointer, which is why this runs BEFORE the bind. A start whose socket
+        // cannot come up exits on the next line, and `applicationWillTerminate`'s
+        // rescue is gated on `started`, so healing after the bind would mean the
+        // one kind of failed launch leaves the pointer stranded while the docs say
+        // every start fixes it. Warping a cursor that is inside no screen's frame
+        // is harmless, so a launch that does not survive loses nothing.
+        restoreStrandedCursor()
         // Neither install nor a node request can opt in. Login resumes only
         // the consent the person previously gave in this native panel.
         do { try runtime.listenForStatus() } catch { NSApp.terminate(nil); return }
         started = true
         runtime.onStateChange = { [weak self] in self?.updateMenu() }
         settings.onVisibilityChange = { [weak self] in self?.updateMenu() }
-        // A viewer's pointer is the real cursor, so the screen it was parked on
-        // can go away while this process is not running: the docs promise an
-        // existing virtual screen may outlive the helper, and whoever closes the
-        // last pane over it cannot ask a dead socket to warp the cursor back. Any
-        // start, at sign-in or from the panel, heals that here rather than
-        // leaving the person at the Mac without a pointer. It moves the cursor
-        // only when it is inside no screen's frame, so a normal launch does
-        // nothing at all.
-        restoreStrandedCursor()
         if consent.enabled {
             do { try runtime.enable() }
             // Two wrong answers, and one right one. `disable()` clears consent
@@ -161,7 +164,12 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
         // second press would nest another identical alert: the person answers
         // once, and a second question is still waiting. One at a time.
         if quitAlertShown {
-            NSApp.activate()
+            // The proven form, not the no-argument `activate()`: this is the file
+            // with no compile coverage (test.sh excludes main.swift, and the
+            // release build passes no -warnings-as-errors), and a re-press has to
+            // drag the pending alert over whatever app the person is in now, which
+            // is exactly the insistence the plain call does not make.
+            NSApp.activate(ignoringOtherApps: true)
             return
         }
         quitAlertShown = true
