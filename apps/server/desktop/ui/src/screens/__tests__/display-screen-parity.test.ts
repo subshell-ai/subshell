@@ -48,6 +48,23 @@ describe("the two assistants' Virtual Displays screens", () => {
     expect(stepsOf(server).join(" ")).toContain("Subshell App");
   });
 
+  test("both name the helper's own menu bar icon, not the app's", () => {
+    // The note used to say "the same panel sits under Subshell Server (Client)
+    // in the macOS menu bar". Two wrongs in one sentence: the panel is opened
+    // from the helper's own status item, and a page inside Subshell Server
+    // telling you to look under Subshell Server reads as a different program.
+    // The sentence is app-independent, so it is compared whole.
+    const note = /The helper runs as[\s\S]*?BetterDisplay needs\./;
+    const serverNote = note.exec(server)?.[0];
+    const clientNote = note.exec(client)?.[0];
+    expect(serverNote, "the server screen carries the helper-menu note").toBeDefined();
+    expect(clientNote?.replace(/\s+/g, " ")).toBe(serverNote?.replace(/\s+/g, " "));
+    expect(serverNote).toContain("Subshell Display Helper");
+    for (const source of [server, client]) {
+      expect(source).not.toMatch(/sits under <span className="font-strong">Subshell (?:Client|Server)<\/span> in the macOS menu bar/);
+    }
+  });
+
   test("neither promises a sign-in registration that enabling no longer does", () => {
     // The defect this pins is the one the split introduced: a step that told
     // people Enable helper also adds the login item, after the button stopped

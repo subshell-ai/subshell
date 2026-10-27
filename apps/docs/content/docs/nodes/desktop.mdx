@@ -34,6 +34,25 @@ Install coding agent CLIs under the node's OS account. Set [Directory restrictio
 
 Agents run on the node. The server stores your instance settings and serves the dashboard.
 
+## Run graphical apps on this machine
+
+The node window's sidebar also holds **Virtual Displays**, on the machines that
+have a display helper to talk to: the Mac. It's the same screen in Subshell
+Client and Subshell Server, and it lists what the Mac still needs before a
+subshell can open a screen, with one button, **Open Display Helper settings**,
+that opens the helper's own panel where you enable it and grant macOS
+permissions. Nothing here turns anything on by itself: enabling, and both macOS
+prompts, happen in the helper.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/assistant-virtual-displays.png" alt="The node window's Virtual Displays screen with its three setup steps and the Open Display Helper settings button in the footer." width="2080" height="1520" loading="lazy" decoding="async" unoptimized />
+  <figcaption>The helper's door, in the window you're already using. The menu bar icon opens the same panel. Select the image to enlarge it.</figcaption>
+</figure>
+
+Read [macOS display helper setup](/nodes/manage#macos-display-helper) for the
+panel's own controls, and [Web previews & screens](/guides/preview#use-a-virtual-display-on-macos)
+for using the screen once it's up.
+
 ## Re-register an existing node
 
 Use re-registration to recover a machine's connection while keeping its existing node entry, name, shares, settings, and session records. You must own the node.
