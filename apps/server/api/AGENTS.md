@@ -210,7 +210,10 @@ it is the deliberate exception beside the announce rule above (no `publishLive`,
 no audit row). Automated `submit` waits for the prompt's tail to render and
 for the paste parser to settle before sending Enter as a second frame; the pair
 is ordered but not atomic. This uses the same `submitPaneInput` policy as
-create/restart; `submit:false` and live terminal keystrokes remain raw input. RUNNING means the row's TWO facts: a self-exited pane
+create/restart. Concurrent automated submissions in the same process are
+queued through Enter so their text can't mix during the render wait;
+`submit:false` and live terminal keystrokes remain raw input. RUNNING means the
+row's TWO facts: a self-exited pane
 parks at `status: "running"` with `alive: 0` and its session already reaped, so
 the guard reads `alive` beside `status`, or that window types into nothing and
 answers 500 on a remote node (measured 2026-09-25). `POST /:id/restart` gained an optional `prompt` that

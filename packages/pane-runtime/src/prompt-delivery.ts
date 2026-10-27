@@ -2,8 +2,8 @@ import { stripAnsi } from "@internal/backend-errors";
 
 /**
  * Automated prompt delivery for create/restart and REST input. Local and
- * remote launches share the startup settle rule, and every automated submit
- * shares the render gate and paste-settle interval.
+ * remote launches share the startup settle rule, and REST input uses the same
+ * render gate and paste-settle interval.
  *
  * The shape this code has to survive is measured, not hypothetical: Claude
  * Code paints its full UI within half a second of spawn but mounts its stdin
@@ -57,18 +57,23 @@ const RENDER_NEEDLE_MAX_CHARS = 48;
  */
 const RENDER_GATE_TIMEOUT_MS = 10_000;
 
+// Serialize automated submissions through Enter. The low-level input chain
+// orders individual writes, but a second prompt must not be typed while the
+// first is still waiting for its render. Raw interactive input stays separate.
+const submissions = new Map<string, Promise<void>>();
+
 /** Whitespace runs carry no meaning for the render check: the pane wraps, and
  * Claude Code eats raw LFs out of a burst. Both sides normalize identically. */
 function normalizeScreen(text: string): string {
   return stripAnsi(text).replace(/\s+/g, "");
 }
 
-/** Non-overlapping count of `needle` in `haystack`, for the delta rule.
- * An empty needle answers 0: `indexOf` would match at zero forever. */
+/** Counts overlapping matches too: repeated runs can contain the final suffix
+ * before its actual end. An empty needle has no useful render evidence. */
 function countOccurrences(haystack: string, needle: string): number {
   if (needle === "") return 0;
   let count = 0;
-  for (let at = haystack.indexOf(needle); at !== -1; at = haystack.indexOf(needle, at + needle.length)) {
+  for (let at = haystack.indexOf(needle); at !== -1; at = haystack.indexOf(needle, at + 1)) {
     count += 1;
   }
   return count;
@@ -134,8 +139,32 @@ export async function deliverPromptInto(
  *
  * `baseline` lets create/restart reuse its settled capture. Other callers take
  * a fresh capture before typing; a failed capture still permits raw input.
+ * Submissions to the same pane wait through the previous Enter (or failure),
+ * then take a fresh baseline so another prompt can't become part of this one.
  */
-export async function submitPaneInput(
+export function submitPaneInput(
+  pane: PromptDeliveryPane,
+  socket: string,
+  subshellId: string,
+  text: string,
+  opts: Omit<PromptDeliveryOptions, "settleTimeoutMs">,
+  baseline?: string,
+): Promise<void> {
+  const key = `${socket}\0${subshellId}`;
+  const previous = submissions.get(key);
+  const result = (previous ?? Promise.resolve()).then(() =>
+    submitInput(pane, socket, subshellId, text, opts, previous ? undefined : baseline),
+  );
+  const settled = result.catch(() => {});
+  submissions.set(key, settled);
+  void settled.then(() => {
+    if (submissions.get(key) === settled) submissions.delete(key);
+  });
+  return result;
+}
+
+/** Runs one queued submission; callers must hold this pane's submission slot. */
+async function submitInput(
   pane: PromptDeliveryPane,
   socket: string,
   subshellId: string,
@@ -144,14 +173,23 @@ export async function submitPaneInput(
   baseline?: string,
 ): Promise<void> {
   const now = opts.nowMs ?? Date.now;
-  const before = baseline ?? (await pane.capturePane(socket, subshellId).catch(() => ""));
+  const before = baseline ?? (await pane.capturePane(socket, subshellId).catch(() => undefined));
   await pane.sendInput(socket, subshellId, text);
 
   // Count new occurrences so a banner or an earlier turn containing the same
   // text can't release Enter before the harness has read this input burst.
-  const needle = normalizeScreen(text).slice(-RENDER_NEEDLE_MAX_CHARS);
+  const normalized = normalizeScreen(text);
+  const needle = normalized.slice(-RENDER_NEEDLE_MAX_CHARS);
   if (needle !== "") {
-    const baselineCount = countOccurrences(normalizeScreen(before), needle);
+    // Repeated suffixes can appear before the end of a long prompt. Require
+    // every occurrence from this burst, not just the first one. If scrolling
+    // hides earlier occurrences, use the bounded fallback instead of treating
+    // a partial render as proof that the whole burst has arrived.
+    // Without a baseline, existing screen text can't prove a new render.
+    const expectedCount =
+      before === undefined
+        ? undefined
+        : countOccurrences(normalizeScreen(before), needle) + countOccurrences(normalized, needle);
     await waitFor(
       pane,
       socket,
@@ -159,7 +197,7 @@ export async function submitPaneInput(
       now,
       now() + (opts.renderTimeoutMs ?? RENDER_GATE_TIMEOUT_MS),
       opts.pollMs,
-      (screen) => countOccurrences(normalizeScreen(screen), needle) > baselineCount,
+      (screen) => expectedCount !== undefined && countOccurrences(normalizeScreen(screen), needle) >= expectedCount,
     );
     // Rendering doesn't necessarily end a TUI's paste burst. Give its input
     // parser a quiet interval before Enter, or Codex can insert a newline
