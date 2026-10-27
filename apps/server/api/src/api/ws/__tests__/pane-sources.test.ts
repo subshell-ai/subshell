@@ -362,7 +362,12 @@ describe("createRemoteTailSource", () => {
       expect(deaths).toEqual([]);
       size = 1200; // the pane starts printing; the dead pump says nothing
       await waitFor(() => deaths.length > 0, "the watchdog verdict");
-      expect(deaths[0]).toContain("stalled");
+      // Tie the producer string to the mapper predicate in one assertion: a
+      // reword that keeps the word "stalled" but not its position (e.g. "pump
+      // stalled: …") must redden this, or the stall family would silently map
+      // to "tail refused" and send the operator down the node-link path.
+      expect(deaths[0].startsWith("stalled")).toBe(true);
+      expect(tailCloseReason(deaths[0])).toBe("tail stalled");
       expect(deaths[0]).toContain("EOF 1200");
       expect(fake.relayDisposed).toBe(1); // the corpse is disposed, not nursed
     } finally {
@@ -461,7 +466,12 @@ describe("createRemoteTailSource", () => {
         fake.releaseProbe();
       }
       expect(deaths.length).toBe(1);
-      expect(deaths[0]).toContain("stalled");
+      // Tie the producer string to the mapper predicate in one assertion: a
+      // reword that keeps the word "stalled" but not its position (e.g. "pump
+      // stalled: …") must redden this, or the stall family would silently map
+      // to "tail refused" and send the operator down the node-link path.
+      expect(deaths[0].startsWith("stalled")).toBe(true);
+      expect(tailCloseReason(deaths[0])).toBe("tail stalled");
     } finally {
       stop();
     }
@@ -485,7 +495,12 @@ describe("createRemoteTailSource", () => {
     try {
       // Two rejected probes must NOT strand the watchdog: it keeps ticking.
       await waitFor(() => deaths.length > 0, "the verdict after recovered probes");
-      expect(deaths[0]).toContain("stalled");
+      // Tie the producer string to the mapper predicate in one assertion: a
+      // reword that keeps the word "stalled" but not its position (e.g. "pump
+      // stalled: …") must redden this, or the stall family would silently map
+      // to "tail refused" and send the operator down the node-link path.
+      expect(deaths[0].startsWith("stalled")).toBe(true);
+      expect(tailCloseReason(deaths[0])).toBe("tail stalled");
       expect(fake.sizeCalls).toBeGreaterThanOrEqual(3); // it probed past the two failures
     } finally {
       stop();
@@ -511,7 +526,12 @@ describe("createRemoteTailSource", () => {
       fake.deliveries[0](Buffer.from("hello"), 1000); // cursor now at 1000
       size = 20; // the file was replaced under the pump
       await waitFor(() => deaths.length > 0, "the rewind verdict");
-      expect(deaths[0]).toContain("stalled");
+      // Tie the producer string to the mapper predicate in one assertion: a
+      // reword that keeps the word "stalled" but not its position (e.g. "pump
+      // stalled: …") must redden this, or the stall family would silently map
+      // to "tail refused" and send the operator down the node-link path.
+      expect(deaths[0].startsWith("stalled")).toBe(true);
+      expect(tailCloseReason(deaths[0])).toBe("tail stalled");
     } finally {
       stop();
     }
