@@ -9,8 +9,11 @@ import { captureScreenshot } from "./screenshot";
  *
  * The window is Tauri's, but everything inside it is this repo's React: the
  * shared `Frame` and `Rail` from `packages/assistant` and the screen's own
- * steps and button. Tauri's side is two reads (`node_settings`, `node_probe`)
- * and one press (`node_open_display_helper`, which this script never presses:
+ * steps and button. Tauri's side is three reads at this screen (`node_settings`
+ * and `node_probe` from the app's node-state feed, `node_pending_screen` from its
+ * mount), one more the window asks elsewhere (`node_about`, on the About screen,
+ * stubbed so a wider capture would not find a gap), and one press
+ * (`node_open_display_helper`, which this script never presses:
  * it opens a native window on someone else's machine). So the capture serves
  * the real UI at the real dev port, answers those reads with the facts a
  * configured Mac would report, and clicks the rail item like a person does.

@@ -131,11 +131,12 @@ describe("resolveNodeDisplayRequest", () => {
 
   for (const unanswered of [null, "unknown"]) {
     it(`refuses nothing on an os that has not answered (${String(unanswered)})`, async () => {
-      // The protocol's own "unknown" is a node saying it could not classify
-      // itself, not a claim that Xvfb cannot run there: a FreeBSD machine with
-      // Xvfb installed is real, and the agent's readiness check is what looks
-      // for the programs. Reading it as a verdict would hide the only provider
-      // such a node can run, from the plane and from its owner's settings card.
+      // "unknown" is a node saying it could not classify itself, which is not a
+      // claim about what runs there, so the plane does not refuse on it. The node
+      // still answers for its own machine, and refuses Xvfb on any non-Linux
+      // platform by name (`xvfbDisplayReadiness`), so this is not a promise that
+      // the launch will succeed: it is a refusal to guess. Reading it as a verdict
+      // would empty the provider card of a node that never came ready.
       const id = await mkNode({ os: unanswered, enabled: 1, providers: ["xvfb-x11vnc"] });
       expect((await resolveNodeDisplayRequest(id, SCREEN)).provider).toBe("xvfb-x11vnc");
     });
@@ -160,8 +161,12 @@ describe("resolveNodeDisplayRequest", () => {
   });
 
   it("refuses a display on a node whose switch is off", async () => {
+    // At 409, the restart door. The create path checks the same flag earlier
+    // (`subshells.service.ts`'s preflight, 400, its own sentence), so this
+    // resolver's switch refusal is only ever reached from a restart: asserting it
+    // at 400 would stay green against text no create can emit.
     const id = await mkNode({ os: "linux", enabled: 0, providers: ["xvfb-x11vnc"] });
-    const { message } = await refused(id, "xvfb-x11vnc");
+    const { message } = await refused(id, "xvfb-x11vnc", 409);
     expect(message).toContain("Allow virtual displays");
     expectTail(message, "preview-node-off");
   });
@@ -190,7 +195,9 @@ describe("resolveNodeDisplayRequest", () => {
     // An absent row must not fall through to the catalog's Linux default: the
     // switch check reads `row?.virtualDisplayEnabled`, so the missing node is
     // refused as the switched-off machine it is.
-    const gone = await refused("no-such-node", "xvfb-x11vnc");
+    // Same door as the switch case: an absent row is the restart's problem,
+    // because create answers for a missing node before this resolver runs.
+    const gone = await refused("no-such-node", "xvfb-x11vnc", 409);
     expectTail(gone.message, "preview-node-off");
   });
 });

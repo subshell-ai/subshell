@@ -24,11 +24,13 @@ it("names one OS per bundled provider, and the pickers ask that OS", () => {
   // A named platform nothing supports is "no choice", which is what stops the
   // launch dialog offering Xvfb + VNC on a Mac.
   expect(displayProvidersForOs("windows")).toEqual([]);
-  // An OS that has not answered is not a verdict, and here that has two shapes:
-  // no value at all, and the protocol's own "unknown", which is what an agent on
-  // any other platform reports about itself. Refusing that would hide providers
-  // from a FreeBSD node running Xvfb, and strand the owner's only path to
-  // pre-enable one on a node that enrolled and never came ready.
+  // An OS that has not answered is not a verdict, and that has two shapes: no
+  // value at all, and the protocol's own "unknown", which is what an agent
+  // reports when it is neither Linux nor macOS. Refusing on either would empty
+  // the owner's provider card on a node that enrolled and never came ready,
+  // leaving no way to enable anything. It is not a promise that such a machine
+  // can run the provider: the node answers that itself, and refuses Xvfb on any
+  // non-Linux platform by name.
   expect(displayProvidersForOs(null).map((p) => p.id)).toEqual(["xvfb-x11vnc", "betterdisplay"]);
   expect(displayProvidersForOs(undefined).map((p) => p.id)).toEqual(["xvfb-x11vnc", "betterdisplay"]);
   expect(displayProvidersForOs("unknown").map((p) => p.id)).toEqual(["xvfb-x11vnc", "betterdisplay"]);

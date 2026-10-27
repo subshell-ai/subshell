@@ -48,7 +48,13 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
         restoreStrandedCursor()
         if consent.enabled {
             do { try runtime.enable() }
-            catch { runtime.disable() }
+            // Stopped, not revoked. A sign-in that cannot bind its socket has
+            // nothing to do with the person's agreement: `disable()` clears
+            // consent first, so recovering from a transient failure here would
+            // silently un-consent a Mac and leave the next start capturing
+            // nothing until someone pressed Enable again. `shutdown()` is the
+            // teardown it asked for (and is safe to reach again at termination).
+            catch { runtime.shutdown() }
         }
         // Who is allowed to open the panel decides whether this run stays.
         let opensPanel = CommandLine.arguments.contains("--settings")

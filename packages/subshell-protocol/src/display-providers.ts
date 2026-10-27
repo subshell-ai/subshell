@@ -37,11 +37,15 @@ export const DEFAULT_VIRTUAL_DISPLAY_PROVIDER = "xvfb-x11vnc";
  * What a node's `os` field carries when nothing has classified the machine: an
  * agent on a platform outside `linux|darwin` says this (`mapOs` in
  * `apps/node/agent/src/enroll.ts`), and so does a row that enrolled before the
- * field was reported. It is not a platform, and reading it as one is what
- * stranded real machines: Xvfb runs on a FreeBSD node, and the plane holds no
- * fact that says otherwise. Every reader here treats it as the absence of an
- * answer, which is also what a null means. The authority on what actually runs
- * is the node's own readiness check, which looks for the programs.
+ * field was reported. It is not a platform, and reading it as one would have the
+ * plane guess at a machine it holds no fact about. Every reader here treats it as
+ * the absence of an answer, which is also what a null means. The node is the
+ * authority on what runs there: it looks for the programs, and it refuses a
+ * provider it cannot drive BY NAME (`preview-display-unsupported`, from
+ * `xvfbDisplayReadiness` and the provider's own platform check, which is stricter
+ * than anything the catalog could say from an unclassified `os`). What
+ * no-verdict preserves is the owner's path on a node that enrolled and never came
+ * ready: the provider rows stay visible so they can be enabled at all.
  */
 export const NODE_OS_UNKNOWN = "unknown";
 

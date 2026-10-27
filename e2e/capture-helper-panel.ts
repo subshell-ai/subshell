@@ -7,9 +7,10 @@ import { captureScreenshot } from "./screenshot";
  * The macOS display helper's consent panel, photographed as it ships.
  *
  * The page is the same single-file build the helper loads through
- * `loadFileURL`, opened here in Chromium. The frame is wider than the panel's
- * own window because the page sets its own 520px card and the crop is that
- * card, so the extra room changes nothing the person would see.
+ * `loadFileURL`, opened here in Chromium. The frame is wider than the helper's
+ * own window (560 against `Layout.windowWidth` 520) because the page fixes
+ * `.panel` at 520px itself and the crop is the card inside its padding, so the
+ * extra room changes nothing the person would see.
  * The only thing the script does is what Swift does: hand the page a state
  * through `window.subshellSetState`. No control is drawn by this file, nothing
  * is clicked into a pose, and no button is faked, which is what makes the image

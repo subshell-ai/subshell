@@ -14,7 +14,8 @@ draws the controls and posts actions, and Swift re-checks every one of them, so
 the page is presentation and never authority. Only an enable act turns consent
 on, whether it arrives from the panel's **Enable helper** button or from the
 status menu's toggle; the matching disable act is the only thing that turns it
-off. Starting at sign-in is its own act with its own
+off, and a sign-in start that cannot bring the runtime up stops it without
+touching the flag. Starting at sign-in is its own act with its own
 button (**Start at sign-in** / **Stop at sign-in**), in the panel: the menu
 carries consent and the exits, and leaves the login list to the row that can
 read macOS's answer back. Enabling never registers it, because agreeing to be

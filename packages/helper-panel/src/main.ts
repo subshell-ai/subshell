@@ -242,8 +242,12 @@ function render(state: PanelState): void {
   const consent = consentControl(state);
   const toggle = button(consent.label, consent.action, "primary");
   const note = element("p", "note", consent.note);
-  note.id = "enable-note";
-  toggle.setAttribute("aria-describedby", "enable-note");
+  // One id for both states, named for what it is: it describes the consent act
+  // on offer, which flips with the button. "enable-note" read as a leftover the
+  // moment the button said "Disable helper", which is how a second describedby
+  // gets wired to the wrong half.
+  note.id = "consent-note";
+  toggle.setAttribute("aria-describedby", "consent-note");
   content.append(
     section(strings.access, [
       element("p", "state", stateLine(state)),

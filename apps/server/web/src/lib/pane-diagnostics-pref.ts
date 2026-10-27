@@ -58,8 +58,11 @@ const CHANGE_EVENT = "subshell:pane-diagnostics-change";
  * Persists the set and tells every reader on this page.
  *
  * @param ids - the set as it should now be stored
- * @returns the same set, so callers bind their render to what was stored
- *          rather than to what they intended to store
+ * @returns the set this page now holds, so callers bind their render to that
+ *          rather than to what they intended to store. It is what was stored when
+ *          the device accepted the write, and what was attempted when it refused
+ *          one, which is the difference between the header's menu and the terminal
+ *          beside it agreeing for the rest of this page load.
  */
 export function setPaneDiagnosticsIds(ids: readonly string[]): string[] {
   const next = [...ids];

@@ -152,10 +152,14 @@ it("still switches the Diagnostics HUD on when the device refuses to store it", 
     act(() => header.current[1]());
     expect(header.current[0]).toBe(true);
     expect(terminal.current[0]).toBe(true);
-    // Only the first press is asserted: with the write refused the set never
-    // accumulates anywhere, so a second press reads back empty and turns it on
-    // again. That is the preference layer's behavior for every caller (the
-    // subshell page reads the same way), not something this hook can fix.
+    // The second press has to turn it off, from both components. Before the
+    // preference kept a page-load memory every press read the unwritable store,
+    // saw nothing, and turned the HUD on again: a person could open the overlay
+    // and never close it without reloading. Asserting the pair also proves the
+    // memory is what feeds reads, not just what the pressing instance holds.
+    act(() => header.current[1]());
+    expect(header.current[0]).toBe(false);
+    expect(terminal.current[0]).toBe(false);
   } finally {
     if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
     // Same module, shared worker: the refused write left a page-load memory

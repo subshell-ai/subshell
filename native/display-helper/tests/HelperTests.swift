@@ -150,10 +150,19 @@ struct HelperTests {
         // to break by editing for looks: drop the standardization and an escaped
         // path wears the bundle's prefix, drop the trailing separator and a
         // sibling named `panel-evil` counts as inside.
-        let bundleRoot = URL(fileURLWithPath: "/tmp/subshell-panel-test/Contents/Resources", isDirectory: true)
-        let panel = bundleRoot.appendingPathComponent("panel", isDirectory: true)
+        // Built the way `directoryURL()` builds it in production, from the page's
+        // own URL. `URL(fileURLWithPath:isDirectory:)` would be the natural thing
+        // to reach for and is wrong here: it appends a trailing slash, so the gate
+        // would compare against `panel/` and `panel//`, every allow case would
+        // fail, and every refuse case would pass without the two guards doing any
+        // work. The precondition below turns that Foundation subtlety into a named
+        // failure instead of a confusing one.
+        let panelIndex = URL(fileURLWithPath: "/tmp/subshell-panel-test/Contents/Resources/panel/index.html")
+        let panel = panelIndex.deletingLastPathComponent()
+        let bundleRoot = panel.deletingLastPathComponent()
+        precondition(!panel.path.hasSuffix("/"), "the fixture must match directoryURL()'s shape")
         func file(_ path: String) -> URL { URL(fileURLWithPath: path) }
-        precondition(PanelBundle.allows(file(panel.path + "/index.html"), within: panel), "the page itself is allowed")
+        precondition(PanelBundle.allows(panelIndex, within: panel), "the page itself is allowed")
         precondition(PanelBundle.allows(file(panel.path), within: panel), "the bundle directory is allowed")
         precondition(PanelBundle.allows(file(panel.path + "/assets/deep/x.js"), within: panel), "nested files are allowed")
         precondition(!PanelBundle.allows(file("/etc/passwd"), within: panel), "outside the bundle is refused")

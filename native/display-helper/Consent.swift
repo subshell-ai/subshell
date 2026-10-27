@@ -1,7 +1,11 @@
 import Foundation
 
-/// Only the native settings panel changes this preference. Node RPC has no
-/// enable operation; macOS permissions alone never imply Subshell consent.
+/// Only the two consent acts change this preference, and they are reachable from
+/// the panel and the status menu: `Runtime.enable()` stores the agreement and
+/// `Runtime.disable()` clears it. A sign-in start only resumes what is already
+/// stored, and its failure path stops the runtime without touching the flag.
+/// Node RPC has no enable operation, and macOS permissions alone never imply
+/// Subshell consent.
 final class HelperConsent {
     private let defaults: UserDefaults
     // The default is `standard`, which for this bundled helper IS its own

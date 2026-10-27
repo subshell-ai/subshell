@@ -1,6 +1,5 @@
 import { describe, expect, it } from "bun:test";
 import {
-  bundledProvidersForMachine,
   nodeDefaultForMachine,
   offeredDisplayProviders,
   providerForMachine,
@@ -13,6 +12,11 @@ import {
  * carries the old pick, so switching a Mac launch to a Linux node kept
  * BetterDisplay selected and asked the node to allocate with it - the refusal
  * arrives after Start, which is exactly what the OS gate was added to avoid.
+ *
+ * What the OS itself means is the protocol's question, and
+ * `packages/subshell-protocol` pins it. What is pinned HERE is the pair: these
+ * two wrappers reading the same machine differently is the shape the original
+ * bug had.
  */
 describe("providerForMachine", () => {
   it("keeps a provider the new machine can run", () => {
@@ -27,21 +31,16 @@ describe("providerForMachine", () => {
     expect(providerForMachine("xvfb-x11vnc", "darwin")).toBeUndefined();
   });
 
-  for (const unanswered of [null, undefined, "unknown"]) {
-    it(`clears nothing while the machine's OS has not answered (${String(unanswered)})`, () => {
-      // Two shapes reach this: no node chosen or the list still loading (null
-      // and undefined), and a node that reported the protocol's own "unknown"
-      // because it is neither Linux nor macOS. Both are the absence of a
-      // verdict, and a pick lost to either is data the person saved (a preset's
-      // whole screen choice). What the machine cannot run is decided by its
-      // readiness answer and the launch refusal, not by this reading.
-      expect(providerForMachine("xvfb-x11vnc", unanswered)).toBe("xvfb-x11vnc");
-      expect(providerForMachine("betterdisplay", unanswered)).toBe("betterdisplay");
-    });
-  }
-
-  it("has nothing to clear when no provider was picked", () => {
-    expect(providerForMachine(undefined, "linux")).toBeUndefined();
+  it("clears nothing while the machine's OS has not answered", () => {
+    // Three shapes reach this: no node chosen and the list still loading (null
+    // and undefined), and a node that reported the protocol's own "unknown"
+    // because it is neither Linux nor macOS. A saved pick lost to any of them is
+    // data the person wrote (a preset's whole screen choice), and what the
+    // machine cannot run is settled by its readiness answer and the launch
+    // refusal, not by a reading that never had a fact in it.
+    expect(providerForMachine("xvfb-x11vnc", "unknown")).toBe("xvfb-x11vnc");
+    expect(providerForMachine("betterdisplay", null)).toBe("betterdisplay");
+    expect(providerForMachine("xvfb-x11vnc", undefined)).toBe("xvfb-x11vnc");
   });
 
   it("leaves an id this package does not ship alone", () => {
@@ -58,7 +57,7 @@ describe("providerForMachine", () => {
 /**
  * The list half of the same reading. These two functions disagreeing is how a
  * preset editor came to show "Node default" over a saved pin: the value was
- * kept (no OS fact yet) while the list was emptied (the unknown OS read as
+ * kept (no OS fact yet) while the list was emptied (the unanswered OS read as
  * "not Linux"), so the trigger could only name a choice that was not the one
  * about to launch.
  */
@@ -70,11 +69,14 @@ describe("providersForMachine", () => {
     expect(providersForMachine(BOTH, "darwin")).toEqual(["betterdisplay"]);
   });
 
-  for (const unanswered of [null, undefined, "unknown"]) {
-    it(`filters nothing while the OS has not answered (${String(unanswered)})`, () => {
+  it("filters nothing while the OS has not answered, and agrees with the value half", () => {
+    // The pair is the property. If one wrapper grew its own idea of what an
+    // unanswered OS means, the trigger and the launch would part company again.
+    for (const unanswered of [null, undefined, "unknown"]) {
       expect(providersForMachine(BOTH, unanswered)).toEqual(BOTH);
-    });
-  }
+      expect(providerForMachine("betterdisplay", unanswered)).toBe("betterdisplay");
+    }
+  });
 
   it("leaves a node-owned id listed whatever the answer", () => {
     expect(providersForMachine(["acme-screen", "betterdisplay"], "linux")).toEqual(["acme-screen"]);
@@ -98,19 +100,6 @@ describe("nodeDefaultForMachine", () => {
     // label may name it: nothing here has contradicted it.
     expect(nodeDefaultForMachine("xvfb-x11vnc", "unknown")).toBe("xvfb-x11vnc");
     expect(nodeDefaultForMachine(undefined, "linux")).toBeUndefined();
-  });
-});
-
-describe("bundledProvidersForMachine", () => {
-  it("keeps the whole catalog while the OS has not answered", () => {
-    // The node settings card is the owner's only path to pre-enable a provider
-    // on a machine that has not classified itself, so this reading has to match
-    // the other three: no verdict filters nothing.
-    for (const unanswered of [null, undefined, "unknown"]) {
-      expect(bundledProvidersForMachine(unanswered).map((p) => p.id)).toEqual(["xvfb-x11vnc", "betterdisplay"]);
-    }
-    expect(bundledProvidersForMachine("linux").map((p) => p.id)).toEqual(["xvfb-x11vnc"]);
-    expect(bundledProvidersForMachine("darwin").map((p) => p.id)).toEqual(["betterdisplay"]);
   });
 });
 

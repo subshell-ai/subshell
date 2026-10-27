@@ -219,13 +219,14 @@ one permission still missing).
 `bun e2e/capture-assistant-ui.ts` photographs the assistant's **Virtual Displays**
 screen. It starts the client UI's own Vite server (port 5177 must be free),
 arrives with a Mac user agent because the rail's macOS gate reads it, and answers
-the four reads that page makes (`node_settings`, `node_probe`,
-`node_pending_screen`, `node_about`) with the facts a configured Mac reports;
-`node_pending_screen` is answered rather than left to the fallback because the
-page asks it on every mount, so a null would be a taught answer, not a gap. Any
-command the script has not been taught answers `null` and is named in the
-output, so a new read shows up as a gap rather than a blank corner of a
-published image. It never presses **Open Display Helper settings**, which would
+the three reads the window makes at that screen (`node_settings` and `node_probe`
+from the app's node-state feed, `node_pending_screen` from its mount) with the
+facts a configured Mac reports. It teaches one more, `node_about`, which belongs
+to the About screen this capture does not open, so the script's stub set is wider
+than the photographed page's reads: the stubs are what the window CAN ask, not a
+claim about what this screen did. Any command the script has not been taught
+answers `null` and is named in the output, so a new read shows up as a gap rather
+than a blank corner of a published image. It never presses **Open Display Helper settings**, which would
 open a window on the capture host.
 
 `bun e2e/capture-docs.ts` also proves its own preview captures: the header badge
