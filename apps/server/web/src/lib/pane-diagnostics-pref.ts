@@ -97,6 +97,23 @@ export function resetPaneDiagnosticsPrefForTests(): void {
  * @param onChange - the listener to notify
  * @returns an unsubscribe function
  */
+/**
+ * The browser fires `storage` only when a write actually landed, which is proof
+ * this device accepts writes again: any page-load memory from an earlier refusal
+ * is now the stale one. Cleared at module scope, beside the memory itself, so
+ * every reader agrees whether or not it subscribed (a listener inside
+ * `subscribePaneDiagnostics` left an unsubscribed page pinned to a set nobody
+ * stored). Registered before any subscriber, so the memory is gone by the time
+ * a listener re-reads.
+ */
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event: Event) => {
+    if (event instanceof StorageEvent && event.key !== null && event.key !== KEY) return;
+    writeRefused = false;
+    lastWritten = undefined;
+  });
+}
+
 export function subscribePaneDiagnostics(onChange: () => void): () => void {
   const handler = (): void => onChange();
   window.addEventListener(CHANGE_EVENT, handler);

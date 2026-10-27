@@ -22,8 +22,9 @@ export const strings = {
   /* What the consent button's own note says, per the act it labels. One string
    * for both states described the WRONG act: a screen reader reaching the
    * "Enable helper" control heard "Disabling stops capture and input", and the
-   * person deciding whether to be captured has only that announcement. Gold
-   * `detail` text, the same size either way; `main.ts` picks by `state.enabled`. */
+   * person deciding whether to be captured has only that announcement. Both are
+   * `detail` text at one size in muted ink (gold belongs to what the owner can
+   * still act on); `main.ts` picks which sentence by `state.enabled`. */
   enableNote:
     "Enabling starts capture and input on this Mac. Your subshells, macOS permissions, and sign-in choice stay.",
   disableNote: "Disabling stops capture and input. Your subshells, macOS permissions, and sign-in choice stay.",
