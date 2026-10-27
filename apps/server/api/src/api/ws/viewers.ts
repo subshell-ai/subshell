@@ -615,6 +615,43 @@ export function dropTerminalSocketsFor(userId: string, reason = "account disable
 }
 
 /**
+ * Close every socket watching ONE subshell, with one code.
+ *
+ * The attach path's recovery from a dead output pump: the pane-stream
+ * registry builds one pump per subshell, for its first viewer, so a source
+ * that quietly stopped producing would otherwise be handed to every later
+ * re-attach as long as any viewer lingered. Closing them all is the fix, and
+ * it runs the socket's own teardown first rather than waiting on the close
+ * event: a viewer whose `close` never fires is exactly the leak that keeps a
+ * dead stream alive, so recovery must not depend on it. Sub-4000 codes are
+ * the client's retry signal (see `use-subshell-ws.ts`), so every device
+ * re-attaches and the first of those builds a fresh pump against the current
+ * EOF.
+ *
+ * @param subshellId - the pane whose viewers to drop
+ * @param code - the close code every socket receives
+ * @param reason - the close reason, for the client's diagnostics
+ * @returns how many sockets were asked to close
+ */
+export function closeViewersForSubshell(subshellId: string, code: number, reason: string): number {
+  const viewers = liveViewers.get(subshellId);
+  if (!viewers) return 0;
+  let closed = 0;
+  // Snapshot: detachViewer empties (and deletes) the map we are standing in.
+  for (const ws of [...viewers.values()]) {
+    try {
+      ws.data?.cleanup?.(); // the attach's own disposer: closes the subscription
+      detachViewer(ws);
+      ws.close(code, reason);
+      closed++;
+    } catch {
+      // A socket already gone is the outcome this wanted anyway.
+    }
+  }
+  return closed;
+}
+
+/**
  * Removes a viewer and re-settles everything that depended on it.
  *
  * The whole detach bookkeeping lives here rather than in the close handler so

@@ -19,6 +19,7 @@ import { useNodes } from "@/hooks/use-nodes";
 import { useOpenVirtualDisplay } from "@/hooks/use-open-virtual-display";
 import { usePaneCopyMode } from "@/hooks/use-pane-copy-mode";
 import { usePaneDevices } from "@/hooks/use-pane-devices";
+import { usePaneDiagnostics } from "@/hooks/use-pane-diagnostics";
 import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { useTrustNotices } from "@/hooks/use-trust-notices";
 import { useUnsavedPreviewCount } from "@/hooks/use-unsaved-preview-count";
@@ -41,11 +42,16 @@ function FocusedPaneActions({
 }) {
   const subshell = useSubshellRow(id);
   const copyMode = usePaneCopyMode(id);
+  // The Wave C HUD, at the one surface outside the subshell page that has a
+  // terminal to point it at: this header sits directly above the focused
+  // pane's dock terminal, which reads the same per-device preference.
+  const [diagOn, diagToggle] = usePaneDiagnostics(id);
   const coarse = useIsCoarsePointer();
   const closeLanding = useCloseSubshellLanding();
   return subshell ? (
     <SubshellActionsMenu
       subshell={subshell}
+      diagnostics={{ on: diagOn, onToggle: diagToggle }}
       copyMode={coarse ? copyMode : undefined}
       onDeleted={() => closeLanding(subshell.id, workspaceId ? { id: workspaceId, panes } : null)}
     />
