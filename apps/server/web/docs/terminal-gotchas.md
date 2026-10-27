@@ -137,6 +137,19 @@ Whether the viewer may CHANGE the sizing is read off the presence frame's own
 `canInput`, never passed in: a workspace pane has no access field to hand, and
 any caller-side copy can disagree with the server that enforces it.
 
+**When the announced grid settles somewhere other than where the replay was
+painted, the terminal re-attaches** (`needsGridResync` in
+`lib/use-subshell-ws.ts`). Bytes the pane emitted across a resize addressed a
+grid this client never rendered, and a relative-positioned TUI (spinner,
+pinned block) keeps repainting from them: the rows mix and never heal, which
+is the 2026-10-27 "fixed elements overlap the output" report. Only the attach
+can fix an attach-time truth (absolute capture, cursor restore, confirmed
+geometry), so a mismatch with output applied since the base replays through
+the ordinary attach, once per observed change, debounced for drag settle and
+storm-gapped. This is deliberately NOT the reverted `eee3a92` reconciliation
+loop: the client never asks the server for a different size, it asks for a
+fresh truth, and the same grid is never resynced twice.
+
 Two traps on this path, both invisible with a single viewer and both hit for
 real (2026-09-04):
 
