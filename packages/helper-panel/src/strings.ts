@@ -36,13 +36,9 @@ export const strings = {
   openDocs: "Setup instructions",
   minimize: "Minimize helper",
   quit: "Quit helper",
-  /* The confirmation names the action, then the body says what stops, what
-   * stays, and how to get back in. Quitting also unregisters the login item's
-   * running copy, so "it comes back" is the fact a person needs most and the
-   * one a silent quit would never tell them. */
+  /* The confirmation's shape. Its body is `quitBody` below, because what the
+   * helper does after a sign-in depends on a state the panel can already see. */
   quitTitle: "Quit the display helper?",
-  quitBody:
-    "Anyone watching a virtual display on this Mac loses it now. Your consent and the macOS permissions stay, and the helper starts again at sign-in, or sooner from Subshell's virtual display settings. To stop it coming back, disable it first.",
   cancel: "Cancel",
   /* What the button says, and what it says to a screen reader. The visible
    * label is one word because the row already names the permission; the
@@ -76,11 +72,9 @@ export function viewerLine(state: PanelState): string {
 }
 
 /**
- * The login item's own line, shown only while the helper is enabled: a person
- * who turned it off has not registered anything to approve. Registered is a
- * settled fact and reads in the page's own ink; awaiting macOS is the thing
- * still waiting on them, so it reads in gold, the same split the permission
- * rows use.
+ * The login item's own line. Registered is a settled fact and reads in the
+ * page's own ink; awaiting macOS is the thing still waiting on them, so it
+ * reads in gold, the same split the permission rows use.
  */
 export function loginItemLine(state: LoginItemState): StateValue {
   switch (state) {
@@ -91,6 +85,42 @@ export function loginItemLine(state: LoginItemState): StateValue {
     case "notRegistered":
       return { text: strings.loginItemMissing, blocked: true };
   }
+}
+
+/**
+ * Whether the **Launch at sign-in** section earns its heading. Consent is what
+ * usually creates a registration, but it is not the only thing that keeps one:
+ * disabling leaves the person's sign-in choice alone on purpose, and that row
+ * holds the only button that takes it back off macOS's list. Hiding the section
+ * with the consent toggle would strand a registered helper with no way to
+ * unregister it short of enabling capture again.
+ */
+export function showsSignInSection(state: PanelState): boolean {
+  return state.enabled || state.loginItem !== "notRegistered";
+}
+
+/**
+ * The quit confirmation's body, which has to answer the sign-in question from
+ * the state the panel already holds. Enabling never registered a login item and
+ * disabling never removes one, so whether this process returns at the next
+ * sign-in is a fact about that row, not a promise a dialog may make: saying
+ * "it comes back at sign-in" to someone who never asked for it is how the
+ * warning that exists to inform a decision ends up misleading instead. Every
+ * variant names what stops, what stays, and how to get it back.
+ */
+const QUIT_BODIES: Record<LoginItemState, string> = {
+  // One whole sentence per state rather than a shared prefix, so the helper's
+  // Swift copy can be compared to these literal for literal.
+  registered:
+    "Anyone watching a virtual display on this Mac loses it now. Your consent and the macOS permissions stay. The helper starts again at sign-in, or sooner from Subshell's virtual display settings. To stop it coming back, use the panel's Stop at sign-in button first.",
+  needsApproval:
+    "Anyone watching a virtual display on this Mac loses it now. Your consent and the macOS permissions stay. macOS is still waiting for your approval before it would start at sign-in, so it comes back when you open Subshell's virtual display settings.",
+  notRegistered:
+    "Anyone watching a virtual display on this Mac loses it now. Your consent and the macOS permissions stay. Nothing starts it at sign-in; it comes back when you open Subshell's virtual display settings.",
+};
+
+export function quitBody(loginItem: LoginItemState): string {
+  return QUIT_BODIES[loginItem];
 }
 
 /**

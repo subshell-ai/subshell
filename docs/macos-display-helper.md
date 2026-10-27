@@ -14,9 +14,10 @@ draws the controls and posts actions, and Swift re-checks every one of them, so
 the page is presentation and never authority. Consent is written only by the
 enable act, whether it arrives from the panel's **Enable helper** button or from
 the status menu's toggle. Starting at sign-in is its own act with its own
-button (**Start at sign-in** / **Stop at sign-in**), offered by the panel and
-the menu alike; enabling never registers it, because agreeing to be captured
-and agreeing to launch at sign-in are two choices. OS privacy prompts have
+button (**Start at sign-in** / **Stop at sign-in**), in the panel: the menu
+carries consent and the exits, and leaves the login list to the row that can
+read macOS's answer back. Enabling never registers it, because agreeing to be
+captured and agreeing to launch at sign-in are two choices. OS privacy prompts have
 their own buttons, available only after consent. A remote web page has no
 Tauri command for any of these operations.
 
@@ -26,7 +27,8 @@ leaves the login item alone, so a helper that returns at the next sign-in is
 found disabled and exits at once. **Quit helper** asks first, in the panel and
 in the status menu alike, then ends the process: captures close, consent and
 the TCC grants stay, and a registered login item brings it back at the next
-sign-in, so disabling rather than quitting is how you stop it returning.
+sign-in. Removing its sign-in start (the panel's **Stop at sign-in**) is what
+keeps it from coming back at all; disabling only makes the next start idle.
 Normal logout preserves consent. Disabling does not revoke TCC grants, close
 terminals, or guarantee removal of virtual screens while BetterDisplay is
 unreachable. A disabled running helper answers the read-only `status` request

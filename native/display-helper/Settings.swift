@@ -269,7 +269,8 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
     /// login item, because agreeing to be captured and agreeing to launch at
     /// sign-in are two choices and macOS's list is not the place to discover
     /// the second one was made for you. `registerLoginItem` is its own act with
-    /// its own button, offered by the panel and by the status menu alike.
+    /// its own button, in the panel: the status menu carries consent and the
+    /// exits, and leaves the sign-in list to the row that can read it back.
     func enableHelper() {
         errorMessage = ""
         do { try enable() }

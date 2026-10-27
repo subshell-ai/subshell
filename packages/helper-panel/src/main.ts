@@ -1,6 +1,21 @@
 import "./styles.css";
-import { EMPTY_STATE, type PanelAction, type PanelMessage, type PanelState, type StateValue } from "./state";
-import { loginItemLine, permissionValue, stateLine, strings, viewerLine } from "./strings";
+import {
+  EMPTY_STATE,
+  type LoginItemState,
+  type PanelAction,
+  type PanelMessage,
+  type PanelState,
+  type StateValue,
+} from "./state";
+import {
+  loginItemLine,
+  permissionValue,
+  quitBody,
+  showsSignInSection,
+  stateLine,
+  strings,
+  viewerLine,
+} from "./strings";
 
 /** The bridge the Swift side installs. Absent in a browser, which is how the
  *  page stays previewable while every real act needs the helper process. */
@@ -160,7 +175,7 @@ function closeQuitDialog(): void {
  * quit never told anyone. Cancel is focused, and Escape dismisses, because the
  * safe answer must be the easy one.
  */
-function quitDialog(): HTMLElement {
+function quitDialog(loginItem: LoginItemState): HTMLElement {
   const scrim = element("div", "scrim");
   const dialog = element("div", "dialog");
   dialog.setAttribute("role", "dialog");
@@ -169,7 +184,7 @@ function quitDialog(): HTMLElement {
   dialog.setAttribute("aria-describedby", "quit-body");
   const title = element("h2", "dialog-title", strings.quitTitle);
   title.id = "quit-title";
-  const body = element("p", "dialog-body", strings.quitBody);
+  const body = element("p", "dialog-body", quitBody(loginItem));
   body.id = "quit-body";
   const foot = element("div", "dialog-foot");
   const cancel = pageButton(strings.cancel, "outline", closeQuitDialog);
@@ -243,11 +258,10 @@ function render(state: PanelState): void {
     ]),
   );
 
-  // macOS only lists the login item once the helper registers it, so the whole
-  // section appears with the consent that created it. While the helper is off
-  // there is nothing registered to approve, and a heading over an empty row is
-  // how a panel starts lying about itself.
-  if (state.enabled) {
+  // The section appears with the consent that usually created a registration,
+  // and stays for a registration that outlived it: disabling leaves the person's
+  // sign-in choice alone, and this row is the only way to take it back.
+  if (showsSignInSection(state)) {
     content.append(
       section(strings.signInSection, [
         // One control, named for the state it is leaving: register, stop
@@ -316,7 +330,7 @@ function render(state: PanelState): void {
   card.append(bar);
 
   root.append(card);
-  if (confirmingQuit) root.append(quitDialog());
+  if (confirmingQuit) root.append(quitDialog(state.loginItem));
 
   // The Swift window sizes to the document, so the page reports both of its
   // own dimensions rather than the window guessing and the content scrolling.

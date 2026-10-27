@@ -124,7 +124,7 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
     @objc private func quitHelper() {
         let alert = NSAlert()
         alert.messageText = QuitCopy.title
-        alert.informativeText = QuitCopy.body
+        alert.informativeText = QuitCopy.body(loginItem: LoginItem.currentPageState())
         alert.alertStyle = .warning
         // Added first, so Return and the rightmost position land on the way out.
         alert.addButton(withTitle: QuitCopy.cancel)

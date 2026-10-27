@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { EMPTY_STATE, type PanelState } from "../state";
-import { loginItemLine, permissionValue, stateLine, strings, viewerLine } from "../strings";
+import {
+  loginItemLine,
+  permissionValue,
+  quitBody,
+  showsSignInSection,
+  stateLine,
+  strings,
+  viewerLine,
+} from "../strings";
 
 /**
  * The panel's copy is its consent interface, so the words are the behavior
@@ -127,18 +135,35 @@ describe("viewerLine", () => {
 });
 
 describe("quit confirmation", () => {
-  test("asks, then says what stops, what stays, and how to get back", () => {
+  test("says what stops and what stays, in every sign-in state", () => {
     // Quitting ends every screen being watched and the window does not come
     // back on its own, so the act needs the consequences in front of the
     // person BEFORE they take it, not in the docs after.
     expect(strings.quitTitle.endsWith("?")).toBe(true);
     expect(strings.quitTitle).toContain("Quit");
-    const body = strings.quitBody;
-    expect(body).toContain("loses it now");
-    expect(body).toContain("consent");
-    expect(body).toContain("starts again at sign-in");
-    expect(body).toContain("virtual display settings");
-    expect(body).toContain("disable it first");
+    for (const state of ["registered", "needsApproval", "notRegistered"] as const) {
+      const body = quitBody(state);
+      expect(body).toContain("loses it now");
+      expect(body).toContain("consent");
+      expect(body).toContain("virtual display settings");
+    }
+  });
+
+  test("promises a sign-in return only to the person who asked for one", () => {
+    // Enabling never registered a login item and disabling never removes one,
+    // so "it starts again at sign-in" is true of exactly one of the three
+    // states. A dialog that said it of all three told someone their helper was
+    // coming back when nothing would bring it, and told a person with a
+    // registered item that disabling was the way to stop it, which it is not.
+    const registered = quitBody("registered");
+    expect(registered).toContain("starts again at sign-in");
+    expect(registered).toContain("Stop at sign-in");
+    expect(registered).not.toContain("disable it first");
+    for (const state of ["needsApproval", "notRegistered"] as const) {
+      expect(quitBody(state)).not.toContain("starts again at sign-in");
+    }
+    expect(quitBody("notRegistered")).toContain("Nothing starts it at sign-in");
+    expect(quitBody("needsApproval")).toContain("waiting for your approval");
   });
 
   test("gives the granted row a control that says where it goes", () => {
@@ -154,6 +179,20 @@ describe("quit confirmation", () => {
     // ends up unsure which thing they just did.
     expect(strings.quit).toBe("Quit helper");
     expect(strings.quitTitle.startsWith("Quit")).toBe(true);
+  });
+});
+
+describe("showsSignInSection", () => {
+  test("keeps the unregister door reachable while the helper is off", () => {
+    // The row holds the only Stop at sign-in button, and disabling leaves the
+    // registration in place on purpose. Hiding the section with the consent
+    // toggle strands a registered helper: the person would have to accept
+    // capture again to take it off macOS's list.
+    expect(showsSignInSection(stateWith({ enabled: false, loginItem: "registered" }))).toBe(true);
+    expect(showsSignInSection(stateWith({ enabled: false, loginItem: "needsApproval" }))).toBe(true);
+    expect(showsSignInSection(stateWith({ enabled: false, loginItem: "notRegistered" }))).toBe(false);
+    // Enabled is where the choice gets made, whatever the registration says.
+    expect(showsSignInSection(stateWith({ enabled: true, loginItem: "notRegistered" }))).toBe(true);
   });
 });
 
@@ -173,17 +212,27 @@ describe("the menu's quit confirmation", () => {
   // to both sides: the menu would quietly stop explaining what quitting costs
   // while the panel still did. Pin the menu's words to these.
   const swiftPath = new URL("../../../../native/display-helper/Theme.swift", import.meta.url);
-  test("the native menu carries the same question, body, and buttons", async () => {
-    // Whitespace collapsed, so swift-format-style re-wrapping on either side cannot
-    // fail a check that is about the words.
+  test("the native menu carries the same question and buttons", async () => {
+    // Whitespace collapsed, so a re-wrapping on either side cannot fail a check
+    // that is about the words.
     const swift = (await Bun.file(swiftPath).text()).replace(/\s+/g, " ");
     for (const [name, value] of Object.entries({
       title: strings.quitTitle,
-      body: strings.quitBody,
       confirm: strings.quit,
       cancel: strings.cancel,
     })) {
       expect(swift).toContain(`static let ${name} = ${JSON.stringify(value)}`);
+    }
+  }, 10_000);
+
+  test("the native menu answers the sign-in question state by state, like the panel", async () => {
+    // The bodies are the part that used to lie: one sentence for all three
+    // states promised a sign-in return to people who never registered one. If
+    // Swift's copy of a state's sentence drifts from this one, the menu warns
+    // about a future the panel says will not happen.
+    const swift = (await Bun.file(swiftPath).text()).replace(/\s+/g, " ");
+    for (const state of ["registered", "needsApproval", "notRegistered"] as const) {
+      expect(swift).toContain(JSON.stringify(quitBody(state)));
     }
   }, 10_000);
 

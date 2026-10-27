@@ -85,7 +85,15 @@ struct HelperTests {
         // Both Quit doors ask, and the menu's copy is this. The panel's own
         // strings are compared against it by the helper-panel suite.
         precondition(QuitCopy.title.hasSuffix("?"), "a confirmation names the act as a question")
-        precondition(QuitCopy.body.contains("loses it now"), "the question says what stopping means")
+        for state in ["registered", "needsApproval", "notRegistered"] {
+            precondition(QuitCopy.body(loginItem: state).contains("loses it now"), "every variant says what stopping means")
+        }
+        // The sentence that used to be shared: only a registered item comes
+        // back at sign-in, and only Stop at sign-in stops it, not disabling.
+        precondition(QuitCopy.body(loginItem: "registered").contains("starts again at sign-in"))
+        precondition(QuitCopy.body(loginItem: "registered").contains("Stop at sign-in"))
+        precondition(!QuitCopy.body(loginItem: "notRegistered").contains("starts again at sign-in"))
+        precondition(!QuitCopy.body(loginItem: "needsApproval").contains("starts again at sign-in"))
         precondition(QuitCopy.confirm != QuitCopy.cancel && !QuitCopy.cancel.isEmpty)
         // The pointer rescue: a viewer's cursor lives on the virtual display,
         // so losing that screen strands it off every display the person at
