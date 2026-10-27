@@ -1,10 +1,16 @@
 /* The macOS display helper's panel. Colours and type come from the one shared
-   palette, and the button shapes are the assistant's own `Button` variants
-   (`apps/server/desktop/ui/src/components/ui/button.tsx`) written in plain CSS:
-   h-9 at px-4, `rounded-md`, `font-strong` at body size, the sunk plum gradient
-   for the primary, and a bare button that washes on hover for the rest. Nothing
-   here restates a value, which is what keeps the panel from becoming the fifth
-   surface that drifts (spec 2026-09-14 § 1). */
+   palette; the shapes are the control plane's, taken from the components a
+   person already meets in the dashboard:
+   - `Card` (packages/node-admin/src/ui/card.tsx): bg-card, a --border hairline,
+     radius 8, 16px content padding.
+   - `Fact` (packages/node-admin/src/components/fact-list.tsx): a strong
+     `detail` label in muted-foreground above a regular `body` value in
+     foreground.
+   - `FormSectionTitle` (packages/assistant/src/form-section-title.tsx): a label
+     role heading with a trailing rule.
+   Flat-on-the-void with inline "label: value" text was the defect that made
+   this read as another product's dialog. Spacing stays on the 4px grid and the
+   one motion is 150ms micro-feedback, both per docs/design-system.md. */
 @import "../../assistant/tokens.css";
 
 * {
@@ -14,6 +20,8 @@
 html,
 body {
   margin: 0;
+  /* The window's ground is the page void; the card is the plate on it, the way
+     a card sits on the dashboard's background. */
   background: var(--background);
   color: var(--foreground);
   font-family: var(--default-font-family);
@@ -23,27 +31,30 @@ body {
 }
 
 /* The document owns its width and the Swift window sizes to it, which is why
-   the number appears once. It sits on the assistant's column: 520 fits the
-   card's longest row (a status line beside the control that fixes it) without
-   wrapping, and the bar's three controls on one line. */
+   the number appears once. 520 fits the card's longest row without wrapping. */
 .panel {
   display: flex;
   flex-direction: column;
   width: 520px;
+  padding: 16px;
 }
 
-.content {
+.card {
   display: flex;
   flex-direction: column;
-  gap: 20px;
   flex: 1;
-  padding: 20px 20px 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--foreground);
 }
 
+/* CardHeader: a heading title over a detail description, 4px apart. */
 .head {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  padding: 16px;
 }
 
 .title {
@@ -53,36 +64,30 @@ body {
   font-weight: var(--font-weight-strong);
 }
 
-/* The subtitle is the control's own explanation carried at one step down, the
-   way the assistant's frame sets its title over its subtitle. */
-.subtitle,
-.note,
-.status,
-.viewers,
-.error {
+.subtitle {
   margin: 0;
   color: var(--muted-foreground);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
 }
 
-/* A row's state word. Allowed is a fact, so it wears the page's own ink; not
-   allowed is the thing the person can still fix, so it wears gold, the same
-   role text-warning holds on every other surface. */
-.value {
-  color: var(--foreground);
+/* The refusal reads under the header, the way a dialog's problem line is read
+   before the control that failed. role=alert announces it; it is the only live
+   region, because the card is rebuilt on every state push. */
+.error {
+  margin: 0;
+  padding: 0 16px 12px;
+  color: var(--destructive);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
 }
 
-.value-blocked {
-  color: var(--warning);
-}
-
-.state {
-  margin: 0;
-  font-size: var(--text-body);
-  line-height: var(--text-body--line-height);
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+  padding: 0 16px 16px;
 }
 
 .section {
@@ -91,8 +96,6 @@ body {
   gap: 12px;
 }
 
-/* `FormSectionTitle`: label role and strong, with a rule that carries the
-   weight the text does not. It is the only divider a section has. */
 .section-title {
   display: flex;
   align-items: center;
@@ -109,41 +112,80 @@ body {
   border-top: 1px solid var(--border);
 }
 
-.row {
-  /* The label and its value stay together on the left, which is how a line
-     item is read; only the control is pushed to the right edge. Space-between
-     with three children put "Allowed" a hand-span away from the permission it
-     answers for. */
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.state,
+.viewers,
+.warning,
+.note {
+  margin: 0;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
 }
 
-/* Gold is "the person who owns this can act on it", the same role the
-   dashboard gives text-warning. What is exposed and who is watching are both
-   that, in a panel whose whole job is consent. */
+/* An explanation a control gives about itself is `detail` at one size: the
+   hint, the reason a control is off. `body` is running text, not help. */
+.viewers,
+.note {
+  color: var(--muted-foreground);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+
+/* Gold is "the person who owns this can act on it", the role the dashboard
+   gives text-warning: what enabling exposes, and who is watching right now. */
 .warning,
 .viewers.is-live {
+  color: var(--warning);
+}
+
+/* A row is a Fact and the one control that changes it: the label and value
+   stacked on the leading edge, the control at the trailing one. The button
+   never wraps its own label, so a long value and a short control share the row
+   honestly instead of fighting for the same pixels. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.fact {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+}
+
+.fact-label {
+  color: var(--muted-foreground);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-weight: var(--font-weight-strong);
+}
+
+.fact-value {
+  margin: 0;
+  color: var(--foreground);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+
+.fact-value.is-blocked {
+  color: var(--warning);
+}
+
+/* A disabled control explains itself to someone who cannot hover it, so the
+   reason is drawn inline in gold and named by aria-describedby rather than
+   hidden in a native title attribute. */
+.blocked-reason {
   margin: 0;
   color: var(--warning);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
 }
 
-.warning {
-  /* The cost of the button under it, at the decision point. */
-  margin-top: 4px;
-}
-
-/* Red is what the machine refused, never what merely has not been filled in. */
-.error {
-  color: var(--destructive);
-}
-
 .btn {
-  /* Content-sized. A control in this column stretches to the card's width by
-     default, and a full-width plum slab reads as a progress bar rather than the
-     one action it is. */
+  /* The assistant's `Button`: h-9 at px-4 py-2, rounded-md, strong at body
+     size, content-sized rather than stretched across the card. */
   display: inline-flex;
   align-self: flex-start;
   align-items: center;
@@ -184,9 +226,9 @@ body {
   color: var(--foreground);
 }
 
-/* Only the control goes to the right edge; the label and its value stay
-   together on the left, which is how a line item is read. Placed after `.btn`
-   so the more specific selector wins by order as well as by weight. */
+/* Placed after `.btn` so the more specific selector wins by order as well as by
+   weight: only the control goes to the trailing edge, while the label and its
+   value stay stacked together on the leading one. */
 .row .btn {
   margin-left: auto;
 }
@@ -204,21 +246,14 @@ body {
 }
 
 /* The look the assistant gives a control that really does something. Every
-   control in this card wears it except the one primary, so a row of actions
-   reads as a row of actions. */
+   control in this card wears it except the one primary. */
 .btn-outline {
   border-color: var(--input);
-  background: var(--background);
+  background: var(--card);
 }
 
-/* One hairline for the whole window, the frame's bar top. Nothing else in the
-   panel draws a rule except a section title's own. */
-/* The one row every arrangement must fit in at 420px. `nowrap` on a button's
-   label is the design system's rule, so the bar wraps BETWEEN the two groups
-   instead of squishing the labels inside them: help on the left, the exits on
-   the right, and a second line when the window is too narrow to put them on
-   one. Measured, not assumed: without this the right group ran to x=435 in a
-   420px document and its last button was cut off. */
+/* CardFooter: the hairline above it, help at the leading edge, the exits at the
+   trailing one. The bottom corners follow the plate, inset by its 1px border. */
 .bar {
   display: flex;
   flex-wrap: wrap;
@@ -226,8 +261,9 @@ body {
   justify-content: space-between;
   gap: 8px;
   min-height: 64px;
-  padding: 12px 20px;
+  padding: 16px;
   border-top: 1px solid var(--border);
+  border-radius: 0 0 7px 7px;
 }
 
 .bar-side {
@@ -236,8 +272,6 @@ body {
   gap: 8px;
 }
 
-/* Keeps the exits against the right edge even when the row wraps and the help
-   button has a line to itself. */
 .bar-exits {
   margin-left: auto;
 }

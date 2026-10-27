@@ -1,6 +1,6 @@
 import "./styles.css";
-import { EMPTY_STATE, type PanelAction, type PanelMessage, type PanelState } from "./state";
-import { loginItemLine, permissionValue, type StateValue, stateLine, strings, viewerLine } from "./strings";
+import { EMPTY_STATE, type PanelAction, type PanelMessage, type PanelState, type StateValue } from "./state";
+import { loginItemLine, permissionValue, stateLine, strings, viewerLine } from "./strings";
 
 /** The bridge the Swift side installs. Absent in a browser, which is how the
  *  page stays previewable while every real act needs the helper process. */
@@ -14,10 +14,10 @@ declare global {
   }
 }
 
-/** Which of the assistant's button looks to wear, in plain CSS. Only these
- *  two exist on purpose: a control that does something wears a shape, the one
- *  primary wears the gradient, and nothing in the card is a bare hover-wash
- *  that reads as a link. */
+/** Which of the assistant's button looks to wear, in plain CSS. Only these two
+ *  exist on purpose: a control that does something wears a shape, the one
+ *  primary wears the gradient, and nothing is a bare hover-wash that reads as a
+ *  link. */
 type Variant = "primary" | "outline";
 
 function bridge(): PanelBridge | undefined {
@@ -62,33 +62,48 @@ function section(label: string, children: Node[]): HTMLElement {
   return el;
 }
 
-/** The state word on its own, coloured by whether it still needs the person. */
-function valueSpan(value: StateValue): HTMLElement {
-  return element("span", `value${value.blocked ? " value-blocked" : " value-ok"}`, value.text);
+/**
+ * One labelled fact, in the dashboard's own shape: a strong muted `detail`
+ * label above a regular `body` value, weight, size, and colour distinguishing
+ * them together because muted colour alone is not enough to tell them apart.
+ */
+function fact(label: string, value: StateValue): HTMLElement {
+  const pair = element("div", "fact");
+  pair.append(
+    element("dt", "fact-label", label),
+    element("dd", `fact-value${value.blocked ? " is-blocked" : ""}`, value.text),
+  );
+  return pair;
 }
 
 /**
- * A settings row: the label and its state word together on the left, the one
- * control that changes them on the right. A control is optional because a
- * settled fact has nothing left to ask for, and the button never wraps its own
- * label, so a long sentence and a short control share the row honestly instead
- * of fighting for the same pixels.
+ * A fact and the one control that changes it. The value is gold when the
+ * person still has something to do and the page's own ink when it is settled,
+ * which is how the row tells "waiting on you" from "already true" at a glance.
  */
-function row(parts: { status?: string; value?: StateValue; control?: HTMLElement }): HTMLElement {
-  const el = element("div", "row");
-  if (parts.status !== undefined) el.append(element("span", "status", `${parts.status}:`));
-  if (parts.value) el.append(valueSpan(parts.value));
-  if (parts.control) el.append(parts.control);
+function row(label: string, value: StateValue, control?: HTMLElement): HTMLElement {
+  const el = element("dl", "row");
+  el.append(fact(label, value));
+  if (control) el.append(control);
   return el;
 }
 
 /**
- * A permission row. The buttons are `disabled` rather than hidden while consent
- * is off, with the reason as the title, because a control that is not there
- * cannot be explained. The helper refuses these requests as well, so a page
- * that somehow fires one still gets a refusal instead of a prompt.
+ * A permission row. While consent is off the buttons are `disabled` rather than
+ * hidden, because a control that is not there cannot be explained, and the
+ * reason is drawn inline in gold and named by aria-describedby: a native title
+ * is invisible to a person on touch who cannot hover, and unreliable for a
+ * screen reader. The helper refuses these requests as well, so a page that
+ * somehow fires one still gets a refusal instead of a prompt.
  */
-function permissionRow(label: string, granted: boolean, askLabel: string, action: PanelAction, consented: boolean) {
+function permissionRow(
+  label: string,
+  granted: boolean,
+  askLabel: string,
+  action: PanelAction,
+  consented: boolean,
+  reasonId: string,
+) {
   let ask: HTMLButtonElement | undefined;
   // Granted, there is nothing left to ask macOS for: the row states the fact
   // and offers no control. A button that opens a prompt which cannot appear is
@@ -97,9 +112,9 @@ function permissionRow(label: string, granted: boolean, askLabel: string, action
     ask = button(strings.allow, action, "outline");
     ask.setAttribute("aria-label", askLabel);
     ask.disabled = !consented;
-    if (!consented) ask.title = strings.permissionNeedsConsent;
+    if (!consented) ask.setAttribute("aria-describedby", reasonId);
   }
-  return row({ status: label, value: permissionValue(granted), control: ask });
+  return row(label, permissionValue(granted), ask);
 }
 
 function render(state: PanelState): void {
@@ -107,21 +122,22 @@ function render(state: PanelState): void {
   if (!root) return;
   root.replaceChildren();
 
-  const content = element("div", "content");
+  const card = element("section", "card");
   const header = element("header", "head");
   header.append(element("h1", "title", strings.title), element("p", "subtitle", strings.subtitle));
-  content.append(header);
+  card.append(header);
 
-  // The refusal goes above the card, the way the assistant's frame puts its
-  // problem line under the subtitle: it is why the screen still looks like
-  // this, so it has to be read before the button that failed is pressed again.
-  // role=alert announces it while the panel is open; it is the only live
-  // region, because the whole card is rebuilt on every push.
+  // role=alert so a refusal that arrives while the panel is open is announced,
+  // not just painted red. Above the controls, because it is why the screen
+  // still looks like this and has to be read before the failed button is
+  // pressed again.
   if (state.error) {
     const err = element("p", "error", state.error);
     err.setAttribute("role", "alert");
-    content.append(err);
+    card.append(err);
   }
+
+  const content = element("div", "content");
 
   // The warning sits above the button it warns about, not under it where a
   // person has already pressed the thing.
@@ -150,20 +166,43 @@ function render(state: PanelState): void {
   if (state.enabled) {
     content.append(
       section(strings.signInSection, [
-        row({
-          value: loginItemLine(state.loginItemNeedsApproval),
-          control: button(strings.openLoginItems, "openLoginItems", "outline"),
-        }),
+        row(
+          strings.loginItemLabel,
+          loginItemLine(state.loginItemNeedsApproval),
+          button(strings.openLoginItems, "openLoginItems"),
+        ),
       ]),
     );
   }
 
+  // One reason for both disabled buttons, drawn once in gold under the heading
+  // and named by each control's aria-describedby.
+  const blockedId = "permission-blocked";
+  const reason = element("p", "blocked-reason", strings.permissionNeedsConsent);
+  reason.id = blockedId;
   content.append(
     section(strings.permissions, [
-      permissionRow("Screen Recording", state.screenRecording, strings.requestCapture, "requestCapture", state.enabled),
-      permissionRow("Accessibility", state.accessibility, strings.requestInput, "requestInput", state.enabled),
+      ...(state.enabled ? [] : [reason]),
+      permissionRow(
+        "Screen recording",
+        state.screenRecording,
+        strings.requestCapture,
+        "requestCapture",
+        state.enabled,
+        blockedId,
+      ),
+      permissionRow(
+        "Accessibility",
+        state.accessibility,
+        strings.requestInput,
+        "requestInput",
+        state.enabled,
+        blockedId,
+      ),
     ]),
   );
+
+  card.append(content);
 
   // macOS puts a window's help at the bottom left and its exits at the bottom
   // right, so that is where they go. What they may NOT do is wear different
@@ -177,10 +216,10 @@ function render(state: PanelState): void {
   const exits = element("div", "bar-side bar-exits");
   exits.append(button(strings.minimize, "minimize"), button(strings.quit, "quit"));
   bar.append(help, exits);
+  card.append(bar);
 
-  root.append(content, bar);
+  root.append(card);
 
-  // The Swift window sizes to the content, so the page reports what it needs.
   // The Swift window sizes to the document, so the page reports both of its
   // own dimensions rather than the window guessing and the content scrolling.
   const box = root.getBoundingClientRect();
