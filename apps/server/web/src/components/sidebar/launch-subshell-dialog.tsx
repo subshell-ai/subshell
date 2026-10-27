@@ -105,15 +105,11 @@ export function LaunchSubshellDialog({
     }
   }
 
-  // Where a refusal renders: the Virtual display checkbox owns it while that control
-  // is on screen and switched on, and the form line takes it back when either is
-  // not, so a display refusal is never both invisible and orphaned.
-  // ONE variable for "the agent branch is on screen", shared by the split below
-  // and by the JSX that mounts `NewSubshellForm`, so the two cannot drift apart
-  // and strand a refusal in a field nobody rendered.
-  // ONE variable decides "the agent branch is on screen", read by both the
-  // split below and the JSX that mounts `NewSubshellForm`; written twice the two
-  // can drift, and a refusal handed to an unmounted field is invisible.
+  // ONE variable decides "the agent branch is on screen": the split below and the
+  // JSX that mounts `NewSubshellForm` both read it, because written twice the two
+  // can drift, and the drift silences the refusal. The field owns a display
+  // refusal while that control is on screen and switched on; otherwise the form
+  // line takes it back, so it is never both invisible and orphaned.
   const agentBranch = !(kind === "ssh" && open);
   const { field: displayLaunchError, form: formLaunchError } = splitLaunchError(
     error,

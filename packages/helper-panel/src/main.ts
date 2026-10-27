@@ -238,7 +238,11 @@ function render(state: PanelState): void {
     state.enabled ? "disable" : "enable",
     "primary",
   );
-  const note = element("p", "note", strings.enableNote);
+  // The note names the act THIS button performs. Shared, it told a screen
+  // reader reaching "Enable helper" that disabling stops capture, so the person
+  // deciding whether to be captured heard the opposite of what they were about
+  // to do.
+  const note = element("p", "note", state.enabled ? strings.disableNote : strings.enableNote);
   note.id = "enable-note";
   toggle.setAttribute("aria-describedby", "enable-note");
   content.append(

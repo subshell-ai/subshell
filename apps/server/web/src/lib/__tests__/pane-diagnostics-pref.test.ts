@@ -1,9 +1,19 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { paneDiagnosticsIds, setPaneDiagnosticsIds, togglePaneDiagnostics } from "@/lib/pane-diagnostics-pref";
+import {
+  paneDiagnosticsIds,
+  resetPaneDiagnosticsPrefForTests,
+  setPaneDiagnosticsIds,
+  togglePaneDiagnostics,
+} from "@/lib/pane-diagnostics-pref";
 
 describe("pane diagnostics preference (per-device, per-subshell)", () => {
   const KEY = "subshell.paneDiagnostics";
-  afterEach(() => localStorage.removeItem(KEY));
+  afterEach(() => {
+    localStorage.removeItem(KEY);
+    // The page-load memory is module state; leaving it set would let an earlier
+    // case's refused write answer for the next one.
+    resetPaneDiagnosticsPrefForTests();
+  });
 
   it("defaults to nothing on: a subshell nobody has diagnosed reads off", () => {
     expect(paneDiagnosticsIds()).toEqual([]);

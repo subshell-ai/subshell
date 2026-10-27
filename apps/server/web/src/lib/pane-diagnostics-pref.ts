@@ -27,14 +27,22 @@ const KEY = "subshell.paneDiagnostics";
  * rather than thrown away wholesale, and a non-array parses to nothing,
  * never to an exception on every render.
  */
+let lastWritten: string[] | undefined;
+let writeRefused = false;
+
 export function paneDiagnosticsIds(): string[] {
+  // Once a write has been refused this page load, the attempted set IS the
+  // device's answer: storage still reads back the stale value, and two surfaces
+  // asking the same question (the workspace header's menu and the dock terminal
+  // beside it) would diverge on it, one checked and one not.
+  if (writeRefused && lastWritten !== undefined) return [...lastWritten];
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === "string") : [];
   } catch {
-    return [];
+    return lastWritten ? [...lastWritten] : [];
   }
 }
 
@@ -55,14 +63,29 @@ const CHANGE_EVENT = "subshell:pane-diagnostics-change";
  */
 export function setPaneDiagnosticsIds(ids: readonly string[]): string[] {
   const next = [...ids];
+  lastWritten = next;
   try {
     localStorage.setItem(KEY, JSON.stringify(next));
   } catch {
-    // Storage refused: the choice still holds for this page load, which is
-    // the part the user is looking at.
+    // Storage refused (private mode, quota): the choice still holds for this
+    // page load, and `paneDiagnosticsIds` now answers from it so every
+    // instance on the page agrees rather than half of them reading a stale
+    // store they cannot write.
+    writeRefused = true;
   }
   window.dispatchEvent(new Event(CHANGE_EVENT));
   return next;
+}
+
+/**
+ * Drops the page-load memory of what was written. For tests only: the module
+ * keeps one answer across a page load on purpose, and a suite that shares this
+ * worker would otherwise read another file's refused write as its own state.
+ * @internal
+ */
+export function resetPaneDiagnosticsPrefForTests(): void {
+  lastWritten = undefined;
+  writeRefused = false;
 }
 
 /**

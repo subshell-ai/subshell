@@ -36,9 +36,16 @@ const paneGeo = () => {
   const [c, r] = tmux(["display-message", "-t", id, "-p", "#{pane_width}:#{pane_height}"]).trim().split(":");
   return { cols: Number(c), rows: Number(r) };
 };
-/** Reads EXACTLY like the agent's paneCursor, empty-field bug included. */
+/**
+ * Reads EXACTLY like the agent's `paneCursor`, including the digit guard
+ * `tmux-runner.ts` added: tmux can print `":"` for a pane caught mid-redraw and
+ * `Number("")` is 0, so a lenient parse anchors the replay at the top-left cell
+ * and reports a drift production no longer has. The probe's whole product is
+ * fidelity to production, so the two reads move together or the probe lies.
+ */
 const paneCursor = () => {
   const out = tmux(["display-message", "-t", id, "-p", "#{cursor_x}:#{cursor_y}"]).trim();
+  if (!/^\d+:\d+$/.test(out)) return null;
   const [rawX, rawY] = out.split(":");
   const x = Number(rawX);
   const y = Number(rawY);

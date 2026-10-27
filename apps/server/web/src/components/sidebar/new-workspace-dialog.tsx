@@ -193,15 +193,12 @@ export function NewWorkspaceDialog({
     enter(id);
   }
 
-  // Where a refusal renders: the Virtual display checkbox owns it while that control
-  // is on screen and switched on, and the form line takes it back when either is
-  // not, so a display refusal is never both invisible and orphaned.
-  // ONE variable for "the agent branch is on screen", used both by the split
-  // below and by the JSX that mounts `NewSubshellForm`; duplicated, the two can
-  // drift, and the drift silences the refusal.
-  // ONE variable decides "the agent branch is on screen", read by both the
-  // split below and the JSX that mounts `NewSubshellForm`, so a refusal is never
-  // assigned to a field that was not rendered.
+  // ONE variable decides "the agent branch is on screen": the split below and the
+  // JSX that mounts `NewSubshellForm` both read it, because written twice the two
+  // can drift, and the drift silences the refusal (a display refusal handed to a
+  // field that was never rendered, with the form line empty too). The field owns
+  // it while that control is on screen and switched on; otherwise the form line
+  // takes it back, so it is never both invisible and orphaned.
   const agentBranch = !createdId && mode !== "existing" && !(kind === "ssh" && open);
   const { field: displayLaunchError, form: formLaunchError } = splitLaunchError(
     error,

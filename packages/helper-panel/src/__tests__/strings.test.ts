@@ -100,13 +100,30 @@ describe("loginItemLine", () => {
   });
 });
 
-describe("enableNote", () => {
-  test("says only what turning it off costs", () => {
-    expect(strings.enableNote).toContain("stops capture and input");
-    // The note must not promise a sign-in start. Enabling no longer registers
-    // anything by itself, and that choice has its own row and its own control,
-    // so a second place claiming it is how the two start to disagree.
-    expect(strings.enableNote).not.toContain("starts at sign-in");
+describe("the consent button's note", () => {
+  test("each note names the act its own button performs", () => {
+    // One sentence served both states, so a screen reader reaching "Enable
+    // helper" heard "Disabling stops capture and input", and the person
+    // deciding whether this Mac may be captured has only that announcement to
+    // decide from. `main.ts` picks by `state.enabled`; these two must not be
+    // interchangeable.
+    expect(strings.enable).toBe("Enable helper");
+    expect(strings.disable).toBe("Disable helper");
+    expect(strings.enableNote).toContain("Enabling starts capture and input");
+    expect(strings.enableNote).not.toMatch(/Disabling/);
+    expect(strings.disableNote).toContain("Disabling stops capture and input");
+    expect(strings.disableNote).not.toMatch(/Enabling/);
+  });
+
+  test("neither note promises a sign-in start, and both say the rest stays", () => {
+    // Enabling no longer registers anything by itself, and that choice has its
+    // own row and control, so a second place claiming it is how the two start
+    // to disagree. What genuinely stays belongs in both sentences.
+    for (const note of [strings.enableNote, strings.disableNote]) {
+      expect(note).not.toContain("starts at sign-in");
+      expect(note).toContain("sign-in choice stay");
+      expect(note).toContain("macOS permissions");
+    }
   });
 
   test("offers the sign-in act that matches the state it leaves", () => {
