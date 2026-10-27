@@ -1,6 +1,6 @@
 import "./styles.css";
 import { EMPTY_STATE, type PanelAction, type PanelMessage, type PanelState } from "./state";
-import { loginItemLine, permissionLine, stateLine, strings, viewerLine } from "./strings";
+import { loginItemLine, permissionValue, stateLine, strings, viewerLine } from "./strings";
 
 /** The bridge the Swift side installs. Absent in a browser, which is how the
  *  page stays previewable while every real act needs the helper process. */
@@ -80,15 +80,24 @@ function row(status: string, control?: HTMLElement): HTMLElement {
  * cannot be explained. The helper refuses these requests as well, so a page
  * that somehow fires one still gets a refusal instead of a prompt.
  */
-function permissionRow(label: string, granted: boolean, requestLabel: string, action: PanelAction, consented: boolean) {
+function permissionRow(label: string, granted: boolean, askLabel: string, action: PanelAction, consented: boolean) {
+  const el = element("div", "row");
+  const value = permissionValue(granted);
+  el.append(
+    element("span", "status", `${label}:`),
+    element("span", `value${value.blocked ? " value-blocked" : " value-ok"}`, value.text),
+  );
   // Granted, there is nothing left to ask macOS for: the row states the fact
   // and offers no control. A button that opens a prompt which cannot appear is
   // worse than none, because pressing it and seeing nothing looks like a hang.
-  if (granted) return row(permissionLine(label, true));
-  const btn = button(requestLabel, action, "outline");
-  btn.disabled = !consented;
-  if (!consented) btn.title = strings.permissionNeedsConsent;
-  return row(permissionLine(label, granted), btn);
+  if (!granted) {
+    const btn = button(strings.allow, action, "outline");
+    btn.setAttribute("aria-label", askLabel);
+    btn.disabled = !consented;
+    if (!consented) btn.title = strings.permissionNeedsConsent;
+    el.append(btn);
+  }
+  return el;
 }
 
 function render(state: PanelState): void {

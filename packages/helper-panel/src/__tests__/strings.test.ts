@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { EMPTY_STATE, type PanelState } from "../state";
-import { loginItemLine, permissionLine, stateLine, strings, viewerLine } from "../strings";
+import { loginItemLine, permissionValue, stateLine, strings, viewerLine } from "../strings";
 
 /**
  * The panel's copy is its consent interface, so the words are the behavior
@@ -35,12 +35,12 @@ describe("the consent warning", () => {
 
   test("puts the ellipsis only where another app opens", () => {
     // macOS convention, and the dashboard's: "…" means a dialog or another
-    // app is about to take over. The setup guide opens the browser from a link
-    // and says so by wearing none.
-    for (const label of [strings.openLoginItems, strings.requestCapture, strings.requestInput]) {
-      expect(label.endsWith("…")).toBe(true);
+    // app is about to take over. System Settings does; the browser link and
+    // the "Allow" buttons do not, because the row already names the permission.
+    expect(strings.openLoginItems.endsWith("…")).toBe(true);
+    for (const label of [strings.allow, strings.openDocs, strings.minimize, strings.quit]) {
+      expect(label.endsWith("…")).toBe(false);
     }
-    expect(strings.openDocs.endsWith("…")).toBe(false);
   });
 });
 
@@ -97,9 +97,12 @@ describe("viewerLine", () => {
   });
 });
 
-describe("permissionLine", () => {
-  test("states the label and the machine's answer in one readable row", () => {
-    expect(permissionLine("Screen Recording", true)).toBe("Screen Recording: Allowed");
-    expect(permissionLine("Accessibility", false)).toBe("Accessibility: Not allowed");
+describe("permissionValue", () => {
+  test("says the state, and marks the one the person can still act on", () => {
+    // Gold for "Not allowed" and plain ink for "Allowed" is the whole point:
+    // a settled fact must not compete for attention with the row that still
+    // needs a click in System Settings.
+    expect(permissionValue(true)).toEqual({ text: "Allowed", blocked: false });
+    expect(permissionValue(false)).toEqual({ text: "Not allowed", blocked: true });
   });
 });
