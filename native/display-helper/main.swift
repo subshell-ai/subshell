@@ -69,8 +69,12 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
         settingsItem.target = self; menu.addItem(settingsItem)
         let minimize = NSMenuItem(title: "Minimize helper", action: #selector(minimizeSettings), keyEquivalent: "m")
         minimize.target = self; minimize.isEnabled = settings.isShowing; menu.addItem(minimize)
-        let disable = NSMenuItem(title: "Disable helper", action: #selector(disableHelper), keyEquivalent: "")
-        disable.target = self; disable.isEnabled = consent.enabled; menu.addItem(disable)
+        // One item, named for the direction it goes. The menu used to carry
+        // only "Disable helper", greyed once consent was off, which left a
+        // person who had just disabled the helper with a settings window as the
+        // only way back to running.
+        let toggle = NSMenuItem(title: AccessReport.toggleTitle(enabled: consent.enabled), action: #selector(toggleHelper), keyEquivalent: "")
+        toggle.target = self; menu.addItem(toggle)
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit helper", action: #selector(quitHelper), keyEquivalent: "")
         quit.target = self; menu.addItem(quit)
@@ -91,7 +95,17 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
 
     @objc private func showSettings() { settings.show() }
     @objc private func minimizeSettings() { settings.minimize() }
-    @objc private func disableHelper() { settings.disableHelper(); settings.show() }
+    /// Enable or disable from the menu, then raise the panel: the consent
+    /// sentence and the state belong where the person can read what they just
+    /// agreed to, and a failure has to land on the thing that failed.
+    @objc private func toggleHelper() {
+        if consent.enabled {
+            settings.disableHelper()
+        } else {
+            settings.enableHelper()
+        }
+        settings.show()
+    }
     // Same split as the panel's button: leaving the menu's Quit does not revoke
     // consent, and `applicationWillTerminate` tears down every capture.
     @objc private func quitHelper() { NSApp.terminate(nil) }

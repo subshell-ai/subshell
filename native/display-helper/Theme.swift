@@ -75,6 +75,13 @@ enum AccessReport {
     /// telling them which helper this menu belongs to.
     static let heading = "Subshell virtual display helper"
 
+    /// What the one consent item is called, in the panel and in the status menu
+    /// alike. The menu used to offer only "Disable helper", so a person who had
+    /// just disabled the helper found the way back was a settings window.
+    static func toggleTitle(enabled: Bool) -> String {
+        return enabled ? "Disable helper" : "Enable helper"
+    }
+
     /// The tooltip on the status item: honest about who is doing what.
     static func tooltip(enabled: Bool, viewers: Int) -> String {
         if viewers > 0 {

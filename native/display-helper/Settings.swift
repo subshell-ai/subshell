@@ -248,7 +248,11 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
         pushState(force: true)
     }
 
-    private func enableHelper() {
+    /// The consent act, both halves: the runtime starts listening, and macOS is
+    /// told to launch the helper at sign-in. Public because the status menu
+    /// offers the same act, and a menu that enabled without registering the
+    /// login item would leave a helper that never came back.
+    func enableHelper() {
         errorMessage = ""
         do {
             try enable()
