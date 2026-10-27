@@ -27,6 +27,14 @@ export const strings = {
   openDocs: "Setup instructions",
   minimize: "Minimize helper",
   quit: "Quit helper",
+  /* The confirmation names the action, then the body says what stops, what
+   * stays, and how to get back in. Quitting also unregisters the login item's
+   * running copy, so "it comes back" is the fact a person needs most and the
+   * one a silent quit would never tell them. */
+  quitTitle: "Quit the display helper?",
+  quitBody:
+    "Anyone watching a virtual display on this Mac loses it now. Your consent and the macOS permissions stay, and the helper starts again at sign-in, or sooner from Subshell's virtual display settings. To stop it coming back, disable it first.",
+  cancel: "Cancel",
   /* What the button says, and what it says to a screen reader. The visible
    * label is one word because the row already names the permission; the
    * accessible name has to stand alone in a list of controls, where two

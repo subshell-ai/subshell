@@ -235,9 +235,12 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
         case "openDocs":
             if let url = URL(string: Self.docsURL) { NSWorkspace.shared.open(url) }
         case "minimize": minimize()
-        case "quit":
-            disableHelper()
-            NSApp.terminate(nil)
+        // Quit is lifecycle only. It used to call disableHelper() too, which
+        // revoked the person's stored consent and unregistered the login item:
+        // an app's Close button silently destroying the very permission the
+        // panel exists to collect, so every reopen started from Disabled.
+        // "Disable helper" remains the consent act, in this panel and the menu.
+        case "quit": NSApp.terminate(nil)
         // An action this binary does not know is a page newer than the
         // helper: ignore it rather than guess at what it asked for.
         default: break

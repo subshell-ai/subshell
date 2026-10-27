@@ -18,7 +18,7 @@ declare global {
  *  exist on purpose: a control that does something wears a shape, the one
  *  primary wears the gradient, and nothing is a bare hover-wash that reads as a
  *  link. */
-type Variant = "primary" | "outline";
+type Variant = "primary" | "outline" | "destructive";
 
 function bridge(): PanelBridge | undefined {
   return window.webkit?.messageHandlers?.subshell;
@@ -35,11 +35,24 @@ function element<Tag extends keyof HTMLElementTagNameMap>(
   return el;
 }
 
-function button(label: string, action: PanelAction, variant: Variant = "outline"): HTMLButtonElement {
+function makeButton(label: string, variant: Variant): HTMLButtonElement {
   const el = element("button", `btn btn-${variant}`);
   el.type = "button";
   el.textContent = label;
+  return el;
+}
+
+/** A control that asks the helper to do something. */
+function button(label: string, action: PanelAction, variant: Variant = "outline"): HTMLButtonElement {
+  const el = makeButton(label, variant);
   el.addEventListener("click", () => bridge()?.postMessage({ action }));
+  return el;
+}
+
+/** A control that does something in the page instead, like opening a dialog. */
+function pageButton(label: string, variant: Variant, onClick: () => void): HTMLButtonElement {
+  const el = makeButton(label, variant);
+  el.addEventListener("click", onClick);
   return el;
 }
 
@@ -116,6 +129,54 @@ function permissionRow(
   }
   return row(label, permissionValue(granted), ask);
 }
+
+/**
+ * Whether the quit confirmation is up. Page-local and transient on purpose:
+ * it is not a fact about the machine, and the helper never reads it. It
+ * survives a state push because `render` draws it from here.
+ */
+let confirmingQuit = false;
+
+function closeQuitDialog(): void {
+  confirmingQuit = false;
+  render(current);
+}
+
+/**
+ * The confirmation for the one act in this panel that is not reversible from
+ * the window itself: quitting. The title asks and names the action; the body
+ * says what stops, what stays, and how to get back, which is the part a silent
+ * quit never told anyone. Cancel is focused, and Escape dismisses, because the
+ * safe answer must be the easy one.
+ */
+function quitDialog(): HTMLElement {
+  const scrim = element("div", "scrim");
+  const dialog = element("div", "dialog");
+  dialog.setAttribute("role", "dialog");
+  dialog.setAttribute("aria-modal", "true");
+  dialog.setAttribute("aria-labelledby", "quit-title");
+  dialog.setAttribute("aria-describedby", "quit-body");
+  const title = element("h2", "dialog-title", strings.quitTitle);
+  title.id = "quit-title";
+  const body = element("p", "dialog-body", strings.quitBody);
+  body.id = "quit-body";
+  const foot = element("div", "dialog-foot");
+  const cancel = pageButton(strings.cancel, "outline", closeQuitDialog);
+  const confirm = pageButton(strings.quit, "destructive", () => bridge()?.postMessage({ action: "quit" }));
+  foot.append(cancel, confirm);
+  dialog.append(title, body, foot);
+  scrim.append(dialog);
+  // Focus the way out, not the act.
+  queueMicrotask(() => cancel.focus());
+  return scrim;
+}
+
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && confirmingQuit) {
+    event.preventDefault();
+    closeQuitDialog();
+  }
+});
 
 function render(state: PanelState): void {
   const root = document.getElementById("panel");
@@ -214,11 +275,18 @@ function render(state: PanelState): void {
   const help = element("div", "bar-side");
   help.append(button(strings.openDocs, "openDocs"));
   const exits = element("div", "bar-side bar-exits");
-  exits.append(button(strings.minimize, "minimize"), button(strings.quit, "quit"));
+  // The bar's Quit opens the confirmation; only the dialog's Confirm posts
+  // `quit`, so the act still belongs to the helper and the page only asks.
+  const askQuit = pageButton(strings.quit, "outline", () => {
+    confirmingQuit = true;
+    render(current);
+  });
+  exits.append(button(strings.minimize, "minimize"), askQuit);
   bar.append(help, exits);
   card.append(bar);
 
   root.append(card);
+  if (confirmingQuit) root.append(quitDialog());
 
   // The Swift window sizes to the document, so the page reports both of its
   // own dimensions rather than the window guessing and the content scrolling.
