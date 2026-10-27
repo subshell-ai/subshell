@@ -382,7 +382,11 @@ describe("the consent copy's reachability", () => {
   ];
 
   test("the copy object holds exactly the words it is meant to hold", () => {
-    expect(Object.keys(strings).sort()).toEqual([...COPY_KEYS].sort());
+    // `Reflect.ownKeys`, not `Object.keys`: a property defined with
+    // `enumerable: false` is invisible to the latter, and `Object.defineProperty`
+    // inside this very module (which the page sweep exempts) is how a consent note
+    // could come back while the closed set below still read 27 keys.
+    expect(Reflect.ownKeys(strings).map(String).sort()).toEqual([...COPY_KEYS].sort());
   });
 
   test("the module exports no way past the one door", () => {
