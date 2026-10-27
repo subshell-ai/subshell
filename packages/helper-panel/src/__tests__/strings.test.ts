@@ -85,6 +85,16 @@ describe("loginItemLine", () => {
   });
 });
 
+describe("enableNote", () => {
+  test("says only what turning it off costs", () => {
+    // The sign-in fact has its own section now. Saying it in two places is how
+    // one of them ends up contradicting the other after the next change.
+    expect(strings.enableNote).toContain("stops capture and input");
+    expect(strings.enableNote.toLowerCase()).not.toContain("sign-in");
+    expect(strings.enableNote.toLowerCase()).not.toContain("sign in");
+  });
+});
+
 describe("viewerLine", () => {
   test("says nobody is watching when no capture is held", () => {
     expect(viewerLine(stateWith({ enabled: true, viewers: 0 }))).toContain("No one is viewing");

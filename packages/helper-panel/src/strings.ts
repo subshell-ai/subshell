@@ -19,11 +19,15 @@ export const strings = {
   warning:
     "macOS shares one desktop: a viewer's pointer is the real cursor, and other windows can appear in the stream. Enable this only for people you trust to control this Mac.",
   access: "Access",
+  /* Its own section, not a row under Access: whether the helper comes back
+   * after a sign-in is macOS's launch bookkeeping, a different question from
+   * whether the person has agreed to be captured. The heading is also what
+   * lets the enable note below stop claiming the fact twice. */
+  signInSection: "Launch at sign-in",
   permissions: "macOS permissions",
   enable: "Enable helper",
   disable: "Disable helper",
-  enableNote:
-    "While enabled the helper runs in the background and starts at sign-in. Disabling stops capture and input; your subshells and macOS permissions stay.",
+  enableNote: "Disabling stops capture and input. Your subshells and macOS permissions stay.",
   loginItemPending: "Needs approval in System Settings under Login Items.",
   loginItemRegistered: "Starts at sign-in with macOS.",
   openLoginItems: "Open login items…",
