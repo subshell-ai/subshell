@@ -13,9 +13,11 @@ import {
  * pane's menu in the header, the dock terminal below it) can share one
  * preference without either owning the other.
  *
- * Every read goes back to storage rather than trusting local state, so a
- * change from the other component, or from another tab of this device, is
- * what renders; a toggle never has to know who is listening.
+ * Every read goes back to the preference module rather than to local state, so
+ * a change from the other component, or from another tab of this device, is
+ * what renders; a toggle never has to know who is listening. The module reads
+ * storage, except for the rest of a page load whose writes the device refused,
+ * where it answers from the set it tried to store so both halves agree.
  *
  * @param id - the subshell whose HUD this is, or undefined while no pane is
  *             in view (reads off, toggles do nothing)

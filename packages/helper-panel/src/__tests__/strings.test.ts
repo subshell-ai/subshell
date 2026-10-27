@@ -50,10 +50,19 @@ describe("the consent warning", () => {
     expect(strings.capturePermissionLabel).toBe("Screen recording");
     expect(strings.inputPermissionLabel).toBe("Accessibility");
     const source = await Bun.file(new URL("../main.ts", import.meta.url)).text();
-    expect(source).toContain("strings.capturePermissionLabel");
-    expect(source).toContain("strings.inputPermissionLabel");
-    for (const label of ['"Screen recording"', '"Accessibility"']) {
-      expect(source, `main.ts renders no copy of its own (${label})`).not.toContain(label);
+    // Comments are stripped before the search, because a comment is ALLOWED to
+    // name the permission (several do) while code is not. Searching the raw file
+    // for `"Screen recording"` only was the weaker version of this: JSX text
+    // (`>Screen recording<`), a single-quoted prop, and a template literal all
+    // re-introduce the drift this guards and none of them contain a double quote.
+    const code = source
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "")
+      .replace(/([^:"'])\/\/[^"\n]*$/g, "$1");
+    expect(code).toContain("strings.capturePermissionLabel");
+    expect(code).toContain("strings.inputPermissionLabel");
+    for (const label of ["Screen recording", "Accessibility"]) {
+      expect(code, `main.ts renders no copy of its own (${label})`).not.toContain(label);
     }
   });
 
@@ -161,8 +170,16 @@ describe("the consent button's note", () => {
     // `state.enabled` a second time beside the note.
     const source = await Bun.file(new URL("../main.ts", import.meta.url)).text();
     expect(source).toContain("consentControl(state)");
-    expect(source).not.toMatch(/state\.enabled\s*\?\s*strings\.(disable|enable)Note/);
-    expect(source).not.toMatch(/state\.enabled\s*\?\s*strings\.(disable|enable)\b/);
+    // Not a ternary-shaped pattern test: the defect was a pair decided twice, so
+    // the rule is that the page never touches those four strings at all. A
+    // `switch (state.enabled)`, an `if`, or an `on` alias would each slip past a
+    // regex anchored on `state.enabled ?` and put the announced opposite act
+    // straight back under the button.
+    for (const name of ["enable", "disable", "enableNote", "disableNote"]) {
+      expect(source, `main.ts decides the consent pair only through consentControl (${name})`).not.toContain(
+        `strings.${name}`,
+      );
+    }
   });
 
   test("offers the sign-in act that matches the state it leaves", () => {

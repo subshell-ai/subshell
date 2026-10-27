@@ -41,7 +41,7 @@ export const DEFAULT_VIRTUAL_DISPLAY_PROVIDER = "xvfb-x11vnc";
  * plane guess at a machine it holds no fact about. Every reader here treats it as
  * the absence of an answer, which is also what a null means. The node is the
  * authority on what runs there: it looks for the programs, and it refuses a
- * provider it cannot drive BY NAME (`preview-display-unsupported`, from
+ * provider it cannot drive, by name (`preview-display-unsupported`, from
  * `xvfbDisplayReadiness` and the provider's own platform check, which is stricter
  * than anything the catalog could say from an unclassified `os`). What
  * no-verdict preserves is the owner's path on a node that enrolled and never came

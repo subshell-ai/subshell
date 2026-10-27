@@ -48,13 +48,18 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
         restoreStrandedCursor()
         if consent.enabled {
             do { try runtime.enable() }
-            // Stopped, not revoked. A sign-in that cannot bind its socket has
-            // nothing to do with the person's agreement: `disable()` clears
-            // consent first, so recovering from a transient failure here would
-            // silently un-consent a Mac and leave the next start capturing
-            // nothing until someone pressed Enable again. `shutdown()` is the
-            // teardown it asked for (and is safe to reach again at termination).
-            catch { runtime.shutdown() }
+            // Two wrong answers, and one right one. `disable()` clears consent
+            // before it closes anything, so a transient failure here would
+            // silently un-consent a Mac whose person never changed their mind.
+            // Staying alive is wrong the other way: with the listener down the
+            // menu and the panel both read "Enabled" over a machine capturing
+            // nothing, and this panel exists to be truthful about capture. Leaving
+            // is the same answer the socket gives two pages up, and it keeps the
+            // agreement. Unreachable today, because `listenForStatus()` has already
+            // bound and `Listener.start()` returns early when a descriptor exists:
+            // it is here so that whoever adds a throwing step to `enable()` finds a
+            // honest failure, not a lying menu.
+            catch { NSApp.terminate(nil); return }
         }
         // Who is allowed to open the panel decides whether this run stays.
         let opensPanel = CommandLine.arguments.contains("--settings")
@@ -170,9 +175,19 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
         let confirm = alert.addButton(withTitle: QuitCopy.confirm)
         confirm.hasDestructiveAction = true
         // An accessory app has no key window to hang the alert on, so it comes
-        // forward first. `activate(ignoringOtherApps:)` is the deprecated shape
-        // of this call on the helper's own deployment target.
-        NSApp.activate()
+        // forward first, and it has to come forward over whatever app the person
+        // was in: the menu is still clickable through an app-modal session, so an
+        // alert left behind another window reads as a menu that does nothing.
+        //
+        // Apple marks this form deprecated as of macOS 14, and it is still the
+        // right call here: it is the shape main has shipped through the macOS lane
+        // (where warnings are errors, so a warning would have surfaced), while the
+        // no-argument `activate()` arrived with the macOS 14 SDK and nothing in
+        // this repo has ever compiled it. Note also that this file is outside that
+        // lane's reach at all - `test.sh` excludes `main.swift` - so the release
+        // build is the only thing that would tell us, and it passes no
+        // `-warnings-as-errors`.
+        NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertFirstButtonReturn { return }
         NSApp.terminate(nil)
     }

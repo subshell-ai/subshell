@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { SubshellPane } from "@/components/subshell-pane";
-import { setPaneDiagnosticsIds } from "@/lib/pane-diagnostics-pref";
+import { resetPaneDiagnosticsPrefForTests, setPaneDiagnosticsIds } from "@/lib/pane-diagnostics-pref";
 import type { WorkspacePaneRow } from "@/types/workspace";
 
 /**
@@ -187,7 +187,13 @@ describe("SubshellPane node-offline state (spec §5.6 precedence)", () => {
  * the HUD over the terminal the header stands above.
  */
 describe("SubshellPane diagnostics HUD", () => {
-  afterEach(() => localStorage.removeItem("subshell.paneDiagnostics"));
+  afterEach(() => {
+    localStorage.removeItem("subshell.paneDiagnostics");
+    // The module also keeps a page-load memory of a refused write, which is
+    // exactly the module state `resetPaneDiagnosticsPrefForTests` exists to
+    // clear so this file cannot answer for the next one in the worker.
+    resetPaneDiagnosticsPrefForTests();
+  });
 
   it("renders the HUD for a subshell this device turned on", async () => {
     setPaneDiagnosticsIds(["s1"]);

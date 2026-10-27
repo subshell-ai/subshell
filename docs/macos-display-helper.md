@@ -171,7 +171,8 @@ The review fixed three revocation gaps:
 Validation passed: 564 pane-runtime tests, 57 preview-route authorization tests,
 TypeScript checks, and lint (with existing warnings). On the M5, native tests
 covered consent, rejected RPCs while disabled, and revocation during capture
-startup; all Swift sources compiled with warnings treated as errors for arm64
+startup; every Swift source the native test script compiles (all of them except
+`main.swift`, which it excludes) built with warnings treated as errors for arm64
 and x86_64. These tests used temporary files and preferences and requested no
 privacy permissions. The temporary terminal and build directory were removed.
 

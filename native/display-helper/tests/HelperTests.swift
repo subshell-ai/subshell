@@ -172,7 +172,13 @@ struct HelperTests {
         precondition(
             !PanelBundle.allows(file(bundleRoot.path + "/panel-evil/x.html"), within: panel),
             "a sibling sharing the directory's name is refused")
-        precondition(!PanelBundle.allows(URL(string: "https://plane.example.test/")!, within: panel), "no network document")
+        // Scheme, not shape. Every other refusal here has a path that could not
+        // match the prefix anyway, so only a network URL WEARING the bundle's own
+        // path pins the `isFileURL` half of the guard: delete it and this is the
+        // case that goes green on a page fetched from anywhere.
+        precondition(
+            !PanelBundle.allows(URL(string: "https://plane.example.test\(panel.path)/x.html")!, within: panel),
+            "a network document is refused even wearing the bundle's path")
         precondition(!PanelBundle.allows(nil, within: panel), "no url is no answer")
         precondition(!PanelBundle.allows(file(panel.path + "/index.html"), within: nil), "no bundle directory allows nothing")
         // And the real entry point, with no bundle around it at all: the same

@@ -161,10 +161,11 @@ describe("resolveNodeDisplayRequest", () => {
   });
 
   it("refuses a display on a node whose switch is off", async () => {
-    // At 409, the restart door. The create path checks the same flag earlier
-    // (`subshells.service.ts`'s preflight, 400, its own sentence), so this
-    // resolver's switch refusal is only ever reached from a restart: asserting it
-    // at 400 would stay green against text no create can emit.
+    // At 409, the restart door, which is where this sentence is normally heard.
+    // Create checks the same flag earlier (`subshells.service.ts`'s preflight, at
+    // 400, with its own words), so asserting that pair here would mostly pin the
+    // preflight's text; the resolver's own line does remain reachable at 400 if
+    // the owner flips the switch between the two reads.
     const id = await mkNode({ os: "linux", enabled: 0, providers: ["xvfb-x11vnc"] });
     const { message } = await refused(id, "xvfb-x11vnc", 409);
     expect(message).toContain("Allow virtual displays");

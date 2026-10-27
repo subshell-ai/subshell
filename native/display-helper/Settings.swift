@@ -105,17 +105,26 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
     func show() {
         if window == nil { build() }
         refresh()
+        // The panel is opened from the desktop app's button as well as from this
+        // helper's menu, so the click may have landed in another app, and an
+        // accessory app is not trusted to pull its own window over the frontmost
+        // one on someone else's keystroke. Ordering it up regardless is what makes
+        // the press visible; the activation call is the one this helper has always
+        // shipped and the one the macOS lane compiles clean.
+        //
+        // Apple marks `activate(ignoringOtherApps:)` deprecated as of macOS 14,
+        // and `test.sh` does treat warnings as errors, yet main has built this call
+        // through that lane, so on this toolchain the deprecation is not a warning.
+        // The no-argument `activate()` arrived with the macOS 14 SDK and nothing
+        // here has ever compiled it: if the runner's SDK predates that, it is a
+        // hard error, not a warning. Keep the proven call, and swap it only after
+        // the mac lane says so. Note the lane's reach: `test.sh` compiles every
+        // source EXCEPT `main.swift`, and the release build in `build_support.rs`
+        // passes no `-warnings-as-errors` at all, so this file is guarded and the
+        // app delegate is not.
         window?.makeKeyAndOrderFront(nil)
-        // This window is opened from the desktop app's own button as well as from
-        // this helper's menu, so the click may have landed in another app. An
-        // accessory app's `activate()` is not trusted to pull a window over the
-        // frontmost one, and the call that used to insist,
-        // `activate(ignoringOtherApps:)`, is deprecated on this deployment target
-        // (macOS 14) - which is an error here, because `test.sh` and the release
-        // build compile every source with warnings treated as errors. Order it
-        // up regardless, then activate so the fields take keystrokes.
         window?.orderFrontRegardless()
-        NSApp.activate()
+        NSApp.activate(ignoringOtherApps: true)
         onVisibilityChange?()
     }
 

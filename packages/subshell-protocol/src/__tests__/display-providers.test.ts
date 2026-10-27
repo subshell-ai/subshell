@@ -8,7 +8,6 @@ import {
   parseDisplayProviderIds,
   parseVirtualDisplayRequest,
   storedDisplayProviderIds,
-  VIRTUAL_DISPLAY_PROVIDERS,
 } from "../display-providers.js";
 import { parseNodeCommandBody, parseNodePreviewEnabled } from "../node-frames.js";
 
@@ -16,9 +15,11 @@ it("names one OS per bundled provider, and the pickers ask that OS", () => {
   // A provider with no platform here is offered everywhere, which is the
   // defect: the launch dialog showed Xvfb + VNC on a Mac node, and the person
   // found out at launch. Adding a provider means saying what it runs on.
-  for (const provider of VIRTUAL_DISPLAY_PROVIDERS) {
-    expect(provider.platform).toBeOneOf(["linux", "darwin"]);
-  }
+  // No loop over `platform` here: the catalog is declared
+  // `as const satisfies readonly DisplayProviderCatalogEntry[]`, so an entry
+  // without a platform, or with one outside `DisplayProviderPlatform`, is a
+  // compile error before any test can see it (docs/testing.md: don't test what
+  // TypeScript already checks).
   expect(displayProvidersForOs("linux").map((p) => p.id)).toEqual(["xvfb-x11vnc"]);
   expect(displayProvidersForOs("darwin").map((p) => p.id)).toEqual(["betterdisplay"]);
   // A named platform nothing supports is "no choice", which is what stops the

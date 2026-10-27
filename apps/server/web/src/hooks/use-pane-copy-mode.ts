@@ -19,8 +19,11 @@ export function usePaneCopyMode(subshellId: string) {
   function onToggle() {
     const nextOn = !on;
     const otherIds = paneCopyModeIds().filter((id) => id !== subshellId);
-    setPaneCopyModeIds(nextOn ? [...otherIds, subshellId] : otherIds);
-    setMode({ id: subshellId, on: nextOn });
+    // Bind to what the module now holds rather than to the intention: when the
+    // device refuses the write that answer is the page-load memory, and this is
+    // the only place that decides whether the menu and the touch bar agree.
+    const stored = setPaneCopyModeIds(nextOn ? [...otherIds, subshellId] : otherIds);
+    setMode({ id: subshellId, on: stored.includes(subshellId) });
     toast.success(nextOn ? "Text copying enabled" : "Text input enabled");
   }
   return { on, onToggle };

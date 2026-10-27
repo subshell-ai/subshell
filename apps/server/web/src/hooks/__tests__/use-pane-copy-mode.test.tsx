@@ -1,12 +1,15 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { toast } from "sonner";
-import { paneCopyModeIds, setPaneCopyModeIds } from "@/lib/pane-copy-mode-pref";
+import { paneCopyModeIds, resetPaneCopyModePrefForTests, setPaneCopyModeIds } from "@/lib/pane-copy-mode-pref";
 import { usePaneCopyMode } from "../use-pane-copy-mode";
 
 afterEach(() => {
   cleanup();
   setPaneCopyModeIds([]);
+  // A refused write in one test would otherwise answer for the next file that
+  // reads this module in the same worker.
+  resetPaneCopyModePrefForTests();
 });
 
 test("the shared toggle persists each mode and confirms both transitions", () => {

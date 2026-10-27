@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  bundledProvidersForMachine,
   nodeDefaultForMachine,
   offeredDisplayProviders,
   providerForMachine,
@@ -84,8 +85,14 @@ describe("providersForMachine", () => {
   });
 
   it("returns a copy, not the caller's array", () => {
+    // Non-identity is the assertion. `displayProvidersForOs` in the protocol hands
+    // back the shared catalog constant, so a wrapper written the same way would
+    // pass an `toEqual` check while a surface sorting its list in place corrupted
+    // the module-level list for every other reader.
     const source = Object.freeze(BOTH);
-    expect(providersForMachine(source, null)).toEqual(BOTH);
+    const result = providersForMachine(source, null);
+    expect(result).toEqual(BOTH);
+    expect(result).not.toBe(source);
   });
 });
 
@@ -100,6 +107,20 @@ describe("nodeDefaultForMachine", () => {
     // label may name it: nothing here has contradicted it.
     expect(nodeDefaultForMachine("xvfb-x11vnc", "unknown")).toBe("xvfb-x11vnc");
     expect(nodeDefaultForMachine(undefined, "linux")).toBeUndefined();
+  });
+});
+
+describe("bundledProvidersForMachine", () => {
+  it("hands the launch surfaces the catalog the protocol says this machine has", () => {
+    // One line of delegation, pinned once: both the node card and the preset
+    // editor filter their rows through here, and the pair-agreement property
+    // below only holds if the list half really asks the protocol.
+    expect(bundledProvidersForMachine("linux").map((p) => p.id)).toEqual(["xvfb-x11vnc"]);
+    expect(bundledProvidersForMachine("darwin").map((p) => p.id)).toEqual(["betterdisplay"]);
+    for (const unanswered of [null, undefined, "unknown"]) {
+      expect(bundledProvidersForMachine(unanswered).map((p) => p.id)).toEqual(["xvfb-x11vnc", "betterdisplay"]);
+      expect(providersForMachine(["xvfb-x11vnc"], unanswered)).toEqual(["xvfb-x11vnc"]);
+    }
   });
 });
 
