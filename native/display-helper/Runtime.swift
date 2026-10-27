@@ -72,7 +72,13 @@ final class HelperRuntime {
     }
 
     private func handle(_ request: [String: Any], _ connection: HelperConnection) {
-        guard let operation = request["op"] as? String, consent.enabled || operation == "status" else { connection.close(); return }
+        // `rescue-cursor` is allowed without consent: by the time the daemon
+        // asks for it the display it stranded the pointer on is already gone,
+        // and the action only puts the cursor back where the person at this
+        // Mac can see it.
+        guard let operation = request["op"] as? String,
+              consent.enabled || operation == "status" || operation == "rescue-cursor"
+        else { connection.close(); return }
         let now = ProcessInfo.processInfo.systemUptime
         let previous = rates[connection.id] ?? (now, 0)
         let rate = now - previous.0 >= 1 ? (now, 1) : (previous.0, previous.1 + 1)
@@ -116,6 +122,9 @@ final class HelperRuntime {
                 catch { input.release(); connection.send(["type": "input_blocked", "message": error.localizedDescription]) }
             case "release": inputs[connection.id]?.release()
             case "stop": connection.close()
+            case "rescue-cursor":
+                restoreStrandedCursor()
+                connection.send(["type": "rescued", "protocol": 1])
             default: throw HelperFailure.message("Unknown helper request.")
             }
         } catch {
