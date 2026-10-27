@@ -19,7 +19,14 @@ export const strings = {
   permissions: "macOS permissions",
   enable: "Enable helper",
   disable: "Disable helper",
-  enableNote: "Disabling stops capture and input. Your subshells, macOS permissions, and sign-in choice stay.",
+  /* What the consent button's own note says, per the act it labels. One string
+   * for both states described the WRONG act: a screen reader reaching the
+   * "Enable helper" control heard "Disabling stops capture and input", and the
+   * person deciding whether to be captured has only that announcement. Gold
+   * `detail` text, the same size either way; `main.ts` picks by `state.enabled`. */
+  enableNote:
+    "Enabling starts capture and input on this Mac. Your subshells, macOS permissions, and sign-in choice stay.",
+  disableNote: "Disabling stops capture and input. Your subshells, macOS permissions, and sign-in choice stay.",
   /* The sign-in choice is the person's own, so each state offers the one act
    * that changes it: register, stop registering, or go where macOS is waiting
    * for approval. Enabling the helper never registers anything by itself. */

@@ -12,7 +12,7 @@ import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@t
 import { PaneFocusHeader } from "@/components/pane-focus-header";
 import { usePublishPaneDevices } from "@/hooks/use-pane-devices";
 import { usePaneDiagnostics } from "@/hooks/use-pane-diagnostics";
-import { paneDiagnosticsIds } from "@/lib/pane-diagnostics-pref";
+import { paneDiagnosticsIds, resetPaneDiagnosticsPrefForTests } from "@/lib/pane-diagnostics-pref";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import { resetWorkspaceFocusForTests, setWorkspaceFocusedId } from "@/lib/workspace-focus";
 import type { SubshellView } from "@/types/subshell";
@@ -115,7 +115,7 @@ it("still switches the Diagnostics HUD on when the device refuses to store it", 
   // `localStorage.setItem = ...` would not simulate that here: happy-dom's
   // Storage is a proxy, so the assignment lands as a stored key and the real
   // write still happens. Swapping the global does block it, and the descriptor
-  // goes back in `finally` — happy-dom's localStorage is process-wide, and a
+  // goes back in `finally`: happy-dom's localStorage is process-wide, and a
   // leaking thrower would poison every later test in this worker.
   localStorage.removeItem("subshell.paneDiagnostics");
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
@@ -132,15 +132,25 @@ it("still switches the Diagnostics HUD on when the device refuses to store it", 
     writable: true,
   });
   try {
-    const { result } = renderHook(() => usePaneDiagnostics("first"));
-    act(() => result.current[1]());
-    expect(result.current[0]).toBe(true);
+    // Two instances, the way the workspace really has them: the header's menu
+    // and the dock terminal below it each hold their own hook. One binding to
+    // the attempted set while the other re-reads an unwritable store is the
+    // divergence this pins shut, so the assertion covers the pair, not the
+    // toggle that made it.
+    const { result: header } = renderHook(() => usePaneDiagnostics("first"));
+    const { result: terminal } = renderHook(() => usePaneDiagnostics("first"));
+    act(() => header.current[1]());
+    expect(header.current[0]).toBe(true);
+    expect(terminal.current[0]).toBe(true);
     // Only the first press is asserted: with the write refused the set never
     // accumulates anywhere, so a second press reads back empty and turns it on
     // again. That is the preference layer's behavior for every caller (the
     // subshell page reads the same way), not something this hook can fix.
   } finally {
     if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+    // Same module, shared worker: the refused write left a page-load memory
+    // behind that the next file would otherwise read as its own truth.
+    resetPaneDiagnosticsPrefForTests();
   }
 });
 
