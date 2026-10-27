@@ -109,25 +109,36 @@ function row(label: string, value: StateValue, control?: HTMLElement): HTMLEleme
  * screen reader. The helper refuses these requests as well, so a page that
  * somehow fires one still gets a refusal instead of a prompt.
  */
-function permissionRow(
-  label: string,
-  granted: boolean,
-  askLabel: string,
-  action: PanelAction,
-  consented: boolean,
-  reasonId: string,
-) {
-  let ask: HTMLButtonElement | undefined;
-  // Granted, there is nothing left to ask macOS for: the row states the fact
-  // and offers no control. A button that opens a prompt which cannot appear is
-  // worse than none, because pressing it and seeing nothing looks like a hang.
+interface PermissionRowParts {
+  /** The permission, as the row's label. */
+  label: string;
+  /** macOS's answer, which decides which control the row gets. */
+  granted: boolean;
+  /** The helper's own consent, which gates the prompt. */
+  consented: boolean;
+  /** The request to make while macOS has not answered. */
+  ask: { label: string; action: PanelAction };
+  /** The pane to open once it has: the prompt has nothing left to say. */
+  review: { label: string; action: PanelAction };
+  /** The gold line explaining why the control is off. */
+  reasonId: string;
+}
+
+function permissionRow(parts: PermissionRowParts) {
+  // Every row carries a control, because the row that reads "Allowed" is also
+  // the row a person may want to go and check. What it may not do is offer the
+  // prompt again once macOS has answered it: that press would do nothing, and
+  // a button that does nothing reads as a hang.
+  const granted = parts.granted;
+  const control = granted
+    ? button(strings.openSettings, parts.review.action, "outline")
+    : button(strings.allow, parts.ask.action, "outline");
+  control.setAttribute("aria-label", granted ? parts.review.label : parts.ask.label);
   if (!granted) {
-    ask = button(strings.allow, action, "outline");
-    ask.setAttribute("aria-label", askLabel);
-    ask.disabled = !consented;
-    if (!consented) ask.setAttribute("aria-describedby", reasonId);
+    control.disabled = !parts.consented;
+    if (!parts.consented) control.setAttribute("aria-describedby", parts.reasonId);
   }
-  return row(label, permissionValue(granted), ask);
+  return row(parts.label, permissionValue(granted), control);
 }
 
 /**
@@ -251,22 +262,22 @@ function render(state: PanelState): void {
   content.append(
     section(strings.permissions, [
       ...(state.enabled ? [] : [reason]),
-      permissionRow(
-        "Screen recording",
-        state.screenRecording,
-        strings.requestCapture,
-        "requestCapture",
-        state.enabled,
-        blockedId,
-      ),
-      permissionRow(
-        "Accessibility",
-        state.accessibility,
-        strings.requestInput,
-        "requestInput",
-        state.enabled,
-        blockedId,
-      ),
+      permissionRow({
+        label: "Screen recording",
+        granted: state.screenRecording,
+        consented: state.enabled,
+        ask: { label: strings.requestCapture, action: "requestCapture" },
+        review: { label: strings.openCaptureSettingsLabel, action: "openCaptureSettings" },
+        reasonId: blockedId,
+      }),
+      permissionRow({
+        label: "Accessibility",
+        granted: state.accessibility,
+        consented: state.enabled,
+        ask: { label: strings.requestInput, action: "requestInput" },
+        review: { label: strings.openInputSettingsLabel, action: "openInputSettings" },
+        reasonId: blockedId,
+      }),
     ]),
   );
 

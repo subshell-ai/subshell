@@ -55,6 +55,8 @@ export type PanelAction =
   | "unregisterLoginItem"
   | "requestCapture"
   | "requestInput"
+  | "openCaptureSettings"
+  | "openInputSettings"
   | "openLoginItems"
   | "openDocs"
   | "minimize"

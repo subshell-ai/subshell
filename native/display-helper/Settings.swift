@@ -238,6 +238,8 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
         case "requestCapture": requestCapture()
         case "requestInput": requestInput()
         case "openLoginItems": SMAppService.openSystemSettingsLoginItems()
+        case "openCaptureSettings": open(SettingsRoute.screenRecording)
+        case "openInputSettings": open(SettingsRoute.accessibility)
         case "registerLoginItem": registerLoginItem()
         case "unregisterLoginItem": unregisterLoginItem()
         case "openDocs":
@@ -289,6 +291,12 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
         disable()
         errorMessage = ""
         pushState(force: true)
+    }
+
+    /// Opens one of System Settings' panes. A malformed route is a developer
+    /// mistake, not something to bother the person with, so it fails quietly.
+    private func open(_ route: String) {
+        if let url = URL(string: route) { NSWorkspace.shared.open(url) }
     }
 
     private func requestCapture() {

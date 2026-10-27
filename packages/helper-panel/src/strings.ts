@@ -51,6 +51,13 @@ export const strings = {
   allow: "Allow",
   requestCapture: "Allow screen recording",
   requestInput: "Allow accessibility",
+  /* The granted rows keep a control. What they cannot do is offer the prompt
+   * again: macOS has nothing left to ask, so a press would look like a hang.
+   * This opens the pane where the grant lives, and the ellipsis is honest
+   * because another app is about to take over. */
+  openSettings: "Open settings…",
+  openCaptureSettingsLabel: "Open screen recording settings",
+  openInputSettingsLabel: "Open accessibility settings",
   permissionNeedsConsent: "Enable the helper before requesting macOS permissions.",
 } as const;
 

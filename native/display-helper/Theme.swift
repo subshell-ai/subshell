@@ -89,6 +89,14 @@ enum LoginItem {
 }
 #endif
 
+/// Deep links into System Settings' Privacy & Security panes. A granted
+/// permission still deserves a way to the place it was granted, and re-running
+/// the request prompt would open nothing.
+enum SettingsRoute {
+    static let screenRecording = "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+    static let accessibility = "x-apple.systempreferences:com.apple.preference.security?Accessibility"
+}
+
 enum AccessReport {
     /// What the status menu calls itself. The bar item is only an icon, so a
     /// person who clicks it without hovering the tooltip has nothing else
