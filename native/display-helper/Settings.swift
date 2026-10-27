@@ -17,6 +17,28 @@ private final class SettingsStack: NSStackView {
 }
 
 @MainActor
+private final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
+}
+
+/// One column, one rhythm. The panel is a settings card, not a report: a
+/// width this text can actually be read at, and everything measured from it.
+private enum Layout {
+    static let windowWidth: CGFloat = 420
+    static let inset: CGFloat = 20
+    static var contentWidth: CGFloat { windowWidth - 2 * inset }
+}
+
+private extension NSTextField {
+    /// The gold the design system reserves for "the person who owns this can
+    /// fix it here" - the same role the dashboard's `text-warning` holds.
+    func withWarningColor() -> NSTextField {
+        textColor = Theme.warning
+        return self
+    }
+}
+
+@MainActor
 final class HelperSettings: NSObject {
     private let consent: HelperConsent
     private let enable: () throws -> Void
@@ -28,9 +50,11 @@ final class HelperSettings: NSObject {
     private let error = NSTextField(wrappingLabelWithString: "")
     private let captureStatus = NSTextField(labelWithString: "")
     private let inputStatus = NSTextField(labelWithString: "")
-    private let toggle = NSButton(title: "Enable helper", target: nil, action: nil)
-    private let capture = NSButton(title: "Allow screen recording…", target: nil, action: nil)
-    private let input = NSButton(title: "Allow accessibility…", target: nil, action: nil)
+    // Built once in `build()`; these placeholders exist so a state change
+    // arriving before the first `show()` has something safe to address.
+    private var toggle = NSButton()
+    private var capture = NSButton()
+    private var input = NSButton()
     private var timer: Timer?
 
     init(consent: HelperConsent,
@@ -79,6 +103,7 @@ final class HelperSettings: NSObject {
         label.font = Theme.bodyFont
         label.textColor = Theme.foreground
         label.isSelectable = false
+        label.preferredMaxLayoutWidth = Layout.contentWidth
         return label
     }
 
@@ -89,145 +114,136 @@ final class HelperSettings: NSObject {
         return label
     }
 
-    /// A 1px rule in the border token, the same separation the dashboard's
-    /// cards use between sections.
+    /// A 1px rule in the border token: the only separator the panel needs,
+    /// because grouping is carried by headings and spacing, not by lines.
     private func rule() -> NSView {
         let line = NSView()
         line.wantsLayer = true
         line.layer?.backgroundColor = Theme.border.cgColor
         line.translatesAutoresizingMaskIntoConstraints = false
         line.heightAnchor.constraint(equalToConstant: 1).isActive = true
+        line.widthAnchor.constraint(equalToConstant: Layout.contentWidth).isActive = true
         return line
     }
 
-    /// The primary control: the plum fill, dark ink on it, the same pairing
-    /// `--primary` and `--primary-foreground` declare.
-    private func stylePrimary(_ button: NSButton) {
-        button.bezelStyle = .regularSquare
-        button.isBordered = true
-        button.bezelColor = Theme.primary
-        button.contentTintColor = Theme.primaryForeground
-        button.attributedTitle = NSAttributedString(string: button.title, attributes: [
-            .foregroundColor: Theme.primaryForeground,
-            .font: Theme.labelFont,
-        ])
-    }
-
-    /// A secondary control: the sunk plate, brand ink, the border token.
-    private func styleSecondary(_ button: NSButton) {
-        button.bezelStyle = .regularSquare
-        button.isBordered = true
-        button.bezelColor = Theme.secondary
-        button.attributedTitle = NSAttributedString(string: button.title, attributes: [
-            .foregroundColor: Theme.foreground,
-            .font: Theme.bodyFont,
-        ])
+    /// Standard push buttons: native chrome, consistent height, alignment the
+    /// layout can trust. `isDefault` makes the window's default button, which
+    /// is how macOS shows the primary action - fake filled bezels (setting
+    /// `bezelColor` on `.regularSquare`) render as mismatched tall boxes,
+    /// which is what made this panel look broken.
+    private func push(_ title: String, _ action: Selector, `default`: Bool = false) -> NSButton {
+        let button = NSButton(title: title, target: self, action: action)
+        button.bezelStyle = .rounded
+        button.controlSize = .regular
+        button.font = Theme.bodyFont
+        if `default` {
+            button.keyEquivalent = "\r"
+        }
+        return button
     }
 
     private func build() {
-        let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 680),
-                             styleMask: [.titled, .closable, .miniaturizable, .resizable],
+        let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: Layout.windowWidth, height: 480),
+                             styleMask: [.titled, .closable, .miniaturizable],
                              backing: .buffered, defer: false)
         panel.title = "Subshell virtual display helper"
-        panel.titlebarAppearsTransparent = false
         panel.isReleasedWhenClosed = false
         // The web theme is dark-only, so the panel pins it rather than mixing a
         // light-mode aqua control onto the void ground.
         panel.appearance = NSAppearance(named: .darkAqua)
         panel.backgroundColor = Theme.background
-        panel.minSize = NSSize(width: 570, height: 500)
 
         let stack = SettingsStack()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 16
-        stack.edgeInsets = NSEdgeInsets(top: 24, left: 24, bottom: 24, right: 24)
+        stack.spacing = 10
         stack.translatesAutoresizingMaskIntoConstraints = false
-        let scroll = NSScrollView(frame: panel.contentView!.bounds)
-        scroll.hasVerticalScroller = true
-        scroll.autoresizingMask = [.width, .height]
-        scroll.drawsBackground = false
-        scroll.documentView = stack
-        panel.contentView = scroll
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
-            stack.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
-            stack.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
-        ])
 
-        stack.addArrangedSubview(heading("Subshell virtual display helper"))
+        // Header: the brand mark, the name, and what it does in one line.
+        let mark = NSImageView()
+        mark.image = NSImage(systemSymbolName: "display", accessibilityDescription: nil)
+        mark.contentTintColor = Theme.primary
+        mark.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
+        mark.setFrameSize(NSSize(width: 24, height: 24))
+        let header = NSStackView(views: [mark, heading("Subshell virtual display helper")])
+        header.orientation = .horizontal
+        header.spacing = 10
+
+        stack.addArrangedSubview(header)
+        stack.addArrangedSubview(detail("Capture and control of Subshell's virtual displays on this Mac."))
         stack.addArrangedSubview(body(
-            "Allow Subshell to capture and control virtual displays on this Mac. The helper is shared by Subshell Client and Subshell Server. It stays off until you enable it here."
-        ))
-        let warning = body(
-            "macOS apps share your desktop, keyboard focus, and pointer. Other windows or notifications on a virtual display can appear in its stream. Only enable this for people you trust to control this Mac."
-        )
-        warning.textColor = Theme.warning
-        stack.addArrangedSubview(warning)
+            "macOS shares one desktop: a viewer's pointer is the real cursor, and other windows can appear in the stream. Enable this only for people you trust to control this Mac."
+        ).withWarningColor())
         stack.addArrangedSubview(rule())
 
         stack.addArrangedSubview(section("Access"))
-        status.font = Theme.bodyFont
+        status.font = Theme.detailFont
         status.textColor = Theme.mutedForeground
+        status.preferredMaxLayoutWidth = Layout.contentWidth
         stack.addArrangedSubview(status)
         access.font = Theme.detailFont
         access.textColor = Theme.mutedForeground
+        access.preferredMaxLayoutWidth = Layout.contentWidth
         stack.addArrangedSubview(access)
-        toggle.target = self
-        toggle.action = #selector(toggleHelper)
-        stylePrimary(toggle)
+        toggle = push("Enable helper", #selector(toggleHelper), default: true)
         stack.addArrangedSubview(toggle)
         stack.addArrangedSubview(detail(
-            "Once enabled, the helper runs in the background and starts when you sign in. Disable it here at any time to stop capture and input and prevent it from starting again. This doesn't close your subshells or revoke macOS permissions."
+            "While enabled the helper runs in the background and starts at sign-in. Disabling stops capture and input; your subshells and macOS permissions stay."
         ))
-        let loginItems = NSButton(title: "Open login items…", target: self, action: #selector(openLoginItems))
-        styleSecondary(loginItems)
-        stack.addArrangedSubview(loginItems)
         stack.addArrangedSubview(rule())
 
+        // Permissions read as a table: the state on the left, its action on
+        // the same row, so the two states line up instead of floating.
         stack.addArrangedSubview(section("macOS permissions"))
         captureStatus.font = Theme.detailFont
         captureStatus.textColor = Theme.mutedForeground
-        stack.addArrangedSubview(captureStatus)
-        capture.target = self
-        capture.action = #selector(requestCapture)
-        styleSecondary(capture)
-        stack.addArrangedSubview(capture)
         inputStatus.font = Theme.detailFont
         inputStatus.textColor = Theme.mutedForeground
-        stack.addArrangedSubview(inputStatus)
-        input.target = self
-        input.action = #selector(requestInput)
-        styleSecondary(input)
-        stack.addArrangedSubview(input)
+        capture = push("Allow screen recording…", #selector(requestCapture))
+        input = push("Allow accessibility…", #selector(requestInput))
+        let grid = NSGridView(views: [[captureStatus, capture], [inputStatus, input]])
+        grid.rowSpacing = 10
+        grid.columnSpacing = 14
+        grid.column(at: 0).xPlacement = .leading
+        grid.column(at: 1).xPlacement = .trailing
+        grid.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(grid)
         stack.addArrangedSubview(rule())
 
-        let docs = NSButton(title: "Setup instructions…", target: self, action: #selector(openDocs))
-        styleSecondary(docs)
-        stack.addArrangedSubview(docs)
         error.font = Theme.detailFont
         error.textColor = Theme.destructive
+        error.preferredMaxLayoutWidth = Layout.contentWidth
         stack.addArrangedSubview(error)
 
-        // The two ways out, together at the foot: minimize keeps the helper
-        // running, quit stops the process (and revokes consent on the way).
-        let foot = NSStackView()
-        foot.orientation = .horizontal
-        foot.spacing = 12
-        let minimize = NSButton(title: "Minimize helper", target: self, action: #selector(minimizePanel))
-        styleSecondary(minimize)
-        let quit = NSButton(title: "Quit helper", target: self, action: #selector(quitHelper))
-        styleSecondary(quit)
-        foot.addArrangedSubview(minimize)
-        foot.addArrangedSubview(quit)
+        // Secondary actions left, the way out right.
+        let docs = push("Setup instructions…", #selector(openDocs))
+        let loginItems = push("Open login items…", #selector(openLoginItems))
+        let minimize = push("Minimize helper", #selector(minimizePanel))
+        let quit = push("Quit helper", #selector(quitHelper))
+        let leading = NSStackView(views: [docs, loginItems])
+        leading.orientation = .horizontal
+        leading.spacing = 10
+        let trailing = NSStackView(views: [minimize, quit])
+        trailing.orientation = .horizontal
+        trailing.spacing = 10
+        let foot = NSGridView(views: [[leading, trailing]])
+        foot.column(at: 0).xPlacement = .leading
+        foot.column(at: 1).xPlacement = .trailing
+        foot.translatesAutoresizingMaskIntoConstraints = false
         stack.addArrangedSubview(foot)
 
-        for view in stack.arrangedSubviews {
-            view.setContentCompressionResistancePriority(.required, for: .vertical)
-            if let label = view as? NSTextField, label.lineBreakMode == .byWordWrapping {
-                label.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -48).isActive = true
-            }
-        }
+        let container = FlippedView()
+        container.addSubview(stack)
+        NSLayoutConstraint.activate([
+            container.widthAnchor.constraint(equalToConstant: Layout.windowWidth),
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Layout.inset),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -Layout.inset),
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: Layout.inset),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -Layout.inset),
+        ])
+        panel.contentView = container
+        panel.layoutIfNeeded()
+        panel.setContentSize(NSSize(width: Layout.windowWidth, height: max(360, stack.fittingSize.height + 2 * Layout.inset)))
         panel.center()
         window = panel
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
@@ -249,7 +265,6 @@ final class HelperSettings: NSObject {
         access.stringValue = line.text
         access.textColor = line.warning ? Theme.warning : Theme.mutedForeground
         toggle.title = enabled ? "Disable helper" : "Enable helper"
-        stylePrimary(toggle)
         captureStatus.stringValue = "Screen Recording: \(recording ? "Allowed" : "Not allowed")"
         inputStatus.stringValue = "Accessibility: \(accessibility ? "Allowed" : "Not allowed")"
         capture.isEnabled = enabled
