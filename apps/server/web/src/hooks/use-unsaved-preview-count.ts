@@ -17,10 +17,12 @@ export function useUnsavedPreviewCount(id: string | undefined, subshell: Subshel
   const usable = id !== undefined && id !== "" && subshell !== undefined;
   const preview = useSubshellPreview(id ?? "", usable ? subshell : undefined);
   // The saved-services poll asks the same question the badge asks before
-  // counting: node switched on and no reason attached. `preview-ports-
-  // unsupported` answers with both at once, which is why the switch alone is
-  // not the gate: on a macOS pane it would hold a five-second poll whose data
+  // counting: node switched on, no reason attached, and an access level that
+  // can act on what the count shows. `preview-ports-unsupported` answers with
+  // the switch on and a reason at once, and a `view` grantee has no ports
+  // counted at all, so either case would hold a five-second read whose data
   // is always discarded.
-  const services = useSubshellServices(id ?? "", usable && shouldPollSavedServices(preview.info));
-  return usable ? unsavedPreviewItemCount(preview.info, services.data) : 0;
+  const access = subshell?.access ?? "owner";
+  const services = useSubshellServices(id ?? "", usable && shouldPollSavedServices(preview.info, access));
+  return usable ? unsavedPreviewItemCount(preview.info, services.data, access) : 0;
 }
