@@ -1,12 +1,5 @@
 import "./styles.css";
-import {
-  EMPTY_STATE,
-  type LoginItemState,
-  type PanelAction,
-  type PanelMessage,
-  type PanelState,
-  type StateValue,
-} from "./state";
+import { EMPTY_STATE, type PanelAction, type PanelMessage, type PanelState, type StateValue } from "./state";
 import {
   loginItemLine,
   permissionValue,
@@ -175,7 +168,7 @@ function closeQuitDialog(): void {
  * quit never told anyone. Cancel is focused, and Escape dismisses, because the
  * safe answer must be the easy one.
  */
-function quitDialog(loginItem: LoginItemState): HTMLElement {
+function quitDialog(state: PanelState): HTMLElement {
   const scrim = element("div", "scrim");
   const dialog = element("div", "dialog");
   dialog.setAttribute("role", "dialog");
@@ -184,7 +177,7 @@ function quitDialog(loginItem: LoginItemState): HTMLElement {
   dialog.setAttribute("aria-describedby", "quit-body");
   const title = element("h2", "dialog-title", strings.quitTitle);
   title.id = "quit-title";
-  const body = element("p", "dialog-body", quitBody(loginItem));
+  const body = element("p", "dialog-body", quitBody(state.loginItem, state.enabled));
   body.id = "quit-body";
   const foot = element("div", "dialog-foot");
   const cancel = pageButton(strings.cancel, "outline", closeQuitDialog);
@@ -330,7 +323,7 @@ function render(state: PanelState): void {
   card.append(bar);
 
   root.append(card);
-  if (confirmingQuit) root.append(quitDialog(state.loginItem));
+  if (confirmingQuit) root.append(quitDialog(state));
 
   // The Swift window sizes to the document, so the page reports both of its
   // own dimensions rather than the window guessing and the content scrolling.

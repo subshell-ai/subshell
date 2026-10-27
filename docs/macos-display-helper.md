@@ -34,7 +34,12 @@ terminals, or guarantee removal of virtual screens while BetterDisplay is
 unreachable. A disabled running helper answers the read-only `status` request
 and accepts `rescue-cursor` (which does nothing while no viewer held the
 pointer there), but refuses every other RPC. No RPC can enable it, register
-login startup, or request a privacy prompt.
+login startup, or request a privacy prompt. Because a virtual screen can
+outlive the helper, the stranded-pointer rescue also runs on any start: a
+cursor left on a display that went away while nothing was listening is put back
+on the main screen the next time the helper launches, from sign-in or from a
+desktop app alike. It moves the cursor only when it sits inside no screen's
+frame, so an ordinary launch changes nothing.
 
 User procedures belong in [node management](../apps/docs/content/docs/nodes/manage.mdx#macos-display-helper).
 

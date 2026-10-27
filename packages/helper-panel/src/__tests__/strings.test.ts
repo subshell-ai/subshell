@@ -142,28 +142,40 @@ describe("quit confirmation", () => {
     expect(strings.quitTitle.endsWith("?")).toBe(true);
     expect(strings.quitTitle).toContain("Quit");
     for (const state of ["registered", "needsApproval", "notRegistered"] as const) {
-      const body = quitBody(state);
-      expect(body).toContain("loses it now");
-      expect(body).toContain("consent");
-      expect(body).toContain("virtual display settings");
+      for (const enabled of [true, false]) {
+        const body = quitBody(state, enabled);
+        expect(body).toContain("loses it now");
+        expect(body).toContain("consent");
+        // Every variant also has to say how the helper comes back: the sign-in
+        // list, or the settings screen that launches it. A sentence that
+        // mentions neither leaves the person guessing whether quitting is
+        // recoverable, which is the question the dialog exists to answer.
+        expect(body.includes("virtual display settings") || body.includes("login list")).toBe(true);
+      }
     }
   });
 
-  test("promises a sign-in return only to the person who asked for one", () => {
-    // Enabling never registered a login item and disabling never removes one,
-    // so "it starts again at sign-in" is true of exactly one of the three
-    // states. A dialog that said it of all three told someone their helper was
-    // coming back when nothing would bring it, and told a person with a
-    // registered item that disabling was the way to stop it, which it is not.
-    const registered = quitBody("registered");
-    expect(registered).toContain("starts again at sign-in");
-    expect(registered).toContain("Stop at sign-in");
-    expect(registered).not.toContain("disable it first");
+  test("promises a sign-in return only to the person who asked for one and switched it on", () => {
+    // Two halves decide the sentence. Enabling never registered a login item
+    // and disabling never removes one, so "registered" is its own choice; and a
+    // registered helper that is switched off does launch at sign-in, then exits
+    // without capturing anything, so "it starts again at sign-in" describes a
+    // return that delivers no screen. Only one pair may claim it.
+    const ready = quitBody("registered", true);
+    expect(ready).toContain("starts again at sign-in");
+    expect(ready).toContain("Stop at sign-in");
+    expect(ready).not.toContain("disable it first");
+    const disabled = quitBody("registered", false);
+    expect(disabled).toContain("without capturing anything");
+    expect(disabled).toContain("Stop at sign-in");
+    expect(disabled).not.toContain("starts again at sign-in");
     for (const state of ["needsApproval", "notRegistered"] as const) {
-      expect(quitBody(state)).not.toContain("starts again at sign-in");
+      for (const enabled of [true, false]) {
+        expect(quitBody(state, enabled)).not.toContain("starts again at sign-in");
+      }
     }
-    expect(quitBody("notRegistered")).toContain("Nothing starts it at sign-in");
-    expect(quitBody("needsApproval")).toContain("waiting for your approval");
+    expect(quitBody("notRegistered", true)).toContain("Nothing starts it at sign-in");
+    expect(quitBody("needsApproval", true)).toContain("waiting for your approval");
   });
 
   test("gives the granted row a control that says where it goes", () => {
@@ -232,7 +244,9 @@ describe("the menu's quit confirmation", () => {
     // about a future the panel says will not happen.
     const swift = (await Bun.file(swiftPath).text()).replace(/\s+/g, " ");
     for (const state of ["registered", "needsApproval", "notRegistered"] as const) {
-      expect(swift).toContain(JSON.stringify(quitBody(state)));
+      for (const enabled of [true, false]) {
+        expect(swift).toContain(JSON.stringify(quitBody(state, enabled)));
+      }
     }
   }, 10_000);
 

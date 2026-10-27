@@ -37,6 +37,15 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
         started = true
         runtime.onStateChange = { [weak self] in self?.updateMenu() }
         settings.onVisibilityChange = { [weak self] in self?.updateMenu() }
+        // A viewer's pointer is the real cursor, so the screen it was parked on
+        // can go away while this process is not running: the docs promise an
+        // existing virtual screen may outlive the helper, and whoever closes the
+        // last pane over it cannot ask a dead socket to warp the cursor back. Any
+        // start, at sign-in or from the panel, heals that here rather than
+        // leaving the person at the Mac without a pointer. It moves the cursor
+        // only when it is inside no screen's frame, so a normal launch does
+        // nothing at all.
+        restoreStrandedCursor()
         if consent.enabled {
             do { try runtime.enable() }
             catch { runtime.disable() }
@@ -124,7 +133,7 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
     @objc private func quitHelper() {
         let alert = NSAlert()
         alert.messageText = QuitCopy.title
-        alert.informativeText = QuitCopy.body(loginItem: LoginItem.currentPageState())
+        alert.informativeText = QuitCopy.body(loginItem: LoginItem.currentPageState(), consented: consent.enabled)
         alert.alertStyle = .warning
         // Added first, so Return and the rightmost position land on the way out.
         alert.addButton(withTitle: QuitCopy.cancel)

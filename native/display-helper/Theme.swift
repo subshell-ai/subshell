@@ -143,13 +143,20 @@ enum QuitCopy {
     /// a warning that misleads instead of informing. The three sentences match
     /// `quitBody` in the panel's `strings.ts`, which the helper-panel suite
     /// compares these against.
-    // Each state is one literal rather than a shared prefix, so the parity test
-    // can compare whole sentences between the two files.
-    static func body(loginItem: String) -> String {
-        switch loginItem {
-        case "registered":
+    // One whole literal per reachable pair rather than a shared prefix, so the
+    // parity test can compare sentences between the two files. Consent is part
+    // of the answer because a registered helper that is switched off does come
+    // back at sign-in and then exits without capturing anything: telling that
+    // person "it starts again at sign-in" describes a return that delivers no
+    // screen, and sending them to Stop at sign-in to prevent it asks them to
+    // fix something that is not broken.
+    static func body(loginItem: String, consented: Bool) -> String {
+        switch (loginItem, consented) {
+        case ("registered", true):
             return "Anyone watching a virtual display on this Mac loses it now. Your consent and the macOS permissions stay. The helper starts again at sign-in, or sooner from Subshell's virtual display settings. To stop it coming back, use the panel's Stop at sign-in button first."
-        case "needsApproval":
+        case ("registered", false):
+            return "Anyone watching a virtual display on this Mac loses it now. Your consent and the macOS permissions stay. The helper is disabled, so at sign-in it starts and exits without capturing anything. To take it out of macOS's login list, choose Stop at sign-in in the panel first."
+        case ("needsApproval", _):
             return "Anyone watching a virtual display on this Mac loses it now. Your consent and the macOS permissions stay. macOS is still waiting for your approval before it would start at sign-in, so it comes back when you open Subshell's virtual display settings."
         default:
             return "Anyone watching a virtual display on this Mac loses it now. Your consent and the macOS permissions stay. Nothing starts it at sign-in; it comes back when you open Subshell's virtual display settings."
