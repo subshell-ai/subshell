@@ -155,16 +155,33 @@ describe("NewSubshellForm working-dir pre-fill", () => {
 describe("NewSubshellForm launch-error placement", () => {
   afterEach(cleanup);
 
+  /** The AI PC's own answer, kept verbatim: the tail word is what routes it. */
+  const REFUSAL =
+    "API 400: That node's virtual display did not come up inside the launch budget, so the screen pane was refused. Try again, or launch without a screen. (preview-display-not-ready: display :90 / rfb 5910 not answering within 10000ms (Xvfb socket never appeared))";
+
+  it("moves a display refusal off a checkbox that has been turned off", async () => {
+    // The refusal explains the display the person chose, so it belongs under
+    // that checkbox while it is on and nowhere once it is off. Rendering it
+    // under an unchecked box is the stale-warning half of the bug; discarding
+    // it would be worse, which is why the split hands it to the form instead.
+    const restore = mockEndpoints([]);
+    try {
+      await renderForm({ ...emptyNewSubshellForm(), virtualDisplay: false }, REFUSAL);
+      await screen.findByRole("checkbox", { name: "Virtual display" });
+      expect(screen.queryByRole("alert", { name: REFUSAL })).toBeNull();
+      expect(document.getElementById("picker-virtual-display-launch-error")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
   it("hands a display refusal to the Virtual display field", async () => {
     // The dialog's split (`isDisplayLaunchRefusal` at the call sites) picks
     // which line is the field's; this pins the form actually threading it
     // down, so a refusal like the AI PC's lands beside its checkbox.
     const restore = mockEndpoints([]);
     try {
-      await renderForm(
-        emptyNewSubshellForm(),
-        "API 400: That node's virtual display did not come up inside the launch budget, so the screen pane was refused. Try again, or launch without a screen. (preview-display-not-ready: display :90 / rfb 5910 not answering within 10000ms (Xvfb socket never appeared))",
-      );
+      await renderForm({ ...emptyNewSubshellForm(), virtualDisplay: true }, REFUSAL);
       const alert = await screen.findByRole("alert");
       expect(alert.getAttribute("id")).toBe("picker-virtual-display-launch-error");
       expect(alert.textContent).toContain("preview-display-not-ready");

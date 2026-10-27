@@ -11,6 +11,7 @@ import {
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { PaneFocusHeader } from "@/components/pane-focus-header";
 import { usePublishPaneDevices } from "@/hooks/use-pane-devices";
+import { usePaneDiagnostics } from "@/hooks/use-pane-diagnostics";
 import { paneDiagnosticsIds } from "@/lib/pane-diagnostics-pref";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import { resetWorkspaceFocusForTests, setWorkspaceFocusedId } from "@/lib/workspace-focus";
@@ -102,6 +103,45 @@ it("offers the Diagnostics HUD toggle for the focused pane", async () => {
   expect(paneDiagnosticsIds()).toEqual([]);
   fireEvent.click(item);
   expect(paneDiagnosticsIds()).toContain("first");
+});
+
+it("still switches the Diagnostics HUD on when the device refuses to store it", () => {
+  // Private browsing and a full quota both make the write throw, and the
+  // preference keeps the choice for this page load on purpose. The hook used to
+  // read the preference back after writing it, so a refused write meant the
+  // menu item never checked, the HUD never appeared, and the click was lost
+  // with nothing on screen to say why.
+  //
+  // `localStorage.setItem = ...` would not simulate that here: happy-dom's
+  // Storage is a proxy, so the assignment lands as a stored key and the real
+  // write still happens. Swapping the global does block it, and the descriptor
+  // goes back in `finally` — happy-dom's localStorage is process-wide, and a
+  // leaking thrower would poison every later test in this worker.
+  localStorage.removeItem("subshell.paneDiagnostics");
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const real = globalThis.localStorage;
+  Object.defineProperty(globalThis, "localStorage", {
+    value: {
+      getItem: (key: string) => real.getItem(key),
+      removeItem: (key: string) => real.removeItem(key),
+      setItem: () => {
+        throw new Error("quota");
+      },
+    } satisfies Pick<Storage, "getItem" | "removeItem" | "setItem">,
+    configurable: true,
+    writable: true,
+  });
+  try {
+    const { result } = renderHook(() => usePaneDiagnostics("first"));
+    act(() => result.current[1]());
+    expect(result.current[0]).toBe(true);
+    // Only the first press is asserted: with the write refused the set never
+    // accumulates anywhere, so a second press reads back empty and turns it on
+    // again. That is the preference layer's behavior for every caller (the
+    // subshell page reads the same way), not something this hook can fix.
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+  }
 });
 
 it("preserves read-only gates in a saved workspace", async () => {

@@ -33,16 +33,19 @@ Both settings are off by default for new nodes and can be changed independently.
 
 You need edit access to open an app or control a virtual display. View access
 lets you discover available views and watch browser frames, so a person you've
-shared with sees the browser row but not the app or screen rows: those two
-answer "needs edit access" beside the control, and the header badge doesn't
-count them either. Switching either feature off prevents new operations; it
-doesn't stop your subshell or immediately close an existing connection.
+shared with still sees all three rows in the picker, with the app and screen
+rows disabled and saying "needs edit access" under each; the browser watch is
+the one they can take. The header badge counts only what the reader can act on,
+so it never numbers a row that will refuse them. Switching either feature off
+prevents new operations; it doesn't stop your subshell or immediately close an
+existing connection.
 
 When a node has its switch off, the picker says so in gold and links to this
 page, because a blank list reads as "nothing is listening" when the truth is
 "this is switched off". The same line appears when the node itself answers that
-way, and the **Open node settings** jump beside it goes straight to the switch.
-Only an owner (or an administrator, for the server's built-in node) can turn it on.
+way, with the node's own words attached. On the preview tab it also carries an
+**Open node settings** jump straight to the switch. Only an owner (or an
+administrator, for the server's built-in node) can turn it on.
 
 <figure className="docs-screenshot">
   <ImageZoom src="/screenshots/node-switch-off.png" alt="Open web preview or screen dialog with a gold line saying web previews and screens is switched off on this node, a link to how to enable it, and an empty Saved services list." width="1072" height="540" loading="lazy" decoding="async" unoptimized />
@@ -67,8 +70,10 @@ follow [Use a virtual display on macOS](#use-a-virtual-display-on-macos).
    The icon wears a count when there are views you could open and haven't saved
    yet: a discovered port with no Saved services row, plus the screen and the
    browser watch when the pane offers them. It's the picker's own data, so the
-   number and the list can't disagree, and it clears as soon as you open or
-   save what it counted.
+   number and the list can't disagree. Opening a view doesn't change it, since
+   opening isn't saving: **Add service** is what takes a port's row out of the
+   count, and a node switch or a refusal that leaves nothing to offer clears it
+   outright.
 3. In **Open web preview or screen**, choose the **Web preview** row for your dev server's port.
 4. Check the site in the preview beside the terminal. Try navigation, forms,
    filters, and other interactions, then give your agent specific feedback.
@@ -168,7 +173,8 @@ local OS users; see [Preview security](/concepts/security#preview-security).
    Virtual display. After installing missing programs, choose **Recheck**.
    If the node refuses the display when you launch, the reason appears beside
    the **Virtual display** checkbox it belongs to rather than at the bottom of
-   the form, and turning the checkbox off clears it.
+   the form; switch the checkbox off and the line moves to the form's own
+   message, because it still explains the launch that failed.
 4. Launch your browser or GUI app from that subshell so it inherits the display
    settings. Install the browser on the node separately if it isn't available.
 5. Use the window icon in the subshell header, then choose **Virtual display**.
@@ -212,7 +218,7 @@ icon of its own that opens the same panel.
 
 <figure className="docs-screenshot">
   <ImageZoom src="/screenshots/display-helper-panel.png" alt="The display helper panel enabled, with a gold line naming two viewers watching, the Launch at sign-in row reading Starts at sign-in with macOS, Screen recording allowed, and Accessibility not allowed." width="1024" height="1610" loading="lazy" decoding="async" unoptimized />
-  <figcaption>Enabled, with a line naming who is watching right now. Gold marks what you can still act on: the permission macOS hasn't granted, and the sign-in choice that is yours to change.</figcaption>
+  <figcaption>Enabled, with a gold line naming who is watching right now. Gold marks what still needs you: the permission macOS hasn't granted reads in gold, while a settled one reads in plain ink, and the sign-in row reads the same way, gold only while macOS is waiting on your approval.</figcaption>
 </figure>
 
 Unlike a private Linux display, a macOS virtual screen shares your login

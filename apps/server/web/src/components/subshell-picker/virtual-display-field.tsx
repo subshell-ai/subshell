@@ -59,7 +59,7 @@ export function VirtualDisplayField({
           `${id}-cost`,
           ...(reason ? [`${id}-reason`] : []),
           ...(resetReason ? [`${id}-reset`] : []),
-          ...(launchError ? [`${id}-launch-error`] : []),
+          ...(launchError && checked ? [`${id}-launch-error`] : []),
         ].join(" ")}
       />
       <Label htmlFor={id}>Virtual display</Label>
@@ -105,7 +105,11 @@ export function VirtualDisplayField({
           {resetReason}
         </p>
       )}
-      {launchError && (
+      {/* The refusal is this checkbox's own result, so it reads here only while
+          the box is on. Turning the display off does not discard the message:
+          `splitLaunchError` sees the same condition and hands the line to the
+          form, where it still explains why the last launch failed. */}
+      {checked && launchError && (
         <p id={`${id}-launch-error`} role="alert" className="text-destructive text-detail">
           {launchError}
         </p>
