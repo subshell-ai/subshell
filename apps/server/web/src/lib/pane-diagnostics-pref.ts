@@ -39,7 +39,15 @@ export function paneDiagnosticsIds(): string[] {
 }
 
 /**
- * Persists the set.
+ * Fired on `window` (and mirrored from the browser's own `storage` event)
+ * whenever this device's set changes, so a surface that renders the HUD and
+ * a surface that offers the toggle (the workspace header's menu beside the
+ * dock's terminal) can be different components without either polling.
+ */
+const CHANGE_EVENT = "subshell:pane-diagnostics-change";
+
+/**
+ * Persists the set and tells every reader on this page.
  *
  * @param ids - the set as it should now be stored
  * @returns the same set, so callers bind their render to what was stored
@@ -53,7 +61,27 @@ export function setPaneDiagnosticsIds(ids: readonly string[]): string[] {
     // Storage refused: the choice still holds for this page load, which is
     // the part the user is looking at.
   }
+  window.dispatchEvent(new Event(CHANGE_EVENT));
   return next;
+}
+
+/**
+ * Calls `onChange` when the set changes on THIS page (the toggle) or another
+ * tab of this device (the browser's cross-tab `storage` event, which fires
+ * only for real storage writes — so a refused private-mode write does not
+ * echo a change nobody stored).
+ *
+ * @param onChange - the listener to notify
+ * @returns an unsubscribe function
+ */
+export function subscribePaneDiagnostics(onChange: () => void): () => void {
+  const handler = (): void => onChange();
+  window.addEventListener(CHANGE_EVENT, handler);
+  window.addEventListener("storage", handler);
+  return () => {
+    window.removeEventListener(CHANGE_EVENT, handler);
+    window.removeEventListener("storage", handler);
+  };
 }
 
 /**

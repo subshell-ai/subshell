@@ -11,6 +11,7 @@ import {
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { PaneFocusHeader } from "@/components/pane-focus-header";
 import { usePublishPaneDevices } from "@/hooks/use-pane-devices";
+import { paneDiagnosticsIds } from "@/lib/pane-diagnostics-pref";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import { resetWorkspaceFocusForTests, setWorkspaceFocusedId } from "@/lib/workspace-focus";
 import type { SubshellView } from "@/types/subshell";
@@ -87,6 +88,20 @@ it("offers Insert prompt for the focused pane and retires its dialog when focus 
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(await screen.findByRole("button", { name: "Actions for second" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Actions for first" })).toBeNull();
+});
+
+it("offers the Diagnostics HUD toggle for the focused pane", async () => {
+  // The workspace header stands over the focused pane's dock terminal, so
+  // the Wave C toggle belongs here too, reading and writing the same
+  // per-device preference the terminal opens its HUD from.
+  localStorage.removeItem("subshell.paneDiagnostics");
+  setWorkspaceFocusedId("first");
+  await header([row("first")]);
+  fireEvent.click(await screen.findByRole("button", { name: "Actions for first" }));
+  const item = await screen.findByRole("menuitem", { name: "Diagnostics" });
+  expect(paneDiagnosticsIds()).toEqual([]);
+  fireEvent.click(item);
+  expect(paneDiagnosticsIds()).toContain("first");
 });
 
 it("preserves read-only gates in a saved workspace", async () => {

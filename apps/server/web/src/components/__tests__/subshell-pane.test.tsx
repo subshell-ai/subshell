@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { SubshellPane } from "@/components/subshell-pane";
+import { setPaneDiagnosticsIds } from "@/lib/pane-diagnostics-pref";
 import type { WorkspacePaneRow } from "@/types/workspace";
 
 /**
@@ -175,5 +176,36 @@ describe("SubshellPane node-offline state (spec §5.6 precedence)", () => {
     );
     expect(screen.getByRole("button", { name: /remove pane/i })).toBeDefined();
     expect(screen.queryByRole("button", { name: /restart/i })).toBeNull();
+  });
+});
+
+/**
+ * The Wave C HUD on a docked terminal. The toggle lives in the workspace
+ * header's actions menu and the preference is per-device, so the pane has to
+ * render the HUD from the same stored set (hooks/use-pane-diagnostics keeps
+ * the two components in step) — a header-side "Diagnostics" click must put
+ * the HUD over the terminal the header stands above.
+ */
+describe("SubshellPane diagnostics HUD", () => {
+  afterEach(() => localStorage.removeItem("subshell.paneDiagnostics"));
+
+  it("renders the HUD for a subshell this device turned on", async () => {
+    setPaneDiagnosticsIds(["s1"]);
+    renderPane(
+      <SubshellPane pane={paneRow()} active showKeyBar={false} onRestart={() => {}} onRemovePane={() => {}} />,
+    );
+    // The HUD's node row is the honest answer for a row nothing seeded:
+    // "node you can't see" is its signature line.
+    expect(await screen.findByText("node you can't see")).toBeTruthy();
+  });
+
+  it("renders no HUD while the device preference is off", async () => {
+    renderPane(
+      <SubshellPane pane={paneRow()} active showKeyBar={false} onRestart={() => {}} onRemovePane={() => {}} />,
+    );
+    // Give the terminal its mount (the positive case proves the HUD renders
+    // from the same timing), then insist the overlay is absent.
+    await Bun.sleep(100);
+    expect(screen.queryByText("node you can't see")).toBeNull();
   });
 });

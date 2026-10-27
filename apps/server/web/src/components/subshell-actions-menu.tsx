@@ -49,11 +49,13 @@ type SubshellActionsMenuProps = {
   /** Called after the subshell is deleted, e.g. to leave a now-dead detail page. */
   onDeleted?: () => void;
   /**
-   * The Wave C diagnostics HUD toggle (spec 2026-09-21). Only the subshell
-   * PAGE passes it: the HUD floats over that page's terminal, and the shared
-   * presentations (cards, rows, the sidebar's right-click) have no terminal
-   * to point a diagnostics switch at. The page owns the state and the
-   * per-device persistence; the menu only offers the act.
+   * The Wave C diagnostics HUD toggle (spec 2026-09-21). Only surfaces that
+   * stand over a live terminal pass it: the subshell page, and the workspace
+   * header for its focused pane (`PaneFocusHeader`, whose menu and terminal
+   * share the per-device preference through `usePaneDiagnostics`). The shared
+   * presentations — cards, rows, the sidebar's right-click — have no
+   * terminal to point a diagnostics switch at. The page owns the state and
+   * the per-device persistence; the menu only offers the act.
    */
   diagnostics?: { on: boolean; onToggle: () => void };
   /**

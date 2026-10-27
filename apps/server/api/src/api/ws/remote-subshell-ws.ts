@@ -8,6 +8,7 @@ import {
   applySharedGeometry,
   broadcastToViewers,
   broadcastViewers,
+  closeViewersForSubshell,
   paneStreams,
   persistOutputFor,
   readPaneCursor,
@@ -236,6 +237,13 @@ export async function attachRemoteSubshellWs(
           subshellId: row.id,
           fromByte: logStart,
           onOutput: () => persistOutputFor(row.id),
+          // The pump is the pane's ONLY byte source, and the registry hands
+          // it to every later viewer of this row. A dead one therefore has
+          // to take its audience down with it: these sockets are closed with
+          // a sub-4000 code (the client's retry signal), and the re-attach
+          // that follows builds a fresh `tail_start` against the current EOF
+          // instead of inheriting a corpse that only ever paints replays.
+          onDead: () => closeViewersForSubshell(row.id, 1011, "tail stalled"),
         }),
       (text) => {
         // Spec §3.4: a browser that cannot keep up is cut, not queued into —
