@@ -73,6 +73,20 @@ describe("pane diagnostics preference (per-device, per-subshell)", () => {
     });
   });
 
+  it("hands back a copy, so a caller reordering its own list cannot rewrite the memory", () => {
+    // The set has no order, and a surface that sorts what it was handed (to
+    // render rows, say) must not reach back into what this page remembers the
+    // device stores. While writes land the store is the truth anyway; the memory
+    // is what every reader sees once one is refused, which is when an aliased
+    // array would make two surfaces disagree again.
+    withWritesRefused(() => {
+      const returned = setPaneDiagnosticsIds(["s2", "s1"]);
+      returned.sort();
+      expect(returned).toEqual(["s1", "s2"]);
+      expect(paneDiagnosticsIds()).toEqual(["s2", "s1"]);
+    });
+  });
+
   it("survives a corrupt or hand-edited value instead of throwing on every render", () => {
     localStorage.setItem(KEY, "not json");
     expect(paneDiagnosticsIds()).toEqual([]);
@@ -83,19 +97,18 @@ describe("pane diagnostics preference (per-device, per-subshell)", () => {
   });
 
   it("persists the set and reads it back", () => {
+    // What the store holds is the id list, which is what makes a rename
+    // irrelevant to this module: nothing here has a name to key on, and the
+    // surfaces that bind a HUD to a pane pass `subshell.id` (pinned against a
+    // name in workspace-pane-actions.test.tsx, where a name does exist).
     expect(setPaneDiagnosticsIds(["s1"])).toEqual(["s1"]);
     expect(paneDiagnosticsIds()).toEqual(["s1"]);
+    expect(localStorage.getItem(KEY)).toBe('["s1"]');
   });
 
   it("toggles one id without disturbing the others", () => {
     expect(togglePaneDiagnostics([], "s1")).toEqual(["s1"]);
     expect(togglePaneDiagnostics(["s1", "s2"], "s1")).toEqual(["s2"]);
     expect(togglePaneDiagnostics(["s2"], "s1")).toEqual(["s2", "s1"]);
-  });
-
-  it("keys on the subshell ID, so a rename cannot close a HUD you opened", () => {
-    // The name is a label and moves with a rename; this set must not.
-    setPaneDiagnosticsIds(["s1"]);
-    expect(paneDiagnosticsIds()).toContain("s1");
   });
 });

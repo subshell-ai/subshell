@@ -2,7 +2,6 @@ import {
   type DisplayProviderCatalogEntry,
   displayProviderRunsOnOs,
   displayProvidersForOs,
-  VIRTUAL_DISPLAY_PROVIDERS,
 } from "@internal/subshell-protocol";
 
 /**
@@ -14,8 +13,10 @@ import {
  * the new machine can run survives untouched, a bundled one it cannot is
  * dropped back to the node default, and an id this package does not ship stays
  * because nothing here has a platform fact about it (the node's own readiness
- * answer is what rules those in or out). An unknown OS answers nothing, so it
- * clears nothing either: the node list is often still loading when a form
+ * answer is what rules those in or out). An OS that has not answered clears
+ * nothing either (`displayOsAnswered` decides what counts as an answer, in one
+ * place, because the launch forms, the node card and the plane all have to read
+ * the same value the same way): the node list is often still loading when a form
  * mounts, and a saved provider lost to that read is a worse bug than a stale
  * pick that survives one frame. Dropping rather than disabling is deliberate:
  * a greyed-out provider still launches with it.
@@ -25,7 +26,7 @@ export function providerForMachine(provider: string | undefined, os: string | nu
   // is still loading, no machine is chosen, or the node enrolled and never came
   // ready. Clearing on that reading would cost someone a saved provider on
   // every mount, so the rule waits for a fact.
-  if (provider === undefined || os === null || os === undefined) return provider;
+  if (provider === undefined) return provider;
   return displayProviderRunsOnOs(provider, os) ? provider : undefined;
 }
 
@@ -42,8 +43,31 @@ export function providerForMachine(provider: string | undefined, os: string | nu
  * authority on what actually runs there.
  */
 export function providersForMachine(ids: readonly string[], os: string | null | undefined): string[] {
-  if (os === null || os === undefined) return [...ids];
   return ids.filter((id) => displayProviderRunsOnOs(id, os));
+}
+
+/**
+ * The provider rows a launch offers on one node, with the held pick kept legible.
+ *
+ * A node's stored list is the owner's enable choice, so a preset pinning
+ * BetterDisplay on a Mac that has only Xvfb enabled is a launch the plane
+ * refuses ("disabled on the node… choose another provider"). The gold line that
+ * says so sits beside a trigger reading "Node default": the person is told to
+ * change a choice the page will not name or show, and cannot pick their way out
+ * because "Node default" is already what the trigger says. So a held id this
+ * machine's OS could run stays on the list, and what stays off it is the one the
+ * OS gate removed, which the caller's own clearing rule already drops. The
+ * preset editor does not need this: it offers the whole catalog for the machine,
+ * because a preset is written before anyone knows which node will run it.
+ */
+export function offeredDisplayProviders(
+  ids: readonly string[],
+  os: string | null | undefined,
+  held: string | undefined,
+): string[] {
+  const offered = providersForMachine(ids, os);
+  if (held === undefined || offered.includes(held)) return offered;
+  return providerForMachine(held, os) === held ? [...offered, held] : offered;
 }
 
 /**
@@ -57,7 +81,6 @@ export function providersForMachine(ids: readonly string[], os: string | null | 
  * the owner's only path to pre-enable a provider.
  */
 export function bundledProvidersForMachine(os: string | null | undefined): readonly DisplayProviderCatalogEntry[] {
-  if (os === null || os === undefined) return VIRTUAL_DISPLAY_PROVIDERS;
   return displayProvidersForOs(os);
 }
 

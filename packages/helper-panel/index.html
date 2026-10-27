@@ -8,8 +8,12 @@
       capture, so it gets no network at all. `default-src 'none'` refuses every
       request; the two inline sources are what the build's fold into this file
       needs (see inline.ts), and nothing else is permitted: no fetch, no XHR, no
-      image, no font, no frame, no navigation target. A future edit that reaches
-      for the network fails here rather than quietly working.
+      image, no font, no frame. A future edit that reaches for the network fails
+      here rather than quietly working. What this policy does NOT do is gate
+      where the top-level document may go: CSP can express that (`navigate-to`)
+      and no browser implements it, so leaving the bundle is refused by the
+      helper's own navigation delegate (`PanelBundle.allows` in
+      native/display-helper/Settings.swift), and that check is the one to keep.
     -->
     <meta
       http-equiv="Content-Security-Policy"

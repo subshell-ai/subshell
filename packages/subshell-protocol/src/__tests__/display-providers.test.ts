@@ -1,8 +1,10 @@
 import { expect, it } from "bun:test";
 import {
   DEFAULT_VIRTUAL_DISPLAY_PROVIDER,
+  displayOsAnswered,
   displayProviderRunsOnOs,
   displayProvidersForOs,
+  NODE_OS_UNKNOWN,
   parseDisplayProviderIds,
   parseVirtualDisplayRequest,
   storedDisplayProviderIds,
@@ -19,10 +21,22 @@ it("names one OS per bundled provider, and the pickers ask that OS", () => {
   }
   expect(displayProvidersForOs("linux").map((p) => p.id)).toEqual(["xvfb-x11vnc"]);
   expect(displayProvidersForOs("darwin").map((p) => p.id)).toEqual(["betterdisplay"]);
-  // A node that never came ready has no OS, and guessing the default would be
-  // guessing Linux.
-  expect(displayProvidersForOs(null)).toEqual([]);
+  // A named platform nothing supports is "no choice", which is what stops the
+  // launch dialog offering Xvfb + VNC on a Mac.
   expect(displayProvidersForOs("windows")).toEqual([]);
+  // An OS that has not answered is not a verdict, and here that has two shapes:
+  // no value at all, and the protocol's own "unknown", which is what an agent on
+  // any other platform reports about itself. Refusing that would hide providers
+  // from a FreeBSD node running Xvfb, and strand the owner's only path to
+  // pre-enable one on a node that enrolled and never came ready.
+  expect(displayProvidersForOs(null).map((p) => p.id)).toEqual(["xvfb-x11vnc", "betterdisplay"]);
+  expect(displayProvidersForOs(undefined).map((p) => p.id)).toEqual(["xvfb-x11vnc", "betterdisplay"]);
+  expect(displayProvidersForOs("unknown").map((p) => p.id)).toEqual(["xvfb-x11vnc", "betterdisplay"]);
+  expect(NODE_OS_UNKNOWN).toBe("unknown");
+  expect(displayProviderRunsOnOs("xvfb-x11vnc", "unknown")).toBe(true);
+  expect(displayProviderRunsOnOs("betterdisplay", "unknown")).toBe(true);
+  expect(displayProviderRunsOnOs("xvfb-x11vnc", null)).toBe(true);
+  expect(displayProviderRunsOnOs("xvfb-x11vnc", "windows")).toBe(false);
   // A stored list is the owner's, so filtering it keeps what the OS runs and
   // keeps an id this package does not ship: a provider the node installed out
   // of band has no platform fact here, and its own readiness answer rules.
@@ -31,6 +45,17 @@ it("names one OS per bundled provider, and the pickers ask that OS", () => {
   expect(displayProviderRunsOnOs("native-example", "darwin")).toBe(true);
   expect(displayProviderRunsOnOs("native-example", null)).toBe(true);
   expect(DEFAULT_VIRTUAL_DISPLAY_PROVIDER).toBe("xvfb-x11vnc");
+});
+
+it("calls only a named platform an answer", () => {
+  // The one predicate every surface defers to. A reader that reimplemented this
+  // list would drift, and "unknown" is the value that drifts silently: it is a
+  // real string in the column, and the only reading that must not be a verdict.
+  expect(displayOsAnswered("linux")).toBe(true);
+  expect(displayOsAnswered("windows")).toBe(true);
+  expect(displayOsAnswered(NODE_OS_UNKNOWN)).toBe(false);
+  expect(displayOsAnswered(null)).toBe(false);
+  expect(displayOsAnswered(undefined)).toBe(false);
 });
 
 it("preserves explicit providers on readiness commands and signed policy", () => {

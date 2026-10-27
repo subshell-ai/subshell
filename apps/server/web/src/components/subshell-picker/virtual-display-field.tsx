@@ -5,7 +5,7 @@ import { DisplayMissingRequirements } from "@/components/display-missing-require
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useNodeDisplayReadiness } from "@/hooks/use-node-display-readiness";
-import { nodeDefaultForMachine, providersForMachine } from "@/lib/display-provider-choice";
+import { nodeDefaultForMachine, offeredDisplayProviders } from "@/lib/display-provider-choice";
 import { DisplayProviderPicker } from "./display-provider-picker";
 
 export function VirtualDisplayField({
@@ -44,8 +44,16 @@ export function VirtualDisplayField({
   // rather than rewriting it, and an id the catalog does not ship stays put for
   // the node's own readiness answer to rule. An OS that has not answered is no
   // verdict at all (`providersForMachine`), so the row keeps offering what the
-  // node holds and the kept pick stays visible beside the name it carries.
-  const providers = providersForMachine(node?.virtualDisplayProviders ?? [DEFAULT_VIRTUAL_DISPLAY_PROVIDER], node?.os);
+  // node holds and the kept pick stays visible beside the name it carries. What
+  // it does keep showing, by `offeredDisplayProviders`, is a pick the node has
+  // not enabled: the gold reason beside this row tells the person to choose
+  // another provider, and a trigger reading "Node default" hides the choice that
+  // sentence is about.
+  const providers = offeredDisplayProviders(
+    node?.virtualDisplayProviders ?? [DEFAULT_VIRTUAL_DISPLAY_PROVIDER],
+    node?.os,
+    provider,
+  );
   const defaultProvider = nodeDefaultForMachine(node?.virtualDisplayProvider, node?.os);
   const control = (
     <div className="flex items-center gap-3">

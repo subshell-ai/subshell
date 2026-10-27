@@ -50,9 +50,20 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
             do { try runtime.enable() }
             catch { runtime.disable() }
         }
+        // Who is allowed to open the panel decides whether this run stays.
+        let opensPanel = CommandLine.arguments.contains("--settings")
+        if !opensPanel && !consent.enabled {
+            // The sign-in case the docs describe as exiting at once: a helper left
+            // registered after the person switched it off comes back, finds no
+            // consent, and leaves. Drawing the menu-bar icon first would flash a
+            // display glyph on a Mac that is capturing nothing, which reads as a
+            // watcher that is not there, so the icon is installed only for a run
+            // that stays.
+            NSApp.terminate(nil)
+            return
+        }
         updateMenu()
-        if CommandLine.arguments.contains("--settings") { settings.show() }
-        else if !consent.enabled { NSApp.terminate(nil) }
+        if opensPanel { settings.show() }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

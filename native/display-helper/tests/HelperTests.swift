@@ -144,6 +144,31 @@ struct HelperTests {
         } catch {
             precondition(stops == 2, "Stop must run again after asynchronous startup completes")
         }
+        // The navigation gate: the one rule between a document loaded from
+        // somewhere else and the button that starts a screen capture. It is
+        // checked here rather than assumed because its two halves are both easy
+        // to break by editing for looks: drop the standardization and an escaped
+        // path wears the bundle's prefix, drop the trailing separator and a
+        // sibling named `panel-evil` counts as inside.
+        let bundleRoot = URL(fileURLWithPath: "/tmp/subshell-panel-test/Contents/Resources", isDirectory: true)
+        let panel = bundleRoot.appendingPathComponent("panel", isDirectory: true)
+        func file(_ path: String) -> URL { URL(fileURLWithPath: path) }
+        precondition(PanelBundle.allows(file(panel.path + "/index.html"), within: panel), "the page itself is allowed")
+        precondition(PanelBundle.allows(file(panel.path), within: panel), "the bundle directory is allowed")
+        precondition(PanelBundle.allows(file(panel.path + "/assets/deep/x.js"), within: panel), "nested files are allowed")
+        precondition(!PanelBundle.allows(file("/etc/passwd"), within: panel), "outside the bundle is refused")
+        precondition(
+            !PanelBundle.allows(file(panel.path + "/../../Secrets/id"), within: panel),
+            "a path that escapes while wearing the prefix is refused")
+        precondition(
+            !PanelBundle.allows(file(bundleRoot.path + "/panel-evil/x.html"), within: panel),
+            "a sibling sharing the directory's name is refused")
+        precondition(!PanelBundle.allows(URL(string: "https://plane.example.test/")!, within: panel), "no network document")
+        precondition(!PanelBundle.allows(nil, within: panel), "no url is no answer")
+        precondition(!PanelBundle.allows(file(panel.path + "/index.html"), within: nil), "no bundle directory allows nothing")
+        // And the real entry point, with no bundle around it at all: the same
+        // refusal a helper whose panel files went missing has to answer with.
+        precondition(!PanelBundle.allows(file(panel.path + "/index.html")), "a bundle-less binary allows nothing")
         // Synthetic pixels exercise the worker without screen-capture permission.
         var buffer: CVPixelBuffer?
         precondition(CVPixelBufferCreate(kCFAllocatorDefault, 320, 320,

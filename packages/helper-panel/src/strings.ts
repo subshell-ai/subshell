@@ -1,4 +1,4 @@
-import type { LoginItemState, PanelState, StateValue } from "./state";
+import type { LoginItemState, PanelAction, PanelState, StateValue } from "./state";
 
 /**
  * Every word the panel shows, in one file. The copy is the interface: a
@@ -63,7 +63,29 @@ export const strings = {
   openCaptureSettingsLabel: "Open screen recording settings",
   openInputSettingsLabel: "Open accessibility settings",
   permissionNeedsConsent: "Enable the helper before requesting macOS permissions.",
+  /* The two row labels name macOS's own panes, so they read the way System
+   * Settings reads. They live here for the same reason as everything else the
+   * page says: a word kept outside this file is a word no wording review, voice
+   * check, or parity test ever sees. */
+  capturePermissionLabel: "Screen recording",
+  inputPermissionLabel: "Accessibility",
 } as const;
+
+/**
+ * The consent control and the note that explains it, decided together.
+ *
+ * Both used to read `state.enabled` at their own site, three ternaries deep in
+ * the render, and that is exactly how the pair got out of step: the button said
+ * "Enable helper" while its own note said "Disabling stops capture and input",
+ * so the sentence a screen reader announces for the act being refused was the
+ * sentence for the opposite act. One call, one state read, no way to pair them
+ * wrongly.
+ */
+export function consentControl(state: PanelState): { label: string; action: PanelAction; note: string } {
+  return state.enabled
+    ? { label: strings.disable, action: "disable", note: strings.disableNote }
+    : { label: strings.enable, action: "enable", note: strings.enableNote };
+}
 
 /** The one-line answer to "is this machine exposing itself right now". */
 export function stateLine(state: PanelState): string {

@@ -34,14 +34,38 @@ export const VIRTUAL_DISPLAY_PROVIDERS = [
 export const DEFAULT_VIRTUAL_DISPLAY_PROVIDER = "xvfb-x11vnc";
 
 /**
- * The bundled providers a node reporting this OS can run. An OS that is
- * unknown, because the node never came ready, or is one no provider supports
- * matches NOTHING: the honest answer there is no choice rather than the
- * Linux default handed to a Mac.
+ * What a node's `os` field carries when nothing has classified the machine: an
+ * agent on a platform outside `linux|darwin` says this (`mapOs` in
+ * `apps/node/agent/src/enroll.ts`), and so does a row that enrolled before the
+ * field was reported. It is not a platform, and reading it as one is what
+ * stranded real machines: Xvfb runs on a FreeBSD node, and the plane holds no
+ * fact that says otherwise. Every reader here treats it as the absence of an
+ * answer, which is also what a null means. The authority on what actually runs
+ * is the node's own readiness check, which looks for the programs.
+ */
+export const NODE_OS_UNKNOWN = "unknown";
+
+/**
+ * Whether an `os` value says anything about what can run on this machine.
+ * See {@link NODE_OS_UNKNOWN} for why the protocol's own `unknown` is not an answer.
+ */
+export function displayOsAnswered(os: string | null | undefined): boolean {
+  return os !== null && os !== undefined && os !== NODE_OS_UNKNOWN;
+}
+
+/**
+ * The bundled providers a machine may be offered.
+ *
+ * A named platform that no provider supports matches NOTHING: the honest answer
+ * there is no choice rather than the Linux default handed to a Mac. A machine
+ * that has not named its platform gets the whole catalog, because nothing has
+ * ruled any of it out, and an owner must still be able to pre-enable a provider
+ * on a node that enrolled and never came ready.
  */
 export function displayProvidersForOs(
   os: string | null | undefined,
 ): readonly (typeof VIRTUAL_DISPLAY_PROVIDERS)[number][] {
+  if (!displayOsAnswered(os)) return VIRTUAL_DISPLAY_PROVIDERS;
   return VIRTUAL_DISPLAY_PROVIDERS.filter((provider) => provider.platform === os);
 }
 
@@ -54,7 +78,8 @@ export function displayProvidersForOs(
  */
 export function displayProviderRunsOnOs(id: string, os: string | null | undefined): boolean {
   const bundled = VIRTUAL_DISPLAY_PROVIDERS.find((provider) => provider.id === id);
-  return bundled ? bundled.platform === os : true;
+  if (!bundled) return true;
+  return displayOsAnswered(os) ? bundled.platform === os : true;
 }
 
 /** Identifiers are bounded on the wire so older nodes can refuse unknown providers. */

@@ -1,6 +1,7 @@
 import "./styles.css";
 import { EMPTY_STATE, type PanelAction, type PanelMessage, type PanelState, type StateValue } from "./state";
 import {
+  consentControl,
   loginItemLine,
   permissionValue,
   quitBody,
@@ -233,16 +234,14 @@ function render(state: PanelState): void {
 
   // The warning sits above the button it warns about, not under it where a
   // person has already pressed the thing.
-  const toggle = button(
-    state.enabled ? strings.disable : strings.enable,
-    state.enabled ? "disable" : "enable",
-    "primary",
-  );
-  // The note names the act THIS button performs. Shared, it told a screen
-  // reader reaching "Enable helper" that disabling stops capture, so the person
-  // deciding whether to be captured heard the opposite of what they were about
-  // to do.
-  const note = element("p", "note", state.enabled ? strings.disableNote : strings.enableNote);
+  // One call decides the button and the sentence under it, because the defect
+  // this replaces was a pair of ternaries reading the same state separately: the
+  // control said "Enable helper" while its own note described disabling, and a
+  // person deciding whether this Mac may be captured had that announcement to
+  // decide from.
+  const consent = consentControl(state);
+  const toggle = button(consent.label, consent.action, "primary");
+  const note = element("p", "note", consent.note);
   note.id = "enable-note";
   toggle.setAttribute("aria-describedby", "enable-note");
   content.append(
@@ -286,7 +285,7 @@ function render(state: PanelState): void {
     section(strings.permissions, [
       ...(state.enabled ? [] : [reason]),
       permissionRow({
-        label: "Screen recording",
+        label: strings.capturePermissionLabel,
         granted: state.screenRecording,
         consented: state.enabled,
         ask: { label: strings.requestCapture, action: "requestCapture" },
@@ -294,7 +293,7 @@ function render(state: PanelState): void {
         reasonId: blockedId,
       }),
       permissionRow({
-        label: "Accessibility",
+        label: strings.inputPermissionLabel,
         granted: state.accessibility,
         consented: state.enabled,
         ask: { label: strings.requestInput, action: "requestInput" },

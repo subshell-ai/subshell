@@ -11,9 +11,10 @@ settings using LaunchServices. This identity is distinct from the experimental
 Installation and first-run setup never call the helper. The status menu opens
 the panel without opting in. The panel is a `WKWebView` over a bundled page: it
 draws the controls and posts actions, and Swift re-checks every one of them, so
-the page is presentation and never authority. Consent is written only by the
-enable act, whether it arrives from the panel's **Enable helper** button or from
-the status menu's toggle. Starting at sign-in is its own act with its own
+the page is presentation and never authority. Only an enable act turns consent
+on, whether it arrives from the panel's **Enable helper** button or from the
+status menu's toggle; the matching disable act is the only thing that turns it
+off. Starting at sign-in is its own act with its own
 button (**Start at sign-in** / **Stop at sign-in**), in the panel: the menu
 carries consent and the exits, and leaves the login list to the row that can
 read macOS's answer back. Enabling never registers it, because agreeing to be

@@ -219,15 +219,18 @@ one permission still missing).
 `bun e2e/capture-assistant-ui.ts` photographs the assistant's **Virtual Displays**
 screen. It starts the client UI's own Vite server (port 5177 must be free),
 arrives with a Mac user agent because the rail's macOS gate reads it, and answers
-the two reads that page makes (`node_settings`, `node_probe`) with the facts a
-configured Mac reports; any command it has not been taught answers `null` and is
-named in the output, so a new read shows up as a gap rather than a blank corner of
-a published image. It never presses **Open Display Helper settings**, which would
+the four reads that page makes (`node_settings`, `node_probe`,
+`node_pending_screen`, `node_about`) with the facts a configured Mac reports;
+`node_pending_screen` is answered rather than left to the fallback because the
+page asks it on every mount, so a null would be a taught answer, not a gap. Any
+command the script has not been taught answers `null` and is named in the
+output, so a new read shows up as a gap rather than a blank corner of a
+published image. It never presses **Open Display Helper settings**, which would
 open a window on the capture host.
 
 `bun e2e/capture-docs.ts` also proves its own preview captures: the header badge
-and the switched-off picker need a pane that really owns two loopback servers, so
-the script types the dev server and the fake CDP endpoint into a terminal pane
+needs a pane that really owns two loopback servers, so the script types the dev
+server and the fake CDP endpoint into a terminal pane
 (ports 4123 and 9423, the same pair spec 47 uses, deliberately off 9222 where a
 developer's real Chromium answers) and waits on `GET /views` until the node
 reports them. Both ports are probed before the stack boots, because a leftover

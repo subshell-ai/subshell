@@ -75,6 +75,43 @@ fn flag_parts() -> Vec<u8> {
     line.into_bytes()
 }
 
+/// The version lines out of `swiftc --version`, and nothing else.
+///
+/// The probe also prints a `Target:` line and, on some toolchains, paths.
+/// Keeping only what names the compiler makes this stable across runs on one
+/// machine, which the stamp cache needs, and different across the upgrades that
+/// change the bytes it produces.
+fn toolchain_version_lines(output: &str) -> String {
+    output
+        .lines()
+        .filter(|line| line.contains("Apple Swift version") || line.contains("swift-driver version"))
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The compiler that produced the bundle, as fingerprint input.
+///
+/// A flag is as much a part of the bundle's content as a source byte, and so is
+/// the toolchain: an Xcode or Command Line Tools upgrade leaves every other input
+/// untouched while changing what `swiftc` emits, so a stamp blind to it keeps a
+/// developer's machine running the previous compiler's binary indefinitely. A
+/// probe that cannot run is its own stable value rather than a panic: the compile
+/// below is where a missing toolchain earns its error, with the compiler's words.
+fn toolchain_part() -> Vec<u8> {
+    let probed = Command::new("/usr/bin/xcrun")
+        .args(["swiftc", "--version"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+        .unwrap_or_default();
+    match toolchain_version_lines(&probed) {
+        lines if lines.is_empty() => b"toolchain:unavailable".to_vec(),
+        lines => format!("toolchain:{lines}").into_bytes(),
+    }
+}
+
 /// FNV-1a over every byte that decides the bundle's content. Cheap, stable,
 /// and dependency-free; a mismatch costs one rebuild, never correctness.
 fn fingerprint(parts: &[&[u8]]) -> u64 {
@@ -273,6 +310,7 @@ pub fn build() {
     let panel = panel_files(root, release);
     let mut parts = read_parts(&sources, &source.join("Info.plist"), architecture, &identity, &keychain);
     parts.push(flag_parts());
+    parts.push(toolchain_part());
     for (name, bytes) in &panel {
         parts.push(name.clone().into_bytes());
         parts.push(bytes.clone());
@@ -420,6 +458,34 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn the_fingerprint_sees_the_compiler_that_produced_the_bundle() {
+        // The one input above that no source byte carries: an Xcode or Command
+        // Line Tools upgrade changes what `swiftc` emits while every file, flag,
+        // and page stays exactly as it was, and a stamp blind to it lets a
+        // developer's machine keep running the previous compiler's binary.
+        let base = fingerprint(&[b"Consent.swift", b"toolchain:Apple Swift version 6.0"]);
+        assert_eq!(
+            base,
+            fingerprint(&[b"Consent.swift", b"toolchain:Apple Swift version 6.0"])
+        );
+        assert_ne!(
+            base,
+            fingerprint(&[b"Consent.swift", b"toolchain:Apple Swift version 6.2"])
+        );
+        // What is kept is the compiler's name and version only, so a probe that
+        // also prints a target triple still agrees with the run before it.
+        let verbose = "swift-driver version 1.127.18\nApple Swift version 6.2 (swiftlang-6.2.0.1.2)\nTarget: arm64-apple-macosx14.0\n";
+        assert_eq!(
+            toolchain_version_lines(verbose),
+            "swift-driver version 1.127.18\nApple Swift version 6.2 (swiftlang-6.2.0.1.2)"
+        );
+        assert!(toolchain_version_lines(verbose).contains("Swift version 6.2"));
+        // An unreadable probe is empty rather than a crash in the build script.
+        assert_eq!(toolchain_version_lines(""), "");
+        assert_eq!(toolchain_version_lines("xcrun: error: unable to find utility"), "");
     }
 
     #[test]

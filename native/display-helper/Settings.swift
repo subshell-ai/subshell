@@ -8,7 +8,13 @@ import WebKit
 /// File-scope rather than a member of `HelperSettings` because the navigation
 /// check has to run on whatever thread WebKit calls the delegate on, and a
 /// `@MainActor` type's statics are main-actor state.
-private enum PanelBundle {
+///
+/// Module-visible rather than `private` for one reason: `tests/HelperTests.swift`
+/// checks the gate. It is the one rule standing between a document loaded from
+/// somewhere else and the button that starts a screen capture, and a bundle-less
+/// test binary has no `panel` directory to answer for, so the directory is a
+/// parameter of the pure half rather than read from `Bundle.main` there.
+enum PanelBundle {
     /// Staged by `build_support.rs` from `packages/helper-panel/dist`.
     static func indexURL() -> URL? {
         Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "panel")
@@ -22,11 +28,18 @@ private enum PanelBundle {
     /// bundle. The bridge can enable capture, so a page loaded from anywhere
     /// else would be handed that button.
     static func allows(_ url: URL?) -> Bool {
-        guard let url, let directory = directoryURL(), url.isFileURL else { return false }
+        allows(url, within: directoryURL())
+    }
+
+    /// The gate itself, with the directory handed in.
+    static func allows(_ url: URL?, within directory: URL?) -> Bool {
+        guard let url, let directory, url.isFileURL else { return false }
         // Standardized, so `panel/../../Secrets/x` cannot wear the prefix of a
         // directory it actually escapes. The file read is scoped separately;
         // this gate is the one the header comment leans on, so it stands alone.
         let path = url.standardizedFileURL.path
+        // The trailing separator is not decoration: without it a sibling named
+        // `panel-evil` shares the prefix and is read as being inside.
         return path == directory.path || path.hasPrefix(directory.path + "/")
     }
 }
@@ -93,7 +106,16 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
         if window == nil { build() }
         refresh()
         window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        // This window is opened from the desktop app's own button as well as from
+        // this helper's menu, so the click may have landed in another app. An
+        // accessory app's `activate()` is not trusted to pull a window over the
+        // frontmost one, and the call that used to insist,
+        // `activate(ignoringOtherApps:)`, is deprecated on this deployment target
+        // (macOS 14) - which is an error here, because `test.sh` and the release
+        // build compile every source with warnings treated as errors. Order it
+        // up regardless, then activate so the fields take keystrokes.
+        window?.orderFrontRegardless()
+        NSApp.activate()
         onVisibilityChange?()
     }
 

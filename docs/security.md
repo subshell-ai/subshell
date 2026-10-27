@@ -4208,7 +4208,8 @@ apps. Neither first-run setup, a remote page, node configuration, nor MCP can
 enable it or request OS privacy prompts. Consent belongs to the helper's own
 panel (a bundled local page in a `WKWebView`, where Swift re-checks every posted
 action, so the page is presentation and never authority): the enable act is the
-only writer of the consent flag, and it has two doors, the panel's
+only writer of `true` to the consent flag (disable is the matching clear), and it
+has two doors, the panel's
 **Enable helper** button and the helper's own status-menu toggle. Neither is a
 page, an RPC, or this app. Starting at sign-in is a separate act
 with its own control, so enabling never registers a login item and disabling

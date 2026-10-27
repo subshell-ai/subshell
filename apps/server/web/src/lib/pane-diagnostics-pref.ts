@@ -63,7 +63,10 @@ const CHANGE_EVENT = "subshell:pane-diagnostics-change";
  */
 export function setPaneDiagnosticsIds(ids: readonly string[]): string[] {
   const next = [...ids];
-  lastWritten = next;
+  // A copy, not the returned array: every read path hands out a copy too, and a
+  // caller that sorts or splices what it got back would otherwise rewrite this
+  // page's memory of what the device stores while the store holds something else.
+  lastWritten = [...next];
   try {
     localStorage.setItem(KEY, JSON.stringify(next));
   } catch {
@@ -89,15 +92,6 @@ export function resetPaneDiagnosticsPrefForTests(): void {
 }
 
 /**
- * Calls `onChange` when the set changes on THIS page (the toggle) or another
- * tab of this device (the browser's cross-tab `storage` event, which fires
- * only for real storage writes — so a refused private-mode write does not
- * echo a change nobody stored).
- *
- * @param onChange - the listener to notify
- * @returns an unsubscribe function
- */
-/**
  * The browser fires `storage` only when a write actually landed, which is proof
  * this device accepts writes again: any page-load memory from an earlier refusal
  * is now the stale one. Cleared at module scope, beside the memory itself, so
@@ -114,6 +108,15 @@ if (typeof window !== "undefined") {
   });
 }
 
+/**
+ * Calls `onChange` when the set changes on THIS page (the toggle) or another
+ * tab of this device (the browser's cross-tab `storage` event, which fires
+ * only for real storage writes, so a refused private-mode write does not
+ * echo a change nobody stored).
+ *
+ * @param onChange - the listener to notify
+ * @returns an unsubscribe function
+ */
 export function subscribePaneDiagnostics(onChange: () => void): () => void {
   const handler = (): void => onChange();
   window.addEventListener(CHANGE_EVENT, handler);

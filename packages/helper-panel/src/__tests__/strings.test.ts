@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { EMPTY_STATE, type PanelState } from "../state";
 import {
+  consentControl,
   loginItemLine,
   permissionValue,
   quitBody,
@@ -39,6 +40,21 @@ describe("the consent warning", () => {
     expect(strings.quit).toBe("Quit helper");
     expect(strings.enable).toBe("Enable helper");
     expect(strings.disable).toBe("Disable helper");
+  });
+
+  test("keeps the words the page says in this file", async () => {
+    // `strings.ts` opens by claiming to hold every word the panel shows, and the
+    // two permission row labels sat in `main.ts` as literals, where no wording
+    // review, voice check, or parity test looks. Copy that lives outside this
+    // file can disagree with the buttons beside it and nothing notices.
+    expect(strings.capturePermissionLabel).toBe("Screen recording");
+    expect(strings.inputPermissionLabel).toBe("Accessibility");
+    const source = await Bun.file(new URL("../main.ts", import.meta.url)).text();
+    expect(source).toContain("strings.capturePermissionLabel");
+    expect(source).toContain("strings.inputPermissionLabel");
+    for (const label of ['"Screen recording"', '"Accessibility"']) {
+      expect(source, `main.ts renders no copy of its own (${label})`).not.toContain(label);
+    }
   });
 
   test("puts the ellipsis only where another app opens", () => {
@@ -124,6 +140,29 @@ describe("the consent button's note", () => {
       expect(note).toContain("sign-in choice stay");
       expect(note).toContain("macOS permissions");
     }
+  });
+
+  test("the button, its action, and its note come from one decision", async () => {
+    // Asserting that the two sentences differ tests `strings.ts`; the bug was in
+    // how the panel PAIRED them, so a future edit handing "Enable helper" the
+    // disabling sentence would have left every string test green. One call now
+    // returns the triple, and the page has nothing left to get wrong on its own.
+    expect(consentControl(stateWith({ enabled: false }))).toEqual({
+      label: "Enable helper",
+      action: "enable",
+      note: strings.enableNote,
+    });
+    expect(consentControl(stateWith({ enabled: true }))).toEqual({
+      label: "Disable helper",
+      action: "disable",
+      note: strings.disableNote,
+    });
+    // The page draws the pair from that one call, rather than reading
+    // `state.enabled` a second time beside the note.
+    const source = await Bun.file(new URL("../main.ts", import.meta.url)).text();
+    expect(source).toContain("consentControl(state)");
+    expect(source).not.toMatch(/state\.enabled\s*\?\s*strings\.(disable|enable)Note/);
+    expect(source).not.toMatch(/state\.enabled\s*\?\s*strings\.(disable|enable)\b/);
   });
 
   test("offers the sign-in act that matches the state it leaves", () => {

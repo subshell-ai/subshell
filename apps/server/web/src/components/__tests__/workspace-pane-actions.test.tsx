@@ -25,10 +25,13 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-function row(id: string, access: SubshellView["access"] = "owner"): SubshellView {
+function row(id: string, access: SubshellView["access"] = "owner", name = id): SubshellView {
   return {
     id,
-    name: id,
+    // `name` defaults to the id, and the Diagnostics case below overrides it: a
+    // fixture where the two are the same string cannot tell an id-keyed
+    // preference from a name-keyed one.
+    name,
     nameLocked: false,
     presetId: null,
     harnessId: "terminal",
@@ -91,18 +94,25 @@ it("offers Insert prompt for the focused pane and retires its dialog when focus 
   expect(screen.queryByRole("button", { name: "Actions for first" })).toBeNull();
 });
 
-it("offers the Diagnostics HUD toggle for the focused pane", async () => {
+it("offers the Diagnostics HUD toggle for the focused pane, keyed by id", async () => {
   // The workspace header stands over the focused pane's dock terminal, so
   // the Wave C toggle belongs here too, reading and writing the same
   // per-device preference the terminal opens its HUD from.
+  //
+  // The pane is called something other than its id on purpose. The menu's own
+  // label is the NAME ("Actions for Dev pane") while the preference it writes is
+  // keyed by id, so with both halves of the fixture sharing one string a
+  // name-keyed implementation would pass this test; a rename would then close
+  // the HUD the person just opened, which is the thing the preference's
+  // id-keying exists to prevent.
   localStorage.removeItem("subshell.paneDiagnostics");
-  setWorkspaceFocusedId("first");
-  await header([row("first")]);
-  fireEvent.click(await screen.findByRole("button", { name: "Actions for first" }));
+  setWorkspaceFocusedId("sub-9");
+  await header([row("sub-9", "owner", "Dev pane")]);
+  fireEvent.click(await screen.findByRole("button", { name: "Actions for Dev pane" }));
   const item = await screen.findByRole("menuitem", { name: "Diagnostics" });
   expect(paneDiagnosticsIds()).toEqual([]);
   fireEvent.click(item);
-  expect(paneDiagnosticsIds()).toContain("first");
+  expect(paneDiagnosticsIds()).toEqual(["sub-9"]);
 });
 
 it("still switches the Diagnostics HUD on when the device refuses to store it", () => {
