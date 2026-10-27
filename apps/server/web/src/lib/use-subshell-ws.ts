@@ -329,11 +329,19 @@ export function useSubshellWs(
             sinceLastResyncMs: Date.now() - lastResyncAt,
           })
         ) {
+          // Arm only against an OPEN socket. The `socket` reference lags the
+          // token fetch inside `connect`, so a verdict landing while a
+          // reconnect is in flight would otherwise close nothing, burn the
+          // one-shot AND leave the flag for the NEXT close to mistake for a
+          // resync (skipping the Wave D escalation it must keep). A reconnect
+          // already coming re-establishes the base from its own replay; the
+          // drift this verdict saw will be caught then if it still stands.
+          if (!socket || socket.readyState !== WebSocket.OPEN) return;
           lastResyncAt = Date.now();
           establishedGrid = null; // one-shot until the next replay re-establishes
           outputSince = 0;
           resyncClosing = true;
-          socket?.close();
+          socket.close();
         }
       }, resyncDebounceMs);
     };
@@ -554,9 +562,15 @@ export function useSubshellWs(
           // resync close reconnects immediately: the drift was chosen, not
           // suffered, and the whole point is a fresh base now.
           if (!cancelled && isRetryableAttachClose(e.code)) {
+            // A resync's own close (sub-4000) reconnects now, not on the
+            // fixed cadence — the drift was chosen, not suffered. A 4xxx
+            // refusal escalates even if the flag somehow rode to it: the
+            // Wave D backoff must not be beatable by a stale true.
             const wasResync = resyncClosing;
             resyncClosing = false;
-            scheduleRetry(wasResync ? 0 : e.code >= 4000 ? attachRetryDelayMs(++refusals) : RECONNECT_DELAY_MS);
+            scheduleRetry(
+              wasResync && e.code < 4000 ? 0 : e.code >= 4000 ? attachRetryDelayMs(++refusals) : RECONNECT_DELAY_MS,
+            );
           }
         };
         ws.onerror = () => handlersRef.current.onError?.("WebSocket error");

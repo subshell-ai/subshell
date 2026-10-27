@@ -311,6 +311,13 @@ export function createRemoteTailSource(options: RemoteTailSourceOptions): PaneSo
           .then(({ size }) => {
             probeInFlight = false;
             if (stopped || reported) return;
+            // A chunk can land while the probe is in flight, and then two
+            // things are true at once: the pump just proved alive, and this
+            // answer's EOF is already stale below the cursor. Re-ask the
+            // silence question against NOW, not against when the tick armed
+            // the probe; a burst mid-probe reads (size < cursor), which is
+            // otherwise indistinguishable from the rewind this also catches.
+            if (Date.now() - lastDeliveryAt < afterMs) return;
             if (size === cursor) return; // a quiet pane is not a dead pump
             reportDead(`stalled: EOF ${size}, delivered ${cursor}, silent ${Date.now() - lastDeliveryAt}ms`);
           })

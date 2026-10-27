@@ -243,7 +243,8 @@ export async function attachRemoteSubshellWs(
           // a sub-4000 code (the client's retry signal), and the re-attach
           // that follows builds a fresh `tail_start` against the current EOF
           // instead of inheriting a corpse that only ever paints replays.
-          onDead: () => closeViewersForSubshell(row.id, 1011, "tail stalled"),
+          onDead: (reason) =>
+            closeViewersForSubshell(row.id, 1011, reason.startsWith("stalled") ? "tail stalled" : "tail refused"),
         }),
       (text) => {
         // Spec §3.4: a browser that cannot keep up is cut, not queued into —

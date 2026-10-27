@@ -254,6 +254,10 @@ describe("createRemoteTailSource", () => {
     /** How many relay disposers ran. */
     relayDisposed: number;
     sizeCalls: number;
+    /** When true, a probe parks until `releaseProbe`. A flag so one case can
+     * park the FIRST probe and let the rest answer live. */
+    hold: boolean;
+    releaseProbe: () => void;
   }
 
   function remoteTailStub(opts: {
@@ -261,11 +265,15 @@ describe("createRemoteTailSource", () => {
     refuse?: string;
     /** What the size probe answers (the node's current EOF). */
     size: () => number;
+    /** When set, probes park until `releaseProbe`. */
+    holdProbes?: boolean;
   }): RemoteTailFake {
     const fake: RemoteTailFake = {
       deliveries: [],
       relayDisposed: 0,
       sizeCalls: 0,
+      hold: opts.holdProbes ?? false,
+      releaseProbe: () => {},
       launcher: {} as RemoteLauncher,
     };
     fake.launcher = {
@@ -286,7 +294,14 @@ describe("createRemoteTailSource", () => {
       },
       readLogSized: async () => {
         fake.sizeCalls += 1;
+        // Snapshot at command time, like the node answers; the hold then lets
+        // a test deliver bytes into the flight and prove the verdict re-check.
         const size = opts.size();
+        if (fake.hold) {
+          await new Promise<void>((resolve) => {
+            fake.releaseProbe = resolve;
+          });
+        }
         return { bytes: new Uint8Array(0), next: size, size };
       },
     } as unknown as RemoteLauncher;
@@ -388,6 +403,53 @@ describe("createRemoteTailSource", () => {
       }
       expect(deaths).toEqual([]);
       expect(seen.join("")).toContain("x1500");
+      // The documented economy: a pump that keeps delivering never pays a
+      // probe at all (the interval's silence gate short-circuits before the
+      // RPC). Delete that gate and this assertion is the alarm.
+      expect(fake.sizeCalls).toBe(0);
+    } finally {
+      stop();
+    }
+  });
+
+  it("a burst landing mid-probe is alive, not stalled", async () => {
+    // The probe's EOF is a snapshot; a chunk delivered while it is in flight
+    // moves the cursor PAST that answer, and `size < cursor` is otherwise
+    // exactly the rewind shape. The verdict must re-ask the silence question
+    // at resolution, not at the tick that armed the probe.
+    let size = 400;
+    const fake = remoteTailStub({ size: () => size, holdProbes: true });
+    const deaths: string[] = [];
+    const stop = createRemoteTailSource({
+      launcher: fake.launcher,
+      subshellId: "s1",
+      fromByte: 400,
+      ...FAST,
+      onDead: (why) => deaths.push(why),
+    }).start(() => {});
+    try {
+      await waitFor(() => fake.deliveries.length === 1, "the tail_start handshake");
+      const onChunk = fake.deliveries[0];
+      await waitFor(() => fake.sizeCalls >= 1, "the first parked probe");
+      // The pump wakes while that probe is in flight: the cursor passes the
+      // answer it will bring back.
+      size = 800;
+      onChunk(Buffer.from("burst"), 800);
+      fake.releaseProbe();
+      await Bun.sleep(120);
+      expect(deaths).toEqual([]); // the stale answer was refused at the gate
+      // And the watchdog is not defanged: true silence with a moving log
+      // still earns the verdict. A tick that armed its probe just before the
+      // hold came off would otherwise sit parked, so pump the release until
+      // the verdict lands (releasing an answered probe is a no-op).
+      fake.hold = false;
+      size = 1200;
+      for (let i = 0; i < 25 && deaths.length === 0; i++) {
+        await Bun.sleep(40);
+        fake.releaseProbe();
+      }
+      expect(deaths.length).toBe(1);
+      expect(deaths[0]).toContain("stalled");
     } finally {
       stop();
     }

@@ -639,9 +639,20 @@ export function closeViewersForSubshell(subshellId: string, code: number, reason
   let closed = 0;
   // Snapshot: detachViewer empties (and deletes) the map we are standing in.
   for (const ws of [...viewers.values()]) {
+    // Each step its own try: a disposer that throws must not skip the detach,
+    // or the viewer stays registered, the stream never reaches zero, and the
+    // next attach inherits the corpse this function exists to bury.
     try {
       ws.data?.cleanup?.(); // the attach's own disposer: closes the subscription
+    } catch {
+      /* bookkeeping continues without it */
+    }
+    try {
       detachViewer(ws);
+    } catch {
+      /* ditto */
+    }
+    try {
       ws.close(code, reason);
       closed++;
     } catch {
