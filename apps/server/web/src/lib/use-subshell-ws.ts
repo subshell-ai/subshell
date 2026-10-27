@@ -86,6 +86,48 @@ export function setAttachRetryDelaysForTests(baseMs: number, maxMs: number): voi
   retryMaxMs = maxMs;
 }
 
+/** How long a geometry adoption waits before the resync check runs (a window
+ * drag re-attaches once on settle, not per rAF). */
+const RESYNC_DEBOUNCE_MS = 300;
+/** Minimum spacing between resync attaches: a grid that bounces back and
+ * forth cannot turn the self-heal into a reconnect storm. */
+const RESYNC_MIN_GAP_MS = 1000;
+let resyncDebounceMs = RESYNC_DEBOUNCE_MS;
+let resyncMinGapMs = RESYNC_MIN_GAP_MS;
+
+/**
+ * Shortens the resync settle check and widens or narrows its storm gap.
+ * @internal
+ */
+export function setAttachResyncTimingsForTests(debounceMs: number, minGapMs: number): void {
+  resyncDebounceMs = debounceMs;
+  resyncMinGapMs = minGapMs;
+}
+
+/**
+ * Whether a viewer's base has gone untrustworthy: the replay painted at one
+ * grid, the pane has spoken since, and the client now stands on another.
+ * Bytes emitted across that transition addressed a grid this terminal never
+ * rendered, and a relative-positioned TUI (every spinner, every pinned block)
+ * keeps repainting FROM them — no hold or re-order can recover those frames,
+ * only a fresh absolute capture can. Pure, so the table is pinned by test
+ * without a socket.
+ */
+export function needsGridResync(facts: {
+  /** The grid the current replay was painted into; null until a replay lands. */
+  established: { cols: number; rows: number } | null;
+  /** The terminal's grid NOW, after adopting the announced geometry. */
+  current: { cols: number; rows: number };
+  /** Output frames applied since that replay was painted. */
+  outputSince: number;
+  /** ms since the last resync attach (Infinity when none this session). */
+  sinceLastResyncMs: number;
+}): boolean {
+  if (!facts.established || facts.outputSince === 0) return false;
+  if (facts.current.cols === facts.established.cols && facts.current.rows === facts.established.rows) return false;
+  return facts.sinceLastResyncMs >= resyncMinGapMs;
+}
+
 /**
  * Attaches a WebSocket to an xterm terminal: streams server frames
  * (`replay` + `output`) into the terminal and forwards keystrokes back.
@@ -256,6 +298,46 @@ export function useSubshellWs(
     // frame. Drives the Wave D backoff; a successful attach resets it.
     let refusals = 0;
 
+    // Grid resync (see needsGridResync): the attach is the only thing that
+    // gives this viewer a TRUE base, so when the base goes false mid-session
+    // — the client adopted a grid other than the one its replay was painted
+    // for, and pane bytes landed in between — the honest act is to run the
+    // attach again, not to keep streaming onto a drifted anchor. One-shot per
+    // observed change (established clears until the next replay), debounced
+    // so a drag settles first, and storm-gapped.
+    let establishedGrid: { cols: number; rows: number } | null = null;
+    let outputSince = 0;
+    let lastResyncAt = -Infinity;
+    let resyncTimer: ReturnType<typeof setTimeout> | null = null;
+    // Set when the RESYNC initiated the close, so the onclose handler (the
+    // single path that ever reconnects, and the only one that cannot leave a
+    // second socket behind) reconnects immediately instead of on the fixed
+    // cadence. A self-scheduled connect racing that handler was a double
+    // attach waiting to happen.
+    let resyncClosing = false;
+    const scheduleResyncCheck = (): void => {
+      if (resyncTimer) clearTimeout(resyncTimer);
+      if (cancelled) return;
+      resyncTimer = setTimeout(() => {
+        resyncTimer = null;
+        if (cancelled) return;
+        if (
+          needsGridResync({
+            established: establishedGrid,
+            current: { cols: term.cols, rows: term.rows },
+            outputSince,
+            sinceLastResyncMs: Date.now() - lastResyncAt,
+          })
+        ) {
+          lastResyncAt = Date.now();
+          establishedGrid = null; // one-shot until the next replay re-establishes
+          outputSince = 0;
+          resyncClosing = true;
+          socket?.close();
+        }
+      }, resyncDebounceMs);
+    };
+
     /**
      * Arms the next reconnect attempt. Replaces any pending timer so two
      * close paths can never stack a second attempt.
@@ -410,6 +492,11 @@ export function useSubshellWs(
                 }
                 term.write(frame.data);
                 lastOutputRef.current = Date.now();
+                // This replay is the base: everything parsed after it is
+                // trustworthy ONLY while the grid stays the one it was
+                // painted into (see needsGridResync).
+                establishedGrid = { cols: term.cols, rows: term.rows };
+                outputSince = 0;
                 // The capture was taken for the dimensions we CONNECTED with.
                 // If the grid settled to a different size since (late layout,
                 // scrollbar), those rows are the wrong width for the screen
@@ -422,6 +509,7 @@ export function useSubshellWs(
             } else if (frame.type === "output" && frame.data) {
               term.write(frame.data);
               lastOutputRef.current = Date.now();
+              outputSince++;
             } else if (frame.type === "viewers") {
               // Engagement is the server's OWN answer, re-learned per attach:
               // a flag engages tracking; its absence disengages and drops the
@@ -435,6 +523,11 @@ export function useSubshellWs(
               // Fact, not a request — the caller pins its grid to this and
               // stays silent about it (see TermWsHandlers.onGeometry).
               handlersRef.current.onGeometry?.(frame.cols, frame.rows);
+              // The pin settles asynchronously (container → letterbox → fit).
+              // Check after a settle beat whether that lands the terminal on
+              // a different grid than the one its replay was painted for,
+              // with pane bytes having arrived in between (needsGridResync).
+              scheduleResyncCheck();
             }
           } catch {
             // ignore malformed frame
@@ -457,9 +550,13 @@ export function useSubshellWs(
           // node-offline refusal retries on an escalating one (the backlog
           // ships on the first successful attach; the plane holds what it
           // already wrote), and every other 4xxx refusal is terminal — the
-          // page's onClose surfaces it and no timer stacks behind it.
+          // page's onClose surfaces it and no timer stacks behind it. A
+          // resync close reconnects immediately: the drift was chosen, not
+          // suffered, and the whole point is a fresh base now.
           if (!cancelled && isRetryableAttachClose(e.code)) {
-            scheduleRetry(e.code >= 4000 ? attachRetryDelayMs(++refusals) : RECONNECT_DELAY_MS);
+            const wasResync = resyncClosing;
+            resyncClosing = false;
+            scheduleRetry(wasResync ? 0 : e.code >= 4000 ? attachRetryDelayMs(++refusals) : RECONNECT_DELAY_MS);
           }
         };
         ws.onerror = () => handlersRef.current.onError?.("WebSocket error");
@@ -551,6 +648,7 @@ export function useSubshellWs(
       document.removeEventListener("visibilitychange", onVisibility);
       cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
+      if (resyncTimer) clearTimeout(resyncTimer);
       inputDisposableRef.current?.dispose();
       inputDisposableRef.current = null;
       // Flushes whatever motion was pending, so a detach cannot strand the
