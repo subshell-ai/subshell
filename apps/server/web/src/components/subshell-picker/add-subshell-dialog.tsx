@@ -172,12 +172,14 @@ export function AddSubshellDialog({
   // Where a refusal renders: the Virtual display checkbox owns it while that control
   // is on screen and switched on, and the form line takes it back when either is
   // not, so a display refusal is never both invisible and orphaned.
+  // ONE variable decides "the agent branch is on screen", and both the split
+  // below and the JSX that mounts `NewSubshellForm` read it. Written twice, the
+  // two can drift, and the drift is silent: a refusal handed to a field that is
+  // not mounted, with the form line empty as well, tells nobody anything.
+  const agentBranch = visibleMode !== "existing" && !(kind === "ssh" && open);
   const { field: displayLaunchError, form: formLaunchError } = splitLaunchError(
     error,
-    displayFieldOwnsRefusal({
-      mounted: visibleMode !== "existing" && !(kind === "ssh" && open),
-      virtualDisplay: form.virtualDisplay,
-    }),
+    displayFieldOwnsRefusal({ mounted: agentBranch, virtualDisplay: form.virtualDisplay }),
   );
   return (
     <Dialog
@@ -233,7 +235,7 @@ export function AddSubshellDialog({
         ) : (
           <div className="flex flex-col gap-4">
             <SubshellKindPicker value={kind} onChange={setKind} disabled={creating} />
-            {kind === "ssh" && open ? (
+            {!agentBranch ? (
               <ConnectPanel
                 draft={sshDraft}
                 onDraftChange={setSshDraft}

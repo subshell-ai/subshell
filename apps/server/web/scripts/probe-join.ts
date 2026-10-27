@@ -5,7 +5,7 @@
  *
  *   bunx turbo build --filter=@internal/server
  *   cd apps/server/web
- *   bun --preload ./scripts/.probe-preload.tmp.ts scripts/probe-join.ts <subshell-id> [runs]
+ *   bun --preload ./scripts/probe-preload.ts scripts/probe-join.ts <subshell-id> [runs]
  *
  * probe-stream waits for the pane to go quiet before joining, which is the
  * 2026-09-04 rolled-back strategy; production joins mid-redraw. For a TUI

@@ -108,12 +108,16 @@ export function LaunchSubshellDialog({
   // Where a refusal renders: the Virtual display checkbox owns it while that control
   // is on screen and switched on, and the form line takes it back when either is
   // not, so a display refusal is never both invisible and orphaned.
+  // ONE variable for "the agent branch is on screen", shared by the split below
+  // and by the JSX that mounts `NewSubshellForm`, so the two cannot drift apart
+  // and strand a refusal in a field nobody rendered.
+  // ONE variable decides "the agent branch is on screen", read by both the
+  // split below and the JSX that mounts `NewSubshellForm`; written twice the two
+  // can drift, and a refusal handed to an unmounted field is invisible.
+  const agentBranch = !(kind === "ssh" && open);
   const { field: displayLaunchError, form: formLaunchError } = splitLaunchError(
     error,
-    displayFieldOwnsRefusal({
-      mounted: !(kind === "ssh" && open),
-      virtualDisplay: form.virtualDisplay,
-    }),
+    displayFieldOwnsRefusal({ mounted: agentBranch, virtualDisplay: form.virtualDisplay }),
   );
   return (
     <Dialog
@@ -140,7 +144,7 @@ export function LaunchSubshellDialog({
           <DialogDescription>Start an agent, a terminal, or an SSH session in a subshell.</DialogDescription>
         </DialogHeader>
         <SubshellKindPicker value={kind} onChange={setKind} disabled={sshPending || create.isPending} />
-        {kind === "ssh" && open ? (
+        {!agentBranch ? (
           <ConnectPanel
             draft={sshDraft}
             onDraftChange={setSshDraft}
