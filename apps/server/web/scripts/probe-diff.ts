@@ -17,7 +17,7 @@
  */
 import { createHash } from "node:crypto";
 import { Terminal } from "@xterm/xterm";
-import { captureToReplayText } from "../../server/dist/ws/capture-text.js";
+import { captureToReplayText } from "../../api/dist/api/ws/capture-text.js";
 
 const id = process.argv[2];
 if (!id) throw new Error("usage: probe-diff.ts <subshell-id> [keys]");

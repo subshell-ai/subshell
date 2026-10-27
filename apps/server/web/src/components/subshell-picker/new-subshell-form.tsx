@@ -261,7 +261,19 @@ export function NewSubshellForm({
   // The whole node list goes through, because the empty state's job is now to
   // say — per machine — what is in the way and who can move it.
   if (nodes !== null && !targets.some(isSelectable)) {
-    return <NoLaunchTargets nodes={nodes} onNavigate={onLeave} />;
+    // The form is gone, so nothing downstream can host the refusal it carried:
+    // render it here, or a launch that the node refused over its display
+    // vanishes the moment every machine becomes unselectable behind the dialog.
+    return (
+      <>
+        {launchError && (
+          <p role="alert" className="text-destructive text-detail">
+            {launchError}
+          </p>
+        )}
+        <NoLaunchTargets nodes={nodes} onNavigate={onLeave} />
+      </>
+    );
   }
 
   return (

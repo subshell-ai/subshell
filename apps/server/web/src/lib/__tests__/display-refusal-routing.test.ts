@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { splitLaunchError } from "@/lib/display-refusal-routing";
+import { displayFieldOwnsRefusal, splitLaunchError } from "@/lib/display-refusal-routing";
 
 /**
  * The one place the "a refusal renders in exactly one spot" rule is written, so
@@ -29,5 +29,31 @@ describe("splitLaunchError", () => {
 
   it("says nothing when there is nothing to say", () => {
     expect(splitLaunchError(null, true)).toEqual({ field: null, form: null });
+  });
+});
+
+describe("displayFieldOwnsRefusal", () => {
+  // The condition the three dialogs hand `splitLaunchError`, kept as one tested
+  // function because the failure mode is silence: with the box term dropped, a
+  // display refusal under an unchecked checkbox goes to a field that hides it,
+  // the form line is empty too, and no suite notices a message vanishing.
+  it("gives the line to the field only while it is mounted AND switched on", () => {
+    expect(displayFieldOwnsRefusal({ mounted: true, virtualDisplay: true })).toBe(true);
+    expect(displayFieldOwnsRefusal({ mounted: true, virtualDisplay: false })).toBe(false);
+    expect(displayFieldOwnsRefusal({ mounted: true, virtualDisplay: undefined })).toBe(false);
+    expect(displayFieldOwnsRefusal({ mounted: false, virtualDisplay: true })).toBe(false);
+    expect(displayFieldOwnsRefusal({ mounted: false, virtualDisplay: false })).toBe(false);
+  });
+
+  it("leaves the form holding the refusal when the field does not", () => {
+    // The two halves of the pair, asserted together: exactly one of them owns
+    // any given message, and "neither" is the bug this pins shut.
+    const REFUSAL = "API 400: no display for you. (preview-display-not-ready: x)";
+    const off = splitLaunchError(REFUSAL, displayFieldOwnsRefusal({ mounted: true, virtualDisplay: false }));
+    expect(off.field).toBeNull();
+    expect(off.form).toBe(REFUSAL);
+    const on = splitLaunchError(REFUSAL, displayFieldOwnsRefusal({ mounted: true, virtualDisplay: true }));
+    expect(on.form).toBeNull();
+    expect(on.field).toBe(REFUSAL);
   });
 });
