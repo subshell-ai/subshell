@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { unlinkSync } from "node:fs";
-import { deliverPromptInto, type PromptDeliveryPane } from "../prompt-delivery.js";
+import { deliverPromptInto, type PromptDeliveryPane, submitPaneInput } from "../prompt-delivery.js";
 import { freshSocket, runner } from "./helpers/tmux-test-harness.js";
 
 /**
@@ -204,20 +204,136 @@ describe("deliverPrompt (shared policy)", () => {
     ).toBe(false);
   });
 
-  it("a prompt longer than the needle clears the gate on the shown head alone", async () => {
-    // The screen can lag the tail mid-render: matching the first 48
-    // normalized chars is what lets the gate pass while the rest renders.
-    const text = `${"x".repeat(30)} ${"y".repeat(30)}`;
-    const head = "x".repeat(30) + "y".repeat(18); // the 48 normalized chars
-    const { pane, calls } = fakePane(["", "boot", `boot\n❯ ${head}`]);
+  it("waits for the end of a long prompt instead of submitting its partial render", async () => {
+    const text = `${"x".repeat(60)} ${"y".repeat(60)}`;
+    const { pane, calls } = fakePane(["boot", `❯ ${"x".repeat(60)}`, "y".repeat(60)]);
     const delivered = await deliverPromptInto(pane, "sock", "s1", text, {
       settleTimeoutMs: 10_000,
       pollMs: 1,
       nowMs: steppingClock(1),
     });
     expect(delivered).toBe(true);
-    const kinds = calls.map((c) => c.kind);
-    expect(kinds.indexOf("pressEnter")).toBe(kinds.indexOf("sendInput") + 2); // one gate capture, no spin
+    expect(calls.filter((call) => call.kind === "capture").map((call) => call.detail)).toEqual([
+      "boot",
+      `❯ ${"x".repeat(60)}`,
+      "y".repeat(60),
+    ]);
+    expect(calls.at(-1)?.kind).toBe("pressEnter");
+  });
+
+  it("doesn't mistake an earlier repetition of the suffix for the end of a prompt", async () => {
+    const paragraph = "A repeated diagnostic paragraph that is longer than the render needle.";
+    const text = Array(3).fill(paragraph).join("\n");
+    const { pane, calls } = fakePane(["ready", paragraph, `${paragraph}\n${paragraph}`, text]);
+    await submitPaneInput(pane, "sock", "s1", text, { pollMs: 1 });
+    expect(calls.filter((call) => call.kind === "capture").map((call) => call.detail)).toEqual([
+      "ready",
+      paragraph,
+      `${paragraph}\n${paragraph}`,
+      text,
+    ]);
+    expect(calls.at(-1)?.kind).toBe("pressEnter");
+  });
+
+  it("waits for overlapping suffix repetitions to finish", async () => {
+    const text = "x".repeat(60);
+    const { pane, calls } = fakePane(["ready", "x".repeat(48), text]);
+    await submitPaneInput(pane, "sock", "overlapping", text, { pollMs: 1 });
+    expect(calls.filter((call) => call.kind === "capture").map((call) => call.detail)).toEqual([
+      "ready",
+      "x".repeat(48),
+      text,
+    ]);
+    expect(calls.at(-1)?.kind).toBe("pressEnter");
+  });
+
+  it("uses the fallback if the baseline capture fails instead of trusting stale text", async () => {
+    let reads = 0;
+    let entered = false;
+    const pane: PromptDeliveryPane = {
+      async capturePane() {
+        reads += 1;
+        if (reads === 1) throw new Error("capture temporarily unavailable");
+        return "previous turn: hello";
+      },
+      async sendInput() {},
+      async pressEnter() {
+        entered = true;
+      },
+    };
+    await submitPaneInput(pane, "sock", "no-baseline", "hello", {
+      pollMs: 1,
+      renderTimeoutMs: 100,
+      nowMs: steppingClock(10),
+    });
+    expect(reads).toBeGreaterThan(3);
+    expect(entered).toBe(true);
+  });
+
+  it("keeps concurrent automated prompts separate and releases the queue after an input failure", async () => {
+    const typed: string[] = [];
+    const submitted: string[] = [];
+    let composer = "";
+    let releaseFirst!: () => void;
+    let firstTyped!: () => void;
+    const started = new Promise<void>((resolve) => {
+      firstTyped = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const pane: PromptDeliveryPane = {
+      async capturePane() {
+        return composer;
+      },
+      async sendInput(_socket, _id, input) {
+        typed.push(input);
+        if (input === "failed") throw new Error("write failed");
+        composer += input;
+        if (input === "first") {
+          firstTyped();
+          await release;
+        }
+      },
+      async pressEnter() {
+        submitted.push(composer);
+        composer = "";
+      },
+    };
+    const first = submitPaneInput(pane, "sock", "queued", "first", { pollMs: 1 });
+    await started;
+    const failed = submitPaneInput(pane, "sock", "queued", "failed", { pollMs: 1 });
+    const failedResult = failed.catch((error: Error) => error.message);
+    const last = submitPaneInput(pane, "sock", "queued", "last", { pollMs: 1 });
+    await Promise.resolve();
+    expect(typed).toEqual(["first"]);
+    releaseFirst();
+    await Promise.all([first, last]);
+    expect(await failedResult).toBe("write failed");
+    expect(submitted).toEqual(["first", "last"]);
+    expect(typed).toEqual(["first", "failed", "last"]);
+  });
+
+  it("submits from a blank running pane after its paste parser has had time to settle", async () => {
+    let renderedAt = 0;
+    let submitted = false;
+    let typed = false;
+    const pane: PromptDeliveryPane = {
+      async capturePane() {
+        if (!typed) return "";
+        renderedAt = Date.now();
+        return "❯ pasted prompt";
+      },
+      async sendInput() {
+        typed = true;
+      },
+      async pressEnter() {
+        // A TUI can still treat Enter as pasted text just after rendering.
+        submitted = Date.now() - renderedAt >= 150;
+      },
+    };
+    await submitPaneInput(pane, "sock", "s1", "pasted prompt", { pollMs: 1 });
+    expect(submitted).toBe(true);
   });
 
   it("never settles ⇒ false, no input, no Enter", async () => {

@@ -7,7 +7,7 @@ import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 // line. `resumed` is deliberately NOT a `NotifyKind` in either file: resuming
 // is a state change, nothing rings for it.
 import type { AttentionKind } from "@internal/mcp-core";
-import { allHarnesses, getHarness, tmuxSocketFor } from "@internal/pane-runtime";
+import { allHarnesses, getHarness, submitPaneInput, tmuxSocketFor } from "@internal/pane-runtime";
 import type { ApiKeyPermission } from "@internal/subshell-protocol";
 import {
   joinPresetPrompt,
@@ -1044,12 +1044,11 @@ export class SubshellsService extends BaseService {
    * member, resolved per row via `launcherFor(row.nodeId)`: locally a
    * `tmux send-keys -l --` on the row's socket, remotely the agent's `input`
    * command, byte for byte. The bytes are never translated, matching the dumb
-   * pipe the WS keystrokes flow through. `submit` appends Enter as a literal
-   * CR, the exact byte the browser terminal sends when a human presses it on
-   * that path; `deliverPrompt`'s `pressEnter` is the same CR at the pane's
-   * pty, but it is a `TmuxRunner` method with no `NodeLauncher` twin, so the
-   * spelling both launches can carry is this one. The per-pane input chain (or
-   * the agent's serialized dispatch) keeps text-before-Enter in order.
+   * pipe the WS keystrokes flow through. Automated submission uses the shared
+   * prompt render gate before sending CR. Ordering alone isn't enough: Codex
+   * can treat an Enter immediately after a long burst as part of the paste,
+   * leaving the prompt in its composer. Raw input and submit:false stay
+   * byte-for-byte and don't wait for a render.
    *
    * Typed input transits argv (`send-keys -l -- <text>`, `/proc`-readable for
    * the spawn's life) exactly like every other send-keys path, keystrokes
@@ -1104,8 +1103,21 @@ export class SubshellsService extends BaseService {
     // viewers through the pane log and the live tail, not a dashboard re-read.
     const launcher = launcherFor(row.nodeId);
     const socket = row.tmuxSocket ?? tmuxSocketFor(id);
-    await launcher.sendInput(socket, id, text).catch(rethrowLaunchRefusal);
-    if (submit) await launcher.sendInput(socket, id, "\r").catch(rethrowLaunchRefusal);
+    if (submit) {
+      await submitPaneInput(
+        {
+          capturePane: (sock, paneId) => launcher.capture(sock, paneId),
+          sendInput: (sock, paneId, input) => launcher.sendInput(sock, paneId, input),
+          pressEnter: (sock, paneId) => launcher.sendInput(sock, paneId, "\r"),
+        },
+        socket,
+        id,
+        text,
+        { pollMs: PROMPT_POLL_MS },
+      ).catch(rethrowLaunchRefusal);
+    } else {
+      await launcher.sendInput(socket, id, text).catch(rethrowLaunchRefusal);
+    }
     return { ok: true };
   }
 

@@ -42,7 +42,17 @@ const subshells = new SubshellsRepository(db);
 const shares = new SubshellSharesRepository(db);
 
 /** What a RUNNING pane's node answers: the create pair plus the `input` under test. */
-const LIFECYCLE = { stat_dir: statDirEcho, launch: ok, input: ok };
+function inputLifecycle() {
+  let screen = "";
+  return {
+    stat_dir: statDirEcho,
+    launch: ok,
+    capture: () => screen,
+    input: (cmd: { type: string; data?: string }) => {
+      screen += cmd.data ?? "";
+    },
+  };
+}
 
 describe("POST /api/subshells/:id/input (spec 2026-09-25)", () => {
   const ownerEmail = `inp-owner-${crypto.randomUUID()}@subshell.local`;
@@ -163,7 +173,7 @@ describe("POST /api/subshells/:id/input (spec 2026-09-25)", () => {
   });
 
   it("default submit types the text then the same CR the live typing path carries", async () => {
-    const sim = attachScriptedNode(node, LIFECYCLE);
+    const sim = attachScriptedNode(node, inputLifecycle());
     try {
       const id = await createRunning("in-submit");
       const res = await input(id, { cookie: ownerCookie, body: { text: "hello pane" } });
@@ -178,20 +188,49 @@ describe("POST /api/subshells/:id/input (spec 2026-09-25)", () => {
     }
   });
 
+  it("holds Enter until a long input burst reaches the end of the composer", async () => {
+    const text = `${"Diagnostic paragraph.\n".repeat(500)}UNIQUE_END_OF_PROMPT`;
+    let typed = false;
+    let renders = 0;
+    const sim = attachScriptedNode(node, {
+      ...inputLifecycle(),
+      input: (cmd) => {
+        if (cmd.type !== "input") throw new Error("unexpected command");
+        if (cmd.data === "\r") expect(renders).toBeGreaterThanOrEqual(2);
+        else typed = true;
+      },
+      capture: () => {
+        if (!typed) return "ready";
+        renders += 1;
+        return renders === 1 ? text.slice(0, 500) : text.slice(-500);
+      },
+    });
+    try {
+      const id = await createRunning("in-long-submit");
+      const res = await input(id, { cookie: ownerCookie, body: { text } });
+      expect(res.status).toBe(200);
+      expect(inputBytes(sim)).toEqual([text, "\r"]);
+      expect(renders).toBe(2);
+    } finally {
+      sim.detach();
+    }
+  });
+
   it("submit:false types the text alone, no Enter (an edit at the prompt)", async () => {
-    const sim = attachScriptedNode(node, LIFECYCLE);
+    const sim = attachScriptedNode(node, inputLifecycle());
     try {
       const id = await createRunning("in-draft");
       const res = await input(id, { cookie: ownerCookie, body: { text: "draft only", submit: false } });
       expect(res.status).toBe(200);
       expect(inputBytes(sim)).toEqual(["draft only"]);
+      expect(sim.countOf("capture")).toBe(0);
     } finally {
       sim.detach();
     }
   });
 
   it("gate: a view grantee 403s and types nothing; an edit grantee 200s", async () => {
-    const sim = attachScriptedNode(node, LIFECYCLE);
+    const sim = attachScriptedNode(node, inputLifecycle());
     try {
       const id = await createRunning("in-gate");
       await shares.replaceForSubshell(id, [{ granteeUserId: granteeId, permission: "view" }], ownerId);
@@ -209,7 +248,7 @@ describe("POST /api/subshells/:id/input (spec 2026-09-25)", () => {
   });
 
   it("bearer pane key: the owner's OTHER running subshell 200s, a foreign row 404s", async () => {
-    const sim = attachScriptedNode(node, LIFECYCLE);
+    const sim = attachScriptedNode(node, inputLifecycle());
     try {
       const paneA = await createRunning("in-pane-a"); // the token's own subshell
       const other = await createRunning("in-other"); // the owner's OTHER running row
@@ -232,7 +271,7 @@ describe("POST /api/subshells/:id/input (spec 2026-09-25)", () => {
   });
 
   it("a non-running row 409s SUBSHELL_NOT_RUNNING before the launcher is touched", async () => {
-    const sim = attachScriptedNode(node, LIFECYCLE);
+    const sim = attachScriptedNode(node, inputLifecycle());
     try {
       const id = await directRow({ userId: ownerId, status: "terminated", name: "in-dead" });
       const res = await input(id, { cookie: ownerCookie, body: { text: "wake up" } });
@@ -252,7 +291,7 @@ describe("POST /api/subshells/:id/input (spec 2026-09-25)", () => {
     // session and answers 500 (the live incident 2026-09-25: cross-node MCP
     // sends failing after a remote pane terminated); the honest answer is the
     // same 409, because `alive` is the fact the send actually needs.
-    const sim = attachScriptedNode(node, LIFECYCLE);
+    const sim = attachScriptedNode(node, inputLifecycle());
     try {
       const id = await directRow({ userId: ownerId, status: "running", name: "in-parked" });
       const res = await input(id, { cookie: ownerCookie, body: { text: "wake up" } });
@@ -267,7 +306,7 @@ describe("POST /api/subshells/:id/input (spec 2026-09-25)", () => {
   });
 
   it("an offline agent node maps to 409 NODE_OFFLINE (the create/restart mapper)", async () => {
-    const sim = attachScriptedNode(node, LIFECYCLE);
+    const sim = attachScriptedNode(node, inputLifecycle());
     const id = await createRunning("in-offline");
     sim.detach(); // the machine drops; the row still reads running
     const res = await input(id, { cookie: ownerCookie, body: { text: "anyone there" } });

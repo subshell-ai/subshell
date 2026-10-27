@@ -128,6 +128,7 @@ export {
   deliverPromptInto,
   type PromptDeliveryOptions,
   type PromptDeliveryPane,
+  submitPaneInput,
 } from "./prompt-delivery.js";
 export {
   allHarnesses,
