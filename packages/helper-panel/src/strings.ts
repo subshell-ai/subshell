@@ -1,4 +1,4 @@
-import type { PanelState, StateValue } from "./state";
+import type { LoginItemState, PanelState, StateValue } from "./state";
 
 /**
  * Every word the panel shows, in one file. The copy is the interface: a
@@ -19,9 +19,18 @@ export const strings = {
   permissions: "macOS permissions",
   enable: "Enable helper",
   disable: "Disable helper",
-  enableNote: "Disabling stops capture and input. Your subshells and macOS permissions stay.",
+  enableNote: "Disabling stops capture and input. Your subshells, macOS permissions, and sign-in choice stay.",
+  /* The sign-in choice is the person's own, so each state offers the one act
+   * that changes it: register, stop registering, or go where macOS is waiting
+   * for approval. Enabling the helper never registers anything by itself. */
+  startAtSignIn: "Start at sign-in",
+  stopAtSignIn: "Stop at sign-in",
   loginItemPending: "Needs approval in System Settings under Login Items.",
   loginItemRegistered: "Starts at sign-in with macOS.",
+  /* No advice about toggling consent: the button beside this row registers it,
+   * and enabling the helper no longer does, so sending the person to disable
+   * and re-enable would be a detour to the same act. */
+  loginItemMissing: "Not registered, so it will not start at sign-in.",
   loginItemLabel: "Login item",
   openLoginItems: "Open login items…",
   openDocs: "Setup instructions",
@@ -66,10 +75,15 @@ export function viewerLine(state: PanelState): string {
  * still waiting on them, so it reads in gold, the same split the permission
  * rows use.
  */
-export function loginItemLine(needsApproval: boolean): StateValue {
-  return needsApproval
-    ? { text: strings.loginItemPending, blocked: true }
-    : { text: strings.loginItemRegistered, blocked: false };
+export function loginItemLine(state: LoginItemState): StateValue {
+  switch (state) {
+    case "registered":
+      return { text: strings.loginItemRegistered, blocked: false };
+    case "needsApproval":
+      return { text: strings.loginItemPending, blocked: true };
+    case "notRegistered":
+      return { text: strings.loginItemMissing, blocked: true };
+  }
 }
 
 /**

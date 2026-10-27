@@ -227,10 +227,17 @@ function render(state: PanelState): void {
   if (state.enabled) {
     content.append(
       section(strings.signInSection, [
+        // One control, named for the state it is leaving: register, stop
+        // registering, or go to the setting macOS is waiting on. None of them
+        // happen by themselves when the helper is enabled.
         row(
           strings.loginItemLabel,
-          loginItemLine(state.loginItemNeedsApproval),
-          button(strings.openLoginItems, "openLoginItems"),
+          loginItemLine(state.loginItem),
+          state.loginItem === "registered"
+            ? button(strings.stopAtSignIn, "unregisterLoginItem")
+            : state.loginItem === "notRegistered"
+              ? button(strings.startAtSignIn, "registerLoginItem")
+              : button(strings.openLoginItems, "openLoginItems"),
         ),
       ]),
     );

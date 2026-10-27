@@ -69,6 +69,26 @@ enum Theme {
 /// wording is testable without a status item. The panel's own copy lives in
 /// `packages/helper-panel/src/strings.ts`; keep a sentence in one of the two,
 /// not both.
+#if os(macOS)
+import ServiceManagement
+
+/// The login item's state, in the three words the page renders. Kept apart
+/// because each needs a different sentence: `requiresApproval` is macOS waiting
+/// for a switch the person has not thrown, while `notRegistered` means the item
+/// is not in the list at all, which is what turning it OFF in System Settings
+/// leaves behind. Reading both as approved is how a disabled sign-in start kept
+/// claiming it starts at sign-in.
+enum LoginItem {
+    static func pageState(_ status: SMAppService.Status) -> String {
+        switch status {
+        case .enabled: return "registered"
+        case .requiresApproval: return "needsApproval"
+        default: return "notRegistered"
+        }
+    }
+}
+#endif
+
 enum AccessReport {
     /// What the status menu calls itself. The bar item is only an icon, so a
     /// person who clicks it without hovering the tooltip has nothing else

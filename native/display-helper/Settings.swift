@@ -176,12 +176,18 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
         // Permissions are granted in System Settings, two clicks and a dialog
         // away from this panel, and macOS sends no notification when they
         // change. Polling the two preflight calls is how the row catches up.
-        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+        // Five seconds, in every run-loop mode. The default mode stops firing
+        // while a menu is being tracked, and the whole point of the poll is to
+        // catch a change made in another app, so the wait for a switch flip in
+        // System Settings must not depend on this process being idle.
+        let poll = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.window?.isVisible == true else { return }
                 self.pushState()
             }
         }
+        RunLoop.main.add(poll, forMode: .common)
+        timer = poll
     }
 
     private func reportMissingBundle() {
@@ -200,7 +206,7 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
             "accessibility": AXIsProcessTrusted(),
             "viewers": accessCount(),
             "error": errorMessage,
-            "loginItemNeedsApproval": consent.enabled && SMAppService.mainApp.status == .requiresApproval,
+            "loginItem": LoginItem.pageState(SMAppService.mainApp.status),
         ]
     }
 
@@ -232,6 +238,8 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
         case "requestCapture": requestCapture()
         case "requestInput": requestInput()
         case "openLoginItems": SMAppService.openSystemSettingsLoginItems()
+        case "registerLoginItem": registerLoginItem()
+        case "unregisterLoginItem": unregisterLoginItem()
         case "openDocs":
             if let url = URL(string: Self.docsURL) { NSWorkspace.shared.open(url) }
         case "minimize": minimize()
@@ -254,22 +262,32 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
     /// login item would leave a helper that never came back.
     func enableHelper() {
         errorMessage = ""
-        do {
-            try enable()
-            try SMAppService.mainApp.register()
-        } catch {
-            // A half-registered helper is worse than a refused one: the login
-            // item would outlive the consent it stands for.
-            disable()
-            errorMessage = "Couldn't enable the helper: \(error.localizedDescription)"
-        }
+        do { try enable() }
+        catch { errorMessage = "Couldn't enable the helper: \(error.localizedDescription)" }
     }
 
+    /// Registering for sign-in is its own act with its own button. Enabling the
+    /// helper used to do it silently, so agreeing to be captured also put a
+    /// launcher in macOS's login list without anyone being asked.
+    func registerLoginItem() {
+        errorMessage = ""
+        do { try SMAppService.mainApp.register() }
+        catch { errorMessage = "Couldn't add the sign-in start: \(error.localizedDescription)" }
+    }
+
+    func unregisterLoginItem() {
+        errorMessage = ""
+        do { try SMAppService.mainApp.unregister() }
+        catch { errorMessage = "Couldn't remove the sign-in start. Turn it off in System Settings under General, Login Items." }
+    }
+
+    /// Disabling stops capture and input and leaves the sign-in choice alone. It
+    /// was the person's choice to make, and un-making it here would be the same
+    /// silent side effect enabling used to have. A helper that starts with
+    /// consent off does nothing and exits.
     func disableHelper() {
         disable()
         errorMessage = ""
-        do { try SMAppService.mainApp.unregister() }
-        catch { errorMessage = "The helper is disabled. Remove its login item in macOS System Settings if it still appears there." }
         pushState(force: true)
     }
 
