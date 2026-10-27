@@ -68,10 +68,20 @@ const DISPLAY_MAX = 199;
 /** Where the RFB chooser starts. 5900-5909 stay the range of real X displays. */
 const RFB_PORT_MIN = 5910;
 const RFB_PORT_PROBES = 100;
-/** How long Xvfb and x11vnc get to come up before the allocation is refused. */
-const DEFAULT_READY_BUDGET_MS = 5000;
+/**
+ * How long Xvfb and x11vnc get to come up before the allocation is refused.
+ * Measured at well under a second on a warm box, but a cold or loaded node has
+ * been seen missing it (the `preview-display-not-ready` report), and the
+ * plane gives the whole launch command 60 s, so a slow first spawn costs a
+ * later refusal, never a stranded pane. The number the AI PC tripped over was
+ * 5000; doubled rather than tuned blind, because the refusal now also names
+ * its gate and logs both children's output.
+ */
+const DEFAULT_READY_BUDGET_MS = 10_000;
 /** Readiness poll cadence. */
 const READY_POLL_MS = 100;
+/** How many trailing lines each child log keeps in the daemon log on a refusal. */
+const REFUSAL_TAIL_LINES = 30;
 
 /**
  * The X auth file for one pane's display, byte-derived from `dataDir` the
@@ -352,8 +362,13 @@ export class XvfbDisplayProvider implements VirtualDisplayProvider {
       this.say(`preview display ${display}: opened for pane ${paneId} (rfb 127.0.0.1:${rfbPort})`);
       return { display, viewer: { protocol: "vnc", port: rfbPort } };
     } catch (err: unknown) {
-      // Whatever started, none of it outlives the refusal. teardown reads only
-      // the child pids, so the fields the failure never reached stay zeroed.
+      // Whatever started, none of it outlives the refusal. The pane dir holds
+      // the only copy of what Xvfb and x11vnc said about WHY they did not
+      // come up, and teardown reaps it seconds later - so the tails ride the
+      // daemon log first. A refusal that predates the children (the xauth
+      // mint, the binaries, the lock) started nothing, so it says nothing
+      // about them.
+      if (xvfbChild) this.logRefusalTails(paneDir, display, paneId);
       this.teardown(
         {
           paneId,
@@ -657,13 +672,37 @@ export class XvfbDisplayProvider implements VirtualDisplayProvider {
   ): Promise<void> {
     const start = d.now();
     for (;;) {
-      if (d.xSocketReady(displayNumber) && (await d.bindProbe(rfbPort)) && d.ownsRfbListener(vncPid, rfbPort)) return;
+      const xSocket = d.xSocketReady(displayNumber);
+      const rfb = xSocket && (await d.bindProbe(rfbPort));
+      if (rfb && d.ownsRfbListener(vncPid, rfbPort)) return;
       if (d.now() - start >= d.readyBudgetMs) {
+        // Name the gate that was still shut: the three failures (Xvfb never
+        // made its socket, x11vnc never bound the port, and someone else
+        // owns the listener) want different eyes on the child logs below.
+        const gate = !xSocket
+          ? "Xvfb socket never appeared"
+          : !rfb
+            ? "rfb port answered nothing"
+            : "listener not owned by the x11vnc pid";
         throw new Error(
-          `${PREVIEW_DISPLAY_NOT_READY}: display :${displayNumber} / rfb ${rfbPort} not answering within ${d.readyBudgetMs}ms`,
+          `${PREVIEW_DISPLAY_NOT_READY}: display :${displayNumber} / rfb ${rfbPort} not answering within ${d.readyBudgetMs}ms (${gate})`,
         );
       }
       await d.sleep(READY_POLL_MS);
+    }
+  }
+
+  /**
+   * Hand both children's output to the daemon log before the refusal's
+   * teardown reaps the dir that holds it. Each log keeps its last
+   * {@link REFUSAL_TAIL_LINES} lines; an absent or empty file says nothing,
+   * literally - a child that wrote no words is not worth a journal line, and
+   * a launch refused before the spawns reads no files at all.
+   */
+  private logRefusalTails(paneDir: string, display: string, paneId: string): void {
+    for (const name of ["Xvfb.log", "x11vnc.log"] as const) {
+      const tail = readTail(join(paneDir, name));
+      if (tail) this.say(`preview display ${display} for pane ${paneId}: ${name} tail:\n${tail}`);
     }
   }
 
@@ -751,6 +790,22 @@ function writeRecord(dir: string, rec: Record<string, unknown>): void {
   const file = join(dir, "display.json");
   writeFileSync(file, `${JSON.stringify(rec)}\n`, { mode: 0o600 });
   chmodSync(file, 0o600); // the mode is create-only; every rewrite re-pins it
+}
+
+/**
+ * The last {@link REFUSAL_TAIL_LINES} non-empty lines of a file, or `""` for
+ * one that is absent, unreadable, or holds nothing but whitespace. The
+ * refusal-diagnosis path reads a child's own log off disk seconds before it
+ * is reaped, so a missing or empty file must be a quiet no, never a throw.
+ */
+function readTail(path: string): string {
+  try {
+    const content = readFileSync(path, "utf8");
+    const lines = content.split("\n").filter((line) => line.trim().length > 0);
+    return lines.slice(-REFUSAL_TAIL_LINES).join("\n");
+  } catch {
+    return "";
+  }
 }
 
 function readRecord(dir: string): DisplayRecord | null {
