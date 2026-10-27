@@ -63,12 +63,15 @@ export async function getNode(deps: ToolDeps, args: z.infer<typeof GetNodeSchema
     // surprised by the create: the switch, the catalog (an id we do not ship is
     // refused outright, even when the owner's stored list carries it), the stored
     // enabled list, whose absent answer is `[DEFAULT_VIRTUAL_DISPLAY_PROVIDER]`, and
-    // whether this provider runs on this node's operating system. The fourth one
-    // used to be left to `status` on the theory that it is the machine's answer. That
-    // held only while the probe answered: on a 409 or 502 the tool said
-    // `enabled: true, status: "unavailable"` for BetterDisplay on a Linux node, and
-    // the launch it recommended was refused. `displayProviderRunsOnOs` stays true for
-    // an OS the node has not reported yet, which is what the plane does too.
+    // whether this provider runs on this node's operating system. The fourth one used
+    // to be left to `status` on the theory that it is the machine's answer, and that
+    // theory is only as good as the report: readiness comes from the node, so a build
+    // that failed to gate a provider on its platform would have this tool answer
+    // `enabled: true, status: "ready"` for a launch the plane refuses outright with
+    // `preview-display-unsupported`. So `enabled` is the plane's answer in full,
+    // `status` stays the node's, and where the node cannot answer at all the arm below
+    // emits neither field. `displayProviderRunsOnOs` stays true for an OS the node has
+    // not reported yet, which is what the plane does too.
     const provider = args.provider ?? node.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER;
     const allowed = node.virtualDisplayProviders ?? [DEFAULT_VIRTUAL_DISPLAY_PROVIDER];
     return {

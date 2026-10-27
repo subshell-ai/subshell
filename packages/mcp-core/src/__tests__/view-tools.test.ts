@@ -142,11 +142,12 @@ describe("MCP preview discovery and launch", () => {
   });
 
   it("reports a provider that cannot run on this node's OS as disabled, the way create refuses it", async () => {
-    // BetterDisplay is macOS-only. This gate used to be left to `status`, which is
-    // the NODE's answer, and `status` goes silent when the probe cannot run: the
-    // tool said `enabled: true` for a provider the plane refuses outright with
-    // `preview-display-unsupported`. Readiness still says ready, because the
-    // machine's programs are not the question here.
+    // BetterDisplay is macOS-only, and the plane refuses it on a Linux node outright
+    // with `preview-display-unsupported`. This gate used to be left to `status`, which
+    // is the NODE's answer and goes silent whenever the probe cannot run at all: a
+    // 409 or 502 gave the agent `enabled: true, status: "unavailable"` for a provider
+    // that could never launch. The probe is answered as a Linux node really answers
+    // it, unsupported, to show the gate holds regardless of what readiness says.
     const { deps } = fixture((path) =>
       path === "/api/nodes"
         ? {
@@ -160,12 +161,39 @@ describe("MCP preview discovery and launch", () => {
               },
             ],
           }
-        : { supported: true, missing: [] },
+        : { supported: false, missing: [] },
     );
     expect((await getNode(deps, { node: node.id })).virtualDisplay).toMatchObject({
       provider: "betterdisplay",
       enabled: false,
-      status: "ready",
+      status: "unsupported",
+    });
+  });
+
+  it("promises nothing at all when the probe cannot answer", async () => {
+    // The honest shape, pinned because it is the one an agent reads as a go-ahead:
+    // with no probe answer the tool reports the state of the question and stops.
+    // Neither `enabled` nor `provider` may appear here, because either would be a
+    // promise about a launch the plane was never asked about. Add `enabled: true` to
+    // that arm and this is the test that says so.
+    const { deps } = fixture((path) => {
+      if (path === "/api/nodes")
+        return {
+          nodes: [
+            {
+              ...node,
+              os: "linux",
+              virtualDisplayEnabled: true,
+              virtualDisplayProvider: "betterdisplay",
+              virtualDisplayProviders: ["betterdisplay"],
+            },
+          ],
+        };
+      throw new ApiError(502, "display probe unavailable");
+    });
+    expect((await getNode(deps, { node: node.id })).virtualDisplay).toEqual({
+      status: "unavailable",
+      reason: "display probe unavailable",
     });
   });
 
