@@ -9,10 +9,12 @@ import AppKit
 /// "the bundle has no panel" label, and the gold the status item takes on while
 /// someone is watching.
 ///
-/// The numbers are the CSS tokens themselves (L, C, H) converted here, not
-/// retyped hexes: a re-typed hex is a second source of truth that drifts the
-/// moment the web palette moves, and `lint:design` only guards the web and
-/// mobile halves. The conversion is pure and tested.
+/// The numbers are the CSS tokens themselves (L, C, H) declared again here,
+/// rather than re-typed hexes: the triples must match
+/// `packages/assistant/tokens.css` name for name, and the helper-panel suite's
+/// palette test reads both files and compares them, so this copy cannot drift
+/// quietly the way a re-typed hex would. The conversion from those triples to
+/// sRGB is pure, and `test.sh` pins it.
 ///
 /// The web theme is dark-only, so the panel pins `darkAqua` instead of
 /// following the system appearance: a light-mode aqua title bar sitting on the

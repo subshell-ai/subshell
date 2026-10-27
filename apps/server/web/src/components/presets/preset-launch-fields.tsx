@@ -1,6 +1,7 @@
 import { Button, FormSectionTitle, HelperCaption, Label, Switch } from "@internal/node-admin";
 import { CROSS_AGENT_NOTES_MAX, displayProvidersForOs, VIRTUAL_DISPLAY_PROVIDERS } from "@internal/subshell-protocol";
 import { X } from "lucide-react";
+import { useEffect } from "react";
 import { PromptStackSection } from "@/components/prompts/prompt-stack-section";
 import { DisplayProviderPicker } from "@/components/subshell-picker/display-provider-picker";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -10,6 +11,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Textarea } from "@/components/ui/textarea";
 import { WorkingDirField } from "@/components/working-dir-field";
 import { useNodes } from "@/hooks/use-nodes";
+import { providerForMachine } from "@/lib/display-provider-choice";
 import { isOfflineAgent } from "@/lib/node-label";
 import { crossCommSaveBlocked, type PresetFormValue, presetLaunchGaps } from "@/lib/preset-form";
 import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
@@ -69,6 +71,17 @@ export function PresetLaunchFields({
   );
 
   const selectedNode = nodes.find((n) => n.id === value.nodeId);
+  // A preset keeps its own machine, and the picker filters the list on that
+  // machine's OS. The saved provider has to agree too, or the preset stores a
+  // launch its node will refuse: an id the catalog ships for another platform
+  // is cleared back to the node default here, once, rather than in each place
+  // the machine can change.
+  useEffect(() => {
+    const screen = value.screen;
+    if (!screen) return;
+    const kept = providerForMachine(screen.provider, selectedNode?.os);
+    if (kept !== screen.provider) onChange({ ...value, screen: { ...screen, provider: kept } });
+  }, [value, onChange, selectedNode?.os]);
   const gaps = presetLaunchGaps(value);
 
   return (

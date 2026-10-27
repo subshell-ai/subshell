@@ -2,7 +2,7 @@ import type { Node } from "@internal/node-admin";
 import { Input, Label } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import type { JSX } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ListLoadError } from "@/components/list-load-error";
 import { PromptStackSection } from "@/components/prompts/prompt-stack-section";
 import { LaunchCommandPreview } from "@/components/subshell-picker/launch-command-preview";
@@ -25,6 +25,7 @@ import { useNodes } from "@/hooks/use-nodes";
 import { usePresets } from "@/hooks/use-presets";
 import { useRecentPaths } from "@/hooks/use-recent-paths";
 import { useSubshellsList } from "@/hooks/use-subshells";
+import { providerForMachine } from "@/lib/display-provider-choice";
 import { isOfflineAgent } from "@/lib/node-label";
 import { presetChoiceLabel } from "@/lib/preset-access";
 import { loadRecentPresetPicks, recordRecentPresetPick } from "@/lib/preset-recents";
@@ -147,6 +148,15 @@ export function NewSubshellForm({
   // Unanswered or malformed data cannot invalidate a held selection.
   const nodes = Array.isArray(nodeData?.nodes) ? nodeData.nodes : null;
   const selectedNode: Node | null = (nodes ?? []).find((n) => n.id === value.nodeId) ?? null;
+  // The machine owns which display provider is even possible, and three paths
+  // can move it: the Machine select, a preset apply that names its own node,
+  // and the recents auto-default. So the check rides the resolved pair rather
+  // than any one handler: a form holding BetterDisplay for a Linux node would
+  // offer, and launch with, the choice the OS gate exists to remove.
+  useEffect(() => {
+    const kept = providerForMachine(value.displayProvider, selectedNode?.os);
+    if (kept !== value.displayProvider) onChange({ ...value, displayProvider: kept });
+  }, [value, onChange, selectedNode?.os]);
   const displayCheck = useNodeDisplayReadiness(selectedNode, value.displayProvider);
 
   // The ONE effect (prior-launch node+dir → re-home → seed → agent)

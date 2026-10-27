@@ -130,6 +130,34 @@ describe("virtual display prerequisites", () => {
     expect(await screen.findByRole("option", { name: "BetterDisplay" })).toBeTruthy();
     expect(screen.queryByRole("option", { name: "Xvfb + VNC" }) === null).toBe(true);
   });
+  it("does not echo a provider the machine cannot run back into the list", async () => {
+    // The other direction of the same gate, and the one that used to leak: the
+    // picker keeps the current pick listed even when the caller's filtered
+    // array dropped it, so switching machines left BetterDisplay selected and
+    // offered on a Linux node. A bundled id that is NOT in the OS list is the
+    // gate speaking, not an unknown provider of the node's own, and it must not
+    // come back as a choice the launch will be refused for.
+    const paths: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      paths.push(String(input));
+      return new Response(JSON.stringify(ready));
+    }) as typeof fetch;
+    render(
+      <VirtualDisplayField
+        node={{ ...linux, virtualDisplayProviders: ["xvfb-x11vnc", "betterdisplay"] }}
+        provider="betterdisplay"
+        onProviderChange={() => {}}
+        id="display"
+        checked
+        onChange={() => {}}
+      />,
+      { wrapper },
+    );
+    await waitFor(() => expect(paths.length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole("combobox", { name: "Display provider" }));
+    expect(await screen.findByRole("option", { name: "Xvfb + VNC" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "BetterDisplay" }) === null).toBe(true);
+  });
   it("fails closed when a check fails and recovers on recheck", async () => {
     respond({ message: "Bring this node online, then recheck." }, 409);
     render(<VirtualDisplayField node={linux} id="display" checked={false} onChange={() => {}} />, { wrapper });
