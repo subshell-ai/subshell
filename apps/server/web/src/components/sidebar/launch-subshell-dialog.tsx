@@ -4,6 +4,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { type JSX, useRef, useState } from "react";
 import { ConnectPanel } from "@/components/connect/connect-panel";
 import { sshSessionDraft } from "@/components/connect/ssh-session-draft";
+import { LaunchErrorLine } from "@/components/launch-error-line";
 import {
   canSubmit,
   emptyNewSubshellForm,
@@ -204,14 +205,7 @@ export function LaunchSubshellDialog({
             switching to the SSH tab unmounts the Virtual display checkbox without
             clearing the error, and a refusal nobody can read is the failure
             `splitLaunchError` exists to prevent. */}
-        {/* The refusal is announced wherever it lands: beside the Virtual display control when the checkbox is on
-            (see `VirtualDisplayField`), and here on the form when it is not. Without this role the same message moves
-            from announced to silent the moment the thing it is about is switched off. */}
-        {formLaunchError && (
-          <p role="alert" className="text-destructive text-detail">
-            {formLaunchError}
-          </p>
-        )}
+        <LaunchErrorLine message={formLaunchError} />
       </DialogContent>
     </Dialog>
   );

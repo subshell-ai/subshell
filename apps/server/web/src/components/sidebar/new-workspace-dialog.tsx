@@ -4,6 +4,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { type JSX, useCallback, useEffect, useRef, useState } from "react";
 import { ConnectPanel } from "@/components/connect/connect-panel";
 import { sshSessionDraft } from "@/components/connect/ssh-session-draft";
+import { LaunchErrorLine } from "@/components/launch-error-line";
 import { ExistingSubshellList } from "@/components/subshell-picker/existing-subshell-list";
 import {
   canSubmit,
@@ -275,12 +276,7 @@ export function NewWorkspaceDialog({
           </div>
         )}
 
-        {/* Announced, like the field-side half of the same refusal in `VirtualDisplayField`. */}
-        {formLaunchError && (
-          <p role="alert" className="text-destructive text-detail">
-            {formLaunchError}
-          </p>
-        )}
+        <LaunchErrorLine message={formLaunchError} />
         {!createdId && selected.length > 0 && (
           <p className="text-detail text-muted-foreground">
             {selected.length === 1 ? "1 subshell" : `${selected.length} subshells`} to add

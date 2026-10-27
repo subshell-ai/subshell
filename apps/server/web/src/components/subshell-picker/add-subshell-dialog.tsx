@@ -2,6 +2,7 @@ import { Button, errMessage } from "@internal/node-admin";
 import { type JSX, useEffect, useState } from "react";
 import { ConnectPanel } from "@/components/connect/connect-panel";
 import { sshSessionDraft } from "@/components/connect/ssh-session-draft";
+import { LaunchErrorLine } from "@/components/launch-error-line";
 import { ExistingSubshellList } from "@/components/subshell-picker/existing-subshell-list";
 import {
   canSubmit,
@@ -262,12 +263,7 @@ export function AddSubshellDialog({
           </div>
         )}
 
-        {/* Announced, like the field-side half of the same refusal in `VirtualDisplayField`. */}
-        {formLaunchError && (
-          <p role="alert" className="text-destructive text-detail">
-            {formLaunchError}
-          </p>
-        )}
+        <LaunchErrorLine message={formLaunchError} />
 
         {visibleMode === "new" && kind === "agent" && (
           <DialogFooter sticky>
