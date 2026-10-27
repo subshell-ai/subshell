@@ -65,6 +65,8 @@ struct HelperTests {
         precondition(AccessReport.tooltip(enabled: true, viewers: 2) == "Subshell is viewing a virtual display on this Mac (2 viewers)")
         precondition(AccessReport.tooltip(enabled: true, viewers: 1) == "Subshell is viewing a virtual display on this Mac")
         precondition(AccessReport.tooltip(enabled: false, viewers: 0) == "Subshell virtual display helper disabled")
+        // The bar item is an icon, so the menu it opens has to say what it is.
+        precondition(AccessReport.heading == "Subshell virtual display helper", "the status menu must name the helper")
         // The pointer rescue: a viewer's cursor lives on the virtual display,
         // so losing that screen strands it off every display the person at
         // this Mac can see. Only a point inside no frame counts as stranded.

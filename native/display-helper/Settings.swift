@@ -72,6 +72,13 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
         self.accessCount = accessCount
     }
 
+    /// Called whenever the panel appears or disappears. The status menu's
+    /// Minimize item is enabled only while the panel is on screen, and the menu
+    /// is built once at launch, BEFORE `show()` has ever run: without this the
+    /// item keeps the answer it computed when nothing was visible, which is how
+    /// "Minimize helper" came to read as greyed out in front of an open window.
+    var onVisibilityChange: (() -> Void)?
+
     /// Whether the panel is on screen; the menu bar's Minimize item answers
     /// to this so it never offers something that does nothing.
     var isShowing: Bool { window?.isVisible ?? false }
@@ -81,12 +88,16 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
         refresh()
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        onVisibilityChange?()
     }
 
     /// Hide the panel and leave everything else alone: consent, permissions,
     /// and any screen being watched keep running. The menu bar item is still
     /// there to bring it back.
-    func minimize() { window?.orderOut(nil) }
+    func minimize() {
+        window?.orderOut(nil)
+        onVisibilityChange?()
+    }
 
     /// Push the machine's current truth to the page. Cheap to call: identical
     /// state is not sent twice.
@@ -147,6 +158,16 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
             view.loadFileURL(index, allowingReadAccessTo: directory)
         } else {
             reportMissingBundle()
+        }
+
+        // The red button hides this window rather than releasing it, and that is
+        // another way the panel leaves the screen. A block observer stands in
+        // for NSWindowDelegate conformance because the delegate's actor
+        // isolation in the SDK is not ours to assume.
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: panel, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.onVisibilityChange?() }
         }
 
         web = view
