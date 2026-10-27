@@ -75,7 +75,7 @@ struct HelperTests {
         let builtIn = CGRect(x: 0, y: 0, width: 1512, height: 982)
         precondition(cursorIsStranded(point: CGPoint(x: 2400, y: 1800), screens: [builtIn]), "a point off every screen is stranded")
         precondition(!cursorIsStranded(point: CGPoint(x: 100, y: 100), screens: [builtIn]), "a point on the built-in display is fine")
-        precondition(!cursorIsStranded(point: CGPoint(x: 1800, y: 1800), screens: [builtIn, CGRect(x: 1512, y: 982, width: 1280, height: 800)]),
+        precondition(!cursorIsStranded(point: CGPoint(x: 1800, y: 1500), screens: [builtIn, CGRect(x: 1512, y: 982, width: 1280, height: 800)]),
                      "a point on any connected screen is fine")
         precondition(cursorIsStranded(point: CGPoint(x: 0, y: 0), screens: []), "no screens means nowhere visible")
         precondition(DisplayInput.keyCode(symbol: 0x63) == 8) // Command-C
