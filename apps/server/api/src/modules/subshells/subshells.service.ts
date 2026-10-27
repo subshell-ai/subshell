@@ -684,7 +684,7 @@ export class SubshellsService extends BaseService {
     if (screen && !(await getVirtualDisplayEnabled(resolvedNodeId))) {
       throw new SubshellCreateError(
         "bad_request",
-        "Virtual displays are disabled on this node. Enable Allow virtual displays in node settings, or launch without a virtual display.",
+        "Virtual displays are disabled on this node. Enable Allow virtual displays in node settings, or launch without a virtual display. (preview-node-off)",
         400,
       );
     }

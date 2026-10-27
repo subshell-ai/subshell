@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { invalidateWorkspaceMembership } from "@/hooks/use-workspaces";
-import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
+import { createSubshellErrorMessage, isDisplayLaunchRefusal } from "@/lib/create-subshell-error";
 import { currentWorkspaceId } from "@/lib/current-workspace";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import type { sshConnectSearch } from "@/lib/ssh-connect-search";
@@ -61,6 +61,9 @@ export function LaunchSubshellDialog({
     ...(initialNodeId ? { nodeId: initialNodeId } : {}),
   }));
   const [error, setError] = useState<string | null>(null);
+  // A display refusal reads as the checkbox's own result, so the field
+  // renders it; everything else keeps the form-level line.
+  const displayLaunchError = error !== null && isDisplayLaunchRefusal(error) ? error : null;
 
   function reset() {
     setSshDraft(sshSessionDraft(initialSsh));
@@ -166,8 +169,9 @@ export function LaunchSubshellDialog({
               value={form}
               onChange={setForm}
               onLeave={dismiss}
+              launchError={displayLaunchError}
             />
-            {error && <p className="text-destructive text-detail">{error}</p>}
+            {error && !displayLaunchError && <p className="text-destructive text-detail">{error}</p>}
             <DialogFooter sticky>
               <Button
                 variant="outline"

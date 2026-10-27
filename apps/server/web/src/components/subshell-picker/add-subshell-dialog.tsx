@@ -23,7 +23,7 @@ import {
 import { Segmented } from "@/components/ui/segmented";
 import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { useSubshellsList } from "@/hooks/use-subshells";
-import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
+import { createSubshellErrorMessage, isDisplayLaunchRefusal } from "@/lib/create-subshell-error";
 import type { SplitDirection } from "@/types/workspace";
 
 /** Which half of the dialog is showing. */
@@ -87,6 +87,9 @@ export function AddSubshellDialog({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A refusal naming the virtual display is the checkbox's own result, so it
+  // renders inside the field; everything else keeps the form-level line.
+  const displayLaunchError = error !== null && isDisplayLaunchRefusal(error) ? error : null;
 
   const excluded = new Set(excludeSubshellIds);
   const available = (subshells ?? []).filter((s) => s.crossAgent !== true && !excluded.has(s.id));
@@ -242,12 +245,12 @@ export function AddSubshellDialog({
                 }}
               />
             ) : (
-              <NewSubshellForm value={form} onChange={setForm} onLeave={dismiss} />
+              <NewSubshellForm value={form} onChange={setForm} onLeave={dismiss} launchError={displayLaunchError} />
             )}
           </div>
         )}
 
-        {error && <p className="text-destructive text-detail">{error}</p>}
+        {error && !displayLaunchError && <p className="text-destructive text-detail">{error}</p>}
 
         {visibleMode === "new" && kind === "agent" && (
           <DialogFooter sticky>

@@ -2,6 +2,30 @@ import { BackendErrorCodes } from "@internal/backend-errors";
 import { ApiError, errMessage } from "@internal/node-admin";
 
 /**
+ * The words a create-path refusal carries when the VIRTUAL DISPLAY is what
+ * failed, either as the thrown detail or inside the plane's remedy sentence
+ * (the screen-launch mirror in `apps/server/api/src/modules/previews/refusals.ts`
+ * names every node word, and the service's switch preflight names the same
+ * `preview-node-off` voice the node's own launch gate uses). A refusal
+ * carrying one of these is shown beside the Virtual display control it
+ * belongs to, not at the bottom of the form: the design rule is that a
+ * warning sits at the decision point, and these refusals are that checkbox's
+ * result. `preview-node-off` is display-owned HERE because nothing else on
+ * the create path can answer with it: browser previews are refused by the
+ * view routes, not by `POST /api/subshells`.
+ */
+const DISPLAY_REFUSAL_MARKERS = ["preview-display-", "preview-node-off"] as const;
+
+/**
+ * Is this create-failure text a virtual-display refusal? True for any message
+ * naming one of the display refusal words, so the dialog can route it to the
+ * field's own error slot instead of the form-level line.
+ */
+export function isDisplayLaunchRefusal(message: string): boolean {
+  return DISPLAY_REFUSAL_MARKERS.some((marker) => message.includes(marker));
+}
+
+/**
  * Display text for a failed `POST /api/subshells` — the one copy both launch
  * surfaces (`/new` and the workspace dialog) show under the form.
  *
