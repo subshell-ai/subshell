@@ -62,7 +62,15 @@ fn verify(bundle: &Path) -> Result<(), String> {
     // The outer desktop bundle authenticates its resource too. Verify the
     // standalone copy before reusing it, including its publisher in releases.
     let requirement = requirement_test_arg(cfg!(debug_assertions));
-    run(&["/usr/bin/codesign", "--verify", "--strict", "-R", &requirement, path(bundle)?]).map(|_| ())
+    run(&[
+        "/usr/bin/codesign",
+        "--verify",
+        "--strict",
+        "-R",
+        &requirement,
+        path(bundle)?,
+    ])
+    .map(|_| ())
 }
 
 struct InstallLock(File);
@@ -93,11 +101,17 @@ impl Drop for InstallLock {
     }
 }
 
+/// The argv for reading a bundle's CDHash. The verbosity is load-bearing:
+/// `codesign` prints `CDHash=` only from `-dvvv` up, and `-dvv` prints just
+/// `Signature=` and friends, so the digest check below used to fail with
+/// "Couldn't verify the display helper's code identity" on every press that
+/// had an installed copy to compare against.
+fn code_hash_argv(bundle: &str) -> [String; 3] {
+    ["/usr/bin/codesign".into(), "-dvvv".into(), bundle.into()]
+}
+
 fn code_hash(bundle: &Path) -> Result<String, String> {
-    let result = crate::proc::run(
-        &["/usr/bin/codesign".into(), "-dvv".into(), path(bundle)?.into()],
-        Duration::from_secs(10),
-    );
+    let result = crate::proc::run(&code_hash_argv(path(bundle)?), Duration::from_secs(10));
     if !result.ok() {
         return Err(result.detail());
     }
@@ -216,6 +230,16 @@ mod tests {
             assert!(arg.contains(&format!("identifier \"{ID}\"")));
             assert_eq!(arg.contains("DVRYX6BV6J"), !development);
         }
+    }
+
+    #[test]
+    fn the_digest_read_uses_the_verbosity_that_prints_cdhash() {
+        // `-dvv` exits 0 but shows no `CDHash=` line, which read as a broken
+        // code identity and blocked every settings press that had an
+        // installed copy to compare. Only `-dvvv` and up emit it.
+        let argv = code_hash_argv("/Applications/Subshell Display Helper.app");
+        assert_eq!(argv[1], "-dvvv");
+        assert_eq!(argv[2], "/Applications/Subshell Display Helper.app");
     }
 
     #[test]
