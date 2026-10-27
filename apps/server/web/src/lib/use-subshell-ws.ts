@@ -563,9 +563,11 @@ export function useSubshellWs(
           // suffered, and the whole point is a fresh base now.
           if (!cancelled && isRetryableAttachClose(e.code)) {
             // A resync's own close (sub-4000) reconnects now, not on the
-            // fixed cadence — the drift was chosen, not suffered. A 4xxx
-            // refusal escalates even if the flag somehow rode to it: the
-            // Wave D backoff must not be beatable by a stale true.
+            // fixed cadence — the drift was chosen, not suffered. The
+            // 4xxx-escalates-even-with-the-flag branch is defense in depth
+            // the OPEN-socket gate above makes unreachable (a resync's close
+            // always arrives sub-4000): no test can force it, keep it for the
+            // day the gate regresses, do not mistake it for tested contract.
             const wasResync = resyncClosing;
             resyncClosing = false;
             scheduleRetry(

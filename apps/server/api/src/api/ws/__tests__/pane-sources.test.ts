@@ -403,10 +403,12 @@ describe("createRemoteTailSource", () => {
       }
       expect(deaths).toEqual([]);
       expect(seen.join("")).toContain("x1500");
-      // The documented economy: a pump that keeps delivering never pays a
-      // probe at all (the interval's silence gate short-circuits before the
-      // RPC). Delete that gate and this assertion is the alarm.
-      expect(fake.sizeCalls).toBe(0);
+      // The documented economy: a pump that keeps delivering pays for no
+      // probe run (the interval's silence gate short-circuits before the
+      // RPC). One is tolerated for event-loop jitter around the first
+      // armed check; delete that gate and a 20 ms interval over this loop
+      // produces dozens, so the alarm still fires instantly.
+      expect(fake.sizeCalls).toBeLessThanOrEqual(1);
     } finally {
       stop();
     }

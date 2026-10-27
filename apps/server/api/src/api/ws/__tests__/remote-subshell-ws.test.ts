@@ -871,6 +871,9 @@ describe("attachRemoteSubshellWs — several viewers share one node pane", () =>
     // code instead of leaving them watching silence forever.
     await until(() => first.closed.length > 0, "the refused tail to drop its viewer");
     expect(first.closed[0]?.code).toBe(1011);
+    // The reason is the diagnostic split the reporting exists to create: a
+    // refusal names itself, so an operator is not sent down the stall path.
+    expect(first.closed[0]?.reason).toBe("tail refused");
     expect(paneStreams.viewerCount(SID)).toBe(0); // the stream died with them
 
     // The second attach gets a WORKING pump at the current EOF, and its
@@ -917,6 +920,7 @@ describe("attachRemoteSubshellWs — several viewers share one node pane", () =>
     refuseTail(); // ...and it dies with BOTH watching.
     await until(() => laptop.closed.length > 0 && phone.closed.length > 0, "both viewers dropped");
     expect(laptop.closed[0]?.code).toBe(1011);
+    expect(laptop.closed[0]?.reason).toBe("tail refused");
     expect(phone.closed[0]?.code).toBe(1011);
     expect(paneStreams.viewerCount(SID)).toBe(0);
 
