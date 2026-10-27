@@ -27,25 +27,30 @@ const ORIGIN = `http://127.0.0.1:${DEV_PORT}`;
 const APP = path.resolve(import.meta.dirname, "../apps/client/desktop");
 const out = path.resolve(import.meta.dirname, "../apps/docs/public/screenshots");
 
-/** The saved addresses, as `node_settings` reports them. Sample values only. */
-const SETTINGS = { nodeBinPath: null, planes: ["http://172.16.2.50:3080"] };
+/**
+ * The saved addresses, as `node_settings` reports them. Documentation values
+ * only: this file is published in a public repo, so nothing here may name a
+ * real network or a real home directory, and the screen being photographed
+ * renders neither, which is precisely why a slip here would go unnoticed.
+ */
+const SETTINGS = { nodeBinPath: null, planes: ["http://plane.example.test:3080"] };
 
 /** A Mac whose node is enrolled, running, and online: what the rail gates on. */
 const PROBE = {
   hasNodeConfig: true,
   bundledVersion: "1.6.0",
-  nodeBinary: { argv: ["/Users/theo/.local/bin/subshell"], source: "local-bin", version: "1.6.0" },
+  nodeBinary: { argv: ["/Users/dev/.local/bin/subshell"], source: "local-bin", version: "1.6.0" },
   managed: true,
   status: {
     nodeId: "0f0c1a5b-7d0e-4a1e-9b3a-2f4c6d8e0a12",
-    serverUrl: "http://172.16.2.50:3080",
+    serverUrl: "http://plane.example.test:3080",
     online: true,
     agentVersion: "1.6.0",
     daemonAgeMs: 412_000,
   },
   service: {
     installed: true,
-    definitionPath: "/Users/theo/Library/LaunchAgents/nu.subshell.node.plist",
+    definitionPath: "/Users/dev/Library/LaunchAgents/nu.subshell.node.plist",
     state: "running",
     pid: 4212,
     enabled: true,
@@ -58,13 +63,13 @@ const PROBE = {
   tmux: "/opt/homebrew/bin/tmux",
   hasBrew: true,
   paths: {
-    configDir: "/Users/theo/.config/subshell",
-    configFile: "/Users/theo/.config/subshell/node.json",
-    dataDir: "/Users/theo/.local/share/subshell",
-    nodeLog: "/Users/theo/.local/state/subshell/daemon.log",
+    configDir: "/Users/dev/.config/subshell",
+    configFile: "/Users/dev/.config/subshell/node.json",
+    dataDir: "/Users/dev/.local/share/subshell",
+    nodeLog: "/Users/dev/.local/state/subshell/daemon.log",
     nodeLogHint: null,
   },
-  hostname: "MacBook-Pro",
+  hostname: "dev-mac",
   rewriteTearsDown: true,
   pendingInstall: null,
 };
