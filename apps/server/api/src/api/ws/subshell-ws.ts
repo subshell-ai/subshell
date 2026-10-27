@@ -368,7 +368,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   const replay = text != null ? captureToReplayText(text, cursor ?? undefined) : null;
   if (replay != null) {
     sendFrame(ws, { type: "replay", data: replay });
-    recordAttachPaint({ subshellId: row.id, preResize, replay, repainted, nudged });
+    recordAttachPaint({ subshellId: row.id, preResize, replay, repainted, nudged, cursor });
   }
 
   // The replay is out; release everything the pane produced while it was

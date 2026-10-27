@@ -3,7 +3,7 @@
  *
  *   bunx turbo build
  *   cd apps/server/web
- *   bun --preload ./src/test-setup.ts scripts/probe-diff.ts <subshell-id> [keys]
+ *   bun --preload ./scripts/probe-preload.ts scripts/probe-diff.ts <subshell-id> [keys]
  *
  * Takes a quiet join off a LIVE pane, drives it with real keystrokes, then
  * feeds the identical `replay + streamed bytes` to

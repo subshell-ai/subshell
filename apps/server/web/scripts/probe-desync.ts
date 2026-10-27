@@ -4,7 +4,7 @@
  *
  *   bunx turbo build
  *   cd apps/server/web
- *   bun --preload ./src/test-setup.ts scripts/probe-desync.ts <subshell-id>
+ *   bun --preload ./scripts/probe-preload.ts scripts/probe-desync.ts <subshell-id>
  *
  * Hypothesis under test: the client resizes its OWN xterm (fit.fit() on any
  * ResizeObserver / visualViewport tick) while the tmux pane keeps its size, so

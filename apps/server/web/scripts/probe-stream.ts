@@ -3,7 +3,7 @@
  *
  *   bunx turbo build
  *   cd apps/server/web
- *   bun --preload ./src/test-setup.ts scripts/probe-stream.ts <subshell-id> [seconds]
+ *   bun --preload ./scripts/probe-preload.ts scripts/probe-stream.ts <subshell-id> [seconds]
  *
  * Does exactly what a browser does — quiet-join replay, then apply the pane
  * log's appended bytes as they arrive — and then asks the only question that
