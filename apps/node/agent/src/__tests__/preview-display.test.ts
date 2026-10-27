@@ -117,6 +117,9 @@ interface DepOverrides {
   xSocketReady?: boolean;
   /** Readiness budget override. */
   readyBudgetMs?: number;
+  /** Exit this child the moment it spawns: the way a display server that dies
+   *  on its own (missing peer, exhausted /dev/shm, bad auth) presents. */
+  exitsEarly?: "Xvfb" | "x11vnc";
 }
 
 /**
@@ -150,6 +153,7 @@ function makeDeps(over: DepOverrides = {}) {
     spawn: (argv, opts) => {
       const child = new FakeChild(pidSeq++);
       alivePids.add(child.pid);
+      if (over.exitsEarly && String(argv[0]).endsWith(over.exitsEarly)) child.fireExit(1);
       const rfbIdx = argv.indexOf("-rfbport");
       if (over.x11vncListens !== false && rfbIdx >= 0) busy.add(Number(argv[rfbIdx + 1]));
       // The real spawn appends both child streams to `logPath`; a refusal
@@ -422,6 +426,23 @@ describe("PreviewDisplays.openFor", () => {
     expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", PANE))).toBe(false);
     expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", ".display-90.lock"))).toBe(false);
     expect(reg.getFor(PANE)).toBeNull();
+  });
+
+  it("refuses the moment a display child dies, rather than waiting out the budget", async () => {
+    // A child that has already exited can never become ready, and the loop
+    // used to have exactly one way out. Every spawn-time death - a missing
+    // peer, an exhausted /dev/shm, bad auth - therefore burned the whole
+    // readiness budget per launch, doubling the wait a Create spinner shows
+    // and eating a third of the plane's 60 s launch window to learn nothing
+    // the first poll had not already told.
+    const dataDir = onDir("child-dies");
+    const { deps, killPids } = makeDeps({ xSocketReady: false, exitsEarly: "Xvfb", readyBudgetMs: 10_000 });
+    const reg = new PreviewDisplays(dataDir, deps);
+    await expect(reg.openFor(PANE, { width: 640, height: 480 })).rejects.toThrow(/gave up: Xvfb exited/);
+    // Same teardown as a budget expiry: both children signalled, dir and lock gone.
+    expect(killPids().length).toBe(2);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", PANE))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", ".display-90.lock"))).toBe(false);
   });
 
   it("an X socket that comes up but an rfb server that never listens also refuses preview-display-not-ready", async () => {

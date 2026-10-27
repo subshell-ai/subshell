@@ -32,8 +32,9 @@ keeps it from coming back at all; disabling only makes the next start idle.
 Normal logout preserves consent. Disabling does not revoke TCC grants, close
 terminals, or guarantee removal of virtual screens while BetterDisplay is
 unreachable. A disabled running helper answers the read-only `status` request
-and accepts `rescue-cursor` (which does nothing while no viewer held the
-pointer there), but refuses every other RPC. No RPC can enable it, register
+and accepts `rescue-cursor` (which acts only when the cursor sits inside no
+screen's frame, so an unattached pointer is left where the person put it), but
+refuses every other RPC. No RPC can enable it, register
 login startup, or request a privacy prompt. Because a virtual screen can
 outlive the helper, the stranded-pointer rescue also runs on any start: a
 cursor left on a display that went away while nothing was listening is put back

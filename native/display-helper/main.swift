@@ -123,6 +123,10 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
         }
         settings.show()
     }
+    /// Whether the quit confirmation is on screen, so a second menu press
+    /// cannot stack a duplicate question.
+    private var quitAlertShown = false
+
     /// The menu's Quit asks the same question the panel asks, because the
     /// consequence lives in the act rather than in the control. An accessory
     /// app has no window to host a sheet while the panel is closed, so this is
@@ -131,6 +135,15 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
     /// closes every capture, and leaving consent alone is deliberate: a quit is
     /// not a revocation.
     @objc private func quitHelper() {
+        // The status menu stays clickable through an app-modal session, so a
+        // second press would nest another identical alert: the person answers
+        // once, and a second question is still waiting. One at a time.
+        if quitAlertShown {
+            NSApp.activate()
+            return
+        }
+        quitAlertShown = true
+        defer { quitAlertShown = false }
         let alert = NSAlert()
         alert.messageText = QuitCopy.title
         alert.informativeText = QuitCopy.body(loginItem: LoginItem.currentPageState(), consented: consent.enabled)

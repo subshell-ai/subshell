@@ -73,6 +73,16 @@ describe("isDisplayLaunchRefusal", () => {
     expect(isDisplayLaunchRefusal("… (preview-display-provider-conflict: …)")).toBe(true);
     expect(isDisplayLaunchRefusal("Virtual displays are disabled on this node. (preview-node-off)")).toBe(true);
   });
+  it("does not let a preset name steer the routing", () => {
+    // The create path interpolates a person-chosen name straight into the
+    // message, so substring matching would move an unrelated 409 under the
+    // Virtual display checkbox and blame the screen toggle for a switched-off
+    // preset. Only the mirrored tail group is the server's own words.
+    expect(isDisplayLaunchRefusal('Preset "preview-display-test" is disabled')).toBe(false);
+    expect(isDisplayLaunchRefusal('Preset "preview-node-off" is disabled')).toBe(false);
+    expect(isDisplayLaunchRefusal('Preset "check (preview-display-x" is disabled')).toBe(false);
+  });
+
   it("leaves every other failure at the form line", () => {
     // A display MENTION is not a display REFUSAL: only the server's words
     // route, so an offline node or a bad directory never lands on the field.
