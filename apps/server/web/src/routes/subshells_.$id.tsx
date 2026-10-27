@@ -38,6 +38,7 @@ import { useSubshellLog } from "@/hooks/use-subshell-log";
 import { useSubshellMutations } from "@/hooks/use-subshell-mutations";
 import { useSwipeNav } from "@/hooks/use-swipe-nav";
 import { useTrustNotices } from "@/hooks/use-trust-notices";
+import { useUnsavedPreviewCount } from "@/hooks/use-unsaved-preview-count";
 import { invalidateAfterRename } from "@/hooks/use-workspaces";
 import { paneDiagnosticsIds, setPaneDiagnosticsIds, togglePaneDiagnostics } from "@/lib/pane-diagnostics-pref";
 import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
@@ -120,6 +121,7 @@ function SubshellPage() {
   // names on a blip is the bug that shape caused once.
   const { data: nodesData } = useNodes();
   const openVirtualDisplay = useOpenVirtualDisplay(subshell);
+  const unsavedPreview = useUnsavedPreviewCount(id, subshell);
   const nodeLabel = useMemo(() => {
     if (!subshell) return null;
     const nodeId = subshell.nodeId || FALLBACK_NODE_ID;
@@ -343,7 +345,11 @@ function SubshellPage() {
                     which removed the section under the terminal): it carries this
                     pane into its workspace, where the dialog it raises lists the
                     same rows and reasons and the preview opens as a tab. */}
-                <VirtualDisplayIndicator display={subshell?.virtualDisplay} onOpen={openVirtualDisplay} />
+                <VirtualDisplayIndicator
+                  display={subshell?.virtualDisplay}
+                  unsavedCount={unsavedPreview}
+                  onOpen={openVirtualDisplay}
+                />
                 <SshPaneLabels subshell={subshell} nodeLabel={nodeLabel} />
                 {/* Permanent disclosure: whose machine this runs on, and who
                     else can read it. Never suppressible — see

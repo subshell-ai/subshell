@@ -21,6 +21,7 @@ import { usePaneCopyMode } from "@/hooks/use-pane-copy-mode";
 import { usePaneDevices } from "@/hooks/use-pane-devices";
 import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { useTrustNotices } from "@/hooks/use-trust-notices";
+import { useUnsavedPreviewCount } from "@/hooks/use-unsaved-preview-count";
 import { invalidateAfterRename } from "@/hooks/use-workspaces";
 import { FALLBACK_NODE_ID, nodeLabelFor } from "@/lib/subshell-node-groups";
 import { useWorkspaceFocusedId } from "@/lib/workspace-focus";
@@ -88,6 +89,7 @@ export function PaneFocusHeader({
   const focusedPane = panes.find((pane) => pane.subshellId === focusedId);
   const subshell = useSubshellRow(focusedPane?.subshellId ?? "");
   const openVirtualDisplay = useOpenVirtualDisplay(subshell);
+  const unsavedPreview = useUnsavedPreviewCount(focusedPane?.subshellId, subshell);
   const devices = usePaneDevices(focusedPane?.id);
   const trustNotices = useTrustNotices(focusedPane ? subshell : undefined);
   const stacked = useIsStackedHeader();
@@ -158,7 +160,13 @@ export function PaneFocusHeader({
       }
       actions={
         <>
-          {isPane && <VirtualDisplayIndicator display={subshell?.virtualDisplay} onOpen={openVirtualDisplay} />}
+          {isPane && (
+            <VirtualDisplayIndicator
+              display={subshell?.virtualDisplay}
+              unsavedCount={unsavedPreview}
+              onOpen={openVirtualDisplay}
+            />
+          )}
           {isPane && subshell && <SshPaneLabels subshell={subshell} nodeLabel={nodeLabel} />}
           {isPane && <TrustIndicators notices={trustNotices} />}
           {devices && <SubshellDevices key={focusedPane?.id} state={devices.state} onSizing={devices.onSizing} />}
