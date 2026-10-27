@@ -130,7 +130,9 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
         container.addSubview(view)
         container.addSubview(fallback)
         NSLayoutConstraint.activate([
-            container.widthAnchor.constraint(equalToConstant: Layout.windowWidth),
+            // No width here: the document reports its own, and the window
+            // follows. A constraint on the container would fight the resize and
+            // clip the page it is supposed to frame.
             view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             view.topAnchor.constraint(equalTo: container.topAnchor),
@@ -190,10 +192,16 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
         view.evaluateJavaScript("window.subshellSetState(\(json))", completionHandler: nil)
     }
 
-    private func resize(toHeight height: Double) {
-        guard height > 0, let window else { return }
-        let wanted = min(max(CGFloat(height), Layout.minHeight), Layout.maxHeight)
-        window.setContentSize(NSSize(width: Layout.windowWidth, height: wanted))
+    /// Follow the document's own box. The page reports it after every render, so
+    /// the width in `packages/helper-panel/src/styles.css` is the one number and
+    /// nothing inside the card ever scrolls sideways.
+    private func resize(toWidth width: Double, height: Double) {
+        guard width > 0, height > 0, let window else { return }
+        let wanted = NSSize(
+            width: min(max(CGFloat(width), Layout.minWidth), Layout.maxWidth),
+            height: min(max(CGFloat(height), Layout.minHeight), Layout.maxHeight)
+        )
+        window.setContentSize(wanted)
     }
 
     private func handle(action: String) {
@@ -266,7 +274,9 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
             // name and a number and nothing else.
             guard let body = message.body as? [String: Any], let action = body["action"] as? String else { return }
             if action == "resize" {
-                if let height = (body["height"] as? NSNumber)?.doubleValue { self.resize(toHeight: height) }
+                let width = (body["width"] as? NSNumber)?.doubleValue ?? 0
+                let height = (body["height"] as? NSNumber)?.doubleValue ?? 0
+                self.resize(toWidth: width, height: height)
             } else {
                 self.handle(action: action)
             }
@@ -314,10 +324,16 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
 /// One width, measured from the page: `packages/helper-panel/src/styles.css`
 /// sets `.panel { width: var(--panel-width) }` at 420px, so the window and the
 /// document agree and no horizontal scrollbar appears.
+/// The window's first box and the limits it may be resized within. The width
+/// the person finally sees comes from the document (`width: 520px` in
+/// `packages/helper-panel/src/styles.css`); these only have to be good enough to
+/// load the page in and wide enough that the first paint is not a scrollbar.
 private enum Layout {
-    static let windowWidth: CGFloat = 420
+    static let windowWidth: CGFloat = 520
     static let inset: CGFloat = 20
-    static let initialHeight: CGFloat = 480
+    static let initialHeight: CGFloat = 560
+    static let minWidth: CGFloat = 360
+    static let maxWidth: CGFloat = 720
     static let minHeight: CGFloat = 200
     static let maxHeight: CGFloat = 1400
 }

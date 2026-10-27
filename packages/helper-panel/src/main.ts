@@ -1,11 +1,11 @@
 import "./styles.css";
-import { EMPTY_STATE, type PanelAction, type PanelState } from "./state";
+import { EMPTY_STATE, type PanelAction, type PanelMessage, type PanelState } from "./state";
 import { loginItemLine, permissionLine, stateLine, strings, viewerLine } from "./strings";
 
 /** The bridge the Swift side installs. Absent in a browser, which is how the
  *  page stays previewable while every real act needs the helper process. */
 interface PanelBridge {
-  postMessage(message: { action: PanelAction } | { action: "resize"; height: number }): void;
+  postMessage(message: PanelMessage): void;
 }
 declare global {
   interface Window {
@@ -14,8 +14,11 @@ declare global {
   }
 }
 
-/** Which of the assistant's button looks to wear, in plain CSS. */
-type Variant = "primary" | "ghost" | "outline" | "link";
+/** Which of the assistant's button looks to wear, in plain CSS. Only these
+ *  two exist on purpose: a control that does something wears a shape, the one
+ *  primary wears the gradient, and nothing in the card is a bare hover-wash
+ *  that reads as a link. */
+type Variant = "primary" | "outline";
 
 function bridge(): PanelBridge | undefined {
   return window.webkit?.messageHandlers?.subshell;
@@ -32,7 +35,7 @@ function element<Tag extends keyof HTMLElementTagNameMap>(
   return el;
 }
 
-function button(label: string, action: PanelAction, variant: Variant = "ghost"): HTMLButtonElement {
+function button(label: string, action: PanelAction, variant: Variant = "outline"): HTMLButtonElement {
   const el = element("button", `btn btn-${variant}`);
   el.type = "button";
   el.textContent = label;
@@ -142,21 +145,26 @@ function render(state: PanelState): void {
     ]),
   );
 
-  // The frame's bottom bar: help on the left, the way out on the right. The
-  // primary is deliberately not here. In a card this narrow it belongs with the
-  // state it changes and the warning that says what it costs, and the bar is
-  // left with what a person reaches for last.
+  // macOS puts a window's help at the bottom left and its exits at the bottom
+  // right, so that is where they go. What they may NOT do is wear different
+  // shapes: this row once mixed a plum text link with two buttons that have no
+  // outline until you hover them, and it read as three unrelated things that
+  // had wandered in from other screens. The primary stays in the card with the
+  // state it changes and the warning that says what it costs.
   const bar = element("footer", "bar");
-  const left = element("div", "bar-side");
-  left.append(button(strings.openDocs, "openDocs", "link"));
-  const right = element("div", "bar-side");
-  right.append(button(strings.minimize, "minimize"), button(strings.quit, "quit"));
-  bar.append(left, right);
+  const help = element("div", "bar-side");
+  help.append(button(strings.openDocs, "openDocs"));
+  const exits = element("div", "bar-side bar-exits");
+  exits.append(button(strings.minimize, "minimize"), button(strings.quit, "quit"));
+  bar.append(help, exits);
 
   root.append(content, bar);
 
   // The Swift window sizes to the content, so the page reports what it needs.
-  bridge()?.postMessage({ action: "resize", height: Math.ceil(root.getBoundingClientRect().height) });
+  // The Swift window sizes to the document, so the page reports both of its
+  // own dimensions rather than the window guessing and the content scrolling.
+  const box = root.getBoundingClientRect();
+  bridge()?.postMessage({ action: "resize", width: Math.ceil(box.width), height: Math.ceil(box.height) });
 }
 
 let current: PanelState = EMPTY_STATE;
