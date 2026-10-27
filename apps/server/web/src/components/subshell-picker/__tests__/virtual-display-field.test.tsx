@@ -158,6 +158,38 @@ describe("virtual display prerequisites", () => {
     expect(await screen.findByRole("option", { name: "Xvfb + VNC" })).toBeTruthy();
     expect(screen.queryByRole("option", { name: "BetterDisplay" }) === null).toBe(true);
   });
+  it("keeps naming a saved pick while the machine has not answered its OS", async () => {
+    // The list and the value are one decision. An enrolled node that never
+    // came ready reports no OS, which keeps a saved provider (clearing it
+    // would cost the pick to a read that says nothing) - so the row has to
+    // keep SHOWING it too. Filtering the list while keeping the value is how
+    // the trigger came to read "Node default" over a BetterDisplay pin the
+    // launch would honour, and the person approved a provider they never saw.
+    respond(ready);
+    render(
+      <VirtualDisplayField
+        node={{
+          ...linux,
+          os: null,
+          virtualDisplayProviders: ["xvfb-x11vnc", "betterdisplay"],
+          virtualDisplayProvider: "xvfb-x11vnc",
+        }}
+        provider="betterdisplay"
+        onProviderChange={() => {}}
+        id="display"
+        checked
+        onChange={() => {}}
+      />,
+      { wrapper },
+    );
+    const trigger = await screen.findByRole("combobox", { name: "Display provider" });
+    expect(trigger.textContent).toContain("BetterDisplay");
+    expect(trigger.textContent?.includes("Node default")).toBe(false);
+    fireEvent.click(trigger);
+    expect(await screen.findByRole("option", { name: "BetterDisplay" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Xvfb + VNC" })).toBeTruthy();
+  });
+
   it("fails closed when a check fails and recovers on recheck", async () => {
     respond({ message: "Bring this node online, then recheck." }, 409);
     render(<VirtualDisplayField node={linux} id="display" checked={false} onChange={() => {}} />, { wrapper });

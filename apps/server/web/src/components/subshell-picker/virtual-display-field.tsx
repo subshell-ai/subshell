@@ -1,10 +1,11 @@
 import { Button, Label, type Node } from "@internal/node-admin";
-import { DEFAULT_VIRTUAL_DISPLAY_PROVIDER, displayProviderRunsOnOs } from "@internal/subshell-protocol";
+import { DEFAULT_VIRTUAL_DISPLAY_PROVIDER } from "@internal/subshell-protocol";
 import { Link } from "@tanstack/react-router";
 import { DisplayMissingRequirements } from "@/components/display-missing-requirements";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useNodeDisplayReadiness } from "@/hooks/use-node-display-readiness";
+import { nodeDefaultForMachine, providersForMachine } from "@/lib/display-provider-choice";
 import { DisplayProviderPicker } from "./display-provider-picker";
 
 export function VirtualDisplayField({
@@ -41,12 +42,11 @@ export function VirtualDisplayField({
   // list that shows the other one sends the person to a launch the machine
   // refuses. The stored list is the owner's, so this narrows what the row shows
   // rather than rewriting it, and an id the catalog does not ship stays put for
-  // the node's own readiness answer to rule.
-  const providers = (node?.virtualDisplayProviders ?? [DEFAULT_VIRTUAL_DISPLAY_PROVIDER]).filter((id) =>
-    displayProviderRunsOnOs(id, node?.os),
-  );
-  const nodeDefault = node?.virtualDisplayProvider;
-  const defaultProvider = nodeDefault && displayProviderRunsOnOs(nodeDefault, node?.os) ? nodeDefault : undefined;
+  // the node's own readiness answer to rule. An OS that has not answered is no
+  // verdict at all (`providersForMachine`), so the row keeps offering what the
+  // node holds and the kept pick stays visible beside the name it carries.
+  const providers = providersForMachine(node?.virtualDisplayProviders ?? [DEFAULT_VIRTUAL_DISPLAY_PROVIDER], node?.os);
+  const defaultProvider = nodeDefaultForMachine(node?.virtualDisplayProvider, node?.os);
   const control = (
     <div className="flex items-center gap-3">
       <Checkbox
