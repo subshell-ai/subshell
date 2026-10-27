@@ -19,12 +19,17 @@ import { needsGridResync, setAttachResyncTimingsForTests, useSubshellWs } from "
  */
 
 function fakeTerminal() {
+  const resizeHandlers: Array<(size: { cols: number; rows: number }) => void> = [];
   const term = {
     options: { disableStdin: false } as { disableStdin: boolean },
     cols: 80,
     rows: 24,
     onData: () => ({ dispose: () => {} }),
-    onResize: () => ({ dispose: () => {} }),
+    onResize: (h: (size: { cols: number; rows: number }) => void) => {
+      resizeHandlers.push(h);
+      return { dispose: () => {} };
+    },
+    resizeHandlers,
     reset: () => {},
     write: () => {},
   };
@@ -133,6 +138,26 @@ describe("useSubshellWs grid resync", () => {
     term.rows = 40;
     await new Promise<void>((r) => setTimeout(r, 50));
     expect(instances.length).toBe(2);
+  });
+
+  it("a LATE adoption still resyncs, not just one that beats the settle check", async () => {
+    // The announced grid is adopted asynchronously (container → letterbox →
+    // fit). If that settles AFTER the debounced check ran, nothing else would
+    // re-ask: the geometry frame is gone and the mismatch just sits there.
+    // The terminal's own resize event is the fact that adoption happened, so
+    // it drives a fresh check.
+    setAttachResyncTimingsForTests(40, 60_000);
+    const term = fakeTerminal();
+    renderHook(() => useSubshellWs({ current: term as unknown as Terminal }, "s-late-adopt", {}));
+    await waitFor(() => expect(instances.length).toBe(1));
+    establish(instances[0], term);
+    send(instances[0], { type: "geometry", cols: 90, rows: 30 });
+    await new Promise<void>((r) => setTimeout(r, 150)); // the settle check ran, on the OLD grid
+    expect(instances.length).toBe(1);
+    term.cols = 90; // …and the grid lands late, through the terminal's own resize
+    term.rows = 30;
+    for (const h of term.resizeHandlers ?? []) h({ cols: 90, rows: 30 }); // drive onResize subscribers
+    await waitFor(() => expect(instances.length).toBe(2));
   });
 
   it("adopts a grid change in silence with no bytes to misplace", async () => {
