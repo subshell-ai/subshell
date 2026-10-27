@@ -174,7 +174,6 @@ export function LaunchSubshellDialog({
               onLeave={dismiss}
               launchError={displayLaunchError}
             />
-            {formLaunchError && <p className="text-destructive text-detail">{formLaunchError}</p>}
             <DialogFooter sticky>
               <Button
                 variant="outline"
@@ -194,6 +193,11 @@ export function LaunchSubshellDialog({
             </DialogFooter>
           </>
         )}
+        {/* The refusal the field cannot host renders here, OUTSIDE the agent branch:
+            switching to the SSH tab unmounts the Virtual display checkbox without
+            clearing the error, and a refusal nobody can read is the failure
+            `splitLaunchError` exists to prevent. */}
+        {formLaunchError && <p className="text-destructive text-detail">{formLaunchError}</p>}
       </DialogContent>
     </Dialog>
   );

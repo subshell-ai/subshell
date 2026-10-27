@@ -347,7 +347,10 @@ export class XvfbDisplayProvider implements VirtualDisplayProvider {
       );
       writeRecord(paneDir, { display, rfbPort, xvfbPid: xvfbChild.pid, x11vncPid: vncChild.pid });
 
-      await this.awaitReady(displayNumber, rfbPort, vncChild.pid, d);
+      await this.awaitReady(displayNumber, rfbPort, vncChild.pid, d, [
+        { name: "Xvfb", exited: xvfbChild.exited },
+        { name: "x11vnc", exited: vncChild.exited },
+      ]);
 
       const entry: DisplayEntry = {
         paneId,
@@ -668,32 +671,58 @@ export class XvfbDisplayProvider implements VirtualDisplayProvider {
     throw new Error(`${PREVIEW_DISPLAY_NOT_READY}: no free rfb port from ${RFB_PORT_MIN}`);
   }
 
-  /** X socket first (the server itself), then the RFB port answering yes. Budget, then refuse. */
+  /**
+   * X socket first (the server itself), then the RFB port answering yes.
+   *
+   * Two ways out, not one. A child that has already exited can never become
+   * ready, so waiting the budget for it only stretches the Create spinner and
+   * spends a third of the plane's launch window learning nothing new: the
+   * moment either one is dead, refuse and name the gate, and let the caller
+   * journal the child logs, which are complete at that point.
+   */
   private async awaitReady(
     displayNumber: number,
     rfbPort: number,
     vncPid: number,
     d: ReturnType<XvfbDisplayProvider["deps"]>,
+    children: { name: string; exited: Promise<unknown> }[],
   ): Promise<void> {
     const start = d.now();
+    // A rejection is an exit too: the watch treats a spawn error like death,
+    // and readiness that kept polling a crashed child would burn the whole
+    // budget learning nothing.
+    const dead = Promise.race(
+      children.map((child) =>
+        child.exited.then(
+          () => child.name,
+          () => child.name,
+        ),
+      ),
+    );
     for (;;) {
       const xSocket = d.xSocketReady(displayNumber);
       const rfb = xSocket && (await d.bindProbe(rfbPort));
       if (rfb && d.ownsRfbListener(vncPid, rfbPort)) return;
+      // Name the gate that was still shut: the three failures (Xvfb never
+      // made its socket, x11vnc never bound the port, and someone else owns
+      // the listener) want different eyes on the child logs below. An exited
+      // child names itself in the same slot, because that IS the gate.
+      const gate = !xSocket
+        ? "Xvfb socket never appeared"
+        : !rfb
+          ? "rfb port answered nothing"
+          : "listener not owned by the x11vnc pid";
+      const diedIn = await Promise.race([dead, d.sleep(READY_POLL_MS).then(() => undefined)]);
+      if (diedIn !== undefined) {
+        throw new Error(
+          `${PREVIEW_DISPLAY_NOT_READY}: display :${displayNumber} / rfb ${rfbPort} gave up: ${diedIn} exited (${gate})`,
+        );
+      }
       if (d.now() - start >= d.readyBudgetMs) {
-        // Name the gate that was still shut: the three failures (Xvfb never
-        // made its socket, x11vnc never bound the port, and someone else
-        // owns the listener) want different eyes on the child logs below.
-        const gate = !xSocket
-          ? "Xvfb socket never appeared"
-          : !rfb
-            ? "rfb port answered nothing"
-            : "listener not owned by the x11vnc pid";
         throw new Error(
           `${PREVIEW_DISPLAY_NOT_READY}: display :${displayNumber} / rfb ${rfbPort} not answering within ${d.readyBudgetMs}ms (${gate})`,
         );
       }
-      await d.sleep(READY_POLL_MS);
     }
   }
 

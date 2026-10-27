@@ -4213,8 +4213,8 @@ with its own control, so enabling never registers a login item and disabling
 never removes one; a helper that returns at the next sign-in is found disabled
 and exits. Disable clears consent before closing captures and releasing held
 input, and leaves existing TCC grants alone. A disabled running helper exposes
-status, and accepts the pointer rescue, which does nothing while no viewer held
-the cursor on that screen. Same-UID Unix socket
+status, and accepts the pointer rescue, which acts only when the cursor sits
+inside no screen's frame. Same-UID Unix socket
 peers are trusted, with a 0700 directory and 0600 socket; the node's localhost
 RFB adapter retains the local-user limitation above. Both protocols bound
 buffers, concurrency, and startup waits.

@@ -14,15 +14,25 @@ import { ApiError, errMessage } from "@internal/node-admin";
  * the create path can answer with it: browser previews are refused by the
  * view routes, not by `POST /api/subshells`.
  */
-const DISPLAY_REFUSAL_MARKERS = ["preview-display-", "preview-node-off"] as const;
+/**
+ * The mirror's own shape, not a bare substring: `screenLaunchRemedy` and the
+ * service's switch preflight both finish the sentence with the word in a
+ * parenthesized group at the tail (`… (preview-display-not-ready: …)`), and
+ * that position is the only thing that tells this refusal apart from a person
+ * whose PRESET happens to be named `preview-display-test`. The create path
+ * interpolates that name into `Preset "…" is disabled`, so a free substring
+ * would blame the **Virtual display** checkbox for a preset-state 409.
+ */
+const DISPLAY_REFUSAL_TAIL = /\((?:preview-display-[a-z0-9-]+|preview-node-off)(?::.*?)?\)\s*$/;
 
 /**
- * Is this create-failure text a virtual-display refusal? True for any message
- * naming one of the display refusal words, so the dialog can route it to the
- * field's own error slot instead of the form-level line.
+ * Is this create-failure text a virtual-display refusal? True only for the
+ * mirrored words in the tail group the server actually prints, so the dialog
+ * can route it to the field's own error slot instead of the form-level line
+ * without letting a preset name steer the routing.
  */
 export function isDisplayLaunchRefusal(message: string): boolean {
-  return DISPLAY_REFUSAL_MARKERS.some((marker) => message.includes(marker));
+  return DISPLAY_REFUSAL_TAIL.test(message);
 }
 
 /**
