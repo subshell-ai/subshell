@@ -381,9 +381,16 @@ the notification bell OFF (internal chatter is not news to ring a human for;
 they can still turn it on), and no later act un-stamps it. When the exchange is
 done, collect the results and `delete_subshell` temporary helpers (removes the
 row and history). Use `terminate_subshell` only when history needs to be retained
-(it keeps the row). The pane will not clean itself up, and an exited one is NOT
-gone: its row parks at `status: "running", alive: 0`, and a `send_to_subshell`
-into that window answers 409 with `restart_subshell` as the revive. (The
+(it keeps the row). Closing it yourself is still the immediate, polite close.
+An exited pane does not vanish the moment its process stops: its row parks at
+`status: "running", alive: 0`, and a `send_to_subshell` into that window answers
+409 with `restart_subshell` as the revive. A forgotten helper is not forever,
+though (ruling 2026-10-27): the 60 s housekeeping sweep
+(`SubshellsService.retireExpiredHelpers`) retires a cross-agent helper through
+the ordinary delete act about half an hour after its pane died: an exited-on-own
+row, or a launch that crashed and left a `terminated, alive: 1` zombie. Its leaf
+then drops out of every tree. A helper you deliberately `terminate_subshell` to
+keep its history, and a helper whose pane is still running, are left alone. (The
 create tool's description and the `initialize` briefing carry the same rule;
 this is the human-facing statement of it.)
 

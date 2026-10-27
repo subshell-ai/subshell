@@ -415,12 +415,17 @@ export class SubshellsService extends BaseService {
   /** Built once per request (not once per call) from the context's repositories. */
   readonly #manager: SubshellManagerService;
 
-  constructor(params: CommonServiceParams) {
+  constructor(params: CommonServiceParams & { manager?: SubshellManagerService }) {
     super(params);
-    this.#manager = new SubshellManagerService({
-      subshells: params.repos.subshells,
-      presets: params.repos.presets,
-    });
+    // The manager is normally built over the shared repositories; a test may
+    // inject a double to drive the retire sweep's read-then-act path without a
+    // real tmux/node behind it. Production callers pass nothing here.
+    this.#manager =
+      params.manager ??
+      new SubshellManagerService({
+        subshells: params.repos.subshells,
+        presets: params.repos.presets,
+      });
   }
 
   /**
@@ -1637,21 +1642,119 @@ export class SubshellsService extends BaseService {
    */
   async deleteSubshell(viewerId: string, id: string, actor: GuardActor): Promise<{ ok: true }> {
     const { row } = await this.#gate(viewerId, id, "owner", actor);
-    // READ BEFORE THE DELETE: grants cascade with the row, and they are the
-    // only way to reach the people it was shared with. Announced from HERE
-    // rather than from the manager for the same reason — the manager is
-    // owner-keyed and holds no shares repository, so a deletion announced
-    // there could only ever name the owner, which is exactly
-    // the bug: a shared subshell stayed on every grantee's dashboard until
-    // they reconnected, and 404'd when clicked.
-    const shares = (await this.repos.subshellShares.listForSubshells([id])).get(id) ?? [];
-    const ok = await this.#manager.deleteSubshell(row.userId, id);
+    const ok = await this.#deleteAndAnnounce(row, id);
     if (!ok) {
       throw new SubshellError("not_found", "Subshell not found");
     }
-    publishLive({ kind: "subshell.deleted", id, ownerId: row.userId, shares });
     return { ok: true };
   }
+
+  /**
+   * The delete act's announce half, shared with {@link retireExpiredHelpers}:
+   * READ the grants BEFORE the delete (grants cascade with the row, and they
+   * are the only way to reach the people it was shared with), delete, then
+   * announce from HERE rather than from the manager — the manager is
+   * owner-keyed and holds no shares repository, so a deletion announced there
+   * could only ever name the owner, which is exactly the bug: a shared
+   * subshell stayed on every grantee's dashboard until they reconnected, and
+   * 404'd when clicked. Returns whether the row was there to delete.
+   */
+  async #deleteAndAnnounce(row: SubshellTable, id: string, opts?: { autoRetire?: boolean }): Promise<boolean> {
+    const shares = (await this.repos.subshellShares.listForSubshells([id])).get(id) ?? [];
+    const ok = await this.#manager.deleteSubshell(row.userId, id, opts);
+    if (!ok) return false;
+    publishLive({ kind: "subshell.deleted", id, ownerId: row.userId, shares });
+    return true;
+  }
+
+  /**
+   * Retires DONE cross-agent helper leaves — the backstop to "each subshell
+   * you create is yours to close": an agent that let its helpers exit or crash
+   * without deleting them left leaf entries under the creator forever, because
+   * the tree is status-blind and nothing ever retired a row (the account of the
+   * 2026-10-27 instance: eight such leaves, several of them crash-residue rows
+   * that still claimed a live pane).
+   *
+   * The sweep runs on the 60 s housekeeping interval and takes exactly what
+   * {@link SubshellsRepository.listRetireableHelpers} calls done — a helper
+   * that exited on its own (`running, alive: 0`, past {@link
+   * HELPER_RETIRE_GRACE_MS}) or launch residue (`terminated, alive: 1`) — and
+   * then refuses two classes that predicate alone would over-reach: a row a
+   * restart currently owns, and a residue row whose pane may still be alive on
+   * an UNREACHABLE agent node (deleting it strands the pane for good, since
+   * the census only reaps panes that still have a row). A deliberate
+   * `terminate_subshell` keeps its history and is never matched at all. The
+   * grace is the creator's read-then-delete window; a running helper
+   * (`alive: 1`) is never touched, orphaned or not. Each retire is the ORDINARY
+   * delete act through {@link #deleteAndAnnounce} (token, log, workspace
+   * cascade, and the `subshell.deleted` frame that drops the leaf from every
+   * open dashboard), audited with `autoRetired` so the trail names the sweep.
+   *
+   * @returns how many helpers were retired (the boot/interval log's number)
+   */
+  async retireExpiredHelpers(): Promise<number> {
+    const cutoff = new Date(Date.now() - HELPER_RETIRE_GRACE_MS).toISOString();
+    const candidates = await this.repos.subshells.listRetireableHelpers(cutoff);
+    let retired = 0;
+    for (const candidate of candidates) {
+      // A manual restart owns this row (it is between taking the lease and
+      // parking), so the sweep must not delete it out from under the operator
+      // who just clicked Restart. An AUTO-restart needs no lease guard here:
+      // its death was already claimed by #applyDeath, so retiring the row just
+      // cancels a revive that has not spawned yet, and the conditional delete
+      // below re-wins the race if one is mid-flight (a revived row leaves the
+      // swept shape and the claim deletes 0).
+      if (this.#manager.isRestartInFlight(candidate.id)) continue;
+      // Re-read before deleting. The list above is a snapshot, and a row that
+      // was finished when it was taken may not be now: an agent may have called
+      // `terminate_subshell` on it in between (turning the swept
+      // `terminated, alive: 1` into the kept `terminated, alive: 0`), or a
+      // restart may have just revived it back to alive. Deciding on the stale
+      // snapshot would eat a history the guarantee says to keep, so re-assert
+      // the swept shape against the fresh row — the same read-then-act
+      // discipline #applyDeath uses.
+      const row = await this.repos.subshells.findById(candidate.id);
+      if (!row || !isRetireableShape(row, cutoff)) continue;
+      // A residue row that still claims a live pane must be on a REACHABLE node
+      // before we delete it: deleteSubshell swallows an unreachable-node kill,
+      // and once the row is gone the reconnect census can no longer find the
+      // pane to reap it (absence of the socket is not absence of the process).
+      if (row.alive === 1 && isNodeOffline(row.nodeId)) continue;
+      // A row that vanished under us (its creator deleted it a moment ago)
+      // simply is not retired twice; the act's own announce follows a delete
+      // that landed.
+      if (await this.#deleteAndAnnounce(row, row.id, { autoRetire: true })) retired++;
+    }
+    if (retired > 0) this.log.info(`retired ${retired} finished cross-agent helper${retired === 1 ? "" : "s"}`);
+    return retired;
+  }
+}
+
+/**
+ * How long a dead cross-agent helper stays on the books before the sweep
+ * retires it. Long enough for the creator (or a sibling) to read its output
+ * and delete it by hand — the contract's own "collect the results, then
+ * delete_subshell" — short enough that a forgotten leaf is gone within one
+ * working context. One number; the sweep and its tests both read this.
+ */
+export const HELPER_RETIRE_GRACE_MS = 30 * 60_000;
+
+/**
+ * The TypeScript twin of `SubshellsRepository.listRetireableHelpers`'s WHERE,
+ * used to re-check a candidate against its freshly-read row before deleting
+ * (the sweep's list is a snapshot that a concurrent terminate or revive can
+ * change under). Keep the two in sync: widening one without the other lets a
+ * row slip past the re-check — either deleted when it should be kept (a
+ * `terminated, alive: 0` transcript) or kept when it should be swept.
+ */
+function isRetireableShape(
+  row: Pick<SubshellTable, "crossAgent" | "status" | "alive" | "endedAt">,
+  cutoff: string,
+): boolean {
+  if (row.crossAgent !== 1 || row.endedAt === null || row.endedAt > cutoff) return false;
+  const exited = row.status === "running" && row.alive === 0;
+  const residue = row.status === "terminated" && row.alive === 1;
+  return exited || residue;
 }
 
 /**

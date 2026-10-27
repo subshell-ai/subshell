@@ -2763,7 +2763,9 @@ Audit events are written, grouped by family:
   changed the row, beside the `subshell.restart` row of the same act; the
   swap row stands alone only when the revive throws mid-flight (the row
   keeps the new preset) or the row is deleted between park and re-read),
-  `subshell.delete`.
+  `subshell.delete` (metadata `{ name }`, plus `autoRetired: true` when the
+  helper-retire sweep performs it, so a system retire reads apart from an
+  owner's own delete; the actor stays the owner either way).
 - **Transfers** (spec 2026-10-01 §5): `transfer.create` (attempt: `{ fromNodeId, toNodeId, fromPath, toPath, sync }`)
   and `transfer.complete` (the same plus `{ outcome: "ok" | "failed" }` and, on
   success, the byte and entry counts). Facts, never contents: a row says which

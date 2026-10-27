@@ -44,6 +44,7 @@ import { assertInstanceRestoreDestination, instanceRestoreJournalPath } from "@/
 import { finalizeInstanceRestore, rollbackInstanceRestore } from "@/modules/backups/transaction.js";
 import { instanceBackupPaths } from "@/modules/backups/instance-backup-source.js";
 import { acquireInstanceLock } from "@/modules/backups/instance-state-lock.js";
+import { getRequestlessContext } from "@/app/context.js";
 import { publishLive } from "@/app/live-bus.js";
 import { loadAndApplyDebugLogging } from "@/modules/server/logging-preference.js";
 import { refreshNetworkOrigins, seedNetworkOrigins, startOriginRefresh } from "@/modules/network/origin-refresh.js";
@@ -337,6 +338,12 @@ async function bootServer(): Promise<void> {
   // Restore alive/exit state at boot: a backend restart mid-subshell must not
   // leave stale alive=1 rows (tmux subshells died with the old process).
   await manager.reconcileAll();
+  // Finished agent helpers are not news that outlives a restart: sweep the
+  // ones the instance already owes a goodbye to (boot pass + the 60 s tick
+  // below, the same cadence as the reconcile it follows).
+  void getRequestlessContext()
+    .services.subshells.retireExpiredHelpers()
+    .catch((err: unknown) => getLogger().withError(err).warn("helper retire sweep failed at boot"));
 
   // Pane logs hold the verbatim transcript of every session, typed secrets
   // included. New ones are created 0600 by the pipe-pane umask, but logs
@@ -386,6 +393,14 @@ async function bootServer(): Promise<void> {
   setInterval(() => {
     sweepWsTokens();
     void manager.reconcileAll();
+    // Cross-agent helpers retire on this same tick: an exited-on-own row or
+    // launch residue past the grace, each through the ordinary delete act
+    // including the subshell.deleted announce that drops its leaf from every
+    // open dashboard. The sweep itself skips a row a restart owns or whose
+    // pane may still be alive on an unreachable node.
+    void getRequestlessContext()
+      .services.subshells.retireExpiredHelpers()
+      .catch((err: unknown) => getLogger().withError(err).warn("helper retire sweep failed"));
     // Offline sweep (spec §5.3): a crashed/evicted agent may never produce a
     // socket close here; staleness of `lastSeenAt` is the backstop. Nodes with
     // a LIVE socket are exempt even when their heartbeat stream stalled — the

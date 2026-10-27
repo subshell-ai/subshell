@@ -320,7 +320,13 @@ export class SubshellsRepository extends BaseRepository {
     return Number(row.count);
   }
 
-  /** Marks all running subshells for a user as terminated (e.g. tmux gone). */
+  /**
+   * Marks all running subshells for a user as terminated (e.g. tmux gone).
+   * Currently uncalled, but kept for its twin {@link markTerminated}: note it
+   * leaves `alive` as-is, so if it is ever wired it must clear `alive` per row
+   * (like `terminateSubshell` does) or it would manufacture the `terminated,
+   * alive: 1` shape the retire sweep reads as crash residue.
+   */
   async markAllTerminated(userId: string, now: string): Promise<void> {
     await this.db
       .updateTable("subshells")
@@ -330,9 +336,70 @@ export class SubshellsRepository extends BaseRepository {
       .execute();
   }
 
-  /** Marks a single subshell terminated regardless of current state. */
+  /**
+   * Marks a single subshell terminated regardless of current state, WITHOUT
+   * touching `alive`. That omission is deliberate and load-bearing: a
+   * deliberate `terminate_subshell` clears `alive` itself (via `updateIfAlive`
+   * before calling this), so the `terminated, alive: 1` shape a sweep sees is
+   * left by the createSubshell spawn-failure rollback, and it is the discriminator
+   * {@link listRetireableHelpers} uses to tell crash residue (sweepable) from
+   * a kept history (never swept). Zeroing `alive` here would collapse the two
+   * and let the sweep delete a transcript an agent asked to retain.
+   */
   async markTerminated(id: string, now: string): Promise<void> {
     await this.db.updateTable("subshells").set({ status: "terminated", endedAt: now }).where("id", "=", id).execute();
+  }
+
+  /**
+   * Cross-agent helpers that are provably finished and past the grace
+   * `cutoff` — the candidate set for {@link SubshellsService.retireExpiredHelpers}
+   * (which then drops any a restart owns or whose agent node cannot be
+   * reached, since this table cannot see node liveness). A helper is done two
+   * truthful ways:
+   *
+   *  - it exited on its own: `running, alive: 0` with `endedAt` stamped by the
+   *    shared death transition. A `running, alive: 0` whose `endedAt` is NULL
+   *    is a manual-restart PARK, not a death; a death always stamps `endedAt`,
+   *    and `<= cutoff` can never hold for NULL, so a pane being revived
+   *    mid-restart stays out of the set; or
+   *  - it is launch residue: `terminated, alive: 1`, the shape createSubshell's
+   *    spawn-failure rollback leaves (a deliberate terminate zeroes `alive`
+   *    first), so sweeping it does NOT contradict the "terminate_subshell
+   *    retains the record and history" guarantee.
+   *
+   * `terminated, alive: 0` is deliberately ABSENT: that is a kept transcript,
+   * and a rollback whose pane was reported dead BEFORE the rollback ran also
+   * lands there (applyDeath zeroes `alive`, then the create catch stamps
+   * `terminated`), so a rare residue row looks exactly like kept history and
+   * simply lingers. That asymmetry is the fail-safe: a leaf staying one tick
+   * too long costs less than deleting a transcript an agent asked to keep.
+   *
+   * A running helper (`alive: 1`) is never matched, orphaned or not (its pane
+   * may still be working), and neither is any row an agent did not open: a
+   * person's own parked pane is theirs until they remove it.
+   */
+  async listRetireableHelpers(cutoff: string): Promise<SubshellTable[]> {
+    return await this.db
+      .selectFrom("subshells")
+      .selectAll()
+      .where("crossAgent", "=", 1)
+      .where((eb) =>
+        eb.or([
+          eb.and([
+            eb("status", "=", "running"),
+            eb("alive", "=", 0),
+            eb("endedAt", "is not", null),
+            eb("endedAt", "<=", cutoff),
+          ]),
+          eb.and([
+            eb("status", "=", "terminated"),
+            eb("alive", "=", 1),
+            eb("endedAt", "is not", null),
+            eb("endedAt", "<=", cutoff),
+          ]),
+        ]),
+      )
+      .execute();
   }
 
   /** Keeps a subshell record alive in the DB (tmux still has it). */
@@ -343,5 +410,31 @@ export class SubshellsRepository extends BaseRepository {
   /** Permanently removes a subshell row. */
   async delete(id: string): Promise<void> {
     await this.db.deleteFrom("subshells").where("id", "=", id).execute();
+  }
+
+  /**
+   * The retire sweep's atomic claim: delete the row ONLY if it still matches
+   * one of the two swept shapes (a cross-agent exited `running, alive: 0` or
+   * a residue `terminated, alive: 1`). A `terminate_subshell` or a revive that
+   * lands after the sweep's re-read changes the row underneath it, so a plain
+   * {@link delete} would eat a kept transcript or a live pane; this is the same
+   * optimistic read-then-conditional-write discipline as {@link parkForRestart}
+   * and `updateIfAlive`. Returns the rows deleted (0 = the row slipped shape,
+   * so the caller leaves the row and its log untouched).
+   */
+  async deleteIfRetireable(id: string): Promise<number> {
+    const res = await this.db
+      .deleteFrom("subshells")
+      .where("id", "=", id)
+      .where("crossAgent", "=", 1)
+      .where((eb) =>
+        eb.or([
+          eb.and([eb("status", "=", "running"), eb("alive", "=", 0), eb("endedAt", "is not", null)]),
+          eb.and([eb("status", "=", "terminated"), eb("alive", "=", 1), eb("endedAt", "is not", null)]),
+        ]),
+      )
+      .executeTakeFirst();
+    const counts = res as unknown as { numDeletedRows?: number | bigint; numDeleted?: number | bigint };
+    return Number(counts?.numDeletedRows ?? counts?.numDeleted ?? 0);
   }
 }
