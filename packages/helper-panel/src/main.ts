@@ -1,6 +1,6 @@
 import "./styles.css";
 import { EMPTY_STATE, type PanelAction, type PanelMessage, type PanelState } from "./state";
-import { loginItemLine, permissionValue, stateLine, strings, viewerLine } from "./strings";
+import { loginItemLine, permissionValue, type StateValue, stateLine, strings, viewerLine } from "./strings";
 
 /** The bridge the Swift side installs. Absent in a browser, which is how the
  *  page stays previewable while every real act needs the helper process. */
@@ -62,15 +62,23 @@ function section(label: string, children: Node[]): HTMLElement {
   return el;
 }
 
+/** The state word on its own, coloured by whether it still needs the person. */
+function valueSpan(value: StateValue): HTMLElement {
+  return element("span", `value${value.blocked ? " value-blocked" : " value-ok"}`, value.text);
+}
+
 /**
- * A row: the machine's answer on the left, the one control that changes it on
- * the right. The button never wraps its own label, so a long status line and a
- * label that must not clip share the row honestly instead of fighting for it.
+ * A settings row: the label and its state word together on the left, the one
+ * control that changes them on the right. A control is optional because a
+ * settled fact has nothing left to ask for, and the button never wraps its own
+ * label, so a long sentence and a short control share the row honestly instead
+ * of fighting for the same pixels.
  */
-function row(status: string, control?: HTMLElement): HTMLElement {
+function row(parts: { status?: string; value?: StateValue; control?: HTMLElement }): HTMLElement {
   const el = element("div", "row");
-  el.append(element("span", "status", status));
-  if (control) el.append(control);
+  if (parts.status !== undefined) el.append(element("span", "status", `${parts.status}:`));
+  if (parts.value) el.append(valueSpan(parts.value));
+  if (parts.control) el.append(parts.control);
   return el;
 }
 
@@ -81,23 +89,17 @@ function row(status: string, control?: HTMLElement): HTMLElement {
  * that somehow fires one still gets a refusal instead of a prompt.
  */
 function permissionRow(label: string, granted: boolean, askLabel: string, action: PanelAction, consented: boolean) {
-  const el = element("div", "row");
-  const value = permissionValue(granted);
-  el.append(
-    element("span", "status", `${label}:`),
-    element("span", `value${value.blocked ? " value-blocked" : " value-ok"}`, value.text),
-  );
+  let ask: HTMLButtonElement | undefined;
   // Granted, there is nothing left to ask macOS for: the row states the fact
   // and offers no control. A button that opens a prompt which cannot appear is
   // worse than none, because pressing it and seeing nothing looks like a hang.
   if (!granted) {
-    const btn = button(strings.allow, action, "outline");
-    btn.setAttribute("aria-label", askLabel);
-    btn.disabled = !consented;
-    if (!consented) btn.title = strings.permissionNeedsConsent;
-    el.append(btn);
+    ask = button(strings.allow, action, "outline");
+    ask.setAttribute("aria-label", askLabel);
+    ask.disabled = !consented;
+    if (!consented) ask.title = strings.permissionNeedsConsent;
   }
-  return el;
+  return row({ status: label, value: permissionValue(granted), control: ask });
 }
 
 function render(state: PanelState): void {
@@ -142,7 +144,10 @@ function render(state: PanelState): void {
   // and its button appear with the consent that created them.
   if (state.enabled) {
     accessRows.push(
-      row(loginItemLine(state.loginItemNeedsApproval), button(strings.openLoginItems, "openLoginItems", "outline")),
+      row({
+        value: loginItemLine(state.loginItemNeedsApproval),
+        control: button(strings.openLoginItems, "openLoginItems", "outline"),
+      }),
     );
   }
   content.append(section(strings.access, accessRows));
