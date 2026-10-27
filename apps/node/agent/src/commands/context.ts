@@ -79,6 +79,12 @@ export interface WatcherRegistration {
    */
   token: symbol;
   /**
+   * Capture-child guard state (see `guardPipeChild` in report.ts): the last
+   * screen and log size read on a check tick, the consecutive drift count,
+   * and the tick counter that spaces the checks. Lazily created.
+   */
+  pipeGuard?: { lastScreen: string; lastSize: number; missed: number; ticks: number };
+  /**
    * Consecutive ticks on which this registration's socket probe FAILED to
    * answer (`listSubshellsChecked` ok:false). An authoritative ok:true answer
    * resets it; the threshold that finally reports death is

@@ -85,6 +85,33 @@ describe("TmuxRunner", () => {
     }
   });
 
+  it("pipe-pane with replace:true drops the -o, which is what re-arms a dead child", async () => {
+    // The capture-child guard (apps/node/agent report.ts) re-arms the writer.
+    // `#{pane_pipe}` stays 1 after the child dies (measured on tmux 3.6), so
+    // tmux considers the pipe "already on" and -o would no-op; only the form
+    // WITHOUT -o replaces the running child. Pin that the flag alone changes
+    // exactly that word, nothing else in the command.
+    const stubDir = mkdtempSync(join(tmpdir(), "subshell-tmux-stub-"));
+    const argvFile = join(stubDir, "argv.txt");
+    const stub = join(stubDir, "tmux-stub");
+    writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argvFile}"\n`, { mode: 0o755 });
+    try {
+      const child = { command: "/usr/bin/subshell", args: ["pane-log"] };
+      new TmuxRunner(stub).pipePane("sock", "s1", "/tmp/live.log", child, { replace: true });
+      const argv = (await Bun.file(argvFile).text()).trim().split("\n");
+      expect(argv).toEqual([
+        "-L",
+        "sock",
+        "pipe-pane",
+        "-t",
+        "s1",
+        `(umask 077; exec '/usr/bin/subshell' 'pane-log' --file '/tmp/live.log')`,
+      ]);
+    } finally {
+      rmSync(stubDir, { recursive: true, force: true });
+    }
+  });
+
   // Issue #244: tmux's command parser eats a trailing `;` out of every string
   // argument BEFORE `-l` can make it literal (full account on
   // encodeTrailingSemicolon), so a `;` typed into a pane typed nothing at all,
