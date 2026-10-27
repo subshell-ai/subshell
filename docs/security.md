@@ -4199,10 +4199,16 @@ against a hostile OS account rebinding a port after a check.
 **macOS helper consent is local and independent of node policy.** The
 BetterDisplay provider uses a signed native helper bundled with both desktop
 apps. Neither first-run setup, a remote page, node configuration, nor MCP can
-enable it or request OS privacy prompts. The native settings panel owns consent
-and login registration. Disable clears consent before closing captures and
-releasing held input; it unregisters startup without revoking existing TCC
-grants. A disabled running helper exposes status only. Same-UID Unix socket
+enable it or request OS privacy prompts. Consent belongs to the helper's own
+panel (a bundled local page in a `WKWebView`, where Swift re-checks every posted
+action, so the page is presentation and never authority): the panel's enable act
+is the only writer of the consent flag. Starting at sign-in is a separate act
+with its own control, so enabling never registers a login item and disabling
+never removes one; a helper that returns at the next sign-in is found disabled
+and exits. Disable clears consent before closing captures and releasing held
+input, and leaves existing TCC grants alone. A disabled running helper exposes
+status, and accepts the pointer rescue, which does nothing while no viewer held
+the cursor on that screen. Same-UID Unix socket
 peers are trusted, with a 0700 directory and 0600 socket; the node's localhost
 RFB adapter retains the local-user limitation above. Both protocols bound
 buffers, concurrency, and startup waits.
