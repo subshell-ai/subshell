@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { EMPTY_STATE, type PanelState } from "../state";
-import { permissionLine, stateLine, strings, viewerLine } from "../strings";
+import { loginItemLine, permissionLine, stateLine, strings, viewerLine } from "../strings";
 
 /**
  * The panel's copy is its consent interface, so the words are the behavior
@@ -32,6 +32,16 @@ describe("the consent warning", () => {
     expect(strings.enable).toBe("Enable helper");
     expect(strings.disable).toBe("Disable helper");
   });
+
+  test("puts the ellipsis only where another app opens", () => {
+    // macOS convention, and the dashboard's: "…" means a dialog or another
+    // app is about to take over. The setup guide opens the browser from a link
+    // and says so by wearing none.
+    for (const label of [strings.openLoginItems, strings.requestCapture, strings.requestInput]) {
+      expect(label.endsWith("…")).toBe(true);
+    }
+    expect(strings.openDocs.endsWith("…")).toBe(false);
+  });
 });
 
 describe("stateLine", () => {
@@ -50,11 +60,23 @@ describe("stateLine", () => {
     expect(line).toContain("also need both macOS permissions");
   });
 
-  test("names where to fix a login item macOS has not approved", () => {
+  test("keeps the state line to the state", () => {
+    // The login item got its own row once the panel stopped being a report, so
+    // the state line carries the permission facts only. Two sentences telling
+    // one person the same thing in two places is how they start to disagree.
     const line = stateLine(stateWith({ enabled: true, loginItemNeedsApproval: true }));
-    expect(line).toContain("Login Items");
-    expect(line).toContain("sign in");
-    expect(stateLine(stateWith({ enabled: true }))).not.toContain("Login Items");
+    expect(line).toContain("Enabled");
+    expect(line).not.toContain("Login Items");
+  });
+});
+
+describe("loginItemLine", () => {
+  test("names where to fix a login item macOS has not approved", () => {
+    const pending = loginItemLine(true);
+    expect(pending).toContain("System Settings");
+    expect(pending).toContain("Login Items");
+    expect(loginItemLine(false)).toContain("Starts at sign-in");
+    expect(loginItemLine(false)).not.toContain("Login Items");
   });
 });
 

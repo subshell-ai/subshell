@@ -1,11 +1,11 @@
 /* The macOS display helper's panel. Colours and type come from the one shared
-   palette; nothing here restates a value, which is what keeps the panel from
-   becoming the fourth surface that drifts (spec 2026-09-14 § 1). */
+   palette, and the button shapes are the assistant's own `Button` variants
+   (`apps/server/desktop/ui/src/components/ui/button.tsx`) written in plain CSS:
+   h-9 at px-4, `rounded-md`, `font-strong` at body size, the sunk plum gradient
+   for the primary, and a bare button that washes on hover for the rest. Nothing
+   here restates a value, which is what keeps the panel from becoming the fifth
+   surface that drifts (spec 2026-09-14 § 1). */
 @import "../../assistant/tokens.css";
-
-:root {
-  --panel-width: 420px;
-}
 
 * {
   box-sizing: border-box;
@@ -22,12 +22,21 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* The window's width and the document's agree by one number, so the content
+   never grows a horizontal scrollbar. 420 = the assistant's 560 column minus
+   its two 32px gutters, rounded to the grid: what a settings card needs. */
 .panel {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  width: var(--panel-width);
-  padding: 20px;
+  width: 420px;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  flex: 1;
+  padding: 20px 20px 8px;
 }
 
 .head {
@@ -43,16 +52,33 @@ body {
   font-weight: var(--font-weight-strong);
 }
 
+/* The subtitle is the control's own explanation carried at one step down, the
+   way the assistant's frame sets its title over its subtitle. */
+.subtitle,
+.note,
+.status,
+.viewers,
+.error {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+
+.state {
+  margin: 0;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+
 .section {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding-top: 4px;
-  border-top: 1px solid var(--border);
 }
 
-/* The assistant's section heading: label role, a trailing rule that carries
-   the weight the text does not. */
+/* `FormSectionTitle`: label role and strong, with a rule that carries the
+   weight the text does not. It is the only divider a section has. */
 .section-title {
   display: flex;
   align-items: center;
@@ -65,81 +91,8 @@ body {
 
 .section-rule {
   flex: 1;
+  min-width: 24px;
   border-top: 1px solid var(--border);
-}
-
-.body,
-.warning,
-.detail,
-.viewers,
-.viewers-live,
-.error {
-  margin: 0;
-}
-
-.detail,
-.viewers {
-  color: var(--muted-foreground);
-  font-size: var(--text-detail);
-  line-height: var(--text-detail--line-height);
-}
-
-/* Gold is "the person who owns this can act on it", the same role the
-   dashboard gives text-warning. A live capture is the one thing this panel
-   must make impossible to miss. */
-.warning,
-.viewers-live {
-  color: var(--warning);
-}
-
-.viewers-live {
-  font-size: var(--text-detail);
-  line-height: var(--text-detail--line-height);
-  font-weight: var(--font-weight-strong);
-}
-
-.error {
-  color: var(--destructive);
-  font-size: var(--text-detail);
-  line-height: var(--text-detail--line-height);
-}
-
-.btn {
-  align-self: flex-start;
-  padding: 4px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--secondary);
-  color: var(--foreground);
-  font: inherit;
-  font-size: var(--text-body);
-}
-
-.btn:hover {
-  background: var(--accent);
-}
-
-.btn:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
-
-.btn:disabled {
-  color: var(--muted-foreground);
-  opacity: 0.6;
-}
-
-/* The one primary action, in the palette's own accent. */
-.btn-primary {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--primary-foreground);
-  font-weight: var(--font-weight-strong);
-}
-
-.btn-primary:hover {
-  background: var(--primary);
-  filter: brightness(1.06);
 }
 
 .row {
@@ -149,20 +102,122 @@ body {
   gap: 12px;
 }
 
-.foot {
+/* Gold is "the person who owns this can act on it", the same role the
+   dashboard gives text-warning. What is exposed and who is watching are both
+   that, in a panel whose whole job is consent. */
+.warning,
+.viewers.is-live {
+  margin: 0;
+  color: var(--warning);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+
+.warning {
+  /* The cost of the button under it, at the decision point. */
+  margin-top: 4px;
+}
+
+/* Red is what the machine refused, never what merely has not been filled in. */
+.error {
+  color: var(--destructive);
+}
+
+.btn {
+  /* Content-sized. A control in this column stretches to the card's width by
+     default, and a full-width plum slab reads as a progress bar rather than the
+     one action it is. */
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 8px 16px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: var(--text-body);
+  font-weight: var(--font-weight-strong);
+  white-space: nowrap;
+  transition:
+    background-color 150ms,
+    color 150ms;
+}
+
+.btn:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn:disabled:hover {
+  background: none;
+  color: var(--foreground);
+}
+
+/* Dreamframe: the primary is a sunk plum gradient with frost text, quieter
+   than --primary, which stays bright for links and glows. */
+.btn-primary {
+  background-image: linear-gradient(135deg, var(--button-primary-from), var(--button-primary-to));
+  color: var(--button-primary-foreground);
+}
+
+.btn-primary:hover {
+  background-image: linear-gradient(135deg, var(--button-primary-hover-from), var(--button-primary-hover-to));
+  color: var(--button-primary-foreground);
+}
+
+/* The look the assistant gives a control that really does something, as
+   opposed to the ghost ones that read as links. */
+.btn-outline {
+  border-color: var(--input);
+  background: var(--background);
+}
+
+.btn-link {
+  padding: 8px 4px;
+  color: var(--primary);
+  text-underline-offset: 4px;
+}
+
+.btn-link:hover {
+  background: none;
+  text-decoration: underline;
+}
+
+/* One hairline for the whole window, the frame's bar top. Nothing else in the
+   panel draws a rule except a section title's own. */
+/* The one row every arrangement must fit in at 420px. `nowrap` on a button's
+   label is the design system's rule, so the bar wraps BETWEEN the two groups
+   instead of squishing the labels inside them: help on the left, the exits on
+   the right, and a second line when the window is too narrow to put them on
+   one. Measured, not assumed: without this the right group ran to x=435 in a
+   420px document and its last button was cut off. */
+.bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding-top: 4px;
+  gap: 8px;
+  min-height: 64px;
+  padding: 12px 20px;
   border-top: 1px solid var(--border);
 }
 
-.foot-right {
+.bar-side {
   display: flex;
+  align-items: center;
   gap: 8px;
-}
-
-.alone {
-  align-self: flex-start;
 }

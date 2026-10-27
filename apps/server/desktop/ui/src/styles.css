@@ -23,16 +23,9 @@
   /* Dreamframe (spec 2026-09-03), under the shadcn names every surface uses
      (spec 2026-09-14 § 3.2) — so a rule here reads the same as one in the
      SPA, and `lint:design` can compare the three files by name. Values are
-     unchanged. */
-  /* The primary button's "sunk plum" gradient (Dreamframe: quiet at the
-     component, bright at the token). Named here because `lint:design`
-     refuses colour literals outside a token block, and a gradient IS a
-     design decision, not a one-off. */
-  --button-primary-from: oklch(0.34 0.1 322);
-  --button-primary-to: oklch(0.4 0.1 340);
-  --button-primary-hover-from: oklch(0.4 0.11 322);
-  --button-primary-hover-to: oklch(0.46 0.11 340);
-  --button-primary-foreground: oklch(0.9 0.05 320);
+     unchanged. The primary button's sunk plum gradient is the shared
+     palette's, declared in packages/assistant/tokens.css; the Button
+     component's default variant consumes it. */
   /* The rail's active item gradient (spec 2026-09-22, wave 2) — the SPA
      sidebar's own tokens, value for value (`apps/server/web/src/styles.css`),
      which is what makes the assistant's rail read as the same navigation the
