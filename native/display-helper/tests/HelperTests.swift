@@ -32,7 +32,10 @@ func request(_ path: String, _ line: String) throws -> [String: Any]? {
 @main
 struct HelperTests {
     @MainActor static func main() async throws {
-        // No app bundle, login registration, capture, input or permission requests.
+        // No app bundle, login registration, capture, or permission requests, and
+        // no posted input events. The rescue-cursor case below does reach the
+        // pointer warp, which is a no-op unless the host's cursor is stranded in
+        // no screen's frame (then it is the fix, and the thing being asserted).
         // Only a private temporary socket and a disposable preference suite.
         let suite = "dev.subshell.helper-tests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

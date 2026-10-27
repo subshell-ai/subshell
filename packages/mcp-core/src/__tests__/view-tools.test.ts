@@ -61,6 +61,37 @@ describe("MCP preview discovery and launch", () => {
     expect(calls.every((call) => call.method === "GET")).toBe(true);
     expect(calls.at(-1)?.path).toBe(`/api/nodes/${node.id}/display-readiness?provider=betterdisplay`);
   });
+  it("calls a provider outside the catalog disabled, the way create refuses it", async () => {
+    // The stored enabled list accepts any slug, so an owner (or an old row) can
+    // hold a provider id this build does not ship. `resolveNodeDisplayRequest`
+    // refuses that at create with `preview-display-unsupported`; an agent that
+    // read `enabled: true` here would launch into a 400 it was told was ready.
+    const stored = ["xvfb-x11vnc", "my-x11-thing"];
+    const { deps } = fixture((path) =>
+      path === "/api/nodes"
+        ? {
+            nodes: [
+              {
+                ...node,
+                os: "linux",
+                virtualDisplayEnabled: true,
+                virtualDisplayProvider: "my-x11-thing",
+                virtualDisplayProviders: stored,
+              },
+            ],
+          }
+        : { supported: false, missing: [] },
+    );
+    const asDefault = await getNode(deps, { node: node.id });
+    expect(asDefault.virtualDisplay).toMatchObject({ provider: "my-x11-thing", enabled: false });
+    // Asked for explicitly, same answer; and a catalog provider on the same node
+    // is still enabled, so this is the id being refused, not the node.
+    const asAsk = await getNode(deps, { node: node.id, provider: "my-x11-thing" });
+    expect(asAsk.virtualDisplay).toMatchObject({ provider: "my-x11-thing", enabled: false });
+    const bundled = await getNode(deps, { node: node.id, provider: "xvfb-x11vnc" });
+    expect(bundled.virtualDisplay).toMatchObject({ provider: "xvfb-x11vnc", enabled: true });
+  });
+
   it("preserves capability settings and honest harness health", async () => {
     const facts = {
       webPreviewsEnabled: false,

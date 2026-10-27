@@ -142,8 +142,10 @@ identity and hardened runtime without launching it.
 
 `native/display-helper/test.sh` compiles tests into a temporary directory and
 uses a disposable preference suite and Unix socket. It never opens an app,
-requests permissions, registers login startup, captures a display, or injects
-input. `scripts/rust-check.sh` runs it on macOS; the CI router includes native
+requests permissions, registers login startup, captures a display, or posts input
+events. It does reach the cursor rescue, so a run on a Mac whose pointer is
+currently stranded inside no screen's frame would warp it home; that is the one
+side effect the suite has, and it is the behaviour under test. `scripts/rust-check.sh` runs it on macOS; the CI router includes native
 source changes and checks both desktop integrations on macOS. TypeScript
 provider tests cover policy, ownership, uncertain allocation, recovery, and
 helper-loss teardown; socket tests exercise RFB negotiation and bounded input.

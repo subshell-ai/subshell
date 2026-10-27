@@ -2,6 +2,7 @@ import {
   DEFAULT_VIRTUAL_DISPLAY_PROVIDER,
   type NodePreviewScreenWire,
   parsePreviewDisplayReadiness,
+  VIRTUAL_DISPLAY_PROVIDERS,
 } from "@internal/subshell-protocol";
 import { z } from "zod";
 import { ApiError } from "./api-client.js";
@@ -56,13 +57,15 @@ export async function getNode(deps: ToolDeps, args: z.infer<typeof GetNodeSchema
       ),
     );
     if (!readiness) throw new Error("subshell: invalid display readiness response; update the server and retry");
-    // One reading of "which provider is this ask, and is it enabled here", using
-    // the protocol's own default instead of a copy of the string. The plane gates
-    // a launch on `storedDisplayProviderIds(row.virtualDisplayProviders)`, whose
-    // absent-list answer is `[DEFAULT_VIRTUAL_DISPLAY_PROVIDER]`; a hand-written
-    // provider name here can only drift into telling an agent a provider is
-    // enabled that the server is about to refuse with
-    // `preview-display-provider-disabled`.
+    // `enabled` is the plane's CONFIGURATION gate, all three checks of it, so an
+    // agent that trusts it is not surprised by the create: the switch, the
+    // catalog (an id we do not ship is refused outright, even when the owner's
+    // stored list carries it), and the stored enabled list, whose absent answer
+    // is `[DEFAULT_VIRTUAL_DISPLAY_PROVIDER]`. What is deliberately NOT here is
+    // whether the machine can actually run it: that is the node's own answer, and
+    // it surfaces as `status` below. A hand-written provider name can only drift
+    // into reporting a provider enabled that `resolveNodeDisplayRequest` is about
+    // to refuse.
     const provider = args.provider ?? node.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER;
     const allowed = node.virtualDisplayProviders ?? [DEFAULT_VIRTUAL_DISPLAY_PROVIDER];
     return {
@@ -70,7 +73,10 @@ export async function getNode(deps: ToolDeps, args: z.infer<typeof GetNodeSchema
       virtualDisplay: {
         ...readiness,
         provider,
-        enabled: node.virtualDisplayEnabled === true && allowed.includes(provider),
+        enabled:
+          node.virtualDisplayEnabled === true &&
+          VIRTUAL_DISPLAY_PROVIDERS.some((entry) => entry.id === provider) &&
+          allowed.includes(provider),
         status: !readiness.supported ? "unsupported" : readiness.missing.length ? "missing-programs" : "ready",
       },
     };

@@ -15,6 +15,9 @@ const securityOnly = process.argv.includes("--security-only");
 // and the workspace figure show, so a random `preview-demo-XXXX` suffix baked a
 // run artifact of this host into published docs and changed the image on every
 // re-shoot. Everything inside it is still written fresh and removed at the end.
+// This is a single-run tool: two captures at once would share the directory, and
+// a pre-existing one owned by someone else is refused by the writes below rather
+// than silently reused.
 const root = path.join(tmpdir(), "preview-demo");
 const project = path.join(root, "northstar");
 mkdirSync(root, { recursive: true });
