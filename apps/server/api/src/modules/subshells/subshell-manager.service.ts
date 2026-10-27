@@ -1212,11 +1212,24 @@ export class SubshellManagerService {
   }
 
   /**
+   * Whether a restart currently owns this row. The helper-retire sweep must
+   * not delete a row mid-restart (its pane is legitimately gone and about to
+   * come back), and the lease lives here, module-private, alongside every
+   * other actor that consults it.
+   */
+  isRestartInFlight(id: string): boolean {
+    return restartInFlight.has(id);
+  }
+
+  /**
    * Permanently deletes a subshell: kills its tmux tree if it is running,
    * removes the DB row, and unlinks the per-subshell output log. Returns false
    * if not found/not owner.
+   * @param opts.autoRetire - set by the helper-retire sweep so the audit row
+   *   says the system retired the pane rather than the named owner deleting
+   *   it; the act itself (kill, token, artifacts, cascade) is identical.
    */
-  async deleteSubshell(userId: string, id: string): Promise<boolean> {
+  async deleteSubshell(userId: string, id: string, opts?: { autoRetire?: boolean }): Promise<boolean> {
     const row = await this.#subshells.findById(id);
     if (!row || row.userId !== userId) return false;
     await getPreviewBroker().closeForPane(id, "pane-gone");
@@ -1248,7 +1261,18 @@ export class SubshellManagerService {
       logger.warn(`workspace-holders read before deleting ${id} failed: ${String(err)}`);
       return [] as string[];
     });
-    await this.#subshells.delete(id);
+    // For a sweep retire, delete is an ATOMIC CLAIM: only the rows still
+    // matching a swept shape go. A `terminate_subshell` that landed since the
+    // sweep's re-read left this row as a kept transcript (or a revive made it
+    // live), so 0 rows return and we abort before the log unlink below — the
+    // pane kill and token revoke already run are no-ops a terminate performs
+    // anyway, and the row and its log survive. Same read-then-conditional-write
+    // discipline as parkForRestart; a plain delete would eat the transcript.
+    if (opts?.autoRetire) {
+      if ((await this.#subshells.deleteIfRetireable(id)) === 0) return false;
+    } else {
+      await this.#subshells.delete(id);
+    }
     await getPreviewBroker().closeForPane(id, "pane-gone");
     // The pane's row is gone, so its tab rows cascaded with it. The OWNER's
     // workspaces THIS emptied retire too (spec 2026-10-17: a workspace exists
@@ -1307,7 +1331,10 @@ export class SubshellManagerService {
       action: "subshell.delete",
       targetType: "subshell",
       targetId: id,
-      metadataJson: JSON.stringify({ name: row.name }),
+      // autoRetired names the sweep as the hand: the actor is still the owner
+      // (the row-keyed delete needs no synthetic principal), and a trail that
+      // read as owner-deleted-everything would hide the system's own act.
+      metadataJson: JSON.stringify({ name: row.name, ...(opts?.autoRetire ? { autoRetired: true } : {}) }),
     });
     return true;
   }
@@ -2309,6 +2336,19 @@ export const assertDirAllowedForTests = assertDirAllowed;
  * @internal
  */
 export const normalizePaneTitleForTests = normalizePaneTitle;
+
+/**
+ * Put or remove `id` in the process-wide restart lease, so a test can pin the
+ * sweep's "skip a row a restart owns" guard. Exported the way
+ * `assertDirAllowedForTests` is: the alternative is a test that races a real
+ * tmux restart against the sweep's own query-then-delete window to hold the
+ * lease for a single assertion.
+ * @internal
+ */
+export function setRestartLeaseForTests(id: string, held: boolean): void {
+  if (held) restartInFlight.set(id, Promise.resolve(null));
+  else restartInFlight.delete(id);
+}
 
 /** JSON-safe subshell view (no internal fields). */
 /**
