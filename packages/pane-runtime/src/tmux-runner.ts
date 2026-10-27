@@ -559,6 +559,17 @@ export class TmuxRunner {
     subshellName: string,
     outputFile: string,
     child?: { command: string; args: string[] },
+    /**
+     * `replace: true` re-issues WITHOUT `-o`, which REPLACES the running
+     * capture child (the exit watcher's re-arm). With `-o` tmux treats a
+     * configured pipe as an already-on one, so re-issuing the launch command
+     * through `-o` can no-op on a pipe whose child has died — and the
+     * `#{pane_pipe}` flag cannot be consulted to decide (it has been measured
+     * reading both 0 and 1 for a dead writer on the same tmux build). The
+     * replacing form re-arms under either behavior; that is why the guard
+     * uses it rather than probing the flag first.
+     */
+    opts: { replace?: boolean } = {},
   ): void {
     // The command runs in tmux's shell (`sh -c`), so the path must be
     // POSIX-single-quoted. The previous JSON.stringify-based escaping did
@@ -574,7 +585,7 @@ export class TmuxRunner {
       child === undefined
         ? `(umask 077; cat >> ${shellQuote(outputFile)})`
         : `(umask 077; exec ${[child.command, ...child.args].map(shellQuote).join(" ")} ${PANE_LOG_FILE_FLAG} ${shellQuote(outputFile)})`;
-    this.run(["-L", socket, "pipe-pane", "-t", subshellName, "-o", append], {});
+    this.run(["-L", socket, "pipe-pane", "-t", subshellName, ...(opts.replace ? [] : ["-o"]), append], {});
   }
 
   /**

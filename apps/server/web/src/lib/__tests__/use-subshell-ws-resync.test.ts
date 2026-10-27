@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { renderHook, waitFor } from "@testing-library/react";
 import type { Terminal } from "@xterm/xterm";
-import { needsGridResync, setAttachResyncTimingsForTests, useSubshellWs } from "@/lib/use-subshell-ws";
+import {
+  needsGridResync,
+  setAttachResyncTimingsForTests,
+  setAttachRetryDelaysForTests,
+  useSubshellWs,
+} from "@/lib/use-subshell-ws";
 
 /**
  * Grid resync: the attach path is the only thing that can give a viewer a
@@ -51,8 +56,10 @@ class FakeWebSocket {
   }
   send(_data: string | Uint8Array): void {}
   close(): void {
-    // Mirror the browser: a close dispatches the close event, and the hook's
-    // ONE reconnect path lives in that handler (code 1006: a drop, retryable).
+    // The hook's one reconnect path is the close event, so the fake must
+    // fire it. A real `close()` answers 1005 (1006 only when no close frame
+    // ever arrives); either is sub-4000 and retried, so the fake settles on
+    // 1006 — the drop shape — and no assertion reads the code.
     if (this.readyState === 3) return;
     this.readyState = 3;
     this.onclose?.({ code: 1006, reason: "" });
@@ -160,6 +167,38 @@ describe("useSubshellWs grid resync", () => {
     await waitFor(() => expect(instances.length).toBe(2));
   });
 
+  it("a verdict during a pending reconnect cannot beat the reconnect floor", async () => {
+    // Review round 1, F4: `socket` lags the token fetch inside connect, so a
+    // verdict landing while a reconnect is in flight used to close nothing,
+    // burn the one-shot AND leave resyncClosing armed — the next close then
+    // rode the flag to a 0 ms retry, skipping the cadence/backoff. The arm
+    // is gated on an OPEN socket; the consumer refuses to trust the flag for
+    // 4xxx codes.
+    setAttachRetryDelaysForTests(60, 600); // a floor comfortably above the asserts below
+    setAttachResyncTimingsForTests(5, 60_000);
+    const term = fakeTerminal();
+    renderHook(() => useSubshellWs({ current: term as unknown as Terminal }, "s-verdict-reconnect", {}));
+    await waitFor(() => expect(instances.length).toBe(1));
+    establish(instances[0], term);
+    // The network drops (a retryable refusal: the seam's 60 ms base applies);
+    // a reconnect is now scheduled and in flight...
+    instances[0].readyState = 3;
+    instances[0].onclose?.({ code: 4004, reason: "node offline" });
+    // ...while the deferred grid change finally lands, with bytes owed.
+    term.cols = 90;
+    term.rows = 30;
+    for (const h of term.resizeHandlers) h({ cols: 90, rows: 30 });
+    await new Promise<void>((r) => setTimeout(r, 30)); // the 5 ms verdict ran, gated out
+    await waitFor(() => expect(instances.length).toBe(2)); // the ordinary reconnect
+    // A relay failure on the NEW socket must wait the normal cadence, not
+    // fire at 0 ms off a stale resync flag.
+    instances[1].readyState = 3;
+    instances[1].onclose?.({ code: 1011, reason: "relay failed" });
+    await new Promise<void>((r) => setTimeout(r, 15));
+    expect(instances.length).toBe(2);
+    // Sub-4000 drops ride the fixed 1500 ms cadence (only refusals escalate).
+    await waitFor(() => expect(instances.length).toBe(3), { timeout: 3000 });
+  });
   it("adopts a grid change in silence with no bytes to misplace", async () => {
     const term = fakeTerminal();
     renderHook(() => useSubshellWs({ current: term as unknown as Terminal }, "s-idle-resize", {}));

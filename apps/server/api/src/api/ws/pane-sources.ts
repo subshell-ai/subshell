@@ -204,6 +204,18 @@ export const TAIL_STALL_CHECK_MS = 10_000;
  */
 export const TAIL_STALL_AFTER_MS = 25_000;
 
+/**
+ * The two families a dead remote pump reports into, as the client's close
+ * reason. Pure and exported so both arms are pinned by test: a collapse to
+ * any constant (or each other) sends an operator down the wrong path —
+ * "refused" reads as a node-link problem, "stalled" as a relay going quiet.
+ * @param reason - the reason {@link RemoteTailSourceOptions.onDead} reported
+ * @returns the close reason the dropped viewers carry
+ */
+export function tailCloseReason(reason: string): string {
+  return reason.startsWith("stalled") ? "tail stalled" : "tail refused";
+}
+
 /** What a source needs to tail a subshell running on a remote node. */
 export interface RemoteTailSourceOptions {
   /** The node's launcher — the relay to the agent that owns the pane. */
@@ -311,6 +323,13 @@ export function createRemoteTailSource(options: RemoteTailSourceOptions): PaneSo
           .then(({ size }) => {
             probeInFlight = false;
             if (stopped || reported) return;
+            // A chunk can land while the probe is in flight, and then two
+            // things are true at once: the pump just proved alive, and this
+            // answer's EOF is already stale below the cursor. Re-ask the
+            // silence question against NOW, not against when the tick armed
+            // the probe; a burst mid-probe reads (size < cursor), which is
+            // otherwise indistinguishable from the rewind this also catches.
+            if (Date.now() - lastDeliveryAt < afterMs) return;
             if (size === cursor) return; // a quiet pane is not a dead pump
             reportDead(`stalled: EOF ${size}, delivered ${cursor}, silent ${Date.now() - lastDeliveryAt}ms`);
           })
