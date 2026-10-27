@@ -91,6 +91,13 @@ export interface AttachPaintFacts {
   repainted: boolean;
   /** Whether the pane had to be nudged (±1 col) to force that repaint. */
   nudged: boolean;
+  /**
+   * The cursor the replay ENDED on — the read behind the absolute CUP — or
+   * null when it answered nothing, in which case the replay shipped without
+   * its restore (the known degrade for a cursor near the top, and the thing
+   * to look for first on a "pinned elements land on the transcript" report).
+   */
+  cursor: { x: number; y: number } | null;
 }
 
 /**
@@ -111,8 +118,9 @@ export interface AttachPaintFacts {
  */
 export function recordAttachPaint(facts: AttachPaintFacts): void {
   const dir = writeAttachForensics(facts.subshellId, facts.preResize, facts.replay);
+  const cursor = facts.cursor ? `${facts.cursor.x},${facts.cursor.y}` : "none";
   logger.info(
     `ws attach ${facts.subshellId}: painted repainted=${facts.repainted} nudged=${facts.nudged} ` +
-      `replay=${facts.replay.length}B dump=${dir ?? "off"}`,
+      `cursor=${cursor} replay=${facts.replay.length}B dump=${dir ?? "off"}`,
   );
 }

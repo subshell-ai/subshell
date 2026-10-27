@@ -10,7 +10,7 @@
  *
  *   bunx turbo build
  *   cd apps/server/web
- *   bun --preload ./src/test-setup.ts scripts/probe-replay.ts <subshell-id> [capLines]
+ *   bun --preload ./scripts/probe-preload.ts scripts/probe-replay.ts <subshell-id> [capLines]
  *
  * Read-only: it runs `capture-pane` / `display-message` and never writes to
  * the pane. `apps/server/web/src/lib/__tests__/replay-alignment.test.ts` pins

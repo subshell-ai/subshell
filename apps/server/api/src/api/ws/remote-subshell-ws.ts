@@ -346,7 +346,7 @@ export async function attachRemoteSubshellWs(
 
     const painted = captureToReplayText(replay, cursor ?? undefined);
     sendFrame(ws, { type: "replay", data: painted });
-    recordAttachPaint({ subshellId: row.id, preResize, replay: painted, repainted, nudged });
+    recordAttachPaint({ subshellId: row.id, preResize, replay: painted, repainted, nudged, cursor });
     if (detached) return;
 
     // Deliver: flush what the pump held while the replay was being taken,

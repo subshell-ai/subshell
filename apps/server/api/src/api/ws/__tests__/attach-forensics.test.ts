@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { forensicsEnabled, recordAttachPaint, setForensicsEnabledForTests } from "@/api/ws/attach-forensics.js";
+import { logger } from "@/shared/logger.js";
 
 /**
  * Attach forensics (2026-09-01) — the per-attach evidence dump that makes the
@@ -25,7 +26,14 @@ describe("attach forensics", () => {
     // Screen contents can hold secrets, and every attach writing to /tmp
     // would churn the disk — the dump is opt-in per instance.
     expect(forensicsEnabled()).toBe(false);
-    recordAttachPaint({ subshellId: SID, preResize: "BEFORE", replay: "AFTER", repainted: true, nudged: false });
+    recordAttachPaint({
+      subshellId: SID,
+      preResize: "BEFORE",
+      replay: "AFTER",
+      repainted: true,
+      nudged: false,
+      cursor: null,
+    });
     expect(existsSync(`${ROOT}/${SID}`)).toBe(false);
   });
 
@@ -37,6 +45,7 @@ describe("attach forensics", () => {
       replay: "CLEAN-AFTER-REPAINT",
       repainted: true,
       nudged: true,
+      cursor: { x: 3, y: 2 },
     });
 
     // One timestamped directory per attach, so successive attaches on one
@@ -52,7 +61,14 @@ describe("attach forensics", () => {
     // A stale client sends no geometry ⇒ no resize ⇒ nothing to capture
     // "before" it. The replay half is still the evidence that matters.
     setForensicsEnabledForTests(true);
-    recordAttachPaint({ subshellId: SID, preResize: null, replay: "REPLAY", repainted: false, nudged: false });
+    recordAttachPaint({
+      subshellId: SID,
+      preResize: null,
+      replay: "REPLAY",
+      repainted: false,
+      nudged: false,
+      cursor: { x: 0, y: 0 },
+    });
 
     const files = [...new Bun.Glob("*/*.txt").scanSync(`${ROOT}/${SID}`)];
     const dir = `${ROOT}/${SID}/${files[0].split("/")[0]}`;
@@ -72,7 +88,41 @@ describe("attach forensics", () => {
         replay: "R",
         repainted: false,
         nudged: false,
+        cursor: { x: 7, y: 1 },
       }),
     ).not.toThrow();
+  });
+
+  it("names the shipped cursor on the journal line, because a missing restore IS a diagnosis", () => {
+    // The `painted` line is what a "still garbled" report gets read from;
+    // `cursor=none` there means the replay shipped without its absolute
+    // restore, the known degrade that puts every later relative-positioned
+    // frame (a TUI's pinned-block repaints) on the wrong rows.
+    const seen: string[] = [];
+    const spy = spyOn(logger, "info").mockImplementation((msg: string) => {
+      seen.push(msg);
+    });
+    try {
+      recordAttachPaint({
+        subshellId: SID,
+        preResize: null,
+        replay: "R",
+        repainted: false,
+        nudged: false,
+        cursor: { x: 3, y: 2 },
+      });
+      recordAttachPaint({
+        subshellId: SID,
+        preResize: null,
+        replay: "R",
+        repainted: false,
+        nudged: false,
+        cursor: null,
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(seen.some((l) => l.includes("cursor=3,2"))).toBe(true);
+    expect(seen.some((l) => l.includes("cursor=none"))).toBe(true);
   });
 });
