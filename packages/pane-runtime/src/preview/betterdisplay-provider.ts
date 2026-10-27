@@ -25,7 +25,7 @@ import {
   type PreviewScreenHandle,
   type VirtualDisplayProvider,
 } from "./display-provider.js";
-import { type HelperStatus, helperStatus } from "./macos-helper.js";
+import { type HelperStatus, helperStatus, rescueStrandedCursor } from "./macos-helper.js";
 import { MacOSRfb } from "./macos-rfb.js";
 
 type Journal = {
@@ -45,6 +45,12 @@ export interface BetterDisplayDeps {
   bridge?: (size: VirtualDisplayRequest, display: OwnedDisplay) => Bridge;
   alive?: (pid: number) => boolean;
   log?: (line: string) => void;
+  /**
+   * Put the local pointer back on a visible screen after a display is
+   * discarded. Defaults to {@link rescueStrandedCursor}; a host without a
+   * helper (tests, and any non-macOS caller) can pass a no-op.
+   */
+  rescue?: () => Promise<void>;
 }
 
 /** macOS shares one login desktop. This provider is not an isolated X session. */
@@ -285,7 +291,13 @@ export class BetterDisplayProvider implements VirtualDisplayProvider {
       }
       return;
     }
-    if (display) await removeDisplay(run, display);
+    if (display) {
+      await removeDisplay(run, display);
+      // A viewer's pointer lives on the screen being discarded; without this
+      // the person at the Mac is left chasing a cursor that is off any
+      // display they can see.
+      await (this.deps.rescue ?? rescueStrandedCursor)();
+    }
     rmSync(this.directory(id, root), { recursive: true });
   }
   closeFor(id: string) {

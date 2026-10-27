@@ -24,6 +24,7 @@ function fixture() {
   const calls: string[][] = [];
   let failedCreate = false;
   let stopCount = 0;
+  let rescues = 0;
   const bridge = {
     port: 5922,
     start: async () => {},
@@ -37,6 +38,9 @@ function fixture() {
     kernelRelease: "23.0.0",
     status: async () => status,
     alive: () => false,
+    rescue: async () => {
+      rescues++;
+    },
     bridge: () => bridge,
     run: async (args: string[]) => {
       calls.push(args);
@@ -94,6 +98,9 @@ function fixture() {
     },
     get stops() {
       return stopCount;
+    },
+    get rescueCount() {
+      return rescues;
     },
   };
 }
@@ -235,4 +242,26 @@ test("allocation reuses its readiness status without a second helper handshake",
   await f.provider.openFor(pane, { width: 1280, height: 800 });
   expect(probes).toBe(1);
   await f.provider.closeFor(pane);
+});
+
+test("discarding the display hands the pointer back to the person at the Mac", async () => {
+  // A viewer's pointer lives on the screen being discarded, so the teardown
+  // must ask the helper to put it back on a visible display (measured on the
+  // M5: the local user lost their cursor entirely).
+  const f = fixture();
+  await f.provider.openFor(pane, { width: 1280, height: 800 });
+  expect(f.rescueCount).toBe(0);
+  await f.provider.closeFor(pane);
+  expect(f.rescueCount).toBe(1);
+});
+
+test("a display that vanished under a viewer still gets the pointer rescued", async () => {
+  // The screen is already gone, which is precisely when the local cursor can
+  // be stranded on it, so the ask happens even though there is nothing left
+  // to discard.
+  const f = fixture();
+  await f.provider.openFor(pane, { width: 1280, height: 800 });
+  f.disappear();
+  await f.provider.closeFor(pane);
+  expect(f.rescueCount).toBe(1);
 });

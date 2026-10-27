@@ -46,6 +46,9 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
         // resume it. Closing the listener tears down every capture and key.
         guard started else { return }
         runtime.shutdown()
+        // A viewer may have left the pointer on a virtual display this quit
+        // ends; do not hand the person at the Mac a missing cursor.
+        restoreStrandedCursor()
     }
 
     private func updateMenu() {
