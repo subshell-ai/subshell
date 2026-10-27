@@ -28,6 +28,7 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
         do { try runtime.listenForStatus() } catch { NSApp.terminate(nil); return }
         started = true
         runtime.onStateChange = { [weak self] in self?.updateMenu() }
+        settings.onVisibilityChange = { [weak self] in self?.updateMenu() }
         if consent.enabled {
             do { try runtime.enable() }
             catch { runtime.disable() }
@@ -59,6 +60,11 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
         let viewers = runtime.viewers
         let menu = NSMenu()
         menu.autoenablesItems = false
+        // The item in the bar is an icon. Opening the menu without a word about
+        // what it belongs to left people guessing, so the menu says its name.
+        let heading = NSMenuItem(title: AccessReport.heading, action: nil, keyEquivalent: "")
+        heading.isEnabled = false; menu.addItem(heading)
+        menu.addItem(.separator())
         let settingsItem = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: "")
         settingsItem.target = self; menu.addItem(settingsItem)
         let minimize = NSMenuItem(title: "Minimize helper", action: #selector(minimizeSettings), keyEquivalent: "m")

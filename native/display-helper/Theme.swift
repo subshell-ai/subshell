@@ -70,6 +70,11 @@ enum Theme {
 /// `packages/helper-panel/src/strings.ts`; keep a sentence in one of the two,
 /// not both.
 enum AccessReport {
+    /// What the status menu calls itself. The bar item is only an icon, so a
+    /// person who clicks it without hovering the tooltip has nothing else
+    /// telling them which helper this menu belongs to.
+    static let heading = "Subshell virtual display helper"
+
     /// The tooltip on the status item: honest about who is doing what.
     static func tooltip(enabled: Bool, viewers: Int) -> String {
         if viewers > 0 {
