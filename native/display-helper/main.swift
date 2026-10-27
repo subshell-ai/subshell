@@ -130,7 +130,10 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: QuitCopy.cancel)
         let confirm = alert.addButton(withTitle: QuitCopy.confirm)
         confirm.hasDestructiveAction = true
-        NSApp.activate(ignoringOtherApps: true)
+        // An accessory app has no key window to hang the alert on, so it comes
+        // forward first. `activate(ignoringOtherApps:)` is the deprecated shape
+        // of this call on the helper's own deployment target.
+        NSApp.activate()
         if alert.runModal() == .alertFirstButtonReturn { return }
         NSApp.terminate(nil)
     }
