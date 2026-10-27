@@ -133,24 +133,30 @@ function render(state: PanelState): void {
   const note = element("p", "note", strings.enableNote);
   note.id = "enable-note";
   toggle.setAttribute("aria-describedby", "enable-note");
-  const accessRows: Node[] = [
-    element("p", "state", stateLine(state)),
-    element("p", state.viewers > 0 ? "viewers is-live" : "viewers", viewerLine(state)),
-    element("p", "warning", strings.warning),
-    toggle,
-    note,
-  ];
-  // macOS only lists the login item once the helper registers it, so the row
-  // and its button appear with the consent that created them.
+  content.append(
+    section(strings.access, [
+      element("p", "state", stateLine(state)),
+      element("p", state.viewers > 0 ? "viewers is-live" : "viewers", viewerLine(state)),
+      element("p", "warning", strings.warning),
+      toggle,
+      note,
+    ]),
+  );
+
+  // macOS only lists the login item once the helper registers it, so the whole
+  // section appears with the consent that created it. While the helper is off
+  // there is nothing registered to approve, and a heading over an empty row is
+  // how a panel starts lying about itself.
   if (state.enabled) {
-    accessRows.push(
-      row({
-        value: loginItemLine(state.loginItemNeedsApproval),
-        control: button(strings.openLoginItems, "openLoginItems", "outline"),
-      }),
+    content.append(
+      section(strings.signInSection, [
+        row({
+          value: loginItemLine(state.loginItemNeedsApproval),
+          control: button(strings.openLoginItems, "openLoginItems", "outline"),
+        }),
+      ]),
     );
   }
-  content.append(section(strings.access, accessRows));
 
   content.append(
     section(strings.permissions, [
