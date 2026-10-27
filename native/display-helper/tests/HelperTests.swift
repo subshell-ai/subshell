@@ -40,6 +40,15 @@ struct HelperTests {
         precondition(!consent.enabled)
         consent.setEnabled(true); precondition(HelperConsent(defaults: defaults).enabled)
         consent.setEnabled(false); precondition(!consent.enabled)
+        // The DEFAULT initializer must read the standard (own) domain. The
+        // released code handed `suiteName:` the app's own bundle id, which
+        // Foundation rejects, and the force-unwrap trapped in
+        // DisplayHelperApp.init before any panel could open.
+        UserDefaults.standard.removeObject(forKey: "enabled")
+        precondition(!HelperConsent().enabled, "A fresh helper starts without consent")
+        UserDefaults.standard.set(true, forKey: "enabled")
+        precondition(HelperConsent().enabled, "The default init must read the app's own domain")
+        UserDefaults.standard.removeObject(forKey: "enabled")
         precondition(DisplayInput.keyCode(symbol: 0x63) == 8) // Command-C
         precondition(DisplayInput.keyCode(symbol: 0x43) == 8)
         precondition(DisplayInput.keyCode(symbol: 0x01000063) == 8)
