@@ -1,4 +1,5 @@
-//! The two native menus install the same helper. Nothing calls this at startup.
+//! The native menus and both assistants' Virtual Displays screens install the
+//! same helper. Nothing calls this at startup.
 //! Consent and permission prompts belong to the helper's own native panel.
 use std::fs::{self, File, OpenOptions};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
@@ -158,7 +159,9 @@ fn may_replace_version(bundled: &str, installed: &str, development: bool) -> boo
     crate::version::version_lt(installed, bundled) || (development && bundled == installed)
 }
 
-/// Called only from a native menu selection. Opening settings does not enable
+/// Called from a native menu selection or from either assistant's Virtual
+/// Displays screen, which reach it through a command granted to the bundled page
+/// only. Opening settings does not enable
 /// capture, input, login registration, or a node's virtual display setting.
 pub fn open_settings(resource_dir: &Path, home: &Path) -> Result<(), String> {
     let bundled = if resource_dir.file_name().is_some_and(|name| name == "Resources") {

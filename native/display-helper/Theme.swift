@@ -79,6 +79,13 @@ import ServiceManagement
 /// leaves behind. Reading both as approved is how a disabled sign-in start kept
 /// claiming it starts at sign-in.
 enum LoginItem {
+    /// macOS's answer right now, in the word the page uses. Callers that are
+    /// not the web view (the quit alert, mainly) read the registration through
+    /// this rather than importing ServiceManagement themselves.
+    static func currentPageState() -> String {
+        pageState(SMAppService.mainApp.status)
+    }
+
     static func pageState(_ status: SMAppService.Status) -> String {
         switch status {
         case .enabled: return "registered"
@@ -127,8 +134,25 @@ enum AccessReport {
 /// panel renders; the helper-panel suite fails if these drift from them.
 enum QuitCopy {
     static let title = "Quit the display helper?"
-    static let body =
-        "Anyone watching a virtual display on this Mac loses it now. Your consent and the macOS permissions stay, and the helper starts again at sign-in, or sooner from Subshell's virtual display settings. To stop it coming back, disable it first."
     static let confirm = "Quit helper"
     static let cancel = "Cancel"
+
+    /// The body reads the registration state rather than assuming one: enabling
+    /// never registered a login item and disabling never removes one, so
+    /// promising a return at sign-in to someone who never asked for it would be
+    /// a warning that misleads instead of informing. The three sentences match
+    /// `quitBody` in the panel's `strings.ts`, which the helper-panel suite
+    /// compares these against.
+    // Each state is one literal rather than a shared prefix, so the parity test
+    // can compare whole sentences between the two files.
+    static func body(loginItem: String) -> String {
+        switch loginItem {
+        case "registered":
+            return "Anyone watching a virtual display on this Mac loses it now. Your consent and the macOS permissions stay. The helper starts again at sign-in, or sooner from Subshell's virtual display settings. To stop it coming back, use the panel's Stop at sign-in button first."
+        case "needsApproval":
+            return "Anyone watching a virtual display on this Mac loses it now. Your consent and the macOS permissions stay. macOS is still waiting for your approval before it would start at sign-in, so it comes back when you open Subshell's virtual display settings."
+        default:
+            return "Anyone watching a virtual display on this Mac loses it now. Your consent and the macOS permissions stay. Nothing starts it at sign-in; it comes back when you open Subshell's virtual display settings."
+        }
+    }
 }
