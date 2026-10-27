@@ -250,19 +250,24 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
     }
 
     // MARK: - WebKit bridge
+    //
+    // The delegate methods stay `nonisolated` because that is how the SDK
+    // declares them, while the properties they hand us (`WKScriptMessage.body`,
+    // `WKNavigationAction.request`) are main-actor state. So each one reads its
+    // argument on main rather than from here: a `Task` where the work may wait a
+    // runloop turn, and `assumeIsolated` where the answer has to be synchronous,
+    // which WebKit guarantees by delivering both calls on the thread that owns
+    // the view, the main thread, since `build()` created it there.
 
     nonisolated func userContentController(_ userContentController: WKUserContentController,
                                            didReceive message: WKScriptMessage) {
-        // Read everything out of the message here, then hop: the bridge is the
-        // page's only door into the helper, so it carries a name and a number
-        // and nothing else, and no object the page controls crosses onto main.
-        guard let body = message.body as? [String: Any] else { return }
-        let action = body["action"] as? String
-        let height = (body["height"] as? NSNumber)?.doubleValue
         Task { @MainActor in
+            // The bridge is the page's only door into the helper, so it carries a
+            // name and a number and nothing else.
+            guard let body = message.body as? [String: Any], let action = body["action"] as? String else { return }
             if action == "resize" {
-                if let height { self.resize(toHeight: height) }
-            } else if let action {
+                if let height = (body["height"] as? NSNumber)?.doubleValue { self.resize(toHeight: height) }
+            } else {
                 self.handle(action: action)
             }
         }
@@ -270,7 +275,9 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
 
     nonisolated func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                              decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        decisionHandler(PanelBundle.allows(navigationAction.request.url) ? .allow : .cancel)
+        MainActor.assumeIsolated {
+            decisionHandler(PanelBundle.allows(navigationAction.request.url) ? .allow : .cancel)
+        }
     }
 
     nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -292,12 +299,13 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
     }
 
     private nonisolated func reportLoadFailure(_ words: String) {
+        let message = "The panel failed to load: \(words)"
         Task { @MainActor in
             // Only the first load can leave the person with a blank panel; a
             // failure after that is some subresource the page no longer needs.
             guard !self.loaded else { return }
-            self.errorMessage = "The panel failed to load: \(words)"
-            self.fallback.stringValue = self.errorMessage
+            self.errorMessage = message
+            self.fallback.stringValue = message
             self.fallback.isHidden = false
         }
     }
