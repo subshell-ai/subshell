@@ -1,5 +1,5 @@
 import { Button, FormSectionTitle, HelperCaption, Label, Switch } from "@internal/node-admin";
-import { CROSS_AGENT_NOTES_MAX, displayProvidersForOs, VIRTUAL_DISPLAY_PROVIDERS } from "@internal/subshell-protocol";
+import { CROSS_AGENT_NOTES_MAX, VIRTUAL_DISPLAY_PROVIDERS } from "@internal/subshell-protocol";
 import { X } from "lucide-react";
 import { useEffect } from "react";
 import { PromptStackSection } from "@/components/prompts/prompt-stack-section";
@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Textarea } from "@/components/ui/textarea";
 import { WorkingDirField } from "@/components/working-dir-field";
 import { useNodes } from "@/hooks/use-nodes";
-import { providerForMachine } from "@/lib/display-provider-choice";
+import { nodeDefaultForMachine, providerForMachine, providersForMachine } from "@/lib/display-provider-choice";
 import { isOfflineAgent } from "@/lib/node-label";
 import { crossCommSaveBlocked, type PresetFormValue, presetLaunchGaps } from "@/lib/preset-form";
 import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
@@ -161,14 +161,16 @@ export function PresetLaunchFields({
           <DisplayProviderPicker
             id="preset-display-provider"
             value={value.screen.provider}
-            // A chosen machine gates the list on its OS, including when it has
-            // no OS yet: an enrolled node that never came ready is not Linux,
-            // and guessing the default would offer a provider the machine may
-            // not run. With no machine chosen there is nothing to gate on.
-            providers={(selectedNode ? displayProvidersForOs(selectedNode.os) : VIRTUAL_DISPLAY_PROVIDERS).map(
-              (p) => p.id,
+            // The machine's OS gates the list, by the same reading that decides
+            // which provider the value may keep: filtering here while keeping
+            // the pick there is how the trigger came to say "Node default" over
+            // a saved pin. No OS answer (no machine, or a node that enrolled and
+            // never came ready) is no verdict, so the full catalog is offered.
+            providers={providersForMachine(
+              VIRTUAL_DISPLAY_PROVIDERS.map((p) => p.id),
+              selectedNode?.os,
             )}
-            defaultProvider={selectedNode?.virtualDisplayProvider}
+            defaultProvider={nodeDefaultForMachine(selectedNode?.virtualDisplayProvider, selectedNode?.os)}
             onChange={(provider) =>
               onChange({ ...value, screen: { ...(value.screen ?? { width: 1280, height: 800 }), provider } })
             }

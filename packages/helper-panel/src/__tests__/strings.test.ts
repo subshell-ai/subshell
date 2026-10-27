@@ -270,11 +270,18 @@ describe("the native chrome's palette", () => {
   const tokensPath = new URL("../../../assistant/tokens.css", import.meta.url);
   test("the swift triples are the shared file's triples, token by token", async () => {
     const [swift, css] = await Promise.all([Bun.file(themePath).text(), Bun.file(tokensPath).text()]);
+    const block = /static let tokens: [^=]+ = \[([\s\S]*?)\n {4}\]/.exec(swift)?.[1] ?? "";
     const native = new Map<string, string>();
-    for (const match of swift.matchAll(/"([a-z-]+)": \(([\d.]+), ([\d.]+), ([\d.]+)\)/g)) {
+    for (const match of block.matchAll(/"([a-z-]+)": \(([\d.]+), ([\d.]+), ([\d.]+)\)/g)) {
       native.set(match[1] as string, `${match[2]} ${match[3]} ${match[4]}`);
     }
-    expect([...native.keys()].sort()).toEqual(["background", "muted-foreground", "warning"]);
+    // Count the rows loosely as well. A strict parser that silently misses an
+    // entry would otherwise certify the three it happened to read and let a
+    // fourth added token drift from the shared file unchecked, which is the
+    // exact failure this test exists to catch.
+    const declared = [...block.matchAll(/"([a-z-]+)"\s*:\s*\(/g)].map((match) => match[1] as string);
+    expect(declared.sort()).toEqual([...native.keys()].sort());
+    expect(native.size).toBeGreaterThan(0);
     for (const [name, triple] of native) {
       const declared = new RegExp(`--${name}: oklch\\(([^)]+)\\)`).exec(css);
       expect(declared, `packages/assistant/tokens.css declares --${name}`).not.toBeNull();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { providerForMachine } from "@/lib/display-provider-choice";
+import { nodeDefaultForMachine, providerForMachine, providersForMachine } from "@/lib/display-provider-choice";
 
 /**
  * What a machine change does to the saved display provider. The failure this
@@ -39,5 +39,47 @@ describe("providerForMachine", () => {
 
   it("has nothing to clear when nothing was picked", () => {
     expect(providerForMachine(undefined, "linux")).toBeUndefined();
+  });
+});
+
+/**
+ * The list half of the same reading. These two functions disagreeing is how a
+ * preset editor came to show "Node default" over a saved pin: the value was
+ * kept (no OS fact yet) while the list was emptied (the unknown OS read as
+ * "not Linux"), so the trigger could only name a choice that was not the one
+ * about to launch.
+ */
+describe("providersForMachine", () => {
+  const BOTH = ["xvfb-x11vnc", "betterdisplay"];
+
+  it("filters to what the answered OS can run", () => {
+    expect(providersForMachine(BOTH, "linux")).toEqual(["xvfb-x11vnc"]);
+    expect(providersForMachine(BOTH, "darwin")).toEqual(["betterdisplay"]);
+  });
+
+  it("filters nothing while the OS is unknown", () => {
+    expect(providersForMachine(BOTH, null)).toEqual(BOTH);
+    expect(providersForMachine(BOTH, undefined)).toEqual(BOTH);
+  });
+
+  it("leaves a node-owned id listed whatever the answer", () => {
+    expect(providersForMachine(["acme-screen", "betterdisplay"], "linux")).toEqual(["acme-screen"]);
+    expect(providersForMachine(["acme-screen", "betterdisplay"], null)).toEqual(["acme-screen", "betterdisplay"]);
+  });
+
+  it("returns a copy, not the caller's array", () => {
+    const source = Object.freeze(BOTH);
+    expect(providersForMachine(source, null)).toEqual(BOTH);
+  });
+});
+
+describe("nodeDefaultForMachine", () => {
+  it("names a default only when that machine could run it", () => {
+    // A label reading "Node default (Xvfb + VNC)" on a Mac teaches the reader
+    // that the parenthetical is decorative.
+    expect(nodeDefaultForMachine("xvfb-x11vnc", "linux")).toBe("xvfb-x11vnc");
+    expect(nodeDefaultForMachine("xvfb-x11vnc", "darwin")).toBeUndefined();
+    expect(nodeDefaultForMachine("xvfb-x11vnc", null)).toBe("xvfb-x11vnc");
+    expect(nodeDefaultForMachine(undefined, "linux")).toBeUndefined();
   });
 });
