@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium, expect, type Locator, type Page, request } from "@playwright/test";
@@ -11,7 +11,14 @@ import { startStack, stopStack } from "./stack";
 // No agent responses or browser states are mocked for documentation images.
 if (PORTS.backend === 3080) throw new Error("Documentation capture must not use the live instance");
 process.env.TRUSTED_ORIGINS = "https://subshell.example.com";
-const project = mkdtempSync(path.join(tmpdir(), "subshell-docs-project-"));
+// A fixed sample path, not a mkdtemp one. The pane's working directory is what
+// the header shows, and a published doc image should not carry this host's run
+// artifact (`subshell-docs-project-CbK26C` was in the committed badge). The
+// directory is still created fresh and removed at the end; a leftover from an
+// interrupted run is reused rather than fatal, because the files below are
+// written on top of it every time.
+const project = path.join(tmpdir(), "subshell-docs-project");
+mkdirSync(project, { recursive: true });
 const output = path.resolve(import.meta.dirname, "../apps/docs/public/screenshots");
 const cleanup: (() => Promise<void> | void)[] = [() => rmSync(project, { recursive: true, force: true }), stopStack];
 const dimensions: Record<string, { width: number; height: number }> = {};
