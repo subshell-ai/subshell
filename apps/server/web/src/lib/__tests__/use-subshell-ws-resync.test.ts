@@ -3,6 +3,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import type { Terminal } from "@xterm/xterm";
 import {
   needsGridResync,
+  resetAttachTimingsForTests,
   setAttachResyncTimingsForTests,
   setAttachRetryDelaysForTests,
   useSubshellWs,
@@ -84,6 +85,10 @@ beforeEach(() => {
 afterEach(() => {
   globalThis.fetch = originalFetch;
   globalThis.WebSocket = originalWs;
+  // The four attach timings are module state, and the CI lane runs this package's
+  // files in one process: without this the file that runs last leaves a 2 ms
+  // settle check and a 10 s storm gap for every terminal test after it.
+  resetAttachTimingsForTests();
 });
 
 const send = (ws: FakeWebSocket, frame: object): void => {
@@ -221,6 +226,32 @@ describe("useSubshellWs grid resync", () => {
     send(instances[0], { type: "geometry", cols: term.cols, rows: term.rows });
     await new Promise<void>((r) => setTimeout(r, 50));
     expect(instances.length).toBe(1);
+  });
+
+  it("leaves the shipped cadence for whatever file runs next", async () => {
+    // Asserted through behavior, not by reading the variables. This sets a
+    // hostile pair - a 2 ms settle check and no storm gap at all - then restores,
+    // and asks whether the shipped rules are back. Without the restore the
+    // leaked gap lets the second adoption reconnect and the count below is 3;
+    // at 300 ms and 1 s the storm is still held. Every other file in this worker
+    // inherits whatever this one leaves behind, so the leak is not ours alone.
+    setAttachResyncTimingsForTests(2, 0);
+    resetAttachTimingsForTests();
+    const term = fakeTerminal();
+    renderHook(() => useSubshellWs({ current: term as unknown as Terminal }, "s-restored-cadence", {}));
+    await waitFor(() => expect(instances.length).toBe(1));
+    establish(instances[0], term);
+    term.cols = 90;
+    term.rows = 30;
+    send(instances[0], { type: "geometry", cols: 90, rows: 30 });
+    await waitFor(() => expect(instances.length).toBe(2)); // the first resync still heals
+    send(instances[1], { type: "replay", data: "screen2\r\n" });
+    send(instances[1], { type: "output", data: "y" });
+    term.cols = 60;
+    term.rows = 20;
+    send(instances[1], { type: "geometry", cols: 60, rows: 20 });
+    await new Promise<void>((r) => setTimeout(r, 450)); // past the restored settle check
+    expect(instances.length).toBe(2);
   });
 
   it("a bouncing grid resyncs at most once per storm gap", async () => {

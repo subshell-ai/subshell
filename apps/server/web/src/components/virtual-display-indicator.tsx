@@ -14,6 +14,7 @@ export function VirtualDisplayIndicator({
   display,
   compact = false,
   unsavedCount = 0,
+  canSave = true,
   onOpen,
 }: {
   display?: string | null;
@@ -24,6 +25,13 @@ export function VirtualDisplayIndicator({
    * something previewable says so before anyone opens the picker.
    */
   unsavedCount?: number;
+  /**
+   * Whether saving is among this reader's acts, which is `access !== "view"`.
+   * The counted item for a view grantee is the browser watch: watching is theirs,
+   * writing a Saved services row is not, so a number that reads "to open or
+   * save" names a thing the picker will refuse them.
+   */
+  canSave?: boolean;
   onOpen?: () => void;
 }) {
   if (!display && (compact || !onOpen)) return null;
@@ -35,7 +43,7 @@ export function VirtualDisplayIndicator({
         {unsavedCount > 0 && <PreviewBadge count={unsavedCount} />}
       </span>
     );
-  const count = unsavedCount > 0 ? `; ${badgeText(unsavedCount)} to open or save` : "";
+  const count = unsavedCount > 0 ? `; ${badgeText(unsavedCount)} to open${canSave ? " or save" : ""}` : "";
   return (
     <Tooltip>
       <TooltipTrigger

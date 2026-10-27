@@ -37,6 +37,16 @@ it("says on the icon how much there is to open or save", () => {
   expect(screen.queryByText("0") === null).toBe(true);
 });
 
+it("promises a viewer only what they can actually do", () => {
+  // The counted item for a `view` grantee is the browser watch, which is theirs
+  // to open; writing a Saved services row is an `edit` act. A tooltip that
+  // offered "or save" pointed the reader at a control the picker refuses them,
+  // which is the same mismatch the badge count was fixed to avoid.
+  render(<VirtualDisplayIndicator display=":91" unsavedCount={1} canSave={false} onOpen={() => {}} />);
+  expect(screen.getByRole("button", { name: "Open web preview or screen; 1 to open" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /or save/ }) === null).toBe(true);
+});
+
 it("keeps the header picker available for subshells without a virtual display", () => {
   let opened = 0;
   render(

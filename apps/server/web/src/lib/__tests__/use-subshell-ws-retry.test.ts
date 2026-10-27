@@ -5,6 +5,7 @@ import type { Terminal } from "@xterm/xterm";
 import {
   attachRetryDelayMs,
   isRetryableAttachClose,
+  resetAttachTimingsForTests,
   setAttachRetryDelaysForTests,
   useSubshellWs,
 } from "@/lib/use-subshell-ws";
@@ -114,6 +115,10 @@ beforeEach(() => {
 afterEach(() => {
   globalThis.fetch = originalFetch;
   globalThis.WebSocket = originalWs;
+  // The 1 ms/4 ms backoff above is module state. Left set, the next file in this
+  // worker's process sees a reconnect at 1 ms where the product waits 1500, so
+  // any suite that counts attempts is wrong by timing rather than by logic.
+  resetAttachTimingsForTests();
 });
 
 /** The server frame that both engages input acks and proves the attach is

@@ -64,7 +64,10 @@ export function isRetryableAttachClose(code: number): boolean {
 /** Backoff floor (the fixed reconnect delay) and ceiling. Mutable only
  * through the test seam below. */
 let retryBaseMs = RECONNECT_DELAY_MS;
-let retryMaxMs = 15000;
+/** The refusal backoff ceiling, named so the test reset below can put it back
+ *  without restating the number. */
+const RECONNECT_DELAY_MAX_MS = 15000;
+let retryMaxMs = RECONNECT_DELAY_MAX_MS;
 
 /**
  * Escalating delay for consecutive attach refusals: one base interval, then
@@ -102,6 +105,24 @@ let resyncMinGapMs = RESYNC_MIN_GAP_MS;
 export function setAttachResyncTimingsForTests(debounceMs: number, minGapMs: number): void {
   resyncDebounceMs = debounceMs;
   resyncMinGapMs = minGapMs;
+}
+
+/**
+ * Puts every attach timing back to the value the product ships with.
+ *
+ * @internal For tests, and it is not optional: these four timings live at module
+ * scope, and CI runs this package's files in one process, so a suite that
+ * narrows the settle check to a few milliseconds to watch several attempts land
+ * hands that cadence to every terminal test that runs after it. That is the
+ * "green locally, red on CI because file order differs" class, and it is why
+ * each attach suite restores in `afterEach` rather than relying on its own
+ * `beforeEach` to set what it needs.
+ */
+export function resetAttachTimingsForTests(): void {
+  retryBaseMs = RECONNECT_DELAY_MS;
+  retryMaxMs = RECONNECT_DELAY_MAX_MS;
+  resyncDebounceMs = RESYNC_DEBOUNCE_MS;
+  resyncMinGapMs = RESYNC_MIN_GAP_MS;
 }
 
 /**

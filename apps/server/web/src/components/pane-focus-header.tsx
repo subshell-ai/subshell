@@ -170,6 +170,7 @@ export function PaneFocusHeader({
             <VirtualDisplayIndicator
               display={subshell?.virtualDisplay}
               unsavedCount={unsavedPreview}
+              canSave={subshell?.access !== "view"}
               onOpen={openVirtualDisplay}
             />
           )}

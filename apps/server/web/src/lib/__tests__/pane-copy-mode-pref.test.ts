@@ -88,8 +88,6 @@ describe("pane copy-mode preference (per-device, per-subshell)", () => {
     withWritesRefused(() => {
       setPaneCopyModeIds(["s1"]);
       expect(paneCopyModeIds()).toEqual(["s1"]);
-      // And it stays off for everyone once the device does accept a write.
-      expect(paneCopyModeIds()).not.toContain("s2");
     });
   });
 

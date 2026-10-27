@@ -11,11 +11,20 @@ import type { SubshellAccess } from "@/types/subshell";
  * gating on the switch alone would keep polling a list whose result is thrown
  * away. The access half is the same idea from the other side: a `view` grantee
  * never has the ports counted, so asking for their rows is a poll with a
- * discard. One predicate, so the poll and the count can never disagree about
- * when there is nothing to ask.
+ * discard.
+ *
+ * "One predicate" is the point, and it is now literally true: this and
+ * {@link unsavedPreviewItemCount} both ask {@link previewAnswerUsable}, because
+ * two hand-written copies of the same condition are how a future gate added to
+ * one side would silently leave the other polling or counting a list nothing
+ * can be made of.
  */
+function previewAnswerUsable(info: PreviewInfo | undefined): info is PreviewInfo {
+  return info?.nodeEnabled === true && info.reason === undefined;
+}
+
 export function shouldPollSavedServices(info: PreviewInfo | undefined, access: SubshellAccess): boolean {
-  return access !== "view" && info?.nodeEnabled === true && info.reason === undefined;
+  return access !== "view" && previewAnswerUsable(info);
 }
 
 /**
@@ -41,7 +50,7 @@ export function unsavedPreviewItemCount(
   services: SavedService[] | undefined,
   access: SubshellAccess,
 ): number {
-  if (!info?.nodeEnabled || info.reason) return 0;
+  if (!previewAnswerUsable(info)) return 0;
   if (access === "view") return info.cdpPort === null ? 0 : 1;
   const savedPorts = new Set((services ?? []).map((service) => service.port));
   const discoveredPorts = new Set(info.ports.map((row) => row.port));

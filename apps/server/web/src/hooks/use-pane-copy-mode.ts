@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { PANE_COPY_MODE_CHANGED, paneCopyModeIds, setPaneCopyModeIds } from "@/lib/pane-copy-mode-pref";
+import {
+  PANE_COPY_MODE_CHANGED,
+  paneCopyModeIds,
+  setPaneCopyModeIds,
+  togglePaneCopyMode,
+} from "@/lib/pane-copy-mode-pref";
 
 /** One persisted mode and confirmation shared by the menu and touch bar. */
 export function usePaneCopyMode(subshellId: string) {
@@ -18,11 +23,13 @@ export function usePaneCopyMode(subshellId: string) {
   }, [subshellId]);
   function onToggle() {
     const nextOn = !on;
-    const otherIds = paneCopyModeIds().filter((id) => id !== subshellId);
-    // Bind to what the module now holds rather than to the intention: when the
-    // device refuses the write that answer is the page-load memory, and this is
-    // the only place that decides whether the menu and the touch bar agree.
-    const stored = setPaneCopyModeIds(nextOn ? [...otherIds, subshellId] : otherIds);
+    const stored = setPaneCopyModeIds(togglePaneCopyMode(paneCopyModeIds(), subshellId));
+    // This binds the pressing surface to what the module now holds. The agreement
+    // between the menu and the touch bar does NOT ride this line: the setter
+    // always returns the attempted set, so `stored` says the same thing as
+    // `nextOn`. What makes a refused write visible to the surface that did not
+    // press is the module's page-load memory plus the `PANE_COPY_MODE_CHANGED`
+    // re-read in the effect above.
     setMode({ id: subshellId, on: stored.includes(subshellId) });
     toast.success(nextOn ? "Text copying enabled" : "Text input enabled");
   }

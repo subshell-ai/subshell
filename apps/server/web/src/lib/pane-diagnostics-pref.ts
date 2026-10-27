@@ -79,7 +79,7 @@ export function setPaneDiagnosticsIds(ids: readonly string[]): string[] {
     // store they cannot write.
     writeRefused = true;
   }
-  window.dispatchEvent(new Event(CHANGE_EVENT));
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(CHANGE_EVENT));
   return next;
 }
 
