@@ -97,9 +97,9 @@ export function DisplayScreen(props: {
         so turn it on only where you trust who can connect.
       </p>
       <p className="text-muted-foreground text-detail leading-relaxed mt-2">
-        The same panel sits under <span className="font-strong">Subshell Server</span> in the macOS menu bar, and you
-        can disable the helper from it at any time. <GuideLink /> walks through all of it, including what BetterDisplay
-        needs.
+        The helper runs as <span className="font-strong">Subshell Display Helper</span> and keeps its own display icon
+        in the macOS menu bar; that menu opens this same panel, and you can disable the helper from it at any time.{" "}
+        <GuideLink /> walks through all of it, including what BetterDisplay needs.
       </p>
     </Frame>
   );

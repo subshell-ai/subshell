@@ -15,6 +15,48 @@ const project = mkdtempSync(path.join(tmpdir(), "subshell-docs-project-"));
 const output = path.resolve(import.meta.dirname, "../apps/docs/public/screenshots");
 const cleanup: (() => Promise<void> | void)[] = [() => rmSync(project, { recursive: true, force: true }), stopStack];
 const dimensions: Record<string, { width: number; height: number }> = {};
+/** The pane's own dev server, and the fake CDP endpoint that earns the browser
+ *  row. Ports are spec 47's, deliberately off 9222 (a developer's real chromium
+ *  answers there, and a stray listener would let the scan find a port this
+ *  documentation capture never started). */
+const HTTP_PORT = 4123;
+const CDP_PORT = 9423;
+
+/** Fail before the stack boots rather than after a 90-second wait: a leftover
+ *  listener from an interrupted run makes the pane's own `Bun.serve` die with
+ *  EADDRINUSE, and the discovery wait would then spend its whole budget for a
+ *  reason this probe names in one line. Both handles close immediately; the
+ *  check only asks whether the port is free. */
+for (const port of [HTTP_PORT, CDP_PORT]) {
+  let probe: { stop(): void } | undefined;
+  try {
+    probe = Bun.serve({ hostname: "127.0.0.1", port, fetch: () => new Response("probe") }) as unknown as {
+      stop(): void;
+    };
+  } catch (error) {
+    throw new Error(
+      `Port ${port} is already in use; the preview capture needs ${HTTP_PORT} and ${CDP_PORT} free. (${String(error)})`,
+    );
+  }
+  probe?.stop();
+}
+
+/** Typed verbatim into the preview pane so the header has something to count.
+ *  Carries only double quotes: the `-e` argument is single-quoted at the shell,
+ *  and `!` would history-expand even inside single quotes. */
+const PANE_SCRIPT =
+  `const ver={"Browser":"Docs preview CDP/0.0","Protocol-Version":"1.3","User-Agent":"docs",` +
+  `"webSocketDebuggerUrl":"ws://127.0.0.1:${CDP_PORT}/devtools/browser/docsbrowser"};` +
+  `const target={"description":"","id":"docspage","title":"Docs preview page","type":"page",` +
+  `"url":"http://127.0.0.1:${HTTP_PORT}/","webSocketDebuggerUrl":"ws://127.0.0.1:${CDP_PORT}/devtools/page/docspage"};` +
+  `Bun.serve({hostname:"127.0.0.1",port:${CDP_PORT},reuseAddress:true,fetch(req,server){` +
+  `const u=new URL(req.url).pathname;if(u==="/json/version"){return Response.json(ver)}` +
+  `if(u.startsWith("/json")){return Response.json([target])}` +
+  `if(u.startsWith("/devtools/")){if(server.upgrade(req,{data:0})){return}` +
+  `return new Response("upgrade refused",{status:426})}return new Response("nope",{status:404})},` +
+  `websocket:{open(){},message(){},close(){}},error(){return new Response("nope",{status:400})}});` +
+  `Bun.serve({hostname:"127.0.0.1",port:${HTTP_PORT},reuseAddress:true,fetch(){` +
+  `return new Response("ok",{headers:{"set-cookie":"t=1"}})}});`;
 
 async function capture(page: Page, name: string, first: Locator, last = first) {
   dimensions[name] = await captureScreenshot(page, path.join(output, `${name}.png`), first, last);
@@ -125,7 +167,15 @@ try {
   await page.locator("#preset-name").fill("Repository review");
   await page.locator("#preset-command textarea").fill("codex --sandbox workspace-write --ask-for-approval on-request");
   await expect(page.getByText("0 env vars · 2 flags")).toBeVisible();
-  await capture(page, "preset-codex-configuration", dialog.getByRole("heading"), page.locator("#preset-command"));
+  // The dialog's title, named: the preset editor has grown a section heading
+  // for every optional block it carries, so "the heading in this dialog" is no
+  // longer one element.
+  await capture(
+    page,
+    "preset-codex-configuration",
+    dialog.getByRole("heading", { name: "Create preset" }),
+    page.locator("#preset-command"),
+  );
   await close();
   await page.getByRole("button", { name: "Actions for Repository review", exact: true }).click();
   await page.getByRole("menuitem", { name: "Share preset", exact: true }).click();
@@ -134,7 +184,32 @@ try {
   await close();
   await page.getByRole("button", { name: "Actions for Repository review", exact: true }).click();
   await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
-  await capture(page, "preset-launch-defaults", page.getByText("Launch defaults", { exact: true }).locator(".."));
+  // The preset editor scrolls inside its own panel, so a crop taller than that
+  // panel would photograph the clipped-away part as blank card. Widen the
+  // window and let the panel lay out at full height for this one shot, then
+  // put both back. (The capture had also shrunk to a 49-pixel strip while the
+  // page described the machine, directory, prompt, and switch it contains.)
+  await page.setViewportSize({ width: 1180, height: 1500 });
+  const unscroll = await page.addStyleTag({
+    content: '[role="dialog"], [role="dialog"] > * { max-height: none !important; overflow: visible !important; }',
+  });
+  // One element, the section itself (title span → its wrapper): the crop helper
+  // scrolls only its FIRST locator into view, so a heading→switch span left
+  // everything below the fold photographing as empty card, and a heading-only
+  // span shipped a 49-pixel strip while the page described the machine, the
+  // directory, the prompt and the switch it contains.
+  const launchSection = page.getByText("Launch defaults", { exact: true }).locator("xpath=../..");
+  await capture(page, "preset-launch-defaults", launchSection);
+  await unscroll.evaluate((element) => element.parentNode?.removeChild(element));
+  await page.setViewportSize({ width: 1180, height: 1200 });
+  // The section is a stack of labelled fields; a strip of a few dozen pixels
+  // means the crop missed them, which is how this image shipped wrong before.
+  const launchDefaults = dimensions["preset-launch-defaults"];
+  if (!launchDefaults || launchDefaults.height < 600) {
+    throw new Error(
+      `preset-launch-defaults captured ${launchDefaults?.height ?? "nothing"}px; the launch defaults are not on screen`,
+    );
+  }
 
   await page.goto("/prompts");
   await expect(page.getByRole("button", { name: "Repository review checklist", exact: true })).toBeVisible();
@@ -212,6 +287,76 @@ try {
   await page.getByRole("button", { name: "Add a subshell to this workspace" }).click();
   await capture(page, "add-subshell", dialog);
   await close();
+
+  // ── The preview badge and the switch's gold line. Both ride a pane that owns
+  // two real loopback servers, so the count is counting discovered things: the
+  // port list `GET /views` answers and the CDP endpoint that makes the browser
+  // row exist. Same script spec 47 types, same reason (the servers must be
+  // children of the pane's shell to fall inside its process tree).
+  // Discovery answers nothing while the node's master switch is off, and this
+  // stack starts with it off, so the switch goes on before the servers do.
+  const enabled = await api.put("/api/nodes/local/views-enabled", { data: { on: true } });
+  expect(enabled.ok(), await enabled.text()).toBe(true);
+  const devPane = await post("/api/subshells", {
+    harnessId: "terminal",
+    presetId: shell.id,
+    workingDir: project,
+    name: "Dev server",
+  });
+  await post(`/api/workspaces/${workspace.id}/panes`, { subshellId: devPane.id });
+  await new Promise((resolve) => setTimeout(resolve, 1_500)); // let the shell draw its prompt
+  const typed = await api.post(`/api/subshells/${devPane.id}/input`, {
+    data: { text: `bun -e '${PANE_SCRIPT}' &`, submit: true },
+  });
+  expect(typed.ok(), await typed.text()).toBe(true);
+  // One /proc pass per ask behind the plane's short cache, so this waits on
+  // discovery rather than on a guessed delay.
+  const discoveryDeadline = Date.now() + 90_000;
+  let discovered = false;
+  while (!discovered && Date.now() < discoveryDeadline) {
+    const res = await api.get(`/api/subshells/${devPane.id}/views`);
+    if (res.ok()) {
+      const body = (await res.json()) as { ports: { port: number }[]; cdpPort: number | null };
+      discovered = body.ports.some((row) => row.port === HTTP_PORT) && body.cdpPort === CDP_PORT;
+    }
+    if (!discovered) await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+  if (!discovered) {
+    // The usual cause is a leftover listener on one of the two ports from an
+    // interrupted run, which makes the pane's own `Bun.serve` die with
+    // EADDRINUSE. Say so with the pane's words rather than a bare timeout.
+    const log = await api.get(`/api/subshells/${devPane.id}/log`);
+    throw new Error(
+      `Preview discovery never saw ${HTTP_PORT}/${CDP_PORT}. Is a leftover server holding them? ` +
+        `Pane log tail: ${(await log.text()).slice(-600)}`,
+    );
+  }
+  // Re-enter the workspace rather than clicking a tab that is not there yet:
+  // a pane added over REST lands in the rail, and the open dock only learns of
+  // it from the detail read.
+  await page.goto(`/workspaces/${workspace.id}`);
+  await page.getByRole("tab", { name: "Dev server", exact: true }).click();
+  const previewButton = page.getByRole("button", { name: /^Open web preview or screen; \d+ to open or save/ });
+  await expect(previewButton).toBeVisible();
+  dimensions["preview-badge"] = await captureScreenshot(
+    page,
+    path.join(output, "preview-badge.png"),
+    page.locator("header").first(),
+  );
+
+  // The node's master switch off: the chooser says so in gold and names who can
+  // turn it, which is the difference between "nothing is listening" and "this
+  // is switched off". Captured before the switch goes back on, so the image
+  // shows the state the words describe.
+  const off = await api.put("/api/nodes/local/views-enabled", { data: { on: false } });
+  expect(off.ok(), await off.text()).toBe(true);
+  await page.waitForTimeout(1_200);
+  await previewButton.click();
+  await expect(dialog.getByText(/switched off on this node/)).toBeVisible();
+  dimensions["node-switch-off"] = await captureScreenshot(page, path.join(output, "node-switch-off.png"), dialog);
+  await close();
+  const on = await api.put("/api/nodes/local/views-enabled", { data: { on: true } });
+  expect(on.ok(), await on.text()).toBe(true);
   for (const name of [
     "workspace-layout",
     "prompt-stack-members",

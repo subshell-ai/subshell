@@ -32,8 +32,22 @@ an administrator manages them for the server's built-in node.
 Both settings are off by default for new nodes and can be changed independently.
 
 You need edit access to open an app or control a virtual display. View access
-lets you discover available views and watch browser frames. Switching either feature off prevents new operations; it doesn't stop your subshell or immediately close
-an existing connection.
+lets you discover available views and watch browser frames, so a person you've
+shared with sees the browser row but not the app or screen rows: those two
+answer "needs edit access" beside the control, and the header badge doesn't
+count them either. Switching either feature off prevents new operations; it
+doesn't stop your subshell or immediately close an existing connection.
+
+When a node has its switch off, the picker says so in gold and links to this
+page, because a blank list reads as "nothing is listening" when the truth is
+"this is switched off". The same line appears when the node itself answers that
+way, and the **Open node settings** jump beside it goes straight to the switch.
+Only an owner (or an administrator, for the server's built-in node) can turn it on.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/node-switch-off.png" alt="Open web preview or screen dialog with a gold line saying web previews and screens is switched off on this node, a link to how to enable it, and an empty Saved services list." width="1072" height="540" loading="lazy" decoding="async" unoptimized />
+  <figcaption>The switch's own remedy, where you'd be about to use the feature.</figcaption>
+</figure>
 
 ## Use Web previews & screens from a Mac
 
@@ -50,9 +64,19 @@ follow [Use a virtual display on macOS](#use-a-virtual-display-on-macos).
    loopback; you don't need to expose its port to your network.
 2. Use the Web previews & screens icon in the subshell header. A window icon
    means the subshell has a virtual display; otherwise the header uses a globe.
+   The icon wears a count when there are views you could open and haven't saved
+   yet: a discovered port with no Saved services row, plus the screen and the
+   browser watch when the pane offers them. It's the picker's own data, so the
+   number and the list can't disagree, and it clears as soon as you open or
+   save what it counted.
 3. In **Open web preview or screen**, choose the **Web preview** row for your dev server's port.
 4. Check the site in the preview beside the terminal. Try navigation, forms,
    filters, and other interactions, then give your agent specific feedback.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/preview-badge.png" alt="Subshell header showing the Dev server pane with its Web previews and screens icon wearing a count of three." width="2120" height="146" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Three views this pane could offer that nothing has saved yet: two discovered ports and the browser watch.</figcaption>
+</figure>
 
 <figure className="docs-screenshot">
   <ImageZoom src="/screenshots/preview-picker.png" alt="Open web preview or screen dialog with a website on port 3000 and a virtual display, each opened by selecting its row." width="1072" height="420" loading="lazy" decoding="async" unoptimized />
@@ -136,9 +160,15 @@ local OS users; see [Preview security](/concepts/security#preview-security).
 3. When launching a subshell, enable **Virtual display**. The form checks the
    selected node, which may be different from the device viewing the dashboard.
    If more than one provider is enabled, choose one under
-   **Display provider**, or keep **Node default**. Missing requirements prevent
-   launch until you resolve them or turn off Virtual display.
-   After installing missing programs, choose **Recheck**.
+   **Display provider**, or keep **Node default**. The list holds only what the
+   selected machine's operating system can run, so Xvfb + VNC doesn't appear for
+   a Mac and BetterDisplay doesn't appear for Linux; a machine that hasn't
+   reported its OS yet is not treated as a verdict, and the list stays open.
+   Missing requirements prevent launch until you resolve them or turn off
+   Virtual display. After installing missing programs, choose **Recheck**.
+   If the node refuses the display when you launch, the reason appears beside
+   the **Virtual display** checkbox it belongs to rather than at the bottom of
+   the form, and turning the checkbox off clears it.
 4. Launch your browser or GUI app from that subshell so it inherits the display
    settings. Install the browser on the node separately if it isn't available.
 5. Use the window icon in the subshell header, then choose **Virtual display**.
@@ -164,8 +194,26 @@ requirements check blocks launch until it can be checked or you turn the option 
 
 Choose the **BetterDisplay** provider after following
 [macOS display helper setup](/nodes/manage#macos-display-helper) on the node's
-Mac. Both Subshell desktop apps include the helper, which stays disabled until
-you enable it in its native settings panel and grant macOS permissions.
+Mac. Both Subshell desktop apps ship the helper, and both reach it from the
+assistant window's sidebar: open **Virtual Displays** to read what the Mac still
+needs, then choose **Open Display Helper settings**. The helper stays disabled
+until you enable it there and grant macOS permissions, and it keeps a menu bar
+icon of its own that opens the same panel.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/assistant-virtual-displays.png" alt="The assistant window's Virtual Displays screen, with its three setup steps and the Open Display Helper settings button in the footer." width="2080" height="1520" loading="lazy" decoding="async" unoptimized />
+  <figcaption>The three things the panel and macOS will ask for, where you were already looking.</figcaption>
+</figure>
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/display-helper-enable.png" alt="The display helper panel showing Disabled, the shared-desktop warning in gold, the Enable helper button, and both macOS permissions reading Not allowed." width="1024" height="1386" loading="lazy" decoding="async" unoptimized />
+  <figcaption>The panel starts here: nothing is captured until you choose **Enable helper**, and the warning says plainly what turning it on exposes.</figcaption>
+</figure>
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/display-helper-panel.png" alt="The display helper panel enabled, with a gold line naming two viewers watching, the Launch at sign-in row reading Starts at sign-in with macOS, Screen recording allowed, and Accessibility not allowed." width="1024" height="1610" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Enabled, with a line naming who is watching right now. Gold marks what you can still act on: the permission macOS hasn't granted, and the sign-in choice that is yours to change.</figcaption>
+</figure>
 
 Unlike a private Linux display, a macOS virtual screen shares your login
 session, keyboard focus, and pointer. Apps don't automatically open on it;
