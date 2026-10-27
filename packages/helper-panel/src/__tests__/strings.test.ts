@@ -64,6 +64,26 @@ function withoutComments(source: string): string {
 }
 
 /**
+ * Turn the escapes a browser or a bundler will undo back into characters before
+ * anything is compared. Round 27 found this by building the panel: a stylesheet
+ * carrying `content: "En\61 ble helper"` squashes to `contentEn61blehelper`, which
+ * contains no banned word, while vite's minifier decodes the escape and the shipped
+ * page renders "Enable helper" from a file the ban called clean.
+ */
+function decodeEscapes(source: string): string {
+  return (
+    source
+      .replace(/\\u\{[0-9a-fA-F]+\}/g, (m) => String.fromCodePoint(parseInt(m.slice(3, -1), 16)))
+      .replace(/\\u[0-9a-fA-F]{4}/g, (m) => String.fromCodePoint(parseInt(m.slice(2), 16)))
+      .replace(/\\x[0-9a-fA-F]{2}/g, (m) => String.fromCodePoint(parseInt(m.slice(2), 16)))
+      // CSS ends a hex run with a space, which is not part of the character.
+      .replace(/\\[0-9a-fA-F]{1,6}[ \t]?/g, (m) => String.fromCodePoint(parseInt(m.slice(1).trim(), 16)))
+      .replace(/&#x[0-9a-fA-F]+;/g, (m) => String.fromCodePoint(parseInt(m.slice(3, -1), 16)))
+      .replace(/&#\d+;/g, (m) => String.fromCodePoint(Number(m.slice(2, -1))))
+  );
+}
+
+/**
  * Reduce both sides of a copy comparison to letters and digits, so the only thing
  * that has to match is the words themselves. Round 25 showed a plain substring check
  * was only as strong as its spelling, and round 26 showed even this was reachable: a
@@ -73,7 +93,7 @@ function withoutComments(source: string): string {
  * the banned label "Accessibility", and an identifier is not the panel showing a word.
  */
 function squash(source: string): string {
-  return source.replace(/[^A-Za-z0-9]/g, "");
+  return decodeEscapes(source).replace(/[^A-Za-z0-9]/g, "");
 }
 
 /**
@@ -93,7 +113,10 @@ async function pageCode(dir: URL = new URL("../../", import.meta.url), prefix = 
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (entry.isDirectory()) {
       const child = `${prefix}${entry.name}/`;
-      if (!SKIP_DIRS.has(entry.name) && child !== TEST_DIR)
+      // Build output and dependencies are skipped at the PACKAGE root, where they
+      // actually live, and nowhere else: round 27 hid a shipped `src/dist/copy.json`
+      // from the sweep by using a directory name that is only special at the top.
+      if (child !== TEST_DIR && !(prefix === "" && SKIP_DIRS.has(entry.name)))
         found.push(...(await pageCode(new URL(`${entry.name}/`, dir), child)));
       continue;
     }
@@ -101,11 +124,11 @@ async function pageCode(dir: URL = new URL("../../", import.meta.url), prefix = 
     // `content:`, HTML markup, and a JSON file imported as data all put words on this
     // same consent surface. Round 26 found the gap by asking what an editor crowded
     // out of a 351-line `main.ts` would naturally do, which is move the sentences into
-    // a data file the sweep never opened. Root config JSON is not page code, so a
-    // `.json` counts only under `src/`.
+    // a data file the sweep never opened. Root config JSON is swept too; it costs
+    // nothing and the alternative is a rule about which files count, which is the
+    // judgement this sweep has already been caught making twice.
     if (!entry.isFile()) continue;
-    if (entry.name.endsWith(".json") && !prefix.startsWith("src/")) continue;
-    if (!/\.(ts|tsx|js|jsx|mjs|cjs|css|html|json|svg|txt)$/.test(entry.name)) continue;
+    if (!/\.(ts|tsx|js|jsx|mjs|cjs|css|html|json|svg|txt|md)$/i.test(entry.name)) continue;
     if (entry.name.endsWith(".d.ts")) continue;
     if (`${prefix}${entry.name}` === COPY_FILE) continue;
     // `dir` already names the directory it was recursed into, so the file URL is
@@ -123,14 +146,16 @@ type PageSource = { file: string; code: string };
  *
  * The sweep's extension filter is a judgement, and a judgement cannot double as the
  * evidence that it missed nothing, which is exactly how a `src/copy.json` stayed
- * invisible to both the walk and the list built from it.
+ * invisible to both the walk and the list built from it. `SKIP_DIRS` applies at the
+ * package root only, so a directory called `dist` inside `src/` is a file someone
+ * shipped rather than build output the enumerator is allowed to ignore.
  */
 function listShipped(dirAbs: string, base = ""): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dirAbs, { withFileTypes: true })) {
     const rel = base === "" ? entry.name : `${base}/${entry.name}`;
     if (entry.isDirectory()) {
-      if (!SKIP_DIRS.has(entry.name)) out.push(...listShipped(path.join(dirAbs, entry.name), rel));
+      if (base !== "" || !SKIP_DIRS.has(entry.name)) out.push(...listShipped(path.join(dirAbs, entry.name), rel));
     } else if (entry.isFile()) {
       out.push(rel);
     }
@@ -480,6 +505,8 @@ describe("the page sweep", () => {
         "src/notes.txt",
         "src/consent/row.ts",
         "src/consent/row.css",
+        "src/dist/inner.json",
+        "src/guide.md",
         "src/__tests__/strings.test.ts",
         "dist/index.html",
         "node_modules/dep/index.ts",
@@ -490,15 +517,18 @@ describe("the page sweep", () => {
       }
       const swept = (await pageCode(pathToFileURL(`${root}/`))).map((source) => source.file);
       // The shell and the fold beside package.json count as page code, the copy
-      // module is the only exemption, build output and dependencies are skipped, a
-      // directory is not a reason to miss a file, and data a bundler can import is
-      // page code too. Root config JSON is not.
+      // module is the only exemption, build output and dependencies are skipped at the
+      // root only, and a directory is not a reason to miss a file: `src/dist/` is
+      // someone's shipped data, not this package's build output.
       expect(swept.sort()).toEqual([
         "index.html",
         "inline.ts",
+        "package.json",
         "src/consent/row.css",
         "src/consent/row.ts",
         "src/copy.json",
+        "src/dist/inner.json",
+        "src/guide.md",
         "src/icon.svg",
         "src/main.ts",
         "src/notes.txt",
@@ -521,25 +551,43 @@ describe("the page sweep", () => {
     expect(/<title>([^<]*)<\/title>/.exec(shell?.code ?? "")?.[1]).toBe(strings.title);
   });
 
-  test("every shipped source file under src/ is swept, whatever shape it is", async () => {
+  test("every shipped file in the package is swept, whatever shape it is", async () => {
     // The list in the test above is hand-written, and round 26 found what that costs:
     // a `src/copy.json` holding the disabling sentence was invisible to the walk AND
-    // invisible to the list, because the list was produced by the same filtered walk
-    // it was meant to check. So this enumerates `src/` independently and asks which
-    // shipped file the sweep did not read. A new file shape now fails here as an
-    // unswept file rather than as nothing at all.
+    // invisible to the list, because the list came from the same filtered walk it was
+    // meant to check. Round 27 found the same flaw inside that fix: enumerating `src/`
+    // alone never asked about a package-root `data.json`, and reusing the sweep's own
+    // skip set let `src/dist/copy.json` hide behind a directory name that is only
+    // special at the top. So this walks the whole package with no extension filter,
+    // skips nothing below the root, and exempts a named set instead of a derived one.
     const swept = new Set((await pageCode()).map((source) => source.file));
     const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
-    const unswept = listShipped(path.join(packageRoot, "src"), "src")
-      // `.d.ts` declares, the suites quote copy on purpose, and the copy module is
-      // the one file whose whole job is to hold the words.
-      .filter((file) => !file.endsWith(".d.ts") && !file.startsWith(TEST_DIR) && file !== COPY_FILE)
+    const unswept = listShipped(packageRoot)
+      .filter((file) => !file.endsWith(".d.ts")) // a declaration is not rendered
+      .filter((file) => file !== COPY_FILE && !file.startsWith(TEST_DIR))
       .filter((file) => !swept.has(file))
       .sort();
-    expect(unswept, "a shipped file under src/ that the copy sweep never reads").toEqual([]);
-    // The two root files round 25 lost, checked by name because nothing under `src/`
-    // would ever reveal their absence.
+    expect(unswept, "a shipped file the copy sweep never reads").toEqual([]);
+    // The two root files round 25 lost, checked by name because their absence from a
+    // `src/` listing would never have been noticed.
     for (const shell of ["index.html", "inline.ts"]) expect(swept.has(shell), `${shell} must be swept`).toBe(true);
+  });
+});
+
+describe("the copy ban's decoding", () => {
+  test("reads back the escapes a browser or a bundler will undo", () => {
+    // Round 27 built the panel and found the words in the shipped page from a source
+    // file the ban had called clean: vite decodes CSS escapes while minifying, so
+    // `content: "En\61 ble helper"` renders "Enable helper" while its raw text
+    // contains no banned word at all. Break a branch of `decodeEscapes` and this is
+    // the test that says the ban went blind, rather than the plant that gets past it.
+    expect(squash('content: "En\\61 ble helper";')).toContain(squash("Enable helper"));
+    expect(squash('"En\\u0061ble helper"')).toContain(squash("Enable helper"));
+    expect(squash("\\x45nable helper")).toContain(squash("Enable helper"));
+    expect(squash("&#69;nable helper")).toContain(squash("Enable helper"));
+    expect(squash("&#x45;nable helper")).toContain(squash("Enable helper"));
+    // Ordinary text is unaffected in the ways that matter: letters and digits only.
+    expect(squash("Disabling stops capture and input.")).toBe("Disablingstopscaptureandinput");
   });
 });
 

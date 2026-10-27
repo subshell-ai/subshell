@@ -599,10 +599,12 @@ export function useSubshellWs(
           if (!cancelled && isRetryableAttachClose(e.code)) {
             // A resync's own close (sub-4000) reconnects now, not on the
             // fixed cadence — the drift was chosen, not suffered. The
-            // 4xxx-escalates-even-with-the-flag branch is defense in depth
-            // the OPEN-socket gate above makes unreachable (a resync's close
-            // always arrives sub-4000): no test can force it, keep it for the
-            // day the gate regresses, do not mistake it for tested contract.
+            // 4xxx-escalates-even-with-the-flag branch is defense in depth. A
+            // server close frame racing the client's own `socket.close()` can
+            // reach it with a real 4004, at the cost of one too-long backoff
+            // step, but the fake socket in the suite cannot produce that
+            // ordering, so nothing here tests it: keep it for the day the gate
+            // regresses, and do not mistake it for tested contract.
             const wasResync = resyncClosing;
             resyncClosing = false;
             scheduleRetry(

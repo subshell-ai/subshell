@@ -14,9 +14,10 @@
  * re-reading a store that never changed.
  */
 
-/** JSON array of subshell ids whose pane is in copy mode on this device. */
+/** Window event telling every reader on this page that the set changed. */
 export const PANE_COPY_MODE_CHANGED = "subshell:copy-mode-changed";
 
+/** JSON array of subshell ids whose pane is in copy mode on this device. */
 const KEY = "subshell.paneCopyMode";
 
 /**
