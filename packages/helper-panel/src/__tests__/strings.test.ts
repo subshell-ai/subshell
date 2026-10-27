@@ -44,41 +44,63 @@ const offerEnable = consentControl(stateWith({ enabled: false }));
 /** And while it is on, so the button offers to disable it. */
 const offerDisable = consentControl(stateWith({ enabled: true }));
 
-/** The one module allowed to hold the panel's words. */
-const COPY_FILE = "strings.ts";
-/** Not page code, and its assertions quote the copy on purpose. */
-const SKIP_DIRS = new Set(["__tests__"]);
+/**
+ * The one module allowed to hold the panel's words, named by its path from the
+ * PACKAGE root, which is where `pageCode` starts.
+ */
+const COPY_FILE = "src/strings.ts";
+/**
+ * Where the panel's own suites live, and their assertions quote the copy on
+ * purpose. Pinned to that path, not to any directory named `__tests__`: a helper
+ * under such a name is still shipped code if a page module imports it, and the ban
+ * in `MUTATES_AN_OBJECT`'s companion catches that rather than excusing it.
+ */
+const TEST_DIR = "src/__tests__/";
+/** Not source. The root is the package, so build output sits in the walk's way. */
+const SKIP_DIRS = new Set(["node_modules", "dist", ".turbo", "coverage"]);
 
 function withoutComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 }
 
 /**
+ * Flatten what a copy comparison must not be picky about: quote style, a key split
+ * across concatenated literals, and the line breaks a wrapped template adds. Round
+ * 25 showed a plain substring check is only as strong as its spelling, so both
+ * sides are squashed before comparing.
+ */
+function squash(source: string): string {
+  return source.replace(/["'`+]/g, "").replace(/\s+/g, " ");
+}
+
+/**
  * Every page source except the one file allowed to hold copy, comments stripped.
  *
- * A guard that reads only `main.ts` is satisfied by moving the defect into a
- * second module, and the repository's own file-size rule ("split past ~300-400
- * lines", and `main.ts` is 351) pushes an editor straight into doing that. These
- * checks therefore look at the whole page, WALKED RECURSIVELY for the same
- * reason: the rule it cites tells an editor to put the split half into `consent/`
- * or a directory of its own, and a top-level scan would call that file invisible
- * and pass. Comments are stripped because a comment may name a permission while
- * code may not.
+ * A guard that reads only `main.ts` is satisfied by moving the defect into a second
+ * module, and the repository's own file-size rule ("split past ~300-400 lines", and
+ * `main.ts` is 351) pushes an editor straight into doing that, so the walk is
+ * recursive. It starts at the PACKAGE root rather than `src/`, because round 25
+ * found the reason: the document the webview actually loads is `index.html` beside
+ * `package.json`, along with the `inline.ts` that composes the shipped file. Rooted
+ * one level down, the sweep had never read the page's own shell, and a consent
+ * sentence pasted there stayed green while the same text in `src/` failed.
  */
-async function pageCode(dir: URL = new URL("../", import.meta.url), prefix = ""): Promise<PageSource[]> {
+async function pageCode(dir: URL = new URL("../../", import.meta.url), prefix = ""): Promise<PageSource[]> {
   const found: PageSource[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (entry.isDirectory()) {
-      if (!SKIP_DIRS.has(entry.name))
-        found.push(...(await pageCode(new URL(`${entry.name}/`, dir), `${prefix}${entry.name}/`)));
+      const child = `${prefix}${entry.name}/`;
+      if (!SKIP_DIRS.has(entry.name) && child !== TEST_DIR)
+        found.push(...(await pageCode(new URL(`${entry.name}/`, dir), child)));
       continue;
     }
-    // Stylesheets and the page shell count as page code too: CSS `content:` renders
-    // words on this same consent surface, so copy smuggled in there would drift from
-    // the buttons beside it exactly as a literal in a module would.
-    if (!entry.isFile() || !/\.(ts|css|html)$/.test(entry.name) || entry.name.endsWith(".d.ts")) continue;
-    // Only the real copy module is exempt, which is `src/strings.ts` itself.
-    if (prefix === "" && entry.name === COPY_FILE) continue;
+    // Stylesheets, the page shell, and any other source shape the bundler would
+    // take: CSS `content:` and HTML markup render words on this same consent
+    // surface, so copy smuggled in there drifts from the buttons beside it exactly
+    // as a literal in a module would.
+    if (!entry.isFile() || !/\.(ts|tsx|js|jsx|mjs|cjs|css|html)$/.test(entry.name)) continue;
+    if (entry.name.endsWith(".d.ts")) continue;
+    if (`${prefix}${entry.name}` === COPY_FILE) continue;
     // `dir` already names the directory it was recursed into, so the file URL is
     // built from the entry alone; the prefix belongs only to the reported name.
     const code = await Bun.file(new URL(entry.name, dir)).text();
@@ -113,7 +135,16 @@ const DYNAMIC_COPY_READ =
  * calls at all, so they are refused by name rather than by what they are applied to.
  */
 const MUTATES_AN_OBJECT =
-  /Object\s*\.\s*(?:defineProperty|defineProperties|setPrototypeOf|assign|create|freeze|seal|preventExtensions)\s*\(/;
+  /Object\s*\.\s*(?:defineProperty|defineProperties|setPrototypeOf|assign|create|freeze|seal|preventExtensions|defineGetter|defineSetter)\s*\(|Reflect\s*\.\s*(?:set|defineProperty|deleteProperty|setPrototypeOf|construct|apply)\s*\(/;
+
+/**
+ * A page module importing from a test directory.
+ *
+ * `pageCode` skips `src/__tests__`, which is right for the suites and wrong for a
+ * helper file that happens to live under a directory named like one: if page code
+ * imports it, it ships, and it can hold a consent sentence the sweep never reads.
+ */
+const IMPORTS_TEST_DIR = /from\s+["'][^"']*__tests__/;
 
 /**
  * Words the page may not hold in its own source, however it obtained them.
@@ -164,7 +195,7 @@ describe("the consent warning", () => {
     expect(strings.inputPermissionLabel).toBe("Accessibility");
     const files = await pageCode();
     expect(
-      files.some((f) => f.file === "main.ts"),
+      files.some((f) => f.file === "src/main.ts"),
       "the page still has a main.ts to check",
     ).toBe(true);
     // Asked of the whole sweep rather than of one filename, because the same
@@ -176,14 +207,9 @@ describe("the consent warning", () => {
         `a page module renders ${token} from strings.ts`,
       ).toBe(true);
     }
-    // Every page module, not just `main.ts`, and no quote-style assumption: JSX
-    // text, a single-quoted prop and a template literal all re-introduce the
-    // drift, and none of them contain a double quote.
-    for (const { file, code } of files) {
-      for (const copy of COPY_THE_PAGE_MAY_NOT_HOLD) {
-        expect(code, `${file} renders no copy of its own (${copy.slice(0, 28)}...)`).not.toContain(copy);
-      }
-    }
+    // The ban on the page holding these words at all is the sweep test of its own,
+    // so a failure there reads as "someone typed the words" rather than as a
+    // question about which module renders them.
   });
 
   test("puts the ellipsis only where another app opens", () => {
@@ -295,8 +321,23 @@ describe("the consent button's note", () => {
     // rebuilt the triple from three separate `consentControl` reads, two of them on
     // different state, and passed a check that only asked whether the door was used
     // at all. One read of `state.enabled` is the actual rule.
-    const doors = files.flatMap((f) => f.code.match(/\bconsentControl\s*\(/g) ?? []);
-    expect(doors).toHaveLength(1);
+    // The identifier may appear exactly twice in the whole page: once as the import
+    // specifier, once as the single call. Round 25 laundered it through a local
+    // wrapper, `function consentPair(s) { return consentControl(s); }`, and called
+    // the wrapper three times on different state. A count of the CALL spelling saw
+    // one use, and the note came back from the opposite state, which is the exact
+    // defect this file was written for.
+    const mentions = files.flatMap((f) => f.code.match(/\bconsentControl\b/g) ?? []);
+    expect(mentions).toHaveLength(2);
+    const laundered: string[] = [];
+    for (const { file, code } of files) {
+      if (/\breturn\s+consentControl\s*\(/.test(code))
+        laundered.push(`${file} returns the door's result from a helper`);
+      if (/=\s*consentControl\b(?!\s*\()/.test(code)) laundered.push(`${file} aliases the door`);
+      if (/\bconsentControl\s*(?:\?\.\(|\.\s*(?:call|apply|bind)\s*\()/.test(code))
+        laundered.push(`${file} invokes the door indirectly`);
+    }
+    expect(laundered).toEqual([]);
     // Not a ternary-shaped pattern test, and not a single file either. The defect
     // was the pair decided twice, so no page module may reach the consent copy at
     // all. The repository's own split-large-files rule is what tempts an
@@ -313,9 +354,9 @@ describe("the consent button's note", () => {
     for (const { file, code } of files) {
       if (DYNAMIC_COPY_READ.test(code)) offenders.push(`${file} indexes, spreads, or reflects into strings`);
       if (MUTATES_AN_OBJECT.test(code)) offenders.push(`${file} mutates an object by reflection`);
-      for (const copy of COPY_THE_PAGE_MAY_NOT_HOLD) {
-        if (code.includes(copy)) offenders.push(`${file} holds "${copy.slice(0, 32)}..." as its own copy`);
-      }
+      if (IMPORTS_TEST_DIR.test(code)) offenders.push(`${file} imports shipped copy from a test directory`);
+      // The copy-content check lives in its own describe, where a failure reads as
+      // "someone typed the words" rather than "someone reached through the object".
     }
     expect(offenders).toEqual([]);
   });
@@ -413,43 +454,87 @@ describe("the consent copy's reachability", () => {
 });
 
 describe("the page sweep", () => {
-  test("descends into directories and exempts only the copy module", async () => {
-    // Every guard above is a claim about the files this walk returns, so the
-    // walk gets checked too. A scan that quietly stops at the top level reports
-    // "no page module touches the consent pair" without ever naming the one
-    // sitting in `consent/`, which is the hole the repository's own
-    // split-large-files rule invites.
+  test("covers the package the way it is really laid out", async () => {
+    // Every guard above is a claim about the files this walk returns, so the walk
+    // gets checked too. Round 25 is the reason it has to mirror the REAL layout:
+    // the synthetic tree planted its `index.html` inside the swept directory, which
+    // is not where the shipped shell lives, so a sweep rooted one level below the
+    // package passed a self-test certifying a shape the repository never had.
     const root = mkdtempSync(path.join(tmpdir(), "subshell-panel-sweep-"));
     try {
       for (const name of [
-        "main.ts",
-        "state.ts",
-        "strings.ts",
-        "vite-env.d.ts",
-        "styles.css",
         "index.html",
-        "consent/row.ts",
-        "consent/row.css",
-        "__tests__/strings.test.ts",
+        "inline.ts",
+        "package.json",
+        "vite.config.ts",
+        "src/main.ts",
+        "src/state.ts",
+        "src/strings.ts",
+        "src/vite-env.d.ts",
+        "src/styles.css",
+        "src/consent/row.ts",
+        "src/consent/row.css",
+        "src/__tests__/strings.test.ts",
+        "dist/index.html",
+        "node_modules/dep/index.ts",
       ]) {
         const file = path.join(root, name);
         mkdirSync(path.dirname(file), { recursive: true });
         writeFileSync(file, "export const x = 1;\n");
       }
       const swept = (await pageCode(pathToFileURL(`${root}/`))).map((source) => source.file);
-      // Stylesheets and the page shell count as page code, or CSS `content:` could
-      // hold consent copy the sweep never sees.
+      // The shell and the fold beside package.json count as page code, the copy
+      // module is the only exemption, build output and dependencies are skipped, and
+      // a directory is not a reason to miss a file.
       expect(swept.sort()).toEqual([
-        "consent/row.css",
-        "consent/row.ts",
         "index.html",
-        "main.ts",
-        "state.ts",
-        "styles.css",
+        "inline.ts",
+        "src/consent/row.css",
+        "src/consent/row.ts",
+        "src/main.ts",
+        "src/state.ts",
+        "src/styles.css",
+        "vite.config.ts",
       ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test("the shell's title is the copy's title", async () => {
+    // `index.html` carries the document title the webview shows, and it sat outside
+    // the sweep long enough to duplicate `strings.title` by hand with nothing
+    // comparing the two. Renaming the copy left a window titled one thing and a
+    // panel heading saying another, both green.
+    const shell = (await pageCode()).find((source) => source.file === "index.html");
+    expect(shell, "the package still ships a root index.html").toBeTruthy();
+    expect(/<title>([^<]*)<\/title>/.exec(shell?.code ?? "")?.[1]).toBe(strings.title);
+  });
+
+  test("the swept set is not empty and names the real files", async () => {
+    // The self-test above runs on a temp tree, so it proves the walk's rules; this
+    // proves the walk reaches THIS package at all. A wrong root URL would leave every
+    // content and door check comparing nothing while still passing.
+    const files = await pageCode();
+    expect(files.map((f) => f.file).sort()).toEqual(
+      ["index.html", "inline.ts", "src/main.ts", "src/state.ts", "src/styles.css", "vite.config.ts"].sort(),
+    );
+    for (const { code } of files) expect(code.length).toBeGreaterThan(0);
+  });
+});
+
+describe("the panel's own copy stays in one file", () => {
+  test("nothing outside strings.ts holds a consent sentence", async () => {
+    // Kept separate from the door test so a failure says "someone typed the words"
+    // rather than "someone reached through the object".
+    const offenders: string[] = [];
+    for (const { file, code } of await pageCode()) {
+      const flat = squash(code);
+      for (const copy of COPY_THE_PAGE_MAY_NOT_HOLD) {
+        if (flat.includes(squash(copy))) offenders.push(`${file} holds "${copy.slice(0, 32)}..." as its own copy`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });
 

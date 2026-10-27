@@ -1,5 +1,6 @@
 import {
   DEFAULT_VIRTUAL_DISPLAY_PROVIDER,
+  displayProviderRunsOnOs,
   type NodePreviewScreenWire,
   parsePreviewDisplayReadiness,
   VIRTUAL_DISPLAY_PROVIDERS,
@@ -57,15 +58,17 @@ export async function getNode(deps: ToolDeps, args: z.infer<typeof GetNodeSchema
       ),
     );
     if (!readiness) throw new Error("subshell: invalid display readiness response; update the server and retry");
-    // `enabled` is the plane's CONFIGURATION gate, all three checks of it, so an
-    // agent that trusts it is not surprised by the create: the switch, the
-    // catalog (an id we do not ship is refused outright, even when the owner's
-    // stored list carries it), and the stored enabled list, whose absent answer
-    // is `[DEFAULT_VIRTUAL_DISPLAY_PROVIDER]`. What is deliberately NOT here is
-    // whether the machine can actually run it: that is the node's own answer, and
-    // it surfaces as `status` below. A hand-written provider name can only drift
-    // into reporting a provider enabled that `resolveNodeDisplayRequest` is about
-    // to refuse.
+    // `enabled` is the plane's whole gate, the same four checks
+    // `resolveNodeDisplayRequest` makes, so an agent that trusts it is never
+    // surprised by the create: the switch, the catalog (an id we do not ship is
+    // refused outright, even when the owner's stored list carries it), the stored
+    // enabled list, whose absent answer is `[DEFAULT_VIRTUAL_DISPLAY_PROVIDER]`, and
+    // whether this provider runs on this node's operating system. The fourth one
+    // used to be left to `status` on the theory that it is the machine's answer. That
+    // held only while the probe answered: on a 409 or 502 the tool said
+    // `enabled: true, status: "unavailable"` for BetterDisplay on a Linux node, and
+    // the launch it recommended was refused. `displayProviderRunsOnOs` stays true for
+    // an OS the node has not reported yet, which is what the plane does too.
     const provider = args.provider ?? node.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER;
     const allowed = node.virtualDisplayProviders ?? [DEFAULT_VIRTUAL_DISPLAY_PROVIDER];
     return {
@@ -76,7 +79,8 @@ export async function getNode(deps: ToolDeps, args: z.infer<typeof GetNodeSchema
         enabled:
           node.virtualDisplayEnabled === true &&
           VIRTUAL_DISPLAY_PROVIDERS.some((entry) => entry.id === provider) &&
-          allowed.includes(provider),
+          allowed.includes(provider) &&
+          displayProviderRunsOnOs(provider, node.os),
         status: !readiness.supported ? "unsupported" : readiness.missing.length ? "missing-programs" : "ready",
       },
     };

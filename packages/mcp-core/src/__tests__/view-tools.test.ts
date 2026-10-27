@@ -112,6 +112,100 @@ describe("MCP preview discovery and launch", () => {
     });
   });
 
+  it("refuses a catalog provider the owner's enabled list leaves out", async () => {
+    // The membership clause had no fixture of its own: every stored list here
+    // contained the provider being asked about, and the case that did not
+    // (`native-example`) is refused by the catalog clause first. Replacing
+    // `allowed.includes(provider)` with `true` left the whole suite green while
+    // get_node promised a provider the owner had switched off and create answered
+    // `preview-display-provider-disabled`. The OS is left unanswered on purpose, so
+    // membership is the only clause that can say no to this one.
+    const { deps } = fixture((path) =>
+      path === "/api/nodes"
+        ? {
+            nodes: [
+              {
+                ...node,
+                os: "unknown",
+                virtualDisplayEnabled: true,
+                virtualDisplayProvider: "xvfb-x11vnc",
+                virtualDisplayProviders: ["xvfb-x11vnc"],
+              },
+            ],
+          }
+        : { supported: true, missing: [] },
+    );
+    expect((await getNode(deps, { node: node.id, provider: "betterdisplay" })).virtualDisplay).toMatchObject({
+      provider: "betterdisplay",
+      enabled: false,
+    });
+  });
+
+  it("reports a provider that cannot run on this node's OS as disabled, the way create refuses it", async () => {
+    // BetterDisplay is macOS-only. This gate used to be left to `status`, which is
+    // the NODE's answer, and `status` goes silent when the probe cannot run: the
+    // tool said `enabled: true` for a provider the plane refuses outright with
+    // `preview-display-unsupported`. Readiness still says ready, because the
+    // machine's programs are not the question here.
+    const { deps } = fixture((path) =>
+      path === "/api/nodes"
+        ? {
+            nodes: [
+              {
+                ...node,
+                os: "linux",
+                virtualDisplayEnabled: true,
+                virtualDisplayProvider: "betterdisplay",
+                virtualDisplayProviders: ["betterdisplay"],
+              },
+            ],
+          }
+        : { supported: true, missing: [] },
+    );
+    expect((await getNode(deps, { node: node.id })).virtualDisplay).toMatchObject({
+      provider: "betterdisplay",
+      enabled: false,
+      status: "ready",
+    });
+  });
+
+  it("treats a held node as no answer at all, never as a display that is ready", async () => {
+    // `held` is the plane's connection-hold flag, and an online-but-held node gets
+    // no probe. Dropping `|| node.held` from the guard kept every test green and
+    // sent the tool on to a readiness read that cannot succeed there.
+    const { deps, calls } = fixture((path) =>
+      path === "/api/nodes"
+        ? {
+            nodes: [
+              {
+                ...node,
+                virtualDisplayEnabled: true,
+                held: true,
+                virtualDisplayProvider: "xvfb-x11vnc",
+                virtualDisplayProviders: ["xvfb-x11vnc"],
+              },
+            ],
+          }
+        : { supported: true, missing: [] },
+    );
+    expect((await getNode(deps, { node: node.id })).virtualDisplay.status).toBe("unavailable");
+    expect(calls.every((call) => call.path === "/api/nodes")).toBe(true);
+  });
+
+  it("reads a 502 from the readiness probe as no answer, like the 409", async () => {
+    // The plane answers 502 when its own probe cannot run. Both codes share one
+    // arm, and a suite that only ever threw 409 would let the 502 fall through to
+    // a tool failure, which reads to an agent as "broken" rather than "not now".
+    const { deps } = fixture((path) => {
+      if (path === "/api/nodes") return { nodes: [node] };
+      throw new ApiError(502, "display probe unavailable");
+    });
+    expect((await getNode(deps, { node: node.id })).virtualDisplay).toMatchObject({
+      status: "unavailable",
+      reason: "display probe unavailable",
+    });
+  });
+
   it("preserves capability settings and honest harness health", async () => {
     const facts = {
       webPreviewsEnabled: false,
