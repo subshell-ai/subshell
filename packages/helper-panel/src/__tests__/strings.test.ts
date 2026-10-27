@@ -112,30 +112,27 @@ async function pageCode(dir: URL = new URL("../../", import.meta.url), prefix = 
 type PageSource = { file: string; code: string };
 
 /**
- * Dynamic access into the copy object, banned outright.
+ * What this file enforces, and what it deliberately does not.
  *
- * Round 22 forbade reading a consent string by matching its spelling; round 23
- * turned up with keys assembled at runtime, unicode escapes, `Reflect.get`, and a
- * spread of the object read by index, every one of which reached a real string
- * while no pattern that cannot evaluate an escape could see it. So the rule is
- * structural now: page code reads a named property of `strings` or it does not
- * read `strings` at all. It has no legitimate reason to index it, and the consent
- * pair is not even a member of it anymore.
- */
-const DYNAMIC_COPY_READ =
-  /strings\s*\[|Reflect\s*\.\s*get\s*\(\s*strings\b|\.\.\.\s*strings\b|\bin\s+strings\b|Object\s*\.\s*\w+\s*\(\s*strings\b/;
-
-/**
- * The reflection and mutation calls, banned on ANY receiver.
+ * Four checks carry the weight, and all four are about facts rather than spelling:
+ * the consent strings are not on the exported copy object or in the module's export
+ * set (closed sets, so a new way to reach the words has to be typed into a list);
+ * no shipped file holds a consent sentence as its own text (the copy ban, squashed
+ * so a sentence split across literals or rewrapped is still the same words); the
+ * shell's title is the copy's title; and the panel's triple comes from one call to
+ * `consentControl`.
  *
- * Every pattern above names `strings`, and round 24 pointed out how thin that is:
- * `const s = strings; Object.defineProperty(s, "enableNote", { get: ... })` hides
- * the receiver from all of them, and the getter it installs never runs under test,
- * so the property exists only in the browser. Page code has no use for any of these
- * calls at all, so they are refused by name rather than by what they are applied to.
+ * Rounds 22-25 spent four passes chasing patterns that tried to recognise every way
+ * of naming or reaching a property, and every finding in those rounds was in the
+ * pattern list, never in the product: escapes, concatenation, `Reflect.get`,
+ * spreads, non-enumerable definitions, an aliased receiver. A regex cannot evaluate
+ * a program, so those lists are not closed and are gone. What is left unpolicied,
+ * said plainly so nobody reads more protection into it than exists: page code may
+ * still call `consentControl` twice and cherry-pick `label` from one result and
+ * `note` from another, because that is a call to the sanctioned door, not a name
+ * this file can recognise. The one-decision check makes the slip less likely by
+ * counting calls; it does not make it impossible.
  */
-const MUTATES_AN_OBJECT =
-  /Object\s*\.\s*(?:defineProperty|defineProperties|setPrototypeOf|assign|create|freeze|seal|preventExtensions|defineGetter|defineSetter)\s*\(|Reflect\s*\.\s*(?:set|defineProperty|deleteProperty|setPrototypeOf|construct|apply)\s*\(/;
 
 /**
  * A page module importing from a test directory.
@@ -143,6 +140,7 @@ const MUTATES_AN_OBJECT =
  * `pageCode` skips `src/__tests__`, which is right for the suites and wrong for a
  * helper file that happens to live under a directory named like one: if page code
  * imports it, it ships, and it can hold a consent sentence the sweep never reads.
+ * This is the exemption's own plug, not a general rule about syntax.
  */
 const IMPORTS_TEST_DIR = /from\s+["'][^"']*__tests__/;
 
@@ -317,48 +315,23 @@ describe("the consent button's note", () => {
     // than of `main.ts`, so moving the call into a split module is not the
     // change that turns this green.
     const files = await pageCode();
-    // Exactly ONE call across the whole page, not merely at least one. Round 24
-    // rebuilt the triple from three separate `consentControl` reads, two of them on
-    // different state, and passed a check that only asked whether the door was used
-    // at all. One read of `state.enabled` is the actual rule.
-    // The identifier may appear exactly twice in the whole page: once as the import
-    // specifier, once as the single call. Round 25 laundered it through a local
-    // wrapper, `function consentPair(s) { return consentControl(s); }`, and called
-    // the wrapper three times on different state. A count of the CALL spelling saw
-    // one use, and the note came back from the opposite state, which is the exact
-    // defect this file was written for.
-    const mentions = files.flatMap((f) => f.code.match(/\bconsentControl\b/g) ?? []);
-    expect(mentions).toHaveLength(2);
+    // One read of `state.enabled` is the rule, so the door gets used once: the
+    // identifier may appear exactly twice in the whole page, once as the import
+    // specifier and once as the call. Round 25 laundered it through a local wrapper,
+    // `function consentPair(s) { return consentControl(s); }`, and called the wrapper
+    // three times on different state, so a count of the CALL spelling saw one use
+    // while the note came back from the opposite state. Returning the door's result
+    // and aliasing the door are refused for that reason. A second consent control
+    // would be a different design, and this count is where someone says so.
+    const door = files.flatMap((f) => f.code.match(/\bconsentControl\b/g) ?? []);
+    expect(door, "one import and one call; a second consent control is a design change").toHaveLength(2);
     const laundered: string[] = [];
     for (const { file, code } of files) {
       if (/\breturn\s+consentControl\s*\(/.test(code))
         laundered.push(`${file} returns the door's result from a helper`);
       if (/=\s*consentControl\b(?!\s*\()/.test(code)) laundered.push(`${file} aliases the door`);
-      if (/\bconsentControl\s*(?:\?\.\(|\.\s*(?:call|apply|bind)\s*\()/.test(code))
-        laundered.push(`${file} invokes the door indirectly`);
     }
     expect(laundered).toEqual([]);
-    // Not a ternary-shaped pattern test, and not a single file either. The defect
-    // was the pair decided twice, so no page module may reach the consent copy at
-    // all. The repository's own split-large-files rule is what tempts an
-    // editor to write a `consent/row.ts` that decides the pair again, one level
-    // down, so the sweep walks directories and checks two things no spelling can
-    // dodge: nothing may index, spread, or `Reflect` into the copy object, and no
-    // page module may hold the consent sentences or labels as its own text,
-    // however it obtained them. The notes are no longer properties of `strings`
-    // at all, which is what lets the first rule be that short.
-    // Collected rather than thrown at the first hit: two modules taking the pair
-    // is two things to fix, and a report that names one of them sends an editor
-    // looking for the wrong file.
-    const offenders: string[] = [];
-    for (const { file, code } of files) {
-      if (DYNAMIC_COPY_READ.test(code)) offenders.push(`${file} indexes, spreads, or reflects into strings`);
-      if (MUTATES_AN_OBJECT.test(code)) offenders.push(`${file} mutates an object by reflection`);
-      if (IMPORTS_TEST_DIR.test(code)) offenders.push(`${file} imports shipped copy from a test directory`);
-      // The copy-content check lives in its own describe, where a failure reads as
-      // "someone typed the words" rather than "someone reached through the object".
-    }
-    expect(offenders).toEqual([]);
   });
 
   test("offers the sign-in act that matches the state it leaves", () => {
@@ -529,6 +502,9 @@ describe("the panel's own copy stays in one file", () => {
     // rather than "someone reached through the object".
     const offenders: string[] = [];
     for (const { file, code } of await pageCode()) {
+      // Plugs the one exemption this check's own reach depends on: a helper under a
+      // test directory is not swept, so page code must not be importing from one.
+      if (IMPORTS_TEST_DIR.test(code)) offenders.push(`${file} imports shipped copy from a test directory`);
       const flat = squash(code);
       for (const copy of COPY_THE_PAGE_MAY_NOT_HOLD) {
         if (flat.includes(squash(copy))) offenders.push(`${file} holds "${copy.slice(0, 32)}..." as its own copy`);
