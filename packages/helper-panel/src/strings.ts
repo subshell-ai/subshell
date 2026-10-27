@@ -17,18 +17,6 @@ export const strings = {
    * lets the enable note below stop claiming the fact twice. */
   signInSection: "Launch at sign-in",
   permissions: "macOS permissions",
-  enable: "Enable helper",
-  disable: "Disable helper",
-  /* What the consent button's own note says, per the act it labels. One string
-   * for both states described the WRONG act: a screen reader reaching the
-   * "Enable helper" control heard "Disabling stops capture and input", and the
-   * person deciding whether to be captured has only that announcement. Both are
-   * `detail` text at one size in muted ink (gold belongs to what the owner can
-   * still act on); `consentControl` picks which sentence by `state.enabled`, so
-   * a page module never chooses between them itself. */
-  enableNote:
-    "Enabling starts capture and input on this Mac. Your subshells, macOS permissions, and sign-in choice stay.",
-  disableNote: "Disabling stops capture and input. Your subshells, macOS permissions, and sign-in choice stay.",
   /* The sign-in choice is the person's own, so each state offers the one act
    * that changes it: register, stop registering, or go where macOS is waiting
    * for approval. Enabling the helper never registers anything by itself. */
@@ -73,6 +61,27 @@ export const strings = {
 } as const;
 
 /**
+ * The consent button's label and its sentence, per state.
+ *
+ * Deliberately NOT members of `strings` above. The defect these exist to prevent
+ * is a page module taking the label and the note from different states, and a
+ * property that lives on an exported object is a property any module can reach by
+ * some spelling: `strings["enableNote"]`, `"disable" + "N" + "ote"`,
+ * `Reflect.get`, `Object.values({...strings})[8]`. Round 22 chased those with
+ * patterns and round 23 proved regexes cannot evaluate an escape. What nothing can
+ * reach is what was never exported, so the four strings are module-private here
+ * and `consentControl` is the only door through them. Both are `detail` text at
+ * one size in muted ink (gold belongs to what the owner can still act on).
+ */
+const consentCopy = {
+  enableLabel: "Enable helper",
+  disableLabel: "Disable helper",
+  enableNote:
+    "Enabling starts capture and input on this Mac. Your subshells, macOS permissions, and sign-in choice stay.",
+  disableNote: "Disabling stops capture and input. Your subshells, macOS permissions, and sign-in choice stay.",
+};
+
+/**
  * The consent control and the note that explains it, decided together.
  *
  * Both used to read `state.enabled` at their own site, three ternaries deep in
@@ -84,8 +93,8 @@ export const strings = {
  */
 export function consentControl(state: PanelState): { label: string; action: PanelAction; note: string } {
   return state.enabled
-    ? { label: strings.disable, action: "disable", note: strings.disableNote }
-    : { label: strings.enable, action: "enable", note: strings.enableNote };
+    ? { label: consentCopy.disableLabel, action: "disable", note: consentCopy.disableNote }
+    : { label: consentCopy.enableLabel, action: "enable", note: consentCopy.enableNote };
 }
 
 /** The one-line answer to "is this machine exposing itself right now". */

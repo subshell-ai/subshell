@@ -25,6 +25,21 @@ function stateWith(overrides: Partial<PanelState>): PanelState {
   return { ...EMPTY_STATE, ...overrides };
 }
 
+/**
+ * The two consent sentences, spelled out here because the panel cannot name
+ * them. `strings.ts` keeps them module-private so no page module can take the
+ * label and the note from different states by any spelling, and `consentControl`
+ * is the only door through them, for this file exactly as for the page. These
+ * literals are what that door must hand back.
+ */
+const ENABLE_NOTE =
+  "Enabling starts capture and input on this Mac. Your subshells, macOS permissions, and sign-in choice stay.";
+const DISABLE_NOTE = "Disabling stops capture and input. Your subshells, macOS permissions, and sign-in choice stay.";
+/** The triple while the helper is off, so the button offers to enable it. */
+const offerEnable = consentControl(stateWith({ enabled: false }));
+/** And while it is on, so the button offers to disable it. */
+const offerDisable = consentControl(stateWith({ enabled: true }));
+
 /** The one module allowed to hold the panel's words. */
 const COPY_FILE = "strings.ts";
 /** Not page code, and its assertions quote the copy on purpose. */
@@ -68,31 +83,37 @@ async function pageCode(dir: URL = new URL("../", import.meta.url), prefix = "")
 type PageSource = { file: string; code: string };
 
 /**
- * The four consent strings, read off ANY receiver. Anchoring the old guard on
- * the literal word `strings` meant `const s = strings; s.disableNote` hid the
- * defect in plain sight, so the receiver is left unnamed here: a dot, a bracket,
- * or a destructuring of any of the four names is the read.
+ * Dynamic access into the copy object, banned outright.
+ *
+ * Round 22 forbade reading a consent string by matching its spelling; round 23
+ * turned up with keys assembled at runtime, unicode escapes, `Reflect.get`, and a
+ * spread of the object read by index, every one of which reached a real string
+ * while no pattern that cannot evaluate an escape could see it. So the rule is
+ * structural now: page code reads a named property of `strings` or it does not
+ * read `strings` at all. It has no legitimate reason to index it, and the consent
+ * pair is not even a member of it anymore.
  */
-const READS_A_CONSENT_STRING =
-  /[A-Za-z_$][\w$]*\s*(?:\.\s*(?:enable|disable|enableNote|disableNote)\b|\[\s*["'`](?:enable|disable|enableNote|disableNote)["'`]\s*\])|[{,]\s*(?:enable|disable|enableNote|disableNote)\s*(?:[,}]|\s*:)/;
+const DYNAMIC_COPY_READ =
+  /strings\s*\[|Reflect\s*\.\s*get\s*\(\s*strings\b|\.\.\.\s*strings\b|\bin\s+strings\b|Object\s*\.\s*\w+\s*\(\s*strings\b/;
 
 /**
- * Any spelling of a note, in a page module. The two full names are distinctive
- * enough to ban outright, and banning them alone was not enough: a module can
- * read a note by assembling its key, and `strings["disable" + "Note"]`, a
- * template key like `` strings[`${on ? "disable" : "enable"}Note`] `` and
- * `strings[["enable", "Note"].join("")]` all pick the note while never writing
- * its name in one piece. So the word `Note` is what's banned, wherever it
- * appears, because reaching a note means spelling it somewhere.
+ * Words the page may not hold in its own source, however it obtained them.
+ *
+ * Making the notes unreachable closes reading them off an object, but a module can
+ * still type the disabling sentence beneath its own enable button, which is the
+ * mispairing this file exists to prevent and no access rule can see. Comparing the
+ * sentences themselves is the check that does not care where they came from, so
+ * the same test that stops a page restating "Screen recording" stops it restating
+ * a consent note.
  */
-const NAMES_A_NOTE = /\bNote\b|\benableNote\b|\bdisableNote\b/;
-
-/**
- * Copy taken out of `strings` by position instead of by name, which is the one
- * route the `Note` ban cannot see: `Object.values(strings)[3]` never names the
- * thing it hands back, so it re-pairs the button and its sentence silently.
- */
-const INDEXES_INTO_COPY = /Object\.(?:values|entries|keys)\s*\(\s*strings\b|strings\s*\[\s*\d/;
+const COPY_THE_PAGE_MAY_NOT_HOLD = [
+  ENABLE_NOTE,
+  DISABLE_NOTE,
+  offerEnable.label,
+  offerDisable.label,
+  strings.capturePermissionLabel,
+  strings.inputPermissionLabel,
+];
 
 describe("the consent warning", () => {
   test("says plainly what enabling exposes, so the decision is informed", () => {
@@ -111,8 +132,8 @@ describe("the consent warning", () => {
     // capture had ended while it had not. The label names the window.
     expect(strings.minimize).toBe("Minimize helper");
     expect(strings.quit).toBe("Quit helper");
-    expect(strings.enable).toBe("Enable helper");
-    expect(strings.disable).toBe("Disable helper");
+    expect(offerEnable.label).toBe("Enable helper");
+    expect(offerDisable.label).toBe("Disable helper");
   });
 
   test("keeps the words the page says in this file", async () => {
@@ -140,8 +161,8 @@ describe("the consent warning", () => {
     // text, a single-quoted prop and a template literal all re-introduce the
     // drift, and none of them contain a double quote.
     for (const { file, code } of files) {
-      for (const label of ["Screen recording", "Accessibility"]) {
-        expect(code, `${file} renders no copy of its own (${label})`).not.toContain(label);
+      for (const copy of COPY_THE_PAGE_MAY_NOT_HOLD) {
+        expect(code, `${file} renders no copy of its own (${copy.slice(0, 28)}...)`).not.toContain(copy);
       }
     }
   });
@@ -212,19 +233,19 @@ describe("the consent button's note", () => {
     // deciding whether this Mac may be captured has only that announcement to
     // decide from. `consentControl` picks by `state.enabled`; these two must not
     // be interchangeable.
-    expect(strings.enable).toBe("Enable helper");
-    expect(strings.disable).toBe("Disable helper");
-    expect(strings.enableNote).toContain("Enabling starts capture and input");
-    expect(strings.enableNote).not.toMatch(/Disabling/);
-    expect(strings.disableNote).toContain("Disabling stops capture and input");
-    expect(strings.disableNote).not.toMatch(/Enabling/);
+    expect(offerEnable.label).toBe("Enable helper");
+    expect(offerDisable.label).toBe("Disable helper");
+    expect(offerEnable.note).toContain("Enabling starts capture and input");
+    expect(offerEnable.note).not.toMatch(/Disabling/);
+    expect(offerDisable.note).toContain("Disabling stops capture and input");
+    expect(offerDisable.note).not.toMatch(/Enabling/);
   });
 
   test("neither note promises a sign-in start, and both say the rest stays", () => {
     // Enabling no longer registers anything by itself, and that choice has its
     // own row and control, so a second place claiming it is how the two start
     // to disagree. What genuinely stays belongs in both sentences.
-    for (const note of [strings.enableNote, strings.disableNote]) {
+    for (const note of [offerEnable.note, offerDisable.note]) {
       expect(note).not.toContain("starts at sign-in");
       expect(note).toContain("sign-in choice stay");
       expect(note).toContain("macOS permissions");
@@ -239,12 +260,12 @@ describe("the consent button's note", () => {
     expect(consentControl(stateWith({ enabled: false }))).toEqual({
       label: "Enable helper",
       action: "enable",
-      note: strings.enableNote,
+      note: ENABLE_NOTE,
     });
     expect(consentControl(stateWith({ enabled: true }))).toEqual({
       label: "Disable helper",
       action: "disable",
-      note: strings.disableNote,
+      note: DISABLE_NOTE,
     });
     // The page draws the pair from that one call, rather than reading
     // `state.enabled` a second time beside the note. Asked of the sweep rather
@@ -253,19 +274,23 @@ describe("the consent button's note", () => {
     const files = await pageCode();
     expect(files.some((f) => f.code.includes("consentControl(state)"))).toBe(true);
     // Not a ternary-shaped pattern test, and not a single file either. The defect
-    // was the pair decided twice, so no page module may reach those four strings
-    // at all: by dot, by bracket, or by destructuring, off any receiver. A
-    // `consent/row.ts` that re-reads `state.enabled` is the same bug wearing a
-    // different filename and living one level down, and the repository's own
-    // split-large-files rule is what would tempt an editor to write one.
+    // was the pair decided twice, so no page module may reach the consent copy at
+    // all. The repository's own split-large-files rule is what tempts an
+    // editor to write a `consent/row.ts` that decides the pair again, one level
+    // down, so the sweep walks directories and checks two things no spelling can
+    // dodge: nothing may index, spread, or `Reflect` into the copy object, and no
+    // page module may hold the consent sentences or labels as its own text,
+    // however it obtained them. The notes are no longer properties of `strings`
+    // at all, which is what lets the first rule be that short.
     // Collected rather than thrown at the first hit: two modules taking the pair
     // is two things to fix, and a report that names one of them sends an editor
     // looking for the wrong file.
     const offenders: string[] = [];
     for (const { file, code } of files) {
-      if (READS_A_CONSENT_STRING.test(code)) offenders.push(`${file} reads a consent string off an object`);
-      if (NAMES_A_NOTE.test(code)) offenders.push(`${file} names a consent note, so it pairs them itself`);
-      if (INDEXES_INTO_COPY.test(code)) offenders.push(`${file} takes copy out of strings by position`);
+      if (DYNAMIC_COPY_READ.test(code)) offenders.push(`${file} indexes, spreads, or reflects into strings`);
+      for (const copy of COPY_THE_PAGE_MAY_NOT_HOLD) {
+        if (code.includes(copy)) offenders.push(`${file} holds "${copy.slice(0, 32)}..." as its own copy`);
+      }
     }
     expect(offenders).toEqual([]);
   });

@@ -4,8 +4,10 @@ import { renderHook, waitFor } from "@testing-library/react";
 import type { Terminal } from "@xterm/xterm";
 import {
   attachRetryDelayMs,
+  attachTimingsForTests,
   isRetryableAttachClose,
   resetAttachTimingsForTests,
+  setAttachResyncTimingsForTests,
   setAttachRetryDelaysForTests,
   useSubshellWs,
 } from "@/lib/use-subshell-ws";
@@ -185,5 +187,24 @@ describe("useSubshellWs close handling (Wave D)", () => {
     ws2.onmessage?.({ data: JSON.stringify({ type: "ack", id: 1 }) });
     ws2.onmessage?.({ data: JSON.stringify({ type: "ack", id: 2 }) });
     expect(queue?.stats.depth).toBe(0);
+  });
+
+  it("leaves a hostile resync pair behind, unrestored", () => {
+    // This file sets the retry pair itself, so the reset that needs pinning is of
+    // the OTHER pair: put the resync timings where a suite would leak them and
+    // assert nothing but the module state, so the test after it can show what
+    // returns them.
+    setAttachResyncTimingsForTests(2, 0);
+    expect(attachTimingsForTests()).toMatchObject({ debounceMs: 2, minGapMs: 0 });
+  });
+
+  it("is the afterEach's reset that returns the shipped resync cadence", () => {
+    // The `beforeEach` above touches only the retry pair, so shipped values here
+    // can only have come from `resetAttachTimingsForTests()` running after the
+    // previous test. Delete that call and every retry test in this file stays
+    // green while the next file in the same process inherits a 2 ms settle check
+    // and no storm gap, which is the leak the reset exists to stop. The numbers
+    // are the shipped pair, so changing one quietly also fails here.
+    expect(attachTimingsForTests()).toMatchObject({ debounceMs: 300, minGapMs: 1000 });
   });
 });

@@ -113,8 +113,9 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
         // shipped and the one the macOS lane compiles clean.
         //
         // Apple marks `activate(ignoringOtherApps:)` deprecated as of macOS 14,
-        // and `test.sh` does treat warnings as errors, yet main has built this call
-        // through that lane, so on this toolchain the deprecation is not a warning.
+        // and `test.sh` does treat warnings as errors, yet this file has built the
+        // call through that lane, so on this toolchain the deprecation is not a
+        // warning.
         // The no-argument `activate()` arrived with the macOS 14 SDK and nothing
         // here has ever compiled it: if the runner's SDK predates that, it is a
         // hard error, not a warning. Keep the proven call, and swap it only after

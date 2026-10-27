@@ -190,16 +190,16 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
         // alert left behind another window reads as a menu that does nothing.
         //
         // Apple marks this form deprecated as of macOS 14, and it is still the
-        // right call here. What the warnings-as-errors lane proves is the copy in
-        // `Settings.swift`: the macOS job compiles that file with warnings treated
-        // as errors, and main has shipped the same call through it. This file sits
-        // outside that lane (`test.sh` excludes `main.swift`), and the desktop
-        // build passes no `-warnings-as-errors`, so a warning here would go
-        // unheard. A hard error would not: that build compiles every `.swift` in
-        // this directory, so a call naming something the compiler does not know
-        // would have failed the release rather than shipped. Both lanes target
-        // macos14.0, which is why the deprecated form is a warning here and not
-        // an unknown symbol.
+        // right call here. `Settings.swift` carries the same call inside the lane
+        // that treats warnings as errors, and that lane is green, so on the CI
+        // toolchain this deprecation is not a warning at all. This file sits
+        // outside that lane (`test.sh` excludes `main.swift`) and the desktop build
+        // passes no `-warnings-as-errors`, so a warning here would go unheard
+        // either way. What nothing can silence is a hard error: the desktop build
+        // compiles every `.swift` in this directory, so a call naming something the
+        // compiler does not know fails the release. That is the whole reason to
+        // keep the form that has been built, and not the no-argument
+        // `activate()`, which no lane here has ever compiled.
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertFirstButtonReturn { return }
         NSApp.terminate(nil)
