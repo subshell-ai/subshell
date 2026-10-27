@@ -112,6 +112,29 @@ describe("viewerLine", () => {
   });
 });
 
+describe("quit confirmation", () => {
+  test("asks, then says what stops, what stays, and how to get back", () => {
+    // Quitting ends every screen being watched and the window does not come
+    // back on its own, so the act needs the consequences in front of the
+    // person BEFORE they take it, not in the docs after.
+    expect(strings.quitTitle.endsWith("?")).toBe(true);
+    expect(strings.quitTitle).toContain("Quit");
+    const body = strings.quitBody;
+    expect(body).toContain("loses it now");
+    expect(body).toContain("consent");
+    expect(body).toContain("starts again at sign-in");
+    expect(body).toContain("virtual display settings");
+    expect(body).toContain("disable it first");
+  });
+
+  test("names the same act in the button, the heading, and the confirm", () => {
+    // A dialog that says "Close" over a button that said "Quit" is how a person
+    // ends up unsure which thing they just did.
+    expect(strings.quit).toBe("Quit helper");
+    expect(strings.quitTitle.startsWith("Quit")).toBe(true);
+  });
+});
+
 describe("permissionValue", () => {
   test("says the state, and marks the one the person can still act on", () => {
     // Gold for "Not allowed" and plain ink for "Allowed" is the whole point:

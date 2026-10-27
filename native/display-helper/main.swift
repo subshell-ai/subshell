@@ -92,7 +92,9 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
     @objc private func showSettings() { settings.show() }
     @objc private func minimizeSettings() { settings.minimize() }
     @objc private func disableHelper() { settings.disableHelper(); settings.show() }
-    @objc private func quitHelper() { settings.disableHelper(); NSApp.terminate(nil) }
+    // Same split as the panel's button: leaving the menu's Quit does not revoke
+    // consent, and `applicationWillTerminate` tears down every capture.
+    @objc private func quitHelper() { NSApp.terminate(nil) }
 }
 
 umask(0o077)

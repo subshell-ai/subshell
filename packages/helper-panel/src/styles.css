@@ -252,6 +252,67 @@ body {
   background: var(--card);
 }
 
+/* The assistant's destructive variant: the act that cannot be undone from
+   here wears red, and it is the last control in the row. */
+.btn-destructive {
+  background: var(--destructive);
+  color: var(--destructive-foreground);
+}
+
+.btn-destructive:hover {
+  background: var(--destructive);
+  color: var(--destructive-foreground);
+  filter: brightness(0.94);
+}
+
+/* The confirmation, drawn the way the dashboard draws a dialog: the shared
+   scrim, a popover plate on the radius, a question that names the action, and
+   the consequences under it. Cancel is the outline control and Quit the
+   destructive one, because the reversible answer should be the cheaper one. */
+.scrim {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--scrim);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 380px;
+  padding: 16px;
+  background: var(--popover);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--popover-foreground);
+}
+
+.dialog-title {
+  margin: 0;
+  font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
+  font-weight: var(--font-weight-strong);
+}
+
+.dialog-body {
+  margin: 0;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  color: var(--muted-foreground);
+}
+
+.dialog-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 /* CardFooter: the hairline above it, help at the leading edge, the exits at the
    trailing one. The bottom corners follow the plate, inset by its 1px border. */
 .bar {
