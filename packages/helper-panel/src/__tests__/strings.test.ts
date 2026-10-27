@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { EMPTY_STATE, type PanelState } from "../state";
+// The module's whole surface, pinned below. A namespace import rather than a
+// dynamic one, because this repo forbids `await import()` everywhere a bundler has
+// to see the target.
+import * as copyModule from "../strings";
 import {
   consentControl,
   loginItemLine,
@@ -69,7 +73,10 @@ async function pageCode(dir: URL = new URL("../", import.meta.url), prefix = "")
         found.push(...(await pageCode(new URL(`${entry.name}/`, dir), `${prefix}${entry.name}/`)));
       continue;
     }
-    if (!entry.isFile() || !entry.name.endsWith(".ts") || entry.name.endsWith(".d.ts")) continue;
+    // Stylesheets and the page shell count as page code too: CSS `content:` renders
+    // words on this same consent surface, so copy smuggled in there would drift from
+    // the buttons beside it exactly as a literal in a module would.
+    if (!entry.isFile() || !/\.(ts|css|html)$/.test(entry.name) || entry.name.endsWith(".d.ts")) continue;
     // Only the real copy module is exempt, which is `src/strings.ts` itself.
     if (prefix === "" && entry.name === COPY_FILE) continue;
     // `dir` already names the directory it was recursed into, so the file URL is
@@ -95,6 +102,18 @@ type PageSource = { file: string; code: string };
  */
 const DYNAMIC_COPY_READ =
   /strings\s*\[|Reflect\s*\.\s*get\s*\(\s*strings\b|\.\.\.\s*strings\b|\bin\s+strings\b|Object\s*\.\s*\w+\s*\(\s*strings\b/;
+
+/**
+ * The reflection and mutation calls, banned on ANY receiver.
+ *
+ * Every pattern above names `strings`, and round 24 pointed out how thin that is:
+ * `const s = strings; Object.defineProperty(s, "enableNote", { get: ... })` hides
+ * the receiver from all of them, and the getter it installs never runs under test,
+ * so the property exists only in the browser. Page code has no use for any of these
+ * calls at all, so they are refused by name rather than by what they are applied to.
+ */
+const MUTATES_AN_OBJECT =
+  /Object\s*\.\s*(?:defineProperty|defineProperties|setPrototypeOf|assign|create|freeze|seal|preventExtensions)\s*\(/;
 
 /**
  * Words the page may not hold in its own source, however it obtained them.
@@ -272,7 +291,12 @@ describe("the consent button's note", () => {
     // than of `main.ts`, so moving the call into a split module is not the
     // change that turns this green.
     const files = await pageCode();
-    expect(files.some((f) => f.code.includes("consentControl(state)"))).toBe(true);
+    // Exactly ONE call across the whole page, not merely at least one. Round 24
+    // rebuilt the triple from three separate `consentControl` reads, two of them on
+    // different state, and passed a check that only asked whether the door was used
+    // at all. One read of `state.enabled` is the actual rule.
+    const doors = files.flatMap((f) => f.code.match(/\bconsentControl\s*\(/g) ?? []);
+    expect(doors).toHaveLength(1);
     // Not a ternary-shaped pattern test, and not a single file either. The defect
     // was the pair decided twice, so no page module may reach the consent copy at
     // all. The repository's own split-large-files rule is what tempts an
@@ -288,6 +312,7 @@ describe("the consent button's note", () => {
     const offenders: string[] = [];
     for (const { file, code } of files) {
       if (DYNAMIC_COPY_READ.test(code)) offenders.push(`${file} indexes, spreads, or reflects into strings`);
+      if (MUTATES_AN_OBJECT.test(code)) offenders.push(`${file} mutates an object by reflection`);
       for (const copy of COPY_THE_PAGE_MAY_NOT_HOLD) {
         if (code.includes(copy)) offenders.push(`${file} holds "${copy.slice(0, 32)}..." as its own copy`);
       }
@@ -304,22 +329,82 @@ describe("the consent button's note", () => {
 });
 
 describe("the consent copy's reachability", () => {
-  test("the four consent strings are not properties of the exported object", () => {
-    // Everything else here rests on this. The sweep cannot recognise every way to
-    // name a property, and round 23 proved it should not try, so the notes and
-    // labels are simply not on `strings`: there is nothing for a page module to
-    // read, by any spelling, escape, or index. Re-attach one to the exported
-    // object and this fails, which is the load-bearing invariant of the design
-    // rather than a restatement of the strings above.
-    for (const key of ["enable", "disable", "enableNote", "disableNote"]) {
-      expect(Object.hasOwn(strings, key), `strings still exports "${key}"`).toBe(false);
-    }
-    // And the door still hands back the private pair, so the test above cannot be
-    // satisfied simply by deleting the copy.
-    expect(consentControl(stateWith({ enabled: false })).note).toBe(ENABLE_NOTE);
-    expect(consentControl(stateWith({ enabled: true })).note).toBe(DISABLE_NOTE);
-    expect(consentControl(stateWith({ enabled: false })).label).toBe("Enable helper");
-    expect(consentControl(stateWith({ enabled: true })).label).toBe("Disable helper");
+  /**
+   * Every word the panel may show, and nothing else.
+   *
+   * Round 23 took the consent strings off the exported object so no page module
+   * could name them, and round 24 showed that a list of FORBIDDEN names cannot guard
+   * that: it checked the old spellings (`enable`, `disable`) and stayed silent while
+   * the same labels came back under their current ones (`enableLabel`,
+   * `disableLabel`), which is the mispairing defect reintroduced with every test
+   * green. A closed set has no such blind spot. Reaching for the copy means adding a
+   * key to this list, and a key someone has to type is a decision made in the open.
+   */
+  const COPY_KEYS = [
+    "access",
+    "allow",
+    "cancel",
+    "capturePermissionLabel",
+    "inputPermissionLabel",
+    "loginItemLabel",
+    "loginItemMissing",
+    "loginItemPending",
+    "loginItemRegistered",
+    "minimize",
+    "openCaptureSettingsLabel",
+    "openDocs",
+    "openInputSettingsLabel",
+    "openLoginItems",
+    "openSettings",
+    "permissionNeedsConsent",
+    "permissions",
+    "quit",
+    "quitTitle",
+    "requestCapture",
+    "requestInput",
+    "signInSection",
+    "startAtSignIn",
+    "stopAtSignIn",
+    "subtitle",
+    "title",
+    "warning",
+  ];
+  /** The copy module's whole surface: helpers that decide wording, never the pair. */
+  const MODULE_EXPORTS = [
+    "consentControl",
+    "loginItemLine",
+    "permissionValue",
+    "quitBody",
+    "showsSignInSection",
+    "stateLine",
+    "strings",
+    "viewerLine",
+  ];
+
+  test("the copy object holds exactly the words it is meant to hold", () => {
+    expect(Object.keys(strings).sort()).toEqual([...COPY_KEYS].sort());
+  });
+
+  test("the module exports no way past the one door", () => {
+    // The same argument one level up, and invisible to the check above: what makes
+    // the consent pair unreachable is `consentCopy` being module-private, and
+    // writing `export` in front of it changes nothing about `strings`.
+    expect(Object.keys(copyModule).sort()).toEqual([...MODULE_EXPORTS].sort());
+  });
+
+  test("the door still hands back the private pair", () => {
+    // Which is what keeps the two closed sets above from being satisfied by simply
+    // deleting the copy.
+    expect(consentControl(stateWith({ enabled: false }))).toEqual({
+      label: "Enable helper",
+      action: "enable",
+      note: ENABLE_NOTE,
+    });
+    expect(consentControl(stateWith({ enabled: true }))).toEqual({
+      label: "Disable helper",
+      action: "disable",
+      note: DISABLE_NOTE,
+    });
   });
 });
 
@@ -337,7 +422,10 @@ describe("the page sweep", () => {
         "state.ts",
         "strings.ts",
         "vite-env.d.ts",
+        "styles.css",
+        "index.html",
         "consent/row.ts",
+        "consent/row.css",
         "__tests__/strings.test.ts",
       ]) {
         const file = path.join(root, name);
@@ -345,7 +433,16 @@ describe("the page sweep", () => {
         writeFileSync(file, "export const x = 1;\n");
       }
       const swept = (await pageCode(pathToFileURL(`${root}/`))).map((source) => source.file);
-      expect(swept.sort()).toEqual(["consent/row.ts", "main.ts", "state.ts"]);
+      // Stylesheets and the page shell count as page code, or CSS `content:` could
+      // hold consent copy the sweep never sees.
+      expect(swept.sort()).toEqual([
+        "consent/row.css",
+        "consent/row.ts",
+        "index.html",
+        "main.ts",
+        "state.ts",
+        "styles.css",
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

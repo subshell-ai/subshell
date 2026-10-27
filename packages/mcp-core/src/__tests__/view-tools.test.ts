@@ -95,6 +95,23 @@ describe("MCP preview discovery and launch", () => {
     expect(bundled.virtualDisplay).toMatchObject({ provider: "xvfb-x11vnc", enabled: true });
   });
 
+  it("answers an absent enabled list with the protocol's default, as the plane does", async () => {
+    // `storedDisplayProviderIds` reads an absent row as `[DEFAULT_VIRTUAL_DISPLAY_PROVIDER]`,
+    // and the gate above claims to mirror it. No other fixture left the field out
+    // with the switch on, so the claim was untested: swapping the default for `[]`
+    // left every test green while an older plane's node reported each provider
+    // disabled here and launched fine.
+    const { deps } = fixture((path) =>
+      path === "/api/nodes"
+        ? { nodes: [{ ...node, os: "linux", virtualDisplayEnabled: true }] }
+        : { supported: true, missing: [] },
+    );
+    expect((await getNode(deps, { node: node.id })).virtualDisplay).toMatchObject({
+      provider: "xvfb-x11vnc",
+      enabled: true,
+    });
+  });
+
   it("preserves capability settings and honest harness health", async () => {
     const facts = {
       webPreviewsEnabled: false,
