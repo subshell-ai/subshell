@@ -22,16 +22,17 @@ export function usePaneCopyMode(subshellId: string) {
     };
   }, [subshellId]);
   function onToggle() {
-    const nextOn = !on;
     const stored = setPaneCopyModeIds(togglePaneCopyMode(paneCopyModeIds(), subshellId));
-    // This binds the pressing surface to what the module now holds. The agreement
-    // between the menu and the touch bar does NOT ride this line: the setter
-    // always returns the attempted set, so `stored` says the same thing as
-    // `nextOn`. What makes a refused write visible to the surface that did not
-    // press is the module's page-load memory plus the `PANE_COPY_MODE_CHANGED`
-    // re-read in the effect above.
-    setMode({ id: subshellId, on: stored.includes(subshellId) });
-    toast.success(nextOn ? "Text copying enabled" : "Text input enabled");
+    // The store decides what this press did, and the button and the toast both
+    // read that answer. They cannot read `on`: React has not committed the
+    // re-render yet when the second of two surfaces presses in the same batch,
+    // so its `on` can be the state the first press just replaced. (The comment
+    // here used to claim the two were always equal, which is what hid this.)
+    // What keeps the menu and the touch bar agreeing is the module's page-load
+    // memory plus the `PANE_COPY_MODE_CHANGED` re-read in the effect above.
+    const nowOn = stored.includes(subshellId);
+    setMode({ id: subshellId, on: nowOn });
+    toast.success(nowOn ? "Text copying enabled" : "Text input enabled");
   }
   return { on, onToggle };
 }

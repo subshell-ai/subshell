@@ -1,4 +1,8 @@
-import { type NodePreviewScreenWire, parsePreviewDisplayReadiness } from "@internal/subshell-protocol";
+import {
+  DEFAULT_VIRTUAL_DISPLAY_PROVIDER,
+  type NodePreviewScreenWire,
+  parsePreviewDisplayReadiness,
+} from "@internal/subshell-protocol";
 import { z } from "zod";
 import { ApiError } from "./api-client.js";
 import { listNodes, resolveNodeId } from "./subshell-tools.js";
@@ -52,16 +56,21 @@ export async function getNode(deps: ToolDeps, args: z.infer<typeof GetNodeSchema
       ),
     );
     if (!readiness) throw new Error("subshell: invalid display readiness response; update the server and retry");
+    // One reading of "which provider is this ask, and is it enabled here", using
+    // the protocol's own default instead of a copy of the string. The plane gates
+    // a launch on `storedDisplayProviderIds(row.virtualDisplayProviders)`, whose
+    // absent-list answer is `[DEFAULT_VIRTUAL_DISPLAY_PROVIDER]`; a hand-written
+    // provider name here can only drift into telling an agent a provider is
+    // enabled that the server is about to refuse with
+    // `preview-display-provider-disabled`.
+    const provider = args.provider ?? node.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER;
+    const allowed = node.virtualDisplayProviders ?? [DEFAULT_VIRTUAL_DISPLAY_PROVIDER];
     return {
       ...node,
       virtualDisplay: {
         ...readiness,
-        provider: args.provider ?? node.virtualDisplayProvider ?? "xvfb-x11vnc",
-        enabled:
-          node.virtualDisplayEnabled === true &&
-          (node.virtualDisplayProviders ?? [node.virtualDisplayProvider ?? "xvfb-x11vnc"]).includes(
-            args.provider ?? node.virtualDisplayProvider ?? "xvfb-x11vnc",
-          ),
+        provider,
+        enabled: node.virtualDisplayEnabled === true && allowed.includes(provider),
         status: !readiness.supported ? "unsupported" : readiness.missing.length ? "missing-programs" : "ready",
       },
     };

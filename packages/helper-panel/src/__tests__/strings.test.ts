@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readdirSync } from "node:fs";
 import { EMPTY_STATE, type PanelState } from "../state";
 import {
   consentControl,
@@ -19,6 +20,28 @@ import {
  */
 function stateWith(overrides: Partial<PanelState>): PanelState {
   return { ...EMPTY_STATE, ...overrides };
+}
+
+/**
+ * Every page source except the one file allowed to hold copy, comments stripped.
+ *
+ * A guard that reads only `main.ts` is satisfied by moving the defect into a
+ * second module, and the repository's own file-size rule ("split past ~300-400
+ * lines", and `main.ts` is 351) pushes an editor straight into doing that. These
+ * checks therefore look at the whole page, and they strip comments because a
+ * comment may name a permission while code may not.
+ */
+async function pageCode(): Promise<{ file: string; code: string }[]> {
+  const dir = new URL("../", import.meta.url);
+  const names = readdirSync(dir, { encoding: "utf8" }).filter(
+    (name) => name.endsWith(".ts") && name !== "strings.ts" && !name.endsWith(".d.ts"),
+  );
+  return Promise.all(
+    names.map(async (name) => ({
+      file: name,
+      code: (await Bun.file(new URL(name, dir)).text()).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, ""),
+    })),
+  );
 }
 
 describe("the consent warning", () => {
@@ -49,20 +72,18 @@ describe("the consent warning", () => {
     // file can disagree with the buttons beside it and nothing notices.
     expect(strings.capturePermissionLabel).toBe("Screen recording");
     expect(strings.inputPermissionLabel).toBe("Accessibility");
-    const source = await Bun.file(new URL("../main.ts", import.meta.url)).text();
-    // Comments are stripped before the search, because a comment is ALLOWED to
-    // name the permission (several do) while code is not. Searching the raw file
-    // for `"Screen recording"` only was the weaker version of this: JSX text
-    // (`>Screen recording<`), a single-quoted prop, and a template literal all
-    // re-introduce the drift this guards and none of them contain a double quote.
-    const code = source
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/^\s*\/\/.*$/gm, "")
-      .replace(/([^:"'])\/\/[^"\n]*$/g, "$1");
-    expect(code).toContain("strings.capturePermissionLabel");
-    expect(code).toContain("strings.inputPermissionLabel");
-    for (const label of ["Screen recording", "Accessibility"]) {
-      expect(code, `main.ts renders no copy of its own (${label})`).not.toContain(label);
+    const files = await pageCode();
+    const main = files.find((f) => f.file === "main.ts");
+    expect(main, "the page still has a main.ts to check").toBeTruthy();
+    expect(main?.code).toContain("strings.capturePermissionLabel");
+    expect(main?.code).toContain("strings.inputPermissionLabel");
+    // Every page module, not just `main.ts`, and no quote-style assumption: JSX
+    // text, a single-quoted prop and a template literal all re-introduce the
+    // drift, and none of them contain a double quote.
+    for (const { file, code } of files) {
+      for (const label of ["Screen recording", "Accessibility"]) {
+        expect(code, `${file} renders no copy of its own (${label})`).not.toContain(label);
+      }
     }
   });
 
@@ -168,17 +189,19 @@ describe("the consent button's note", () => {
     });
     // The page draws the pair from that one call, rather than reading
     // `state.enabled` a second time beside the note.
-    const source = await Bun.file(new URL("../main.ts", import.meta.url)).text();
-    expect(source).toContain("consentControl(state)");
-    // Not a ternary-shaped pattern test: the defect was a pair decided twice, so
-    // the rule is that the page never touches those four strings at all. A
-    // `switch (state.enabled)`, an `if`, or an `on` alias would each slip past a
-    // regex anchored on `state.enabled ?` and put the announced opposite act
-    // straight back under the button.
-    for (const name of ["enable", "disable", "enableNote", "disableNote"]) {
-      expect(source, `main.ts decides the consent pair only through consentControl (${name})`).not.toContain(
-        `strings.${name}`,
-      );
+    const files = await pageCode();
+    const main = files.find((f) => f.file === "main.ts");
+    expect(main?.code).toContain("consentControl(state)");
+    // Not a ternary-shaped pattern test, and not a single file either. The defect
+    // was the pair decided twice, so no page module may reach those four strings
+    // at all: by dot, by bracket, or by destructuring `strings`. A
+    // `consent-row.ts` that re-reads `state.enabled` is the same bug wearing a
+    // different filename, and the repository's own split-large-files rule is what
+    // would tempt an editor to write one.
+    const reachesThePair =
+      /strings\s*\.\s*(enable|disable|enableNote|disableNote)\b|strings\s*\[\s*["'](enable|disable|enableNote|disableNote)["']\s*\]|\{[^}]*\b(enable|disable|enableNote|disableNote)\b[^}]*\}\s*=\s*strings/;
+    for (const { file, code } of files) {
+      expect(reachesThePair.test(code), `${file} decides the consent pair only through consentControl`).toBe(false);
     }
   });
 

@@ -348,6 +348,7 @@ function SubshellPage() {
                 <VirtualDisplayIndicator
                   display={subshell?.virtualDisplay}
                   unsavedCount={unsavedPreview}
+                  canSave={subshell?.access !== "view"}
                   onOpen={openVirtualDisplay}
                 />
                 <SshPaneLabels subshell={subshell} nodeLabel={nodeLabel} />

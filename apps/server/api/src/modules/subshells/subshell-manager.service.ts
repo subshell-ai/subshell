@@ -472,10 +472,16 @@ export class SubshellManagerService {
     workspaceId?: string;
     /**
      * The virtual display size to request with the launch (pane-preview spec
-     * §6): forwarded verbatim to the launcher, which ships it on the frame;
-     * the AGENT node allocates (or refuses by name), `LocalLauncher` ignores
-     * it. The service preflighted the node's Preview switch before arriving
-     * here, so no row exists unless the plane already said yes.
+     * §6): forwarded verbatim to the launcher, which ships it on the frame.
+     * BOTH launchers act on it. A remote node's agent allocates through its own
+     * display registry and refuses by name (`preview-display-unsupported`,
+     * `preview-display-provider-disabled`, `preview-node-off`), and
+     * `LocalLauncher` allocates the local display before spawning, taking the
+     * environment from it (`local-launcher.ts` calls `openFor(plan.id,
+     * plan.screen)` and then `launchEnv`), so nothing here may treat the field
+     * as advisory for the control-plane host. The service preflighted the node's
+     * Preview switch before arriving here, so no row exists unless the plane
+     * already said yes.
      */
     screen?: VirtualDisplayRequest;
   }): Promise<{ id: string; tmuxSocket: string; apiKey: string; promptDelivered: boolean }> {

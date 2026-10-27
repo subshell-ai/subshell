@@ -31,6 +31,29 @@ test("the shared toggle persists each mode and confirms both transitions", () =>
   }
 });
 
+test("two presses in one batch report what the store ended up holding", () => {
+  // The menu and the touch bar both mount for one pane. Pressed in the same
+  // batch, the second handler still holds the `on` the first press replaced, so
+  // deciding the confirmation from that value tells the person "Text copying
+  // enabled" about a mode that has just been switched off - and the button and
+  // the toast then disagree with each other about the same pane.
+  setPaneCopyModeIds([]);
+  const confirmation = spyOn(toast, "success").mockImplementation(() => "toast");
+  try {
+    const { result: menu } = renderHook(() => usePaneCopyMode("pane"));
+    const { result: bar } = renderHook(() => usePaneCopyMode("pane"));
+    act(() => {
+      menu.current.onToggle();
+      bar.current.onToggle();
+    });
+    expect(paneCopyModeIds()).toEqual([]); // added, then removed
+    expect(bar.current.on).toBe(false);
+    expect(confirmation).toHaveBeenLastCalledWith("Text input enabled");
+  } finally {
+    confirmation.mockRestore();
+  }
+});
+
 test("loads the persisted mode on navigation without displaying a swap toast", () => {
   setPaneCopyModeIds(["copy-pane"]);
   const confirmation = spyOn(toast, "success").mockImplementation(() => "toast");
