@@ -61,7 +61,9 @@ describe("the two assistants' Virtual Displays screens", () => {
     expect(clientNote?.replace(/\s+/g, " ")).toBe(serverNote?.replace(/\s+/g, " "));
     expect(serverNote).toContain("Subshell Display Helper");
     for (const source of [server, client]) {
-      expect(source).not.toMatch(/sits under <span className="font-strong">Subshell (?:Client|Server)<\/span> in the macOS menu bar/);
+      expect(source).not.toMatch(
+        /sits under <span className="font-strong">Subshell (?:Client|Server)<\/span> in the macOS menu bar/,
+      );
     }
   });
 
