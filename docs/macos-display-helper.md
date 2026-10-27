@@ -35,8 +35,8 @@ Normal logout preserves consent. Disabling does not revoke TCC grants, close
 terminals, or guarantee removal of virtual screens while BetterDisplay is
 unreachable. A disabled running helper answers the read-only `status` request
 and accepts `rescue-cursor` (which acts only when the cursor sits inside no
-screen's frame, so an unattached pointer is left where the person put it), but
-refuses every other RPC. No RPC can enable it, register
+screen's frame, so a pointer the person can already see is left exactly where
+they put it), but refuses every other RPC. No RPC can enable it, register
 login startup, or request a privacy prompt. Because a virtual screen can
 outlive the helper, the stranded-pointer rescue also runs on any start: a
 cursor left on a display that went away while nothing was listening is put back
@@ -172,9 +172,12 @@ Validation passed: 564 pane-runtime tests, 57 preview-route authorization tests,
 TypeScript checks, and lint (with existing warnings). On the M5, native tests
 covered consent, rejected RPCs while disabled, and revocation during capture
 startup; every Swift source the native test script compiles (all of them except
-`main.swift`, which it excludes) built with warnings treated as errors for arm64
-and x86_64. These tests used temporary files and preferences and requested no
-privacy permissions. The temporary terminal and build directory were removed.
+`main.swift`, which it excludes) built with warnings treated as errors, for the
+architecture that run was on. Both limits are worth stating: the script targets
+the host's own architecture rather than arm64 and x86_64 in one pass, and the
+release build in `build_support.rs` passes no `-warnings-as-errors` at all, so
+neither is a both-arch warnings gate. These tests used temporary files and
+preferences and requested no privacy permissions. The temporary terminal and build directory were removed.
 
 A signed release's install/update, TCC persistence, and real ScreenCaptureKit
 revocation still need end-to-end validation on macOS. This review did not

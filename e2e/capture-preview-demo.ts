@@ -11,8 +11,13 @@ import { startStack, stopStack } from "./stack";
 
 if (PORTS.backend === 3080) throw new Error("Never capture against the live server");
 const securityOnly = process.argv.includes("--security-only");
-const root = mkdtempSync(path.join(tmpdir(), "preview-demo-"));
+// A fixed root, not a mkdtemp one. The project directory is what the pane header
+// and the workspace figure show, so a random `preview-demo-XXXX` suffix baked a
+// run artifact of this host into published docs and changed the image on every
+// re-shoot. Everything inside it is still written fresh and removed at the end.
+const root = path.join(tmpdir(), "preview-demo");
 const project = path.join(root, "northstar");
+mkdirSync(root, { recursive: true });
 const out = path.resolve(import.meta.dirname, "../apps/website/public/demos");
 const shots = path.resolve(import.meta.dirname, "../apps/docs/public/screenshots");
 const cleanup: (() => void | Promise<void>)[] = [stopStack, () => rmSync(root, { recursive: true, force: true })];

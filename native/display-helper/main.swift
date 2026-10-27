@@ -188,13 +188,14 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
         // alert left behind another window reads as a menu that does nothing.
         //
         // Apple marks this form deprecated as of macOS 14, and it is still the
-        // right call here: it is the shape main has shipped through the macOS lane
-        // (where warnings are errors, so a warning would have surfaced), while the
-        // no-argument `activate()` arrived with the macOS 14 SDK and nothing in
-        // this repo has ever compiled it. Note also that this file is outside that
-        // lane's reach at all - `test.sh` excludes `main.swift` - so the release
-        // build is the only thing that would tell us, and it passes no
-        // `-warnings-as-errors`.
+        // right call here. What the lane proves is the copy in `Settings.swift`:
+        // the macOS job compiles THAT file with warnings treated as errors, and
+        // main has shipped the same call through it. This file is outside that
+        // lane's reach (`test.sh` excludes `main.swift`), and the release build
+        // passes no `-warnings-as-errors`, so a warning here is invisible either
+        // way - and the no-argument `activate()` arrived with the macOS 14 SDK
+        // and nothing in this repo has ever compiled it, which would be a hard
+        // error rather than a warning.
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertFirstButtonReturn { return }
         NSApp.terminate(nil)

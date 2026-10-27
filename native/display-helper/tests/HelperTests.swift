@@ -210,6 +210,17 @@ struct HelperTests {
             precondition(result == nil)
             precondition(!consent.enabled)
         }
+        // The two admitted operations are admissions, not mere exceptions to a
+        // refusal. Deleting `|| operation == "rescue-cursor"` from `Runtime.swift`
+        // leaves every assertion above green while silently breaking the one act a
+        // disabled helper must still perform: by the time the daemon asks, the
+        // display that stranded the pointer is already gone, and a helper that
+        // answers by closing the socket strands the person at the Mac with no
+        // cursor and no way to click anything.
+        let rescued = try await Task.detached { try request(path, #"{"op":"rescue-cursor"}"#) }.value
+        precondition(rescued?["type"] as? String == "rescued", "a disabled helper still returns the pointer")
+        precondition(rescued?["protocol"] as? Int == 1, "the rescue answer keeps the frame's protocol")
+        precondition(!consent.enabled, "rescuing the cursor must not grant consent")
         try runtime.enable()
         let enabled = try await Task.detached { try request(path, #"{"op":"status"}"#) }.value
         precondition(enabled?["enabled"] as? Bool == true)
