@@ -5,7 +5,8 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
     private let consent = HelperConsent()
     private lazy var runtime = HelperRuntime(consent: consent)
     private lazy var settings = HelperSettings(consent: consent,
-        enable: { [weak self] in try self?.runtime.enable() }, disable: { [weak self] in self?.runtime.disable() })
+        enable: { [weak self] in try self?.runtime.enable() }, disable: { [weak self] in self?.runtime.disable() },
+        accessCount: { [weak self] in self?.runtime.viewers ?? 0 })
     private var statusItem: NSStatusItem?
     private var installLock: Int32 = -1
     private var started = false
@@ -49,24 +50,38 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
 
     private func updateMenu() {
         if statusItem == nil {
-            statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+            statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
             statusItem?.button?.image = NSImage(systemSymbolName: "display", accessibilityDescription: "Subshell virtual display helper")
         }
+        let viewers = runtime.viewers
         let menu = NSMenu()
         menu.autoenablesItems = false
-        let settingsItem = NSMenuItem(title: "Virtual Display Helper Settings…", action: #selector(showSettings), keyEquivalent: "")
+        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: "")
         settingsItem.target = self; menu.addItem(settingsItem)
-        let disable = NSMenuItem(title: "Disable Helper", action: #selector(disableHelper), keyEquivalent: "")
+        let minimize = NSMenuItem(title: "Minimize helper", action: #selector(minimizeSettings), keyEquivalent: "m")
+        minimize.target = self; minimize.isEnabled = settings.isShowing; menu.addItem(minimize)
+        let disable = NSMenuItem(title: "Disable helper", action: #selector(disableHelper), keyEquivalent: "")
         disable.target = self; disable.isEnabled = consent.enabled; menu.addItem(disable)
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit Helper", action: #selector(quitHelper), keyEquivalent: "")
+        let quit = NSMenuItem(title: "Quit helper", action: #selector(quitHelper), keyEquivalent: "")
         quit.target = self; menu.addItem(quit)
         statusItem?.menu = menu
-        statusItem?.button?.toolTip = consent.enabled ? "Subshell display helper enabled" : "Subshell display helper disabled"
+        statusItem?.button?.toolTip = AccessReport.tooltip(enabled: consent.enabled, viewers: viewers)
+        // Someone is watching a screen: the icon takes the warning gold and
+        // gains a dot, so the awareness survives a click elsewhere on the
+        // menu bar and does not depend on reading the tooltip.
+        statusItem?.button?.contentTintColor = viewers > 0 ? Theme.warning : nil
+        statusItem?.button?.attributedTitle = viewers > 0
+            ? NSAttributedString(string: " ●", attributes: [
+                .foregroundColor: Theme.warning,
+                .font: NSFont.systemFont(ofSize: 9),
+            ])
+            : NSAttributedString(string: "")
         settings.refresh()
     }
 
     @objc private func showSettings() { settings.show() }
+    @objc private func minimizeSettings() { settings.minimize() }
     @objc private func disableHelper() { settings.disableHelper(); settings.show() }
     @objc private func quitHelper() { settings.disableHelper(); NSApp.terminate(nil) }
 }
