@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { type PresetEntryMode, PresetFields } from "@/components/presets/preset-fields";
 import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
@@ -36,11 +36,12 @@ function plugin(p: {
 const CLAUDE = plugin({ id: "claude-code", name: "Claude Code", binary: "claude" });
 const PI = plugin({ id: "pi", name: "Pi" });
 
-function mockFetch(plugins: InstancePluginRow[], harnessSchema: unknown = {}) {
+function mockFetch(plugins: InstancePluginRow[], harnessSchema: unknown = {}, nodes: unknown[] = []) {
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown) => {
     const path = new URL(String(input), "http://localhost").pathname;
     if (path === "/api/plugins") return Promise.resolve(new Response(JSON.stringify({ plugins })));
+    if (path === "/api/nodes") return Promise.resolve(new Response(JSON.stringify({ nodes })));
     if (path.startsWith("/api/presets/harnesses/")) {
       return Promise.resolve(new Response(JSON.stringify(harnessSchema)));
     }
@@ -77,6 +78,86 @@ function renderEditor(
     </QueryClientProvider>,
   );
 }
+
+/** A node row for the machine half of the preset editor. */
+function nodeRow(id: string, os: string | null) {
+  return {
+    id,
+    name: id,
+    kind: "agent",
+    os,
+    arch: "x64",
+    hostname: id,
+    status: "online",
+    lastSeenAt: null,
+    agentVersion: "0.14.0",
+    protocolVersion: 12,
+    access: "owner",
+    canManage: true,
+    canRetire: true,
+    canLaunch: true,
+    allowedDirs: [],
+    capabilities: [],
+    harnesses: [],
+    inventoryStale: false,
+    maintenance: false,
+    sshEnabled: false,
+    sshWideForwards: false,
+    held: null,
+  };
+}
+
+describe("PresetLaunchFields provider and machine", () => {
+  // The preset stores a screen request whole, provider included, and every
+  // later launch from it honours that pin. The picker filters its list on the
+  // saved machine's OS; the value has to agree with the list or the editor
+  // shows "Node default" over a provider nobody chose in this session.
+  const pinned = (nodeId: string): PresetFormValue => ({
+    ...emptyPresetForm(),
+    harnessId: "claude-code",
+    name: "N",
+    nodeId,
+    screen: { width: 1280, height: 800, provider: "betterdisplay" },
+  });
+
+  it("clears a provider the saved machine cannot run, and keeps the rest", async () => {
+    const restore = mockFetch([CLAUDE], {}, [nodeRow("mac-1", "linux")]);
+    const seen: PresetFormValue[] = [];
+    try {
+      renderEditor(pinned("mac-1"), seen);
+      await waitFor(() => expect(seen.some((v) => v.screen !== null && v.screen?.provider === undefined)).toBe(true));
+      // Still a screen request with the same size, and the machine survives:
+      // only the impossible provider is gone.
+      const cleared = seen[seen.length - 1];
+      expect(cleared.nodeId).toBe("mac-1");
+      expect(cleared.screen).toEqual({ width: 1280, height: 800 });
+    } finally {
+      restore();
+    }
+  });
+
+  it("leaves the pin alone while the machine has not reported an OS", async () => {
+    // No OS answer is no verdict, and the list stops filtering in the same
+    // breath: clearing here would silently drop a deliberate choice while the
+    // row still offered it.
+    const restore = mockFetch([CLAUDE], {}, [nodeRow("mac-1", null)]);
+    const seen: PresetFormValue[] = [];
+    try {
+      renderEditor(pinned("mac-1"), seen);
+      // The row has to NAME the pin it is keeping: an empty list plus a kept
+      // value is exactly the pair that used to disagree, and only the trigger
+      // shows whether the person can see what will launch.
+      const trigger = await screen.findByRole("combobox", { name: "Display provider" });
+      expect(trigger.textContent).toContain("BetterDisplay");
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 50));
+      });
+      expect(seen.every((v) => v.screen?.provider === "betterdisplay")).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+});
 
 afterEach(cleanup);
 

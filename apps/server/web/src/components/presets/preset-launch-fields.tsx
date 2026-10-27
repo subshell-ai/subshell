@@ -1,5 +1,5 @@
 import { Button, FormSectionTitle, HelperCaption, Label, Switch } from "@internal/node-admin";
-import { CROSS_AGENT_NOTES_MAX, VIRTUAL_DISPLAY_PROVIDERS } from "@internal/subshell-protocol";
+import { CROSS_AGENT_NOTES_MAX } from "@internal/subshell-protocol";
 import { X } from "lucide-react";
 import { useEffect } from "react";
 import { PromptStackSection } from "@/components/prompts/prompt-stack-section";
@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Textarea } from "@/components/ui/textarea";
 import { WorkingDirField } from "@/components/working-dir-field";
 import { useNodes } from "@/hooks/use-nodes";
-import { nodeDefaultForMachine, providerForMachine, providersForMachine } from "@/lib/display-provider-choice";
+import { bundledProvidersForMachine, nodeDefaultForMachine, providerForMachine } from "@/lib/display-provider-choice";
 import { isOfflineAgent } from "@/lib/node-label";
 import { crossCommSaveBlocked, type PresetFormValue, presetLaunchGaps } from "@/lib/preset-form";
 import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
@@ -166,10 +166,7 @@ export function PresetLaunchFields({
             // the pick there is how the trigger came to say "Node default" over
             // a saved pin. No OS answer (no machine, or a node that enrolled and
             // never came ready) is no verdict, so the full catalog is offered.
-            providers={providersForMachine(
-              VIRTUAL_DISPLAY_PROVIDERS.map((p) => p.id),
-              selectedNode?.os,
-            )}
+            providers={bundledProvidersForMachine(selectedNode?.os).map((p) => p.id)}
             defaultProvider={nodeDefaultForMachine(selectedNode?.virtualDisplayProvider, selectedNode?.os)}
             onChange={(provider) =>
               onChange({ ...value, screen: { ...(value.screen ?? { width: 1280, height: 800 }), provider } })

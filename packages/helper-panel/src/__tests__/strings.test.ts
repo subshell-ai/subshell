@@ -272,14 +272,17 @@ describe("the native chrome's palette", () => {
     const [swift, css] = await Promise.all([Bun.file(themePath).text(), Bun.file(tokensPath).text()]);
     const block = /static let tokens: [^=]+ = \[([\s\S]*?)\n {4}\]/.exec(swift)?.[1] ?? "";
     const native = new Map<string, string>();
-    for (const match of block.matchAll(/"([a-z-]+)": \(([\d.]+), ([\d.]+), ([\d.]+)\)/g)) {
+    for (const match of block.matchAll(/"([a-z0-9-]+)": \(([\d.]+), ([\d.]+), ([\d.]+)\)/g)) {
       native.set(match[1] as string, `${match[2]} ${match[3]} ${match[4]}`);
     }
+    // Both patterns take the whole shadcn name space, digits included
+    // (`--chart-1`): a name either regex cannot spell is a row compared to
+    // nothing, which is the same hole as a missed number.
     // Count the rows loosely as well. A strict parser that silently misses an
     // entry would otherwise certify the three it happened to read and let a
     // fourth added token drift from the shared file unchecked, which is the
     // exact failure this test exists to catch.
-    const declared = [...block.matchAll(/"([a-z-]+)"\s*:\s*\(/g)].map((match) => match[1] as string);
+    const declared = [...block.matchAll(/"([a-z0-9-]+)"\s*:\s*\(/g)].map((match) => match[1] as string);
     expect(declared.sort()).toEqual([...native.keys()].sort());
     expect(native.size).toBeGreaterThan(0);
     for (const [name, triple] of native) {

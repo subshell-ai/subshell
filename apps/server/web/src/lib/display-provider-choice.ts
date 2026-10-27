@@ -1,4 +1,9 @@
-import { displayProviderRunsOnOs } from "@internal/subshell-protocol";
+import {
+  type DisplayProviderCatalogEntry,
+  displayProviderRunsOnOs,
+  displayProvidersForOs,
+  VIRTUAL_DISPLAY_PROVIDERS,
+} from "@internal/subshell-protocol";
 
 /**
  * The provider a form may keep after its machine changes.
@@ -39,6 +44,21 @@ export function providerForMachine(provider: string | undefined, os: string | nu
 export function providersForMachine(ids: readonly string[], os: string | null | undefined): string[] {
   if (os === null || os === undefined) return [...ids];
   return ids.filter((id) => displayProviderRunsOnOs(id, os));
+}
+
+/**
+ * The bundled catalog a machine may be offered, by the same reading as above.
+ *
+ * The node settings card and the launch surfaces ask the same question with
+ * different data (catalog entries to render, ids to list), so they share this
+ * one. An unanswered OS answers nothing: an enrolled node that never came ready
+ * keeps its full catalog here rather than being told no provider supports an
+ * operating system it has not reported, which is the reading that would strand
+ * the owner's only path to pre-enable a provider.
+ */
+export function bundledProvidersForMachine(os: string | null | undefined): readonly DisplayProviderCatalogEntry[] {
+  if (os === null || os === undefined) return VIRTUAL_DISPLAY_PROVIDERS;
+  return displayProvidersForOs(os);
 }
 
 /**

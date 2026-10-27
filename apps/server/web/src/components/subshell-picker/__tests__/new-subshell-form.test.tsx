@@ -78,12 +78,17 @@ async function settle(): Promise<void> {
   });
 }
 
+/** The value the controlled parent last held, so a test can read what the form
+ *  wrote back rather than only what it drew. */
+let lastValue: NewSubshellFormValue | null = null;
+
 /** A controlled parent like /new and the dialog. */
 async function renderForm(initial: NewSubshellFormValue, launchError?: string | null) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   function Harness() {
     const [value, setValue] = useState(initial);
     setter = setValue;
+    lastValue = value;
     return <NewSubshellForm value={value} onChange={setValue} launchError={launchError} />;
   }
   const rootRoute = createRootRoute();
@@ -254,6 +259,52 @@ function mockTwoNodes() {
     release: (body: unknown) => releaseNode9?.(body),
   };
 }
+
+describe("NewSubshellForm provider and machine", () => {
+  afterEach(cleanup);
+
+  it("drops a saved provider the chosen machine cannot run", async () => {
+    // Box reports Linux, so a form still holding BetterDisplay for it would
+    // launch with a provider that machine refuses - the flow the OS gate exists
+    // to remove. The picker's filtered list hid the stale value, so nothing
+    // else in the UI would have caught it: this pins the write-back itself.
+    const { restore, release } = mockTwoNodes();
+    try {
+      await renderForm({
+        ...emptyNewSubshellForm(),
+        nodeId: "node-9",
+        virtualDisplay: true,
+        displayProvider: "betterdisplay",
+      });
+      release({ paths: [], home: null });
+      await settle();
+      expect(lastValue?.displayProvider).toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps the provider while the machine has not reported an OS", async () => {
+    // The control plane's own row answers no OS at all, which is not a verdict
+    // that BetterDisplay cannot run. Clearing on it would cost a deliberate
+    // pick on every mount, and the list stops filtering in the same breath, so
+    // the two readings have to agree in both directions.
+    const { restore, release } = mockTwoNodes();
+    try {
+      await renderForm({
+        ...emptyNewSubshellForm(),
+        nodeId: "local",
+        virtualDisplay: true,
+        displayProvider: "betterdisplay",
+      });
+      release({ paths: [], home: null });
+      await settle();
+      expect(lastValue?.displayProvider).toBe("betterdisplay");
+    } finally {
+      restore();
+    }
+  });
+});
 
 describe("NewSubshellForm machine switch", () => {
   afterEach(cleanup);
