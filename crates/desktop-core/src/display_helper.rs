@@ -202,21 +202,19 @@ pub fn open_settings(resource_dir: &Path, home: &Path) -> Result<(), String> {
         fs::create_dir(&staging).map_err(|e| e.to_string())?;
         let next = staging.join(BUNDLE);
         let previous = staging.join("previous.app");
-        let result = (|| {
-            run(&["/usr/bin/ditto", path(&bundled)?, path(&next)?])?;
-            verify(&next)?;
-            let had_previous = installed.exists();
-            if had_previous {
-                fs::rename(&installed, &previous).map_err(|e| e.to_string())?;
-            }
-            if let Err(error) = fs::rename(&next, &installed) {
+        let result = staged_swap(&SwapSteps {
+            copy: &|| run(&["/usr/bin/ditto", path(&bundled)?, path(&next)?]).map(|_| ()),
+            verify: &|| verify(&next),
+            move_aside: &|| {
+                let had_previous = installed.exists();
                 if had_previous {
-                    let _ = fs::rename(&previous, &installed);
+                    fs::rename(&installed, &previous).map_err(|e| e.to_string())?;
                 }
-                return Err(error.to_string());
-            }
-            Ok(())
-        })();
+                Ok(had_previous)
+            },
+            promote: &|| fs::rename(&next, &installed).map_err(|e| e.to_string()),
+            restore: &|| fs::rename(&previous, &installed).map_err(|e| e.to_string()),
+        });
         // Keep a previous copy if rollback itself failed, rather than deleting it.
         if installed.exists() {
             let _ = fs::remove_dir_all(&staging);
@@ -226,10 +224,122 @@ pub fn open_settings(resource_dir: &Path, home: &Path) -> Result<(), String> {
     run(&["/usr/bin/open", path(&installed)?, "--args", "--settings"]).map(|_| ())
 }
 
+/// The steps of the staged swap, injected so a test can fail each one and watch what
+/// happens to the copy the person is already using.
+struct SwapSteps<'a> {
+    copy: &'a dyn Fn() -> Result<(), String>,
+    verify: &'a dyn Fn() -> Result<(), String>,
+    move_aside: &'a dyn Fn() -> Result<bool, String>,
+    promote: &'a dyn Fn() -> Result<(), String>,
+    restore: &'a dyn Fn() -> Result<(), String>,
+}
+
+/// Copy the bundle in, verify it, then swap it over the installed copy, putting the old
+/// one back if the swap itself fails.
+///
+/// Two orders are the whole contract, and neither could be tested while they were inline
+/// in the one function that performs them. An unverified copy must never become
+/// `installed`: the staged one is a `ditto` of the bundle, and promoting a corrupt one
+/// replaces the only helper the person has. And a promote that fails must restore the
+/// previous copy exactly when there was one, which is the difference between a refused
+/// update and a vanished install.
+fn staged_swap(steps: &SwapSteps) -> Result<(), String> {
+    (steps.copy)()?;
+    (steps.verify)()?;
+    let had_previous = (steps.move_aside)()?;
+    if let Err(error) = (steps.promote)() {
+        if had_previous {
+            let _ = (steps.restore)();
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
     use std::os::unix::fs::symlink;
+
+    #[test]
+    fn a_copy_that_does_not_verify_is_never_promoted() {
+        // Delete the `verify` step from the transaction and every other test here stays
+        // green, because the promote still happens: this is the only thing that says a
+        // bundle the person cannot run never becomes their installed helper.
+        let log = RefCell::new(Vec::new());
+        let steps = SwapSteps {
+            copy: &|| {
+                log.borrow_mut().push("copy");
+                Ok(())
+            },
+            verify: &|| {
+                log.borrow_mut().push("verify");
+                Err("bad signature".to_string())
+            },
+            move_aside: &|| {
+                log.borrow_mut().push("aside");
+                Ok(true)
+            },
+            promote: &|| {
+                log.borrow_mut().push("promote");
+                Ok(())
+            },
+            restore: &|| {
+                log.borrow_mut().push("restore");
+                Ok(())
+            },
+        };
+        assert_eq!(staged_swap(&steps).unwrap_err(), "bad signature");
+        assert_eq!(*log.borrow(), vec!["copy", "verify"]);
+    }
+
+    #[test]
+    fn a_failed_promote_puts_the_previous_copy_back() {
+        // Without the restore the person is left with no helper at all and a menu that
+        // now opens nothing, which is why the rollback is asserted rather than trusted.
+        let log = RefCell::new(Vec::new());
+        let steps = SwapSteps {
+            copy: &|| Ok(()),
+            verify: &|| Ok(()),
+            move_aside: &|| {
+                log.borrow_mut().push("aside");
+                Ok(true)
+            },
+            promote: &|| {
+                log.borrow_mut().push("promote");
+                Err("busy".to_string())
+            },
+            restore: &|| {
+                log.borrow_mut().push("restore");
+                Ok(())
+            },
+        };
+        assert_eq!(staged_swap(&steps).unwrap_err(), "busy");
+        assert_eq!(*log.borrow(), vec!["aside", "promote", "restore"]);
+    }
+
+    #[test]
+    fn a_first_install_that_fails_to_promote_has_nothing_to_put_back() {
+        // There was no previous copy, so a restore would rename a path that does not
+        // exist, and the error the user is shown must stay the promote's own.
+        let log = RefCell::new(Vec::new());
+        let steps = SwapSteps {
+            copy: &|| Ok(()),
+            verify: &|| Ok(()),
+            move_aside: &|| Ok(false),
+            promote: &|| {
+                log.borrow_mut().push("promote");
+                Err("busy".to_string())
+            },
+            restore: &|| {
+                log.borrow_mut().push("restore");
+                Ok(())
+            },
+        };
+        assert_eq!(staged_swap(&steps).unwrap_err(), "busy");
+        assert!(!log.borrow().contains(&"restore"));
+    }
 
     #[test]
     fn the_codesign_requirement_is_a_literal_not_a_filename() {
