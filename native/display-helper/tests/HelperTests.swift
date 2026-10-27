@@ -66,6 +66,10 @@ struct HelperTests {
         precondition(AccessReport.tooltip(enabled: true, viewers: 2) == "Subshell is viewing a virtual display on this Mac (2 viewers)")
         precondition(AccessReport.tooltip(enabled: true, viewers: 1) == "Subshell is viewing a virtual display on this Mac")
         precondition(AccessReport.tooltip(enabled: false, viewers: 0) == "Subshell virtual display helper disabled")
+        // The granted rows' way into System Settings: real pane URLs, so a
+        // typo would open nothing and read as a dead button.
+        precondition(SettingsRoute.screenRecording == "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+        precondition(SettingsRoute.accessibility == "x-apple.systempreferences:com.apple.preference.security?Accessibility")
         // The login item's three macOS states stay three, because collapsing
         // notRegistered into "approved" is what made a turned-off sign-in start
         // still read "Starts at sign-in with macOS."

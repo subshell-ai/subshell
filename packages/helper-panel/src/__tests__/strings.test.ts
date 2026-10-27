@@ -37,7 +37,9 @@ describe("the consent warning", () => {
     // macOS convention, and the dashboard's: "…" means a dialog or another
     // app is about to take over. System Settings does; the browser link and
     // the "Allow" buttons do not, because the row already names the permission.
-    expect(strings.openLoginItems.endsWith("…")).toBe(true);
+    for (const label of [strings.openLoginItems, strings.openSettings]) {
+      expect(label.endsWith("…")).toBe(true);
+    }
     for (const label of [strings.allow, strings.openDocs, strings.minimize, strings.quit]) {
       expect(label.endsWith("…")).toBe(false);
     }
@@ -137,6 +139,14 @@ describe("quit confirmation", () => {
     expect(body).toContain("starts again at sign-in");
     expect(body).toContain("virtual display settings");
     expect(body).toContain("disable it first");
+  });
+
+  test("gives the granted row a control that says where it goes", () => {
+    // "Allow" twice would promise a prompt macOS has already answered, and a
+    // bare "Settings" would not say which pane the press opens.
+    expect(strings.openSettings).toBe("Open settings…");
+    expect(strings.openCaptureSettingsLabel).toBe("Open screen recording settings");
+    expect(strings.openInputSettingsLabel).toBe("Open accessibility settings");
   });
 
   test("names the same act in the button, the heading, and the confirm", () => {
