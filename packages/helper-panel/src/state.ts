@@ -26,8 +26,6 @@ export interface PanelState {
  */
 export type LoginItemState = "registered" | "needsApproval" | "notRegistered";
 
-export const LOGIN_ITEM_STATES: readonly LoginItemState[] = ["registered", "needsApproval", "notRegistered"];
-
 export const EMPTY_STATE: PanelState = {
   enabled: false,
   screenRecording: false,
@@ -68,8 +66,3 @@ export type PanelAction =
  * the document reports what it needs and nothing inside it scrolls.
  */
 export type PanelMessage = { action: PanelAction } | { action: "resize"; width: number; height: number };
-
-/** Everything the helper must refuse while consent is off. */
-export function isPermissionAction(action: PanelAction): boolean {
-  return action === "requestCapture" || action === "requestInput";
-}

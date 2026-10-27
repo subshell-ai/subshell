@@ -907,6 +907,11 @@ describe("preview REST surface (Task 9)", () => {
     expect(res.status).toBe(400);
     const body = await errorBody(res);
     expect(body.message).toMatch(/Enable Allow virtual displays/i);
+    // The marker is the wire contract, not decoration: the dashboard matches on
+    // `preview-node-off` to decide that this refusal belongs beside the Virtual
+    // display checkbox rather than under Save as preset. A rewording that drops
+    // it re-creates the original bug with this suite still green.
+    expect(body.message).toContain("(preview-node-off)");
     expect(sim.countOf("launch")).toBe(0);
     expect(await paneCount(ownerId)).toBe(before);
   });

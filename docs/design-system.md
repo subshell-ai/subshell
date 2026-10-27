@@ -7,8 +7,11 @@ living reference; the decision record is
 `docs/superpowers/specs/2026-09-14-design-system-design.md`, and the check
 that enforces it is `bun run lint:design` (`scripts/design-tokens.ts`).
 
-**Colours live in one file**: `packages/assistant/tokens.css`, imported by every
-CSS surface. It sits in `packages/` (Apache-2.0) rather than beside the surfaces
+**Colours live in one file**: `packages/assistant/tokens.css`, imported by the
+SPA, both desktop assistants, and the helper's panel. The node's own dashboard
+(`apps/node/web`) still carries a copy of the same values: it is walked under the
+SPA's rules so it cannot escape the role system, but nothing compares its palette
+to the shared file, so a new surface imports rather than copies. It sits in `packages/` (Apache-2.0) rather than beside the surfaces
 so that anything rendering the product may import it, including the macOS
 display helper's panel; the old alternative was each surface keeping a copy and
 the checker policing the copies, which is how the assistant once came to carry

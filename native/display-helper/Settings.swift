@@ -23,7 +23,11 @@ private enum PanelBundle {
     /// else would be handed that button.
     static func allows(_ url: URL?) -> Bool {
         guard let url, let directory = directoryURL(), url.isFileURL else { return false }
-        return url.path.hasPrefix(directory.path + "/") || url.path == directory.path
+        // Standardized, so `panel/../../Secrets/x` cannot wear the prefix of a
+        // directory it actually escapes. The file read is scoped separately;
+        // this gate is the one the header comment leans on, so it stands alone.
+        let path = url.standardizedFileURL.path
+        return path == directory.path || path.hasPrefix(directory.path + "/")
     }
 }
 
@@ -34,9 +38,11 @@ private enum PanelBundle {
 /// the dashboard instead of as a hand-rolled approximation of it. It is still
 /// not an authority. It is loaded with `loadFileURL` scoped to its own
 /// directory, from a non-persistent data store, with no window opening and no
-/// navigation off-bundle, so it can fetch nothing and hold nothing: what it
-/// shows comes from the helper process, and every act it offers is re-checked
-/// in Swift. A page that somehow posts `requestCapture` while consent is off
+/// navigation off-bundle, and its own Content-Security-Policy (`default-src
+/// 'none'`, with only the two inline sources the build's fold needs) refuses
+/// every request the page might try to make. So it can fetch nothing and hold
+/// nothing: what it shows comes from the helper process, and every act it
+/// offers is re-checked in Swift. A page that somehow posts `requestCapture` while consent is off
 /// gets the same refusal as a person who cannot click it.
 @MainActor
 final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
@@ -52,7 +58,7 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
     /// The page's own entry point, so a state push before it exists is skipped
     /// rather than swallowed by a rejected script.
     private var loaded = false
-    /// The last JSON handed to the page. The poll runs every two seconds, and
+    /// The last JSON handed to the page. The poll runs every five seconds, and
     /// re-rendering an unchanged panel would move the caret and the selection.
     private var lastPushed = ""
     private var errorMessage = ""
@@ -258,10 +264,12 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
         pushState(force: true)
     }
 
-    /// The consent act, both halves: the runtime starts listening, and macOS is
-    /// told to launch the helper at sign-in. Public because the status menu
-    /// offers the same act, and a menu that enabled without registering the
-    /// login item would leave a helper that never came back.
+    /// The consent act, and nothing else: the helper starts listening and the
+    /// person's agreement is stored. It deliberately does not register the
+    /// login item, because agreeing to be captured and agreeing to launch at
+    /// sign-in are two choices and macOS's list is not the place to discover
+    /// the second one was made for you. `registerLoginItem` is its own act with
+    /// its own button, offered by the panel and by the status menu alike.
     func enableHelper() {
         errorMessage = ""
         do { try enable() }
@@ -375,9 +383,6 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
     }
 }
 
-/// One width, measured from the page: `packages/helper-panel/src/styles.css`
-/// sets `.panel { width: var(--panel-width) }` at 420px, so the window and the
-/// document agree and no horizontal scrollbar appears.
 /// The window's first box and the limits it may be resized within. The width
 /// the person finally sees comes from the document (`width: 520px` in
 /// `packages/helper-panel/src/styles.css`); these only have to be good enough to

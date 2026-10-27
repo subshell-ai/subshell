@@ -177,7 +177,19 @@ function quitDialog(): HTMLElement {
   foot.append(cancel, confirm);
   dialog.append(title, body, foot);
   scrim.append(dialog);
-  // Focus the way out, not the act.
+  // Focus the way out, not the act. `aria-modal` is a promise the background
+  // cannot be reached, and the scrim has no inert attribute to enforce it, so
+  // Tab is kept inside the two controls here rather than left to the browser.
+  scrim.tabIndex = -1;
+  scrim.addEventListener("keydown", (event) => {
+    if (event.key !== "Tab") return;
+    const controls = [cancel, confirm];
+    const at = controls.indexOf(document.activeElement as HTMLButtonElement);
+    const step = event.shiftKey ? -1 : 1;
+    const next = (at + step + controls.length) % controls.length;
+    event.preventDefault();
+    controls[next]?.focus();
+  });
   queueMicrotask(() => cancel.focus());
   return scrim;
 }

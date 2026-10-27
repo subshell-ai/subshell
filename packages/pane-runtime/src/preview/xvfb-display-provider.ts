@@ -3,11 +3,13 @@ import {
   chmodSync,
   closeSync,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
   openSync,
   readdirSync,
   readFileSync,
+  readSync,
   rmSync,
   unlinkSync,
   writeFileSync,
@@ -82,6 +84,9 @@ const DEFAULT_READY_BUDGET_MS = 10_000;
 const READY_POLL_MS = 100;
 /** How many trailing lines each child log keeps in the daemon log on a refusal. */
 const REFUSAL_TAIL_LINES = 30;
+/** How far back into a child's log the refusal read goes: enough for the lines
+ *  above, bounded so a chatty stranger cannot make the daemon size its whole file. */
+const REFUSAL_TAIL_BYTES = 16_384;
 
 /**
  * The X auth file for one pane's display, byte-derived from `dataDir` the
@@ -799,12 +804,25 @@ function writeRecord(dir: string, rec: Record<string, unknown>): void {
  * is reaped, so a missing or empty file must be a quiet no, never a throw.
  */
 function readTail(path: string): string {
+  let handle = -1;
   try {
-    const content = readFileSync(path, "utf8");
-    const lines = content.split("\n").filter((line) => line.trim().length > 0);
+    // The tail, not the file. These logs are seconds old in practice, but a
+    // chatty x11vnc repeating a rejected client can grow one, and a refusal is
+    // the wrong moment to allocate a stranger's entire output in the daemon.
+    handle = openSync(path, "r");
+    const size = fstatSync(handle).size;
+    const start = Math.max(0, size - REFUSAL_TAIL_BYTES);
+    const buffer = new Uint8Array(size - start);
+    readSync(handle, buffer, 0, buffer.length, start);
+    const lines = new TextDecoder()
+      .decode(buffer)
+      .split("\n")
+      .filter((line) => line.trim().length > 0);
     return lines.slice(-REFUSAL_TAIL_LINES).join("\n");
   } catch {
     return "";
+  } finally {
+    if (handle >= 0) closeSync(handle);
   }
 }
 

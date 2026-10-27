@@ -28,6 +28,13 @@ export const SCREEN_VIEW_REASON = "Virtual display needs edit access to this sub
 
 /** The remedy line per plane-side reason word, for rows shown while the node cannot serve. */
 export function nodeReasonLine(reason: string | undefined): string {
+  // The node names its own master-switch refusal with the explanation attached
+  // (`preview-node-off: turn on Preview for this node`). It is the same setting
+  // as the plane's `preview-disabled` verdict, so it says the same sentence
+  // rather than falling through to the parenthesised default.
+  if (reason?.startsWith("preview-node-off")) {
+    return "Web previews & screens is switched off on this node. Its owner can turn it on in node settings.";
+  }
   switch (reason) {
     case "virtual-display-disabled":
       return "Virtual displays are disabled in this node’s settings.";

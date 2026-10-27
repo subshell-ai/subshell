@@ -51,7 +51,7 @@ test("preview documents isolate dashboard authority while modules, POST and WS k
     const workspace = await request.post("/api/workspaces", { data: { name: "Preview isolation", subshellId } });
     expect(workspace.ok()).toBe(true);
     await page.goto(`/workspaces/${(await workspace.json()).id}`);
-    await page.getByRole("button", { name: "Open web preview or screen", exact: true }).click();
+    await page.getByRole("button", { name: /^Open web preview or screen/ }).click();
     await page.getByRole("button", { name: `Open web preview on port ${port}` }).click();
     await expect(
       page.frameLocator("iframe").getByRole("heading", { name: "Small teams. Considered websites." }),

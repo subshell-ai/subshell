@@ -69,20 +69,22 @@ virtual screen; click that window before typing.
 
 1. On that Mac, open **Subshell Client** or **Subshell Server** and choose
    **Virtual Displays** in the assistant window's sidebar, then choose **Open
-   Display Helper settings**. The same panel is in the macOS menu bar under the
-   app's name as **Virtual Display Helper…**. Either way this opens settings;
+   Display Helper settings**. The same panel is also behind the helper's own
+   icon in the macOS menu bar, whose menu opens with the helper's name. Either way this opens settings;
    the helper stays disabled until you choose otherwise.
-2. Read the shared-desktop warning, then choose **Enable helper**. This also
-   registers the helper to start when you sign in. It can keep running after
-   you close the desktop app. If the panel reports pending background approval,
-   choose **Open login items…** and allow it in System Settings.
+2. Read the shared-desktop warning, then choose **Enable helper**. Capture and
+   input need that consent and both macOS permissions; nothing else starts on its
+   own. If you want the helper to come back when you sign in, use the panel's
+   **Launch at sign-in** row to add it to macOS's login list, and choose **Open
+   login items…** if the row says macOS is still waiting for your approval.
 3. Choose **Allow screen recording…** and **Allow accessibility…**. In macOS
    System Settings, grant both permissions to **Subshell Display Helper**.
    Screen Recording lets it capture the virtual screen; Accessibility lets it
    send keyboard and pointer input. Subshell can't grant these permissions
    through node settings or MCP. If macOS requires a restart, choose **Quit
-   Helper** from the helper's display icon in the menu bar, reopen its settings
-   through either desktop app, and enable it again.
+   helper** from the helper's display icon in the menu bar and reopen its settings
+   through either desktop app. Your consent stays, so you don't have to enable it
+   again.
 4. In the server dashboard, open **Settings** → **Nodes**, select that Mac,
    and open **Overview**. Enable **Allow virtual displays** and **Allow
    BetterDisplay**, then choose it as the default if desired. Choose **Recheck**
@@ -100,12 +102,15 @@ aren't supported. Native letter shortcuts use the Mac's ANSI key positions;
 non-US keyboard layouts may interpret shortcuts differently.
 
 To stop access, open the same panel and choose **Disable helper**, or choose
-**Disable Helper** from its menu-bar icon. This disconnects all helper captures
-and stops input for both desktop apps, and unregisters startup at login.
-Your terminal subshells keep running. macOS permission grants remain in place;
-you can revoke them separately in System Settings. **Quit Helper** also
-disables it. Existing virtual screens can remain until their subshells close
-or recovery can contact BetterDisplay again.
+**Disable helper** from its menu-bar icon. This disconnects all helper captures
+and stops input for both desktop apps. Your terminal subshells keep running, and
+so does the sign-in choice you made: the helper stays in macOS's login list and
+starts again at sign-in, found disabled and exiting at once. To take it out of
+the list, use the panel's **Stop at sign-in** button first. macOS permission
+grants remain in place; you can revoke them separately in System Settings.
+**Quit helper** ends the process and asks first, since anyone watching loses the
+screen right then. Existing virtual screens can remain until their subshells
+close or recovery can contact BetterDisplay again.
 
 Turning off **Allow virtual displays** in node settings blocks new allocations;
 it doesn't replace the helper's immediate disable control. If the Mac has no

@@ -448,6 +448,20 @@ describe("the shared token file", () => {
   });
 });
 
+describe("the shared palette as a build input", () => {
+  test("turbo treats it as a global dependency", () => {
+    // Every CSS surface imports `packages/assistant/tokens.css`, and the macOS
+    // helper panel ships the built result inside a signed bundle. Without this,
+    // a commit that edits only the palette hits a warm cache, serves the old
+    // inlined stylesheet, and `bun run lint:design` still passes: the checker
+    // reads sources, and the shipped bytes are whatever the cache held.
+    const turbo = JSON.parse(readFileSync(join(REPO_ROOT, "turbo.json"), "utf8")) as {
+      globalDependencies?: string[];
+    };
+    expect(turbo.globalDependencies).toContain(SHARED_TOKENS);
+  });
+});
+
 describe("a package page that joins a surface", () => {
   test("the helper panel is walked under the assistant rules, by name", () => {
     // Nothing else checks the registration itself. A scan root pointing at a

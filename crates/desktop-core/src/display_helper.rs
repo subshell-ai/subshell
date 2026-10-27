@@ -88,7 +88,7 @@ impl InstallLock {
             .open(directory.join("install.lock"))
             .map_err(|e| e.to_string())?;
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-            return Err("A newer helper is bundled with this app. Choose Quit Helper in the display helper's menu, then open these settings again to update it.".into());
+            return Err("A newer helper is bundled with this app. Choose Quit helper in the display helper's menu, then open these settings again to update it.".into());
         }
         Ok(Self(file))
     }
@@ -136,7 +136,15 @@ fn replacement_needed(bundled: &Path, bundled_version: &str, installed: &Path) -
         }
         _ => {}
     }
-    verify(installed)?;
+    // A copy that fails its own signature check is a reason to replace it, not a
+    // reason to lock the door. The bundled copy was verified by the caller, and
+    // the staging below renames whatever is there to `previous.app` and keeps a
+    // rollback; refusing here would strand both assistants' only way into the
+    // helper settings behind a leftover from another identity, with no remedy
+    // named and no rebuild that could repair it.
+    if verify(installed).is_err() {
+        return Ok(true);
+    }
     let installed_version = version(installed)?;
     if !may_replace_version(bundled_version, &installed_version, cfg!(debug_assertions)) {
         return Ok(false);
@@ -260,6 +268,31 @@ mod tests {
         drop(first);
         let next = InstallLock::acquire(&directory).unwrap();
         drop(next);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn an_unverifiable_install_is_replaced_rather_than_locked_behind() {
+        // The failure this guards: a stale or foreign copy under ~/Applications
+        // that no longer satisfies its signature made every later press of
+        // "Open Display Helper settings" fail with codesign's own words, even
+        // though the app carries a verified bundle that would replace it.
+        let directory = std::env::temp_dir().join(format!("subshell-helper-broken-{}", std::process::id()));
+        fs::create_dir_all(directory.join(BUNDLE).join("Contents")).unwrap();
+        fs::write(
+            directory.join(BUNDLE).join("Contents/Info.plist"),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>dev.subshell.display-helper</string><key>CFBundleVersion</key><string>9.9.9</string></dict></plist>\n",
+        )
+        .unwrap();
+        let installed = directory.join(BUNDLE);
+        assert!(
+            replacement_needed(Path::new("/unused"), "1.0.0", &installed).unwrap(),
+            "a copy that fails verification must be replaced, not reported as an error"
+        );
+        assert!(
+            fs::symlink_metadata(&installed).is_ok(),
+            "the decision alone touches nothing"
+        );
         fs::remove_dir_all(directory).unwrap();
     }
 

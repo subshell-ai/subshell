@@ -23,8 +23,9 @@ import {
 } from "@/components/ui/dialog";
 import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { invalidateWorkspaceMembership } from "@/hooks/use-workspaces";
-import { createSubshellErrorMessage, isDisplayLaunchRefusal } from "@/lib/create-subshell-error";
+import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
 import { currentWorkspaceId } from "@/lib/current-workspace";
+import { splitLaunchError } from "@/lib/display-refusal-routing";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import type { sshConnectSearch } from "@/lib/ssh-connect-search";
 import { fileLaunchedPane } from "@/lib/workspace-filing";
@@ -63,7 +64,6 @@ export function LaunchSubshellDialog({
   const [error, setError] = useState<string | null>(null);
   // A display refusal reads as the checkbox's own result, so the field
   // renders it; everything else keeps the form-level line.
-  const displayLaunchError = error !== null && isDisplayLaunchRefusal(error) ? error : null;
 
   function reset() {
     setSshDraft(sshSessionDraft(initialSsh));
@@ -105,6 +105,9 @@ export function LaunchSubshellDialog({
     }
   }
 
+  // Where a refusal renders: the Virtual display checkbox owns it while the agent form
+  // is mounted, and the form line takes it back when that branch is gone.
+  const { field: displayLaunchError, form: formLaunchError } = splitLaunchError(error, !(kind === "ssh" && open));
   return (
     <Dialog
       open={open}
@@ -171,7 +174,7 @@ export function LaunchSubshellDialog({
               onLeave={dismiss}
               launchError={displayLaunchError}
             />
-            {error && !displayLaunchError && <p className="text-destructive text-detail">{error}</p>}
+            {formLaunchError && <p className="text-destructive text-detail">{formLaunchError}</p>}
             <DialogFooter sticky>
               <Button
                 variant="outline"

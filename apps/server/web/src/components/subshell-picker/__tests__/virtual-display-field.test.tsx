@@ -128,7 +128,7 @@ describe("virtual display prerequisites", () => {
     await waitFor(() => expect(paths.some((p) => p.endsWith("?provider=betterdisplay"))).toBe(true));
     fireEvent.click(screen.getByRole("combobox", { name: "Display provider" }));
     expect(await screen.findByRole("option", { name: "BetterDisplay" })).toBeTruthy();
-    expect(screen.queryByRole("option", { name: "Xvfb + VNC" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "Xvfb + VNC" }) === null).toBe(true);
   });
   it("fails closed when a check fails and recovers on recheck", async () => {
     respond({ message: "Bring this node online, then recheck." }, 409);

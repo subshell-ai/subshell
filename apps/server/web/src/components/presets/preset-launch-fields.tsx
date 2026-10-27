@@ -148,11 +148,11 @@ export function PresetLaunchFields({
           <DisplayProviderPicker
             id="preset-display-provider"
             value={value.screen.provider}
-            // A machine named here has an OS, and offering a provider that
-            // cannot run on it is the same dead choice the launch form drops.
-            // With no machine chosen yet the full list is right, and the check
-            // below says when it happens.
-            providers={(selectedNode?.os ? displayProvidersForOs(selectedNode.os) : VIRTUAL_DISPLAY_PROVIDERS).map(
+            // A chosen machine gates the list on its OS, including when it has
+            // no OS yet: an enrolled node that never came ready is not Linux,
+            // and guessing the default would offer a provider the machine may
+            // not run. With no machine chosen there is nothing to gate on.
+            providers={(selectedNode ? displayProvidersForOs(selectedNode.os) : VIRTUAL_DISPLAY_PROVIDERS).map(
               (p) => p.id,
             )}
             defaultProvider={selectedNode?.virtualDisplayProvider}

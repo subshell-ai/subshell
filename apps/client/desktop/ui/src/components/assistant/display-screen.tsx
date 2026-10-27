@@ -31,9 +31,9 @@ import { nodeOpenDisplayHelper, nodeOpenWeb } from "@/lib/ipc";
 
 /** The three things the panel and macOS ask for, in the order they happen. */
 const STEPS: readonly string[] = [
-  "Choose Enable helper. That also starts the helper when you sign in, and it keeps running after you close Subshell Client.",
+  "Choose Enable helper. It keeps running after you close Subshell Client, and its own Launch at sign-in row decides whether macOS starts it again when you sign in.",
   "Grant Screen Recording and Accessibility to Subshell Display Helper in System Settings. Screen Recording lets it capture the virtual screen, and Accessibility lets it send keyboard and pointer input.",
-  "If macOS asks for a restart, quit the helper from its icon in the menu bar, open this panel again, and enable it once more.",
+  "If macOS asks for a restart, quit the helper from its icon in the menu bar and open this panel again. Your consent stays, so nothing needs enabling twice.",
 ];
 
 export function DisplayScreen(props: {
