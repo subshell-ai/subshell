@@ -21,6 +21,12 @@ final class HelperRuntime {
 
     func listenForStatus() throws { try listener.start() }
 
+    /// How many subshell screens are being captured right now. The menu bar
+    /// badge, the tooltip, and the panel's live line all read this, so the
+    /// person sitting at the Mac can see when someone is looking at a virtual
+    /// display rather than having to infer it.
+    var viewers: Int { captures.count }
+
     func shutdown() {
         listener.stop()
         for connection in Array(connections.values) { connection.close() }
@@ -55,7 +61,12 @@ final class HelperRuntime {
 
     private func remove(_ id: UUID) {
         inputs.removeValue(forKey: id)?.release()
-        captures.removeValue(forKey: id)?.stop()
+        if let capture = captures.removeValue(forKey: id) {
+            capture.stop()
+            // The menu bar badge and the panel's live line report who is
+            // being watched, so a capture ending has to announce itself.
+            onStateChange?()
+        }
         connections.removeValue(forKey: id)
         pending.remove(id); reservations.removeValue(forKey: id); rates.removeValue(forKey: id)
     }
@@ -128,7 +139,8 @@ final class HelperRuntime {
             captures[connection.id] = capture
             inputs[connection.id] = DisplayInput(uuid: uuid, width: width, height: height, allowed: allowed)
             try await capture.start()
-            guard allowed() else { capture.stop(); return }
+            guard allowed() else { capture.stop(); onStateChange?(); return }
+            onStateChange?()
             pending.remove(connection.id)
             connection.send(["type": "started", "width": width, "height": height])
         } catch {
