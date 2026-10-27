@@ -24,6 +24,19 @@ it("opens the display from an icon-only header shortcut", () => {
   expect(opened).toBe(1);
 });
 
+it("says on the icon how much there is to open or save", () => {
+  render(<VirtualDisplayIndicator display=":91" unsavedCount={3} onOpen={() => {}} />);
+  expect(screen.getByRole("button", { name: "Open web preview or screen; 3 to open or save" })).toBeTruthy();
+  expect(screen.getByText("3")).toBeTruthy();
+  cleanup();
+  render(<VirtualDisplayIndicator display=":91" unsavedCount={12} onOpen={() => {}} />);
+  expect(screen.getByText("9+")).toBeTruthy();
+  cleanup();
+  render(<VirtualDisplayIndicator display=":91" onOpen={() => {}} />);
+  expect(screen.getByRole("button", { name: "Open web preview or screen" })).toBeTruthy();
+  expect(screen.queryByText("0") === null).toBe(true);
+});
+
 it("keeps the header picker available for subshells without a virtual display", () => {
   let opened = 0;
   render(

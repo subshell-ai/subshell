@@ -12,4 +12,6 @@ In the web dashboard, a node that cannot serve previews now says so in gold when
 
 A launch refused over its virtual display now reports the problem beside the **Virtual display** checkbox it belongs to, not under Save as preset. On the machine, the display allocation says which readiness gate stayed shut (the Xvfb socket, the VNC port, or the listener's owner), logs what Xvfb and x11vnc printed before cleaning up, and gives a cold box 10 seconds instead of 5.
 
+The preview icon in a pane's header now wears a count when the pane has things you could open but have not saved: discovered app ports with no Saved services row, plus the screen and the browser watch when the pane offers them. It is the picker's own data, so the number and the list cannot disagree.
+
 The desktop apps' **Open Display Helper settings** control works: the helper's signature check handed `codesign` a bare requirement string, which it read as a file name, so the panel failed to open on every press. (It reached the releases because the code is macOS-only and Linux CI never compiles it.)
