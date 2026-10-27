@@ -27,7 +27,7 @@ import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { useSubshellsList } from "@/hooks/use-subshells";
 import { useInvalidateWorkspaces, useWorkspaces } from "@/hooks/use-workspaces";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
-import { splitLaunchError } from "@/lib/display-refusal-routing";
+import { displayFieldOwnsRefusal, splitLaunchError } from "@/lib/display-refusal-routing";
 import { makeForm, useSubmitDisabled } from "@/lib/form";
 import { defaultWorkspaceName, uniqueWorkspaceName } from "@/lib/workspace-name";
 
@@ -198,7 +198,10 @@ export function NewWorkspaceDialog({
   // not, so a display refusal is never both invisible and orphaned.
   const { field: displayLaunchError, form: formLaunchError } = splitLaunchError(
     error,
-    !createdId && mode !== "existing" && !(kind === "ssh" && open) && form.virtualDisplay === true,
+    displayFieldOwnsRefusal({
+      mounted: !createdId && mode !== "existing" && !(kind === "ssh" && open),
+      virtualDisplay: form.virtualDisplay,
+    }),
   );
   return (
     <Dialog

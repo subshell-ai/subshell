@@ -25,7 +25,7 @@ import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { invalidateWorkspaceMembership } from "@/hooks/use-workspaces";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
 import { currentWorkspaceId } from "@/lib/current-workspace";
-import { splitLaunchError } from "@/lib/display-refusal-routing";
+import { displayFieldOwnsRefusal, splitLaunchError } from "@/lib/display-refusal-routing";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import type { sshConnectSearch } from "@/lib/ssh-connect-search";
 import { fileLaunchedPane } from "@/lib/workspace-filing";
@@ -110,7 +110,10 @@ export function LaunchSubshellDialog({
   // not, so a display refusal is never both invisible and orphaned.
   const { field: displayLaunchError, form: formLaunchError } = splitLaunchError(
     error,
-    !(kind === "ssh" && open) && form.virtualDisplay === true,
+    displayFieldOwnsRefusal({
+      mounted: !(kind === "ssh" && open),
+      virtualDisplay: form.virtualDisplay,
+    }),
   );
   return (
     <Dialog

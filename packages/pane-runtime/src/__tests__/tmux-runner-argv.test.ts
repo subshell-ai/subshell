@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { afterAll, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -517,6 +517,40 @@ echo "server exited unexpectedly" >&2; exit 1
       expect(out).toBe("grid\n");
       expect(elapsed).toBeGreaterThanOrEqual(2_400);
       expect(elapsed).toBeLessThan(4_900);
+    });
+  });
+
+  describe("paneCursor parsing refuses to guess", () => {
+    /** A stub that prints `value` for ANY tmux call. */
+    const cursorStub = (value: string): TmuxRunner => {
+      const { dir, path } = writeStub(`#!/bin/sh\nprintf '%s\\n' '${value}'\n`);
+      stubDirs.push(dir);
+      return new TmuxRunner(path);
+    };
+    const stubDirs: string[] = [];
+    afterAll(() => {
+      for (const dir of stubDirs) rmSync(dir, { recursive: true, force: true });
+    });
+
+    it("an empty field is NO ANSWER, never row/column zero", async () => {
+      // Measured on a live pane mid-redraw (2026-10-27): tmux can print ":"
+      // — both fields blank. `Number("")` is 0, so a lenient parse turns a
+      // format failure into a CONFIDENT top-left cursor, the replay ends
+      // 16-odd rows off the pane, and every later relative-positioned frame
+      // (Ink's pinned-block repaints) lands on the wrong rows for the whole
+      // life of that viewer. The no-restore degrade is the honest answer.
+      expect(await cursorStub(":").paneCursor("sock", "s1")).toBeNull();
+      expect(await cursorStub("3:").paneCursor("sock", "s1")).toBeNull();
+      expect(await cursorStub(":7").paneCursor("sock", "s1")).toBeNull();
+      expect(await cursorStub("").paneCursor("sock", "s1")).toBeNull();
+      expect(await cursorStub("garbage").paneCursor("sock", "s1")).toBeNull();
+      expect(await cursorStub("1:2:3").paneCursor("sock", "s1")).toBeNull();
+    });
+
+    it("accepts the real grid answers, zero included", async () => {
+      expect(await cursorStub("0:0").paneCursor("sock", "s1")).toEqual({ x: 0, y: 0 });
+      expect(await cursorStub("3:2").paneCursor("sock", "s1")).toEqual({ x: 3, y: 2 });
+      expect(await cursorStub(" 16:4 ").paneCursor("sock", "s1")).toEqual({ x: 16, y: 4 });
     });
   });
 });

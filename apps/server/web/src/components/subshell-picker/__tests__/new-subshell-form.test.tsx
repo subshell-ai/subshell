@@ -175,6 +175,33 @@ describe("NewSubshellForm launch-error placement", () => {
     }
   });
 
+  it("keeps the refusal readable when the form has fallen to its empty state", async () => {
+    // The dialogs ask the field to host a display refusal, and this branch
+    // replaces the whole form, field included: without the line here the
+    // message vanishes exactly when a node goes unlaunchable behind an open
+    // dialog, which is the "never invisible" half of the routing contract.
+    const original = globalThis.fetch;
+    globalThis.fetch = ((input: unknown) => {
+      const url = String(input);
+      if (url.includes("/api/nodes")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ nodes: [{ ...BOX, canLaunch: false, maintenance: true }] })),
+        );
+      }
+      if (url.includes("/api/plugins")) return Promise.resolve(new Response(JSON.stringify({ plugins: [] })));
+      if (url.includes("/api/files/recent"))
+        return Promise.resolve(new Response(JSON.stringify({ paths: [], home: null })));
+      return Promise.resolve(new Response(JSON.stringify([]))); // /api/presets, /api/subshells
+    }) as typeof fetch;
+    try {
+      await renderForm({ ...emptyNewSubshellForm(), virtualDisplay: true }, REFUSAL);
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("preview-display-not-ready");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("hands a display refusal to the Virtual display field", async () => {
     // The dialog's split (`isDisplayLaunchRefusal` at the call sites) picks
     // which line is the field's; this pins the form actually threading it

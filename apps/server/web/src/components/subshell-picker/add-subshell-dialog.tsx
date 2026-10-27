@@ -24,7 +24,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { useSubshellsList } from "@/hooks/use-subshells";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
-import { splitLaunchError } from "@/lib/display-refusal-routing";
+import { displayFieldOwnsRefusal, splitLaunchError } from "@/lib/display-refusal-routing";
 import type { SplitDirection } from "@/types/workspace";
 
 /** Which half of the dialog is showing. */
@@ -174,7 +174,10 @@ export function AddSubshellDialog({
   // not, so a display refusal is never both invisible and orphaned.
   const { field: displayLaunchError, form: formLaunchError } = splitLaunchError(
     error,
-    visibleMode !== "existing" && !(kind === "ssh" && open) && form.virtualDisplay === true,
+    displayFieldOwnsRefusal({
+      mounted: visibleMode !== "existing" && !(kind === "ssh" && open),
+      virtualDisplay: form.virtualDisplay,
+    }),
   );
   return (
     <Dialog

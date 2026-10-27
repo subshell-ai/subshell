@@ -648,11 +648,14 @@ export class TmuxRunner {
       const out = (
         await this.runAsync(["-L", socket, "display-message", "-t", subshellName, "-p", "#{cursor_x}:#{cursor_y}"], {})
       ).stdout.trim();
+      // Both fields must be real digits. tmux can print `":"` for a pane
+      // caught mid-redraw (measured 2026-10-27), and `Number("")` is 0 — a
+      // lenient parse would report the top-left cell as the pane's cursor,
+      // anchoring every later relative-positioned frame the wrong distance
+      // off. This read answers the pane's real position or nothing at all.
+      if (!/^\d+:\d+$/.test(out)) return null;
       const [rawX, rawY] = out.split(":");
-      const x = Number(rawX);
-      const y = Number(rawY);
-      if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0) return null;
-      return { x, y };
+      return { x: Number(rawX), y: Number(rawY) };
     } catch {
       return null;
     }
