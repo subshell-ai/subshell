@@ -258,7 +258,7 @@ precedes tmux so the refusal fails the launch with its named reason).
 - **Xvfb, x11vnc and xauth are optional runtime dependencies.** A
   non-Linux machine refuses by platform (`preview-display-unsupported`); a
   Linux machine missing one of the binaries refuses
-  `preview-display-missing-binaries` naming the binary, and a pair that never
+  `preview-display-missing-requirements` naming the binary, and a pair that never
   comes up inside the budget refuses `preview-display-not-ready`; a
   switched-off node answers the one shared voice
   (`preview-node-off: turn on Preview for this node`). Nothing installs them,
