@@ -66,13 +66,17 @@ export const SCREEN_LAUNCH_REMEDIES: Readonly<Record<string, string>> = {
 
 /**
  * The remedy for a screen launch the NODE refused: the paired sentence when
- * the word is known (plus the node's own detail, verbatim), null for detail
- * this mirror does not speak.
+ * the word is known, plus the node's own detail verbatim. The word ALWAYS
+ * rides along, bare form included: the sentence explains, the word is what a
+ * reader greps and what the dashboard matches to decide the refusal belongs
+ * beside the Virtual display control rather than at the bottom of the form
+ * (`isDisplayLaunchRefusal`). A refusal this mirror does not speak is null,
+ * untouched.
  */
 export function screenLaunchRemedy(detail: string): string | null {
   for (const [word, remedy] of Object.entries(SCREEN_LAUNCH_REMEDIES)) {
     if (detail === word || detail.startsWith(`${word}: `)) {
-      return detail === word ? remedy : `${remedy} (${detail})`;
+      return `${remedy} (${detail})`;
     }
   }
   return null;

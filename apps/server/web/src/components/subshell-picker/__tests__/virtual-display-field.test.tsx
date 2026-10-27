@@ -184,3 +184,25 @@ it("preserves a selected display while revalidating the same machine", async () 
   await waitFor(() => expect(screen.getByRole("checkbox").getAttribute("aria-disabled")).not.toBe("true"));
   expect(changes).toEqual([]);
 });
+
+describe("launch refusals at the control", () => {
+  const refusal =
+    "That node's virtual display did not come up inside the launch budget, so the screen pane was refused. Try again, or launch without a screen. (preview-display-not-ready: display :90 / rfb 5910 not answering within 10000ms (Xvfb socket never appeared))";
+  it("renders the refusal beside the checkbox and names it to assistive tech", async () => {
+    respond(ready);
+    render(<VirtualDisplayField node={linux} id="display" checked onChange={() => {}} launchError={refusal} />, {
+      wrapper,
+    });
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("preview-display-not-ready");
+    expect(alert.getAttribute("id")).toBe("display-launch-error");
+    expect(screen.getByRole("checkbox").getAttribute("aria-describedby")).toContain("display-launch-error");
+  });
+  it("says nothing when no launch was refused", async () => {
+    respond(ready);
+    render(<VirtualDisplayField node={linux} id="display" checked onChange={() => {}} />, { wrapper });
+    await waitFor(() => expect(screen.getByRole("checkbox").getAttribute("aria-disabled")).not.toBe("true"));
+    expect(screen.queryByRole("alert") === null).toBe(true);
+    expect((screen.getByRole("checkbox").getAttribute("aria-describedby") ?? "").includes("launch-error")).toBe(false);
+  });
+});

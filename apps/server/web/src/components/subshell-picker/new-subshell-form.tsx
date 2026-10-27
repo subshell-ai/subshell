@@ -85,11 +85,20 @@ export function NewSubshellForm({
   firstRun = false,
   skipPriorLaunch = false,
   onLeave,
+  launchError,
 }: {
   value: NewSubshellFormValue;
   onChange: (value: NewSubshellFormValue) => void;
   /** Field element ids; defaults to the dialog's (e2e-pinned) set. */
   ids?: NewSubshellFormIds;
+  /**
+   * The create failure this launch's Virtual display control owns, when the
+   * server refused the display itself (`isDisplayLaunchRefusal` picks these
+   * out). It renders under the checkbox rather than in the dialog's
+   * form-level line: the refusal answers the one control that asked for the
+   * screen, and a warning belongs at the decision point.
+   */
+  launchError?: string | null;
   /**
    * The setup assistant's first launch: the Agent gets the one hint that
    * teaches the word, and the Preset row is hidden (there are no presets yet
@@ -404,6 +413,7 @@ export function NewSubshellForm({
           node={selectedNode}
           id={ids.virtualDisplay}
           resetReason={value.displayResetReason}
+          launchError={launchError}
           provider={value.displayProvider}
           onProviderChange={(displayProvider) => onChange({ ...value, displayProvider, displayResetReason: undefined })}
           checked={value.virtualDisplay === true}

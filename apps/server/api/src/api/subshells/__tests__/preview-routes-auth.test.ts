@@ -1069,15 +1069,14 @@ describe("preview REST surface (Task 9)", () => {
 
   // The node-side half of the screen gate: refusals that arrive FROM the
   // wire, which the service preflight cannot see (an older node, or a
-  // switch flipped mid-race). Each row's `echo` says whether the remedy
-  // matcher appends the node's own detail: it does only for a SUFFIXED form
-  // (the missing-binaries pair). The bare word and the node-off word match
-  // their keys exactly, and the node-off key already IS its remedy string,
-  // so neither is appended to.
+  // switch flipped mid-race). Every row echoes the node's own detail, bare
+  // form included: the word is what an operator greps in the daemon log, and
+  // what `isDisplayLaunchRefusal` (apps/server/web) matches to render the
+  // refusal beside the Virtual display control that asked for the screen.
   const SCREEN_REFUSALS: ReadonlyArray<readonly [string, RegExp, boolean]> = [
-    ["preview-display-unsupported", /provider is not supported/, false],
+    ["preview-display-unsupported", /provider is not supported/, true],
     ["preview-display-missing-requirements: x11vnc", /provider has unmet requirements/, true],
-    ["preview-node-off: turn on Preview for this node", /Turn on Preview for this node/i, false],
+    ["preview-node-off: turn on Preview for this node", /Turn on Preview for this node/i, true],
   ];
 
   it.each(SCREEN_REFUSALS)(

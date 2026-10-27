@@ -79,12 +79,12 @@ async function settle(): Promise<void> {
 }
 
 /** A controlled parent like /new and the dialog. */
-async function renderForm(initial: NewSubshellFormValue) {
+async function renderForm(initial: NewSubshellFormValue, launchError?: string | null) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   function Harness() {
     const [value, setValue] = useState(initial);
     setter = setValue;
-    return <NewSubshellForm value={value} onChange={setValue} />;
+    return <NewSubshellForm value={value} onChange={setValue} launchError={launchError} />;
   }
   const rootRoute = createRootRoute();
   const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: Harness });
@@ -141,6 +141,31 @@ describe("NewSubshellForm working-dir pre-fill", () => {
       fireEvent.change(dir(), { target: { value: "" } }); // deliberate clear
       await settle();
       expect(dir().value).toBe("");
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("NewSubshellForm launch-error placement", () => {
+  afterEach(cleanup);
+
+  it("hands a display refusal to the Virtual display field", async () => {
+    // The dialog's split (`isDisplayLaunchRefusal` at the call sites) picks
+    // which line is the field's; this pins the form actually threading it
+    // down, so a refusal like the AI PC's lands beside its checkbox.
+    const restore = mockEndpoints([]);
+    try {
+      await renderForm(
+        emptyNewSubshellForm(),
+        "API 400: That node's virtual display did not come up inside the launch budget, so the screen pane was refused. Try again, or launch without a screen. (preview-display-not-ready: display :90 / rfb 5910 not answering within 10000ms (Xvfb socket never appeared))",
+      );
+      const alert = await screen.findByRole("alert");
+      expect(alert.getAttribute("id")).toBe("picker-virtual-display-launch-error");
+      expect(alert.textContent).toContain("preview-display-not-ready");
+      expect(screen.getByRole("checkbox", { name: "Virtual display" }).getAttribute("aria-describedby")).toContain(
+        "picker-virtual-display-launch-error",
+      );
     } finally {
       restore();
     }

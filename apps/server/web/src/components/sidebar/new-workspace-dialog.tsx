@@ -26,7 +26,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { useSubshellsList } from "@/hooks/use-subshells";
 import { useInvalidateWorkspaces, useWorkspaces } from "@/hooks/use-workspaces";
-import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
+import { createSubshellErrorMessage, isDisplayLaunchRefusal } from "@/lib/create-subshell-error";
 import { makeForm, useSubmitDisabled } from "@/lib/form";
 import { defaultWorkspaceName, uniqueWorkspaceName } from "@/lib/workspace-name";
 
@@ -92,6 +92,9 @@ export function NewWorkspaceDialog({
   /** Ordered ids to attach; checkbox toggles and successful launches append here. */
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // A display refusal reads as the checkbox's own result, so the field
+  // renders it; everything else keeps the form-level line.
+  const displayLaunchError = error !== null && isDisplayLaunchRefusal(error) ? error : null;
   const [launching, setLaunching] = useState(false);
   const [creating, setCreating] = useState(false);
   const submitDisabled = useSubmitDisabled(draft, creating || launching);
@@ -251,12 +254,17 @@ export function NewWorkspaceDialog({
                 }}
               />
             ) : (
-              <NewSubshellForm value={form} onChange={setForm} onLeave={() => onOpenChange(false)} />
+              <NewSubshellForm
+                value={form}
+                onChange={setForm}
+                onLeave={() => onOpenChange(false)}
+                launchError={displayLaunchError}
+              />
             )}
           </div>
         )}
 
-        {error && <p className="text-destructive text-detail">{error}</p>}
+        {error && !displayLaunchError && <p className="text-destructive text-detail">{error}</p>}
         {!createdId && selected.length > 0 && (
           <p className="text-detail text-muted-foreground">
             {selected.length === 1 ? "1 subshell" : `${selected.length} subshells`} to add

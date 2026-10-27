@@ -16,6 +16,7 @@ export function VirtualDisplayField({
   provider,
   onProviderChange,
   resetReason,
+  launchError,
 }: {
   node: Node | null;
   id: string;
@@ -25,6 +26,14 @@ export function VirtualDisplayField({
   provider?: string;
   onProviderChange?: (provider: string | undefined) => void;
   resetReason?: string;
+  /**
+   * The launch this control lost: a create the node refused over the display
+   * (the budget, a provider that does not run here, the switch). It arrives
+   * from the dialog because the refusal names the whole launch, but it reads
+   * as this checkbox's own result, so it renders here, not at the form's
+   * foot. `isDisplayLaunchRefusal` decides which errors are this kind.
+   */
+  launchError?: string | null;
 }) {
   const { check, reason, needsSetup, shouldCheck } = useNodeDisplayReadiness(node, provider);
   // A provider this machine's OS cannot drive is not a choice, so it is not
@@ -50,6 +59,7 @@ export function VirtualDisplayField({
           `${id}-cost`,
           ...(reason ? [`${id}-reason`] : []),
           ...(resetReason ? [`${id}-reset`] : []),
+          ...(launchError ? [`${id}-launch-error`] : []),
         ].join(" ")}
       />
       <Label htmlFor={id}>Virtual display</Label>
@@ -93,6 +103,11 @@ export function VirtualDisplayField({
       {resetReason && (
         <p id={`${id}-reset`} role="status" className="text-destructive text-detail">
           {resetReason}
+        </p>
+      )}
+      {launchError && (
+        <p id={`${id}-launch-error`} role="alert" className="text-destructive text-detail">
+          {launchError}
         </p>
       )}
       <p id={`${id}-cost`} className="text-detail text-warning">
