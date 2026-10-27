@@ -82,7 +82,17 @@ export class BetterDisplayProvider implements VirtualDisplayProvider {
     );
   }
   async readiness(): Promise<PreviewDisplayReadiness> {
-    return this.checkReadiness((this.supported() && (await this.status())) || null);
+    // `supported()` first, and it decides whether the helper is asked at all:
+    // a Linux host has no helper to query (pinned by test).
+    const status = this.supported() ? await this.status() : null;
+    const result = await this.checkReadiness(status);
+    if (result.missing.length) {
+      // Same reason as the allocation log: the missing list alone cannot say
+      // whether the helper answered nothing, or answered with BetterDisplay
+      // absent from LaunchServices.
+      this.deps.log?.(`betterdisplay readiness refused: ${JSON.stringify({ status, missing: result.missing })}`);
+    }
+    return result;
   }
   private async checkReadiness(status: HelperStatus | null): Promise<PreviewDisplayReadiness> {
     if (!this.supported()) return { supported: false, missing: [] };
