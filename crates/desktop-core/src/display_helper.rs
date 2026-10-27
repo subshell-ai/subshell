@@ -43,23 +43,26 @@ fn version(bundle: &Path) -> Result<String, String> {
     Ok(version.into())
 }
 
+/// The `-R` value for verifying the helper's designated requirement.
+///
+/// The leading `=` is not decoration: `codesign` reads an unprefixed `-R`
+/// argument as a FILE to load requirements from, so a bare spec fails with
+/// `"<the whole requirement>": No such file or directory` before the helper
+/// ever opens. `=` says "this literal string is the requirement". Debug
+/// builds drop the publisher anchor because dev bundles are ad-hoc signed.
+fn requirement_test_arg(development: bool) -> String {
+    if development {
+        format!("=identifier \"{ID}\"")
+    } else {
+        format!("=anchor apple generic and identifier \"{ID}\" and certificate leaf[subject.OU] = \"DVRYX6BV6J\"")
+    }
+}
+
 fn verify(bundle: &Path) -> Result<(), String> {
     // The outer desktop bundle authenticates its resource too. Verify the
     // standalone copy before reusing it, including its publisher in releases.
-    let requirement = if cfg!(debug_assertions) {
-        format!("identifier \"{ID}\"")
-    } else {
-        format!("anchor apple generic and identifier \"{ID}\" and certificate leaf[subject.OU] = \"DVRYX6BV6J\"")
-    };
-    run(&[
-        "/usr/bin/codesign",
-        "--verify",
-        "--strict",
-        "-R",
-        &requirement,
-        path(bundle)?,
-    ])
-    .map(|_| ())
+    let requirement = requirement_test_arg(cfg!(debug_assertions));
+    run(&["/usr/bin/codesign", "--verify", "--strict", "-R", &requirement, path(bundle)?]).map(|_| ())
 }
 
 struct InstallLock(File);
@@ -201,6 +204,19 @@ pub fn open_settings(resource_dir: &Path, home: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
+
+    #[test]
+    fn the_codesign_requirement_is_a_literal_not_a_filename() {
+        // The original shipped without the `=` prefix and codesign read the
+        // whole requirement as a file path, so no bundle ever verified and
+        // "Open Display Helper settings" failed on every press.
+        for development in [true, false] {
+            let arg = requirement_test_arg(development);
+            assert!(arg.starts_with("=identifier") || arg.starts_with("=anchor apple generic"));
+            assert!(arg.contains(&format!("identifier \"{ID}\"")));
+            assert_eq!(arg.contains("DVRYX6BV6J"), !development);
+        }
+    }
 
     #[test]
     fn release_updates_require_a_newer_shared_helper_version() {
