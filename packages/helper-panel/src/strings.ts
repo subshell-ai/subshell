@@ -1,5 +1,13 @@
 import type { PanelState } from "./state";
 
+/** A state word and whether it still needs the person to act on it. Gold is
+ *  the design system's "the owner can fix this here"; the page's own ink is a
+ *  fact that is already true. */
+export interface StateValue {
+  text: string;
+  blocked: boolean;
+}
+
 /**
  * Every word the panel shows, in one file. The copy is the interface: a
  * consent surface that does not say plainly what it enables has not asked for
@@ -48,10 +56,15 @@ export function viewerLine(state: PanelState): string {
 
 /**
  * The login item's own line, shown only while the helper is enabled: a person
- * who turned it off has not registered anything to approve.
+ * who turned it off has not registered anything to approve. Registered is a
+ * settled fact and reads in the page's own ink; awaiting macOS is the thing
+ * still waiting on them, so it reads in gold, the same split the permission
+ * rows use.
  */
-export function loginItemLine(needsApproval: boolean): string {
-  return needsApproval ? strings.loginItemPending : strings.loginItemRegistered;
+export function loginItemLine(needsApproval: boolean): StateValue {
+  return needsApproval
+    ? { text: strings.loginItemPending, blocked: true }
+    : { text: strings.loginItemRegistered, blocked: false };
 }
 
 /**
@@ -60,6 +73,6 @@ export function loginItemLine(needsApproval: boolean): string {
  * settled fact. Reading both the same way is how an ungranted permission stops
  * being the thing to notice.
  */
-export function permissionValue(granted: boolean): { text: string; blocked: boolean } {
+export function permissionValue(granted: boolean): StateValue {
   return granted ? { text: "Allowed", blocked: false } : { text: "Not allowed", blocked: true };
 }

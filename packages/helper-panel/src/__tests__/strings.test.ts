@@ -73,10 +73,15 @@ describe("stateLine", () => {
 describe("loginItemLine", () => {
   test("names where to fix a login item macOS has not approved", () => {
     const pending = loginItemLine(true);
-    expect(pending).toContain("System Settings");
-    expect(pending).toContain("Login Items");
-    expect(loginItemLine(false)).toContain("Starts at sign-in");
-    expect(loginItemLine(false)).not.toContain("Login Items");
+    expect(pending.text).toContain("System Settings");
+    expect(pending.text).toContain("Login Items");
+    expect(pending.blocked).toBe(true);
+    const registered = loginItemLine(false);
+    expect(registered.text).toContain("Starts at sign-in");
+    expect(registered.text).not.toContain("Login Items");
+    // White, not gold: a login item macOS already runs is not something the
+    // person still has to fix, and gold is reserved for what they can act on.
+    expect(registered.blocked).toBe(false);
   });
 });
 
