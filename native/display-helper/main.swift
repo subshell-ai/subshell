@@ -42,10 +42,13 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
         // one kind of failed launch leaves the pointer stranded while the docs say
         // every start fixes it. Warping a cursor that is inside no screen's frame
         // is harmless, so a launch that does not survive loses nothing.
-        restoreStrandedCursor()
         // Neither install nor a node request can opt in. Login resumes only
         // the consent the person previously gave in this native panel.
-        do { try runtime.listenForStatus() } catch { NSApp.terminate(nil); return }
+        do {
+            try launchHeal(restore: { restoreStrandedCursor() }, bind: { try runtime.listenForStatus() })
+        } catch {
+            NSApp.terminate(nil); return
+        }
         started = true
         runtime.onStateChange = { [weak self] in self?.updateMenu() }
         settings.onVisibilityChange = { [weak self] in self?.updateMenu() }

@@ -234,6 +234,36 @@ struct HelperTests {
         precondition(!consent.enabled)
         let final = try await Task.detached { try request(path, #"{"op":"status"}"#) }.value
         precondition(final?["enabled"] as? Bool == false)
+        // The launch heal's contract is order, and `main.swift` is outside this build
+        // (its top-level code collides with `@main` here), so the rule lives in
+        // `launchHeal` where it can be asserted. The failing-bind case is the one that
+        // matters: that process exits without ever setting `started`, and the quit-time
+        // rescue is gated on that flag, so a rescue running after the bind would leave
+        // the person at this Mac with a pointer inside no screen's frame.
+        var healOrder: [String] = []
+        try launchHeal(restore: { healOrder.append("restore") }, bind: { healOrder.append("bind") })
+        precondition(healOrder == ["restore", "bind"], "the pointer must be rescued before the socket binds")
+        healOrder = []
+        do {
+            try launchHeal(restore: { healOrder.append("restore") }, bind: { throw HelperFailure.message("bind failed") })
+            preconditionFailure("A bind that fails must still surface its error")
+        } catch {
+            precondition(healOrder == ["restore"], "the rescue must run even when the bind will fail")
+        }
+        // Consent is recorded only after the listener is actually up. Swapping those two
+        // lines in `enable()` leaves the panel and the menu reading `consent.enabled` and
+        // saying "Enabled" over a Mac nothing is capturing, and a later sign-in start
+        // comes up enabled on a consent this press never granted. A failed enable has to
+        // leave the store exactly as it found it.
+        let stuck = directory.appendingPathComponent("not-a-directory")
+        try Data().write(to: stuck)
+        let blocked = HelperRuntime(consent: consent, listener: HelperListener(directory: stuck.appendingPathComponent("nested")))
+        do {
+            try blocked.enable()
+            preconditionFailure("A listener that cannot bind must fail the enable")
+        } catch {
+            precondition(!consent.enabled, "a failed enable must not record consent")
+        }
         print("Helper consent, protocol validation, and disabled RPC tests passed")
     }
 }

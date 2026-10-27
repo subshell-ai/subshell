@@ -28,3 +28,17 @@ func cursorIsStranded(point: CGPoint, screens: [CGRect]) -> Bool {
     CGWarpMouseCursorPosition(CGPoint(x: home.midX, y: home.midY))
     CGAssociateMouseAndMouseCursorPosition(1)
 }
+
+/// The launch order the helper's own documentation promises, in a function a test can
+/// reach.
+///
+/// `main.swift` is excluded from the native test build, because its top-level code
+/// collides with `HelperTests`' `@main`, so the one rule that file enforces, rescue
+/// before bind, would otherwise be pinned nowhere. It is not decoration: a start whose
+/// socket cannot bind exits on the next line, and the quit-time rescue is gated on
+/// `started`, so healing after the bind leaves exactly the failed launch holding a
+/// pointer inside no screen's frame while the docs promise any start fixes that.
+@MainActor func launchHeal(restore: @MainActor () -> Void, bind: @MainActor () throws -> Void) throws {
+    restore()
+    try bind()
+}
