@@ -164,11 +164,13 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
         // second press would nest another identical alert: the person answers
         // once, and a second question is still waiting. One at a time.
         if quitAlertShown {
-            // The proven form, not the no-argument `activate()`: this is the file
-            // with no compile coverage (test.sh excludes main.swift, and the
-            // release build passes no -warnings-as-errors), and a re-press has to
-            // drag the pending alert over whatever app the person is in now, which
-            // is exactly the insistence the plain call does not make.
+            // The proven form, not the no-argument `activate()`. A re-press has
+            // to drag the pending alert over whatever app the person is in now,
+            // which is exactly the insistence the plain call does not make.
+            // Nothing here checks a WARNING (test.sh excludes main.swift, and the
+            // desktop build passes no -warnings-as-errors), but a type error in
+            // this file does gate a release: build_support.rs globs every .swift
+            // in this directory, main.swift included.
             NSApp.activate(ignoringOtherApps: true)
             return
         }
@@ -188,14 +190,14 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
         // alert left behind another window reads as a menu that does nothing.
         //
         // Apple marks this form deprecated as of macOS 14, and it is still the
-        // right call here. What the lane proves is the copy in `Settings.swift`:
-        // the macOS job compiles THAT file with warnings treated as errors, and
-        // main has shipped the same call through it. This file is outside that
-        // lane's reach (`test.sh` excludes `main.swift`), and the release build
-        // passes no `-warnings-as-errors`, so a warning here is invisible either
-        // way - and the no-argument `activate()` arrived with the macOS 14 SDK
-        // and nothing in this repo has ever compiled it, which would be a hard
-        // error rather than a warning.
+        // right call here. What the warnings-as-errors lane proves is the copy in
+        // `Settings.swift`: the macOS job compiles that file with warnings treated
+        // as errors, and main has shipped the same call through it. This file sits
+        // outside that lane (`test.sh` excludes `main.swift`), and the desktop
+        // build passes no `-warnings-as-errors`, so a warning here would go
+        // unheard. A hard error would not: that build compiles every `.swift` in
+        // this directory, so the no-argument `activate()`, which arrived with the
+        // macOS 14 SDK, would have failed the release rather than shipped.
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertFirstButtonReturn { return }
         NSApp.terminate(nil)

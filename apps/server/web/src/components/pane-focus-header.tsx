@@ -10,7 +10,7 @@ import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDevices } from "@/components/subshell-devices";
 import { SubshellDot } from "@/components/subshell-dot";
 import { TrustIndicators } from "@/components/trust-indicators";
-import { VirtualDisplayIndicator } from "@/components/virtual-display-indicator";
+import { VirtualDisplayEntry } from "@/components/virtual-display-indicator";
 import { useCloseSubshellLanding } from "@/hooks/use-close-subshell-landing";
 import { useHarnessSubagents } from "@/hooks/use-harness-subagents";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
@@ -167,12 +167,7 @@ export function PaneFocusHeader({
       actions={
         <>
           {isPane && (
-            <VirtualDisplayIndicator
-              display={subshell?.virtualDisplay}
-              unsavedCount={unsavedPreview}
-              canSave={subshell?.access !== "view"}
-              onOpen={openVirtualDisplay}
-            />
+            <VirtualDisplayEntry subshell={subshell} unsavedCount={unsavedPreview} onOpen={openVirtualDisplay} />
           )}
           {isPane && subshell && <SshPaneLabels subshell={subshell} nodeLabel={nodeLabel} />}
           {isPane && <TrustIndicators notices={trustNotices} />}

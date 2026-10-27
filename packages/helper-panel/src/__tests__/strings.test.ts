@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { readdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { EMPTY_STATE, type PanelState } from "../state";
 import {
   consentControl,
@@ -22,27 +25,63 @@ function stateWith(overrides: Partial<PanelState>): PanelState {
   return { ...EMPTY_STATE, ...overrides };
 }
 
+/** The one module allowed to hold the panel's words. */
+const COPY_FILE = "strings.ts";
+/** Not page code, and its assertions quote the copy on purpose. */
+const SKIP_DIRS = new Set(["__tests__"]);
+
+function withoutComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+}
+
 /**
  * Every page source except the one file allowed to hold copy, comments stripped.
  *
  * A guard that reads only `main.ts` is satisfied by moving the defect into a
  * second module, and the repository's own file-size rule ("split past ~300-400
  * lines", and `main.ts` is 351) pushes an editor straight into doing that. These
- * checks therefore look at the whole page, and they strip comments because a
- * comment may name a permission while code may not.
+ * checks therefore look at the whole page, WALKED RECURSIVELY for the same
+ * reason: the rule it cites tells an editor to put the split half into `consent/`
+ * or a directory of its own, and a top-level scan would call that file invisible
+ * and pass. Comments are stripped because a comment may name a permission while
+ * code may not.
  */
-async function pageCode(): Promise<{ file: string; code: string }[]> {
-  const dir = new URL("../", import.meta.url);
-  const names = readdirSync(dir, { encoding: "utf8" }).filter(
-    (name) => name.endsWith(".ts") && name !== "strings.ts" && !name.endsWith(".d.ts"),
-  );
-  return Promise.all(
-    names.map(async (name) => ({
-      file: name,
-      code: (await Bun.file(new URL(name, dir)).text()).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, ""),
-    })),
-  );
+async function pageCode(dir: URL = new URL("../", import.meta.url), prefix = ""): Promise<PageSource[]> {
+  const found: PageSource[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (!SKIP_DIRS.has(entry.name))
+        found.push(...(await pageCode(new URL(`${entry.name}/`, dir), `${prefix}${entry.name}/`)));
+      continue;
+    }
+    if (!entry.isFile() || !entry.name.endsWith(".ts") || entry.name.endsWith(".d.ts")) continue;
+    // Only the real copy module is exempt, which is `src/strings.ts` itself.
+    if (prefix === "" && entry.name === COPY_FILE) continue;
+    // `dir` already names the directory it was recursed into, so the file URL is
+    // built from the entry alone; the prefix belongs only to the reported name.
+    const code = await Bun.file(new URL(entry.name, dir)).text();
+    found.push({ file: `${prefix}${entry.name}`, code: withoutComments(code) });
+  }
+  return found;
 }
+
+type PageSource = { file: string; code: string };
+
+/**
+ * The four consent strings, read off ANY receiver. Anchoring the old guard on
+ * the literal word `strings` meant `const s = strings; s.disableNote` hid the
+ * defect in plain sight, so the receiver is left unnamed here: a dot, a bracket,
+ * or a destructuring of any of the four names is the read.
+ */
+const READS_A_CONSENT_STRING =
+  /[A-Za-z_$][\w$]*\s*(?:\.\s*(?:enable|disable|enableNote|disableNote)\b|\[\s*["'`](?:enable|disable|enableNote|disableNote)["'`]\s*\])|[{,]\s*(?:enable|disable|enableNote|disableNote)\s*(?:[,}]|\s*:)/;
+
+/**
+ * The two note names, anywhere. They are distinctive enough to ban outright,
+ * which is what closes the rest: a module cannot pick the note for a button
+ * without spelling one of these words, however it obtains the object.
+ */
+const NAMES_A_NOTE = /\b(?:enableNote|disableNote)\b/;
 
 describe("the consent warning", () => {
   test("says plainly what enabling exposes, so the decision is informed", () => {
@@ -73,10 +112,19 @@ describe("the consent warning", () => {
     expect(strings.capturePermissionLabel).toBe("Screen recording");
     expect(strings.inputPermissionLabel).toBe("Accessibility");
     const files = await pageCode();
-    const main = files.find((f) => f.file === "main.ts");
-    expect(main, "the page still has a main.ts to check").toBeTruthy();
-    expect(main?.code).toContain("strings.capturePermissionLabel");
-    expect(main?.code).toContain("strings.inputPermissionLabel");
+    expect(
+      files.some((f) => f.file === "main.ts"),
+      "the page still has a main.ts to check",
+    ).toBe(true);
+    // Asked of the whole sweep rather than of one filename, because the same
+    // split that moves a row out of `main.ts` would otherwise fail a check that
+    // is about where the words live, not about which module renders them.
+    for (const token of ["capturePermissionLabel", "inputPermissionLabel"]) {
+      expect(
+        files.some((f) => f.code.includes(`.${token}`)),
+        `a page module renders ${token} from strings.ts`,
+      ).toBe(true);
+    }
     // Every page module, not just `main.ts`, and no quote-style assumption: JSX
     // text, a single-quoted prop and a template literal all re-introduce the
     // drift, and none of them contain a double quote.
@@ -188,21 +236,26 @@ describe("the consent button's note", () => {
       note: strings.disableNote,
     });
     // The page draws the pair from that one call, rather than reading
-    // `state.enabled` a second time beside the note.
+    // `state.enabled` a second time beside the note. Asked of the sweep rather
+    // than of `main.ts`, so moving the call into a split module is not the
+    // change that turns this green.
     const files = await pageCode();
-    const main = files.find((f) => f.file === "main.ts");
-    expect(main?.code).toContain("consentControl(state)");
+    expect(files.some((f) => f.code.includes("consentControl(state)"))).toBe(true);
     // Not a ternary-shaped pattern test, and not a single file either. The defect
     // was the pair decided twice, so no page module may reach those four strings
-    // at all: by dot, by bracket, or by destructuring `strings`. A
-    // `consent-row.ts` that re-reads `state.enabled` is the same bug wearing a
-    // different filename, and the repository's own split-large-files rule is what
-    // would tempt an editor to write one.
-    const reachesThePair =
-      /strings\s*\.\s*(enable|disable|enableNote|disableNote)\b|strings\s*\[\s*["'](enable|disable|enableNote|disableNote)["']\s*\]|\{[^}]*\b(enable|disable|enableNote|disableNote)\b[^}]*\}\s*=\s*strings/;
+    // at all: by dot, by bracket, or by destructuring, off any receiver. A
+    // `consent/row.ts` that re-reads `state.enabled` is the same bug wearing a
+    // different filename and living one level down, and the repository's own
+    // split-large-files rule is what would tempt an editor to write one.
+    // Collected rather than thrown at the first hit: two modules taking the pair
+    // is two things to fix, and a report that names one of them sends an editor
+    // looking for the wrong file.
+    const offenders: string[] = [];
     for (const { file, code } of files) {
-      expect(reachesThePair.test(code), `${file} decides the consent pair only through consentControl`).toBe(false);
+      if (READS_A_CONSENT_STRING.test(code)) offenders.push(`${file} reads a consent string off an object`);
+      if (NAMES_A_NOTE.test(code)) offenders.push(`${file} names a consent note, so it pairs them itself`);
     }
+    expect(offenders).toEqual([]);
   });
 
   test("offers the sign-in act that matches the state it leaves", () => {
@@ -210,6 +263,35 @@ describe("the consent button's note", () => {
     expect(strings.startAtSignIn).toBe("Start at sign-in");
     expect(strings.stopAtSignIn).toBe("Stop at sign-in");
     expect(strings.openLoginItems.endsWith("…")).toBe(true);
+  });
+});
+
+describe("the page sweep", () => {
+  test("descends into directories and exempts only the copy module", async () => {
+    // Every guard above is a claim about the files this walk returns, so the
+    // walk gets checked too. A scan that quietly stops at the top level reports
+    // "no page module touches the consent pair" without ever naming the one
+    // sitting in `consent/`, which is the hole the repository's own
+    // split-large-files rule invites.
+    const root = mkdtempSync(path.join(tmpdir(), "subshell-panel-sweep-"));
+    try {
+      for (const name of [
+        "main.ts",
+        "state.ts",
+        "strings.ts",
+        "vite-env.d.ts",
+        "consent/row.ts",
+        "__tests__/strings.test.ts",
+      ]) {
+        const file = path.join(root, name);
+        mkdirSync(path.dirname(file), { recursive: true });
+        writeFileSync(file, "export const x = 1;\n");
+      }
+      const swept = (await pageCode(pathToFileURL(`${root}/`))).map((source) => source.file);
+      expect(swept.sort()).toEqual(["consent/row.ts", "main.ts", "state.ts"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

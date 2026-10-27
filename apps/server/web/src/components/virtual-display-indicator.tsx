@@ -1,5 +1,6 @@
 import { AppWindow, Globe } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import type { SubshellView } from "@/types/subshell";
 
 /** Above this the badge says `9+`; the exact list is the picker's job. */
 const BADGE_CAP = 9;
@@ -63,6 +64,37 @@ export function VirtualDisplayIndicator({
         {display ? "Virtual display enabled - click to activate" : "Open web preview or screen"}
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+/**
+ * The pane's ONE way into previews, which is what every surface that shows a
+ * pane renders: the workspace header and the standalone subshell page both hand
+ * this the pane and the count, and it derives the two things a reader must not
+ * be shown wrong. `canSave` lives here rather than at each call site on
+ * purpose: the counted item for a `view` grantee is the browser watch they can
+ * open, never the Saved services row they cannot write, and a prop each caller
+ * passes itself is a prop one caller forgets.
+ */
+export function VirtualDisplayEntry({
+  subshell,
+  unsavedCount,
+  onOpen,
+}: {
+  /** The pane this header stands over, or nothing while its read is in flight. */
+  subshell: SubshellView | undefined;
+  /** Offered items this pane has no saved service for; see {@link VirtualDisplayIndicator}. */
+  unsavedCount: number;
+  /** Opens the picker, which its caller mounts. */
+  onOpen: () => void;
+}) {
+  return (
+    <VirtualDisplayIndicator
+      display={subshell?.virtualDisplay}
+      unsavedCount={unsavedCount}
+      canSave={subshell?.access !== "view"}
+      onOpen={onOpen}
+    />
   );
 }
 

@@ -1,6 +1,7 @@
 import { afterEach, expect, it } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { VirtualDisplayIndicator } from "../virtual-display-indicator";
+import type { SubshellView } from "@/types/subshell";
+import { VirtualDisplayEntry, VirtualDisplayIndicator } from "../virtual-display-indicator";
 
 afterEach(cleanup);
 it("marks a subshell with a display and removes the indicator when it loses it", () => {
@@ -59,4 +60,23 @@ it("keeps the header picker available for subshells without a virtual display", 
   fireEvent.click(screen.getByRole("button", { name: "Open web preview or screen" }));
   expect(opened).toBe(1);
   expect(screen.queryByRole("img")).toBeNull();
+});
+
+it("hands every surface the same save half, because a prop at each call site is a prop one site misses", () => {
+  // "or save" is a promise about the picker's write, and a `view` grantee's
+  // picker refuses that write. When the two pane headers each passed `canSave`
+  // themselves, adding it reached one of them; both render this component now,
+  // so the rule has one home and deleting that line is what fails here.
+  const viewer = { virtualDisplay: ":91", access: "view" } as SubshellView;
+  const owner = { virtualDisplay: ":91", access: "owner" } as SubshellView;
+  render(<VirtualDisplayEntry subshell={viewer} unsavedCount={2} onOpen={() => {}} />);
+  expect(screen.getByRole("button", { name: "Open web preview or screen; 2 to open" })).toBeTruthy();
+  cleanup();
+  render(<VirtualDisplayEntry subshell={owner} unsavedCount={2} onOpen={() => {}} />);
+  expect(screen.getByRole("button", { name: "Open web preview or screen; 2 to open or save" })).toBeTruthy();
+  cleanup();
+  // The pane's read is still in flight: no access is known, so nothing gets
+  // promised, and a count of zero keeps the suffix off the name entirely.
+  render(<VirtualDisplayEntry subshell={undefined} unsavedCount={0} onOpen={() => {}} />);
+  expect(screen.getByRole("button", { name: "Open web preview or screen" })).toBeTruthy();
 });
