@@ -19,7 +19,7 @@ export function HeroSpread({ manifest }: { manifest: ReleasesManifest }) {
           with Subshell.
         </p>
       </div>
-      <div className="max-[980px]:mx-auto max-[980px]:w-[min(340px,88vw)]">
+      <div className="max-[980px]:mx-auto max-[980px]:w-[min(260px,72vw)]">
         <PhoneCard />
       </div>
       <div className="max-[980px]:mt-6">
