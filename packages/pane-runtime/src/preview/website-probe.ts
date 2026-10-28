@@ -1,4 +1,9 @@
-import { PREVIEW_PAGE_TITLE_MAX_LENGTH } from "@internal/subshell-protocol";
+import {
+  isPreviewAttachmentDisposition,
+  isPreviewDocumentContentType,
+  PREVIEW_DOCUMENT_ACCEPT,
+  PREVIEW_PAGE_TITLE_MAX_LENGTH,
+} from "@internal/subshell-protocol";
 import { decodeHTML } from "entities";
 
 export interface WebsiteInfo {
@@ -83,7 +88,7 @@ async function probeWebsiteOrigin(origin: string, signal: AbortSignal): Promise<
     const response = await fetch(url, {
       redirect: "manual",
       signal,
-      headers: { accept: "text/html", "accept-encoding": "identity" },
+      headers: { accept: PREVIEW_DOCUMENT_ACCEPT, "accept-encoding": "identity" },
     });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       await response.body?.cancel();
@@ -99,8 +104,8 @@ async function probeWebsiteOrigin(origin: string, signal: AbortSignal): Promise<
       response.status < 300 &&
       response.status !== 204 &&
       response.status !== 205 &&
-      /^text\/html(?:\s*;|\s*$)/i.test(response.headers.get("content-type") ?? "") &&
-      !/^attachment(?:\s*;|\s*$)/i.test(response.headers.get("content-disposition") ?? "")
+      isPreviewDocumentContentType(response.headers.get("content-type")) &&
+      !isPreviewAttachmentDisposition(response.headers.get("content-disposition"))
     ) {
       const title = await pageTitle(response);
       return title ? { title } : {};

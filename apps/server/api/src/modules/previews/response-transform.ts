@@ -1,5 +1,6 @@
 import { pipeline, Readable } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
+import { isPreviewDocumentContentType } from "@internal/subshell-protocol";
 import { init, parse } from "es-module-lexer";
 import valueParser from "postcss-value-parser";
 import { HttpError } from "@/shared/errors.js";
@@ -141,7 +142,7 @@ export async function transformPreviewResponse(
   path: string,
 ): Promise<Response> {
   const type = response.headers.get("content-type") ?? "";
-  const html = /^text\/html\b/i.test(type);
+  const html = isPreviewDocumentContentType(type);
   const css = /^text\/css\b/i.test(type);
   const js = /^(?:text|application)\/(?:javascript|ecmascript)\b/i.test(type);
   if (!response.body || (!html && !css && !js)) return response;
@@ -327,7 +328,11 @@ export async function transformPreviewResponse(
       "accept-ranges",
     ])
       headers.delete(name);
-    headers.set("content-type", `${html ? "text/html" : css ? "text/css" : "text/javascript"}; charset=utf-8`);
+    // A rewritten document keeps the type it arrived with: an XHTML app must
+    // not leave the proxy announcing plain HTML, which would be a claim about
+    // what the page IS rather than what we did to its URLs.
+    const documentType = type.split(";", 1)[0].trim().toLowerCase();
+    headers.set("content-type", `${html ? documentType : css ? "text/css" : "text/javascript"}; charset=utf-8`);
     return new Response(output, { status: response.status, statusText: response.statusText, headers });
   } finally {
     bufferedBytes -= retainedBytes;

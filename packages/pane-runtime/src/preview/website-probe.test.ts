@@ -4,6 +4,9 @@ import { probeWebsite } from "./website-probe.js";
 it("discovers HTML and same-port redirects, excluding APIs, downloads, and off-port redirects", async () => {
   let mode = "html";
   let offPortRequests = 0;
+  // A server that only answers document offers is the reason the probe asks
+  // for more than one type, so what it offered is part of the contract.
+  let lastAccept = "";
   const other = Bun.serve({
     port: 0,
     fetch: () => {
@@ -15,6 +18,7 @@ it("discovers HTML and same-port redirects, excluding APIs, downloads, and off-p
     port: 0,
     hostname: "127.0.0.1",
     fetch: (request) => {
+      lastAccept = request.headers.get("accept") ?? "";
       if (new URL(request.url).pathname === "/login")
         return new Response("<h1>Sign in</h1>", { headers: { "content-type": "text/html" } });
       if (mode === "redirect") return new Response(null, { status: 302, headers: { location: "/login" } });
@@ -24,6 +28,14 @@ it("discovers HTML and same-port redirects, excluding APIs, downloads, and off-p
         return new Response("<svg><title>Icon only</title></svg>", { headers: { "content-type": "text/html" } });
       if (mode === "json") return Response.json({ ok: true });
       if (mode === "missing") return new Response("not found", { status: 404 });
+      // A browser paints this as HTML, so a site served this way is a site.
+      if (mode === "xhtml")
+        return new Response("<head><title>XHTML site</title></head><h1>Website</h1>", {
+          headers: { "content-type": "application/xhtml+xml" },
+        });
+      // A type that merely starts with an accepted one is not that type.
+      if (mode === "lookalike")
+        return new Response("<title>not a page</title>", { headers: { "content-type": "text/html-fragment" } });
       return new Response(
         "<head><title>  My &amp; your &#x1f680; site </title></head><h1>Website</h1><svg><title>Icon label</title></svg>",
         {
@@ -39,6 +51,8 @@ it("discovers HTML and same-port redirects, excluding APIs, downloads, and off-p
     for (const [value, expected] of [
       ["html", true],
       ["redirect", true],
+      ["xhtml", true],
+      ["lookalike", false],
       ["json", false],
       ["missing", false],
       ["download", false],
@@ -53,6 +67,9 @@ it("discovers HTML and same-port redirects, excluding APIs, downloads, and off-p
     expect(await probeWebsite(server.port as number, AbortSignal.timeout(1000))).toEqual({
       title: "My & your 🚀 site",
     });
+    mode = "xhtml";
+    expect(await probeWebsite(server.port as number, AbortSignal.timeout(1000))).toEqual({ title: "XHTML site" });
+    expect(lastAccept).toContain("application/xhtml+xml");
     mode = "svg";
     expect(await probeWebsite(server.port as number, AbortSignal.timeout(1000))).toEqual({});
     expect(await probeWebsite(server.port as number, AbortSignal.abort())).toBeNull();

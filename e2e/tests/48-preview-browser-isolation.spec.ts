@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
-import { writePreviewProject } from "../fixtures/preview-site/project";
+import { PREVIEW_SITE_TITLE, writePreviewProject } from "../fixtures/preview-site/project";
 import { BASE_URL } from "../ports";
 import { verifyPreviewBrowser } from "../preview-browser-check";
 import { ADMIN_STATE } from "./helpers";
@@ -52,7 +52,9 @@ test("preview documents isolate dashboard authority while modules, POST and WS k
     expect(workspace.ok()).toBe(true);
     await page.goto(`/workspaces/${(await workspace.json()).id}`);
     await page.getByRole("button", { name: /^Open web preview or screen/ }).click();
-    await page.getByRole("button", { name: `Open web preview on port ${port}` }).click();
+    // A discovered document wears its page title in the row, so this is the
+    // titled spelling, not the "Web preview" fallback an untitled port gets.
+    await page.getByRole("button", { name: `Open ${PREVIEW_SITE_TITLE} on port ${port}` }).click();
     await expect(
       page.frameLocator("iframe").getByRole("heading", { name: "Small teams. Considered websites." }),
     ).toBeVisible();

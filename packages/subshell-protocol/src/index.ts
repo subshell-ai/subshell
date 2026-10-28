@@ -270,6 +270,13 @@ export {
   presetLaunchRequirementsMet,
 } from "./preset-prompt.js";
 export {
+  acceptsPreviewDocument,
+  isPreviewAttachmentDisposition,
+  isPreviewDocumentContentType,
+  PREVIEW_DOCUMENT_ACCEPT,
+  PREVIEW_DOCUMENT_TYPES,
+} from "./preview-document.js";
+export {
   PREVIEW_IMAGE_MAX_DIMENSION,
   PREVIEW_IMAGE_MAX_PIXELS,
   previewDimensionsAllowed,

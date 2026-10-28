@@ -1,4 +1,9 @@
-import { serviceAuthority } from "@internal/subshell-protocol";
+import {
+  acceptsPreviewDocument,
+  isPreviewAttachmentDisposition,
+  isPreviewDocumentContentType,
+  serviceAuthority,
+} from "@internal/subshell-protocol";
 import { Elysia } from "elysia";
 import { LaneDuplex } from "@/modules/previews/lane-duplex.js";
 import { LaneClosedError, LaneProtocolError, sendLaneRequest } from "@/modules/previews/lane-http.js";
@@ -299,7 +304,7 @@ async function proxyRequest(request: Request, sessionRef: string, rest: string):
       destination === "document" ||
       destination === "iframe" ||
       request.headers.get("sec-fetch-mode") === "navigate" ||
-      (!destination && !rest && request.headers.get("accept")?.includes("text/html"));
+      (!destination && !rest && acceptsPreviewDocument(request.headers.get("accept")));
     const contentType = res.headers.find(([name]) => name === "content-type")?.[1] ?? "";
     const disposition = res.headers.find(([name]) => name === "content-disposition")?.[1] ?? "";
     if (
@@ -308,7 +313,7 @@ async function proxyRequest(request: Request, sessionRef: string, rest: string):
       !(res.status >= 300 && res.status < 400) &&
       res.status !== 204 &&
       res.status !== 205 &&
-      (!/^text\/html(?:\s*;|\s*$)/i.test(contentType) || /^attachment(?:\s*;|\s*$)/i.test(disposition))
+      (!isPreviewDocumentContentType(contentType) || isPreviewAttachmentDisposition(disposition))
     ) {
       await res.body?.cancel();
       duplex.destroy();

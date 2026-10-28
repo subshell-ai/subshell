@@ -184,6 +184,49 @@ describe.skipIf(process.platform !== "linux")("scanPanePorts over fixture /proc 
     expect(r.ports).toContainEqual({ proto: "tcp6", port: 4321, pid: 102 });
   });
 
+  it("a tree of hang-prone listeners does not starve the real website", async () => {
+    // The shape this pins: a port the scan never reached reads exactly like a
+    // port that is not a website, so the probe budget has to grow with the
+    // number of listeners. Sixteen sockets that accept and never answer (a
+    // language server, a leftover bind), each costing the worst-case probe
+    // time, with the dev server LAST in the row order: too small a budget
+    // leaves the picker saying this pane serves no website at all.
+    const crowdRoot = join(base, "crowd-proc");
+    mkdirSync(join(crowdRoot, "net"), { recursive: true });
+    const WEBSITE_PORT = 4500;
+    const rows = [...Array.from({ length: 16 }, (_, i) => 4001 + i), WEBSITE_PORT].map((port, i) => ({
+      addr: "0100007F",
+      port,
+      inode: 700_001 + i,
+    }));
+    mkPidTree(crowdRoot, [
+      { pid: 100, ppid: 1 },
+      { pid: 102, ppid: 100, fds: rows.map((row, i) => ({ name: String(3 + i), inode: row.inode })) },
+    ]);
+    writeNet(join(crowdRoot, "net", "tcp"), rows);
+    writeNet(join(crowdRoot, "net", "tcp6"), []);
+    // The two budgets the real probes carry, in the order they run: devtools
+    // first, then the document probe for anything that did not answer it.
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const started = Date.now();
+    const r = await scanPanePorts({
+      procRoot: crowdRoot,
+      panePid: 100,
+      probe: async () => {
+        await wait(280);
+        return false;
+      },
+      websiteProbe: async (port) => {
+        if (port !== WEBSITE_PORT) await wait(420);
+        return port === WEBSITE_PORT ? { title: "Dev server" } : null;
+      },
+    });
+    expect(r.ports).toEqual([{ proto: "tcp", port: WEBSITE_PORT, pid: 102, title: "Dev server" }]);
+    // And it got there without leaning on the ceiling: the scan must stay far
+    // inside the plane's 10 s command timeout, or a slow pane answers nothing.
+    expect(Date.now() - started).toBeLessThan(4_000);
+  });
+
   it("a process tree past 512 pids refuses preview-ports-overcap", async () => {
     // A linear chain of 600 descendants: the walk must refuse rather than
     // readlink its way through a fork bomb.

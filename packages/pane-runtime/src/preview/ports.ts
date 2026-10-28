@@ -55,6 +55,21 @@ const MAX_TREE_PIDS = 512;
 /** The CDP probe's budget, spec §4. */
 const CDP_PROBE_TIMEOUT_MS = 400;
 
+/** The website probe's budget, per port. */
+const WEBSITE_PROBE_TIMEOUT_MS = 1_000;
+
+/**
+ * Ports probed at once. Loopback probes are cheap and mostly wait on a peer,
+ * so a queue is what makes a scan slow rather than what it costs the host.
+ */
+const SCAN_PROBE_WORKERS = 8;
+
+/** The scan's wall-clock floor, what each candidate may add, and its ceiling. */
+const SCAN_DEADLINE_BASE_MS = 2_500;
+const SCAN_DEADLINE_PER_PORT_MS = 250;
+/** Held far inside the plane's 10 s command timeout, so a slow scan answers rather than timing out. */
+const SCAN_DEADLINE_MAX_MS = 8_000;
+
 /**
  * One pass over the proc filesystem: listeners, ppid map, fd inodes, CDP.
  *
@@ -97,18 +112,26 @@ export async function scanPanePorts(opts: ScanPanePortsOptions): Promise<PanePor
   const candidates = [...new Set(ports.map((row) => row.port))];
   const websites = new Map<number, WebsiteInfo>();
   const cdpPorts = new Set<number>();
-  // Bound the whole scan as well as concurrency: a pane can hold many idle
+  // Bound the whole scan as well as each probe: a pane can hold many idle
   // sockets, and none should make discovery wait for every individual timeout.
-  const deadline = AbortSignal.timeout(2500);
+  // The budget has to GROW with the candidate count, though. A tree full of
+  // listeners that accept a connection and never answer (a language server, a
+  // leftover socket) costs the worst-case 1.4 s per port, and an untried port
+  // reads exactly like a port that is not a website: it is left out. So a
+  // fixed budget sized for a couple of ports can drop the one holding the real
+  // dev server, and the picker says there is nothing to preview.
+  const deadline = AbortSignal.timeout(
+    Math.min(SCAN_DEADLINE_MAX_MS, SCAN_DEADLINE_BASE_MS + SCAN_DEADLINE_PER_PORT_MS * candidates.length),
+  );
   let next = 0;
   await Promise.all(
-    Array.from({ length: Math.min(4, candidates.length) }, async () => {
+    Array.from({ length: Math.min(SCAN_PROBE_WORKERS, candidates.length) }, async () => {
       while (next < candidates.length && !deadline.aborted) {
         const port = candidates[next++];
         if (port === screen?.viewer.port) continue;
         if (await probe(port)) cdpPorts.add(port);
         else {
-          const info = await website(port, AbortSignal.any([deadline, AbortSignal.timeout(1000)]));
+          const info = await website(port, AbortSignal.any([deadline, AbortSignal.timeout(WEBSITE_PROBE_TIMEOUT_MS)]));
           if (info) websites.set(port, info);
         }
       }

@@ -3,8 +3,6 @@ import { badgeText, CountBadge } from "@/components/count-badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { SubshellView } from "@/types/subshell";
 
-export { badgeText } from "@/components/count-badge";
-
 export function VirtualDisplayIndicator({
   display,
   compact = false,

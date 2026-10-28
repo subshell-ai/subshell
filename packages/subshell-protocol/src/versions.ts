@@ -125,8 +125,15 @@ export function semverLt(a: string, b: string): boolean {
  * to 2.4.0 in this same commit. An agent below 23 understands no preview
  * frame and the exact-match gate refuses it; the floor says the same thing
  * wherever a version, not a protocol number, is what gets compared.
+ *
+ * Raised to 3.1.0 with protocol 26 (a titled, websites-only port scan). The
+ * published agent is 3.0.1, so the floor goes one minor above it rather than
+ * to it, and `apps/node/agent/package.json` moves with it in this commit. An
+ * agent below this answers the ports scan in the old shape, and the exact-match
+ * gate already refuses it: the floor is what turns that refusal into
+ * "install subshell >= 3.1.0" wherever a version gets compared.
  */
-export const MIN_NODE_VERSION = "2.4.0";
+export const MIN_NODE_VERSION = "3.1.0";
 
 /**
  * Whether an agent reporting `version` may connect.

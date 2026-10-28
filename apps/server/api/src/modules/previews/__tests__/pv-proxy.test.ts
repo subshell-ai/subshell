@@ -209,6 +209,10 @@ beforeAll(async () => {
         return new Response('<head><link href="/style.css"></head><h1>App</h1>', {
           headers: { "content-type": "text/html" },
         });
+      if (url.pathname === "/xhtml")
+        return new Response('<head><link href="/style.css"></head><h1>XHTML App</h1>', {
+          headers: { "content-type": "application/xhtml+xml" },
+        });
       if (url.pathname === "/absolute-redirect")
         return new Response(null, { status: 302, headers: { location: `http://127.0.0.1:${targetPort}/page` } });
       if (url.pathname === "/echo") {
@@ -409,6 +413,28 @@ describe("pv-http: the same-origin rewrite", () => {
     const response = await proxyFetch(`/pv/${ref}/download`, { headers: { "sec-fetch-dest": "empty" } });
     expect(response.status).toBe(200);
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2]));
+  });
+
+  it("navigates a document served as XHTML instead of refusing it", async () => {
+    // A browser paints application/xhtml+xml as HTML, so the guard that keeps
+    // downloads from stranding an iOS PWA must not read it as one. The page
+    // also has to come back rewritten: an un-rewritten document previews
+    // broken in a quieter way than a refusal, and keeps its own type.
+    const { ref } = await getPreviewBroker().openForward({
+      viewerUserId: USER,
+      paneId: PANE,
+      nodeId: NODE,
+      port: targetPort,
+    });
+    const response = await proxyFetch(`/pv/${ref}/xhtml`, {
+      headers: { "sec-fetch-dest": "document", accept: "text/html,application/xhtml+xml,application/xml;q=0.9" },
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/xhtml+xml; charset=utf-8");
+    const body = await response.text();
+    expect(body).not.toContain("This isn't a web page");
+    expect(body).toContain(`href="http://localhost:3080/pv/${ref}/style.css"`);
+    expect(body).toContain("installPreviewCompat");
   });
 
   it("applies snapshotted host/rewrite settings to the real lane", async () => {

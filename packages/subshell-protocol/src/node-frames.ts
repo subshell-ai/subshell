@@ -229,8 +229,14 @@ import {
  * **24 -> 25:** ssh_exec_stdin requires setup scripts to travel on stdin to
  * a fixed shell command. Older executors put the setup key in process argv;
  * the exact-match handshake rejects them before a setup key is sent.
+ *
+ * **25 -> 26:** a `preview_ports_get` row carries the page's title, and only
+ * ports answering the document probe are listed at all. An older node drops
+ * the title and lists every listener it finds, so the same pane would offer a
+ * different picker depending on which host ran it; the exact-match handshake
+ * rejects one before discovery is ever asked.
  */
-export const NODE_PROTOCOL_VERSION = 25;
+export const NODE_PROTOCOL_VERSION = 26;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an

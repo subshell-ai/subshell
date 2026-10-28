@@ -2,7 +2,7 @@ import { Button, cn } from "@internal/node-admin";
 import { describeDevices, roleLabel, type ViewersState } from "@internal/subshell-protocol";
 import { Check, Monitor, Pin } from "lucide-react";
 import type { JSX } from "react";
-import { CountBadge } from "@/components/count-badge";
+import { badgeText, CountBadge } from "@/components/count-badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -63,7 +63,7 @@ export function SubshellDevices({ state, onSizing }: SubshellDevicesProps): JSX.
             variant="ghost"
             size="icon"
             className="size-7 text-muted-foreground"
-            aria-label={`${state.viewers.length} devices watching this subshell`}
+            aria-label={`${badgeText(state.viewers.length)} devices watching this subshell`}
           />
         }
       >

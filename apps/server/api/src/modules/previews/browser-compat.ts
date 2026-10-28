@@ -16,7 +16,15 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
     if (name !== "href" || !(element instanceof HTMLLinkElement) || element.rel !== "stylesheet"
       || typeof globalThis.TURBOPACK_CHUNK_BASE_PATH !== "string"
       || !mapped.startsWith(globalThis.TURBOPACK_CHUNK_BASE_PATH)) return mapped;
-    const url = new URL(mapped);
+    // The base is a page-owned global, so an app that blanks it makes the
+    // prefix test above pass for anything. A URL that will not parse is not
+    // our business: leave the href exactly as the app asked for it.
+    let url;
+    try {
+      url = new URL(mapped);
+    } catch {
+      return mapped;
+    }
     if (!url.pathname.endsWith(".css")) return mapped;
     url.searchParams.delete("ts");
     for (const previous of document.querySelectorAll('link[rel="stylesheet"][href]')) {
