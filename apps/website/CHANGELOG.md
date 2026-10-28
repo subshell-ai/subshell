@@ -1,5 +1,15 @@
 # @internal/website
 
+## 0.2.20
+
+### Patch Changes
+
+- [#465](https://github.com/subshell-ai/subshell/pull/465) [`dbfb32e`](https://github.com/subshell-ai/subshell/commit/dbfb32eff2e2ae6b5233d8cfe6b1cfd68a58443d) Thanks [@theogravity](https://github.com/theogravity)! - Add a virtual-display section to the website with a screenshot and Linux and macOS setup links. Refresh the display screenshot in the guide, and show SSH owner-only restrictions in gold like other node settings.
+  
+  Refresh the website-preview recording with a neutral demo path.
+  
+  Keep the phone demo at the same size when switching to the wider website layout.
+
 ## 0.2.19
 
 ### Patch Changes
