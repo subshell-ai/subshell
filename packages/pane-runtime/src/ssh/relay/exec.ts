@@ -17,9 +17,9 @@ import type { MachineSshResult } from "./result.js";
 
 /**
  * The `ssh_exec` non-interactive run (spec 2026-10-08 §7, Task 14): the
- * "Set up Subshell here" act's SEPARATE short-lived `ssh D '<install>'` on
+ * "Set up Subshell here" act's separate short-lived `ssh D bash -s` on
  * this machine - never typed into the interactive pane, so the minted setup
- * key in the command string reaches neither the pane screen nor the pane log.
+ * key travels on stdin, not in process arguments, the pane screen, or its log.
  * The rules, each load-bearing:
  *
  * - **The gate and maintenance speak first**, like every SSH arm and the
@@ -147,7 +147,12 @@ export async function machineSshExec(
   runs.set(cmd.execId, entry);
   // OFF the chain by construction: the run's promise is carried, never
   // awaited; the finish handler redacts, retains, stores, and sweeps files.
-  void (seams?.runProcess ?? runSshProcess)([sshBin, ...cmd.presetFlags, cmd.command], env, cmd.timeoutMs).then(
+  void (seams?.runProcess ?? runSshProcess)(
+    [sshBin, ...cmd.presetFlags, "bash -s"],
+    env,
+    cmd.timeoutMs,
+    `${cmd.command}\n`,
+  ).then(
     (r: SshProcessResult) => {
       entry.done = {
         code: r.spawnError ? null : r.code,

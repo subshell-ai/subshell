@@ -174,6 +174,8 @@ The **SSH connection** tooltip shows the declared forwards, not a live check of 
 
 As the SSH subshell's owner, open its **⋯** menu and choose **Set up Subshell here…** when available. Review the confirmation before running the installer: it installs Subshell on the destination and enrolls it as a node you own. Your SSH subshell keeps running.
 
+Update the server and connecting node together before using this action. The installer keeps its setup key out of process arguments. If it reports that the downloaded node cannot accept a setup key privately, update the server’s node download, check the destination, and run **Set up Subshell here…** again.
+
 A subshell opened with a one-time key cannot reuse that key for this installer. Run the node setup command in its existing terminal, or reconnect using a node's keys first.
 
 This requires node enrollment to be allowed and an SSH login that works without interactive prompts. Password-only login can't supply a stored password to the installer. You can close and reopen the dialog to check progress. Results remain available for one hour while the server keeps running. Progress isn't retained across a server restart; check **Nodes** and the destination before retrying an interrupted installation. If it reports enrollment without a confirmed connection, open the new node's page and check its service before trying another installation.

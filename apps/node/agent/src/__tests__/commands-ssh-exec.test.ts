@@ -98,15 +98,15 @@ function fakeRun(
   opts: { defer?: boolean } = {},
 ): {
   seams: SshExecSeams;
-  calls: { argv: readonly string[]; env: Record<string, string>; timeoutMs: number }[];
+  calls: { argv: readonly string[]; env: Record<string, string>; timeoutMs: number; input?: string }[];
   finish: (r?: Partial<SshProcessResult>) => void;
 } {
-  const calls: { argv: readonly string[]; env: Record<string, string>; timeoutMs: number }[] = [];
+  const calls: { argv: readonly string[]; env: Record<string, string>; timeoutMs: number; input?: string }[] = [];
   let settle: ((r: Partial<SshProcessResult>) => void) | null = null;
   const seams: SshExecSeams = {
     resolveSshBin: async () => "/usr/bin/fake-ssh",
-    runProcess: ((argv, env, timeoutMs) => {
-      calls.push({ argv, env, timeoutMs });
+    runProcess: ((argv, env, timeoutMs, input) => {
+      calls.push({ argv, env, timeoutMs, input });
       const full: SshProcessResult = { code: 0, stdout: "", stderr: "", timedOut: false, spawnError: false, ...result };
       if (opts.defer) {
         return new Promise<SshProcessResult>((resolve) => {
@@ -120,6 +120,12 @@ function fakeRun(
 }
 
 describe("ssh_exec gate and path discipline", () => {
+  it("dispatches the stdin-only kind through the same SSH gate", async () => {
+    const ctx = makeCtx("stdin-dispatch", { gateOn: false });
+    const result = await dispatchCommand(ctx, { ...execCmd(ctx.config.dataDir), type: "ssh_exec_stdin" });
+    expect(result).toEqual({ ok: false, error: GATE_REFUSAL });
+  });
+
   it("the gate speaks first: a mirror not ON refuses before any spawn", async () => {
     const ctx = makeCtx("gate-off", { gateOn: false });
     const { seams, calls } = fakeRun({});
@@ -180,7 +186,7 @@ describe("ssh_exec kick + status", () => {
       mode: 0o600,
     });
     const { seams, calls, finish } = fakeRun({}, { defer: true });
-    const kick = await execSshExec(ctx, execCmd(ctx.config.dataDir), seams);
+    const kick = await execSshExec(ctx, { ...execCmd(ctx.config.dataDir), type: "ssh_exec_stdin" }, seams);
     expect(kick).toEqual({ ok: true, data: { started: true, execId: EXEC_ID } });
 
     const configPath = buildSshConfigPath(ctx.config.dataDir, EXEC_ID);
@@ -188,12 +194,10 @@ describe("ssh_exec kick + status", () => {
     // 0600 in a 0700 dir, the launch ssh-member rule (umask cannot leak past enforceMode).
     expect(statSync(configPath).mode & 0o777).toBe(0o600);
 
-    // One argv element for the command: ssh joins operands itself.
-    expect(calls[0]?.argv).toEqual([
-      "/usr/bin/fake-ssh",
-      ...execCmd(ctx.config.dataDir).presetFlags,
-      execCmd(ctx.config.dataDir).command,
-    ]);
+    // Only a fixed shell command goes in argv; the setup key travels on stdin.
+    expect(calls[0]?.argv).toEqual(["/usr/bin/fake-ssh", ...execCmd(ctx.config.dataDir).presetFlags, "bash -s"]);
+    expect(calls[0]?.argv.join(" ")).not.toContain(KEY);
+    expect(calls[0]?.input).toBe(`${execCmd(ctx.config.dataDir).command}\n`);
     expect(calls[0]?.env.SSH_AUTH_SOCK).toBe(socket); // derived, never claimed
     expect(calls[0]?.timeoutMs).toBe(600_000);
 
@@ -232,7 +236,7 @@ describe("ssh_exec kick + status", () => {
       "==> done.",
     ].join("\n");
     const { seams } = fakeRun({ code: 0, stdout: leaky, stderr: leaky });
-    const kick = await execSshExec(ctx, execCmd(ctx.config.dataDir), seams);
+    const kick = await execSshExec(ctx, { ...execCmd(ctx.config.dataDir), type: "ssh_exec_stdin" }, seams);
     expect(kick.ok).toBe(true);
     await new Promise((r) => setTimeout(r, 5));
     const status = await execSshExecStatus(ctx, statusCmd(), seams);

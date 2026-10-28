@@ -212,7 +212,7 @@ export async function sshAgentIdentities(nodeId: string): Promise<NodeSshAgentId
 
 /**
  * Kick one machine's non-interactive setup run (spec 2026-10-08 §7, Task 14):
- * the `ssh_exec` command carries the rendered config, the composed flag tail,
+ * the `ssh_exec_stdin` command carries the rendered config, the composed flag tail,
  * and the installer one-liner - the SETUP KEY rides inside `command`, and
  * this layer is the only place it exists plane-side. The ack says the run
  * started; nothing here retains or re-speaks the command.
@@ -235,8 +235,8 @@ export async function sshExec(
   try {
     data =
       nodeId === "local"
-        ? localResult(await machineSshExec(SUBSHELL_SERVER_DATA_DIR, { type: "ssh_exec", ...args }))
-        : await sendCommand(nodeId, { type: "ssh_exec", ...args }, { timeoutMs: 30_000 });
+        ? localResult(await machineSshExec(SUBSHELL_SERVER_DATA_DIR, { type: "ssh_exec_stdin", ...args }))
+        : await sendCommand(nodeId, { type: "ssh_exec_stdin", ...args }, { timeoutMs: 30_000 });
   } catch (err) {
     if (err instanceof NodeRpcError) throw mapRpcError(nodeId, err);
     throw err;

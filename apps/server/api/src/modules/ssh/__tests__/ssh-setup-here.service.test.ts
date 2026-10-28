@@ -232,8 +232,8 @@ function attachPair(impl: {
       })
     : null;
   const b = attachScriptedNode(NODE_B, {
-    ssh_exec: async (cmd) => {
-      if (cmd.type !== "ssh_exec") throw new Error("wrong arm");
+    ssh_exec_stdin: async (cmd) => {
+      if (cmd.type !== "ssh_exec_stdin") throw new Error("wrong arm");
       seen = cmd;
       await impl.onKick?.(cmd);
       return { started: true, execId: cmd.execId };
@@ -452,7 +452,7 @@ describe("setupHere relay mode", () => {
       const row = await new SubshellsRepository(db).findById(paneId);
       expect(row?.alive).toBe(1);
       expect(row?.status).toBe("running");
-      expect(pair.b.cmdTypes()).toEqual(["ssh_exec", "ssh_exec_status"]);
+      expect(pair.b.cmdTypes()).toEqual(["ssh_exec_stdin", "ssh_exec_status"]);
       // The relay was opened once and closed with the named child-exit word.
       const exec = pair.kick();
       if (!exec) throw new Error("the act never kicked an exec");
@@ -753,7 +753,7 @@ describe("setupHere direct mode (B's own keys, no relay)", () => {
       expect(audits[0]?.metadataJson).toContain('"cause":"egress"');
       expect(audits[0]?.metadataJson).not.toContain("install-exit");
       expect((await keys.listByUser(owner)).length).toBe(keysBefore);
-      expect(pair.b.cmdTypes()).toEqual(["ssh_exec", "ssh_exec_status"]);
+      expect(pair.b.cmdTypes()).toEqual(["ssh_exec_stdin", "ssh_exec_status"]);
     } finally {
       await clearUpgradeRows();
       pair.b.detach();

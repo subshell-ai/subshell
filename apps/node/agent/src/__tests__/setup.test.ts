@@ -466,3 +466,28 @@ test("--json --no-service reports the skip rather than a silent false", async ()
   expect(body.service).toEqual({ installed: false, reason: "declined" });
   expect(s.calls).toEqual([]);
 });
+
+test("setup consumes the installer key from its environment without passing it to child processes", async () => {
+  let receivedKey: unknown;
+  const url = fakeControlPlane(async (request) => {
+    receivedKey = (await request.json()).setupKey;
+    expect(process.env.SUBSHELL_SETUP_KEY).toBeUndefined();
+    return Response.json(CANNED, { status: 201 });
+  });
+  const s = serviceStub();
+  const previous = process.env.SUBSHELL_SETUP_KEY;
+  process.env.SUBSHELL_SETUP_KEY = "nsk_test_0123456789";
+  try {
+    const res = await run(
+      ["setup", "--server", url, "--name", "private setup", "--data-dir", dataDir, "--no-service"],
+      { service: s.deps, interactive: false },
+    );
+    expect(res.code).toBe(0);
+    expect(receivedKey).toBe("nsk_test_0123456789");
+    expect(process.env.SUBSHELL_SETUP_KEY).toBeUndefined();
+    expect(res.out + res.err).not.toContain("nsk_test_0123456789");
+  } finally {
+    if (previous === undefined) delete process.env.SUBSHELL_SETUP_KEY;
+    else process.env.SUBSHELL_SETUP_KEY = previous;
+  }
+});

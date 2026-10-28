@@ -1488,6 +1488,45 @@ Implementation entry points: `apps/server/api/src/api/ssh/`,
 `packages/pane-runtime/src/ssh/`. Operator instructions live in
 [Connect over SSH](../apps/docs/content/docs/guides/ssh.mdx).
 
+### SSH bulletin review (2026-10-27)
+
+The [Tailscale security bulletins](https://tailscale.com/security-bulletins)
+prompted a comparison against our outgoing OpenSSH client, key bridges and
+terminal lifecycle. Subshell doesn't implement an SSH server or switch a login
+to another OS user. The destination's SSH server still owns that boundary.
+
+| Bulletin | Subshell assessment |
+| --- | --- |
+| TS-2026-010 (secrets in child arguments) | Confirmed analogous exposure in **Set up Subshell here** and generated install commands; fixed as described below. |
+| TS-2026-015 (retained window/environment state) | No incoming SSH environment-request handler. Found an analogous retained promise chain in terminal geometry updates; replaced recursive draining with an iterative loop. |
+| TS-2026-014 / TS-2026-004 (privileged Unix forwards) | Explicit forwards accept TCP hosts and ports, not filesystem socket paths. SSH-config forwarding is refused. No privileged SSH server performs filesystem operations for another user. |
+| TS-2026-009 / TS-2026-006 and TS-2023-003 (login identity/group confusion) | No `getent` lookup, non-root login ACL or group switching. OpenSSH receives the destination identity as an argument value; the destination authenticates it. |
+| TS-2026-017 / TS-2026-012 (context/descriptor identity confusion) | Local-key approvals bind viewer, login session, node, destination and pane; relay routing checks sender membership. Bridge sockets use framed bytes, not transferred file descriptors. No shared HTTP/2 request context supplies SSH identity. |
+| TS-2024-013 / TS-2024-003 (mandatory recording / check-mode bypass) | Neither an enforced SSH recorder nor Tailscale check-mode reauthentication is implemented or promised. Terminal history isn't an access-control prerequisite. |
+
+The setup script now reaches `ssh` on stdin with a fixed `bash -s` remote
+command. `ssh_exec_stdin` explicitly requires that transport, and node protocol
+25's exact-version handshake prevents dispatch to older connecting nodes whose
+executor would put the script in argv. Upgrade the server and nodes together.
+The installer and dashboard-generated commands pass credential-bearing URLs
+through curl's stdin configuration. The installed CLI accepts its one-time key
+through `SUBSHELL_SETUP_KEY`, removes that variable before spawning children,
+and retains explicit `--key` compatibility. The installer checks the CLI's
+`--help` capability marker before supplying the environment key and refuses an
+older downloaded or reused binary without falling back to argv.
+
+These changes protect against unrelated local users reading process arguments;
+they don't hide the key from root or the same OS account. A copied command can
+remain in shell history, an explicit `--key` argument remains visible in argv,
+and a user-written curl URL can expose its query there too. Setup output is
+still redacted before retention; audits record ids and stages, not the script.
+
+The geometry loop retains one active update and the latest pending size rather
+than a promise per completed resize. Existing release, error and coalescing
+semantics remain: releasing a pane doesn't recreate its queue when an in-flight
+resize finishes. A sustained alternating-resize regression covers the drain and
+cleanup behavior, including reusing the released pane id.
+
 ### What the node discloses to the plane
 
 Connecting a node discloses execution-machine information to the trusted server.

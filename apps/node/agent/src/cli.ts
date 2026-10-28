@@ -76,6 +76,7 @@ const USAGE = `subshell: node daemon
 usage:
   subshell setup --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
                  [--no-service] [--yes] [--json]
+                          The installer can supply SUBSHELL_SETUP_KEY instead of --key.
                           check tmux, name this machine, and enroll it. Then
                           choose whether to run it in the background at login.
                           Without --name, setup asks for a name and suggests the
@@ -559,6 +560,10 @@ export interface RunDeps {
  * Never throws for expected failures; the messages are operator-actionable.
  */
 export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult> {
+  // The installer supplies this only to setup's process. Drop the inherited
+  // copy before any probe or service child can receive the credential.
+  const environmentSetupKey = process.env.SUBSHELL_SETUP_KEY;
+  delete process.env.SUBSHELL_SETUP_KEY;
   let parsed: ParsedArgs;
   try {
     parsed = parseArgs(argv);
@@ -820,7 +825,7 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         // the defect was never a missing capability, only that nothing ran
         // them in order or pointed at the next one.
         const server = parsed.flags.server;
-        const key = parsed.flags.key;
+        const key = parsed.flags.key ?? environmentSetupKey;
         const missing: string[] = [];
         if (!server) missing.push("--server <url>");
         if (!key) missing.push("--key <nsk_…>");

@@ -347,7 +347,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     const body = await res.text();
     expect(body).toContain("set -euo pipefail");
     expect(body).toContain("exit 2");
-    expect(body).toContain("usage");
+    expect(body).toContain("copy the generated setup command");
     expect(body).not.toContain("api/downloads"); // no download pipeline is rendered
   });
 
@@ -404,7 +404,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     // The whole sequence is ONE verb now (spec 2026-09-15 §4.5). `enroll`
     // alone left the operator with no running agent and nothing naming
     // `service install`; `setup` asks about the service and installs it.
-    expect(body).toContain('"$DEST" setup --server "$SERVER" --key "$KEY"');
+    expect(body).toContain('SUBSHELL_SETUP_KEY="$KEY" "$DEST" setup --server "$SERVER"');
     expect(body).not.toContain('"$DEST" enroll --server "$SERVER"');
     // The foreground dead end is GONE: `subshell run` dies with the SSH
     // session, so the script must not end by recommending it.
@@ -432,7 +432,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     expect(body).toContain('elif [ -n "$REREG_NAME" ]; then');
     expect(body).toContain('SETUP_NAME_ARGS=(--name "$REREG_NAME")');
     // It is still the SAME pipeline otherwise (one verb, same guards).
-    expect(body).toContain('"$DEST" setup --server "$SERVER" --key "$KEY"');
+    expect(body).toContain('SUBSHELL_SETUP_KEY="$KEY" "$DEST" setup --server "$SERVER"');
     expect(body).not.toContain("usage: curl");
   });
 
@@ -697,7 +697,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     // bare 64-hex before ANY comparison: a body shaped like HTML or an error
     // line is a miss, and an empty-vs-empty match must never skip.
     expect(body).toContain('SKIP_DOWNLOAD=""');
-    expect(body).toContain('$TARGET.sha256?setup_key=$KEY" 2>/dev/null');
+    expect(body).toContain('$TARGET.sha256?setup_key=$KEY" --fail --silent --location 2>/dev/null');
     expect(body).toContain('|| EXPECTED_SHA=""');
     expect(body).toContain("*[!0-9a-fA-F]*");
     // The tool is UNQUOTED as the command word: quoted, "shasum -a 256" is
@@ -895,6 +895,8 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
       join(bin, "curl"),
       [
         "#!/usr/bin/env bash",
+        `printf '%s\\n' "$@" >> '${join(work, "curl-args.log")}'`,
+        `IFS= read -r config; printf '%s\\n' "$config" >> '${join(work, "curl-input.log")}'`,
         'out=""',
         'prev=""',
         'for a in "$@"; do',
@@ -902,7 +904,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         '  prev="$a"',
         "done",
         'if [ -n "$out" ]; then',
-        '  printf \'%s\\n\' \'#!/usr/bin/env bash\' \'for a in "$@"; do printf "%s\\n" "$a" >> "$ENROLL_LOG"; done\' > "$out"',
+        '  printf \'%s\\n\' \'#!/usr/bin/env bash\' \'if [ "$1" = "--help" ]; then [ "$PRIVATE_KEY_UNSUPPORTED" = 1 ] || echo SUBSHELL_SETUP_KEY >&2; exit 0; fi\' \'for a in "$@"; do printf "%s\\n" "$a" >> "$ENROLL_LOG"; done\' \'printf "%s" "$SUBSHELL_SETUP_KEY" > "$ENROLL_LOG.key"\' > "$out"',
         "  printf 200", // the binary leg reads the HTTP code off stdout
         "else",
         "  printf '%s\\n' \"$(printf '0%.0s' $(seq 1 64))\"", // 64 zeros; the verifier is stubbed too
@@ -1003,14 +1005,25 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         const def = runBranch(cwd1, {});
         expect(def.exitCode).toBe(0); // stderr may carry the (expected) loopback WARNING
         expect(def.args[0]).toBe("setup"); // NOT enroll: the sequence is one verb
-        expect(def.args).toContain("--key");
-        expect(def.args).toContain(key);
+        expect(def.args).not.toContain("--key");
+        expect(def.args).not.toContain(key);
+        expect(readFileSync(join(work, "enroll-cwd-default.log.key"), "utf8")).toBe(key);
+        expect(readFileSync(join(work, "curl-args.log"), "utf8")).not.toContain(key);
+        expect(readFileSync(join(work, "curl-input.log"), "utf8")).toContain(key);
         expect(def.args).not.toContain("--data-dir"); // the whole point: the agent keeps its own default data dir
         expect(def.args).not.toContain("--no-service"); // unset knob forwards nothing
         expect(def.args).not.toContain("--name"); // unset NAME knob forwards nothing either — setup asks
         expect(existsSync(join(def.home, ".local", "bin", "subshell"))).toBe(true); // a stable path, not the curl's CWD
         expect(existsSync(join(cwd1, "subshell"))).toBe(false);
         expect(existsSync(join(def.home, ".local", "bin", "subshell.sha256"))).toBe(false); // sidecar cleaned up
+
+        // An older downloaded binary must fail before enrollment; no argv fallback.
+        const old = runBranch(join(work, "cwd-old-node"), { PRIVATE_KEY_UNSUPPORTED: "1" });
+        expect(old.exitCode).toBe(1);
+        expect(old.stdout + old.stderr).toContain("can't accept a setup key privately");
+        expect(old.stdout + old.stderr).not.toContain(key);
+        expect(old.args).toEqual([]);
+        expect(existsSync(join(work, "enroll-cwd-old-node.log.key"))).toBe(false);
 
         // ── opt-in (env set): relocated dest, state follows the binary ──
         const cwd2 = join(work, "cwd-relocated");
@@ -1058,7 +1071,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         const planted = join(skipDestDir, "subshell");
         writeFileSync(
           planted,
-          '#!/usr/bin/env bash\n# PREPLANTED\nfor a in "$@"; do printf "%s\\n" "$a" >> "$ENROLL_LOG"; done\n',
+          '#!/usr/bin/env bash\n# PREPLANTED\nif [ "$1" = "--help" ]; then echo SUBSHELL_SETUP_KEY >&2; exit 0; fi\nfor a in "$@"; do printf "%s\\n" "$a" >> "$ENROLL_LOG"; done\n',
         );
         chmodSync(planted, 0o755);
         const skip = runBranch(cwdSkip, {});
@@ -1106,7 +1119,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
           mkdirSync(p.replace(/\/subshell$/, ""), { recursive: true });
           writeFileSync(
             p,
-            '#!/usr/bin/env bash\n# PREPLANTED\nfor a in "$@"; do printf "%s\\n" "$a" >> "$ENROLL_LOG"; done\n',
+            '#!/usr/bin/env bash\n# PREPLANTED\nif [ "$1" = "--help" ]; then echo SUBSHELL_SETUP_KEY >&2; exit 0; fi\nfor a in "$@"; do printf "%s\\n" "$a" >> "$ENROLL_LOG"; done\n',
           );
           chmodSync(p, 0o755);
         }
@@ -1204,6 +1217,8 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
           join(bin, "curl"),
           [
             "#!/usr/bin/env bash",
+            `printf '%s\\n' "$@" >> '${join(work, "curl-args.log")}'`,
+            `IFS= read -r config; printf '%s\\n' "$config" >> '${join(work, "curl-input.log")}'`,
             'out=""',
             'prev=""',
             'for a in "$@"; do',
@@ -1215,7 +1230,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
             // `#!/usr/bin/env bash` header could not resolve bash. ENOEXEC
             // makes the calling bash run it as a shell script, which is all
             // this case needs from it (the setup line merely has to run).
-            "  printf 'echo SETUP-RAN\\n' > \"$out\"",
+            '  printf \'if [ "$1" = --help ]; then echo SUBSHELL_SETUP_KEY >&2; exit 0; fi\\necho SETUP-RAN\\n\' > "$out"',
             "  printf 200",
             "else",
             "  printf '%s\\n' \"$(printf '0%.0s' $(seq 1 64))\"",

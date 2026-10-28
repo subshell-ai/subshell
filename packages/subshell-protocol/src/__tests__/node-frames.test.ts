@@ -418,7 +418,7 @@ describe("parseNodeCommandBody", () => {
     // mirrors a per-machine owner switch, and a launch may carry a `screen`
     // request. A pre-23 agent understands none of it, and the exact-match gate
     // refuses pairing before any of it is sent.
-    expect(NODE_PROTOCOL_VERSION).toBe(24);
+    expect(NODE_PROTOCOL_VERSION).toBe(25);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
@@ -1147,6 +1147,7 @@ describe("ssh command arms and the launch ssh block", () => {
       "ssh_discover_aliases",
       "ssh_exec",
       "ssh_exec_status",
+      "ssh_exec_stdin",
       "ssh_host_key",
       "ssh_key_bridge",
       "ssh_machine_pin_repair",
@@ -1155,7 +1156,7 @@ describe("ssh command arms and the launch ssh block", () => {
       "ssh_relay_open",
       "ssh_resolve_config",
     ]);
-    expect(SSH_COMMAND_TYPES).toHaveLength(11);
+    expect(SSH_COMMAND_TYPES).toHaveLength(12);
     // Every census type is a type the dispatcher actually narrows.
     for (const t of SSH_COMMAND_TYPES) {
       const body =
@@ -1169,8 +1170,8 @@ describe("ssh command arms and the launch ssh block", () => {
                 ? { type: t, ref: "r-1", reason: "lifetime-expiry" }
                 : t === "ssh_host_key"
                   ? { type: t, host: "git.example.test", port: 22, user: null }
-                  : t === "ssh_exec"
-                    ? execCmdFixture()
+                  : t === "ssh_exec" || t === "ssh_exec_stdin"
+                    ? { ...execCmdFixture(), type: t }
                     : t === "ssh_exec_status"
                       ? { type: t, execId: EXEC_ID }
                       : t === "ssh_machine_pin_repair"
@@ -1566,6 +1567,13 @@ const execCmdFixture = (): SshExecCommand => ({
 });
 
 describe("ssh_exec / ssh_exec_status arms (spec 2026-10-08 §7, Task 14)", () => {
+  it("keeps the stdin-only command distinct from legacy executors and applies the same bounds", () => {
+    const command: SshExecCommand = { ...execCmdFixture(), type: "ssh_exec_stdin" };
+    expect(parseNodeCommandBody(command)).toEqual(command);
+    expect(parseNodeCommandBody({ ...command, command: "x".repeat(SSH_EXEC_COMMAND_MAX_CHARS + 1) })).toBeNull();
+    expect(parseNodeCommandBody({ ...command, command: "first\nsecond" })).toBeNull();
+  });
+
   it("narrows a complete kick, every field carried through", () => {
     expect(parseNodeCommandBody(structuredClone(execCmdFixture()))).toEqual(execCmdFixture());
     // Direct mode: no relay, the snapshot's own agent socket rides (or null).

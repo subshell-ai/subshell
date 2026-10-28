@@ -118,44 +118,36 @@ export function createGeometryQueue(options: GeometryQueueOptions): GeometryQueu
     return entry;
   };
 
-  /**
-   * Applies one size, reports the readback, then drains whatever coalesced
-   * behind it. Recurses through `pending` rather than looping so a burst that
-   * keeps arriving mid-apply is always answered by exactly one more round
-   * trip carrying the newest size.
-   */
-  const run = async (key: string, size: PaneGeometry, sizer: PaneSizer, existing?: Entry): Promise<void> => {
-    // The recursive tail reuses the entry it already holds: calling
-    // `entryFor` again would resurrect one that `release` deleted mid-apply.
-    const entry = existing ?? entryFor(key);
+  /** Drain one latest-size slot without retaining a promise per resize. */
+  const run = async (key: string, initialSize: PaneGeometry, initialSizer: PaneSizer): Promise<void> => {
+    const entry = entryFor(key);
+    let size = initialSize;
+    let sizer = initialSizer;
     entry.busy = true;
     try {
-      await sizer.apply(size.cols, size.rows);
-      entry.applied = size;
-      const real = await sizer.read();
-      // Nothing to say once the entry is released: the last viewer left while
-      // this round trip was in flight, and the frame is fanned out BY
-      // SUBSHELL ID rather than to the socket that asked — so a late
-      // announcement reaches whoever attaches next and tells them to lay out
-      // a size decided for viewers who have gone. A null read means the pane
-      // died, which is equally nothing to announce.
-      if (real && !entry.released) options.onGeometry(key, real);
-    } catch (err) {
-      options.onError?.(err, key);
+      for (;;) {
+        try {
+          await sizer.apply(size.cols, size.rows);
+          entry.applied = size;
+          const real = await sizer.read();
+          // A released viewer must not announce its stale size to a new one.
+          if (real && !entry.released) options.onGeometry(key, real);
+        } catch (err) {
+          options.onError?.(err, key);
+        }
+        if (entry.released) return;
+        const next = entry.pending;
+        const nextSizer = entry.pendingSizer;
+        entry.pending = null;
+        entry.pendingSizer = null;
+        if (!next || !nextSizer) return;
+        if (entry.applied && entry.applied.cols === next.cols && entry.applied.rows === next.rows) return;
+        size = next;
+        sizer = nextSizer;
+      }
     } finally {
       entry.busy = false;
     }
-    // Released while this apply was in flight: the viewer is gone, so drop
-    // whatever coalesced behind it rather than resizing a pane nobody sees.
-    if (entry.released) return;
-    const next = entry.pending;
-    const nextSizer = entry.pendingSizer;
-    entry.pending = null;
-    entry.pendingSizer = null;
-    if (!next || !nextSizer) return;
-    // The burst may have settled on the size the pane already holds.
-    if (entry.applied && entry.applied.cols === next.cols && entry.applied.rows === next.rows) return;
-    await run(key, next, nextSizer, entry);
   };
 
   return {

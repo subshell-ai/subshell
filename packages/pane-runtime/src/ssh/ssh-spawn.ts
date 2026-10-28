@@ -41,16 +41,18 @@ export interface SshProcessResult {
  *   consults PATH to pick an executable (the explicit-argv rule of this engine's contract).
  * @param env - the COMPLETE child environment; no inheritance, by design
  * @param timeoutMs - hard deadline; the child is terminated at it
+ * @param input - optional script sent over stdin, never placed in process arguments
  */
 export async function runSshProcess(
   argv: readonly string[],
   env: Record<string, string>,
   timeoutMs: number,
+  input?: string,
 ): Promise<SshProcessResult> {
   let proc: Bun.Subprocess<"ignore", "pipe", "pipe">;
   try {
     proc = Bun.spawn([...argv], {
-      stdin: "ignore",
+      stdin: input === undefined ? "ignore" : new TextEncoder().encode(input),
       stdout: "pipe",
       stderr: "pipe",
       env,

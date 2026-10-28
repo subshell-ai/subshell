@@ -195,6 +195,7 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
       case "ssh_relay_close":
         return execSshRelayClose(ctx, cmd);
       case "ssh_exec":
+      case "ssh_exec_stdin":
         return await execSshExec(ctx, cmd);
       case "ssh_exec_status":
         return await execSshExecStatus(ctx, cmd);
