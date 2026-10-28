@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 /** Isolated real-node smoke test and mobile captures for preview compatibility. */
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -112,9 +113,9 @@ try {
   );
   writeFileSync(`${viteRoot}/style.css`, "h1{color:rgb(1, 2, 3)}");
   writeFileSync(`${viteRoot}/mapped.js`, 'export const value="mapped";');
-  const vite = Bun.spawn(
+  const vite = spawn(
+    "bun",
     [
-      "bun",
       `${process.cwd()}/apps/server/web/node_modules/vite/bin/vite.js`,
       viteRoot,
       "--host",
@@ -123,7 +124,7 @@ try {
       "3491",
       "--strictPort",
     ],
-    { stdout: "ignore", stderr: "inherit" },
+    { stdio: ["ignore", "ignore", "inherit"] },
   );
   cleanup.unshift(() => vite.kill());
   await expect
