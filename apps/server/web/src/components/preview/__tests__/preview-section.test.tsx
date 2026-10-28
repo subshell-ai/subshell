@@ -6,7 +6,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { PreviewSection } from "@/components/preview/preview-section";
 import type { PreviewInfo, UseSubshellPreview } from "@/hooks/use-subshell-preview";
 import { publishPreviewFrame } from "@/lib/preview-bus";
@@ -248,9 +248,15 @@ describe("Open (edit unlocks it)", () => {
         closed += 1;
       },
     });
-    fireEvent.click(screen.getAllByRole("button", { name: /^Open web preview/ })[0]);
+    // Opening resolves asynchronously and mounts the menu trigger. Flush that
+    // render and its effects before interacting with the newly mounted menu.
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button", { name: /^Open web preview/ })[0]);
+    });
     await screen.findByTitle("Preview of port 3000");
-    fireEvent.click(screen.getByRole("button", { name: "More view actions" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "More view actions" }));
+    });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Close view" }));
     expect(closed).toBe(1);
   });
