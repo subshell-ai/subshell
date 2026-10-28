@@ -32,6 +32,7 @@ import {
   isDegenerateGrid,
   scrollbarReserve,
 } from "@/lib/terminal-geometry";
+import { scrollTerminalHistory } from "@/lib/terminal-history-scroll";
 import { isPasteChord } from "@/lib/terminal-keys";
 import { attachNativeCopyJoin } from "@/lib/terminal-native-copy";
 import {
@@ -232,13 +233,13 @@ export interface SubshellTerminalHandles {
   openImagePicker: () => void;
   /**
    * Jumps the client scrollback to the oldest row / back to the live bottom
-   * (xterm `scrollToTop`/`scrollToBottom`). Local-only — works with the
-   * socket down and for `view` grantees.
+   * locally, or sends Home/End when a full-screen app owns the history.
+   * Application scrolling requires input access and input mode.
    */
   scrollToTop: () => void;
   /** See {@link SubshellTerminalHandles.scrollToTop}. */
   scrollToBottom: () => void;
-  /** Move through local terminal history one screen at a time. */
+  /** Move one page through local history or the full-screen app. */
   scrollPageUp: () => void;
   scrollPageDown: () => void;
   /** Redraw every visible row from xterm's current buffer. */
@@ -885,10 +886,10 @@ export function SubshellTerminal({
         term.focus();
       },
       openImagePicker: () => openImagePickerRef.current(),
-      scrollToTop: () => term.scrollToTop(),
-      scrollToBottom: () => term.scrollToBottom(),
-      scrollPageUp: () => term.scrollPages(-1),
-      scrollPageDown: () => term.scrollPages(1),
+      scrollToTop: () => scrollTerminalHistory(term, "top", !readOnlyRef.current && !copyModeRef.current),
+      scrollToBottom: () => scrollTerminalHistory(term, "bottom", !readOnlyRef.current && !copyModeRef.current),
+      scrollPageUp: () => scrollTerminalHistory(term, "page-up", !readOnlyRef.current && !copyModeRef.current),
+      scrollPageDown: () => scrollTerminalHistory(term, "page-down", !readOnlyRef.current && !copyModeRef.current),
       setSizing: (mode, viewerId) => setSizingRef.current(mode, viewerId),
     });
 

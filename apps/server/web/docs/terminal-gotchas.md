@@ -86,8 +86,10 @@ highlight during a hold and briefly after a tap; cancellation clears the highlig
 without sending a key.
 
 The history controls are grouped between dividers: top, Page Up, Page Down,
-and bottom. Page buttons scroll local terminal history by one screen, without
-sending Page Up/Down keystrokes to the program in the pane.
+and bottom. In the normal buffer they scroll local terminal history. In the
+alternate screen, the program owns its history, so the controls send Home,
+Page Up, Page Down, and End through the regular input path. That requires
+input access and input mode; copy mode and view-only access never send keys.
 
 Insert prompt opens the same picker and confirmation as the action menu. It
 types the selected text without submitting it; the operator presses Enter when

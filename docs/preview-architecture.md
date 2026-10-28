@@ -46,7 +46,13 @@ displays. A built-in preview does not need an enrolled daemon or a node socket.
 `GET /api/subshells/:id/views` requires view access and returns ports, the
 first discovered CDP port, display metadata, and availability reasons. The
 Linux runtime walks `/proc` from the subshell's tmux PID, joining descendant
-socket inodes with listener tables. The broker caches answers for five seconds.
+socket inodes with listener tables. Bounded HTTP probes keep only ports that serve
+HTML, excluding browser debugging and display listeners from the website list.
+Probes try IPv4 loopback and fall back to IPv6, matching forwarding.
+Same-port redirects are followed; cross-origin redirects and download responses
+are excluded. A bounded document prefix supplies an optional page title for the
+picker and truncated tab labels; SVG accessibility titles are excluded.
+The broker caches answers for five seconds.
 Discovery is a UI aid, not an allowlist for edit-authorized raw forwarding.
 
 ### Display providers and viewer protocols
@@ -165,13 +171,22 @@ creates a session with a cryptographically random 128-bit reference. It returns
 `/pv/<ref>/`. That path is a bearer capability; later proxy requests do not use
 the viewer's browser cookie as their authorization boundary.
 
+TCP reads are split into frames within the existing wire limit; a large read is
+not itself an oversized protocol message. The HTTP header reader pauses its
+stream until the body or WebSocket reader takes over, preserving packets that
+arrive during that handoff.
+
 Each HTTP request uses a fresh lane. The server strips dashboard cookies,
 HTTP authorization, API keys, and known edge-identity headers,
 sets `Host` to the saved destination (loopback for automatic views), frames the HTTP request over the lane, and releases it
 when the response completes or the browser aborts. It does not retry partial
 writes. Personal proxy settings default to rewriting app URLs and redirects,
 with preview-host forwarding off. Supported HTML attributes, CSS URLs/imports,
-and module import specifiers are mapped under the session path. An injected
+and module import specifiers are mapped under the session path. Next.js pages
+also receive Turbopack’s chunk-base override before their first script, keeping
+its chunk registry consistent with rewritten URLs. Replacing an active Turbopack
+stylesheet adds a fresh `ts` parameter so Chromium does not reuse the old CSS
+inside the opaque-origin frame. An injected
 browser script handles common dynamic request and DOM URL APIs; target CSP can
 block it. Text rewriting is bounded to 16 MiB decoded, while untransformed
 bodies stream. Rewriting preserves the opaque-origin sandbox, so storage,
@@ -196,6 +211,10 @@ remove the embedding boundary. Scripts and forms work in an opaque origin;
 preview-specific CORS allows modules and fetches under the capability URL.
 Opaque `Origin: null` is admitted only to preview HTTP preflight and preview
 WebSocket handshakes. Dashboard API and WebSocket gates still reject it.
+Document navigations that return non-HTML or attachments show an inline error
+instead of handing the PWA to a download viewer. Subresource and fetch responses
+retain their content types.
+
 Responses use `no-store` and `no-referrer`; request logging excludes `/pv/` paths.
 
 A WebSocket upgrade allocates a lane before accepting the browser. HTTP-mode

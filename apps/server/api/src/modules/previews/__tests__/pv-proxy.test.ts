@@ -199,6 +199,11 @@ beforeAll(async () => {
         ].map((name) => req.headers.get(name)),
         body: req.method === "GET" || req.method === "HEAD" ? "" : await req.text(),
       };
+      if (["/download", "/download-error"].includes(url.pathname))
+        return new Response(new Uint8Array([1, 2]), {
+          status: url.pathname === "/download-error" ? 404 : 200,
+          headers: { "content-type": "application/octet-stream", "content-disposition": "attachment; filename=data" },
+        });
       if (url.pathname === "/headers") return Response.json(Object.fromEntries(req.headers));
       if (url.pathname === "/page")
         return new Response('<head><link href="/style.css"></head><h1>App</h1>', {
@@ -385,6 +390,27 @@ async function probeUpgrade(port: number, path: string, origin?: string): Promis
 /* ------------------------------------------------------------------ */
 
 describe("pv-http: the same-origin rewrite", () => {
+  it("keeps non-document responses inside the preview on navigation while preserving fetches", async () => {
+    const { ref } = await getPreviewBroker().openForward({
+      viewerUserId: USER,
+      paneId: PANE,
+      nodeId: NODE,
+      port: targetPort,
+    });
+    for (const path of ["download", "download-error", "headers"]) {
+      const response = await proxyFetch(`/pv/${ref}/${path}`, {
+        headers: { "sec-fetch-dest": "iframe", "sec-fetch-mode": "navigate" },
+      });
+      expect(response.status).toBe(502);
+      expect(response.headers.get("content-type")).toContain("text/html");
+      expect(response.headers.get("content-disposition")).toBeNull();
+      expect(await response.text()).toContain("This isn't a web page");
+    }
+    const response = await proxyFetch(`/pv/${ref}/download`, { headers: { "sec-fetch-dest": "empty" } });
+    expect(response.status).toBe(200);
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2]));
+  });
+
   it("applies snapshotted host/rewrite settings to the real lane", async () => {
     const broker = getPreviewBroker();
     const { ref } = await broker.openForward({

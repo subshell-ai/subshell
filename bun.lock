@@ -499,6 +499,7 @@
         "@subshell-ai/plugin-ssh": "workspace:*",
         "@subshell-ai/plugin-tailscale": "workspace:*",
         "@subshell-ai/plugin-terminal": "workspace:*",
+        "entities": "7.0.1",
       },
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",

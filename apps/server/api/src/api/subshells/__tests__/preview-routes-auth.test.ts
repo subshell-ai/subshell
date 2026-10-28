@@ -67,7 +67,7 @@ function liveHandlers(overrides: ScriptedHandlers = {}): ScriptedHandlers {
     preview_open: (cmd) => (cmd.type === "preview_open" ? { ref: cmd.ref, subscribers: 1 } : new Error("wrong cmd")),
     preview_close: ok,
     preview_ports_get: () => ({
-      ports: [{ proto: "tcp", port: 3000, pid: 4242 }],
+      ports: [{ proto: "tcp", port: 3000, pid: 4242, title: "Project dashboard" }],
       cdpPort: 9222,
       screen: null,
     }),
@@ -657,7 +657,7 @@ describe("preview REST surface (Task 9)", () => {
     const body = await jsonBody(res);
     expect(body.nodeEnabled).toBe(true);
     expect(body.reason).toBeUndefined();
-    expect(body.ports).toEqual([{ proto: "tcp", port: 3000, pid: 4242 }]);
+    expect(body.ports).toEqual([{ proto: "tcp", port: 3000, pid: 4242, title: "Project dashboard" }]);
     expect(body.cdpPort).toBe(9222);
     expect(body.screen).toBeNull();
     expect(body.screenLost).toBeUndefined();

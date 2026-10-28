@@ -1,3 +1,4 @@
+import { PREVIEW_PAGE_TITLE_MAX_LENGTH } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/api/middleware/context.plugin.js";
@@ -25,6 +26,9 @@ import { PREVIEW_PORTS_UNSUPPORTED } from "@/modules/previews/refusals.js";
  */
 
 const PreviewPortSchema = t.Object({
+  title: t.Optional(
+    t.String({ maxLength: PREVIEW_PAGE_TITLE_MAX_LENGTH, description: "Website page title when available" }),
+  ),
   proto: t.Union([t.Literal("tcp"), t.Literal("tcp6")], {
     description: "Address family the listener is on",
   }),

@@ -2,6 +2,7 @@ import { Button, cn } from "@internal/node-admin";
 import { describeDevices, roleLabel, type ViewersState } from "@internal/subshell-protocol";
 import { Check, Monitor, Pin } from "lucide-react";
 import type { JSX } from "react";
+import { CountBadge } from "@/components/count-badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,14 +61,16 @@ export function SubshellDevices({ state, onSizing }: SubshellDevicesProps): JSX.
         render={
           <Button
             variant="ghost"
-            size="sm"
-            className="h-7 gap-1.5 px-2 text-detail text-muted-foreground"
+            size="icon"
+            className="size-7 text-muted-foreground"
             aria-label={`${state.viewers.length} devices watching this subshell`}
           />
         }
       >
-        <Monitor className="h-3.5 w-3.5" />
-        {state.viewers.length}
+        <span className="relative inline-flex">
+          <Monitor aria-hidden />
+          <CountBadge count={state.viewers.length} />
+        </span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-[17rem]">
         <div className="px-2 py-1.5 text-detail text-muted-foreground">

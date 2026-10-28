@@ -850,8 +850,12 @@ export function parseNodePreviewCloseResult(data: unknown): NodePreviewCloseResu
   return { ref: data.ref, closed: data.closed };
 }
 
+export const PREVIEW_PAGE_TITLE_MAX_LENGTH = 200;
+
 /** One listening socket of the pane's process tree (spec §4's ports answer rows). */
 export interface NodePreviewPortWire {
+  /** Bounded page title, when the website provides one. */
+  title?: string;
   /** Socket family, as the walker found it; the proxy dials both spellings of loopback. */
   proto: "tcp" | "tcp6";
   /** Listening port. */
@@ -895,7 +899,14 @@ export function parseNodePreviewPortsResult(data: unknown): NodePreviewPortsResu
     if (!isRecord(p) || (p.proto !== "tcp" && p.proto !== "tcp6")) return null;
     if (!isInt(p.port) || (p.port as number) < 1 || (p.port as number) > 65_535) return null;
     if (!isInt(p.pid) || (p.pid as number) < 0) return null;
-    ports.push({ proto: p.proto, port: p.port as number, pid: p.pid as number });
+    if (p.title !== undefined && (typeof p.title !== "string" || p.title.length > PREVIEW_PAGE_TITLE_MAX_LENGTH))
+      return null;
+    ports.push({
+      proto: p.proto,
+      port: p.port as number,
+      pid: p.pid as number,
+      ...(p.title ? { title: p.title as string } : {}),
+    });
   }
   if (
     !(

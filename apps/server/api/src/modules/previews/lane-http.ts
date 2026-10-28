@@ -236,6 +236,7 @@ function streamBody(
   // The head reader handed us bytes past the head: drive the machine once so
   // they are not stranded in `acc` until the next arrival.
   else if (acc.byteLength > 0) onData(Buffer.alloc(0));
+  if (!done) duplex.resume();
   return stream;
 }
 

@@ -26,6 +26,7 @@ import type { SubshellView } from "@/types/subshell";
 
 /** One listening socket in the pane's process tree, as the info route answers. */
 export interface PreviewPortRow {
+  title?: string;
   proto: "tcp" | "tcp6";
   port: number;
   pid: number;

@@ -346,6 +346,15 @@ describe("preview results (protocol 23)", () => {
   });
 
   it("ports_get reports ports, a nullable CDP hint, a nullable screen, and an optional screenLost", () => {
+    const titled = {
+      ports: [{ proto: "tcp" as const, port: 3000, pid: 7, title: "My website" }],
+      cdpPort: null,
+      screen: null,
+    };
+    expect(parseNodePreviewPortsResult(titled)).toEqual(titled);
+    expect(
+      parseNodePreviewPortsResult({ ...titled, ports: [{ ...titled.ports[0], title: "x".repeat(201) }] }),
+    ).toBeNull();
     const ports: NodePreviewPortWire[] = [{ proto: "tcp", port: 5173, pid: 42 }];
     expect(parseNodePreviewPortsResult({ ports, cdpPort: null, screen: null })).toEqual({
       ports,

@@ -151,8 +151,10 @@ function PreviewOption({
         onClick={onClick}
       >
         <Icon data-icon="inline-start" aria-hidden />
-        <span>{label}</span>
-        {port !== undefined && <span className="text-muted-foreground tabular-nums">{port}</span>}
+        <span className="min-w-0 truncate" title={label}>
+          {label}
+        </span>
+        {port !== undefined && <span className="shrink-0 text-muted-foreground tabular-nums">{port}</span>}
         <ArrowRight className="ml-auto size-4 shrink-0 text-muted-foreground" aria-hidden />
       </Button>
       {reason && <p className="text-detail text-muted-foreground">{reason}</p>}
@@ -184,7 +186,7 @@ function CompactPreviewChoices({
   const term = query.trim().toLowerCase();
   const webPreviews = [...rows]
     .sort((a, b) => a.port - b.port)
-    .filter((row) => `web preview port ${row.port}`.includes(term));
+    .filter((row) => `web preview port ${row.port} ${row.title ?? ""}`.toLowerCase().includes(term));
   const screen = info.screen && "virtual display screen".includes(term);
   const browser = info.cdpPort != null && `browser watch ${info.cdpPort}`.includes(term);
   const special = (
@@ -235,9 +237,9 @@ function CompactPreviewChoices({
             <PreviewOption
               key={row.port}
               icon={Globe}
-              label="Web preview"
+              label={row.title || "Web preview"}
               port={row.port}
-              action={`Open web preview on port ${row.port}`}
+              action={row.title ? `Open ${row.title} on port ${row.port}` : `Open web preview on port ${row.port}`}
               reason={openReason}
               onClick={() => onOpen(row.port)}
             />

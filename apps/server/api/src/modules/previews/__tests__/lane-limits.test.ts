@@ -34,6 +34,19 @@ async function response(transfer = "transfer-encoding: chunked") {
 const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 
 describe("preview response memory and framing", () => {
+  it("keeps packets arriving between the head and body readers", async () => {
+    const { duplex } = wire();
+    const answer = sendLaneRequest(duplex, { method: "GET", path: "/", headers: [], body: null }, false, () =>
+      duplex.destroy(),
+    );
+    duplex.push(Buffer.from("HTTP/1.1 200 OK\r\ncontent-length: 6\r\n\r\na"));
+    duplex.push(Buffer.from("bc"));
+    duplex.push(Buffer.from("def"));
+    duplex.push(null);
+    const result = await answer;
+    expect(await new Response(result.body).text()).toBe("abcdef");
+  });
+
   it("counts only headers toward the head limit and handles coalesced informational responses", async () => {
     const { duplex } = wire();
     const answer = readLaneHead(duplex);

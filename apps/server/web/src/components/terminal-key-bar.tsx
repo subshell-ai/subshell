@@ -71,16 +71,13 @@ export interface TerminalKeyBarProps {
   /** Shares the terminal's copy/input mode with the action menu. */
   copyMode?: { on: boolean; onToggle: () => void };
   /**
-   * Jump the client terminal's scrollback to the oldest row (xterm
-   * `scrollToTop`). Purely local — the bytes are already on the device — so
-   * unlike the byte keys these are NOT gated on {@link disabled}: scrolling
-   * history works before the socket is up, and for a `view` grantee it is
-   * the whole point.
+   * Scroll local history even while disconnected or view-only. The terminal
+   * routes alternate-screen scrolling to the program only when input is allowed.
    */
   onScrollTop?: () => void;
   /** Jump the client terminal's scrollback to the live bottom. */
   onScrollBottom?: () => void;
-  /** Scroll the local history by one screen at a time. */
+  /** Scroll history by one screen at a time. */
   onScrollPageUp?: () => void;
   onScrollPageDown?: () => void;
   /** Reload the entire page. */

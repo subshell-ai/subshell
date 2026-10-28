@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
 import { fetchCdpJson } from "./cdp-http.js";
 import type { PreviewScreenHandle } from "./display-provider.js";
+import { probeWebsite, type WebsiteInfo } from "./website-probe.js";
 
 /**
  * Pane port discovery (pane-preview spec §4/§5, Task 4): what the pane's
@@ -19,7 +20,7 @@ import type { PreviewScreenHandle } from "./display-provider.js";
  */
 
 /** One listening socket of the pane's tree, as the wire row names it. */
-export type PreviewPortRow = { proto: "tcp" | "tcp6"; port: number; pid: number };
+export type PreviewPortRow = { proto: "tcp" | "tcp6"; port: number; pid: number; title?: string };
 
 /** Everything `scanPanePorts` takes; `procRoot` and `probe` are test seams. */
 export interface ScanPanePortsOptions {
@@ -29,6 +30,8 @@ export interface ScanPanePortsOptions {
   panePid: number;
   /** "Is this port CDP?" default: a loopback `GET /json/version` with a 400 ms budget. Test-only seam. */
   probe?: (port: number) => Promise<boolean>;
+  /** Test seam for the bounded HTML document probe. */
+  websiteProbe?: (port: number, signal: AbortSignal) => Promise<WebsiteInfo | null>;
   /** The pane's allocated display, passed through to the answer; null means this pane has none. */
   screen?: PreviewScreenHandle | null;
 }
@@ -90,14 +93,33 @@ export async function scanPanePorts(opts: ScanPanePortsOptions): Promise<PanePor
   }
 
   const probe = opts.probe ?? defaultCdpProbe;
-  let cdpPort: number | null = null;
-  for (const row of ports) {
-    if (await probe(row.port)) {
-      cdpPort = row.port;
-      break;
-    }
-  }
-  return { ports, cdpPort, screen };
+  const website = opts.websiteProbe ?? probeWebsite;
+  const candidates = [...new Set(ports.map((row) => row.port))];
+  const websites = new Map<number, WebsiteInfo>();
+  const cdpPorts = new Set<number>();
+  // Bound the whole scan as well as concurrency: a pane can hold many idle
+  // sockets, and none should make discovery wait for every individual timeout.
+  const deadline = AbortSignal.timeout(2500);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(4, candidates.length) }, async () => {
+      while (next < candidates.length && !deadline.aborted) {
+        const port = candidates[next++];
+        if (port === screen?.viewer.port) continue;
+        if (await probe(port)) cdpPorts.add(port);
+        else {
+          const info = await website(port, AbortSignal.any([deadline, AbortSignal.timeout(1000)]));
+          if (info) websites.set(port, info);
+        }
+      }
+    }),
+  );
+  const cdpPort = candidates.find((port) => cdpPorts.has(port)) ?? null;
+  return {
+    ports: ports.filter((row) => websites.has(row.port)).map((row) => ({ ...row, ...websites.get(row.port) })),
+    cdpPort,
+    screen,
+  };
 }
 
 /**

@@ -347,33 +347,28 @@ export class PreviewForward {
   /* the pump                                                          */
   /* ---------------------------------------------------------------- */
 
-  /**
-   * One socket read heading plane-ward. The over-cap guard is the sender half
-   * of spec §6's named close: the receiving parser refuses an over-cap blob
-   * and the daemon drops what will not parse, so an unchecked sender would
-   * corrupt the lane SILENTLY mid-stream. Net's 64 KiB chunks make this a
-   * guard, not a routine. An over-cap read emits ZERO bytes and closes the
-   * lane `over-cap` — never fragmentation.
-   */
+  /** Split TCP reads into wire-sized frames without changing their byte order. */
   private onSocketData(lane: Lane, chunk: Buffer): void {
-    if (chunk.length > PREVIEW_FRAME_MAX_BYTES) {
-      this.die(lane, "over-cap");
-      return;
-    }
     this.touch(lane);
-    const frame = {
-      type: "preview_data",
-      ref: lane.ref,
-      dir: "out",
-      blob: chunk.toString("base64"),
-    } as const;
-    try {
-      lane.hooks.emit(frame);
-    } catch (err: unknown) {
-      // TCP bytes cannot be skipped. Once delivery fails, truncate the lane
-      // instead of letting later bytes turn a damaged response into success.
-      lane.say(`preview lane ${lane.ref.slice(0, 8)}…: transport refused bytes, closing slow-link (${String(err)})`);
-      this.die(lane, "slow-link");
+    // Bun can deliver reads larger than the protocol's frame limit. TCP read
+    // boundaries aren't messages, so a large asset must not kill its lane.
+    for (let offset = 0; offset < chunk.length; offset += PREVIEW_FRAME_MAX_BYTES) {
+      if (this.lanes.get(lane.ref) !== lane) return;
+      const frame = {
+        type: "preview_data",
+        ref: lane.ref,
+        dir: "out",
+        blob: chunk.subarray(offset, offset + PREVIEW_FRAME_MAX_BYTES).toString("base64"),
+      } as const;
+      try {
+        lane.hooks.emit(frame);
+      } catch (err: unknown) {
+        // Keep the transport's queue budget: failed delivery ends this lane,
+        // including the rest of this read, rather than skipping any bytes.
+        lane.say(`preview lane ${lane.ref.slice(0, 8)}…: transport refused bytes, closing slow-link (${String(err)})`);
+        this.die(lane, "slow-link");
+        return;
+      }
     }
   }
 

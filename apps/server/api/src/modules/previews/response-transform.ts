@@ -212,6 +212,7 @@ export async function transformPreviewResponse(
     else {
       const script = `<script>${previewCompatScript(target, proxy)}</script>`;
       let injected = false;
+      let nextChunkBaseInjected = false;
       let baseSeen = false;
       await new HTMLRewriter()
         .on("base[href]", {
@@ -238,6 +239,20 @@ export async function transformPreviewResponse(
             if (!injected && el.tagName === "script") {
               el.before(script, { html: true });
               injected = true;
+            }
+            // Turbopack matches registered script URLs against its chunk base.
+            // Rewriting src alone leaves its runtime waiting for unproxied keys.
+            const src = el.tagName === "script" ? el.getAttribute("src") : null;
+            if (src && !nextChunkBaseInjected) {
+              const mapped = map(src);
+              const nextStatic = mapped.indexOf("/_next/static/");
+              if (mapped.startsWith(proxy) && nextStatic >= 0) {
+                const chunkBase = `${mapped.slice(0, nextStatic)}/_next/`;
+                el.before(`<script>globalThis.TURBOPACK_CHUNK_BASE_PATH=${scriptString(chunkBase)};</script>`, {
+                  html: true,
+                });
+                nextChunkBaseInjected = true;
+              }
             }
             for (const name of ["src", "href", "action", "formaction", "poster", "data"]) {
               const value = el.getAttribute(name);

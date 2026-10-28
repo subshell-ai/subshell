@@ -8,11 +8,32 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
     return text.startsWith("/") || text.startsWith("./") || text.startsWith("../") || text.startsWith("http://") || text.startsWith("https://")
       ? mapUrl(text, base, target, proxy) : text;
   } });
+  let stylesheetRevision = 0;
+  const mapAttribute = (element, name, value) => {
+    const mapped = map(String(value));
+    // Chromium can reuse an active stylesheet inside the opaque-origin frame,
+    // even with no-store. Turbopack already uses ts for this on Safari/Firefox.
+    if (name !== "href" || !(element instanceof HTMLLinkElement) || element.rel !== "stylesheet"
+      || typeof globalThis.TURBOPACK_CHUNK_BASE_PATH !== "string"
+      || !mapped.startsWith(globalThis.TURBOPACK_CHUNK_BASE_PATH)) return mapped;
+    const url = new URL(mapped);
+    if (!url.pathname.endsWith(".css")) return mapped;
+    url.searchParams.delete("ts");
+    for (const previous of document.querySelectorAll('link[rel="stylesheet"][href]')) {
+      if (previous === element || !previous.href.startsWith(globalThis.TURBOPACK_CHUNK_BASE_PATH)) continue;
+      const existing = new URL(previous.href);
+      existing.searchParams.delete("ts");
+      if (existing.href !== url.href) continue;
+      url.searchParams.set("ts", Date.now() + "." + ++stylesheetRevision);
+      return url.href;
+    }
+    return mapped;
+  };
   const attributes = new Set(["src", "href", "action", "formaction", "poster", "data"]);
   const attribute = Element.prototype.setAttribute;
   Element.prototype.setAttribute = function(name, value) {
     const key = name.toLowerCase();
-    return attribute.call(this, name, key === "srcset" ? mapSrcset(String(value), map) : attributes.has(key) ? map(String(value)) : value);
+    return attribute.call(this, name, key === "srcset" ? mapSrcset(String(value), map) : attributes.has(key) ? mapAttribute(this, key, value) : value);
   };
   for (const [constructor, properties] of [
     [HTMLScriptElement, ["src"]],
@@ -32,7 +53,7 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
       if (!descriptor?.set)
         continue;
       Object.defineProperty(constructor.prototype, property, { ...descriptor, set(value) {
-        descriptor.set.call(this, property === "srcset" ? mapSrcset(String(value), map) : map(String(value)));
+        descriptor.set.call(this, property === "srcset" ? mapSrcset(String(value), map) : mapAttribute(this, property, value));
       } });
     }
   }

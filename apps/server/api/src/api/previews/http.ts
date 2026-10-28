@@ -292,6 +292,35 @@ async function proxyRequest(request: Request, sessionRef: string, rest: string):
         releaseLane();
       },
     );
+    // A navigation to an internal service or download can hand an iOS PWA
+    // to Quick Look with no way back. Subresources keep their original MIME.
+    const destination = request.headers.get("sec-fetch-dest");
+    const navigation =
+      destination === "document" ||
+      destination === "iframe" ||
+      request.headers.get("sec-fetch-mode") === "navigate" ||
+      (!destination && !rest && request.headers.get("accept")?.includes("text/html"));
+    const contentType = res.headers.find(([name]) => name === "content-type")?.[1] ?? "";
+    const disposition = res.headers.find(([name]) => name === "content-disposition")?.[1] ?? "";
+    if (
+      navigation &&
+      res.status >= 200 &&
+      !(res.status >= 300 && res.status < 400) &&
+      res.status !== 204 &&
+      res.status !== 205 &&
+      (!/^text\/html(?:\s*;|\s*$)/i.test(contentType) || /^attachment(?:\s*;|\s*$)/i.test(disposition))
+    ) {
+      await res.body?.cancel();
+      duplex.destroy();
+      releaseLane();
+      return new Response(
+        '<!doctype html><html><head><meta name=viewport content="width=device-width, initial-scale=1"><title>Preview unavailable</title></head><body><h1>This isn\'t a web page</h1><p>This address returned a download or another type of response. Close this preview and choose a website port.</p></body></html>',
+        {
+          status: 502,
+          headers: isolatedPreviewHeaders(new Headers({ "content-type": "text/html; charset=utf-8" })),
+        },
+      );
+    }
     const headersOut = outHeadersToWeb(res.headers, session.cookieJar, sessionRef);
     const location = res.headers.find(([name]) => name === "location")?.[1];
     if (location) {

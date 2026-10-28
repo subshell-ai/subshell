@@ -172,6 +172,7 @@ export {
   type NodeStatDirResult,
   type NodeTreeManifestPage,
   type NodeWriteFileResult,
+  PREVIEW_PAGE_TITLE_MAX_LENGTH,
   type PreviewDisplayReadiness,
   parseNodeAgentLogSlice,
   parseNodeArchiveCreateResult,

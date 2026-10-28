@@ -350,7 +350,6 @@ function SubshellPage() {
                 {/* Permanent disclosure: whose machine this runs on, and who
                     else can read it. Never suppressible — see
                     components/trust-indicators.tsx. */}
-                <TrustIndicators notices={trustNotices} />
                 {/* The way to a workspace, and the way back: split this
                     subshell into one, or return to the one it is already on
                     (renders itself away when there is none). */}
@@ -368,6 +367,7 @@ function SubshellPage() {
                   state={viewers}
                   onSizing={(mode, viewerId) => setSizingRef.current?.(mode, viewerId)}
                 />
+                <TrustIndicators notices={trustNotices} />
                 {subshell && (
                   <SubshellActionsMenu
                     subshell={subshell}

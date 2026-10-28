@@ -132,29 +132,55 @@ function writeNet(file: string, rows: { addr: string; port: number; inode: numbe
 
 describe.skipIf(process.platform !== "linux")("scanPanePorts over fixture /proc trees", () => {
   it("attributes a listening socket to the deepest descendant that owns it", async () => {
-    const r = await scanPanePorts({ procRoot: tinyProcRoot, panePid: 100, probe: async () => false });
+    const r = await scanPanePorts({
+      procRoot: tinyProcRoot,
+      panePid: 100,
+      websiteProbe: async () => ({}),
+      probe: async () => false,
+    });
     expect(r.ports).toEqual([{ proto: "tcp", port: 3000, pid: 102 }]);
   });
 
+  it("lists only websites while retaining CDP separately", async () => {
+    const r = await scanPanePorts({
+      procRoot,
+      panePid: 100,
+      probe: async (port) => port === 9222,
+      websiteProbe: async (port) => (port === 3000 ? { title: "My app" } : null),
+    });
+    expect(r.ports).toEqual([{ proto: "tcp", port: 3000, pid: 102, title: "My app" }]);
+    expect(r.cdpPort).toBe(9222);
+  });
+
   it("cdpPort is the LISTEN port whose /json/version probe answers", async () => {
-    const r = await scanPanePorts({ procRoot, panePid: 100, probe: async (p) => p === 9222 });
+    const r = await scanPanePorts({
+      procRoot,
+      panePid: 100,
+      websiteProbe: async () => ({}),
+      probe: async (p) => p === 9222,
+    });
     expect(r.cdpPort).toBe(9222);
   });
 
   it("a socket owned by an outsider never appears", async () => {
-    const r = await scanPanePorts({ procRoot, panePid: 100, probe: async () => false });
+    const r = await scanPanePorts({ procRoot, panePid: 100, websiteProbe: async () => ({}), probe: async () => false });
     expect(r.ports.some((p) => p.port === 8080)).toBe(false);
   });
 
   it("no listeners answers with empty arrays, not an error", async () => {
-    const r = await scanPanePorts({ procRoot: emptyProcRoot, panePid: 100, probe: async () => false });
+    const r = await scanPanePorts({
+      procRoot: emptyProcRoot,
+      panePid: 100,
+      websiteProbe: async () => ({}),
+      probe: async () => false,
+    });
     expect(r.ports).toEqual([]);
     expect(r.cdpPort).toBeNull();
     expect(r.screen).toBeNull();
   });
 
   it("an IPv6 loopback listener parses", async () => {
-    const r = await scanPanePorts({ procRoot, panePid: 100, probe: async () => false });
+    const r = await scanPanePorts({ procRoot, panePid: 100, websiteProbe: async () => ({}), probe: async () => false });
     expect(r.ports).toContainEqual({ proto: "tcp6", port: 4321, pid: 102 });
   });
 
@@ -168,15 +194,16 @@ describe.skipIf(process.platform !== "linux")("scanPanePorts over fixture /proc 
     mkPidTree(capRoot, pids);
     writeNet(join(capRoot, "net", "tcp"), []);
     writeNet(join(capRoot, "net", "tcp6"), []);
-    await expect(scanPanePorts({ procRoot: capRoot, panePid: 1000, probe: async () => false })).rejects.toThrow(
-      "preview-ports-overcap",
-    );
+    await expect(
+      scanPanePorts({ procRoot: capRoot, panePid: 1000, websiteProbe: async () => ({}), probe: async () => false }),
+    ).rejects.toThrow("preview-ports-overcap");
   });
 
   it("the screen handle rides through the scan untouched", async () => {
     const r = await scanPanePorts({
       procRoot,
       panePid: 100,
+      websiteProbe: async () => ({}),
       probe: async () => false,
       screen: { display: ":97", viewer: { protocol: "vnc", port: 5900 } },
     });
@@ -191,7 +218,12 @@ it.skipIf(process.platform === "linux")(
     // fs read, so a bad-path root cannot tell the refusal apart from an
     // ENOENT.
     await expect(
-      scanPanePorts({ procRoot: join(base, "no-such-proc"), panePid: 1, probe: async () => false }),
+      scanPanePorts({
+        procRoot: join(base, "no-such-proc"),
+        panePid: 1,
+        websiteProbe: async () => ({}),
+        probe: async () => false,
+      }),
     ).rejects.toThrow("preview-ports-unsupported");
   },
 );
