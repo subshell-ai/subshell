@@ -18,19 +18,22 @@ import { HttpError } from "@/shared/errors.js";
  * route ships nothing but `/pv/<ref>/` for the SPA to point a browser at.
  */
 
-const PreviewOpenBodySchema = t.Union([
-  t.Object({
-    port: t.Integer({
-      minimum: 1,
-      maximum: 65_535,
-      description:
-        "Loopback port on the subshell's node to forward. Saved serviceId targets use their stored host instead.",
+const PreviewOpenBodySchema = t.Union(
+  [
+    t.Object({
+      port: t.Integer({
+        minimum: 1,
+        maximum: 65_535,
+        description:
+          "Loopback port on the subshell's node to forward. Saved serviceId targets use their stored host instead.",
+      }),
     }),
-  }),
-  t.Object({
-    serviceId: t.String({ format: "uuid", description: "Saved service whose host and protocol the node will use" }),
-  }),
-]);
+    t.Object({
+      serviceId: t.String({ format: "uuid", description: "Saved service whose host and protocol the node will use" }),
+    }),
+  ],
+  { description: "Target to open or configure: a loopback port or a saved service" },
+);
 
 const PreviewOpenResponseSchema = t.Object({
   proxyBase: t.String({
@@ -38,11 +41,14 @@ const PreviewOpenResponseSchema = t.Object({
   }),
 });
 
-const PreviewSettingsSchema = t.Object({
-  rewriteUrls: t.Boolean({ description: "Rewrite app resource URLs through the preview" }),
-  passHost: t.Boolean({ description: "Forward the preview host header to the app" }),
-  rewriteRedirects: t.Boolean({ description: "Rewrite app redirects through the preview" }),
-});
+const PreviewSettingsSchema = t.Object(
+  {
+    rewriteUrls: t.Boolean({ description: "Rewrite app resource URLs through the preview" }),
+    passHost: t.Boolean({ description: "Forward the preview host header to the app" }),
+    rewriteRedirects: t.Boolean({ description: "Rewrite app redirects through the preview" }),
+  },
+  { description: "Personal proxy preferences to apply to this destination" },
+);
 const PreviewSettingsBodySchema = t.Object({
   target: PreviewOpenBodySchema,
   action: t.Union([t.Literal("read"), t.Literal("save"), t.Literal("reset")], {

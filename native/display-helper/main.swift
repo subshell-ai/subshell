@@ -170,7 +170,7 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
             // The proven form, not the no-argument `activate()`. A re-press has
             // to drag the pending alert over whatever app the person is in now,
             // which is exactly the insistence the plain call does not make.
-            // test.sh typechecks main.swift with warnings as errors; the desktop
+            // test.sh typechecks main.swift with the release flags; the desktop
             // build also compiles every Swift source through build_support.rs.
             NSApp.activate(ignoringOtherApps: true)
             return
@@ -191,7 +191,7 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
         // alert left behind another window reads as a menu that does nothing.
         //
         // Keep the activation form exercised by Settings.swift and this file's
-        // warnings-as-errors typecheck in test.sh.
+        // whole-app typecheck in test.sh.
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertFirstButtonReturn { return }
         NSApp.terminate(nil)

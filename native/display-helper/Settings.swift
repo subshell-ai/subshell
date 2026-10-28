@@ -112,17 +112,10 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
         // the press visible; the activation call is the one this helper has always
         // shipped and the one the macOS lane compiles clean.
         //
-        // Apple marks `activate(ignoringOtherApps:)` deprecated as of macOS 14,
-        // and `test.sh` does treat warnings as errors, yet this file has built the
-        // call through that lane, so on this toolchain the deprecation is not a
-        // warning.
-        // The no-argument `activate()` arrived with the macOS 14 SDK and nothing
-        // here has ever compiled it: if the runner's SDK predates that, it is a
-        // hard error, not a warning. Keep the proven call, and swap it only after
-        // the mac lane says so. Note the lane's reach: `test.sh` compiles every
-        // source EXCEPT `main.swift`, and the release build in `build_support.rs`
-        // passes no `-warnings-as-errors` at all, so this file is guarded and the
-        // app delegate is not.
+        // Keep the activation form exercised by the macOS lane. test.sh compiles
+        // the test executable without main.swift and treats warnings as errors;
+        // its separate app typecheck includes main.swift with the release build's
+        // flags, which don't include warnings-as-errors.
         web?.evaluateJavaScript("window.subshellPanelShown?.()", completionHandler: nil)
         window?.makeKeyAndOrderFront(nil)
         window?.orderFrontRegardless()
