@@ -207,7 +207,7 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
         ) { [weak self] _ in
             // willClose arrives before isVisible changes. Rebuild the menu
             // after the close completes so Minimize reflects the hidden panel.
-            Task { @MainActor in self?.onVisibilityChange?() }
+            Task { @MainActor [weak self] in self?.onVisibilityChange?() }
         }
 
         web = view
