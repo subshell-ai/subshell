@@ -8,7 +8,7 @@ import {
   type PreviewCloseReason,
   previewDimensionsAllowed,
 } from "@internal/subshell-protocol";
-import { fetchCdpJson } from "./cdp-http.js";
+import { CDP_LOOPBACK_FAMILIES, fetchCdpJson } from "./cdp-http.js";
 import { type LaneTimers, realTimers } from "./forward.js";
 
 /**
@@ -340,16 +340,26 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
 
   // Step 1: the target list. Non-200, a throw, junk JSON, or no usable target
   // are all "this port is not answering CDP", which is what `not-cdp` names.
+  // Both loopback spellings get asked, in the lane's order, because a browser
+  // bound to `::1` only is routine and discovery now lists such a port: the
+  // bridge that refuses to ask it would call a watchable browser `not-cdp`.
   void (async () => {
-    let response: BridgeFetchResponse;
-    try {
-      response = await fetchImpl(`http://127.0.0.1:${args.cdpPort}/json/list`);
-    } catch (err: unknown) {
-      handshakeFail(`list fetch threw (${String(err)})`);
-      return;
+    let response: BridgeFetchResponse | null = null;
+    let refusal: string | null = null;
+    for (const host of CDP_LOOPBACK_FAMILIES) {
+      try {
+        const candidate = await fetchImpl(`http://${host}:${args.cdpPort}/json/list`);
+        if (candidate.ok) {
+          response = candidate;
+          break;
+        }
+        refusal = `list answered ${candidate.status}`;
+      } catch (err: unknown) {
+        refusal = `list fetch threw (${String(err)})`;
+      }
     }
-    if (!response.ok) {
-      handshakeFail(`list answered ${response.status}`);
+    if (!response) {
+      handshakeFail(refusal ?? "list found no loopback answer");
       return;
     }
     let targets: unknown;

@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
-import { fetchCdpJson } from "./cdp-http.js";
+import { fetchCdpJsonFromLoopback } from "./cdp-http.js";
 import type { PreviewScreenHandle } from "./display-provider.js";
 import { probeWebsite, type WebsiteInfo } from "./website-probe.js";
 
@@ -75,17 +75,36 @@ let probeCursor = 0;
 /**
  * The scan's wall-clock budget, counted from the moment it is entered so the
  * synchronous /proc pass is part of it: a floor for the probes, what each
- * candidate may add, and a ceiling for the whole pass. The ceiling leaves room
- * for the one port a worker may already be probing when it fires (a wedged
- * listener costs both family windows), and all of it stays inside the plane's
- * 10 s command timeout. Blowing that answers nothing at all, which is worse than
- * dropping a tail the next poll rotates into.
+ * candidate may add, and a ceiling for the whole pass.
  */
 const SCAN_DEADLINE_BASE_MS = 2_500;
 const SCAN_DEADLINE_PER_PORT_MS = 250;
 const SCAN_DEADLINE_MAX_MS = 6_000;
 /** Never let a slow walk leave the probes no time at all: this is their floor. */
 const SCAN_PROBE_MIN_MS = 1_500;
+/**
+ * What the whole pass may cost. The plane gives a node command
+ * `DEFAULT_COMMAND_TIMEOUT_MS` (10 s, `node-rpc.ts`) and a scan that overruns it
+ * answers NOTHING, which is worse than dropping a tail the next poll rotates
+ * into. The spare second is the answer's own trip back, because the clock that
+ * matters starts when the command is sent, not when the walk began. The floor is
+ * a floor on the probes, never a floor on the total: after a walk slow enough to
+ * eat the budget, probes get nothing and the scan returns what the tables say
+ * with no rows, quickly, rather than dying on the timeout.
+ */
+const SCAN_COMMAND_LIMIT_MS = 9_000;
+
+/**
+ * How long the probe pass may run, given what the walk already took. Pure and
+ * exported so the arithmetic is checkable without a loaded host: the window is
+ * the smallest of the candidate-sized allowance, what remains under the ceiling
+ * (never below the floor), and what remains under the command limit.
+ */
+export function probeWindowMs(elapsedMs: number, candidateCount: number): number {
+  const sized = SCAN_DEADLINE_BASE_MS + SCAN_DEADLINE_PER_PORT_MS * candidateCount;
+  const floored = Math.max(SCAN_PROBE_MIN_MS, SCAN_DEADLINE_MAX_MS - elapsedMs);
+  return Math.max(0, Math.min(sized, floored, SCAN_COMMAND_LIMIT_MS - elapsedMs));
+}
 
 /**
  * One pass over the proc filesystem: listeners, ppid map, fd inodes, CDP.
@@ -154,29 +173,31 @@ export async function scanPanePorts(opts: ScanPanePortsOptions): Promise<PanePor
   // exactly like a port that is not a website, so a pane with more stalled
   // listeners than this covers loses rows only until the next poll, seconds
   // later, reaches further into the list.
-  // What the probes get: the smaller of the candidate-sized window and what
-  // remains of the scan's total, never less than the floor. The floor is the
-  // point: without it a slow walk (a tree near MAX_TREE_PIDS on a loaded host)
-  // can spend the whole budget before the first port is tried, and the answer
-  // would be an empty picker rather than a dropped tail.
-  const sized = SCAN_DEADLINE_BASE_MS + SCAN_DEADLINE_PER_PORT_MS * candidates.length;
-  const remaining = Math.max(SCAN_PROBE_MIN_MS, SCAN_DEADLINE_MAX_MS - (Date.now() - startedAt));
-  const deadline = AbortSignal.timeout(Math.min(sized, remaining));
+  // What the probes get, per probeWindowMs: the candidate-sized allowance and
+  // what remains of the scan's ceiling (with a floor so a slow walk still asks),
+  // and never more than what remains of the plane's command budget. Without the
+  // floor a slow walk can spend the whole budget before the first port is tried
+  // and answer an empty picker rather than a dropped tail; without the cap a slow
+  // walk plus the floor overruns the RPC and answers nothing at all.
+  const windowMs = probeWindowMs(Date.now() - startedAt, candidates.length);
   // Rotating start point: see probeCursor. Wrapping means the ports this scan
   // cannot reach before the budget runs out are the first ones the next asks.
   const start = candidates.length > 0 ? probeCursor++ % candidates.length : 0;
   let next = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(SCAN_PROBE_WORKERS, candidates.length) }, async () => {
-      while (next < candidates.length && !deadline.aborted) {
-        const port = candidates[(start + next++) % candidates.length];
-        if (port === screen?.viewer.port) continue;
-        const [isCdp, info] = await Promise.all([probe(port), website(port, deadline)]);
-        if (isCdp) cdpPorts.add(port);
-        else if (info) websites.set(port, info);
-      }
-    }),
-  );
+  if (windowMs > 0) {
+    const deadline = AbortSignal.timeout(windowMs);
+    await Promise.all(
+      Array.from({ length: Math.min(SCAN_PROBE_WORKERS, candidates.length) }, async () => {
+        while (next < candidates.length && !deadline.aborted) {
+          const port = candidates[(start + next++) % candidates.length];
+          if (port === screen?.viewer.port) continue;
+          const [isCdp, info] = await Promise.all([probe(port), website(port, deadline)]);
+          if (isCdp) cdpPorts.add(port);
+          else if (info) websites.set(port, info);
+        }
+      }),
+    );
+  }
   const cdpPort = candidates.find((port) => cdpPorts.has(port)) ?? null;
   return {
     ports: ports.filter((row) => websites.has(row.port)).map((row) => ({ ...row, ...websites.get(row.port) })),
@@ -186,15 +207,20 @@ export async function scanPanePorts(opts: ScanPanePortsOptions): Promise<PanePor
 }
 
 /**
- * The default CDP test (spec §4): does `127.0.0.1:<port>` answer
+ * The default CDP test (spec §4): does `<loopback>:<port>` answer
  * `GET /json/version` within 400 ms with JSON carrying a `Browser` field?
  * Loopback only — the scan runs on the node's own machine, and a listener's
- * devtools answers on loopback whatever address it was bound to. Every
- * failure shape (refused, slow, non-JSON, not CDP) answers false.
+ * devtools answers on loopback whatever address it was bound to. Each family
+ * gets its own 400 ms slice (see `fetchCdpJsonFromLoopback`), because a browser
+ * bound to `::1` only is routine and a single-family probe reported it as a
+ * website with no browser to watch. Every failure shape on every family
+ * (refused, slow, non-JSON, not CDP) answers false.
  */
 async function defaultCdpProbe(port: number): Promise<boolean> {
   try {
-    const body = await fetchCdpJson(`http://127.0.0.1:${port}/json/version`, AbortSignal.timeout(CDP_PROBE_TIMEOUT_MS));
+    const body = await fetchCdpJsonFromLoopback(port, "/json/version", AbortSignal.timeout(CDP_PROBE_TIMEOUT_MS * 2), {
+      perFamilyTimeoutMs: CDP_PROBE_TIMEOUT_MS,
+    });
     return typeof body === "object" && body !== null && "Browser" in body;
   } catch {
     return false;

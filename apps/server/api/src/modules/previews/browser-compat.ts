@@ -29,7 +29,6 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
     // reach it for a single insertion. Bumping again would rewrite href a second
     // time and start a second fetch of the same sheet.
     if (url.searchParams.has("ts")) return mapped;
-    url.searchParams.delete("ts");
     for (const previous of document.querySelectorAll("link[rel][href]")) {
       // The attribute selector is case-sensitive and rel is whatever the app
       // wrote, so compare the value rather than trusting the selector, and read

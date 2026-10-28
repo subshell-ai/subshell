@@ -98,6 +98,14 @@ const ATTEMPT_TIMEOUT_MS = 900;
  * first compile longer than this window, which appears on the next poll seconds
  * later instead of now; the alternative hides nothing but fills the picker with
  * ports that cannot render.
+ *
+ * The IPv6 answer is held to the same standard the lane will meet, not just the
+ * probe's: `forward.ts` dials v4 first and retries `::1` only when that connect
+ * is REFUSED. So when v4 accepted and stalled (a DROP, or a wedged holder of
+ * `127.0.0.1` while the app bound `::1`), the viewer's lane would hang on the
+ * stalled socket no matter how nicely v6 answers, and the port is not offered.
+ * A refused v4 is different: the lane walks past it to `::1` exactly as this
+ * probe does, so a site only v6 serves is both listed and openable.
  */
 export async function probeWebsite(port: number, signal: AbortSignal): Promise<WebsiteInfo | null> {
   // A page that answered without a title is held, not returned, so the other
@@ -122,6 +130,10 @@ export async function probeWebsite(port: number, signal: AbortSignal): Promise<W
       // is only silence, and silence is not an answer to hold: see the policy
       // above, which keeps a wedged listener out of the picker.
       if (signal.aborted) return fallback;
+      // IPv4 accepted and never answered: the lane would stall on that same
+      // socket, because it only walks to ::1 after a REFUSED connect. Offering
+      // the port here would be offering a preview that opens into a hang.
+      if (attempt.aborted && host === "127.0.0.1") return null;
     }
   }
   return fallback;

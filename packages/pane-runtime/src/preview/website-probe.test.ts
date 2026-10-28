@@ -79,12 +79,14 @@ it("discovers HTML and same-port redirects, excluding APIs, downloads, and off-p
   }
 });
 
-it("reaches an IPv6-only website when the IPv4 dial stalls", async () => {
+it("will not offer a v6 site whose port the lane cannot open past a stalled IPv4", async () => {
   // The refused-socket case is covered by the test below; this is the meaner
-  // one. A firewall DROP or a listener that accepts and never answers would,
-  // under one shared per-port budget, spend all of it on the family that cannot
-  // reply and leave a real IPv6-only site out of the picker. Stubbing fetch is
-  // how the stall becomes deterministic without a firewall.
+  // one, and the answer changed once the lane was read. forward.ts dials IPv4
+  // first and retries `::1` only after a REFUSED connect, so a listener that
+  // accepts on 127.0.0.1 and never answers holds the viewer's lane open on a
+  // socket that produces nothing, however well the same port serves a page on
+  // `::1`. Advertising that site would fill the picker with a row that can only
+  // open into a hang, so a stalled IPv4 ends the question without asking IPv6.
   const real = globalThis.fetch;
   const asked: string[] = [];
   globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
@@ -103,8 +105,8 @@ it("reaches an IPv6-only website when the IPv4 dial stalls", async () => {
   try {
     // The outer budget is generous on purpose: it is the PER-FAMILY slice that
     // has to fire here, and a shared budget would ride this whole window out.
-    expect(await probeWebsite(4199, AbortSignal.timeout(3_000))).toEqual({ title: "V6 only" });
-    expect(asked).toEqual(["http://127.0.0.1:4199/", "http://[::1]:4199/"]);
+    expect(await probeWebsite(4199, AbortSignal.timeout(3_000))).toBeNull();
+    expect(asked).toEqual(["http://127.0.0.1:4199/"]);
   } finally {
     globalThis.fetch = real;
   }

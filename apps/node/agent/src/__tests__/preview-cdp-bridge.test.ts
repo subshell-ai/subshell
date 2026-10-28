@@ -518,6 +518,41 @@ describe("(c) not-cdp", () => {
     }
   });
 
+  it("walks to ::1 for the target list when IPv4 has no socket, and still dials the page", async () => {
+    // Discovery now reports a devtools endpoint bound to `::1` (the same ladder
+    // in cdp-http.ts), so a bridge that knew only 127.0.0.1 would call that very
+    // browser `not-cdp`: listed, watchable in principle, and refused on the
+    // open. The list is asked on both spellings; the target it names still dials
+    // whatever loopback the answer carries.
+    const cdp = new FakeCdp();
+    const h = makeHarness("v6-list");
+    const asked: string[] = [];
+    try {
+      await startTestBridge(cdp, refFor(906), {
+        emitStream: () => {},
+        emitClosed: () => {},
+        deps: {
+          timer: new FakeClock(),
+          fetch: async (url: string) => {
+            asked.push(url);
+            if (!url.includes("[::1]")) throw new TypeError("connect ECONNREFUSED 127.0.0.1");
+            return {
+              ok: true,
+              status: 200,
+              json: async () => [{ type: "page", url: "about:blank", webSocketDebuggerUrl: cdp.wsUrl("T1") }],
+            };
+          },
+        },
+      });
+      expect(asked).toEqual([`http://127.0.0.1:${cdp.port()}/json/list`, `http://[::1]:${cdp.port()}/json/list`]);
+      expect(cdp.sockets.length).toBeGreaterThan(0);
+    } finally {
+      bridgeCloseAll("viewer-left");
+      cdp.stop();
+      void h;
+    }
+  });
+
   it("a /json/list that 404s makes the open answer the not-cdp refusal, with no bridge left behind", async () => {
     const cdp = new FakeCdp({ listStatus: 404 });
     const h = makeHarness("not-cdp-404");

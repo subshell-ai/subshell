@@ -48,7 +48,13 @@ first discovered CDP port, display metadata, and availability reasons. The
 Linux runtime walks `/proc` from the subshell's tmux PID, joining descendant
 socket inodes with listener tables. Bounded HTTP probes keep only ports that serve
 HTML, excluding browser debugging and display listeners from the website list.
-Probes try IPv4 loopback and fall back to IPv6, matching forwarding.
+Probes try IPv4 loopback and then IPv6, in the order forwarding dials them. A
+website is offered from the IPv6 answer only when IPv4 was refused, not when it
+stalled: forwarding retries `::1` after a refused connect but not after a socket
+that accepts and never answers, so advertising such a port would offer a preview
+that can only hang. CDP probes and the screencast bridge, which dial loopback
+themselves rather than through a lane, ask both families whenever the first gives
+no usable answer.
 Same-port redirects are followed; cross-origin redirects and download responses
 are excluded. A bounded document prefix supplies an optional page title for the
 picker and truncated tab labels; SVG accessibility titles are excluded.

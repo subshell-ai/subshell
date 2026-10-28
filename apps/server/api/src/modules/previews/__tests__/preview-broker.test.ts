@@ -1095,6 +1095,58 @@ describe("getPorts: the 5 second cache and the screenLost marker", () => {
     await expect(broker().getPorts(NODE, PANE)).rejects.toBeInstanceOf(Error);
     expect(rpcs).toBe(2); // neither failure left a cache entry
   });
+
+  it("a sweep whose pane closed mid-RPC cannot repopulate the cache", async () => {
+    // Joining drops the in-flight entry on a close; this pins the other half.
+    // A scan that asked before the close and answers after it describes the
+    // pane as it was, and writing that into the cache would serve the next
+    // reader (the header poll, an opened picker) stale ports for the whole
+    // five-second window. The reader that asked still gets its answer.
+    let asks = 0;
+    const h = makeHarness({
+      hold: (cmd) => cmd.type === "preview_ports_get" && asks === 0,
+      ack: (cmd) => {
+        if (cmd.type !== "preview_ports_get") return {};
+        asks += 1;
+        return asks === 1
+          ? portsAnswer({ ports: [{ proto: "tcp", port: 4100, pid: 11, title: "Stale" }] })
+          : portsAnswer();
+      },
+    });
+    const first = broker().getPorts(NODE, PANE);
+    await broker().closeForPane(PANE, "pane-gone");
+    releaseHeld(h);
+    const answered = await first;
+    expect(answered.ports[0]?.title).toBe("Stale");
+    const second = await broker().getPorts(NODE, PANE);
+    // Without the guard this stays 1: the dropped scan's answer would have
+    // cached itself and the second read would never have asked again.
+    expect(asks).toBe(2);
+    expect(second.ports[0]?.title).toBeUndefined();
+  });
+
+  it("a node drop clears cached and flying port answers for that node", async () => {
+    // The sweep walked only the panes holding sessions, so a sessionless pane
+    // (a header poll before anyone opened anything) kept a five-second-old
+    // answer from a node whose link had just died, and a scan already on its
+    // way wrote in afterwards. A dead link makes everything from that node
+    // untrustworthy, whichever pane asked for it.
+    let asks = 0;
+    const h = makeHarness({
+      hold: (cmd) => cmd.type === "preview_ports_get" && asks === 0,
+      ack: (cmd) => {
+        if (cmd.type !== "preview_ports_get") return {};
+        asks += 1;
+        return portsAnswer();
+      },
+    });
+    const first = broker().getPorts(NODE, PANE);
+    await broker().closeAllForNode(NODE, "node-dropped");
+    releaseHeld(h);
+    await first;
+    await broker().getPorts(NODE, PANE);
+    expect(asks).toBe(2);
+  });
 });
 
 describe("display memory: onDisplayOpened / onDisplayClosed", () => {

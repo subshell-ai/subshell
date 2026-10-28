@@ -458,7 +458,13 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
   // concurrent reader (the header poll, an open picker, a second viewer) starts
   // its own sweep: two full probe storms, and the later one can overwrite the
   // cache with a less complete rotation.
-  const portsInFlight = new Map<string, { nodeId: string; run: Promise<NodePreviewPortsResult> }>();
+  /**
+   * A scan on its way, tagged with a fresh symbol. Both the store and the drop
+   * compare that symbol rather than the promise: naming `run` from inside the
+   * async body that assigns it is a use-before-assignment the type checker (and
+   * a reader) cannot follow.
+   */
+  const portsInFlight = new Map<string, { nodeId: string; ticket: symbol; run: Promise<NodePreviewPortsResult> }>();
   /** paneId -> queued lane requests beyond the per-pane cap (decision 2). */
   const laneWaitersByPane = new Map<string, LaneWaiter[]>();
   /**
@@ -860,6 +866,20 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
     }
   }
 
+  /**
+   * Drop every ports entry that came from one node, cached or flying.
+   *
+   * The pane-keyed sweep reaches only panes that held sessions; a header poll
+   * for a sessionless pane would otherwise keep a five-second-old answer from a
+   * link that just died, and the next reader would ride it while the node
+   * redials. A dead link makes anything that node said untrustworthy, whichever
+   * pane asked for it.
+   */
+  function dropPortsCacheForNode(nodeId: string): void {
+    for (const [pane, entry] of [...portsCache]) if (entry.nodeId === nodeId) portsCache.delete(pane);
+    for (const [pane, entry] of [...portsInFlight]) if (entry.nodeId === nodeId) portsInFlight.delete(pane);
+  }
+
   const broker: PreviewBroker = {
     async removeService(paneId, serviceId) {
       streamAccessRevision++;
@@ -1102,10 +1122,19 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
       // A node refusal (preview-ports-unsupported, offline, ...) REJECTS with
       // the named error rather than fabricating an empty answer; Task 9's
       // info route is what turns the rejection into `{ nodeEnabled, reason }`.
+      const ticket = Symbol("preview-ports-scan");
       const run = (async () => {
         const raw = await deps.send(nodeId, { type: "preview_ports_get", paneId });
         const answer = parseNodePreviewPortsResult(raw);
         if (answer === null) throw new Error("preview_ports_get answered a shape the grammar refuses");
+        // Only the scan that is still the pane's current one may store. A
+        // closeForPane or closeAllForNode during this RPC drops both entries, and
+        // an answer that lands afterwards describes the pane or link as it was
+        // before the drop: caching it would serve stale ports for the whole cache
+        // window, the very staleness joining is guarded against. The caller still
+        // gets its answer, because it asked before the drop and a race is not that
+        // reader's error.
+        if (portsInFlight.get(paneId)?.ticket !== ticket) return answer;
         if (!portsCache.has(paneId) && portsCache.size >= PREVIEW_PORTS_CACHE_ENTRIES) {
           const oldest = portsCache.keys().next().value;
           if (oldest !== undefined) portsCache.delete(oldest);
@@ -1115,9 +1144,9 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
       })().finally(() => {
         // Only the scan this entry describes is dropped, so a scan started after
         // a revocation is not erased by the one it replaced.
-        if (portsInFlight.get(paneId)?.run === run) portsInFlight.delete(paneId);
+        if (portsInFlight.get(paneId)?.ticket === ticket) portsInFlight.delete(paneId);
       });
-      portsInFlight.set(paneId, { nodeId, run });
+      portsInFlight.set(paneId, { nodeId, ticket, run });
       return run;
     },
 
@@ -1181,6 +1210,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
       // sockets: nothing on this node can ever feed them again.
       for (const paneId of panesTouched) detachStreamEntries(paneId);
       dropPortsCache(panesTouched);
+      dropPortsCacheForNode(nodeId);
     },
 
     async closeAllForUser(userId, reason) {

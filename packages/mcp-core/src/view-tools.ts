@@ -1,6 +1,7 @@
 import {
   DEFAULT_VIRTUAL_DISPLAY_PROVIDER,
   displayProviderRunsOnOs,
+  type NodePreviewPortsResult,
   type NodePreviewScreenWire,
   parsePreviewDisplayReadiness,
   VIRTUAL_DISPLAY_PROVIDERS,
@@ -98,7 +99,13 @@ export async function getNode(deps: ToolDeps, args: z.infer<typeof GetNodeSchema
 
 export const ListSubshellViewsSchema = z.object({ subshell_id: z.string().min(1) });
 interface PreviewInfo {
-  ports: { proto: string; port: number; pid: number }[];
+  /**
+   * The rows are the wire grammar's own type, not a hand copy: this tool must
+   * say exactly what the human's picker shows (the `title` the grammar and the
+   * route both carry was missing here once), and naming the source means the
+   * next field cannot drift quietly.
+   */
+  ports: NodePreviewPortsResult["ports"];
   cdpPort: number | null;
   screen: NodePreviewScreenWire | null;
   nodeEnabled: boolean;

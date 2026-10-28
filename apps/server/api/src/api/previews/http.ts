@@ -169,7 +169,6 @@ export function rewriteLocation(location: string, ref: string): string {
   return `/pv/${ref}${location}`;
 }
 
-/** Transform the raw lane answer's header pairs into the browser-facing `Headers`. */
 /**
  * The upstream's `Set-Cookie` values, in the shape the jar takes.
  *
@@ -181,6 +180,12 @@ function setCookieValues(pairs: [string, string][]): string[] {
   return pairs.filter(([name]) => name === "set-cookie").map(([, value]) => value);
 }
 
+/**
+ * Transform the raw lane answer's header pairs into the browser-facing
+ * `Headers`: drop the transport framing and everything that would act on our
+ * host, keep the target's cookies in the jar rather than the browser, and
+ * finish with the isolation headers.
+ */
 function outHeadersToWeb(pairs: [string, string][], jar: Map<string, string>, ref: string): Headers {
   const headers = new Headers();
   const setCookies = setCookieValues(pairs);
