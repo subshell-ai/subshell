@@ -38,23 +38,30 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
     }
     return mapped;
   };
+  // rel is a space-separated token list, so "Stylesheet", "stylesheet preload"
+  // and "preload stylesheet" all mean a stylesheet is involved.
+  const isStylesheetRel = (rel) => String(rel).toLowerCase().split(/\\s+/).includes("stylesheet");
   const mapAttribute = (element, name, value) => {
-    // A link built as createElement, then href, then rel is the ordinary order,
-    // and the reuse problem is keyed on that pair: an href set while rel was still
-    // empty got no revision, so the rel that arrives later re-runs the bump for the
-    // href the element already holds. The observer below only sees nodes entering
-    // the document, so it cannot cover this on its own.
-    if (name === "rel" && element instanceof HTMLLinkElement && String(value).toLowerCase() === "stylesheet") {
-      const held = element.getAttribute("href");
-      if (held !== null) {
-        const bumped = stylesheetBump(element, map(held));
-        if (bumped !== held) attribute.call(element, "href", bumped);
+    // rel is not a URL and never reaches the mapper: an app writing
+    // rel="noopener" or rel="modulepreload" must get exactly that back, or the
+    // token turns into a proxied path and the link silently stops working.
+    if (name === "rel") {
+      // A link built as createElement, then href, then rel is the ordinary order,
+      // and the reuse problem is keyed on that pair: an href set while rel was
+      // still empty got no revision, so the rel that arrives later re-runs the
+      // bump for the href the element already holds. The observer below only sees
+      // nodes entering the document, so it cannot cover this on its own.
+      if (element instanceof HTMLLinkElement && isStylesheetRel(value)) {
+        const held = element.getAttribute("href");
+        if (held !== null) {
+          const bumped = stylesheetBump(element, map(held));
+          if (bumped !== held) attribute.call(element, "href", bumped);
+        }
       }
       return String(value);
     }
     const mapped = map(String(value));
-    if (name !== "href" || !(element instanceof HTMLLinkElement) || String(element.rel).toLowerCase() !== "stylesheet")
-      return mapped;
+    if (name !== "href" || !(element instanceof HTMLLinkElement) || !isStylesheetRel(element.rel)) return mapped;
     return stylesheetBump(element, mapped);
   };
   const attributes = new Set(["src", "href", "rel", "action", "formaction", "poster", "data"]);
@@ -104,17 +111,16 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
   // with http(s), and a runtime that reduced its own HMR URL to a pathname
   // carries no scheme for us to read, so the conversion happens here, where the
   // call itself says what it is. Handing new WebSocket an http: URL throws.
-  const mapSocket = (value) => {
-    const mapped = map(value);
-    return mapped.replace(/^http/i, "ws");
-  };
-  for (const name of ["WebSocket", "EventSource"]) {
+  const mapSocket = (value) => map(value).replace(/^http/i, "ws");
+  for (const [name, rewrite] of [["WebSocket", mapSocket], ["EventSource", map]]) {
     const Original = window[name];
     if (!Original)
       continue;
+    // EventSource takes an http(s) URL by spec, so it gets the plain mapper:
+    // converting it the way sockets are would throw on every SSE stream.
     Object.defineProperty(window, name, { configurable: true, writable: true, value: new Proxy(Original, {
       construct(ctor, args, newTarget) {
-        args[0] = mapSocket(String(args[0]));
+        args[0] = rewrite(String(args[0]));
         return Reflect.construct(ctor, args, newTarget);
       }
     }) });

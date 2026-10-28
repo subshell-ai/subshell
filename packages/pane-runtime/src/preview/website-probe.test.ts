@@ -131,6 +131,22 @@ it("offers a port whose server accepted and is still thinking", async () => {
   }
 });
 
+it("keeps looking past an untitled page to find the family that names one", async () => {
+  // A tool on 127.0.0.1 that answers 200 text/html with no title is a website by
+  // the probe's own rule, so it would end the question there — while the real dev
+  // server on ::1 has the title the picker row is supposed to show.
+  const real = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL) =>
+    String(input).includes("127.0.0.1")
+      ? new Response("<p>untitled tool page</p>", { headers: { "content-type": "text/html" } })
+      : new Response("<title>Dev server</title>", { headers: { "content-type": "text/html" } })) as typeof fetch;
+  try {
+    expect(await probeWebsite(4195, AbortSignal.timeout(3_000))).toEqual({ title: "Dev server" });
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
 it("asks both families before dropping a port, since two sockets share the number", async () => {
   // A tool bound to 127.0.0.1 while the dev server holds ::1 is a real
   // arrangement. The first family's "not a website" describes its own socket, so

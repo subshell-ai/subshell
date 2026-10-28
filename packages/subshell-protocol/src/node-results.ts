@@ -893,6 +893,26 @@ export interface NodePreviewPortsResult {
  * @param data - the `data` member of a successful result frame
  * @returns the narrowed answer, or null when malformed
  */
+/**
+ * Trim to a UTF-16 budget without ever splitting a surrogate pair.
+ *
+ * The route that serializes this title counts UTF-16 units, so a cap measured in
+ * code points lets an emoji-heavy title through at twice the length and the
+ * response then fails its own validation, on a read that promises never to error.
+ * Iterating code points keeps an astral character whole rather than leaving a
+ * lone half of a pair at the cut.
+ */
+function capUtf16(value: string, maxUnits: number): string {
+  let units = 0;
+  let out = "";
+  for (const ch of value) {
+    units += ch.length;
+    if (units > maxUnits) break;
+    out += ch;
+  }
+  return out;
+}
+
 export function parseNodePreviewPortsResult(data: unknown): NodePreviewPortsResult | null {
   if (!isRecord(data) || !Array.isArray(data.ports)) return null;
   const ports: NodePreviewPortWire[] = [];
@@ -912,7 +932,10 @@ export function parseNodePreviewPortsResult(data: unknown): NodePreviewPortsResu
     // takes the NAME path every other label follows: NFC, controls to spaces,
     // format characters and lone surrogates gone. Nothing usable left is no
     // title at all, rather than an empty one.
-    const title = p.title === undefined ? "" : normalizeLabel(p.title as string, PREVIEW_PAGE_TITLE_MAX_LENGTH);
+    const title =
+      p.title === undefined
+        ? ""
+        : capUtf16(normalizeLabel(p.title as string, PREVIEW_PAGE_TITLE_MAX_LENGTH), PREVIEW_PAGE_TITLE_MAX_LENGTH);
     ports.push({
       proto: p.proto,
       port: p.port as number,

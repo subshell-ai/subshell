@@ -86,33 +86,34 @@ const ATTEMPT_TIMEOUT_MS = 700;
  * signal stays the outer bound: once the scan is over, the scan is over.
  */
 export async function probeWebsite(port: number, signal: AbortSignal): Promise<WebsiteInfo | null> {
-  // A family that accepted the connection and then went silent. Remembered rather
-  // than answered, so the other family still gets asked and a website sitting on
-  // it is not hidden behind one slow socket.
-  let stalled = false;
+  // What this port is worth offering if no family says better: a website the
+  // probe could not name, remembered from a page with no title or from a socket
+  // that accepted and is still thinking. Held rather than returned, so the other
+  // family still gets asked and a titled site on it is not hidden behind one
+  // unremarkable answer.
+  let fallback: WebsiteInfo | null = null;
   for (const host of ["127.0.0.1", "[::1]"]) {
     // The family's own timer is separate from the scan's, because the two aborts
     // mean different things: see below.
     const attempt = AbortSignal.timeout(ATTEMPT_TIMEOUT_MS);
     try {
       const info = await probeWebsiteOrigin(`http://${host}:${port}`, AbortSignal.any([signal, attempt]));
-      if (info) return info;
-      // This family answered and says it is not a website. Ask the other one
-      // anyway: the two are different sockets that may hold different servers,
-      // and a tool bound to 127.0.0.1 while the dev server holds ::1 is a real
-      // arrangement. One "no" does not settle a port number.
+      if (info?.title) return info;
+      // A page, but an unnamed one: keep looking, and remember what to offer if
+      // the other family has nothing better. A bare "not a website" asks the
+      // other family too: the two are different sockets that may hold different
+      // servers, and one "no" does not settle a port number.
+      if (info) fallback ??= info;
     } catch {
       // The scan's budget running out ends the question. This family running out
       // does not: it means the socket accepted and is thinking, which is what a
       // cold `next dev` does while it compiles the route, and hiding that port
       // until the server warms up would hide the one row the person came for.
       if (signal.aborted) return null;
-      if (attempt.aborted) stalled = true;
+      if (attempt.aborted) fallback ??= {};
     }
   }
-  // Nothing answered with a page. A stall is still a listener worth offering: the
-  // row comes up untitled, and opening it warms the server.
-  return stalled ? {} : null;
+  return fallback;
 }
 
 async function probeWebsiteOrigin(origin: string, signal: AbortSignal): Promise<WebsiteInfo | null> {

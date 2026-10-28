@@ -361,6 +361,17 @@ describe("preview results (protocol 23)", () => {
     });
     expect(overLong?.ports[0]?.title).toBe("x".repeat(200));
     expect(parseNodePreviewPortsResult({ ...titled, ports: [{ ...titled.ports[0], title: 7 }] })).toBeNull();
+    // The route that serializes this counts UTF-16 units while the label cap
+    // counts code points, so an emoji-heavy title has to be trimmed in the units
+    // the consumer measures, and never by splitting a pair in half.
+    const astral = parseNodePreviewPortsResult({
+      ...titled,
+      ports: [{ ...titled.ports[0], title: "🚀".repeat(150) }],
+    });
+    const cappedTitle = astral?.ports[0]?.title ?? "";
+    expect(cappedTitle.length).toBeLessThanOrEqual(200);
+    expect([...cappedTitle].join("")).toBe(cappedTitle);
+    expect(cappedTitle).toBe("🚀".repeat(100));
     // A page authors its own title, and it renders for every viewer, so the
     // boundary takes the NAME path: combining marks compose, invisible format
     // characters and lone surrogates go, a control becomes a space. And a title
