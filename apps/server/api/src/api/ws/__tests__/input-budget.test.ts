@@ -246,3 +246,56 @@ it("forced disconnect drops held input synchronously when close never fires", as
   expect(acknowledged).toBe(0);
   expect(closed).toEqual([1012]);
 });
+
+/** Fill the fleet queue from sockets that each stay inside their own caps. */
+function saturateFleet(): (() => void)[] {
+  const charges: (() => void)[] = [];
+  for (let s = 0; s < INPUT_GLOBAL_MAX_FRAMES / INPUT_SOCKET_MAX_FRAMES; s++) {
+    const filler = socket();
+    for (let f = 0; f < INPUT_SOCKET_MAX_FRAMES; f++) {
+      const release = takeInputBudget(filler.ws, "x");
+      if (!release) throw new Error("the fleet queue filled earlier than expected");
+      charges.push(release);
+    }
+  }
+  return charges;
+}
+
+it("reclaims a stuck retry instead of closing a viewer whose own pane is alive", () => {
+  const charges = saturateFleet();
+  try {
+    // With no capacity to take back, an arrival still pays for a queue it did
+    // not fill. That is the honest last resort, not the first answer.
+    const refused = socket();
+    expect(takeInputBudget(refused.ws, "x")).toBeNull();
+    expect(refused.closed).toEqual([1013]);
+
+    // With one stuck retry to give up, the next viewer is admitted instead.
+    let reclaimed = 0;
+    const viewer = socket();
+    const release = takeInputBudget(viewer.ws, "x", () => {
+      charges.pop()?.();
+      reclaimed++;
+      return true;
+    });
+    expect(release).not.toBeNull();
+    expect(viewer.closed).toEqual([]);
+    expect(reclaimed).toBe(1);
+    release?.();
+  } finally {
+    for (const charge of charges) charge();
+  }
+});
+
+it("still ends the arrival when the shared queue cannot be relieved", () => {
+  const charges = saturateFleet();
+  try {
+    let asked = 0;
+    const viewer = socket();
+    expect(takeInputBudget(viewer.ws, "x", () => (asked++, false))).toBeNull();
+    expect(viewer.closed).toEqual([1013]);
+    expect(asked).toBe(1);
+  } finally {
+    for (const charge of charges) charge();
+  }
+});

@@ -3,7 +3,7 @@ import { forensicsEnabled, recordAttachPaint } from "@/api/ws/attach-forensics.j
 import { resolveAttach } from "@/api/ws/attach-resolve.js";
 import { captureToReplayText } from "@/api/ws/capture-text.js";
 import { takeInputBudget } from "@/api/ws/input-budget.js";
-import { dropInputHolds, hasHeldInput, holdFailedInput } from "@/api/ws/input-hold.js";
+import { dropInputHolds, hasHeldInput, holdFailedInput, reclaimOneHeldInput } from "@/api/ws/input-hold.js";
 import { inputWindowAdd, inputWindowHas, sanitizeInputSession } from "@/api/ws/input-window.js";
 import type { PaneGeometry } from "@/api/ws/pane-geometry.js";
 import { captureStable, fitPaneAndRepaint, paneReadsAsBooting, RESIZE_SETTLE_MS } from "@/api/ws/pane-repaint.js";
@@ -523,7 +523,7 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
         });
         return;
       }
-      const release = takeInputBudget(ws, frame.data);
+      const release = takeInputBudget(ws, frame.data, reclaimOneHeldInput);
       if (!release) return;
       void data.launcher
         .sendInput(data.socket, data.subshellId, frame.data)
@@ -572,7 +572,7 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
     // disengage drops its own backlog first — so the only bare frame that
     // can land behind a hold is a client that downgraded mid-session, whose
     // own retry machinery has already given up. Today's drop-and-log.
-    const release = takeInputBudget(ws, frame.data);
+    const release = takeInputBudget(ws, frame.data, reclaimOneHeldInput);
     if (!release) return;
     void data.launcher.sendInput(data.socket, data.subshellId, frame.data).catch(logFailure).finally(release);
   }

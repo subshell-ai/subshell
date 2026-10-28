@@ -262,6 +262,43 @@ export function dropInputHolds(nodeId: string, subshellId: string, sessionId: st
 }
 
 /**
+ * Frees the budget one stuck retry is holding, for the benefit of a keystroke
+ * that arrived on a healthy pane. Called only when a node's share or the
+ * fleet-wide queue is full, so the cost of capacity lands on a backlog that is
+ * already waiting to re-fire instead of on whoever types next. The waiting
+ * pane is usually on a node that has not come back, but it can equally be a
+ * slow write, and that is the cost being traded here.
+ *
+ * Sessions are visited in the order they were created, and the oldest entry
+ * that is not mid-write goes. An in-flight entry is left alone: its bytes did
+ * reach the pane, and its charge settles on its own. A dropped entry never
+ * gets its ack, which is the same overflow outcome a session's holds already
+ * meet when it disconnects mid-backlog, and the client's own retry machinery is
+ * what would have carried it.
+ *
+ * @returns whether anything was released, so the caller can retry its charge
+ */
+export function reclaimOneHeldInput(): boolean {
+  for (const [nodeId, subs] of holds) {
+    for (const [subshellId, sessions] of subs) {
+      for (const [sessionId, hold] of sessions) {
+        const index = hold.queue.findIndex((entry) => !entry.inFlight);
+        if (index < 0) continue;
+        const [entry] = hold.queue.splice(index, 1);
+        entry?.release();
+        if (hold.queue.length === 0) {
+          sessions.delete(sessionId);
+          if (sessions.size === 0) subs.delete(subshellId);
+          if (subs.size === 0) holds.delete(nodeId);
+        }
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
  * Drops every hold. Only for tests, which reuse subshell ids and sessions;
  * a surviving hold would re-fire the previous case's keystroke into the next
  * one's pane. @internal
