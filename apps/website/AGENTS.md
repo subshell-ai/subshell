@@ -103,6 +103,8 @@ clip, its poster, and the README animation.
 The user prefers the deployed mobile recording’s sharpness and pacing. Preserve its video,
 poster, and player sizing unless they explicitly request another replacement; a demo-path
 cleanup alone is not a reason to re-record it.
+Keep the phone player capped at 260px in both stacked and wide layouts; it must not
+grow when the hero switches to columns. Preserve the recording's aspect ratio.
 Use `--mobile-only` to refresh the phone clip without replacing the desktop
 subagent demonstration. The sidebar has one workspace panel with a lower
 Subshells section and a bottom navigation bar; there is no mini rail or desktop panel collapse.
