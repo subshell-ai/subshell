@@ -71,6 +71,12 @@ try {
       : [false, true]) {
     const workingDir = path.join("/tmp/subshell-demo", mobile ? "phone" : "desktop", "task-board");
     mkdirSync(workingDir, { recursive: true });
+    // This root is shared between runs, and the completion gate below treats an
+    // existing tasks.test.js as proof the agent wrote tests. Leave the previous
+    // run's file in place and a run where the agent skips that step ends early,
+    // on a green bun test of work nobody did. The scratch root is cleaned at
+    // exit, so nothing else removes it.
+    rmSync(path.join(workingDir, "tasks.test.js"), { force: true });
     writeFileSync(
       path.join(workingDir, "package.json"),
       JSON.stringify({ name: "task-board", type: "module", scripts: { test: "bun test" } }),
