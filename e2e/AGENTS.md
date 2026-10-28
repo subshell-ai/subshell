@@ -183,6 +183,11 @@ destination trust was saved, then cleans up its processes and temporary state.
 Review the image and update its intrinsic dimensions in `guides/ssh.mdx` if the
 layout changes. Never point it at the live server.
 
+`bun e2e/capture-terminal-copy.ts` captures the touch actions menu and a native
+text selection against the isolated stack. Build the SPA first. It uses a real
+shell with sample output and verifies selection and disabled input before
+saving the images; it doesn't simulate an iOS copy callout.
+
 For the other documentation screenshots, run `bun e2e/capture-docs.ts` after
 building the SPA. It uses the same isolated stack with sample presets, prompts,
 a workspace, and real terminal sessions running a small temporary project.

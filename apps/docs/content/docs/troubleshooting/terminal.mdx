@@ -9,9 +9,30 @@ Diagnose terminal input and rendering problems.
 
 Check that the session's process is running and that you have edit access. View-only access lets you watch but doesn't let you type. In an SSH subshell, only its owner can type, even if someone else has edit access. MCP and other bearer credentials can't send SSH terminal input either.
 
-On touch devices, **Enable text copying** switches away from input mode. Choose **Enable text input** when you want to type again.
+On a phone or tablet, open the subshell’s **⋯** actions menu and choose **Enable text input** if text copying is enabled. Copy mode disables typing, Paste, and the key bar’s input buttons; scrolling remains available.
 
 An offline node makes its stream unreachable even if its process continues on the machine.
+
+## Select and copy terminal text
+
+On a phone or tablet, open the subshell’s **⋯** actions menu and choose
+**Enable text copying**. Press and hold the text, adjust the selection handles,
+then use your browser or device’s copy action. Tapping an HTTP or HTTPS link
+opens it; dragging a selection doesn’t open the link.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/terminal-copy-menu.png" alt="A subshell’s actions menu with Enable text copying among its controls." width="432" height="702" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Choose Enable text copying in the subshell’s actions menu.</figcaption>
+</figure>
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/terminal-copy-selection.png" alt="A terminal showing Build complete and the selected text 3 checks passed." width="840" height="220" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Copy mode lets you select rendered terminal text. Your device supplies the copy action.</figcaption>
+</figure>
+
+Copy mode keeps the keyboard closed while you select text. Choose **Enable
+text input** in the same menu to type again. This setting belongs to your
+browser for that subshell and doesn't change anyone else's input access.
 
 ## Page loads but output doesn't stream
 
@@ -25,7 +46,7 @@ Everyone watching a terminal shares its size. If someone opens it in a smaller w
 
 ## Corrupted display
 
-Note the agent and component versions, and whether the display breaks after reconnecting or resizing. Terminal connection entries in the server log can help identify sizing or output-replay problems.
+After a resize, the terminal can briefly reconnect to refresh its display from the running subshell. This doesn’t restart the agent or shell. If the display stays corrupted, note the agent and component versions, and whether the display breaks after reconnecting or resizing. Terminal connection entries in the server log can help identify sizing or output-replay problems.
 
 > [!warning] Screen dumps
 > Attach-debug output can include secrets and project contents. Don't enable it or upload its files without reviewing what will be captured.

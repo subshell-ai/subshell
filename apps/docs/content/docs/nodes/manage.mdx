@@ -93,6 +93,30 @@ virtual screen; click that window before typing.
 5. Start a subshell on that node with **Virtual display** and **BetterDisplay**
    selected. Open its screen through **Web previews & screens**.
 
+### Update the helper
+
+After updating either desktop app, open its assistant window and choose
+**Virtual Displays** → **Open Display Helper settings** to check and install
+its bundled helper. Both apps use the same installed helper; opening an older
+app doesn't downgrade a valid newer installation.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/assistant-virtual-displays.png" alt="The desktop assistant’s Virtual Displays page with Open Display Helper settings at the bottom." width="2080" height="1520" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Open the helper through the updated desktop app to install its bundled version when an update is available.</figcaption>
+</figure>
+
+A running helper can't be replaced, even while disabled. If an update is
+waiting, choose **Quit helper** from the helper's menu-bar icon, then reopen
+settings through the updated desktop app. Quitting disconnects anyone watching
+its screens and stops their input; terminal subshells keep running. The update
+doesn't change your consent or macOS privacy settings.
+
+The desktop app verifies the helper before opening it, including when a
+running helper prevents an update. If verification fails, don't bypass the
+signature check. Quit the running helper if present and reopen settings through
+a trusted installation of the desktop app. If that still fails, follow
+[Update troubleshooting](/troubleshooting/updates).
+
 ### Use and stop the display
 
 macOS doesn't automatically place an app on the subshell's screen. Move the

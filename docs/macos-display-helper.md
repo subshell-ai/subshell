@@ -135,11 +135,22 @@ downgrade the installed helper.
 The installer verifies signatures and compares versions and code hashes.
 It uses a shared install lock and atomic directory renames with rollback.
 The helper holds that lock for its entire lifetime, even while disabled, so
-an update cannot replace a running permission owner. If an update is needed while the helper runs, the menu still opens the existing
-settings so Disable stays reachable. The user quits the helper and reopens
+an update cannot replace a running permission owner. If an update is needed
+while the helper runs, the desktop app verifies the installed copy again before
+opening its settings so Disable stays reachable. A failed verification refuses
+the launch even when the install lock is busy; the fallback must never execute
+the invalid copy that prompted replacement. The user quits the helper and reopens
 settings to install the new version. No installer changes consent
 or OS privacy settings. Release smoke checks inspect the nested bundle's
 identity and hardened runtime without launching it.
+
+Staging preserves the helper executable's source permissions even when its
+bytes haven't changed. A warm cache requires an executable file, not just a
+file at the expected path, so an earlier non-executable stage is repaired.
+The bundled page's HTML fold escapes script and style closing tags without
+regard to case and inserts JavaScript and CSS literally, including replacement
+tokens such as `$&`. Keep the HTML-parser regression test: a string match alone
+doesn't establish that the browser sees only one script element.
 
 `native/display-helper/test.sh` compiles tests into a temporary directory and
 uses a disposable preference suite and Unix socket. It never opens an app,
@@ -250,9 +261,9 @@ control requests responsive without weakening revocation.
 
 `native/display-helper/Info.plist` owns the helper's independent version for
 both desktop apps. After its first release, bump both version fields whenever
-shipping helper changes. Release installers only replace an older helper
-version; equal-version bundles retain the installed copy even if their hashes
-differ. Development builds may refresh equal-version content by hash. Never
+shipping helper changes. Release installers replace an older valid helper version or repair a copy
+that fails signature verification. Valid equal-version bundles retain the
+installed copy even if their hashes differ. Development builds may refresh equal-version content by hash. Never
 use either desktop app's independently advancing version for this shared app.
 
 The RFB clipboard limit stays at 64 KiB: the screen viewer doesn't call
