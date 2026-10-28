@@ -187,8 +187,8 @@ async function setEmailRegistration(stored: number | null): Promise<void> {
 async function insertProviderAccount(userId: string, providerId: string): Promise<void> {
   const now = new Date().toISOString();
   await sql`
-    INSERT INTO account (id, issuer, accountId, providerId, userId, createdAt, updatedAt)
-    VALUES (${crypto.randomUUID()}, ${idp.url}, ${`sub-${providerId}-${userId}`}, ${providerId}, ${userId}, ${now}, ${now})
+    INSERT INTO account (id, accountId, providerId, userId, createdAt, updatedAt)
+    VALUES (${crypto.randomUUID()}, ${`sub-${providerId}-${userId}`}, ${providerId}, ${userId}, ${now}, ${now})
   `.execute(db);
 }
 

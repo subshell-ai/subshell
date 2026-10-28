@@ -29,7 +29,7 @@ export interface StoredProviderRow {
   kind: AuthProviderKind;
   /** Display name shown on the sign-in page. */
   name: string;
-  /** OIDC issuer; becomes the config's `accountIssuer` (null = none stored). */
+  /** OIDC issuer used to resolve endpoints when saving the provider. */
   issuer: string | null;
   /** OAuth client id (null only on malformed/hand-edited rows; config gets ""). */
   clientId: string | null;
@@ -191,8 +191,8 @@ function splitDomains(raw: unknown): string[] {
 }
 
 /**
- * One provider's genericOAuth config (measured member set, 1.7.1): explicit
- * endpoints + accountIssuer so plugin init NEVER fetches discovery — the
+ * One provider's genericOAuth config (Better Auth 1.7.14): explicit
+ * endpoints so plugin init NEVER fetches discovery — the
  * failure mode that otherwise throws at build and, since AUTH_OPTIONS feeds
  * `runAuthMigrations`, crash-loops boot (spec §3). Explicit endpoints are
  * also what a rebuild runs on when the issuer is briefly dead: the table
@@ -206,7 +206,20 @@ export function toGenericOAuthConfig(row: StoredProviderRow, canonicalOrigin: st
     name: row.name, // measured: GenericOAuthConfig spells the display name `name`
     clientId: row.clientId ?? "",
     clientSecret: row.clientSecret ?? undefined,
-    accountIssuer: row.issuer ?? undefined,
+    // Better Auth now keys by providerId rather than issuer. Keep the issuer
+    // in the subject so changing/recreating a provider cannot reuse another
+    // issuer's identities. Migration 0069 applies this encoding to old rows.
+    accountSubject: ({ profile }) => {
+      const subject = profile.id;
+      if (typeof subject !== "string" && (typeof subject !== "number" || !Number.isFinite(subject))) return "";
+      const text = String(subject);
+      // Encoding must not turn a subject Better Auth rejects into a valid key.
+      if (text.trim() === "" || text === "undefined" || text === "null") return "";
+      // Match 1.7.1's fallback for an endpoint-only provider without an issuer.
+      const issuer = row.issuer ?? `local:oauth:${encodeURIComponent(row.id)}`;
+      if (issuer.trim() === "" || issuer === "undefined" || issuer === "null") return "";
+      return JSON.stringify([issuer, text]);
+    },
     ...(row.endpoints && {
       authorizationUrl: row.endpoints.authorizationUrl,
       tokenUrl: row.endpoints.tokenUrl,

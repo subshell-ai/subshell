@@ -60,8 +60,8 @@ async function makeOidcProvider(id: string, over: Record<string, unknown> = {}):
 async function makeAccount(userId: string, providerId: string): Promise<string> {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
-  await sql`INSERT INTO account (id, issuer, accountId, providerId, userId, createdAt, updatedAt)
-            VALUES (${id}, ${providerId}, ${id}, ${providerId}, ${userId}, ${now}, ${now})`.execute(db);
+  await sql`INSERT INTO account (id, accountId, providerId, userId, createdAt, updatedAt)
+            VALUES (${id}, ${id}, ${providerId}, ${userId}, ${now}, ${now})`.execute(db);
   createdAccountIds.push(id);
   return id;
 }

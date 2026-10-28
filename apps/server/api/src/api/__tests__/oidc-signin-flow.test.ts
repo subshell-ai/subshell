@@ -342,6 +342,38 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     await purgeByEmail(email);
   });
 
+  it("changing or recreating a provider cannot bind a new issuer's subject to the old user", async () => {
+    const provider = await mkProvider();
+    const originalEmail = emailN("issuer-original");
+    const replacementEmail = emailN("issuer-replacement");
+    const subject = "same-subject-at-two-issuers";
+    expect((await runFlow(provider, profileFor(originalEmail, { id: subject }))).kind).toBe("session");
+    const originalId = await userIdFor(originalEmail);
+    expect(originalId).toBeDefined();
+    const originalSessions = await sessionCount(originalId ?? "");
+
+    // The endpoints stay on the test issuer; changing the stored authority
+    // models the same subject being issued by another configured authority.
+    await providers.update(provider, { issuer: "https://replacement.example.test" });
+    invalidateAuth();
+    expect((await runFlow(provider, profileFor(replacementEmail, { id: subject }))).kind).toBe("session");
+    const replacementId = await userIdFor(replacementEmail);
+    expect(replacementId).toBeDefined();
+    expect(replacementId).not.toBe(originalId);
+    expect(await sessionCount(originalId ?? "")).toBe(originalSessions);
+
+    const stored = await providers.getById(provider);
+    if (!stored) throw new Error("fixture provider disappeared");
+    await providers.remove(provider);
+    await providers.create({ ...stored, issuer: idp.url });
+    invalidateAuth();
+    expect((await runFlow(provider, profileFor(originalEmail, { id: subject }))).kind).toBe("session");
+    expect(await sessionCount(originalId ?? "")).toBe(originalSessions + 1);
+    expect(await accountProviders(originalId ?? "")).toEqual([provider]);
+    await purgeByEmail(originalEmail);
+    await purgeByEmail(replacementEmail);
+  });
+
   // Case 2 — §5's inversion proof. The local row starts at emailVerified=0,
   // which is what every account this instance writes carries; with better-auth's
   // default `requireLocalEmailVerified` the implicit link would die here with

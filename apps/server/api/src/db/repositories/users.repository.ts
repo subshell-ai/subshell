@@ -211,15 +211,15 @@ export class UsersRepository extends BaseRepository {
   async createUser(input: { name: string; email: string; passwordHash: string; role: UserRole }): Promise<string> {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
-    // user id doubles as the credential accountId (issuer local:credential),
+    // user id doubles as the credential accountId,
     // matching what better-auth itself writes on sign-up.
     await sql`
       INSERT INTO user (id, name, email, emailVerified, image, createdAt, updatedAt)
       VALUES (${id}, ${input.name}, ${input.email}, 0, NULL, ${now}, ${now})
     `.execute(this.db);
     await sql`
-      INSERT INTO account (id, issuer, accountId, providerId, userId, password, createdAt, updatedAt)
-      VALUES (${id}, ${"local:credential"}, ${id}, ${"credential"}, ${id}, ${input.passwordHash}, ${now}, ${now})
+      INSERT INTO account (id, accountId, providerId, userId, password, createdAt, updatedAt)
+      VALUES (${id}, ${id}, ${"credential"}, ${id}, ${input.passwordHash}, ${now}, ${now})
     `.execute(this.db);
     await this.db.insertInto("userMeta").values({ userId: id, role: input.role }).execute();
     return id;

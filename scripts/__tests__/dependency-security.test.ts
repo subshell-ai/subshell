@@ -49,3 +49,15 @@ test("Forge rejects nested DigestAlgorithm garbage without breaking Expo consume
   expect(result.status).toBe(0);
   expect(result.stdout).toContain("Forge rejects nested garbage");
 }, 15_000);
+
+test("Deepmerge blocks prototype poisoning in Expo configuration merges", () => {
+  const result = spawnSync("node", [fileURLToPath(new URL("./fixtures/deepmerge-consumers.cjs", import.meta.url))], {
+    cwd: fileURLToPath(new URL("../../", import.meta.url)),
+    encoding: "utf8",
+    timeout: 10_000,
+  });
+  expect(result.error).toBeUndefined();
+  expect(result.stderr).toBe("");
+  expect(result.status).toBe(0);
+  expect(result.stdout).toContain("Deepmerge rejects prototype poisoning");
+}, 15_000);

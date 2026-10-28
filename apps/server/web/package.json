@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
-    "@better-auth/passkey": "1.7.1",
+    "@better-auth/passkey": "1.7.14",
     "@internal/assistant": "workspace:*",
     "@internal/backend-client": "workspace:*",
     "@internal/backend-errors": "workspace:*",
@@ -39,7 +39,7 @@
     "@xterm/addon-web-links": "0.13.0-beta.301",
     "@xterm/xterm": "6.1.0-beta.304",
     "bcrypt-pbkdf": "1.0.2",
-    "better-auth": "1.7.1",
+    "better-auth": "1.7.14",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "dockview-react": "8.2.0",
