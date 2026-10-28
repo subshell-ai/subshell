@@ -180,7 +180,7 @@ describe("NewWorkspaceDialog", () => {
       const checkbox = await screen.findByRole("checkbox", { name: /One/ });
       fireEvent.click(checkbox);
       expect(checkbox.getAttribute("aria-checked")).toBe("true");
-      fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+      fireEvent.click(screen.getByRole("button", { name: /^Cancel$/ }));
       expect(closed).toBe(true);
       expect(screen.getByRole("checkbox", { name: /One/ }).getAttribute("aria-checked")).toBe("false");
     } finally {
