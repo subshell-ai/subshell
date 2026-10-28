@@ -170,9 +170,20 @@ export function rewriteLocation(location: string, ref: string): string {
 }
 
 /** Transform the raw lane answer's header pairs into the browser-facing `Headers`. */
+/**
+ * The upstream's `Set-Cookie` values, in the shape the jar takes.
+ *
+ * Both the pass-through path and the refusal path fill the same jar, and they
+ * must keep doing so identically: two copies of this filter is how one of them
+ * ends up case-sensitive and the other does not.
+ */
+function setCookieValues(pairs: [string, string][]): string[] {
+  return pairs.filter(([name]) => name === "set-cookie").map(([, value]) => value);
+}
+
 function outHeadersToWeb(pairs: [string, string][], jar: Map<string, string>, ref: string): Headers {
   const headers = new Headers();
-  const setCookies = pairs.filter(([n]) => n === "set-cookie").map(([, v]) => v);
+  const setCookies = setCookieValues(pairs);
   for (const [name, value] of pairs) {
     if (OUTBOUND_DROP.has(name)) continue;
     if (name === "content-security-policy" || name === "content-security-policy-report-only") {
@@ -301,7 +312,7 @@ async function proxyRequest(request: Request, sessionRef: string, rest: string):
       // Refusing to paint the response is right; forgetting the cookies it carried
       // is not. A download endpoint's CSRF or session token belongs to this
       // preview's jar, or the app wakes up half signed out on the next request.
-      const refusedCookies = res.headers.filter(([name]) => name === "set-cookie").map(([, value]) => value);
+      const refusedCookies = setCookieValues(res.headers);
       if (refusedCookies.length > 0) storeCookiesInJar(session.cookieJar, refusedCookies);
       await res.body?.cancel();
       duplex.destroy();

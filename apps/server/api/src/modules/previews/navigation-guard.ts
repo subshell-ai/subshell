@@ -49,6 +49,10 @@ export function strandingNavigationReason(
     (!destination && !rest && acceptsPreviewDocument(request.headers.get("accept")));
   if (!navigation || !isPreviewStrandingClient(request.headers.get("user-agent"))) return null;
   // Redirects are the app's own business, and a no-content answer strands nobody.
+  // The exemption is safe because the browser re-requests through this proxy after
+  // following, and that followed request is judged on its own: a 302 that ends at
+  // a PDF is refused when the PDF itself arrives, not here. Nothing in the browser
+  // suite exercises that chain, so a change here should be checked by hand.
   if (answer.status < 200 || (answer.status >= 300 && answer.status < 400)) return null;
   if (answer.status === 204 || answer.status === 205) return null;
   const contentType = answer.headers.find(([name]) => name === "content-type")?.[1] ?? "";

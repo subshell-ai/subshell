@@ -73,17 +73,19 @@ const SCAN_PROBE_WORKERS = 32;
 let probeCursor = 0;
 
 /**
- * The scan's wall-clock budget: a floor, what each candidate may add, and a
- * ceiling. The deadline starts when the scan does, BEFORE the /proc walk, so the
- * whole pass is bounded by it, and the ceiling leaves room for the one port a
- * worker may already be probing when it fires (a wedged listener costs both
- * family windows) plus the walk itself, all of it still inside the plane's 10 s
- * command timeout. Blowing that answers nothing at all, which is worse than
+ * The scan's wall-clock budget, counted from the moment it is entered so the
+ * synchronous /proc pass is part of it: a floor for the probes, what each
+ * candidate may add, and a ceiling for the whole pass. The ceiling leaves room
+ * for the one port a worker may already be probing when it fires (a wedged
+ * listener costs both family windows), and all of it stays inside the plane's
+ * 10 s command timeout. Blowing that answers nothing at all, which is worse than
  * dropping a tail the next poll rotates into.
  */
 const SCAN_DEADLINE_BASE_MS = 2_500;
 const SCAN_DEADLINE_PER_PORT_MS = 250;
 const SCAN_DEADLINE_MAX_MS = 6_000;
+/** Never let a slow walk leave the probes no time at all: this is their floor. */
+const SCAN_PROBE_MIN_MS = 1_500;
 
 /**
  * One pass over the proc filesystem: listeners, ppid map, fd inodes, CDP.
@@ -107,7 +109,12 @@ export async function scanPanePorts(opts: ScanPanePortsOptions): Promise<PanePor
   // readlinks across up to MAX_TREE_PIDS pids take seconds of their own, and a
   // deadline that begins afterwards can push the whole answer past the plane's
   // command timeout, which is the failure this budget exists to avoid.
-  const scanBudget = AbortSignal.timeout(SCAN_DEADLINE_MAX_MS);
+  // Measured from entry, so the /proc pass counts against the budget rather than
+  // being free time in front of it. It is a timestamp and not a signal: the walk
+  // is synchronous, so nothing could interrupt it, and a signal started here would
+  // instead be able to expire BEFORE a single port is probed and answer "no
+  // websites" for a pane with one perfect dev server.
+  const startedAt = Date.now();
 
   const listeners = [
     ...readListenRows(join(procRoot, "net", "tcp"), "tcp"),
@@ -147,10 +154,14 @@ export async function scanPanePorts(opts: ScanPanePortsOptions): Promise<PanePor
   // exactly like a port that is not a website, so a pane with more stalled
   // listeners than this covers loses rows only until the next poll, seconds
   // later, reaches further into the list.
-  const deadline = AbortSignal.any([
-    scanBudget,
-    AbortSignal.timeout(SCAN_DEADLINE_BASE_MS + SCAN_DEADLINE_PER_PORT_MS * candidates.length),
-  ]);
+  // What the probes get: the smaller of the candidate-sized window and what
+  // remains of the scan's total, never less than the floor. The floor is the
+  // point: without it a slow walk (a tree near MAX_TREE_PIDS on a loaded host)
+  // can spend the whole budget before the first port is tried, and the answer
+  // would be an empty picker rather than a dropped tail.
+  const sized = SCAN_DEADLINE_BASE_MS + SCAN_DEADLINE_PER_PORT_MS * candidates.length;
+  const remaining = Math.max(SCAN_PROBE_MIN_MS, SCAN_DEADLINE_MAX_MS - (Date.now() - startedAt));
+  const deadline = AbortSignal.timeout(Math.min(sized, remaining));
   // Rotating start point: see probeCursor. Wrapping means the ports this scan
   // cannot reach before the budget runs out are the first ones the next asks.
   const start = candidates.length > 0 ? probeCursor++ % candidates.length : 0;

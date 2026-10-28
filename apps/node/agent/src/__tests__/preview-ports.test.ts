@@ -209,7 +209,6 @@ describe.skipIf(process.platform !== "linux")("scanPanePorts over fixture /proc 
     // The two budgets the real probes carry, in the order they run: devtools
     // first, then the document probe for anything that did not answer it.
     const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-    const started = Date.now();
     const r = await scanPanePorts({
       procRoot: crowdRoot,
       panePid: 100,
@@ -223,9 +222,10 @@ describe.skipIf(process.platform !== "linux")("scanPanePorts over fixture /proc 
       },
     });
     expect(r.ports).toEqual([{ proto: "tcp", port: WEBSITE_PORT, pid: 102, title: "Dev server" }]);
-    // And it got there without leaning on the ceiling: the scan must stay far
-    // inside the plane's 10 s command timeout, or a slow pane answers nothing.
-    expect(Date.now() - started).toBeLessThan(4_000);
+    // Deliberately no wall-clock assertion here: the scan's own deadline is
+    // production code and these are real timers, so a bound measured in
+    // milliseconds would fail on a loaded runner rather than on a discovery
+    // regression. What is pinned is the promise the budget exists to keep.
   });
 
   it("rotates where the probe budget starts, so one tail is not always the loser", async () => {

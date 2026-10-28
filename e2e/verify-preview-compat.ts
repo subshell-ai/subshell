@@ -98,6 +98,12 @@ try {
   await reconnected;
   await expect(frame.getByRole("heading", { name: "Manage multiple agents away from your desk" })).toBeVisible();
   console.log("Saved and reopened preview");
+  // Everything up to here is an ordinary page load, so a failed asset or a page
+  // error at this point is a real defect. The legs after it replace stylesheets
+  // and inject a deliberately malformed URL, which is why the arrays are cleared
+  // again at the end of that leg rather than judged here.
+  expect(failedAssets, `assets that failed before the hot-reload leg: ${failedAssets.join(", ")}`).toEqual([]);
+  expect(errors, `page errors before the hot-reload leg: ${errors.join(" | ")}`).toEqual([]);
   // Verify a real Next CSS update rather than merely an established HMR socket.
   const cssPath = "apps/website/app/globals.css";
   const originalCss = readFileSync(cssPath, "utf8");
@@ -121,13 +127,11 @@ try {
     writeFileSync(cssPath, originalCss);
     await frame.locator("#invalid-stylesheet-fixture").evaluate((element) => element.remove());
   }
-  // The hot-reload leg above replaces a stylesheet chunk while the page is
+  // The hot-reload leg just ran replaces a stylesheet chunk while the page is
   // reading it, so an in-flight request for the removed chunk is the feature
-  // working, not a defect. Each leg judges its own bytes: everything collected
-  // so far is checked, then cleared, so a later assertion cannot be reddened by
-  // an earlier phase's expected transient.
-  expect(failedAssets, `assets that failed before the Vite leg: ${failedAssets.join(", ")}`).toEqual([]);
-  expect(errors, `page errors before the Vite leg: ${errors.join(" | ")}`).toEqual([]);
+  // working, not a defect. That is why the check above ran BEFORE this leg and
+  // the arrays are cleared here: each leg is judged on its own bytes, and an
+  // expected transient from one cannot redden the next assertion.
   failedAssets.length = 0;
   errors.length = 0;
   const viteRoot = mkdtempSync("/tmp/preview-vite-");

@@ -24,6 +24,11 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
       return mapped;
     }
     if (!url.pathname.endsWith(".css")) return mapped;
+    // Idempotent by design: a link whose URL already carries a revision has been
+    // bumped once, and the rel branch and the observer's append pass can both
+    // reach it for a single insertion. Bumping again would rewrite href a second
+    // time and start a second fetch of the same sheet.
+    if (url.searchParams.has("ts")) return mapped;
     url.searchParams.delete("ts");
     for (const previous of document.querySelectorAll("link[rel][href]")) {
       // The attribute selector is case-sensitive and rel is whatever the app
@@ -51,11 +56,10 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
       // A link built as createElement, then href, then rel is the ordinary order,
       // and the reuse problem is keyed on that pair: an href set while rel was
       // still empty got no revision, so the rel that arrives later re-runs the
-      // bump for the href the element already holds. Only once it is in the
-      // document, though: an unconnected link fetches nothing, and bumping it here
-      // as well would have the observer below bump the same element again when it
-      // is appended, spending a second revision token on one stylesheet.
-      if (element instanceof HTMLLinkElement && isStylesheetRel(value) && element.isConnected) {
+      // bump for the href the element already holds. stylesheetBump is idempotent,
+      // which is what keeps this branch and the observer's append pass from each
+      // spending a revision token (and a fetch) on the one insertion.
+      if (element instanceof HTMLLinkElement && isStylesheetRel(value)) {
         const held = element.getAttribute("href");
         if (held !== null) {
           const bumped = stylesheetBump(element, map(held));

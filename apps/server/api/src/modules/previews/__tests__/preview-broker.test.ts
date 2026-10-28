@@ -1004,6 +1004,34 @@ describe("closeForPane and the node/user sweeps", () => {
 });
 
 describe("getPorts: the 5 second cache and the screenLost marker", () => {
+  it("joins a scan already on its way instead of starting a second sweep", async () => {
+    // The cache only fills on completion, and a probe sweep can take seconds on a
+    // crowded pane, so without this the header poll and an opened picker each
+    // fire their own sweep at the node, and the later one can overwrite the cache
+    // with a less complete rotation.
+    let rpcs = 0;
+    let release: (() => void) | undefined;
+    makeHarness({
+      ack: (cmd) => {
+        if (cmd.type !== "preview_ports_get") return {};
+        rpcs += 1;
+        const answer = portsAnswer();
+        // Held open until the test says so: this is the window a second reader
+        // must ride along in rather than duplicate.
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return gate.then(() => answer);
+      },
+    });
+    const first = broker().getPorts(NODE, PANE);
+    const second = broker().getPorts(NODE, PANE);
+    release?.();
+    const [a, b] = await Promise.all([first, second]);
+    expect(rpcs).toBe(1);
+    expect(a).toEqual(b);
+  });
+
   it("caches for the window per pane, then re-RPCs", async () => {
     let rpcs = 0;
     makeHarness({

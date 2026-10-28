@@ -453,6 +453,12 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
   const displaysByPane = new Map<string, { nodeId: string; screen: NodePreviewScreenWire }>();
   /** paneId -> cached `getPorts` answer (5 s window, spec §6). */
   const portsCache = new Map<string, { nodeId: string; at: number; answer: NodePreviewPortsResult }>();
+  // A scan already on its way, per pane. The cache only fills on completion, and
+  // a probe sweep can now take seconds on a crowded pane, so without this every
+  // concurrent reader (the header poll, an open picker, a second viewer) starts
+  // its own sweep: two full probe storms, and the later one can overwrite the
+  // cache with a less complete rotation.
+  const portsInFlight = new Map<string, { nodeId: string; run: Promise<NodePreviewPortsResult> }>();
   /** paneId -> queued lane requests beyond the per-pane cap (decision 2). */
   const laneWaitersByPane = new Map<string, LaneWaiter[]>();
   /**
@@ -845,7 +851,13 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
   }
 
   function dropPortsCache(paneIds: Iterable<string>): void {
-    for (const p of paneIds) portsCache.delete(p);
+    // In-flight too: a sweep started before a revocation may describe a pane that
+    // no longer exists, and joining it would hand a later reader that stale answer
+    // for the whole cache window.
+    for (const p of paneIds) {
+      portsCache.delete(p);
+      portsInFlight.delete(p);
+    }
   }
 
   const broker: PreviewBroker = {
@@ -1085,18 +1097,28 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
     async getPorts(nodeId, paneId) {
       const hit = portsCache.get(paneId);
       if (hit && hit.nodeId === nodeId && deps.nowMs() - hit.at < PREVIEW_PORTS_CACHE_MS) return hit.answer;
+      const running = portsInFlight.get(paneId);
+      if (running && running.nodeId === nodeId) return running.run;
       // A node refusal (preview-ports-unsupported, offline, ...) REJECTS with
       // the named error rather than fabricating an empty answer; Task 9's
       // info route is what turns the rejection into `{ nodeEnabled, reason }`.
-      const raw = await deps.send(nodeId, { type: "preview_ports_get", paneId });
-      const answer = parseNodePreviewPortsResult(raw);
-      if (answer === null) throw new Error("preview_ports_get answered a shape the grammar refuses");
-      if (!portsCache.has(paneId) && portsCache.size >= PREVIEW_PORTS_CACHE_ENTRIES) {
-        const oldest = portsCache.keys().next().value;
-        if (oldest !== undefined) portsCache.delete(oldest);
-      }
-      portsCache.set(paneId, { nodeId, at: deps.nowMs(), answer });
-      return answer;
+      const run = (async () => {
+        const raw = await deps.send(nodeId, { type: "preview_ports_get", paneId });
+        const answer = parseNodePreviewPortsResult(raw);
+        if (answer === null) throw new Error("preview_ports_get answered a shape the grammar refuses");
+        if (!portsCache.has(paneId) && portsCache.size >= PREVIEW_PORTS_CACHE_ENTRIES) {
+          const oldest = portsCache.keys().next().value;
+          if (oldest !== undefined) portsCache.delete(oldest);
+        }
+        portsCache.set(paneId, { nodeId, at: deps.nowMs(), answer });
+        return answer;
+      })().finally(() => {
+        // Only the scan this entry describes is dropped, so a scan started after
+        // a revocation is not erased by the one it replaced.
+        if (portsInFlight.get(paneId)?.run === run) portsInFlight.delete(paneId);
+      });
+      portsInFlight.set(paneId, { nodeId, run });
+      return run;
     },
 
     onDisplayOpened(nodeId, paneId, screen) {

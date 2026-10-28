@@ -37,6 +37,11 @@ describe("the injected preview shim", () => {
     // exactly would miss `rel="preload stylesheet"`, leaving the stale stylesheet
     // reused, which is the only thing the revision exists to stop.
     expect(source).toContain('!isStylesheetRel(previous.getAttribute("rel"))');
+    // And it is idempotent, because two paths legitimately reach it for one
+    // insertion (the rel branch and the observer's append pass). Without the
+    // short-circuit each would spend a revision token and start a second fetch
+    // of the same stylesheet.
+    expect(source).toContain('if (url.searchParams.has("ts")) return mapped;');
   });
 
   it("wraps inline script in CDATA only for a document parsed as XML", () => {
