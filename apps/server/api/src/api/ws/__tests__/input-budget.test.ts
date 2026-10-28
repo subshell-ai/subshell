@@ -299,3 +299,55 @@ it("still ends the arrival when the shared queue cannot be relieved", () => {
     for (const charge of charges) charge();
   }
 });
+
+it("caps a node by bytes across its sockets, not only by frames", () => {
+  // The node and socket byte ceilings are the same number, so one socket
+  // filling the node would trip both and prove neither. Spread the load so the
+  // only bound left standing is the node's own.
+  const framesToFillNode = INPUT_NODE_MAX_BYTES / INPUT_FRAME_MAX_BYTES;
+  expect(framesToFillNode).toBe(256);
+  const socketsNeeded = 4;
+  const perSocket = framesToFillNode / socketsNeeded;
+  expect(perSocket).toBeLessThan(INPUT_SOCKET_MAX_FRAMES);
+  const payload = "x".repeat(INPUT_FRAME_MAX_BYTES);
+  const nodeId = crypto.randomUUID();
+  const charges: (() => void)[] = [];
+  try {
+    for (let s = 0; s < socketsNeeded; s++) {
+      const filler = socket();
+      filler.ws.data.nodeId = nodeId;
+      for (let f = 0; f < perSocket; f++) {
+        const release = takeInputBudget(filler.ws, payload);
+        if (!release) throw new Error("a per-socket bound tripped before the node's did");
+        charges.push(release);
+      }
+    }
+    const excess = socket();
+    excess.ws.data.nodeId = nodeId;
+    expect(takeInputBudget(excess.ws, payload)).toBeNull();
+    expect(excess.closed).toEqual([1013]);
+  } finally {
+    for (const charge of charges) charge();
+  }
+});
+
+it("forced disconnect drops held input for a shared viewer with no negotiated session id", async () => {
+  let dispatched = 0;
+  const { ws } = socket(async () => {
+    dispatched++;
+    throw new Error("node offline");
+  });
+  // Deliberately no `query`: the arrival keys its hold by the viewer-id
+  // fallback, so recovery has to find the backlog there rather than only in the
+  // negotiated-sid case the other test covers.
+  registerViewer(ws, ws.data.subshellId);
+  const held = { nodeId: ws.data.nodeId, subshellId: ws.data.subshellId, sessionId: ws.data.viewerId };
+  holdFailedInput({ ...held, id: 1, payload: "held", ws, sendAck: () => {} });
+  await settle();
+  expect(hasHeldInput(held.nodeId, held.subshellId, held.sessionId)).toBe(true);
+  expect(closeViewersForSubshell(ws.data.subshellId, 1012, "stream recovery")).toBe(1);
+  expect(hasHeldInput(held.nodeId, held.subshellId, held.sessionId)).toBe(false);
+  refireInputHoldsForNode(held.nodeId);
+  await settle();
+  expect(dispatched).toBe(0);
+});
