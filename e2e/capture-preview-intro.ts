@@ -87,6 +87,14 @@ try {
   console.log("Website styled; image loaded");
   mkdirSync("apps/docs/public/screenshots", { recursive: true });
   await page.screenshot({ path: "apps/docs/public/screenshots/preview-intro.png", animations: "disabled" });
+  await page.setViewportSize({ width: 900, height: 800 });
+  await page.getByRole("button", { name: "More view actions" }).click();
+  await page.getByRole("menuitem", { name: "Configure preview" }).click();
+  await captureScreenshot(
+    page,
+    "apps/docs/public/screenshots/preview-settings.png",
+    page.getByRole("dialog", { name: "Configure preview" }),
+  );
 } finally {
   for (const close of cleanup) await close();
 }

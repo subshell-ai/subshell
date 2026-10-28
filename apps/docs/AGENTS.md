@@ -84,6 +84,10 @@ compiled with `remarkMdxMermaid` and rendered to static SVG by the provided
 `Mermaid` component. Include a `%%` description for accessibility and prose
 explaining the relationships. Follow the visual rules in `STYLE.md`.
 
+Prefer landscape captures or focused dialog crops for preview guides. Keep text
+and controls readable at the displayed width; avoid full-height phone screenshots
+when they add empty space or shrink the interface.
+
 ## SEO and AI exports
 
 Use unique descriptive titles and summaries, one rendered H1, logical headings,
