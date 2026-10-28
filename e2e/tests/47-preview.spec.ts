@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
+import { PORTS } from "../ports";
 import { shortTmuxBase } from "../stack";
 import { type RunningNode, startNode } from "../stub/client";
 import { ADMIN_STATE } from "./helpers";
@@ -37,13 +38,13 @@ test.use({ storageState: ADMIN_STATE });
  */
 
 /** The dev server the pane starts, and the port we proxy it through (brief-pinned). */
-const HTTP_PORT = 4123;
+const HTTP_PORT = PORTS.previewHttp;
 /**
  * The pane's fake devtools port. Not 9222: that is where a developer's REAL
  * chromium answers on this machine, and a stray 9222 listener would let the
  * scan detect a CDP port the pane does not own.
  */
-const CDP_PORT = 9423;
+const CDP_PORT = PORTS.previewCdp;
 
 /** Pure helpers, so the waits can tighten independently of the 120 s default. */
 const SPAWN_TIMEOUT = 30_000;

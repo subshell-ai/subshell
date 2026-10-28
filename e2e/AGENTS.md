@@ -55,7 +55,8 @@ runs discovery against this fake), and no spec ever dials a real IdP.
 
 Every fixed port in `ports.ts` takes an env override (`E2E_PORT_BACKEND`,
 `E2E_PORT_FAKE_REGISTRY`, `E2E_PORT_FAKE_IDP`, `E2E_PORT_ONBOARDING`,
-`E2E_PORT_SSH`, `E2E_PORT_CONNECT`, `E2E_PORT_RELAY`, `E2E_PORT_FORWARDS`) with the committed
+`E2E_PORT_SSH`, `E2E_PORT_CONNECT`, `E2E_PORT_RELAY`, `E2E_PORT_FORWARDS`,
+`E2E_PORT_PREVIEW_HTTP`, `E2E_PORT_PREVIEW_CDP`) with the committed
 defaults unchanged, the escape hatch for two suites running side by side on one
 machine, which the defaults collide on.
 
