@@ -40,6 +40,12 @@ Verify WebSocket forwarding through the proxy and confirm that the API can mint 
 
 Try the server's direct trusted address from an appropriate device to isolate a proxy problem.
 
+## Connection closes with an input limit
+
+A `terminal input limit exceeded` close means one input message was too large or too much input is still waiting to finish. Wait for the node to respond before sending more. The current client splits large pastes and limits outstanding messages automatically; custom clients must do the same.
+
+A disconnect doesn't undo commands already sent. Check the terminal before repeating a command whose result is uncertain.
+
 ## Terminal becomes smaller
 
 Everyone watching a terminal shares its size. If someone opens it in a smaller window, the terminal can shrink for everyone. Check the attached devices and close any views you no longer need.

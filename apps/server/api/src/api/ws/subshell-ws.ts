@@ -2,6 +2,7 @@ import { parseClientFrame } from "@internal/subshell-protocol";
 import { forensicsEnabled, recordAttachPaint } from "@/api/ws/attach-forensics.js";
 import { resolveAttach } from "@/api/ws/attach-resolve.js";
 import { captureToReplayText } from "@/api/ws/capture-text.js";
+import { takeInputBudget } from "@/api/ws/input-budget.js";
 import { dropInputHolds, hasHeldInput, holdFailedInput } from "@/api/ws/input-hold.js";
 import { inputWindowAdd, inputWindowHas, sanitizeInputSession } from "@/api/ws/input-window.js";
 import type { PaneGeometry } from "@/api/ws/pane-geometry.js";
@@ -423,7 +424,7 @@ async function attachSubshellWs(ws: WsSocket, url: URL): Promise<void> {
  */
 export function handleSubshellMessage(ws: WsSocket, message: string | object): void {
   const data = ws.data;
-  if (!data?.launcher || data.accessRevoked) return;
+  if (!data?.launcher || data.accessRevoked || data.inputClosed) return;
   const frame = parseClientFrame(message);
   if (!frame) {
     logger.warn("ws: dropped unrecognized client frame");
@@ -522,6 +523,8 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
         });
         return;
       }
+      const release = takeInputBudget(ws, frame.data);
+      if (!release) return;
       void data.launcher
         .sendInput(data.socket, data.subshellId, frame.data)
         .then(() => {
@@ -539,6 +542,7 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
           sendToSocket(ws, { type: "ack", id });
         })
         .catch((err) => {
+          release(); // Transfer the charge to the hold before retaining a retry.
           // Wave D: a failed plane→node write is HELD, not dropped — the
           // plane-side hold re-fires it when the node's connection is live
           // again (ws/input-hold.ts), because the browser socket lives on and
@@ -558,7 +562,8 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
             return;
           }
           logFailure(err);
-        });
+        })
+        .finally(release);
       return;
     }
     // No id: nothing to hold, and this dispatches PAST any held ids of the
@@ -567,7 +572,9 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
     // disengage drops its own backlog first — so the only bare frame that
     // can land behind a hold is a client that downgraded mid-session, whose
     // own retry machinery has already given up. Today's drop-and-log.
-    void data.launcher.sendInput(data.socket, data.subshellId, frame.data).catch(logFailure);
+    const release = takeInputBudget(ws, frame.data);
+    if (!release) return;
+    void data.launcher.sendInput(data.socket, data.subshellId, frame.data).catch(logFailure).finally(release);
   }
 }
 
@@ -600,6 +607,7 @@ function sendToSocket(ws: WsSocket, frame: object): void {
 
 /** Stops streaming when the client disconnects. */
 export function cleanupSubshellWs(ws: WsSocket): void {
+  if (ws.data) ws.data.inputClosed = true;
   untrackTerminalSocket(ws);
   // The attach is fired unawaited from the plugin's `open` and reaches
   // `Object.assign(ws.data, data)` only after an access lookup and a tmux

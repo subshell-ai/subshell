@@ -61,6 +61,8 @@ export interface WsData {
   canInput: boolean;
   /** Revoked sockets cannot send or receive, even before their close callback runs. */
   accessRevoked?: boolean;
+  /** Disconnect or input overflow: late failures must not recreate retry queues. */
+  inputClosed?: boolean;
   /** Releases the access lease even when attach has not registered a viewer yet. */
   releaseTerminalAccess?: () => void;
   /**
