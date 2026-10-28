@@ -246,17 +246,20 @@ export async function transformPreviewResponse(
             }
             // Turbopack matches registered script URLs against its chunk base.
             // Rewriting src alone leaves its runtime waiting for unproxied keys.
+            // One map() per src, shared by the chunk-base test below and the
+            // attribute loop: rewriting is not free (each mapped value is charged
+            // against the expansion budget), and a Next page carries hundreds of
+            // chunk tags, so mapping them twice would halve the document a page can
+            // afford before the rewrite even starts.
             const src = el.tagName === "script" ? el.getAttribute("src") : null;
-            // Asking the raw attribute first, because rewriting is not free: map()
-            // charges the expansion budget, and testing every script's URL to find
-            // out it was never a Turbopack chunk would halve the document a page can
-            // afford. Mapping only ever prepends the proxy path, so a mapped URL
-            // cannot contain the marker unless the raw one does.
-            if (src && !nextChunkBaseInjected && src.includes("/_next/static/")) {
-              const mapped = map(src);
-              const nextStatic = mapped.indexOf("/_next/static/");
-              if (mapped.startsWith(proxy) && nextStatic >= 0) {
-                const chunkBase = `${mapped.slice(0, nextStatic)}/_next/`;
+            const mappedSrc = src === null ? null : map(src);
+            // The raw attribute is tested for the marker first: mapping only ever
+            // prepends the proxy path, so a mapped URL cannot contain it unless the
+            // raw one does, and non-Turbopack pages pay nothing for the check.
+            if (src !== null && mappedSrc !== null && !nextChunkBaseInjected && src.includes("/_next/static/")) {
+              const nextStatic = mappedSrc.indexOf("/_next/static/");
+              if (mappedSrc.startsWith(proxy) && nextStatic >= 0) {
+                const chunkBase = `${mappedSrc.slice(0, nextStatic)}/_next/`;
                 el.before(
                   previewInlineScript(`globalThis.TURBOPACK_CHUNK_BASE_PATH=${scriptString(chunkBase)};`, xml),
                   { html: true },
@@ -268,7 +271,11 @@ export async function transformPreviewResponse(
               const value = el.getAttribute(name);
               if (value === null) continue;
               const mapped =
-                el.tagName === "base" && name === "href" ? previewUrl(value, base, target, proxy) : map(value);
+                name === "src" && mappedSrc !== null
+                  ? mappedSrc
+                  : el.tagName === "base" && name === "href"
+                    ? previewUrl(value, base, target, proxy)
+                    : map(value);
               el.setAttribute(name, mapped);
               if (mapped !== value && (el.tagName === "script" || el.tagName === "link"))
                 el.removeAttribute("integrity");

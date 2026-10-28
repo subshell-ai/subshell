@@ -228,6 +228,40 @@ describe.skipIf(process.platform !== "linux")("scanPanePorts over fixture /proc 
     expect(Date.now() - started).toBeLessThan(4_000);
   });
 
+  it("rotates where the probe budget starts, so one tail is not always the loser", async () => {
+    // The kernel lists listeners in a stable order, so a scan that always drains
+    // from the first row spends its budget on the same leading ports every poll
+    // and a dev server behind them never appears. Two scans of one tree have to
+    // start at different places.
+    const rotateRoot = join(base, "rotate-proc");
+    mkdirSync(join(rotateRoot, "net"), { recursive: true });
+    const ports = Array.from({ length: 6 }, (_, i) => 4301 + i);
+    const rows = ports.map((port, i) => ({ addr: "0100007F", port, inode: 800_001 + i }));
+    mkPidTree(rotateRoot, [
+      { pid: 100, ppid: 1 },
+      { pid: 102, ppid: 100, fds: rows.map((row, i) => ({ name: String(3 + i), inode: row.inode })) },
+    ]);
+    writeNet(join(rotateRoot, "net", "tcp"), rows);
+    writeNet(join(rotateRoot, "net", "tcp6"), []);
+    const firstProbed = async (): Promise<number> => {
+      const asked: number[] = [];
+      await scanPanePorts({
+        procRoot: rotateRoot,
+        panePid: 100,
+        probe: async (port) => {
+          asked.push(port);
+          return false;
+        },
+        websiteProbe: async () => null,
+      });
+      return asked[0];
+    };
+    const first = await firstProbed();
+    const second = await firstProbed();
+    expect(ports).toContain(second);
+    expect(second).not.toBe(first);
+  });
+
   it("a process tree past 512 pids refuses preview-ports-overcap", async () => {
     // A linear chain of 600 descendants: the walk must refuse rather than
     // readlink its way through a fork bomb.

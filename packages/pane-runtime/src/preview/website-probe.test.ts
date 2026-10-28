@@ -131,6 +131,50 @@ it("offers a port whose server accepted and is still thinking", async () => {
   }
 });
 
+it("keeps the verdict it already has when the scan's budget runs out mid-probe", async () => {
+  // The first family answered with a real page and the second was still being
+  // asked when the scan ended. Discarding the held answer here would drop a port
+  // discovery had already established serves a website.
+  const real = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
+    if (!String(input).includes("127.0.0.1")) {
+      await new Promise<void>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (!signal) return;
+        if (signal.aborted) return reject(signal.reason);
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+      throw new Error("unreachable");
+    }
+    return new Response("<p>untitled page</p>", { headers: { "content-type": "text/html" } });
+  }) as unknown as typeof fetch;
+  try {
+    // Outer budget shorter than the per-family one, so the scan aborts while the
+    // second family is being asked.
+    expect(await probeWebsite(4194, AbortSignal.timeout(250))).toEqual({});
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+it("sends a client class servers accept, so a bot filter does not hide a site", async () => {
+  const real = globalThis.fetch;
+  let sent = "";
+  globalThis.fetch = (async (_input: string | URL, init?: RequestInit) => {
+    sent = String(new Headers(init?.headers).get("user-agent") ?? "");
+    return new Response("<title>Internal tool</title>", { headers: { "content-type": "text/html" } });
+  }) as typeof fetch;
+  try {
+    expect(await probeWebsite(4193, AbortSignal.timeout(2_000))).toEqual({ title: "Internal tool" });
+    // Not a borrowed browser identity: it says what it is, in the shape servers
+    // that gate on User-Agent will answer.
+    expect(sent).toContain("Mozilla/5.0");
+    expect(sent).toContain("SubshellPreviewProbe");
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
 it("keeps looking past an untitled page to find the family that names one", async () => {
   // A tool on 127.0.0.1 that answers 200 text/html with no title is a website by
   // the probe's own rule, so it would end the question there — while the real dev

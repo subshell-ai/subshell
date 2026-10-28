@@ -152,8 +152,19 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
   }).observe(document, { childList: true, subtree: true });
 }`;
 
+/**
+ * The shim's JavaScript, ready to be run.
+ *
+ * The `</script` guard is applied here as well as in {@link previewInlineScript},
+ * so a caller that interpolates this into markup by hand cannot produce a page
+ * whose script ends early. Escaping twice is inert: once rewritten the sequence no
+ * longer matches the pattern.
+ */
 export function previewCompatScript(target: string, proxy: string): string {
-  return `(${browserCompatSource})(${JSON.stringify(target)},${JSON.stringify(proxy)},${previewUrl.toString()},${previewSrcset.toString()});`;
+  return `(${browserCompatSource})(${JSON.stringify(target)},${JSON.stringify(proxy)},${previewUrl.toString()},${previewSrcset.toString()});`.replace(
+    /<\/script/gi,
+    "<\\/script",
+  );
 }
 
 /**

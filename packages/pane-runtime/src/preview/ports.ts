@@ -61,7 +61,16 @@ const CDP_PROBE_TIMEOUT_MS = 400;
  * this is the number that decides how many stalled listeners a pane can hold
  * before the scan's ceiling starts dropping ports.
  */
-const SCAN_PROBE_WORKERS = 16;
+const SCAN_PROBE_WORKERS = 32;
+
+/**
+ * Where the previous scan's budget ran out. The kernel lists listeners in a
+ * stable order, so always draining from index 0 makes starvation permanent: the
+ * same leading stalled sockets eat the budget on every poll and the tail is never
+ * reached. Each scan starts one further along, so every port gets asked within a
+ * few polls.
+ */
+let probeCursor = 0;
 
 /** The scan's wall-clock floor, what each candidate may add, and its ceiling. */
 const SCAN_DEADLINE_BASE_MS = 2_500;
@@ -127,11 +136,14 @@ export async function scanPanePorts(opts: ScanPanePortsOptions): Promise<PanePor
   const deadline = AbortSignal.timeout(
     Math.min(SCAN_DEADLINE_MAX_MS, SCAN_DEADLINE_BASE_MS + SCAN_DEADLINE_PER_PORT_MS * candidates.length),
   );
+  // Rotating start point: see probeCursor. Wrapping means the ports this scan
+  // cannot reach before the budget runs out are the first ones the next asks.
+  const start = candidates.length > 0 ? probeCursor++ % candidates.length : 0;
   let next = 0;
   await Promise.all(
     Array.from({ length: Math.min(SCAN_PROBE_WORKERS, candidates.length) }, async () => {
       while (next < candidates.length && !deadline.aborted) {
-        const port = candidates[next++];
+        const port = candidates[(start + next++) % candidates.length];
         if (port === screen?.viewer.port) continue;
         const [isCdp, info] = await Promise.all([probe(port), website(port, deadline)]);
         if (isCdp) cdpPorts.add(port);

@@ -107,13 +107,21 @@ export function isPreviewAttachmentDisposition(disposition: string | null | unde
   return typeof disposition === "string" && ATTACHMENT_DISPOSITION.test(disposition);
 }
 
+/** Type families a browser presents in the frame itself, no system handler. */
+const SELF_PRESENTED = /^(?:text|image|audio|video)\//i;
+
 /**
- * May the proxy paint this navigation? An `attachment` never may, whatever its
- * type says, and a type that names itself as something else (an image, a PDF,
- * a blob) is exactly what a phone hands to a system viewer with no way back.
- * A response that names NO type is left to the browser, which renders it as
- * text rather than handing it off, and a dev server that forgets the header
- * still serves a page someone deliberately opened.
+ * May the proxy paint this navigation?
+ *
+ * The question is what the phone does with the response, not whether it is a web
+ * page. A browser shows a document, a chunk of text, an image, and an audio or
+ * video clip itself, so those stay: a dev server's log page served as text/plain
+ * is a page someone tapped for, and refusing it strands nothing. What leaves the
+ * frame is a file the server is handing over (an `attachment`, whatever its type
+ * claims) or a binary the view has no reader for, which is where iOS takes the
+ * presentation away in a system viewer with no back button in a home-screen app.
+ * A response naming no type is left to the browser, which renders it as text, and
+ * a dev server that forgets the header still serves what was asked for.
  */
 export function isPreviewPaintableNavigation(
   contentType: string | null | undefined,
@@ -121,5 +129,5 @@ export function isPreviewPaintableNavigation(
 ): boolean {
   if (isPreviewAttachmentDisposition(disposition)) return false;
   if (typeof contentType !== "string" || contentType.trim() === "") return true;
-  return isPreviewDocumentContentType(contentType);
+  return isPreviewDocumentContentType(contentType) || SELF_PRESENTED.test(contentType);
 }

@@ -106,4 +106,14 @@ it("paints a chosen navigation unless the response names something else", () => 
   expect(isPreviewDocumentContentType("")).toBe(false);
   // An attachment outranks its own type, even a document one.
   expect(isPreviewPaintableNavigation("text/html", "attachment; filename=report")).toBe(false);
+  // What a browser presents itself stays paintable: refusing these would block a
+  // dev server's plain-text log page or a PNG someone tapped, neither of which
+  // leaves the frame. The strand risk is the file the server hands over.
+  expect(isPreviewPaintableNavigation("text/plain", null)).toBe(true);
+  expect(isPreviewPaintableNavigation("image/png", null)).toBe(true);
+  expect(isPreviewPaintableNavigation("video/webm", null)).toBe(true);
+  expect(isPreviewPaintableNavigation("application/pdf", null)).toBe(false);
+  expect(isPreviewPaintableNavigation("application/octet-stream", null)).toBe(false);
+  // A download keeps its refusal whatever the type claims.
+  expect(isPreviewPaintableNavigation("text/plain", "attachment")).toBe(false);
 });

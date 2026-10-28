@@ -886,14 +886,6 @@ export interface NodePreviewPortsResult {
 }
 
 /**
- * Validates and narrows a `preview_ports_get` answer. The hand-rolled style
- * REBUILDS what it validates, so `screenLost` is copied explicitly here: a
- * validator that never names the member would strip it silently between
- * Task 7's writer and Task 9's reader, green at every unit layer.
- * @param data - the `data` member of a successful result frame
- * @returns the narrowed answer, or null when malformed
- */
-/**
  * Trim to a UTF-16 budget without ever splitting a surrogate pair.
  *
  * The route that serializes this title counts UTF-16 units, so a cap measured in
@@ -913,6 +905,14 @@ function capUtf16(value: string, maxUnits: number): string {
   return out;
 }
 
+/**
+ * Validates and narrows a `preview_ports_get` answer. The hand-rolled style
+ * REBUILDS what it validates, so `screenLost` is copied explicitly here: a
+ * validator that never names the member would strip it silently between
+ * Task 7's writer and Task 9's reader, green at every unit layer.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed answer, or null when malformed
+ */
 export function parseNodePreviewPortsResult(data: unknown): NodePreviewPortsResult | null {
   if (!isRecord(data) || !Array.isArray(data.ports)) return null;
   const ports: NodePreviewPortWire[] = [];

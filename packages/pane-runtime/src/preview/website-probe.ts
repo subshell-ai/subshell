@@ -105,16 +105,20 @@ export async function probeWebsite(port: number, signal: AbortSignal): Promise<W
       // servers, and one "no" does not settle a port number.
       if (info) fallback ??= info;
     } catch {
-      // The scan's budget running out ends the question. This family running out
-      // does not: it means the socket accepted and is thinking, which is what a
-      // cold `next dev` does while it compiles the route, and hiding that port
-      // until the server warms up would hide the one row the person came for.
-      if (signal.aborted) return null;
+      // The scan's budget running out ends the asking, but not the answer: a
+      // verdict the first family already gave stays held. This family running out
+      // does not end anything: it means the socket accepted and is thinking, which
+      // is what a cold `next dev` does while it compiles the route, and hiding that
+      // port until the server warms up would hide the one row the person came for.
+      if (signal.aborted) return fallback;
       if (attempt.aborted) fallback ??= {};
     }
   }
   return fallback;
 }
+
+/** What the probe says it is: a probe, in the shape servers expect of a client. */
+const PROBE_USER_AGENT = "Mozilla/5.0 (compatible; SubshellPreviewProbe/1.0)";
 
 async function probeWebsiteOrigin(origin: string, signal: AbortSignal): Promise<WebsiteInfo | null> {
   let url = `${origin}/`;
@@ -122,7 +126,17 @@ async function probeWebsiteOrigin(origin: string, signal: AbortSignal): Promise<
     const response = await fetch(url, {
       redirect: "manual",
       signal,
-      headers: { accept: PREVIEW_DOCUMENT_ACCEPT, "accept-encoding": "identity" },
+      // The offer names the document types and a client class, because internal
+      // tools commonly 404 anything that does not look like a browser, and a port
+      // hidden from discovery is a site the person cannot reach even though the
+      // frame would have rendered it. It says what it is rather than borrowing a
+      // real browser's identity: the proxy forwards the viewer's own UA when the
+      // page is actually opened.
+      headers: {
+        accept: PREVIEW_DOCUMENT_ACCEPT,
+        "accept-encoding": "identity",
+        "user-agent": PROBE_USER_AGENT,
+      },
     });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       await response.body?.cancel();

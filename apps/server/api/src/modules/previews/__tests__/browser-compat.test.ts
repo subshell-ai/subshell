@@ -46,4 +46,13 @@ describe("the injected preview shim", () => {
     // Closing tags cannot appear raw in either form.
     expect(previewInlineScript("</script>", false)).toContain("<\\/script>");
   });
+
+  it("never returns script text whose own tag could close early", () => {
+    // previewCompatScript is exported and may be interpolated by a caller that
+    // forgets to wrap it, so the guard lives in the producer as well as the
+    // wrapper. Escaping twice is inert: a rewritten sequence no longer matches.
+    const code = previewCompatScript("http://127.0.0.1:3000", "</script><script>alert(1)</script>");
+    expect(code).not.toMatch(/<\/script/i);
+    expect(previewInlineScript(code, false)).toMatch(/^<script>.*<\/script>$/s);
+  });
 });

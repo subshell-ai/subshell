@@ -213,13 +213,15 @@ remove the embedding boundary. Scripts and forms work in an opaque origin;
 preview-specific CORS allows modules and fetches under the capability URL.
 Opaque `Origin: null` is admitted only to preview HTTP preflight and preview
 WebSocket handshakes. Dashboard API and WebSocket gates still reject it.
-Document navigations are judged by what the response says it is. A navigation
-whose response names a non-document type, or asks for a download, is answered with
-an inline error page rather than handed to a system viewer, because on iOS that
-hand-off takes the whole presentation with no way back. A desktop browser downloads
-in its own UI and leaves the preview alone, so the same bytes go through there: the
-refusal is scoped to the clients that can be stranded. A page that declares no type
-at all is left to the browser, which renders it as text. Subresource and fetch
+Document navigations are judged by what the phone does with the answer, not by
+whether it is a web page. A response the browser presents itself stays: a document,
+a chunk of text, an image, an audio or video clip. What is answered with an inline
+error page is a file the server hands over (an `attachment`, whatever its type
+claims) or a binary the view cannot read, because on iOS that hand-off takes the
+whole presentation with no way back. A desktop browser downloads in its own UI and
+leaves the preview alone, so the same bytes go through there: the refusal is scoped
+to the clients that can be stranded. A page that declares no type at all is left to
+the browser, which renders it as text. Subresource and fetch
 responses retain their content types either way, and the cookies a refused response
 carried still enter the session jar, so the app is not quietly signed out by the
 refusal.
