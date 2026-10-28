@@ -274,8 +274,14 @@ export {
   isPreviewAttachmentDisposition,
   isPreviewDocumentContentType,
   isPreviewPaintableNavigation,
+  isPreviewRefusalReason,
+  isPreviewStrandingClient,
+  isPreviewXmlDocumentContentType,
   PREVIEW_DOCUMENT_ACCEPT,
   PREVIEW_DOCUMENT_TYPES,
+  PREVIEW_REFUSAL_MESSAGE,
+  PREVIEW_REFUSAL_REASONS,
+  type PreviewRefusalReason,
 } from "./preview-document.js";
 export {
   PREVIEW_IMAGE_MAX_DIMENSION,

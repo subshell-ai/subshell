@@ -1,4 +1,12 @@
-import { acceptsPreviewDocument, isPreviewPaintableNavigation, serviceAuthority } from "@internal/subshell-protocol";
+import {
+  acceptsPreviewDocument,
+  isPreviewAttachmentDisposition,
+  isPreviewPaintableNavigation,
+  isPreviewStrandingClient,
+  PREVIEW_REFUSAL_MESSAGE,
+  type PreviewRefusalReason,
+  serviceAuthority,
+} from "@internal/subshell-protocol";
 import { Elysia } from "elysia";
 import { LaneDuplex } from "@/modules/previews/lane-duplex.js";
 import { LaneClosedError, LaneProtocolError, sendLaneRequest } from "@/modules/previews/lane-http.js";
@@ -189,6 +197,28 @@ function outHeadersToWeb(pairs: [string, string][], jar: Map<string, string>, re
 }
 
 /**
+ * The page a refused navigation shows a stranding client.
+ *
+ * It also tells the dashboard what happened, because a person watching only the
+ * toolbar sees a frame change with no explanation. The frame runs sandboxed
+ * without `allow-same-origin`, so the one channel out is postMessage to the
+ * parent, and what crosses is a fixed marker, this session's own ref, and one of
+ * two known words: nothing the app could author. The panel checks the message
+ * came from the frame it created before it believes any of it, and the sentences
+ * stay ours.
+ */
+function refusalPage(ref: string, origin: string, reason: PreviewRefusalReason): string {
+  const advice =
+    reason === "download"
+      ? "The app offered a file, which would have taken this screen over with no way back. Have the app show it in the page, or open the address in a new tab."
+      : "This address returned something other than a web page. Close this preview and choose a website port.";
+  // `<` is escaped so a host name cannot close the script element early.
+  const payload = JSON.stringify({ type: PREVIEW_REFUSAL_MESSAGE, ref, reason }).replace(/</g, "\\u003c");
+  const parent = JSON.stringify(origin).replace(/</g, "\\u003c");
+  return `<!doctype html><html><head><meta name=viewport content="width=device-width, initial-scale=1"><title>Preview unavailable</title></head><body><h1>This isn't a web page</h1><p>${advice}</p><script>try{parent.postMessage(${payload},${parent})}catch{}</script></body></html>`;
+}
+
+/**
  * One proxied request: lane, hand-framed request, streamed answer, lane
  * release. The lane closes exactly once, `viewer-left`, whatever the ending
  * (complete body, client abort, dead lane, refusal), because every one of
@@ -292,8 +322,12 @@ async function proxyRequest(request: Request, sessionRef: string, rest: string):
         releaseLane();
       },
     );
-    // A navigation to an internal service or download can hand an iOS PWA
-    // to Quick Look with no way back. Subresources keep their original MIME.
+    // A download or an unknown type handed to the frame can take the whole
+    // presentation away from an iOS client, which then has no back button to
+    // press. Those clients get a page they can read and close. A desktop browser
+    // downloads in its own UI and leaves the preview where it was, which is what
+    // someone clicking "Export CSV" expects, so the bytes go through there.
+    // Subresources keep their original MIME either way.
     const destination = request.headers.get("sec-fetch-dest");
     const navigation =
       destination === "document" ||
@@ -308,7 +342,8 @@ async function proxyRequest(request: Request, sessionRef: string, rest: string):
       !(res.status >= 300 && res.status < 400) &&
       res.status !== 204 &&
       res.status !== 205 &&
-      !isPreviewPaintableNavigation(contentType, disposition)
+      !isPreviewPaintableNavigation(contentType, disposition) &&
+      isPreviewStrandingClient(request.headers.get("user-agent"))
     ) {
       // The navigation is refused, but the answer is still the app's: cookies
       // it set (a CSRF or session token its later pages expect) belong to this
@@ -323,13 +358,11 @@ async function proxyRequest(request: Request, sessionRef: string, rest: string):
       // happened is the page's own words, not the number. Both are "the preview
       // target answered and this is not something to paint", and nothing retries
       // a /pv read on 502, so the two need no separate code.
-      return new Response(
-        '<!doctype html><html><head><meta name=viewport content="width=device-width, initial-scale=1"><title>Preview unavailable</title></head><body><h1>This isn\'t a web page</h1><p>This address returned a download or another type of response. Close this preview and choose a website port.</p></body></html>',
-        {
-          status: 502,
-          headers: isolatedPreviewHeaders(new Headers({ "content-type": "text/html; charset=utf-8" })),
-        },
-      );
+      const reason = isPreviewAttachmentDisposition(disposition) ? "download" : "not-a-page";
+      return new Response(isHead ? null : refusalPage(sessionRef, url.origin, reason), {
+        status: 502,
+        headers: isolatedPreviewHeaders(new Headers({ "content-type": "text/html; charset=utf-8" })),
+      });
     }
     const headersOut = outHeadersToWeb(res.headers, session.cookieJar, sessionRef);
     const location = res.headers.find(([name]) => name === "location")?.[1];

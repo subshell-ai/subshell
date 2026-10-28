@@ -89,10 +89,15 @@ export async function probeWebsite(port: number, signal: AbortSignal): Promise<W
   for (const host of ["127.0.0.1", "[::1]"]) {
     try {
       const attempt = AbortSignal.any([signal, AbortSignal.timeout(ATTEMPT_TIMEOUT_MS)]);
-      // One family answering is an answer. A second family on the same port
-      // would be a different server, and the wire lists one row per socket.
-      return await probeWebsiteOrigin(`http://${host}:${port}`, attempt);
+      const info = await probeWebsiteOrigin(`http://${host}:${port}`, attempt);
+      if (info) return info;
+      // This family answered and says it is not a website. Ask the other one
+      // anyway: the two are different sockets that may hold different servers,
+      // and a tool bound to 127.0.0.1 while the dev server holds ::1 is a real
+      // arrangement. One "no" does not settle a port number.
     } catch {
+      // The scan's own budget running out ends the question; a refused or
+      // stalled family does not.
       if (signal.aborted) return null;
     }
   }

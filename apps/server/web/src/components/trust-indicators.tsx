@@ -39,6 +39,7 @@ export interface TrustIndicatorsProps {
 
 export function TrustIndicators({ notices, className }: TrustIndicatorsProps): JSX.Element | null {
   const [selected, setSelected] = useState<TrustNotice | null>(null);
+  const shown = selected ? (notices.find((notice) => notice.kind === selected.kind) ?? null) : null;
   if (notices.length === 0) return null;
   return (
     // One Provider for the row: Base UI batches open/close across the
@@ -66,8 +67,12 @@ export function TrustIndicators({ notices, className }: TrustIndicatorsProps): J
           );
         })}
       </span>
+      {/* The open notice is resolved against the CURRENT list rather than shown
+          from the click: a share revoked while the dialog is open must stop being
+          explained by it, or a permanent disclosure turns into a claim about an
+          exposure that no longer exists. */}
       <Dialog
-        open={selected !== null}
+        open={selected !== null && shown !== null}
         onOpenChange={(open) => {
           if (!open) setSelected(null);
         }}
@@ -75,7 +80,7 @@ export function TrustIndicators({ notices, className }: TrustIndicatorsProps): J
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Subshell access</DialogTitle>
-            <DialogDescription>{selected?.tooltip}</DialogDescription>
+            <DialogDescription>{shown?.tooltip}</DialogDescription>
           </DialogHeader>
         </DialogContent>
       </Dialog>

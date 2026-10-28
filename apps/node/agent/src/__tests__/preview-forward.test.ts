@@ -617,7 +617,7 @@ describe("(h) closeAll", () => {
 /* (i) the oversized-read guard                                        */
 /* ------------------------------------------------------------------ */
 
-describe("(i) over-cap", () => {
+describe("(i) the byte caps, both directions", () => {
   it("closes a stalled target before its TCP write queue exceeds the lane budget", () => {
     const h = makeHarness("stalled-writer", { deps: { laneBufferMaxBytes: 64 } });
     h.forward.openLane({

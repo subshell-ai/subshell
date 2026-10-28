@@ -218,7 +218,10 @@ beforeAll(async () => {
           headers: { "content-type": "text/html" },
         });
       if (url.pathname === "/xhtml")
-        return new Response('<head><link href="/style.css"></head><h1>XHTML App</h1>', {
+        // Well-formed XML, the way a real XHTML server answers: an unclosed
+        // <link> would fail the parse for reasons that have nothing to do with
+        // what the proxy injects.
+        return new Response('<head><link href="/style.css" /></head><h1>XHTML App</h1>', {
           headers: { "content-type": "application/xhtml+xml" },
         });
       if (url.pathname === "/absolute-redirect")
@@ -401,6 +404,13 @@ async function probeUpgrade(port: number, path: string, origin?: string): Promis
 /* the HTTP rewrite half                                               */
 /* ------------------------------------------------------------------ */
 
+/** The clients the navigation guard refuses for: iOS can hand the frame's file
+ * to a system viewer with no way back. A desktop browser downloads in its own UI. */
+const IPHONE_UA =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+const DESKTOP_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
+
 describe("pv-http: the same-origin rewrite", () => {
   it("keeps non-document responses inside the preview on navigation while preserving fetches", async () => {
     const { ref } = await getPreviewBroker().openForward({
@@ -411,16 +421,56 @@ describe("pv-http: the same-origin rewrite", () => {
     });
     for (const path of ["download", "download-error", "headers"]) {
       const response = await proxyFetch(`/pv/${ref}/${path}`, {
-        headers: { "sec-fetch-dest": "iframe", "sec-fetch-mode": "navigate" },
+        headers: { "sec-fetch-dest": "iframe", "sec-fetch-mode": "navigate", "user-agent": IPHONE_UA },
       });
       expect(response.status).toBe(502);
       expect(response.headers.get("content-type")).toContain("text/html");
       expect(response.headers.get("content-disposition")).toBeNull();
-      expect(await response.text()).toContain("This isn't a web page");
+      const refused = await response.text();
+      expect(refused).toContain("This isn't a web page");
+      // The page also tells the dashboard what it refused, so the person is not
+      // left reading a frame that quietly changed.
+      expect(refused).toContain("subshell:preview-refused");
+      expect(refused).toContain(`"ref":"${ref}"`);
     }
     const response = await proxyFetch(`/pv/${ref}/download`, { headers: { "sec-fetch-dest": "empty" } });
     expect(response.status).toBe(200);
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2]));
+  });
+
+  it("lets a desktop click download instead of showing it an error page", async () => {
+    // The stranding this guard prevents is an iOS one. On a desktop the browser
+    // handles the file in its own UI and leaves the preview alone, so refusing
+    // here would break the "Export CSV" link that worked before the guard.
+    const { ref } = await getPreviewBroker().openForward({
+      viewerUserId: USER,
+      paneId: PANE,
+      nodeId: NODE,
+      port: targetPort,
+    });
+    const response = await proxyFetch(`/pv/${ref}/download`, {
+      headers: { "sec-fetch-dest": "iframe", "sec-fetch-mode": "navigate", "user-agent": DESKTOP_UA },
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-disposition")).toContain("attachment");
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2]));
+  });
+
+  it("refuses a HEAD navigation with no body at all", async () => {
+    // A body on a HEAD response is a protocol error, and a client that does not
+    // strip it reads the leftover bytes as the start of the next response.
+    const { ref } = await getPreviewBroker().openForward({
+      viewerUserId: USER,
+      paneId: PANE,
+      nodeId: NODE,
+      port: targetPort,
+    });
+    const response = await proxyFetch(`/pv/${ref}/download`, {
+      method: "HEAD",
+      headers: { "sec-fetch-dest": "document", "user-agent": IPHONE_UA },
+    });
+    expect(response.status).toBe(502);
+    expect(await response.text()).toBe("");
   });
 
   it("keeps the cookies of a refused navigation in the session jar", async () => {
@@ -434,7 +484,9 @@ describe("pv-http: the same-origin rewrite", () => {
       nodeId: NODE,
       port: targetPort,
     });
-    const response = await proxyFetch(`/pv/${ref}/download-cookie`, { headers: { "sec-fetch-dest": "document" } });
+    const response = await proxyFetch(`/pv/${ref}/download-cookie`, {
+      headers: { "sec-fetch-dest": "document", "user-agent": IPHONE_UA },
+    });
     expect(response.status).toBe(502);
     // The refusal is our own page, so nothing of the upstream headers rides out.
     expect(response.headers.get("set-cookie")).toBeNull();
@@ -443,12 +495,13 @@ describe("pv-http: the same-origin rewrite", () => {
     expect(getPreviewBroker().sessionFor(ref)?.cookieJar.get("csrf")).toBe("csrf=abc");
   });
 
-  it("navigates a document served as XHTML and leaves its markup alone", async () => {
-    // A browser paints application/xhtml+xml as HTML, so the guard that keeps
-    // downloads from stranding an iOS PWA must not read it as one. And the
-    // rewriter stays out of it: the compat shim is HTML markup whose raw < and
-    // && are fatal to a document parsed as strict XML, so the page arrives
-    // byte-for-byte as its author wrote it, under the type it arrived with.
+  it("rewrites a document served as XHTML, for a parser that reads script as markup", async () => {
+    // A browser paints application/xhtml+xml as HTML, so the guard must not read
+    // it as a download, and the rewriter must not skip it either: the page's
+    // root-relative stylesheet and dynamic URLs break without the rewrite. But
+    // this document will be parsed as strict XML, where the raw < and && inside
+    // the shim are fatal rather than JavaScript, so the shim goes in as CDATA and
+    // the page keeps the type it arrived with.
     const { ref } = await getPreviewBroker().openForward({
       viewerUserId: USER,
       paneId: PANE,
@@ -459,11 +512,34 @@ describe("pv-http: the same-origin rewrite", () => {
       headers: { "sec-fetch-dest": "document", accept: "text/html,application/xhtml+xml,application/xml;q=0.9" },
     });
     expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toBe("application/xhtml+xml");
+    expect(response.headers.get("content-type")).toBe("application/xhtml+xml; charset=utf-8");
     const body = await response.text();
     expect(body).not.toContain("This isn't a web page");
-    expect(body).not.toContain("installPreviewCompat");
-    expect(body).toBe('<head><link href="/style.css"></head><h1>XHTML App</h1>');
+    // Rewritten like any other document, and still typed as what it is.
+    expect(body).toContain("XHTML App");
+    expect(body).toContain(`href="http://localhost:3080/pv/${ref}/style.css"`);
+    expect(body).toContain("installPreviewCompat");
+    // The part that keeps it renderable: to an XML parser the shim's content is
+    // markup, so it has to arrive inside a CDATA section, delimited by lines the
+    // JavaScript engine reads as comments.
+    const opened = body.indexOf("<script>") + "<script>".length;
+    const shim = body.slice(opened, body.indexOf("</script>"));
+    expect(shim.startsWith("//<![CDATA[\n")).toBe(true);
+    expect(shim.endsWith("\n//]]>")).toBe(true);
+  });
+
+  it("injects the plain shim into an HTML document, with no CDATA to explain", async () => {
+    // The other half of the pair above: a page the browser parses as HTML must
+    // not be wrapped, because there the markers would be JavaScript, not a comment.
+    const { ref } = await getPreviewBroker().openForward({
+      viewerUserId: USER,
+      paneId: PANE,
+      nodeId: NODE,
+      port: targetPort,
+    });
+    const body = await (await proxyFetch(`/pv/${ref}/page`)).text();
+    expect(body).toContain("installPreviewCompat");
+    expect(body).not.toContain("<![CDATA[");
   });
 
   it("applies snapshotted host/rewrite settings to the real lane", async () => {

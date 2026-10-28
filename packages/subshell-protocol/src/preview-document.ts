@@ -10,10 +10,10 @@
  * differ on purpose: discovery lists a port only when its document answers with
  * a 2xx, since an error page is no site to advertise, while the proxy guards a
  * navigation the person already chose, so a 401 or a crash page is theirs to
- * read and only a response that names a non-document type is refused with a
- * page they can close. And the rewriter stays on `text/html` alone, because the
- * shim it injects is HTML markup that a document parsed as strict XML would
- * reject outright.
+ * read, and only a stranding client's non-document navigation is refused with a
+ * page they can close. The rewriter covers the whole set, but it has to ask
+ * which parser the document will meet: the shim it injects is inline script, and
+ * inline script is CDATA to an XML parser.
  *
  * XHTML is in the set because a browser renders `application/xhtml+xml` as
  * HTML: older Java app servers and XML pipelines still serve documents that
@@ -42,12 +42,57 @@ export function isPreviewDocumentContentType(contentType: string | null | undefi
 }
 
 /**
- * Does this request's `Accept` list ask for a document? Loose on purpose, the
- * way the caller already is: a browser sends a weighted list, and this only
- * decides whether the response is a navigation worth guarding.
+ * Does this request's `Accept` list ask for a document? Each comma-separated
+ * entry is read as a whole media type, parameters and all, so a wildcard offer
+ * is not a request for HTML, and neither is a type that merely begins with one.
+ * A browser navigating sends `text/html` explicitly, which is what this is for.
  */
 export function acceptsPreviewDocument(accept: string | null | undefined): boolean {
-  return typeof accept === "string" && PREVIEW_DOCUMENT_TYPES.some((type) => accept.includes(type));
+  if (typeof accept !== "string") return false;
+  return accept.split(",").some((entry) => isPreviewDocumentContentType(entry.split(";")[0]?.trim()));
+}
+
+/** XHTML, the one document in the set a browser parses as strict XML. */
+const XML_DOCUMENT_TYPE = /^application\/xhtml\+xml(?:\s*;|\s*$)/i;
+
+/**
+ * Will this document be parsed as XML rather than HTML? It decides how the
+ * rewriter must inject its shim: inline script content is CDATA to an XML
+ * parser, where a raw `<` or `&` is a fatal error rather than JavaScript.
+ */
+export function isPreviewXmlDocumentContentType(contentType: string | null | undefined): boolean {
+  return typeof contentType === "string" && XML_DOCUMENT_TYPE.test(contentType);
+}
+
+/** The message a refusal page posts to the dashboard that embedded the frame. */
+export const PREVIEW_REFUSAL_MESSAGE = "subshell:preview-refused";
+
+/** The two things the refusal page can say it refused, and nothing else. */
+export const PREVIEW_REFUSAL_REASONS = ["download", "not-a-page"] as const;
+
+/** A refusal reason as the wire names it. */
+export type PreviewRefusalReason = (typeof PREVIEW_REFUSAL_REASONS)[number];
+
+/** Is this a reason we know how to explain? Payloads from a frame are data. */
+export function isPreviewRefusalReason(value: unknown): value is PreviewRefusalReason {
+  return typeof value === "string" && (PREVIEW_REFUSAL_REASONS as readonly string[]).includes(value);
+}
+
+/** The clients whose presentation a handed-off file can hijack with no way back. */
+const STRANDING_CLIENT = /iPhone|iPod|iPad/i;
+
+/**
+ * Is this navigation from a client that can be stranded by a file? On iOS a
+ * download or an unknown type handed to the frame can be taken up by the system
+ * viewer, and in a home-screen PWA there is no back button to press. A desktop
+ * browser keeps the download in its own UI and leaves the page where it was, so
+ * the same response is left alone there.
+ *
+ * The gap worth knowing: an iPad offering its desktop UA says `Macintosh`, and
+ * nothing in the request tells the two apart, so it downloads like a desktop.
+ */
+export function isPreviewStrandingClient(userAgent: string | null | undefined): boolean {
+  return typeof userAgent === "string" && STRANDING_CLIENT.test(userAgent);
 }
 
 /** `attachment`, alone or with parameters: the server is handing over a file. */

@@ -213,9 +213,31 @@ remove the embedding boundary. Scripts and forms work in an opaque origin;
 preview-specific CORS allows modules and fetches under the capability URL.
 Opaque `Origin: null` is admitted only to preview HTTP preflight and preview
 WebSocket handshakes. Dashboard API and WebSocket gates still reject it.
-Document navigations that return non-HTML or attachments show an inline error
-instead of handing the PWA to a download viewer. Subresource and fetch responses
-retain their content types.
+Document navigations are judged by what the response says it is. A navigation
+whose response names a non-document type, or asks for a download, is answered with
+an inline error page rather than handed to a system viewer, because on iOS that
+hand-off takes the whole presentation with no way back. A desktop browser downloads
+in its own UI and leaves the preview alone, so the same bytes go through there: the
+refusal is scoped to the clients that can be stranded. A page that declares no type
+at all is left to the browser, which renders it as text. Subresource and fetch
+responses retain their content types either way, and the cookies a refused response
+carried still enter the session jar, so the app is not quietly signed out by the
+refusal.
+
+The refusal page also announces itself to the dashboard, which shows a toast so the
+person learns what happened where they were looking. The page runs in the same
+opaque-origin sandbox, so its `event.origin` reads `null` and proves nothing: the
+panel believes a message only when it comes from the window of the frame that panel
+created and names that session's own ref, and the words shown are fixed copy chosen
+from one of two known values. This is the third place an opaque `Origin: null` is
+admitted, beside the two named above, and for the same reason: the capability URL
+already scopes it.
+
+Discovery and the guard ask the same question from one place, and the rewriter
+answers it slightly differently: a document served as `application/xhtml+xml` is
+listed, navigated and rewritten, but its injected script goes in as a CDATA section,
+because that document is parsed as strict XML where a raw `<` is a fatal error
+rather than JavaScript.
 
 Responses use `no-store` and `no-referrer`; request logging excludes `/pv/` paths.
 

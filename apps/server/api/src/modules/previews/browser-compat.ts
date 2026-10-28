@@ -13,7 +13,10 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
     const mapped = map(String(value));
     // Chromium can reuse an active stylesheet inside the opaque-origin frame,
     // even with no-store. Turbopack already uses ts for this on Safari/Firefox.
-    if (name !== "href" || !(element instanceof HTMLLinkElement) || element.rel !== "stylesheet"
+    // rel is compared as the app wrote it, so a stylesheet declared "Stylesheet"
+    // gets the same treatment; and when an app sets href before rel, the observer
+    // below re-runs this for the finished element.
+    if (name !== "href" || !(element instanceof HTMLLinkElement) || String(element.rel).toLowerCase() !== "stylesheet"
       || typeof globalThis.TURBOPACK_CHUNK_BASE_PATH !== "string"
       || !mapped.startsWith(globalThis.TURBOPACK_CHUNK_BASE_PATH)) return mapped;
     // The base is a page-owned global, so an app that blanks it makes the
@@ -97,7 +100,10 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
         const old = element.getAttribute(name);
         if (old === null)
           continue;
-        const next = name === "srcset" ? mapSrcset(old, map) : map(old);
+        // href goes through mapAttribute, not just map, so a link built as
+        // createElement + href + rel (the order most code writes it in) still gets
+        // the cache-busting revision: by the time it is in the document, rel is set.
+        const next = name === "srcset" ? mapSrcset(old, map) : name === "href" ? mapAttribute(element, name, old) : map(old);
         if (old !== next)
           attribute.call(element, name, next);
       }
@@ -113,9 +119,21 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
   }).observe(document, { childList: true, subtree: true });
 }`;
 
-export function previewCompatScript(target: string, proxy: string): string {
-  return `(${browserCompatSource})(${JSON.stringify(target)},${JSON.stringify(proxy)},${previewUrl.toString()},${previewSrcset.toString()});`.replace(
-    /<\/script/gi,
-    "<\\/script",
-  );
+export function previewCompatScript(target: string, proxy: string, xml = false): string {
+  const code =
+    `(${browserCompatSource})(${JSON.stringify(target)},${JSON.stringify(proxy)},${previewUrl.toString()},${previewSrcset.toString()});`.replace(
+      /<\/script/gi,
+      "<\\/script",
+    );
+  // A document the browser parses as strict XML reads inline script as markup,
+  // so the raw `<` and `&&` the shim contains are a fatal error there rather
+  // than JavaScript. Wrapping in CDATA is what XHTML authors do for exactly this
+  // reason, and the `//` on each marker keeps it an ordinary comment for the HTML
+  // parsers that never see the wrapper.
+  if (!xml) return code;
+  // The one sequence that would end the section early, split the way CDATA
+  // prescribes. Nothing in the shim contains it today; this keeps a future edit
+  // from quietly producing a page the browser refuses to parse.
+  const body = code.includes("]]>") ? code.replace(/\]\]>/g, "]]]]><![CDATA[>") : code;
+  return `//<![CDATA[\n${body}\n//]]>`;
 }

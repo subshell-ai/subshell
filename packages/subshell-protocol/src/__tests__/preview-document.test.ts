@@ -4,6 +4,9 @@ import {
   isPreviewAttachmentDisposition,
   isPreviewDocumentContentType,
   isPreviewPaintableNavigation,
+  isPreviewRefusalReason,
+  isPreviewStrandingClient,
+  isPreviewXmlDocumentContentType,
   PREVIEW_DOCUMENT_ACCEPT,
 } from "../preview-document.js";
 
@@ -35,6 +38,10 @@ it("offers the same list it recognizes", () => {
   expect(PREVIEW_DOCUMENT_ACCEPT).toBe("text/html,application/xhtml+xml");
   expect(acceptsPreviewDocument("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")).toBe(true);
   expect(acceptsPreviewDocument("application/json")).toBe(false);
+  // A wildcard offer is not a request for a page: it is what a script or a
+  // health check sends, and treating it as a navigation would refuse it.
+  expect(acceptsPreviewDocument("*/*")).toBe(false);
+  expect(acceptsPreviewDocument("text/html-fragment")).toBe(false);
   expect(acceptsPreviewDocument(null)).toBe(false);
 });
 
@@ -45,6 +52,41 @@ it("reads a requested download out of the disposition", () => {
   expect(isPreviewAttachmentDisposition("attachmentish")).toBe(false);
   expect(isPreviewAttachmentDisposition('inline; filename="a.html"')).toBe(false);
   expect(isPreviewAttachmentDisposition(null)).toBe(false);
+});
+
+it("splits the documents by which parser they will meet", () => {
+  // The rewriter needs this distinction: inline script is inert text to an HTML
+  // parser and markup to an XML one, and getting it wrong is a page the browser
+  // refuses to render rather than a cosmetic difference.
+  expect(isPreviewXmlDocumentContentType("application/xhtml+xml")).toBe(true);
+  expect(isPreviewXmlDocumentContentType("application/xhtml+xml; charset=utf-8")).toBe(true);
+  expect(isPreviewXmlDocumentContentType("text/html")).toBe(false);
+  expect(isPreviewXmlDocumentContentType("text/html; charset=utf-8")).toBe(false);
+  expect(isPreviewXmlDocumentContentType(null)).toBe(false);
+});
+
+it("refuses a navigation only for the clients that cannot get back", () => {
+  // The stranding the guard exists for is iOS handing the frame's file to a
+  // system viewer. A desktop browser downloads in its own UI, so refusing there
+  // would break an "Export CSV" link that has always worked inside a preview.
+  expect(isPreviewStrandingClient("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15")).toBe(
+    true,
+  );
+  expect(isPreviewStrandingClient("Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15")).toBe(true);
+  expect(isPreviewStrandingClient("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")).toBe(false);
+  expect(isPreviewStrandingClient("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140.0.0.0")).toBe(false);
+  expect(isPreviewStrandingClient(null)).toBe(false);
+});
+
+it("reads only its own reason words out of a refusal message", () => {
+  // The frame that posts this is sandboxed app content, so the client accepts a
+  // known word and renders fixed copy rather than anything it was given.
+  expect(isPreviewRefusalReason("download")).toBe(true);
+  expect(isPreviewRefusalReason("not-a-page")).toBe(true);
+  expect(isPreviewRefusalReason("DELETE_SESSION")).toBe(false);
+  expect(isPreviewRefusalReason("")).toBe(false);
+  expect(isPreviewRefusalReason(undefined)).toBe(false);
+  expect(isPreviewRefusalReason(1)).toBe(false);
 });
 
 it("paints a chosen navigation unless the response names something else", () => {

@@ -121,6 +121,15 @@ try {
     writeFileSync(cssPath, originalCss);
     await frame.locator("#invalid-stylesheet-fixture").evaluate((element) => element.remove());
   }
+  // The hot-reload leg above replaces a stylesheet chunk while the page is
+  // reading it, so an in-flight request for the removed chunk is the feature
+  // working, not a defect. Each leg judges its own bytes: everything collected
+  // so far is checked, then cleared, so a later assertion cannot be reddened by
+  // an earlier phase's expected transient.
+  expect(failedAssets, `assets that failed before the Vite leg: ${failedAssets.join(", ")}`).toEqual([]);
+  expect(errors, `page errors before the Vite leg: ${errors.join(" | ")}`).toEqual([]);
+  failedAssets.length = 0;
+  errors.length = 0;
   const viteRoot = mkdtempSync("/tmp/preview-vite-");
   cleanup.unshift(() => rmSync(viteRoot, { recursive: true, force: true }));
   writeFileSync(
@@ -216,6 +225,12 @@ try {
     storageState: await api.storageState(),
     viewport: { width: 390, height: 844 },
     isMobile: true,
+    // The refusal this leg checks is aimed at the clients that can be stranded,
+    // and the proxy reads the request's User-Agent to know that. Playwright's
+    // isMobile gives the viewport and touch, not an iOS UA, so say so explicitly
+    // or the phone would download like a desktop and the check would pass vacuously.
+    userAgent:
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
     hasTouch: true,
     colorScheme: "dark",
   });
@@ -253,6 +268,9 @@ try {
   await phonePage.screenshot({ path: "/tmp/subshell-preview-titles-mobile.png" });
   await phoneFrame.getByRole("link", { name: "Download" }).tap();
   await expect(phoneFrame.getByRole("heading", { name: "This isn't a web page" })).toBeVisible();
+  // The refusal inside the frame is easy to miss when the person was aiming at
+  // the toolbar, so the same event also lands in the dashboard's own chrome.
+  await expect(phonePage.getByText("Download kept out of the preview")).toBeVisible();
   await expect(phonePage.getByRole("button", { name: "More view actions" })).toBeVisible();
   console.log("HTML-only discovery, page titles, phone truncation, and download navigation verified");
   await phonePage.getByRole("button", { name: "Website", exact: true }).tap();

@@ -1,5 +1,6 @@
 import { pipeline, Readable } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
+import { isPreviewDocumentContentType, isPreviewXmlDocumentContentType } from "@internal/subshell-protocol";
 import { init, parse } from "es-module-lexer";
 import valueParser from "postcss-value-parser";
 import { HttpError } from "@/shared/errors.js";
@@ -141,13 +142,10 @@ export async function transformPreviewResponse(
   path: string,
 ): Promise<Response> {
   const type = response.headers.get("content-type") ?? "";
-  // Deliberately NARROWER than isPreviewDocumentContentType, which says what a
-  // browser will show: this one says what this function may rewrite. The shim
-  // it injects is HTML markup, an inline <script> holding raw < and &&, and a
-  // document served as application/xhtml+xml is parsed as strict XML where that
-  // is a fatal error rather than a comment. Such a page still previews, it just
-  // arrives as its author wrote it.
-  const html = /^text\/html\b/i.test(type);
+  const html = isPreviewDocumentContentType(type);
+  // Which parser the page will meet decides how the shim goes in: inline script
+  // is markup to an XML parser, so XHTML gets a CDATA wrapper.
+  const xml = isPreviewXmlDocumentContentType(type);
   const css = /^text\/css\b/i.test(type);
   const js = /^(?:text|application)\/(?:javascript|ecmascript)\b/i.test(type);
   if (!response.body || (!html && !css && !js)) return response;
@@ -216,7 +214,7 @@ export async function transformPreviewResponse(
     if (css) output = rewriteCss(source, map);
     else if (js) output = await rewriteModule(source, map, base);
     else {
-      const script = `<script>${previewCompatScript(target, proxy)}</script>`;
+      const script = `<script>${previewCompatScript(target, proxy, xml)}</script>`;
       let injected = false;
       let nextChunkBaseInjected = false;
       let baseSeen = false;
@@ -249,7 +247,12 @@ export async function transformPreviewResponse(
             // Turbopack matches registered script URLs against its chunk base.
             // Rewriting src alone leaves its runtime waiting for unproxied keys.
             const src = el.tagName === "script" ? el.getAttribute("src") : null;
-            if (src && !nextChunkBaseInjected) {
+            // Asking the raw attribute first, because rewriting is not free: map()
+            // charges the expansion budget, and testing every script's URL to find
+            // out it was never a Turbopack chunk would halve the document a page can
+            // afford. Mapping only ever prepends the proxy path, so a mapped URL
+            // cannot contain the marker unless the raw one does.
+            if (src && !nextChunkBaseInjected && src.includes("/_next/static/")) {
               const mapped = map(src);
               const nextStatic = mapped.indexOf("/_next/static/");
               if (mapped.startsWith(proxy) && nextStatic >= 0) {
@@ -333,7 +336,11 @@ export async function transformPreviewResponse(
       "accept-ranges",
     ])
       headers.delete(name);
-    headers.set("content-type", `${html ? "text/html" : css ? "text/css" : "text/javascript"}; charset=utf-8`);
+    // A rewritten document keeps the type it arrived with: an XHTML app must not
+    // leave the proxy announcing plain HTML, which would be a claim about what the
+    // page IS rather than about what we did to its URLs.
+    const documentType = type.split(";", 1)[0].trim().toLowerCase();
+    headers.set("content-type", `${html ? documentType : css ? "text/css" : "text/javascript"}; charset=utf-8`);
     return new Response(output, { status: response.status, statusText: response.statusText, headers });
   } finally {
     bufferedBytes -= retainedBytes;

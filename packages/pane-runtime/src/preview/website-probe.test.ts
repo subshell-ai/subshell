@@ -110,6 +110,42 @@ it("reaches an IPv6-only website when the IPv4 dial stalls", async () => {
   }
 });
 
+it("asks both families before dropping a port, since two sockets share the number", async () => {
+  // A tool bound to 127.0.0.1 while the dev server holds ::1 is a real
+  // arrangement. The first family's "not a website" describes its own socket, so
+  // discovery has to ask the second before it leaves the port out of the picker.
+  const real = globalThis.fetch;
+  const asked: string[] = [];
+  globalThis.fetch = (async (input: string | URL) => {
+    const url = String(input);
+    asked.push(url);
+    return url.includes("127.0.0.1")
+      ? Response.json({ ok: true })
+      : new Response("<title>V6 site</title>", { headers: { "content-type": "text/html" } });
+  }) as typeof fetch;
+  try {
+    expect(await probeWebsite(4198, AbortSignal.timeout(3_000))).toEqual({ title: "V6 site" });
+    expect(asked).toEqual(["http://127.0.0.1:4198/", "http://[::1]:4198/"]);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+it("drops a port only after both families decline", async () => {
+  const real = globalThis.fetch;
+  let asks = 0;
+  globalThis.fetch = (async (_input: string | URL) => {
+    asks++;
+    return Response.json({ ok: true });
+  }) as typeof fetch;
+  try {
+    expect(await probeWebsite(4197, AbortSignal.timeout(3_000))).toBeNull();
+    expect(asks).toBe(2);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
 it("discovers an IPv6-only website using the forwarding loopback fallback", async () => {
   const server = Bun.serve({
     hostname: "::1",
