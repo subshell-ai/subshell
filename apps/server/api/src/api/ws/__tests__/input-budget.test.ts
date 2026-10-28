@@ -292,7 +292,12 @@ it("still ends the arrival when the shared queue cannot be relieved", () => {
   try {
     let asked = 0;
     const viewer = socket();
-    expect(takeInputBudget(viewer.ws, "x", () => (asked++, false))).toBeNull();
+    expect(
+      takeInputBudget(viewer.ws, "x", () => {
+        asked++;
+        return false;
+      }),
+    ).toBeNull();
     expect(viewer.closed).toEqual([1013]);
     expect(asked).toBe(1);
   } finally {
@@ -347,7 +352,12 @@ it("forced disconnect drops held input for a shared viewer with no negotiated se
   expect(hasHeldInput(held.nodeId, held.subshellId, held.sessionId)).toBe(true);
   expect(closeViewersForSubshell(ws.data.subshellId, 1012, "stream recovery")).toBe(1);
   expect(hasHeldInput(held.nodeId, held.subshellId, held.sessionId)).toBe(false);
+  // Holding already kicked a drain, which is what put the first attempt on the
+  // wire, so the count to compare against is taken here rather than from zero.
+  // What this pins is that recovery cleared the backlog: a node coming back
+  // now has nothing left to re-fire into a socket that is gone.
+  const attempts = dispatched;
   refireInputHoldsForNode(held.nodeId);
   await settle();
-  expect(dispatched).toBe(0);
+  expect(dispatched).toBe(attempts);
 });
