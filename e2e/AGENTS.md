@@ -212,6 +212,11 @@ capture; the photographed controls and their content remain unchanged. Keep
 PNG dimensions at native resolution.
 The sites supply the same single border around each image, without extra padding.
 
+`bun e2e/capture-preview-intro.ts` captures the loaded marketing site inside a
+real, maximized web preview for the documentation overview. Start the website on
+port 3401 first. The script uses an isolated test stack and waits for the site's
+heading, styles, and image before capturing; it cleans up its subshell and stack.
+
 Two more capture scripts feed the same folder, and both avoid the live server:
 
 `bun e2e/capture-helper-panel.ts` photographs the macOS display helper's consent

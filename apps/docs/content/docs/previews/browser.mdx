@@ -7,10 +7,9 @@ Browser watching shows live frames from a browser running in your subshell.
 
 ## Before you start
 
-Complete [Preview prerequisites and setup](/previews/setup) and turn on
-**Allow web previews** on the Linux node. Browser discovery requires Linux and
-a Chrome or Chromium browser running for that subshell with the Chrome DevTools
-Protocol (CDP) remote-debugging interface enabled on loopback.
+Complete [Preview prerequisites and setup](/previews/setup) for web previews
+on a Linux node. You'll also need Chrome or Chromium with its Chrome DevTools
+Protocol (CDP) remote-debugging interface enabled.
 
 Enable remote debugging using your browser's supported configuration. Chrome
 requires a separate user data directory when using `--remote-debugging-port`;
@@ -38,8 +37,8 @@ viewer reports when it's waiting for frames or has no recent frames.
 ## Screencast limits
 
 This is a read-only screencast at up to five frames per second. It doesn't
-send keyboard or pointer input to the browser. Use [Linux virtual displays](/previews/linux) when you need to interact
-with the browser on that node, including its storage and login flows.
+send keyboard or pointer input to the browser. Use
+[Linux virtual displays](/previews/linux) when you need to control it.
 
 See [Arrange and refresh views](/previews#arrange-and-refresh-views) for workspace
 controls. The server can read browser frames; review

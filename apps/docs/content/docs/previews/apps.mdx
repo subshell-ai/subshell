@@ -7,7 +7,9 @@ Open a website running on your node beside its subshell.
 
 ## Before you start
 
-Complete [Preview prerequisites and setup](/previews/setup), enable **Allow web previews** on the node, and make sure you have edit access to the subshell. Automatic port discovery requires Linux; use a saved service for a web server on macOS.
+Follow [Preview prerequisites and setup](/previews/setup) for the node setting
+and access you need. Automatic port discovery requires Linux; use a saved
+service for a web server on macOS.
 
 ## Check a website
 
@@ -37,7 +39,7 @@ See [Arrange and refresh views](/previews#arrange-and-refresh-views) for workspa
 ## Add a service started elsewhere
 
 Use a saved service when your web server runs outside the subshell or its port
-isn't discovered automatically. You don't need a virtual display.
+isn't discovered automatically.
 
 1. Use the Web previews & screens icon in the subshell header, then choose **Add service** under **Saved services**.
 2. Enter the service's **Port** and choose **HTTP** or **HTTPS**. You can add a name
@@ -52,15 +54,13 @@ isn't discovered automatically. You don't need a virtual display.
   <figcaption>Save a connection to a web service without creating a virtual display.</figcaption>
 </figure>
 
-This also works for web services running on a macOS node, where automatic port
-discovery isn't available. The subshell must be running and its node must have
-**Allow web previews** enabled. HTTPS requires a certificate the node trusts and whose
-name matches the host; Subshell doesn't bypass certificate checks.
+The subshell must be running. HTTPS requires a certificate the node trusts and
+whose name matches the host; Subshell doesn't bypass certificate checks.
 
 Saved connections stay with the subshell across reloads and closed tabs. Use the
 remove button beside a saved row to delete the connection and disconnect its open
-views. Removing a connection doesn't stop the service. You need edit access to
-add, open, or remove connections; people with view access can see the list.
+views. Removing a connection doesn't stop the service. People with view access
+can see the list but can't open or change its connections.
 
 <figure className="docs-screenshot">
   <ImageZoom src="/screenshots/preview-website-mobile.png" alt="Subshell's marketing website with its styles and images loaded in a maximized mobile web preview." width="430" height="932" loading="lazy" decoding="async" unoptimized />
@@ -74,14 +74,13 @@ add, open, or remove connections; people with view access can see the list.
   <figcaption>Personal settings remembered for this app on this node.</figcaption>
 </figure>
 
-You need edit access to configure a preview. In the subshell header's **Open web
-preview or screen** dialog, select **Configure preview before opening**, then
-choose a discovered port or saved service. For an app that's already open, use
+In the subshell header's **Open web preview or screen** dialog, select
+**Configure preview before opening**, then choose a discovered port or saved service. For an app that's already open, use
 **More view actions** → **Configure preview** in its toolbar.
 
 | Setting | Default | What it changes |
 | --- | --- | --- |
-| **Rewrite app URLs** | On | Routes supported HTML, CSS, module imports, and common app requests through the private preview path. |
+| **Rewrite app URLs** | On | Routes supported app URLs through the private preview path. |
 | **Pass the preview host** | Off | Sends your browser's preview host to the app instead of the target host. Use it only when the app expects that host. |
 | **Rewrite redirects** | On | Keeps redirects to this app under the preview path. |
 
@@ -107,8 +106,8 @@ CSS URLs, and module imports. It also adds a browser compatibility script for
 common requests such as fetch, XMLHttpRequest, WebSocket, and EventSource.
 This helps apps that assume they're hosted at `/`, but it doesn't make every
 app compatible. A target's strict Content Security Policy can block the
-compatibility script or other resources. Use a virtual display when the app
-needs a normal browser context; preview settings don't relax its sandbox.
+compatibility script or other resources. Preview settings don't relax the
+sandbox.
 
 If the app rejects the preview's host or origin, check the app's allowed-host
 and origin settings. Subshell doesn't bypass the app's access checks.
@@ -120,7 +119,7 @@ and origin settings. Subshell doesn't bypass the app's access checks.
 > access or end the subshell to revoke existing access. Turning off previews on
 > the node doesn't immediately revoke existing connections.
 
-The server can read forwarded bytes and browser frames. See
+The server can read forwarded app traffic. See
 [Preview security](/concepts/security#preview-security) for the trust boundaries
 and [Architecture](/concepts/architecture#web-previews-and-virtual-displays) for the data path.
 

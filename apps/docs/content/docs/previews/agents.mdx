@@ -9,20 +9,22 @@ Agents can use MCP to prepare a preview in a helper subshell.
 
 An agent can use MCP to start a helper on another enrolled node owned by the
 same account. Complete [Preview prerequisites and setup](/previews/setup) before
-asking an agent to launch one. The example below uses a Linux node. A node set
-up through [macOS virtual displays](/previews/macos) can use `betterdisplay` instead; MCP can check its requirements but cannot
-enable the helper or grant macOS permissions. Shared nodes and the server's built-in node aren't available
-through the subshell token's node discovery tools. The tools don't grant access
-to another user's shared subshell.
+asking an agent to launch one. The example below assumes you've completed
+[Linux virtual displays](/previews/linux). A Mac configured through
+[macOS virtual displays](/previews/macos) can use `betterdisplay` instead; MCP
+can check its requirements but can't enable its helper or grant macOS permissions.
+
+Subshell tokens can discover only enrolled nodes owned by the same account.
+Shared nodes and the server's built-in node aren't available through these tools,
+and the tools don't grant access to another user's shared subshell.
 
 ## Launch and inspect a helper
 
 1. Call `list_nodes` to choose an online node with `canLaunch: true`, virtual displays
-   enabled, and an installed, working terminal harness. Call
-   `get_node` with its ID to check the default provider, or include `provider`
-   to check another enabled choice. Confirm `virtualDisplay.enabled` is true
-   and its status is `ready`. If anything is
-   missing, follow [Linux virtual displays](/previews/linux) on that node.
+   enabled, and an installed, working terminal harness. Call `get_node` with
+   its ID to check the default display provider, or include `provider` to check
+   another enabled choice. Confirm `virtualDisplay.enabled` is true and its
+   status is `ready`.
 2. Call `create_subshell` with the node ID and a display:
 
    ```json
@@ -41,7 +43,7 @@ to another user's shared subshell.
 
 4. Call `list_subshell_views` with `subshell_id` to discover its views. In the dashboard,
    select the helper's Web previews & screens action and open its app or virtual display.
-   Each opens in its own workspace tab. `open_subshell_view` can create a private
+   `open_subshell_view` can create a private
    connection path for a client, but it doesn't open a dashboard tab or return
    a screenshot.
 5. Collect the results, then call `delete_subshell` to remove the temporary

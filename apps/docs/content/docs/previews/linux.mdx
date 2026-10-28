@@ -7,9 +7,9 @@ A Linux virtual display gives graphical programs in a subshell their own screen 
 
 ## Before you start
 
-Complete [Preview prerequisites and setup](/previews/setup) and confirm that
-you have edit access to the subshell to open and control its screen. You need permission to install packages on the node and ownership of its
-settings; an administrator configures the server's built-in node.
+You'll need permission to install packages on the Linux node. Follow
+[Preview prerequisites and setup](/previews/setup) for node ownership and view
+access requirements.
 
 ## Install and configure
 
@@ -20,12 +20,9 @@ when you're viewing it from another device.
    and **xauth**. Package names vary by distribution; the node needs the
    `Xvfb`, `x11vnc`, and `xauth` commands available on its execution account's
    `PATH`. Install the browser or GUI app you want to use separately.
-2. In the server dashboard, open **Settings** → **Nodes**, select that Linux
-   machine, and open **Overview**. Turn on **Allow virtual displays**, enable
-   **Allow Xvfb + VNC**, and select it as the **Default display provider** if
-   you want new subshells to use it automatically.
-3. Choose **Recheck** if requirements still show as missing. Once they're ready,
-   [launch a subshell with a virtual display](#launch-and-open-a-display).
+2. Follow [Enable node features](/previews/setup#enable-node-features) to allow
+   virtual displays with **Xvfb + VNC** on this node. Once its requirements are
+   ready, launch a subshell as described below.
 
 > [!WARNING]
 > The display runs with the subshell's execution account permissions. It isn't a
@@ -38,9 +35,7 @@ when you're viewing it from another device.
 
 1. [Launch a subshell](/guides/launch) on that node with **Virtual display** enabled. Choose
    **Xvfb + VNC** under **Display provider**, or keep **Node default** if it
-   selects that provider. The form checks requirements on the selected node,
-   which may be different from the device displaying the dashboard. Resolve
-   missing requirements and choose **Recheck** before launching.
+   selects that provider.
 2. Launch your browser or GUI app from that subshell so it inherits the display
    settings.
 3. Use the window icon in the subshell header, then choose **Virtual display**.
@@ -51,11 +46,6 @@ when you're viewing it from another device.
   <figcaption>The virtual display shows the browser running on the node. Keyboard and pointer input require edit access.</figcaption>
 </figure>
 
-Each subshell saves its selected provider and display size for restarts.
-See [Preview prerequisites and setup](/previews/setup#enable-node-features)
-for the effects of changing the default or disabling a provider.
-
-You can [save the display choice in a preset](/presets/launch-defaults#save-a-virtual-display-choice).
-Review it when changing nodes: if the new node can't provide the display, the
-launch form turns the option off and explains why. A pending or failed
-requirements check blocks launch until it can be checked or you turn the option off.
+See [Preview prerequisites and setup](/previews/setup#enable-node-features) to
+save the display choice in a preset or understand how provider changes affect
+restarts.

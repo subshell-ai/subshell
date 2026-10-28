@@ -5,24 +5,19 @@ description: "Choose a web app preview, browser watch, or virtual display and ar
 
 Web previews & screens lets you check a website or graphical app alongside the agent building it.
 
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/preview-intro.png" alt="Subshell’s website loaded inside a maximized web preview, with the preview tab and workspace sidebar visible." width="2400" height="1700" loading="eager" decoding="async" unoptimized />
+  <figcaption>A website running on the node, opened in a web preview. You can navigate and interact with it inside your Subshell workspace.</figcaption>
+</figure>
+
 ## Prerequisites
 
 <span id="enable-web-previews-and-displays-on-the-machine" />
 
-Set up the machine that runs your subshell. You can view its previews from a
-browser on another computer, phone, or tablet, or from Subshell Client. The
-viewing device doesn't need the node daemon or display software of its own.
-
-- **A connected node:** follow [Desktop node setup](/nodes/desktop) for a machine
-  with a desktop environment, or [Enroll a node with the CLI](/nodes/enroll)
-  for a headless machine. You can also use the server's built-in node.
-- **Node owner opt-in:** follow [Preview prerequisites and setup](/previews/setup)
-  to enable web previews, virtual displays, or both. An administrator manages
-  the server's built-in node.
-- **Display dependencies:** follow [Linux virtual displays](/previews/linux) or
-  [macOS virtual displays](/previews/macos) on the node that runs the subshell.
-  Web app previews don't require a virtual display.
-
+Follow [Preview prerequisites and setup](/previews/setup) to connect a node and
+enable the views you need. For a virtual screen, complete the
+[Linux](/previews/linux) or [macOS](/previews/macos) setup on that node too.
+The device you view from only needs a browser or Subshell Client.
 
 ## Choose a view
 
@@ -42,21 +37,12 @@ viewing device doesn't need the node daemon or display software of its own.
 | [Linux virtual displays](/previews/linux) | Give a subshell its own screen and control graphical apps there. |
 | [macOS virtual displays](/previews/macos) | Control apps on a virtual screen in the Mac's shared login session. |
 
-Automatic port discovery and browser watching require Linux. For a web service
-running on macOS, [add a saved service](/previews/apps#add-a-service-started-elsewhere).
-For a Mac viewing a Linux node, install display dependencies on the Linux node.
-
 ## Arrange and refresh views
 
 Each app, browser watch, or display opens in its own workspace tab. On desktop,
 a new preview splits to the right of its terminal. Reopening the same view
 focuses its existing tab. Each open preview also appears beneath its subshell
 in the sidebar.
-
-<figure className="docs-screenshot">
-  <ImageZoom src="/screenshots/preview-workspace.png" alt="Codex's completed filter fix and passing tests beside a website preview showing the selected Brand category." width="1560" height="1280" loading="lazy" decoding="async" unoptimized />
-  <figcaption>Check the actual interaction beside the agent's result. The Brand filter now shows one matching project.</figcaption>
-</figure>
 
 Drag preview tabs to keep several apps or screens visible together. Closing a
 preview leaves its subshell and other previews running. Hidden previews release

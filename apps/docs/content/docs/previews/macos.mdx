@@ -7,19 +7,18 @@ A macOS virtual display gives your subshell a screen within the Mac's signed-in 
 
 <span id="macos-display-helper" />
 
-Subshell Client and Subshell Server both include **Subshell Display Helper**.
-The helper stays disabled until you enable it locally and grant macOS permissions.
-
 ## Before you start
 
 Follow [Preview prerequisites and setup](/previews/setup) to connect the node
-and install [Subshell Client](/install/desktop-client) or
-[Subshell Server](/install/desktop-server) on a Mac running macOS 14 or later.
-Use the Mac that runs the selected node, with your macOS account signed in.
-You need edit access to the subshell to open and control its screen.
+and check access requirements. On a Mac running macOS 14 or later, install
+[Subshell Client](/install/desktop-client) or [Subshell Server](/install/desktop-server);
+both include **Subshell Display Helper**. Use the Mac that runs the selected
+node, with your macOS account signed in.
+
 Keep another screen as the main display; the helper refuses a virtual screen
 that is main or mirrored. A Mac whose only screen is the new virtual display
 isn't supported by this provider.
+
 Install [BetterDisplay from its official download page](https://betterdisplay.pro/),
 choosing a release for your Mac's operating system, and keep it running. You need
 CLI access enabled and a license or trial that supports virtual screens. Subshell
@@ -49,8 +48,9 @@ turn on CLI access if it's off. See
    Helper settings**. You can also open these settings from the helper's own
    menu bar icon. Opening settings doesn't enable the helper.
 2. Read the shared-desktop warning, then choose **Enable helper**. Capture and
-   input require your consent and both macOS permissions. If you want the helper to come back when you sign in, choose **Start at
-   sign-in** in the panel's **Launch at sign-in** section, and choose **Open
+   input require your consent and both macOS permissions. If you want the helper
+   to come back when you sign in, choose **Start at sign-in** in the panel's
+   **Launch at sign-in** section, and choose **Open
    login items…** if that row says macOS is still waiting for your approval.
 3. Choose **Allow** on the **Screen recording** row and **Allow** on the
    **Accessibility** row. In macOS System Settings, grant both permissions to
@@ -61,15 +61,12 @@ turn on CLI access if it's off. See
    helper** from the helper's display icon in the menu bar and reopen its settings
    through either desktop app. Your consent stays, so you don't have to enable it
    again.
-4. In the server dashboard, open **Settings** → **Nodes**, select that Mac,
-   and open **Overview**. Enable **Allow virtual displays** and **Allow
-   BetterDisplay**, then choose it as the default if desired. Choose **Recheck**
-   if requirements still show as missing.
+4. Follow [Enable node features](/previews/setup#enable-node-features) to allow
+   virtual displays with **BetterDisplay** on this node.
 5. [Launch a subshell](/guides/launch) on that node with **Virtual display** enabled and
    **BetterDisplay** selected under **Display provider**, or **Node default**
-   if it selects BetterDisplay. Resolve missing requirements and use **Recheck**
-   before launching. Use the Web previews & screens icon in the subshell header,
-   then choose **Virtual display** to open its screen.
+   if it selects BetterDisplay. Use the Web previews & screens icon in the
+   subshell header, then choose **Virtual display** to open its screen.
 
 <figure className="docs-screenshot">
   <ImageZoom src="/screenshots/assistant-virtual-displays.png" alt="The assistant window's Virtual Displays screen, with its three setup steps and the Open Display Helper settings button in the footer." width="2080" height="1520" loading="lazy" decoding="async" unoptimized />
@@ -114,12 +111,6 @@ Keyboard input requires a focused window entirely inside the virtual screen;
 click that window before typing. macOS secure input and protected system prompts
 can prevent remote input; complete those interactions on the Mac.
 
-Each subshell saves its selected provider and display size for restarts.
-Changing the node's default doesn't switch existing subshells. See
-[Preview prerequisites and setup](/previews/setup#enable-node-features) for
-provider enable and disable behavior. You can also
-[save the display choice in a preset](/presets/launch-defaults#save-a-virtual-display-choice).
-
 Capture runs at up to five frames per second; audio and clipboard sharing
 aren't supported. Native letter shortcuts use the Mac's ANSI key positions;
 non-US keyboard layouts may interpret shortcuts differently.
@@ -135,6 +126,7 @@ grants remain in place; you can revoke them separately in System Settings.
 anyone watching. Existing virtual screens can remain until their subshells
 close or recovery can contact BetterDisplay again.
 
-Turning off **Allow virtual displays** in node settings blocks new allocations;
-it doesn't replace the helper's immediate disable control. If the Mac has no
-running helper, the node reports that requirement instead of launching it.
+The helper's **Disable helper** control stops access immediately; the
+[node switch](/previews/setup#enable-node-features) only blocks new operations.
+If the Mac has no running helper, the node reports that requirement instead of
+launching it.
