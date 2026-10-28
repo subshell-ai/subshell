@@ -178,7 +178,7 @@ describe("gated controls explain themselves", () => {
     });
     expect(screen.getByText(new RegExp(state.reason)).matches(".text-warning")).toBe(true);
     expect(screen.getByRole("link", { name: "How to enable web previews and screens" }).getAttribute("href")).toBe(
-      "https://docs.subshell.sh/guides/preview#enable-web-previews-and-displays-on-the-machine",
+      "https://docs.subshell.sh/previews/setup",
     );
   });
 
@@ -198,7 +198,7 @@ describe("gated controls explain themselves", () => {
     mount({ info: info({ ports: [], cdpPort: null, nodeEnabled: false, reason: "preview-disabled" }) });
     expect(screen.getByText(SWITCH_OFF_REASON).matches(".text-warning")).toBe(true);
     expect(screen.getByRole("link", { name: /How to enable web previews and screens/ }).getAttribute("href")).toBe(
-      "https://docs.subshell.sh/guides/preview#enable-web-previews-and-displays-on-the-machine",
+      "https://docs.subshell.sh/previews/setup",
     );
     cleanup();
     mount({ info: info({ ports: [], cdpPort: null, nodeEnabled: false, reason: "node-offline" }) });

@@ -45,7 +45,7 @@ on the main screen the next time the helper launches, from sign-in or from a
 desktop app alike. It moves the cursor only when it sits inside no screen's
 frame, so an ordinary launch changes nothing.
 
-User procedures belong in [node management](../apps/docs/content/docs/nodes/manage.mdx#macos-display-helper).
+User procedures belong in [macOS virtual displays](../apps/docs/content/docs/previews/macos.mdx).
 
 The [BetterDisplay protocol reference](betterdisplay-protocol.md) specifies the
 CLI commands, helper messages, RFB subset, resource limits, and versioning.

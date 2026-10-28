@@ -11,7 +11,7 @@ export function isSwitchOff(reason: string | undefined): boolean {
   );
 }
 
-const ENABLE_GUIDE = "https://docs.subshell.sh/guides/preview#enable-web-previews-and-displays-on-the-machine";
+const ENABLE_GUIDE = "https://docs.subshell.sh/previews/setup";
 
 export function NodeUnavailableNote({ info, className = "" }: { info: PreviewInfo; className?: string }) {
   const reasons = new Set<string>();

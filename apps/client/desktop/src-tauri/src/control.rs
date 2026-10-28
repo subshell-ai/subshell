@@ -2014,7 +2014,7 @@ const MACPORTS_URL: &str = "https://www.macports.org/install.php";
 /// Where the Virtual Displays screen sends someone who wants the full
 /// enablement walk-through, the two macOS permissions and the restart case
 /// included. The same address `apps/server/desktop` carries for it.
-const DISPLAY_GUIDE_URL: &str = "https://docs.subshell.sh/nodes/manage#macos-display-helper";
+const DISPLAY_GUIDE_URL: &str = "https://docs.subshell.sh/previews/macos";
 
 /// Open one of a fixed set of pages in the system browser: the three About
 /// links, the two package managers the tmux screen names, and the display

@@ -1,0 +1,90 @@
+---
+title: "Web previews & screens"
+description: "Choose a web app preview, browser watch, or virtual display and arrange it beside your subshell."
+---
+
+Web previews & screens lets you check a website or graphical app alongside the agent building it.
+
+## Prerequisites
+
+<span id="enable-web-previews-and-displays-on-the-machine" />
+
+Set up the machine that runs your subshell. You can view its previews from a
+browser on another computer, phone, or tablet, or from Subshell Client. The
+viewing device doesn't need the node daemon or display software of its own.
+
+- **A connected node:** follow [Desktop node setup](/nodes/desktop) for a machine
+  with a desktop environment, or [Enroll a node with the CLI](/nodes/enroll)
+  for a headless machine. You can also use the server's built-in node.
+- **Node owner opt-in:** follow [Preview prerequisites and setup](/previews/setup)
+  to enable web previews, virtual displays, or both. An administrator manages
+  the server's built-in node.
+- **Display dependencies:** follow [Linux virtual displays](/previews/linux) or
+  [macOS virtual displays](/previews/macos) on the node that runs the subshell.
+  Web app previews don't require a virtual display.
+
+
+## Choose a view
+
+<span id="check-a-website" />
+<span id="add-a-service-started-elsewhere" />
+<span id="configure-an-app-preview" />
+<span id="browser-compatibility-and-private-links" />
+<span id="watch-browser-frames" />
+<span id="use-a-virtual-display-on-linux" />
+<span id="use-a-virtual-display-on-macos" />
+<span id="use-web-previews--screens-from-a-mac" />
+
+| View | Use it to |
+| --- | --- |
+| [Web app previews](/previews/apps) | Interact with a website through a private preview connection. |
+| [Browser watching](/previews/browser) | Watch a Chrome or Chromium browser running on a Linux node without controlling it. |
+| [Linux virtual displays](/previews/linux) | Give a subshell its own screen and control graphical apps there. |
+| [macOS virtual displays](/previews/macos) | Control apps on a virtual screen in the Mac's shared login session. |
+
+Automatic port discovery and browser watching require Linux. For a web service
+running on macOS, [add a saved service](/previews/apps#add-a-service-started-elsewhere).
+For a Mac viewing a Linux node, install display dependencies on the Linux node.
+
+## Arrange and refresh views
+
+Each app, browser watch, or display opens in its own workspace tab. On desktop,
+a new preview splits to the right of its terminal. Reopening the same view
+focuses its existing tab. Each open preview also appears beneath its subshell
+in the sidebar.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/preview-workspace.png" alt="Codex's completed filter fix and passing tests beside a website preview showing the selected Brand category." width="1560" height="1280" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Check the actual interaction beside the agent's result. The Brand filter now shows one matching project.</figcaption>
+</figure>
+
+Drag preview tabs to keep several apps or screens visible together. Closing a
+preview leaves its subshell and other previews running. Hidden previews release
+their viewer connections and reopen when you select them again.
+
+The viewer toolbar has refresh and a **More view actions** menu:
+
+- **Maximize pane** enlarges that workspace pane. **Restore pane** appears
+  directly in the toolbar while maximized.
+- **Full screen** uses your browser's fullscreen mode. **Exit full screen**
+  appears directly in the toolbar while active.
+- **Open in browser tab** opens a web preview in a separate browser tab.
+- **Close view** closes the current viewer.
+
+Use the subshell header's Web previews & screens icon to open another view.
+On a phone, previews use the workspace's tab strip without changing your desktop
+split layout. From the standalone subshell page, the header icon takes you into
+the workspace and opens the picker there.
+
+## Agent workflows and security
+
+<span id="launch-a-preview-from-another-subshell" />
+
+Follow [Preview workflows for agents](/previews/agents) to launch a helper
+through MCP and clean it up afterward.
+
+Read [Preview security](/concepts/security#preview-security) before sharing a
+preview link or enabling remote screen control. For the data path and developer
+guidance, see [Architecture](/concepts/architecture#web-previews-and-virtual-displays),
+[Web preview architecture](/developers/web-preview-architecture), and
+[Develop and extend web previews](/developers/web-preview-development).

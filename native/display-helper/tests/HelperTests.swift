@@ -93,7 +93,7 @@ struct HelperTests {
         for state in ["registered", "needsApproval", "notRegistered"] {
             for consented in [true, false] {
                 let body = QuitCopy.body(loginItem: state, consented: consented)
-                precondition(body.contains("loses it now"), "every variant says what stopping means")
+                precondition(body.contains("disconnects viewers and stops capture and input"), "every variant says what stopping means")
                 precondition(body.contains("virtual display settings") || body.contains("login list"),
                              "every variant says how the helper comes back")
             }

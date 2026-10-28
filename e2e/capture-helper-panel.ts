@@ -17,8 +17,7 @@ import { captureScreenshot } from "./screenshot";
  * safe to publish as the thing a person will actually see and press.
  *
  * Two frames, because the page has two jobs: ask for consent once, then tell
- * the truth about a running helper (including the permission macOS has not
- * granted yet, which is the state most people arrive in).
+ * the truth about a running helper with both required macOS permissions.
  *
  * Run from the repository root after building the panel:
  *   bun run --cwd packages/helper-panel build
@@ -40,11 +39,11 @@ const BEFORE_CONSENT = {
   loginItem: "notRegistered",
 } as const;
 
-/** Capture running, one permission still missing, two people watching. */
+/** Both permissions are required before two people can watch a display. */
 const RUNNING = {
   enabled: true,
   screenRecording: true,
-  accessibility: false,
+  accessibility: true,
   viewers: 2,
   error: "",
   loginItem: "registered",

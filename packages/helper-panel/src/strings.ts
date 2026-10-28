@@ -7,9 +7,9 @@ import type { LoginItemState, PanelAction, PanelState, StateValue } from "./stat
  */
 export const strings = {
   title: "Subshell virtual display helper",
-  subtitle: "Capture and control of Subshell's virtual displays on this Mac.",
+  subtitle: "Let Subshell viewers see and control virtual displays on this Mac.",
   warning:
-    "macOS shares one desktop: a viewer's pointer is the real cursor, and other windows can appear in the stream. Enable this only for people you trust to control this Mac.",
+    "Virtual displays share your Mac login, keyboard focus, and pointer. Viewers can control this Mac and may see other windows on the display. Enable the helper only for people you trust.",
   access: "Access",
   /* Its own section, not a row under Access: whether the helper comes back
    * after a sign-in is macOS's launch bookkeeping, a different question from
@@ -22,12 +22,12 @@ export const strings = {
    * for approval. Enabling the helper never registers anything by itself. */
   startAtSignIn: "Start at sign-in",
   stopAtSignIn: "Stop at sign-in",
-  loginItemPending: "Needs approval in System Settings under Login Items.",
-  loginItemRegistered: "Starts at sign-in with macOS.",
+  loginItemPending: "Waiting for your approval in System Settings under Login Items.",
+  loginItemRegistered: "Starts when you sign in to macOS.",
   /* No advice about toggling consent: the button beside this row registers it,
    * and enabling the helper no longer does, so sending the person to disable
    * and re-enable would be a detour to the same act. */
-  loginItemMissing: "Not registered, so it will not start at sign-in.",
+  loginItemMissing: "Won't start when you sign in.",
   loginItemLabel: "Login item",
   openLoginItems: "Open login items…",
   openDocs: "Setup instructions",
@@ -77,8 +77,9 @@ const consentCopy = {
   enableLabel: "Enable helper",
   disableLabel: "Disable helper",
   enableNote:
-    "Enabling starts capture and input on this Mac. Your subshells, macOS permissions, and sign-in choice stay.",
-  disableNote: "Disabling stops capture and input. Your subshells, macOS permissions, and sign-in choice stay.",
+    "Enabling allows capture and input once both macOS permissions are granted. Your subshells keep running, and your macOS permissions and sign-in choice don't change.",
+  disableNote:
+    "Disabling disconnects viewers and stops capture and input. Your subshells keep running, and your macOS permissions and sign-in choice don't change.",
 };
 
 /**
@@ -100,7 +101,7 @@ export function consentControl(state: PanelState): { label: string; action: Pane
 /** The one-line answer to "is this machine exposing itself right now". */
 export function stateLine(state: PanelState): string {
   if (!state.enabled) return "Disabled. Nothing is captured and no input is accepted.";
-  return "Enabled. Capture and input also need both macOS permissions below.";
+  return "Enabled. Capture and input still require both macOS permissions below.";
 }
 
 /** Gold while a viewer holds a screen, muted when nobody does. */
@@ -148,8 +149,8 @@ export function showsSignInSection(state: PanelState): boolean {
  * warning that exists to inform a decision ends up misleading instead. Every
  * variant names what stops, what stays, and how to get it back.
  */
-const LOSS = "Anyone watching a virtual display on this Mac loses it now.";
-const STAYS = "Your consent and the macOS permissions stay.";
+const LOSS = "Quitting disconnects viewers and stops capture and input. Your subshells keep running.";
+const STAYS = "Your helper settings and macOS permissions don't change.";
 
 /**
  * One whole sentence per reachable pair rather than a shared prefix, so the
@@ -164,16 +165,16 @@ const STAYS = "Your consent and the macOS permissions stay.";
  */
 const QUIT_BODIES: Record<LoginItemState, { enabled: string; disabled: string }> = {
   registered: {
-    enabled: `${LOSS} ${STAYS} The helper starts again at sign-in, or sooner from Subshell's virtual display settings. To stop it coming back, use the panel's Stop at sign-in button first.`,
-    disabled: `${LOSS} ${STAYS} The helper is disabled, so at sign-in it starts and exits without capturing anything. To take it out of macOS's login list, choose Stop at sign-in in the panel first.`,
+    enabled: `${LOSS} ${STAYS} The helper starts again at sign-in, or you can reopen it sooner from Subshell's virtual display settings. To turn off automatic startup, cancel and choose Stop at sign-in in the panel.`,
+    disabled: `${LOSS} ${STAYS} The helper is disabled, so it exits without capturing anything when macOS starts it at sign-in. To remove it from macOS's login list, cancel and choose Stop at sign-in in the panel.`,
   },
   needsApproval: {
-    enabled: `${LOSS} ${STAYS} macOS is still waiting for your approval before it would start at sign-in, so it comes back when you open Subshell's virtual display settings.`,
-    disabled: `${LOSS} ${STAYS} macOS is still waiting for your approval before it would start at sign-in, so it comes back when you open Subshell's virtual display settings.`,
+    enabled: `${LOSS} ${STAYS} It won't start at sign-in until you approve it in macOS. You can reopen it from Subshell's virtual display settings.`,
+    disabled: `${LOSS} ${STAYS} It won't start at sign-in until you approve it in macOS. You can reopen it from Subshell's virtual display settings.`,
   },
   notRegistered: {
-    enabled: `${LOSS} ${STAYS} Nothing starts it at sign-in; it comes back when you open Subshell's virtual display settings.`,
-    disabled: `${LOSS} ${STAYS} Nothing starts it at sign-in; it comes back when you open Subshell's virtual display settings.`,
+    enabled: `${LOSS} ${STAYS} It won't start at sign-in. You can reopen it from Subshell's virtual display settings.`,
+    disabled: `${LOSS} ${STAYS} It won't start at sign-in. You can reopen it from Subshell's virtual display settings.`,
   },
 };
 

@@ -122,8 +122,8 @@ function NodePreviewFeatureCard({ node, feature }: { node: NodeDetail; feature: 
         <a
           href={
             display
-              ? "https://docs.subshell.sh/nodes/manage#apps-browsers-and-virtual-displays"
-              : "https://docs.subshell.sh/guides/preview#check-a-website"
+              ? "https://docs.subshell.sh/previews/setup"
+              : "https://docs.subshell.sh/previews/apps#check-a-website"
           }
           target="_blank"
           rel="noreferrer"

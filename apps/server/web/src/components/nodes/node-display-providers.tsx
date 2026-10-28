@@ -78,7 +78,7 @@ export function NodeDisplayProviders({
                 macOS permissions. You can disable it from that panel at any time. This node setting cannot activate it.
                 macOS displays share keyboard focus and the pointer.{" "}
                 <a
-                  href="https://docs.subshell.sh/nodes/manage#macos-display-helper"
+                  href="https://docs.subshell.sh/previews/macos"
                   target="_blank"
                   rel="noreferrer"
                   className="underline"

@@ -220,7 +220,7 @@ nothing else: it opens the shipped single-file page over `file://`, the way
 `loadFileURL` does, and hands it a state through `window.subshellSetState`, the
 same call Swift makes. It draws no control of its own, so the image is the page a
 person meets, in the two states that matter (asking for consent, and running with
-one permission still missing).
+both required macOS permissions granted).
 
 `bun e2e/capture-assistant-ui.ts` photographs the assistant's **Virtual Displays**
 screen. It starts the client UI's own Vite server (port 5177 must be free),

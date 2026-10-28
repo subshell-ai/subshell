@@ -178,7 +178,7 @@ describe("node view prerequisites", () => {
         "link",
         { name: "Set up virtual display" },
       );
-      expect(guide.getAttribute("href")).toBe("https://docs.subshell.sh/guides/preview#use-a-virtual-display-on-linux");
+      expect(guide.getAttribute("href")).toBe("https://docs.subshell.sh/previews/linux");
       expect(
         within(screen.getByRole("group", { name: "Xvfb + VNC display provider" })).getByText(
           "Virtual display requirements are missing on the selected node.",
@@ -308,9 +308,7 @@ it("enabling BetterDisplay chooses a supported default on a Mac with legacy Linu
       providers: ["xvfb-x11vnc", "betterdisplay"],
       provider: "betterdisplay",
     });
-    expect(screen.getByRole("link", { name: "Setup instructions" }).getAttribute("href")).toContain(
-      "#macos-display-helper",
-    );
+    expect(screen.getByRole("link", { name: "Setup instructions" }).getAttribute("href")).toContain("/previews/macos");
   } finally {
     h.restore();
   }

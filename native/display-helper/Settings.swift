@@ -60,7 +60,7 @@ enum PanelBundle {
 @MainActor
 final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     private static let bridge = "subshell"
-    private static let docsURL = "https://docs.subshell.sh/nodes/manage#macos-display-helper"
+    private static let docsURL = "https://docs.subshell.sh/previews/macos"
 
     private let consent: HelperConsent
     private let enable: () throws -> Void
@@ -317,13 +317,13 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
     func registerLoginItem() {
         errorMessage = ""
         do { try SMAppService.mainApp.register() }
-        catch { errorMessage = "Couldn't add the sign-in start: \(error.localizedDescription)" }
+        catch { errorMessage = "Couldn't set the helper to start at sign-in: \(error.localizedDescription)" }
     }
 
     func unregisterLoginItem() {
         errorMessage = ""
         do { try SMAppService.mainApp.unregister() }
-        catch { errorMessage = "Couldn't remove the sign-in start. Turn it off in System Settings under General, Login Items." }
+        catch { errorMessage = "Couldn't stop the helper from starting at sign-in. Turn it off in System Settings under General, Login Items." }
     }
 
     /// Disabling stops capture and input and leaves the sign-in choice alone. It

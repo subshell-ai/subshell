@@ -80,7 +80,7 @@ For BetterDisplay on macOS, `enabled` describes node policy, not local helper
 consent. `missing-programs` can include a disabled helper or missing macOS
 permissions as well as missing software; read the `missing` list. MCP cannot
 enable the helper or grant those permissions. Follow
-[macOS helper setup](/nodes/manage#macos-display-helper) on that node.
+[macOS helper setup](/previews/macos) on that node.
 
 A ready display check means its requirements are met. Virtual displays and the chosen provider must also be enabled, the node must permit launches, and launch performs its own checks. Only the token owner's enrolled nodes are available; shares, admin status, and the server's built-in node don't widen this access.
 
@@ -94,7 +94,7 @@ For an app, pass `{ "subshell_id": "SUBSHELL_ID", "kind": "app", "port": 3000 }`
 
 Returns `proxyBase`, a private capability path relative to the server URL, plus `kind`, `port`, and usage guidance. An app path serves HTTP; a screen path carries the viewer's WebSocket protocol and isn't a web page. The call doesn't launch a program or open a workspace tab. Use the dashboard's Web previews & screens picker to open tabs.
 
-Treat the complete link as a secret. Anyone holding it can use the connection while it's valid, and closing a tab doesn't revoke it. Delete temporary helper subshells when finished; see [Web previews & screens](/guides/preview#browser-compatibility-and-private-links).
+Treat the complete link as a secret. Anyone holding it can use the connection while it's valid, and closing a tab doesn't revoke it. Delete temporary helper subshells when finished; see [Web previews & screens](/previews/apps#browser-compatibility-and-private-links).
 
 ## watch_subshell_browser
 

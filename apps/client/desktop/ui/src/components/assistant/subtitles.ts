@@ -116,6 +116,6 @@ export function subtitleFor(
       // Says what the thing IS rather than what pressing the button does,
       // because the screen's one press opens a panel this app does not own:
       // the steps below the sentence are the part with the choices in it.
-      return "A screen this machine does not have, so a subshell can open a graphical app here with no monitor attached.";
+      return "A virtual display gives a subshell a screen for graphical apps without needing another physical monitor.";
   }
 }

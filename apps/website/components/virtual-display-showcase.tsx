@@ -27,13 +27,13 @@ export function VirtualDisplayShowcase() {
           </p>
           <div className="mt-5 flex flex-wrap gap-x-6 gap-y-3">
             <a
-              href="https://docs.subshell.sh/guides/preview#use-a-virtual-display-on-linux"
+              href="https://docs.subshell.sh/previews/linux"
               className="inline-block text-[14px] text-[var(--orchid)] underline underline-offset-4 hover:text-[var(--frost)]"
             >
               Linux setup guide →
             </a>
             <a
-              href="https://docs.subshell.sh/nodes/manage#macos-display-helper"
+              href="https://docs.subshell.sh/previews/macos"
               className="inline-block text-[14px] text-[var(--orchid)] underline underline-offset-4 hover:text-[var(--frost)]"
             >
               macOS setup guide →

@@ -1,0 +1,46 @@
+---
+title: "Browser watching"
+description: "Watch a Linux node browser through a read-only screencast and understand its access limits."
+---
+
+Browser watching shows live frames from a browser running in your subshell.
+
+## Before you start
+
+Complete [Preview prerequisites and setup](/previews/setup) and turn on
+**Allow web previews** on the Linux node. Browser discovery requires Linux and
+a Chrome or Chromium browser running for that subshell with the Chrome DevTools
+Protocol (CDP) remote-debugging interface enabled on loopback.
+
+Enable remote debugging using your browser's supported configuration. Chrome
+requires a separate user data directory when using `--remote-debugging-port`;
+see [Chrome's remote debugging requirements](https://developer.chrome.com/blog/remote-debugging-port).
+Keep the debugging listener on loopback and use a dedicated testing profile;
+don't publish it to your network. Installing a browser or opening a website
+alone doesn't enable CDP.
+
+You need view access to watch the browser discovered for the subshell. A
+view-only share can't choose another browser port on the node.
+
+## Open and stop watching
+
+1. Start the browser from the subshell with remote debugging enabled.
+2. Use the Web previews & screens icon in the subshell header to open **Open web
+   preview or screen**.
+3. Select **Browser** when it appears. Its live frames open in a workspace tab.
+4. Close the preview tab when you're done watching. The browser and subshell
+   keep running.
+
+If no browser appears, check that it belongs to the selected subshell and its
+remote-debugging interface is available on the node's loopback address. The
+viewer reports when it's waiting for frames or has no recent frames.
+
+## Screencast limits
+
+This is a read-only screencast at up to five frames per second. It doesn't
+send keyboard or pointer input to the browser. Use [Linux virtual displays](/previews/linux) when you need to interact
+with the browser on that node, including its storage and login flows.
+
+See [Arrange and refresh views](/previews#arrange-and-refresh-views) for workspace
+controls. The server can read browser frames; review
+[Preview security](/concepts/security#preview-security) before sharing a subshell.

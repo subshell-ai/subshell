@@ -128,12 +128,7 @@ export function VirtualDisplayField({
       {reason && (
         <p id={`${id}-reason`} className="text-detail text-warning">
           {needsSetup ? (
-            <a
-              href="https://docs.subshell.sh/nodes/manage#apps-browsers-and-virtual-displays"
-              target="_blank"
-              rel="noreferrer"
-              className="underline"
-            >
+            <a href="https://docs.subshell.sh/previews/setup" target="_blank" rel="noreferrer" className="underline">
               Set up virtual display
             </a>
           ) : (

@@ -1261,7 +1261,7 @@ export function Host(): React.JSX.Element {
         return {
           title: "Virtual Displays",
           subtitle:
-            "A screen this machine does not have, so a subshell can open a graphical app here with no monitor attached.",
+            "A virtual display gives a subshell a screen for graphical apps without needing another physical monitor.",
           problem,
         };
       // Task 7 lands these screens' strings with it.

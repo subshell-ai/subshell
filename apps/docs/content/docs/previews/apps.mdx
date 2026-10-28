@@ -1,0 +1,127 @@
+---
+title: "Web app previews"
+description: "Open discovered dev servers and saved services, configure personal preview settings, and protect private links."
+---
+
+Open a website running on your node beside its subshell.
+
+## Before you start
+
+Complete [Preview prerequisites and setup](/previews/setup), enable **Allow web previews** on the node, and make sure you have edit access to the subshell. Automatic port discovery requires Linux; use a saved service for a web server on macOS.
+
+## Check a website
+
+1. Start your project's dev server inside a subshell. Keep it listening on
+   loopback; you don't need to expose its port to your network.
+2. Use the Web previews & screens icon in the subshell header. A window icon
+   means the subshell has a virtual display; otherwise the header uses a globe.
+   Its badge counts views you can open that haven't been saved: discovered ports
+   without a saved service, plus an available screen and browser watch. Opening
+   a port doesn't save it; **Add service** removes that port from the count.
+3. In **Open web preview or screen**, choose the **Web preview** row for your dev server's port.
+4. Check the site in the preview beside the terminal. Try navigation, forms,
+   filters, and other interactions, then give your agent specific feedback.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/preview-badge.png" alt="Subshell header showing the Dev server pane with its Web previews and screens icon wearing a count of three." width="2120" height="146" loading="lazy" decoding="async" unoptimized />
+  <figcaption>The badge counts two discovered ports and the browser watch that you can open.</figcaption>
+</figure>
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/preview-picker.png" alt="Open web preview or screen dialog with a website on port 3000 and a virtual display, each opened by selecting its row." width="1072" height="420" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Choose the dev-server port to check the website, or Virtual display to control a browser running on the node.</figcaption>
+</figure>
+
+See [Arrange and refresh views](/previews#arrange-and-refresh-views) for workspace tabs and toolbar controls.
+
+## Add a service started elsewhere
+
+Use a saved service when your web server runs outside the subshell or its port
+isn't discovered automatically. You don't need a virtual display.
+
+1. Use the Web previews & screens icon in the subshell header, then choose **Add service** under **Saved services**.
+2. Enter the service's **Port** and choose **HTTP** or **HTTPS**. You can add a name
+   to make it easier to recognize.
+3. Leave **Host** under **Advanced** as `localhost` for a service on the subshell's
+   node. For a service on another machine, enter a hostname or IP that the node can
+   reach. Hostnames resolve on the node, not on the device viewing the dashboard.
+4. Choose **Save service**, then select the saved row to open its workspace tab.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/add-service.png" alt="Add service form with a port, HTTP protocol, optional name, and collapsed Advanced host setting." width="512" height="534" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Save a connection to a web service without creating a virtual display.</figcaption>
+</figure>
+
+This also works for web services running on a macOS node, where automatic port
+discovery isn't available. The subshell must be running and its node must have
+**Allow web previews** enabled. HTTPS requires a certificate the node trusts and whose
+name matches the host; Subshell doesn't bypass certificate checks.
+
+Saved connections stay with the subshell across reloads and closed tabs. Use the
+remove button beside a saved row to delete the connection and disconnect its open
+views. Removing a connection doesn't stop the service. You need edit access to
+add, open, or remove connections; people with view access can see the list.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/preview-website-mobile.png" alt="Subshell's marketing website with its styles and images loaded in a maximized mobile web preview." width="430" height="932" loading="lazy" decoding="async" unoptimized />
+  <figcaption>A website running on the node, viewed from your phone.</figcaption>
+</figure>
+
+## Configure an app preview
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/preview-settings-mobile.png" alt="Configure preview dialog on mobile, with Rewrite app URLs and Rewrite redirects enabled, Pass the preview host disabled, and reset, cancel, and save controls." width="430" height="932" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Personal settings remembered for this app on this node.</figcaption>
+</figure>
+
+You need edit access to configure a preview. In the subshell header's **Open web
+preview or screen** dialog, select **Configure preview before opening**, then
+choose a discovered port or saved service. For an app that's already open, use
+**More view actions** → **Configure preview** in its toolbar.
+
+| Setting | Default | What it changes |
+| --- | --- | --- |
+| **Rewrite app URLs** | On | Routes supported HTML, CSS, module imports, and common app requests through the private preview path. |
+| **Pass the preview host** | Off | Sends your browser's preview host to the app instead of the target host. Use it only when the app expects that host. |
+| **Rewrite redirects** | On | Keeps redirects to this app under the preview path. |
+
+Choose **Save and open** to save your choices and open a fresh preview.
+**Reset to defaults** removes the saved choices and opens a fresh preview with
+the defaults above. **Cancel** keeps the current preview.
+
+These settings belong to your account and follow you across devices and
+subshells for the same node, host, protocol, and port. They don't change anyone
+else's preview or grant access to a target. A saved service and a discovered
+port share settings when they identify the same target.
+
+## Browser compatibility and private links
+
+App previews use an isolated browser document so the website's JavaScript can't
+read your dashboard's DOM, storage, or authenticated API responses. Target
+cookies stay in the preview's server-side cookie jar. Sites that need browser
+storage, service workers, JavaScript-managed cookies, or full browser login
+flows should be checked in the node's browser through a [virtual display](/previews#choose-a-view).
+
+With **Rewrite app URLs** enabled, Subshell rewrites supported HTML attributes,
+CSS URLs, and module imports. It also adds a browser compatibility script for
+common requests such as fetch, XMLHttpRequest, WebSocket, and EventSource.
+This helps apps that assume they're hosted at `/`, but it doesn't make every
+app compatible. A target's strict Content Security Policy can block the
+compatibility script or other resources. Use a virtual display when the app
+needs a normal browser context; preview settings don't relax its sandbox.
+
+If the app rejects the preview's host or origin, check the app's allowed-host
+and origin settings. Subshell doesn't bypass the app's access checks.
+
+> [!WARNING]
+> Treat a preview URL as a private access link. Anyone who receives it can use it
+> while its session remains valid, and closing a tab doesn't immediately revoke
+> a copied link. Remove a saved service to revoke its connections, or remove
+> access or end the subshell to revoke existing access. Turning off previews on
+> the node doesn't immediately revoke existing connections.
+
+The server can read forwarded bytes and browser frames. See
+[Preview security](/concepts/security#preview-security) for the trust boundaries
+and [Architecture](/concepts/architecture#web-previews-and-virtual-displays) for the data path.
+
+For implementation details, read [Web preview architecture](/developers/web-preview-architecture) and [Develop and extend web previews](/developers/web-preview-development).

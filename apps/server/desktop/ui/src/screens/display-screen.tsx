@@ -34,9 +34,9 @@ import { leaveLabel } from "../lib/wizard-state";
 
 /** The three things the panel and macOS ask for, in the order they happen. */
 const STEPS: readonly string[] = [
-  "Choose Enable helper. It keeps running after you close Subshell Server, and its own Launch at sign-in row decides whether macOS starts it again when you sign in.",
+  "Choose Enable helper. It keeps running after you close Subshell Server. Starting it at sign-in is a separate choice under Launch at sign-in and may need macOS approval.",
   "Grant Screen Recording and Accessibility to Subshell Display Helper in System Settings. Screen Recording lets it capture the virtual screen, and Accessibility lets it send keyboard and pointer input.",
-  "If macOS asks for a restart, quit the helper from its icon in the menu bar and open this panel again. Your consent stays, so nothing needs enabling twice.",
+  "If macOS asks you to restart the helper, choose Quit helper from its menu bar icon, then reopen Display Helper settings here. You won't need to enable it again.",
 ];
 
 export function DisplayScreen(props: {
@@ -79,8 +79,8 @@ export function DisplayScreen(props: {
       }
     >
       <p className="text-muted-foreground text-sm leading-relaxed">
-        The helper is a small program this app installs for you. It stays disabled until you turn it on, and it needs
-        two macOS permissions to do anything.
+        The helper starts disabled when this app installs it. To let anyone view or control a virtual display, enable it
+        in its settings and grant both macOS permissions.
       </p>
       <ol className="mt-6 flex flex-col gap-3">
         {STEPS.map((step, index) => (
@@ -93,13 +93,14 @@ export function DisplayScreen(props: {
         ))}
       </ol>
       <p className="text-muted-foreground text-detail leading-relaxed mt-6">
-        Needs macOS 14 or later. A virtual display shares the keyboard and the pointer with everything else on this Mac,
-        so turn it on only where you trust who can connect.
+        Requires macOS 14 or later. Virtual displays use your current Mac login and share its keyboard focus and
+        pointer. Viewers may see other windows on the display and can control this Mac, so enable the helper only for
+        people you trust.
       </p>
       <p className="text-muted-foreground text-detail leading-relaxed mt-2">
-        The helper runs as <span className="font-strong">Subshell Display Helper</span> and keeps its own display icon
-        in the macOS menu bar; that menu opens this same panel, and you can disable the helper from it at any time.{" "}
-        <GuideLink /> walks through all of it, including what BetterDisplay needs.
+        The helper runs as <span className="font-strong">Subshell Display Helper</span> and has its own display icon in
+        the macOS menu bar. Use that menu to open its settings or disable the helper at any time. <GuideLink /> explains
+        the setup, including what BetterDisplay needs.
       </p>
     </Frame>
   );

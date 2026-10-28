@@ -155,13 +155,13 @@ enum QuitCopy {
     static func body(loginItem: String, consented: Bool) -> String {
         switch (loginItem, consented) {
         case ("registered", true):
-            return "Anyone watching a virtual display on this Mac loses it now. Your consent and the macOS permissions stay. The helper starts again at sign-in, or sooner from Subshell's virtual display settings. To stop it coming back, use the panel's Stop at sign-in button first."
+            return "Quitting disconnects viewers and stops capture and input. Your subshells keep running. Your helper settings and macOS permissions don't change. The helper starts again at sign-in, or you can reopen it sooner from Subshell's virtual display settings. To turn off automatic startup, cancel and choose Stop at sign-in in the panel."
         case ("registered", false):
-            return "Anyone watching a virtual display on this Mac loses it now. Your consent and the macOS permissions stay. The helper is disabled, so at sign-in it starts and exits without capturing anything. To take it out of macOS's login list, choose Stop at sign-in in the panel first."
+            return "Quitting disconnects viewers and stops capture and input. Your subshells keep running. Your helper settings and macOS permissions don't change. The helper is disabled, so it exits without capturing anything when macOS starts it at sign-in. To remove it from macOS's login list, cancel and choose Stop at sign-in in the panel."
         case ("needsApproval", _):
-            return "Anyone watching a virtual display on this Mac loses it now. Your consent and the macOS permissions stay. macOS is still waiting for your approval before it would start at sign-in, so it comes back when you open Subshell's virtual display settings."
+            return "Quitting disconnects viewers and stops capture and input. Your subshells keep running. Your helper settings and macOS permissions don't change. It won't start at sign-in until you approve it in macOS. You can reopen it from Subshell's virtual display settings."
         default:
-            return "Anyone watching a virtual display on this Mac loses it now. Your consent and the macOS permissions stay. Nothing starts it at sign-in; it comes back when you open Subshell's virtual display settings."
+            return "Quitting disconnects viewers and stops capture and input. Your subshells keep running. Your helper settings and macOS permissions don't change. It won't start at sign-in. You can reopen it from Subshell's virtual display settings."
         }
     }
 }

@@ -3,7 +3,7 @@
 Preview connects a browser to a subshell's dev server, browser frames, or
 virtual display through the server. The current implementation is shared by
 enrolled nodes and the server's built-in node. User procedures live in the
-[Preview guide](../apps/docs/content/docs/guides/preview.mdx); the threat model
+[Preview guide](../apps/docs/content/docs/previews/index.mdx); the threat model
 and audit findings live in [security §11.15](security.md#1115-web-previews-and-virtual-displays)
 and [the preview audit](security-actionable.md#preview-feature-audit-2026-10-24).
 
@@ -176,7 +176,7 @@ browser script handles common dynamic request and DOM URL APIs; target CSP can
 block it. Text rewriting is bounded to 16 MiB decoded, while untransformed
 bodies stream. Rewriting preserves the opaque-origin sandbox, so storage,
 service workers, and arbitrary app behavior still need a normal browser context.
-See [Configure an app preview](../apps/docs/content/docs/guides/preview.mdx#configure-an-app-preview)
+See [Configure an app preview](../apps/docs/content/docs/previews/apps.mdx#configure-an-app-preview)
 for personal settings and their defaults.
 
 Target `Set-Cookie` pairs remain in the session's server-side jar and are used

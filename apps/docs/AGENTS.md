@@ -7,7 +7,7 @@ It builds to a static export. Pages are MDX under `content/docs/`, with explicit
 
 ## Coverage and structure
 
-The root sidebar order is `index`, `about`, `get-started`, `install`, `guides`, `presets`, `prompts`, `agents`,
+The root sidebar order is `index`, `about`, `get-started`, `install`, `guides`, `previews`, `presets`, `prompts`, `agents`,
 `nodes`, `administration`, `networking`, `mcp`, `automation`, `concepts`,
 `reference`, `troubleshooting`, and `developers`. `lib/navigation.ts` defines
 this order and the AI index's section names. Every section has an index page.
@@ -16,6 +16,12 @@ Update that contract and the root metadata together when changing navigation.
 Document shipped behavior, including browser/PWA access from phones and
 tablets. Do not document the native mobile app, its setup, availability,
 development workflow, or roadmap. The product documentation excludes it.
+
+Web previews & screens has its own section under `/previews`: shared prerequisites,
+web apps, browser watching, Linux and macOS virtual displays, and agent workflows.
+Keep platform installation, configuration, and usage together there; node management
+and security pages link to those procedures. Preserve the legacy preview route and
+anchors when moving content.
 
 Presets and Reusable Prompts have their own sections. Keep prompt text, library-stack references, and copied launch defaults distinct. Dashboard injection types text without submitting it.
 

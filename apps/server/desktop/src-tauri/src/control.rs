@@ -2963,9 +2963,9 @@ const HOMEBREW_URL: &str = "https://brew.sh";
 const MACPORTS_URL: &str = "https://www.macports.org/install.php";
 /// Where the Virtual Displays screen sends someone who wants the full
 /// enablement walk-through, the two macOS permissions and the restart case
-/// included. The dashboard's preview rows link further up the same page, to
-/// the switches that gate previews; this is the helper's own section.
-const DISPLAY_GUIDE_URL: &str = "https://docs.subshell.sh/nodes/manage#macos-display-helper";
+/// included. The dashboard preview controls link to the shared prerequisites
+/// guide; this page covers setup and use on macOS.
+const DISPLAY_GUIDE_URL: &str = "https://docs.subshell.sh/previews/macos";
 
 /// Open one of a fixed set of pages in the system browser: the three About
 /// links, the two package managers the tmux screen names, and the display

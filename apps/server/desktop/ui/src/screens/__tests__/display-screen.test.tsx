@@ -12,8 +12,7 @@ afterEach(cleanup);
 
 const STRINGS = {
   title: "Virtual Displays",
-  subtitle:
-    "A screen this machine does not have, so a subshell can open a graphical app here with no monitor attached.",
+  subtitle: "A virtual display gives a subshell a screen for graphical apps without needing another physical monitor.",
   problem: "",
 };
 

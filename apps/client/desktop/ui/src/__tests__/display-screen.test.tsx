@@ -7,7 +7,10 @@ import { installFakeIpc, renderApp } from "./harness";
 // file in the shard reads as its own (`harness.tsx`).
 afterEach(cleanup);
 
-const shell = { title: "Virtual Displays", subtitle: "A screen this machine does not have." };
+const shell = {
+  title: "Virtual Displays",
+  subtitle: "A virtual display gives a subshell a screen for graphical apps without needing another physical monitor.",
+};
 
 describe("the Virtual Displays screen", () => {
   /**

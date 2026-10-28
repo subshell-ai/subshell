@@ -661,4 +661,4 @@ already have. Both desktop apps bundle the same signed helper identity;
 door is taken. The helper owns consent, OS permission requests, and login
 registration. Read [the helper architecture](../../../docs/macos-display-helper.md)
 before changing bundling, activation, or local control. User instructions live
-in [node management](../../docs/content/docs/nodes/manage.mdx#macos-display-helper).
+in [macOS virtual displays](../../docs/content/docs/previews/macos.mdx).

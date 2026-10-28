@@ -37,8 +37,9 @@ function stateWith(overrides: Partial<PanelState>): PanelState {
  * literals are what that door must hand back.
  */
 const ENABLE_NOTE =
-  "Enabling starts capture and input on this Mac. Your subshells, macOS permissions, and sign-in choice stay.";
-const DISABLE_NOTE = "Disabling stops capture and input. Your subshells, macOS permissions, and sign-in choice stay.";
+  "Enabling allows capture and input once both macOS permissions are granted. Your subshells keep running, and your macOS permissions and sign-in choice don't change.";
+const DISABLE_NOTE =
+  "Disabling disconnects viewers and stops capture and input. Your subshells keep running, and your macOS permissions and sign-in choice don't change.";
 /** The triple while the helper is off, so the button offers to enable it. */
 const offerEnable = consentControl(stateWith({ enabled: false }));
 /** And while it is on, so the button offers to disable it. */
@@ -225,7 +226,7 @@ describe("the consent warning", () => {
     // real cursor and sees their other windows.
     const warning = strings.warning;
     expect(warning).toContain("pointer");
-    expect(warning).toContain("real cursor");
+    expect(warning).toContain("share your Mac login, keyboard focus, and pointer");
     expect(warning).toContain("other windows");
     expect(warning).toContain("trust");
   });
@@ -291,7 +292,7 @@ describe("stateLine", () => {
     // tell someone their subshells have a screen when macOS still refuses.
     const line = stateLine(stateWith({ enabled: true }));
     expect(line).toContain("Enabled");
-    expect(line).toContain("also need both macOS permissions");
+    expect(line).toContain("still require both macOS permissions");
   });
 
   test("keeps the state line to the state", () => {
@@ -310,13 +311,13 @@ describe("loginItemLine", () => {
     // which is a different fact from "registered but awaiting approval". The
     // panel once read both as approved, so a disabled sign-in start kept
     // claiming it starts at sign-in.
-    expect(loginItemLine("registered")).toEqual({ text: "Starts at sign-in with macOS.", blocked: false });
+    expect(loginItemLine("registered")).toEqual({ text: "Starts when you sign in to macOS.", blocked: false });
     const pending = loginItemLine("needsApproval");
     expect(pending.blocked).toBe(true);
     expect(pending.text).toContain("Login Items");
     const missing = loginItemLine("notRegistered");
     expect(missing.blocked).toBe(true);
-    expect(missing.text).toContain("will not start at sign-in");
+    expect(missing.text).toContain("Won't start when you sign in");
     // Enabling the helper no longer registers anything, so the sentence must
     // not send the person to toggle consent to get a sign-in start back. The
     // button beside the row does it.
@@ -333,9 +334,9 @@ describe("the consent button's note", () => {
     // be interchangeable.
     expect(offerEnable.label).toBe("Enable helper");
     expect(offerDisable.label).toBe("Disable helper");
-    expect(offerEnable.note).toContain("Enabling starts capture and input");
+    expect(offerEnable.note).toContain("Enabling allows capture and input once both macOS permissions are granted");
     expect(offerEnable.note).not.toMatch(/Disabling/);
-    expect(offerDisable.note).toContain("Disabling stops capture and input");
+    expect(offerDisable.note).toContain("Disabling disconnects viewers and stops capture and input");
     expect(offerDisable.note).not.toMatch(/Enabling/);
   });
 
@@ -345,7 +346,7 @@ describe("the consent button's note", () => {
     // to disagree. What genuinely stays belongs in both sentences.
     for (const note of [offerEnable.note, offerDisable.note]) {
       expect(note).not.toContain("starts at sign-in");
-      expect(note).toContain("sign-in choice stay");
+      expect(note).toContain("sign-in choice don't change");
       expect(note).toContain("macOS permissions");
     }
   });
@@ -636,8 +637,9 @@ describe("quit confirmation", () => {
     for (const state of ["registered", "needsApproval", "notRegistered"] as const) {
       for (const enabled of [true, false]) {
         const body = quitBody(state, enabled);
-        expect(body).toContain("loses it now");
-        expect(body).toContain("consent");
+        expect(body).toContain("disconnects viewers and stops capture and input");
+        expect(body).toContain("helper settings and macOS permissions don't change");
+        expect(body).toContain("Your subshells keep running");
         // Every variant also has to say how the helper comes back: the sign-in
         // list, or the settings screen that launches it. A sentence that
         // mentions neither leaves the person guessing whether quitting is
@@ -666,8 +668,8 @@ describe("quit confirmation", () => {
         expect(quitBody(state, enabled)).not.toContain("starts again at sign-in");
       }
     }
-    expect(quitBody("notRegistered", true)).toContain("Nothing starts it at sign-in");
-    expect(quitBody("needsApproval", true)).toContain("waiting for your approval");
+    expect(quitBody("notRegistered", true)).toContain("It won't start at sign-in.");
+    expect(quitBody("needsApproval", true)).toContain("until you approve it in macOS");
   });
 
   test("gives the granted row a control that says where it goes", () => {
