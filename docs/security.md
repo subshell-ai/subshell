@@ -1530,7 +1530,8 @@ cleanup behavior, including reusing the released pane id.
 ### What the node discloses to the plane
 
 Connecting a node discloses execution-machine information to the trusted server.
-The current protocol is 20. The encrypted handshake protects this information
+The [node protocol reference](../apps/docs/content/docs/reference/node-protocol.mdx)
+tracks the current version. The encrypted handshake protects this information
 in transit; it does not hide it from the control plane.
 
 - **`ready` discloses machine facts**: `agentVersion`, protocol/os/arch,
