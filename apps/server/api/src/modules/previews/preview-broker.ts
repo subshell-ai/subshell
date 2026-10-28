@@ -947,12 +947,15 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
       const rec = lanesByRef.get(laneRef);
       if (!rec) return; // the lane already died (the common race at teardown)
       if (bytes.byteLength > PREVIEW_FRAME_MAX_BYTES) {
-        // The plane-side twin of the node's pump cap (spec §6): BOTH proxy
-        // consumers funnel through this choke point, so an oversized HTTP
-        // body chunk and an oversized browser WS message get the same named
-        // death Task 1 pins from the receiver side. Nothing rides the link;
-        // the LANE dies (the session survives it), and this is the ONE
-        // lane-level audit row.
+        // The plane-side half of spec §6's named close, and deliberately NOT
+        // the twin of the node's pump: a socket read toward the browser is
+        // whatever TCP delivers, so forward.ts splits those into wire-sized
+        // frames rather than killing a lane over a big asset. A write toward
+        // the pane is sized by our own two consumers (an HTTP body chunk, a
+        // browser WS message), so one over the cap is refused by name. Both
+        // proxy consumers funnel through this choke point, so both get the same
+        // death. Nothing rides the link; the LANE dies (the session survives
+        // it), and this is the ONE lane-level audit row.
         void removeLane(rec, "over-cap", true)
           .catch((err: unknown) => deps.log(`preview over-cap lane close threw: ${String(err)}`))
           .then(() =>

@@ -315,6 +315,12 @@ async function proxyRequest(request: Request, sessionRef: string, rest: string):
       res.status !== 205 &&
       (!isPreviewDocumentContentType(contentType) || isPreviewAttachmentDisposition(disposition))
     ) {
+      // The navigation is refused, but the answer is still the app's: cookies
+      // it set (a CSRF or session token its later pages expect) belong to this
+      // preview's jar. Dropping them with the body would half-log the session
+      // out on the one request that carried them.
+      const refusedCookies = res.headers.filter(([name]) => name === "set-cookie").map(([, value]) => value);
+      if (refusedCookies.length > 0) storeCookiesInJar(session.cookieJar, refusedCookies);
       await res.body?.cancel();
       duplex.destroy();
       releaseLane();

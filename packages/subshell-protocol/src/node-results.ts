@@ -25,6 +25,7 @@
  * validators stand on live in `guards.ts` (shared with `node-frames.ts`).
  */
 
+import { normalizeLabel } from "./frames.js";
 import { BASE64_RE, isBool, isInt, isRecord, isStr, isStrArray, isStringMap } from "./guards.js";
 import { MAX_ARCHIVE_BYTES, MAX_MANIFEST_PAGE_ENTRIES } from "./node-frames.js";
 import { parseSshConnectionSnapshot } from "./ssh-config.js";
@@ -901,11 +902,18 @@ export function parseNodePreviewPortsResult(data: unknown): NodePreviewPortsResu
     if (!isInt(p.pid) || (p.pid as number) < 0) return null;
     if (p.title !== undefined && (typeof p.title !== "string" || p.title.length > PREVIEW_PAGE_TITLE_MAX_LENGTH))
       return null;
+    // The probe sanitizes what it reads out of a document, but this is the
+    // boundary every answer crosses and the only gate that always runs: a page
+    // title renders for every viewer, in the picker row and the tab, so it
+    // takes the NAME path every other label follows: NFC, controls to spaces,
+    // format characters and lone surrogates gone. Nothing usable left is no
+    // title at all, rather than an empty one.
+    const title = p.title === undefined ? "" : normalizeLabel(p.title as string, PREVIEW_PAGE_TITLE_MAX_LENGTH);
     ports.push({
       proto: p.proto,
       port: p.port as number,
       pid: p.pid as number,
-      ...(p.title ? { title: p.title as string } : {}),
+      ...(title ? { title } : {}),
     });
   }
   if (

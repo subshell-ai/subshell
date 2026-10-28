@@ -1,12 +1,17 @@
 /**
  * What counts as a web page for previews, said once.
  *
- * Discovery and forwarding both refuse anything else, so the two have to
- * agree: a type the probe will not list is a port nobody can pick, and a type
- * the proxy will not navigate to turns a working site into an error page. The
- * rule lives here rather than beside either caller because a third reader
- * (another client, a future check) should ask the same question of the same
- * answer.
+ * Discovery and the navigation guard both ask this of a response, so the two
+ * cannot disagree: a type the probe will not list is a port nobody can pick,
+ * and a type the proxy will not navigate to turns a working site into an error
+ * page. The rule lives here rather than beside either caller because a third
+ * reader (another client, a future check) should ask the same question of the
+ * same answer. Two things each caller keeps for itself, on purpose. The status
+ * code: discovery lists a port only when its document answers with a 2xx, since
+ * an error page is no site to advertise, while the proxy guards a navigation the
+ * person already chose and lets them read what came back, 401 or not. And the
+ * rewriter stays on `text/html` alone, because the shim it injects is HTML
+ * markup that a document parsed as strict XML would reject outright.
  *
  * XHTML is in the set because a browser renders `application/xhtml+xml` as
  * HTML: older Java app servers and XML pipelines still serve documents that

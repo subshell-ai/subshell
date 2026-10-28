@@ -204,6 +204,14 @@ beforeAll(async () => {
           status: url.pathname === "/download-error" ? 404 : 200,
           headers: { "content-type": "application/octet-stream", "content-disposition": "attachment; filename=data" },
         });
+      if (url.pathname === "/download-cookie")
+        return new Response(new Uint8Array([3]), {
+          headers: {
+            "content-type": "application/octet-stream",
+            "content-disposition": "attachment; filename=data",
+            "set-cookie": "csrf=abc; Path=/",
+          },
+        });
       if (url.pathname === "/headers") return Response.json(Object.fromEntries(req.headers));
       if (url.pathname === "/page")
         return new Response('<head><link href="/style.css"></head><h1>App</h1>', {
@@ -415,11 +423,32 @@ describe("pv-http: the same-origin rewrite", () => {
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2]));
   });
 
-  it("navigates a document served as XHTML instead of refusing it", async () => {
+  it("keeps the cookies of a refused navigation in the session jar", async () => {
+    // A download endpoint commonly sets the CSRF or session cookie its later
+    // pages then expect. Refusing to paint the file in the frame is the right
+    // answer; losing the cookie it carried is not, because the preview wakes up
+    // half signed out on the request after it.
+    const { ref } = await getPreviewBroker().openForward({
+      viewerUserId: USER,
+      paneId: PANE,
+      nodeId: NODE,
+      port: targetPort,
+    });
+    const response = await proxyFetch(`/pv/${ref}/download-cookie`, { headers: { "sec-fetch-dest": "document" } });
+    expect(response.status).toBe(502);
+    // The refusal is our own page, so nothing of the upstream headers rides out.
+    expect(response.headers.get("set-cookie")).toBeNull();
+    // The jar holds the pair, not just the value: that is what a Cookie header
+    // is rebuilt from on the request after this one.
+    expect(getPreviewBroker().sessionFor(ref)?.cookieJar.get("csrf")).toBe("csrf=abc");
+  });
+
+  it("navigates a document served as XHTML and leaves its markup alone", async () => {
     // A browser paints application/xhtml+xml as HTML, so the guard that keeps
-    // downloads from stranding an iOS PWA must not read it as one. The page
-    // also has to come back rewritten: an un-rewritten document previews
-    // broken in a quieter way than a refusal, and keeps its own type.
+    // downloads from stranding an iOS PWA must not read it as one. And the
+    // rewriter stays out of it: the compat shim is HTML markup whose raw < and
+    // && are fatal to a document parsed as strict XML, so the page arrives
+    // byte-for-byte as its author wrote it, under the type it arrived with.
     const { ref } = await getPreviewBroker().openForward({
       viewerUserId: USER,
       paneId: PANE,
@@ -430,11 +459,11 @@ describe("pv-http: the same-origin rewrite", () => {
       headers: { "sec-fetch-dest": "document", accept: "text/html,application/xhtml+xml,application/xml;q=0.9" },
     });
     expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toBe("application/xhtml+xml; charset=utf-8");
+    expect(response.headers.get("content-type")).toBe("application/xhtml+xml");
     const body = await response.text();
     expect(body).not.toContain("This isn't a web page");
-    expect(body).toContain(`href="http://localhost:3080/pv/${ref}/style.css"`);
-    expect(body).toContain("installPreviewCompat");
+    expect(body).not.toContain("installPreviewCompat");
+    expect(body).toBe('<head><link href="/style.css"></head><h1>XHTML App</h1>');
   });
 
   it("applies snapshotted host/rewrite settings to the real lane", async () => {

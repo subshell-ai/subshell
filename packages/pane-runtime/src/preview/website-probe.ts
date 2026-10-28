@@ -99,6 +99,10 @@ async function probeWebsiteOrigin(origin: string, signal: AbortSignal): Promise<
       url = next.href;
       continue;
     }
+    // A 2xx only, which is deliberately stricter than the proxy's navigation
+    // guard: this answer decides what to OFFER, and a crash page or an auth
+    // wall is not a website to put in front of someone. They can still navigate
+    // to that port and read what came back.
     if (
       response.status >= 200 &&
       response.status < 300 &&

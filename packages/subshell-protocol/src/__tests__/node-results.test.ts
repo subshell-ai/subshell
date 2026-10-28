@@ -355,6 +355,27 @@ describe("preview results (protocol 23)", () => {
     expect(
       parseNodePreviewPortsResult({ ...titled, ports: [{ ...titled.ports[0], title: "x".repeat(201) }] }),
     ).toBeNull();
+    // A page authors its own title, and it renders for every viewer, so the
+    // boundary takes the NAME path: combining marks compose, invisible format
+    // characters and lone surrogates go, a control becomes a space. And a title
+    // with nothing left in it is absent rather than empty, so the picker falls
+    // back to "Web preview" instead of offering a blank row.
+    expect(
+      parseNodePreviewPortsResult({
+        ...titled,
+        ports: [{ proto: "tcp", port: 3000, pid: 7, title: " cafe\u0301 \u200e\u202ex\ud800\u0007y " }],
+      }),
+    ).toEqual({
+      ports: [{ proto: "tcp", port: 3000, pid: 7, title: "caf\u00e9 x y" }],
+      cdpPort: null,
+      screen: null,
+    });
+    expect(
+      parseNodePreviewPortsResult({
+        ...titled,
+        ports: [{ proto: "tcp", port: 3000, pid: 7, title: "\u0000\u001f \u200e" }],
+      }),
+    ).toEqual({ ports: [{ proto: "tcp", port: 3000, pid: 7 }], cdpPort: null, screen: null });
     const ports: NodePreviewPortWire[] = [{ proto: "tcp", port: 5173, pid: 42 }];
     expect(parseNodePreviewPortsResult({ ports, cdpPort: null, screen: null })).toEqual({
       ports,

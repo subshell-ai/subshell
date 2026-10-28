@@ -171,8 +171,10 @@ creates a session with a cryptographically random 128-bit reference. It returns
 `/pv/<ref>/`. That path is a bearer capability; later proxy requests do not use
 the viewer's browser cookie as their authorization boundary.
 
-TCP reads are split into frames within the existing wire limit; a large read is
-not itself an oversized protocol message. The HTTP header reader pauses its
+Toward the browser, TCP reads are split into frames within the existing wire
+limit; a large read is not itself an oversized protocol message. Toward the
+pane, a single write larger than the frame cap is refused by name and the lane
+dies `over-cap`, the one lane-level audit row. The HTTP header reader pauses its
 stream until the body or WebSocket reader takes over, preserving packets that
 arrive during that handoff.
 
