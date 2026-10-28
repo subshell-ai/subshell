@@ -124,8 +124,15 @@ it("paints a chosen navigation unless the response names something else", () => 
   expect(isPreviewPaintableNavigation("application/json; charset=utf-8", null)).toBe(true);
   expect(isPreviewPaintableNavigation("application/xml", null)).toBe(true);
   expect(isPreviewPaintableNavigation("application/rss+xml", null)).toBe(true);
+  expect(isPreviewPaintableNavigation("text/plain", null)).toBe(true);
+  // The export shapes are NOT in the text list: iOS takes a CSV, a vCal or an
+  // iCal to a system viewer the same way it takes a PDF, which is the strand.
+  expect(isPreviewPaintableNavigation("text/csv", null)).toBe(false);
+  expect(isPreviewPaintableNavigation("text/calendar", null)).toBe(false);
+  expect(isPreviewPaintableNavigation("text/vcard", null)).toBe(false);
   // A type that merely starts with one of these is not it.
   expect(isPreviewPaintableNavigation("application/json-lines", null)).toBe(false);
+  expect(isPreviewPaintableNavigation("text/plainish", null)).toBe(false);
   // A download keeps its refusal whatever the type claims.
   expect(isPreviewPaintableNavigation("text/plain", "attachment")).toBe(false);
 });

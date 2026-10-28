@@ -222,12 +222,13 @@ beforeAll(async () => {
           headers: { "content-type": "text/html" },
         });
       if (url.pathname === "/xhtml")
-        // Well-formed XML, the way a real XHTML server answers: an unclosed
-        // <link> would fail the parse for reasons that have nothing to do with
-        // what the proxy injects.
-        return new Response('<head><link href="/style.css" /></head><h1>XHTML App</h1>', {
-          headers: { "content-type": "application/xhtml+xml" },
-        });
+        // A well-formed XML document, the way a real XHTML server answers: an
+        // unclosed <link> or a stray top-level element would fail the parse for
+        // reasons that have nothing to do with what the proxy injects.
+        return new Response(
+          '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" href="/style.css" /></head><body><h1>XHTML App</h1></body></html>',
+          { headers: { "content-type": "application/xhtml+xml" } },
+        );
       if (url.pathname === "/absolute-redirect")
         return new Response(null, { status: 302, headers: { location: `http://127.0.0.1:${targetPort}/page` } });
       if (url.pathname === "/echo") {

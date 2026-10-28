@@ -65,6 +65,17 @@ test("preview documents isolate dashboard authority while modules, POST and WS k
     const proxyUrl = frame.url();
     await direct.goto(proxyUrl);
     await verifyPreviewBrowser(direct, BASE_URL, false);
+    // The XHTML guarantee, in the parser that actually has to honor it. A page
+    // served as application/xhtml+xml is read as strict XML, so the proxy's
+    // injected inline script is only safe because it arrives inside a CDATA
+    // section: unescaped < or && in it would replace the page with the browser's
+    // parse error, and a string match on the proxy's output could never show that.
+    await direct.goto(`${proxyUrl}xhtml`);
+    await expect(direct.getByRole("heading", { name: "Parsed as XML" })).toBeVisible();
+    expect(await direct.locator("parsererror").count()).toBe(0);
+    // And the shim really ran, which is the other half: CDATA that hid the
+    // script from the JavaScript engine would leave this undefined.
+    expect(await direct.evaluate(() => typeof (globalThis as any).__subshellPreviewMap)).toBe("function");
     await direct.close();
     expect((await page.context().cookies()).some((cookie) => cookie.name === "demo")).toBe(false);
     expect((await request.delete(`/api/subshells/${subshellId}`)).ok()).toBe(true);

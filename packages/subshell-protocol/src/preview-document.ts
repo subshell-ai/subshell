@@ -116,8 +116,16 @@ export function isPreviewAttachmentDisposition(disposition: string | null | unde
   return typeof disposition === "string" && ATTACHMENT_DISPOSITION.test(disposition);
 }
 
-/** Type families a browser presents in the frame itself, no system handler. */
-const SELF_PRESENTED = /^(?:text|image|audio|video)\//i;
+/** A picture or a clip: the view draws these itself, with its own player. */
+const SELF_PRESENTED_MEDIA = /^(?:image|audio|video)\//i;
+
+/**
+ * Text the view shows as text. Deliberately a list, not the `text/` family:
+ * text/csv, text/calendar and text/vcard are how a dev server names an export,
+ * and iOS takes those to Quick Look just as it takes a PDF, which is the strand
+ * this guard exists to prevent.
+ */
+const SELF_PRESENTED_TEXT = /^text\/(?:plain|css|javascript|ecmascript|markdown)(?:\s*;|\s*$)/i;
 
 /**
  * The `application/*` types a browser still shows on its own: JSON, XML and
@@ -132,15 +140,14 @@ const SELF_PRESENTED_APPLICATION =
  * May the proxy paint this navigation?
  *
  * The question is what the phone does with the response, not whether it is a web
- * page. A browser shows a document, a chunk of text, an image, an audio or video
- * clip, and JSON or XML as text itself, so those stay: a dev server's log page or
- * `/api/status` is something someone tapped for, and refusing it strands nothing.
- * What leaves the frame is a file the server is handing over (an `attachment`,
- * whatever its type claims) or a binary the view has no reader for, which is where
- * iOS takes the presentation away in a system viewer with no back button in a
- * home-screen app. A response naming no type is left to the browser, which renders
- * it as text, and a dev server that forgets the header still serves what was asked
- * for.
+ * page. A browser shows a document, a picture, a clip, plain text, and JSON or XML
+ * as text itself, so those stay: a dev server's log page or `/api/status` is
+ * something someone tapped for, and refusing it strands nothing. What leaves the
+ * frame is a file the server is handing over (an `attachment`, whatever its type
+ * claims) or something the view has no reader for, which is where iOS takes the
+ * presentation away in a system viewer with no back button in a home-screen app.
+ * A response naming no type is left to the browser, which renders it as text, and
+ * a dev server that forgets the header still serves what was asked for.
  */
 export function isPreviewPaintableNavigation(
   contentType: string | null | undefined,
@@ -150,7 +157,8 @@ export function isPreviewPaintableNavigation(
   if (typeof contentType !== "string" || contentType.trim() === "") return true;
   return (
     isPreviewDocumentContentType(contentType) ||
-    SELF_PRESENTED.test(contentType) ||
+    SELF_PRESENTED_MEDIA.test(contentType) ||
+    SELF_PRESENTED_TEXT.test(contentType) ||
     SELF_PRESENTED_APPLICATION.test(contentType)
   );
 }

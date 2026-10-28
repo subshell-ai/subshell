@@ -71,8 +71,12 @@ async function pageTitle(response: Response): Promise<string | undefined> {
   }
 }
 
-/** What one loopback family gets before the probe moves on from it. */
-const ATTEMPT_TIMEOUT_MS = 700;
+/**
+ * What one loopback family gets before the probe moves on from it. Generous
+ * enough that a dev server compiling its first route usually answers inside it;
+ * see the policy on probeWebsite for what happens when it does not.
+ */
+const ATTEMPT_TIMEOUT_MS = 900;
 
 /**
  * Check for HTML without following redirects off this port or downloading an
@@ -84,13 +88,21 @@ const ATTEMPT_TIMEOUT_MS = 700;
  * `::1`) one shared budget would spend the whole window on the side that never
  * replies and leave a real IPv6-only website out of the picker. The caller's
  * signal stays the outer bound: once the scan is over, the scan is over.
+ *
+ * THE POLICY, because the two pressures here pull opposite ways and this has
+ * been decided once already: a port is offered when something on it ANSWERED
+ * with a document, and not offered when it merely accepted a connection. A
+ * socket that takes and never replies is indistinguishable from a wedged
+ * database, a language server, or a leftover bind, and advertising those as
+ * "Web preview" is the exact thing this feature exists to stop. The cost is a
+ * first compile longer than this window, which appears on the next poll seconds
+ * later instead of now; the alternative hides nothing but fills the picker with
+ * ports that cannot render.
  */
 export async function probeWebsite(port: number, signal: AbortSignal): Promise<WebsiteInfo | null> {
-  // What this port is worth offering if no family says better: a website the
-  // probe could not name, remembered from a page with no title or from a socket
-  // that accepted and is still thinking. Held rather than returned, so the other
+  // A page that answered without a title is held, not returned, so the other
   // family still gets asked and a titled site on it is not hidden behind one
-  // unremarkable answer.
+  // unremarkable answer. Silence is not held at all: it is not an answer.
   let fallback: WebsiteInfo | null = null;
   for (const host of ["127.0.0.1", "[::1]"]) {
     // The family's own timer is separate from the scan's, because the two aborts
@@ -107,19 +119,9 @@ export async function probeWebsite(port: number, signal: AbortSignal): Promise<W
     } catch {
       // The scan's budget running out ends the asking, but not the answer: a
       // verdict the first family already gave stays held. This family running out
-      // does not end anything: it means the socket accepted and is thinking, which
-      // is what a cold `next dev` does while it compiles the route, and hiding that
-      // port until the server warms up would hide the one row the person came for.
-      //
-      // The accepted cost: a listener that accepts and NEVER answers is
-      // indistinguishable from a compiling one at this distance, so a wedged server
-      // stays offered as an untitled website for as long as it hangs. The scan is
-      // stateless by design (one pass, nothing to reconcile), and the alternative
-      // is to hide every dev server during its first compile, which is the moment
-      // the picker is most wanted. The frame then spins rather than refusing, which
-      // is the same thing an unreachable port does when opened by hand.
+      // is only silence, and silence is not an answer to hold: see the policy
+      // above, which keeps a wedged listener out of the picker.
       if (signal.aborted) return fallback;
-      if (attempt.aborted) fallback ??= {};
     }
   }
   return fallback;

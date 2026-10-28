@@ -6,7 +6,7 @@
 
 Fix web previews losing asset bytes during large responses and HTTP reader handoffs, and keep Next.js chunk loading working through rewritten URLs. A replaced Turbopack stylesheet now refreshes in a Chromium preview, so a CSS edit shows up without reloading the page.
 
-Discovery offers only the ports that really serve websites, and shows each page's title in the picker and its tab. A dev server that has just started is offered while it compiles its first route, a port no longer hides behind a pane full of idle sockets or one slow loopback family, and an internal tool that ignores non-browser clients still appears because discovery now says what it is.
+Discovery offers only the ports that answer with a website, and shows each page's title in the picker and its tab. A dev server is no longer hidden behind a pane full of idle sockets, or by the family that answers first, or by a slow first compile, and an internal tool that ignores non-browser clients still appears because discovery now says what it is. What never answers at all stays out, which is what keeps a wedged database off the list.
 
 A navigation that would hand a phone's whole screen to a file shows a closeable error page instead, and the dashboard says so in a toast. A desktop click keeps downloading the way it did before. The refused response's cookies still reach the preview's jar, so the app isn't quietly signed out, and anything a browser renders itself, plain text, an image, a clip, JSON or XML, is shown rather than blocked. A server answering `application/xhtml+xml` counts as a website again. Discovery travels on node protocol 26, so update each node alongside the server.
 

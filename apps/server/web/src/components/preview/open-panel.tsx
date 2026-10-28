@@ -42,8 +42,10 @@ export function OpenPanel({ port, proxyBase, reloadKey, onConnectionChange }: Op
   useEffect(() => {
     // Tolerant of the trailing slash and of hex case, because a listener that
     // silently fails to mount is a phone whose refusal arrives with no
-    // explanation, and the prop's shape is the server's, not this file's.
-    const ref = /^\/pv\/([0-9a-f]{32})\/?$/i.exec(proxyBase)?.[1];
+    // explanation, and the prop's shape is the server's, not this file's. The
+    // capture is lowercased to match: the page posts the server's own lowercase
+    // ref, so a case difference here would disable the channel while looking live.
+    const ref = /^\/pv\/([0-9a-f]{32})\/?$/i.exec(proxyBase)?.[1]?.toLowerCase();
     if (!ref) return;
     const onMessage = (event: MessageEvent) => {
       // The refusal page runs sandboxed with no same-origin, so its event.origin

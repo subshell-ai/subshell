@@ -110,10 +110,12 @@ it("reaches an IPv6-only website when the IPv4 dial stalls", async () => {
   }
 });
 
-it("offers a port whose server accepted and is still thinking", async () => {
-  // The scenario the feature exists for: an agent has just typed `next dev`, the
-  // first request compiles the route, and a port that answers late is not a port
-  // to hide. It comes back as an untitled row, and opening it warms the server.
+it("does not advertise a port that only accepted and never answered", async () => {
+  // The other side of the cold-server rule. A wedged database, a language server
+  // or a leftover bind accepts the probe's GET / and says nothing back, and at
+  // this distance it is indistinguishable from a dev server compiling its first
+  // route. Offering it would fill the picker with rows that can never render,
+  // which is the thing this feature exists to stop, so silence is not an answer.
   const real = globalThis.fetch;
   globalThis.fetch = (async (_input: string | URL, init?: RequestInit) => {
     await new Promise<void>((_resolve, reject) => {
@@ -125,7 +127,23 @@ it("offers a port whose server accepted and is still thinking", async () => {
     throw new Error("unreachable");
   }) as unknown as typeof fetch;
   try {
-    expect(await probeWebsite(4196, AbortSignal.timeout(4_000))).toEqual({});
+    expect(await probeWebsite(4196, AbortSignal.timeout(6_000))).toBeNull();
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+it("still lists a dev server that answers late, which is a compiling one", async () => {
+  // The case the rule above must not lose: the first request compiles the route,
+  // so the answer is slow but real, and it lands inside the family's window.
+  const real = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL) => {
+    if (!String(input).includes("127.0.0.1")) return new Response(null, { status: 400 });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return new Response("<title>Compiling</title>", { headers: { "content-type": "text/html" } });
+  }) as typeof fetch;
+  try {
+    expect(await probeWebsite(4192, AbortSignal.timeout(6_000))).toEqual({ title: "Compiling" });
   } finally {
     globalThis.fetch = real;
   }

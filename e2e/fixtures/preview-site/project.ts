@@ -46,6 +46,11 @@ const root=import.meta.dirname;
 const app=Bun.serve({hostname:'127.0.0.1',port:Number(process.env.DEMO_PORT||3000),fetch(req,server){
  const url=new URL(req.url);
  if(url.pathname==='/socket'){if(server.upgrade(req,{data:0}))return;return new Response('Upgrade required',{status:426});}
+ // A genuine XHTML document: XML declaration, namespaced root, self-closed void
+ // elements. A browser parses this as strict XML because of the content type, so
+ // it is the only fixture that can prove the proxy's injected script is XML-safe.
+ if(url.pathname==='/xhtml')return new Response('<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>XHTML fixture</title><link rel="stylesheet" href="/xhtml.css" /></head><body><h1>Parsed as XML</h1></body></html>',{headers:{'content-type':'application/xhtml+xml','cache-control':'no-store'}});
+ if(url.pathname==='/xhtml.css')return new Response('h1{color:rgb(9, 9, 9)}',{headers:{'content-type':'text/css','cache-control':'no-store'}});
  if(url.pathname==='/echo')return Response.json({method:req.method});
  // A long-lived text/event-stream answer, so the shim's socket rewrite can be
  // proven not to have leaked onto EventSource, which requires http(s) by spec.

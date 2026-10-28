@@ -51,9 +51,11 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
       // A link built as createElement, then href, then rel is the ordinary order,
       // and the reuse problem is keyed on that pair: an href set while rel was
       // still empty got no revision, so the rel that arrives later re-runs the
-      // bump for the href the element already holds. The observer below only sees
-      // nodes entering the document, so it cannot cover this on its own.
-      if (element instanceof HTMLLinkElement && isStylesheetRel(value)) {
+      // bump for the href the element already holds. Only once it is in the
+      // document, though: an unconnected link fetches nothing, and bumping it here
+      // as well would have the observer below bump the same element again when it
+      // is appended, spending a second revision token on one stylesheet.
+      if (element instanceof HTMLLinkElement && isStylesheetRel(value) && element.isConnected) {
         const held = element.getAttribute("href");
         if (held !== null) {
           const bumped = stylesheetBump(element, map(held));

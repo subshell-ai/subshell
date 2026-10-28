@@ -68,9 +68,12 @@ export function strandingNavigationReason(
  * and the sentences here stay ours.
  */
 export function previewRefusalPage(ref: string, origin: string, reason: PreviewRefusalReason): string {
+  // Only the clients that can be stranded ever see this, so the advice has to be
+  // something that works on one of them. "Open in a new tab" does not: a new tab
+  // is the same top-level navigation and gets the same page back.
   const advice =
     reason === "download"
-      ? "The app offered a file, which would have taken this screen over with no way back. Have the app show it in the page, or open the address in a new tab."
+      ? "The app offered a file, which would have taken this screen over with no way back. Ask the app to show it in the page instead, or use its own export."
       : "This address returned something other than a web page. Close this preview and choose a website port.";
   // `<` is escaped so a host name cannot close the script element early.
   const payload = JSON.stringify({ type: PREVIEW_REFUSAL_MESSAGE, ref, reason }).replace(/</g, "\\u003c");
