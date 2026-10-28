@@ -285,6 +285,11 @@ body {
     user-select: text;
     -webkit-user-select: text;
   }
+  /* xterm excludes its rendered rows from hit testing for its own selection
+     service. Copy mode uses native selection, so the browser must hit text. */
+  .copy-mode .xterm .xterm-rows {
+    pointer-events: auto;
+  }
   .xterm .xterm-viewport {
     overscroll-behavior: contain;
   }

@@ -686,6 +686,7 @@ export function SubshellTerminal({
     // beside the WS hook owns every later change, and both write the same
     // OR so the two never disagree (issue #242).
     term.options.disableStdin = readOnlyRef.current || copyModeRef.current;
+    if (term.textarea) term.textarea.disabled = copyModeRef.current;
     // iPhone/iPad: xterm's own touchmove preventDefault kills the CSS pan
     // (see lib/terminal-touch-scroll.ts); this drives line-scroll instead.
     // Copy mode is read live per event — toggling it never re-attaches.
@@ -1022,6 +1023,9 @@ export function SubshellTerminal({
     const term = termRef.current;
     if (!term) return;
     term.options.disableStdin = readOnly || copyMode;
+    // A focused textarea redraws the cursor row on blur, removing a native
+    // selection as it starts. Keep input unfocusable while copying text.
+    if (term.textarea) term.textarea.disabled = copyMode;
     if (copyMode) {
       term.textarea?.blur();
       // A selection xterm's own service still holds from before the mode
