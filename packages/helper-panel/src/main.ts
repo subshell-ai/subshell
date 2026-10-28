@@ -183,7 +183,10 @@ function quitDialog(state: PanelState): HTMLElement {
   body.id = "quit-body";
   const foot = element("div", "dialog-foot");
   const cancel = pageButton(strings.cancel, "outline", closeQuitDialog);
-  const confirm = pageButton(strings.quit, "destructive", () => bridge()?.postMessage({ action: "quit" }));
+  const confirm = pageButton(strings.quit, "destructive", () => {
+    closeQuitDialog();
+    bridge()?.postMessage({ action: "quit" });
+  });
   foot.append(cancel, confirm);
   dialog.append(title, body, foot);
   scrim.append(dialog);

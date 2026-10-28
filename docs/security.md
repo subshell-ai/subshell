@@ -912,10 +912,13 @@ the bearer token above.
 
 **WebSocket input queues are bounded by the server.** A custom client can ignore
 browser pacing, so the server limits each input payload to 64 KiB of UTF-8,
-each connection to 512 outstanding frames or 16 MiB of payload, and all terminal
-WebSockets together to 4,096 frames or 64 MiB. Both dispatched writes and held
+each connection to 512 outstanding frames or 16 MiB of payload, each node across
+its connections to 1,024 frames or 16 MiB, and all terminal WebSockets together
+to 4,096 frames or 64 MiB. Both dispatched writes and held
 retries count. An oversized frame closes its socket with 1009; exhausting a
-queue budget closes the offending socket with 1013. These are payload budgets,
+queue budget closes the requesting socket with 1013 without acknowledging the
+refused input, allowing reliable clients to resend on reconnect. One offline node
+cannot retain the entire fleet's budget. These are payload budgets,
 not a bound on the server's entire heap or on other API traffic.
 
 Disconnecting drops undispatched retries and prevents late failures from

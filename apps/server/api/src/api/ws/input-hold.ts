@@ -36,10 +36,10 @@
  *   retry timer: the re-fire triggers are the node's `ready` moment (the
  *   node-ws-handler, which calls {@link refireInputHoldsForNode}) and a
  *   new-write arrival (which appends and kicks the drain). The server bounds
- *   frames and payload bytes per socket and process-wide in input-budget.ts,
+ *   frames and payload bytes per socket, per node and process-wide in input-budget.ts,
  *   counting both dispatched writes and retries. A custom client cannot
  *   bypass those bounds by ignoring the browser's pacing. Duplicate held ids
- *   don't consume another slot; overflow closes the offending socket.
+ *   don't consume another slot; overflow closes the requesting socket without acknowledging the frame.
  * - **A re-fire failure re-enters the hold.** The drain stops at the first
  *   rejection, leaving that frame at the head and every later one behind it;
  *   the next trigger re-enters. No clock anywhere in this module.

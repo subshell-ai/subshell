@@ -1089,6 +1089,7 @@ describe("exit watcher — the capture-child guard", () => {
       await check();
     }
     expect(calls.filter((call) => call.method === "pipePane")).toHaveLength(1);
+    stopWatcher(ctx, S1);
   });
 
   it("doesn't report a re-arm when tmux refuses it", async () => {
@@ -1106,6 +1107,7 @@ describe("exit watcher — the capture-child guard", () => {
       restore();
     }
     expect(lines.some((line) => line.includes("re-armed the capture child"))).toBe(false);
+    stopWatcher(ctx, S1);
   });
 
   it("a pane printing into a dead writer gets the child re-armed, once per drift storm", async () => {

@@ -504,13 +504,24 @@ test("the agreement pipeline rejects missing imports and local palette overrides
       `assistant: import ${SHARED_TOKENS} before declaring local tokens`,
     );
     writeFileSync(assistant, `${original}\n:root {\n  --primary: red;\n}\n`);
-    expect((await allAgreement("assistant", fixture)).some((line) => line.includes("--primary is red"))).toBe(true);
+    expect(
+      (await allAgreement("assistant", fixture)).some((line) =>
+        line.includes("--primary is red, but packages/assistant/tokens.css sets"),
+      ),
+    ).toBe(true);
     writeFileSync(assistant, original);
     const panel = join(fixture, "packages/helper-panel/src/styles.css");
-    writeFileSync(panel, readFileSync(panel, "utf8").replace(/^@import[^;]*tokens\.css[^;]*;/m, ""));
+    const originalPanel = readFileSync(panel, "utf8");
+    writeFileSync(panel, originalPanel.replace(/^@import[^;]*tokens\.css[^;]*;/m, ""));
     expect(await allAgreement("assistant", fixture)).toContain(
       `helper-panel: import ${SHARED_TOKENS} before declaring local tokens`,
     );
+    writeFileSync(panel, `${originalPanel}\n:root {\n  --primary: red;\n}\n`);
+    expect(
+      (await allAgreement("assistant", fixture)).some((line) =>
+        line.includes("helper-panel: --primary is red, but packages/assistant/tokens.css sets"),
+      ),
+    ).toBe(true);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }

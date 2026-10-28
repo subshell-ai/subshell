@@ -28,11 +28,13 @@ try {
     name: "Website development",
     flags: ["--noprofile", "--norc"],
   });
+  const demoDir = "/tmp/subshell-demo/website";
+  mkdirSync(demoDir, { recursive: true });
   const pane = await post("/api/subshells", {
     name: "Website",
     harnessId: "terminal",
     presetId: preset.id,
-    workingDir: process.cwd(),
+    workingDir: demoDir,
   });
   cleanup.unshift(() => api.delete(`/api/subshells/${pane.id}`));
   await post(`/api/subshells/${pane.id}/services`, {

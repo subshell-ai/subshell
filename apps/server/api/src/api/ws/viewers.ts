@@ -15,8 +15,8 @@
 
 import { DEFAULT_SIZING, resolveSharedGrid, type SizingPolicy, type ViewerPresence } from "@internal/subshell-protocol";
 import { encodeFrame, type WireMode } from "@internal/subshell-protocol/wire";
-import { resetInputHoldsForTests } from "@/api/ws/input-hold.js";
-import { resetInputWindowsForTests } from "@/api/ws/input-window.js";
+import { dropInputHolds, resetInputHoldsForTests } from "@/api/ws/input-hold.js";
+import { resetInputWindowsForTests, sanitizeInputSession } from "@/api/ws/input-window.js";
 import { createGeometryQueue, type PaneGeometry } from "@/api/ws/pane-geometry.js";
 import { createPaneStreamRegistry } from "@/api/ws/pane-stream.js";
 import { getRequestlessContext } from "@/app/context.js";
@@ -679,6 +679,10 @@ export function closeViewersForSubshell(subshellId: string, code: number, reason
   let closed = 0;
   // Snapshot: detachViewer empties (and deletes) the map we are standing in.
   for (const ws of [...viewers.values()]) {
+    ws.data.inputClosed = true;
+    untrackTerminalSocket(ws);
+    const query = (ws.data as WsData & { query?: Record<string, string> }).query;
+    dropInputHolds(ws.data.nodeId, ws.data.subshellId, sanitizeInputSession(query?.sid) ?? ws.data.viewerId);
     // Each step its own try: a disposer that throws must not skip the detach,
     // or the viewer stays registered, the stream never reaches zero, and the
     // next attach inherits the corpse this function exists to bury.

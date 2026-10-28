@@ -28,8 +28,8 @@ try {
     name: "Website development",
     flags: ["--noprofile", "--norc"],
   });
-  // A real, readable demo directory keeps scratch checkout paths out of the UI.
-  const demoDir = `${process.env.HOME}/Projects/website`;
+  // A fixed neutral path keeps personal and checkout paths out of published captures.
+  const demoDir = "/tmp/subshell-demo/website";
   mkdirSync(demoDir, { recursive: true });
   const pane = await post("/api/subshells", {
     name: "Website",

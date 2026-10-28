@@ -69,7 +69,7 @@ try {
     : process.argv.includes("--desktop-only") || subagents
       ? [false]
       : [false, true]) {
-    const workingDir = path.join(root, mobile ? "phone" : "desktop", "task-board");
+    const workingDir = path.join("/tmp/subshell-demo", mobile ? "phone" : "desktop", "task-board");
     mkdirSync(workingDir, { recursive: true });
     writeFileSync(
       path.join(workingDir, "package.json"),
@@ -199,13 +199,13 @@ export function summarize(tasks) {
       if (
         subagents &&
         !demonstrated &&
-        (await page.getByRole("button", { name: "Collapse subagents", exact: true }).count())
+        (await page.getByRole("button", { name: "Collapse subshell details", exact: true }).count())
       ) {
         await hold(2);
         posterFrame = frame - 1;
-        await page.getByRole("button", { name: "Collapse subagents", exact: true }).click();
+        await page.getByRole("button", { name: "Collapse subshell details", exact: true }).click();
         await hold(1);
-        await page.getByRole("button", { name: "Expand subagents", exact: true }).click();
+        await page.getByRole("button", { name: "Expand subshell details", exact: true }).click();
         await hold(2);
         await page.getByRole("link", { name: /Build feature/ }).click();
         await hold(1);

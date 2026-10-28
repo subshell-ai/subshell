@@ -229,13 +229,57 @@ pub fn open_settings(resource_dir: &Path, home: &Path) -> Result<(), String> {
             promote: &|| fs::rename(&next, &installed).map_err(|e| e.to_string()),
             restore: &|| fs::rename(&previous, &installed).map_err(|e| e.to_string()),
         });
-        // Keep a previous copy if rollback itself failed, rather than deleting it.
-        if installed.exists() {
-            let _ = fs::remove_dir_all(&staging);
-        }
-        result?;
+        // Only a confirmed successful swap makes old recovery copies expendable.
+        // Keep the install lock through the sweep so another attempt cannot race it.
+        finish_staging(&applications, result)?;
     }
     open_verified_settings(&installed)
+}
+
+/// Successful installation supersedes abandoned recovery copies. Failed swaps keep
+/// all staging evidence, including when the previous install was restored.
+fn finish_staging(applications: &Path, result: Result<(), String>) -> Result<(), String> {
+    result?;
+    let Ok(entries) = fs::read_dir(applications) else {
+        return Ok(());
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(suffix) = name
+            .to_str()
+            .and_then(|name| name.strip_prefix(".subshell-display-helper-"))
+        else {
+            continue;
+        };
+        let parts = suffix.split('-').collect::<Vec<_>>();
+        // Recognize our old PID-only names and current PID-stamp-attempt names,
+        // rather than treating the whole prefix as permission to delete data.
+        if !matches!(parts.len(), 1 | 3)
+            || parts
+                .iter()
+                .any(|part| part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()))
+        {
+            continue;
+        }
+        if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            continue;
+        }
+        let directory = entry.path();
+        let Ok(children) = fs::read_dir(&directory) else {
+            continue;
+        };
+        let children = children.collect::<Result<Vec<_>, _>>();
+        let Ok(children) = children else { continue };
+        if children.iter().any(|child| {
+            let name = child.file_name();
+            (name != BUNDLE && name != "previous.app") || !child.file_type().is_ok_and(|kind| kind.is_dir())
+        }) {
+            continue;
+        }
+        // remove_dir_all doesn't follow symbolic links inside a real directory.
+        let _ = fs::remove_dir_all(directory);
+    }
+    Ok(())
 }
 
 /// Reserve a new staging directory without touching a previous failed rollback.
@@ -308,6 +352,45 @@ mod tests {
         let second = create_staging(&root).unwrap();
         assert_ne!(first, second);
         assert_eq!(fs::read(old.join("previous.app")).unwrap(), b"recovery");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn staging_is_pruned_only_after_success_without_touching_unrelated_paths() {
+        let root = std::env::temp_dir().join(format!("subshell-helper-prune-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let old = root.join(".subshell-display-helper-123");
+        let current = create_staging(&root).unwrap();
+        fs::create_dir_all(old.join("previous.app")).unwrap();
+        fs::write(old.join("previous.app/recovery"), b"recovery").unwrap();
+        let unrelated = root.join(".subshell-display-helper-not-ours");
+        fs::create_dir_all(&unrelated).unwrap();
+        let unknown = root.join(".subshell-display-helper-456");
+        fs::create_dir_all(&unknown).unwrap();
+        fs::write(unknown.join("personal"), b"keep").unwrap();
+        let target = root.join("personal-folder");
+        fs::create_dir_all(target.join("previous.app")).unwrap();
+        fs::write(target.join("previous.app/keep"), b"keep").unwrap();
+        let link = root.join(".subshell-display-helper-789");
+        symlink(&target, &link).unwrap();
+        let inner_link = root.join(".subshell-display-helper-987");
+        fs::create_dir_all(&inner_link).unwrap();
+        symlink(&target, inner_link.join("previous.app")).unwrap();
+        assert!(finish_staging(&root, Err("failed swap".into())).is_err());
+        assert!(current.exists());
+        assert_eq!(fs::read(old.join("previous.app/recovery")).unwrap(), b"recovery");
+        finish_staging(&root, Ok(())).unwrap();
+        assert!(!old.exists());
+        assert!(!current.exists());
+        assert!(unrelated.exists());
+        assert!(unknown.join("personal").exists());
+        assert!(fs::symlink_metadata(link).unwrap().file_type().is_symlink());
+        assert!(fs::symlink_metadata(inner_link.join("previous.app"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(fs::read(target.join("previous.app/keep")).unwrap(), b"keep");
         fs::remove_dir_all(root).unwrap();
     }
 

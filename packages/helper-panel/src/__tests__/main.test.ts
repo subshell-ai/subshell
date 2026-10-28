@@ -1,4 +1,4 @@
-import { beforeEach, expect, test } from "bun:test";
+import { beforeEach, expect, spyOn, test } from "bun:test";
 import "../main";
 import { EMPTY_STATE, type PanelMessage } from "../state";
 
@@ -58,5 +58,26 @@ test("each render sends finite document dimensions to the native bridge", () => 
 test("native reactivation clears the dialog even without a state change", () => {
   press("Quit helper");
   window.subshellPanelShown?.();
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+});
+
+test("non-finite layout dimensions are replaced before crossing the bridge", () => {
+  const layout = spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+    width: Number.NaN,
+    height: Number.NaN,
+  } as DOMRect);
+  try {
+    messages.length = 0;
+    window.subshellSetState?.(EMPTY_STATE);
+    expect(messages).toContainEqual({ action: "resize", width: 0, height: 0 });
+  } finally {
+    layout.mockRestore();
+  }
+});
+
+test("Confirm dismisses the quit dialog even without a native bridge", () => {
+  press("Quit helper");
+  window.webkit = undefined;
+  document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')[1]?.click();
   expect(document.querySelector('[role="dialog"]')).toBeNull();
 });

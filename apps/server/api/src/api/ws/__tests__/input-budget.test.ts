@@ -3,6 +3,8 @@ import {
   INPUT_FRAME_MAX_BYTES,
   INPUT_GLOBAL_MAX_BYTES,
   INPUT_GLOBAL_MAX_FRAMES,
+  INPUT_NODE_MAX_BYTES,
+  INPUT_NODE_MAX_FRAMES,
   INPUT_SOCKET_MAX_BYTES,
   INPUT_SOCKET_MAX_FRAMES,
   takeInputBudget,
@@ -14,7 +16,7 @@ import {
   resetInputHoldsForTests,
 } from "@/api/ws/input-hold.js";
 import { cleanupSubshellWs, handleSubshellMessage } from "@/api/ws/subshell-ws.js";
-import type { WsSocket } from "@/api/ws/viewers.js";
+import { closeViewersForSubshell, registerViewer, type WsSocket } from "@/api/ws/viewers.js";
 
 function socket(sendInput: () => Promise<void> = async () => {}) {
   const closed: number[] = [];
@@ -23,7 +25,7 @@ function socket(sendInput: () => Promise<void> = async () => {}) {
       launcher: { sendInput },
       socket: "sock",
       subshellId: crypto.randomUUID(),
-      nodeId: "budget-node",
+      nodeId: crypto.randomUUID(),
       viewerId: crypto.randomUUID(),
       canInput: true,
     },
@@ -182,4 +184,65 @@ it("disconnecting a retrying socket doesn't release work still running on the no
     await settle();
     for (const release of releases) release();
   }
+});
+
+it("one offline node cannot consume the fleet's input budget across sockets", async () => {
+  for (const bytes of [1, INPUT_FRAME_MAX_BYTES]) {
+    const releases: (() => void)[] = [];
+    const payload = "x".repeat(bytes);
+    const count = Math.min(INPUT_NODE_MAX_FRAMES, INPUT_NODE_MAX_BYTES / bytes);
+    const perSocket = Math.min(INPUT_SOCKET_MAX_FRAMES, INPUT_SOCKET_MAX_BYTES / bytes);
+    const nodeId = crypto.randomUUID();
+    let current = socket();
+    try {
+      for (let i = 0; i < count; i++) {
+        if (i % perSocket === 0) current = socket();
+        current.ws.data.nodeId = nodeId;
+        const release = takeInputBudget(current.ws, payload);
+        if (!release) throw new Error("node budget refused input early");
+        releases.push(release);
+      }
+      const excess = socket();
+      excess.ws.data.nodeId = nodeId;
+      expect(takeInputBudget(excess.ws, payload)).toBeNull();
+      expect(excess.closed).toEqual([1013]);
+      const healthy = socket();
+      const release = takeInputBudget(healthy.ws, payload);
+      expect(release).not.toBeNull();
+      expect(healthy.closed).toEqual([]);
+      release?.();
+    } finally {
+      for (const release of releases) release();
+    }
+    const recovered = socket();
+    recovered.ws.data.nodeId = nodeId;
+    const release = takeInputBudget(recovered.ws, payload);
+    expect(release).not.toBeNull();
+    release?.();
+  }
+});
+
+it("forced disconnect drops held input synchronously when close never fires", async () => {
+  let dispatched = 0;
+  let acknowledged = 0;
+  const { ws, closed } = socket(async () => {
+    dispatched++;
+    throw new Error("node offline");
+  });
+  // Exercise the negotiated session id rather than the viewer-id fallback.
+  Object.assign(ws.data, { query: { sid: "forced-session" } });
+  registerViewer(ws, ws.data.subshellId);
+  const held = { nodeId: ws.data.nodeId, subshellId: ws.data.subshellId, sessionId: "forced-session" };
+  holdFailedInput({ ...held, id: 1, payload: "held", ws, sendAck: () => acknowledged++ });
+  await settle();
+  expect(hasHeldInput(held.nodeId, held.subshellId, held.sessionId)).toBe(true);
+  expect(closeViewersForSubshell(ws.data.subshellId, 1012, "stream recovery")).toBe(1);
+  expect(ws.data.inputClosed).toBe(true);
+  expect(hasHeldInput(held.nodeId, held.subshellId, held.sessionId)).toBe(false);
+  refireInputHoldsForNode(held.nodeId);
+  handleSubshellMessage(ws, { type: "input", data: "late", id: 2 });
+  await settle();
+  expect(dispatched).toBe(1);
+  expect(acknowledged).toBe(0);
+  expect(closed).toEqual([1012]);
 });

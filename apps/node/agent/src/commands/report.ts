@@ -57,7 +57,7 @@ export const NODE_EXIT_UNREACHABLE_TICKS = 2;
 export const PIPE_GUARD_CHECK_TICKS = 10;
 
 /**
- * Consecutive drift observations before re-arming, across checks (so the
+ * Accumulated drift observations before re-arming, across checks (so the
  * re-arm lands a little over a minute into "printing into a dead pipe").
  * Generous on purpose: the check
  * itself spawns tmux, and a single race (output landing between the capture
