@@ -5,4 +5,4 @@
 "@internal/desktop-server": patch
 ---
 
-Add a virtual-display section to the website with screenshots and Linux and macOS setup links. Refresh the display screenshot in the guide, and show SSH owner-only restrictions in gold like other node settings.
+Add a virtual-display section to the website with a screenshot and Linux and macOS setup links. Refresh the display screenshot in the guide, and show SSH owner-only restrictions in gold like other node settings.

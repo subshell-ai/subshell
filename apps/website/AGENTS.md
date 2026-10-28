@@ -166,8 +166,8 @@ Never record the developer's private test account, hostnames, or project.
 ### Virtual-display screenshots
 
 `VirtualDisplayShowcase` follows the website preview demo and links to the Linux
-and macOS setup guides. Its lossless WebP images in `public/shots/` come from the
-docs site's `preview-display.png` and `assistant-virtual-displays.png`. Refresh
-both sites together, keep the image dimensions in sync, and retain the real
-virtual-display tab and helper controls. The display capture uses the maximized
+and macOS setup guides. Keep platform setup instructions in the documentation,
+not a separate marketing subsection. Its lossless WebP image in `public/shots/`
+comes from the docs site's `preview-display.png`. Refresh both sites together,
+keep the image dimensions in sync, and retain the real virtual-display tab. The display capture uses the maximized
 viewer so setup commands do not obscure the app being demonstrated.
