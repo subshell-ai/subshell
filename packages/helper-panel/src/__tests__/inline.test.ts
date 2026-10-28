@@ -29,14 +29,30 @@ describe("inlineInto", () => {
     expect(doc).toContain("<title>");
   });
 
-  test("escapes a close tag that would end the element early", () => {
-    // A stylesheet or bundle containing `</style>` would otherwise close the
-    // element mid-content and dump the rest of the file in as text.
-    const doc = inlineInto(VITE_HTML, 'const note = "</script>";', '/* "</style>" */');
-    expect(doc.match(/<script>/g)?.length).toBe(1);
-    expect(doc.match(/<style>/g)?.length).toBe(1);
-    expect(doc).toContain("<\\/script>");
-    expect(doc).toContain("<\\/style>");
+  test("escapes closing tags regardless of HTML casing", async () => {
+    const doc = inlineInto(VITE_HTML, 'const note = "</ScRiPt><script>unexpected()</script>";', "/* </StYlE> */");
+    let scripts = 0;
+    await new HTMLRewriter()
+      .on("script", {
+        element: () => {
+          scripts++;
+        },
+      })
+      .transform(new Response(doc))
+      .text();
+    expect(scripts).toBe(1);
+    expect(doc.match(/<\/script\s*>/gi)?.length).toBe(1);
+    expect(doc.match(/<\/style\s*>/gi)?.length).toBe(1);
+    expect(doc).toContain("<\\/ScRiPt>");
+    expect(doc).toContain("<\\/StYlE>");
+  });
+
+  test("preserves replacement tokens in script and stylesheet contents", () => {
+    const js = `const tokens = ["$&", "$'", "$` + "`" + `", "$$"];`;
+    const css = `/* $& $' $` + "`" + ` $$ */`;
+    const doc = inlineInto(VITE_HTML, js, css);
+    expect(doc).toContain(`<script>${js}</script>`);
+    expect(doc).toContain(`<style>${css}</style>`);
   });
 
   test("refuses a document whose tags it no longer recognizes", () => {

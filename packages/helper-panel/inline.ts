@@ -9,7 +9,8 @@ const STYLE_TAG = /<link\b[^>]*\bhref="\.\/assets\/[^"]+\.css"[^>]*>/;
 
 /** Close-tag defense: text that would end the element early is escaped. */
 function embed(code: string, closing: string): string {
-  return code.split(`</${closing}`).join(`<\\/${closing}`);
+  // HTML end tags are case-insensitive, even inside JS strings and comments.
+  return code.replace(new RegExp(`</${closing}`, "gi"), (tag) => `<\\/${tag.slice(2)}`);
 }
 
 /**
@@ -37,8 +38,8 @@ export function inlineInto(html: string, js: string, css: string): string {
     throw new Error("the panel bundle uses module-only syntax and cannot be inlined as a classic script");
   }
   const inlined = html
-    .replace(SCRIPT_TAG, `<script>${embed(js, "script")}</script>`)
-    .replace(STYLE_TAG, `<style>${embed(css, "style")}</style>`);
+    .replace(SCRIPT_TAG, () => `<script>${embed(js, "script")}</script>`)
+    .replace(STYLE_TAG, () => `<style>${embed(css, "style")}</style>`);
   // Anything still pointing at ./assets/ escaped the fold, and would be
   // refused by WebKit exactly as the two that this function handles.
   const leftover = /(?:src|href)="\.\/assets\/[^"]+"/.exec(inlined);

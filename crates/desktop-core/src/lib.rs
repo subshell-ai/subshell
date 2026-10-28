@@ -72,7 +72,7 @@
 
 pub mod browser;
 pub mod cli_update;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 pub mod display_helper;
 pub mod legal;
 pub mod pending_install;

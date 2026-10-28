@@ -255,6 +255,23 @@ describe("useSubshellWs grid resync", () => {
     expect(instances.length).toBe(2);
   });
 
+  it("recovers a second resize once the cooldown ends without another event", async () => {
+    setAttachResyncTimingsForTests(2, 200);
+    const term = fakeTerminal();
+    renderHook(() => useSubshellWs({ current: term as unknown as Terminal }, "s-cooldown", {}));
+    await waitFor(() => expect(instances.length).toBe(1));
+    establish(instances[0], term);
+    term.cols = 90;
+    send(instances[0], { type: "geometry", cols: 90, rows: 24 });
+    await waitFor(() => expect(instances.length).toBe(2));
+    establish(instances[1], term);
+    term.cols = 100;
+    send(instances[1], { type: "geometry", cols: 100, rows: 24 });
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
+    expect(instances.length).toBe(2);
+    await waitFor(() => expect(instances.length).toBe(3));
+  });
+
   it("a bouncing grid resyncs at most once per storm gap", async () => {
     setAttachResyncTimingsForTests(2, 10_000); // wide gap, fast settle check
     const term = fakeTerminal();

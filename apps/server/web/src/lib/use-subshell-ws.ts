@@ -353,32 +353,37 @@ export function useSubshellWs(
     const scheduleResyncCheck = (): void => {
       if (resyncTimer) clearTimeout(resyncTimer);
       if (cancelled) return;
-      resyncTimer = setTimeout(() => {
-        resyncTimer = null;
-        if (cancelled) return;
-        if (
-          needsGridResync({
-            established: establishedGrid,
-            current: { cols: term.cols, rows: term.rows },
-            outputSince,
-            sinceLastResyncMs: Date.now() - lastResyncAt,
-          })
-        ) {
-          // Arm only against an OPEN socket. The `socket` reference lags the
-          // token fetch inside `connect`, so a verdict landing while a
-          // reconnect is in flight would otherwise close nothing, burn the
-          // one-shot AND leave the flag for the NEXT close to mistake for a
-          // resync (skipping the Wave D escalation it must keep). A reconnect
-          // already coming re-establishes the base from its own replay; the
-          // drift this verdict saw will be caught then if it still stands.
-          if (!socket || socket.readyState !== WebSocket.OPEN) return;
-          lastResyncAt = Date.now();
-          establishedGrid = null; // one-shot until the next replay re-establishes
-          outputSince = 0;
-          resyncClosing = true;
-          socket.close();
-        }
-      }, resyncDebounceMs);
+      resyncTimer = setTimeout(
+        () => {
+          resyncTimer = null;
+          if (cancelled) return;
+          if (
+            needsGridResync({
+              established: establishedGrid,
+              current: { cols: term.cols, rows: term.rows },
+              outputSince,
+              sinceLastResyncMs: Date.now() - lastResyncAt,
+            })
+          ) {
+            // Arm only against an OPEN socket. The `socket` reference lags the
+            // token fetch inside `connect`, so a verdict landing while a
+            // reconnect is in flight would otherwise close nothing, burn the
+            // one-shot AND leave the flag for the NEXT close to mistake for a
+            // resync (skipping the Wave D escalation it must keep). A reconnect
+            // already coming re-establishes the base from its own replay; the
+            // drift this verdict saw will be caught then if it still stands.
+            if (!socket || socket.readyState !== WebSocket.OPEN) return;
+            lastResyncAt = Date.now();
+            establishedGrid = null; // one-shot until the next replay re-establishes
+            outputSince = 0;
+            resyncClosing = true;
+            socket.close();
+          }
+          // A change inside the cooldown still needs a check when it expires.
+          // Otherwise the last resize can leave the pane drifted indefinitely.
+        },
+        Math.max(resyncDebounceMs, resyncMinGapMs - (Date.now() - lastResyncAt)),
+      );
     };
 
     /**

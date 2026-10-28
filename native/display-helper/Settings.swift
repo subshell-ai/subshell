@@ -205,7 +205,9 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
         NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: panel, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.onVisibilityChange?() }
+            // willClose arrives before isVisible changes. Rebuild the menu
+            // after the close completes so Minimize reflects the hidden panel.
+            Task { @MainActor in self?.onVisibilityChange?() }
         }
 
         web = view
@@ -250,7 +252,7 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
 
     private func pushState(force: Bool = false) {
         guard loaded, let view = web,
-              let data = try? JSONSerialization.data(withJSONObject: snapshot()),
+              let data = try? JSONSerialization.data(withJSONObject: snapshot(), options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return }
         if !force, json == lastPushed { return }
         lastPushed = json
@@ -367,6 +369,8 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
         Task { @MainActor in
             // The bridge is the page's only door into the helper, so it carries a
             // name and a number and nothing else.
+            guard message.frameInfo.isMainFrame,
+                  PanelBundle.allows(message.frameInfo.request.url) else { return }
             guard let body = message.body as? [String: Any], let action = body["action"] as? String else { return }
             if action == "resize" {
                 let width = (body["width"] as? NSNumber)?.doubleValue ?? 0

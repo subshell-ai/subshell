@@ -61,6 +61,10 @@ fn requirement_test_arg(development: bool) -> String {
 }
 
 fn verify(bundle: &Path) -> Result<(), String> {
+    verify_with(bundle, &mut run)
+}
+
+fn verify_with(bundle: &Path, run: &mut impl FnMut(&[&str]) -> Result<String, String>) -> Result<(), String> {
     // The outer desktop bundle authenticates its resource too. Verify the
     // standalone copy before reusing it, including its publisher in releases.
     let requirement = requirement_test_arg(cfg!(debug_assertions));
@@ -73,6 +77,20 @@ fn verify(bundle: &Path) -> Result<(), String> {
         path(bundle)?,
     ])
     .map(|_| ())
+}
+
+fn open_verified_settings(bundle: &Path) -> Result<(), String> {
+    open_verified_settings_with(bundle, &mut run)
+}
+
+fn open_verified_settings_with(
+    bundle: &Path,
+    run: &mut impl FnMut(&[&str]) -> Result<String, String>,
+) -> Result<(), String> {
+    // Replacement may be needed because this copy failed verification. A busy
+    // install lock must never turn that refusal into permission to execute it.
+    verify_with(bundle, run)?;
+    run(&["/usr/bin/open", path(bundle)?, "--args", "--settings"]).map(|_| ())
 }
 
 struct InstallLock(File);
@@ -186,15 +204,13 @@ pub fn open_settings(resource_dir: &Path, home: &Path) -> Result<(), String> {
             Ok(lock) => lock,
             // An update must never block the route to Disable. Keep using the
             // verified running copy; the next menu open after Quit can update.
-            Err(_) if installed.exists() => {
-                return run(&["/usr/bin/open", path(&installed)?, "--args", "--settings"]).map(|_| ())
-            }
+            Err(_) if installed.exists() => return open_verified_settings(&installed),
             Err(error) => return Err(error),
         };
         // Another app may have installed a newer copy while this menu was opening.
         if !replacement_needed(&bundled, &bundled_version, &installed)? {
             drop(_lock);
-            return run(&["/usr/bin/open", path(&installed)?, "--args", "--settings"]).map(|_| ());
+            return open_verified_settings(&installed);
         }
         fs::create_dir_all(&applications).map_err(|e| e.to_string())?;
         let staging = applications.join(format!(".subshell-display-helper-{}", std::process::id()));
@@ -221,7 +237,7 @@ pub fn open_settings(resource_dir: &Path, home: &Path) -> Result<(), String> {
         }
         result?;
     }
-    run(&["/usr/bin/open", path(&installed)?, "--args", "--settings"]).map(|_| ())
+    open_verified_settings(&installed)
 }
 
 /// The steps of the staged swap, injected so a test can fail each one and watch what
@@ -339,6 +355,29 @@ mod tests {
         };
         assert_eq!(staged_swap(&steps).unwrap_err(), "busy");
         assert!(!log.borrow().contains(&"restore"));
+    }
+
+    #[test]
+    fn opening_an_installed_helper_requires_a_valid_signature_even_when_reusing_it() {
+        let bundle = Path::new("/Applications/Subshell Display Helper.app");
+        for valid in [false, true] {
+            let mut commands = Vec::new();
+            let result = open_verified_settings_with(bundle, &mut |args| {
+                commands.push(args[0].to_string());
+                if args[0] == "/usr/bin/codesign" && !valid {
+                    Err("invalid signature".into())
+                } else {
+                    Ok(String::new())
+                }
+            });
+            if valid {
+                assert!(result.is_ok());
+                assert_eq!(commands, ["/usr/bin/codesign", "/usr/bin/open"]);
+            } else {
+                assert_eq!(result, Err("invalid signature".into()));
+                assert_eq!(commands, ["/usr/bin/codesign"]);
+            }
+        }
     }
 
     #[test]

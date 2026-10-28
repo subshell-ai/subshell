@@ -162,7 +162,9 @@ fn tree_files(dir: &Path) -> Vec<PathBuf> {
         };
         for entry in entries.flatten() {
             let path = entry.path();
-            let Ok(file_type) = entry.file_type() else { continue };
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
             // A symlinked or nested directory is not something this bundle
             // should carry; only real files inside the tree are copied.
             if file_type.is_dir() {
@@ -271,7 +273,29 @@ fn write_if_changed(wanted: &[u8], to: &Path) -> bool {
 /// The same, from a file on disk.
 fn copy_if_changed(from: &Path, to: &Path) -> bool {
     let wanted = std::fs::read(from).unwrap_or_else(|error| panic!("read {}: {error}", from.display()));
-    write_if_changed(&wanted, to)
+    let wrote = write_if_changed(&wanted, to);
+    // Writing bytes creates a non-executable file on a fresh checkout. Keep
+    // the compiler's permissions, including when repairing an older stage.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = std::fs::metadata(from).expect("source metadata").permissions();
+        if std::fs::metadata(to).expect("target metadata").permissions().mode() != permissions.mode() {
+            std::fs::set_permissions(to, permissions).expect("preserve staged permissions");
+            return true;
+        }
+    }
+    wrote
+}
+
+fn is_executable(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    }
+    #[cfg(not(unix))]
+    path.is_file()
 }
 
 pub fn build() {
@@ -323,7 +347,7 @@ pub fn build() {
     let staged_plist = bundle.join("Contents/Info.plist");
     let bundled_panel = bundle.join("Contents/Resources/panel");
     if std::fs::read_to_string(&stamp).is_ok_and(|stored| stored == stamp_value)
-        && staged.is_file()
+        && is_executable(&staged)
         && staged_plist.is_file()
         && bundled_panel.join("index.html").is_file()
         // ...and the seal it was signed with. An outside hand (a sync tool, a
@@ -514,6 +538,27 @@ mod tests {
         assert!(copy_if_changed(&from, &to));
         assert_eq!(std::fs::read(&to).unwrap(), b"v2-longer");
         assert!(std::fs::metadata(&to).unwrap().modified().unwrap() > before);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn staging_preserves_and_repairs_executable_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = scratch("executable-mode");
+        let from = directory.join("compiled");
+        let to = directory.join("bundled");
+        std::fs::write(&from, b"#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&from, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(copy_if_changed(&from, &to));
+        assert!(Command::new(&to).status().unwrap().success());
+        std::fs::set_permissions(&to, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(
+            copy_if_changed(&from, &to),
+            "unchanged bytes still need their mode repaired"
+        );
+        assert!(Command::new(&to).status().unwrap().success());
+        assert!(!copy_if_changed(&from, &to));
         std::fs::remove_dir_all(directory).unwrap();
     }
 
