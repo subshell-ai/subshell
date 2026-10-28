@@ -4,6 +4,7 @@ import { HeroSpread } from "../components/hero-spread";
 import { PreviewShowcase } from "../components/preview-showcase";
 import { SiteFooter } from "../components/site-footer";
 import { SiteHeader } from "../components/site-header";
+import { VirtualDisplayShowcase } from "../components/virtual-display-showcase";
 import releases from "../data/releases.json";
 import type { ReleasesManifest } from "../lib/releases";
 
@@ -13,6 +14,7 @@ export default function Home() {
       <SiteHeader />
       <HeroSpread manifest={releases as ReleasesManifest} />
       <PreviewShowcase />
+      <VirtualDisplayShowcase />
       <FeatureShowcase />
       <div className="mt-3">
         <SiteFooter />

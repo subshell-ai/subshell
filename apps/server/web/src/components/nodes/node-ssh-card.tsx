@@ -37,7 +37,7 @@ export function NodeSshCard({ node, children }: { node: NodeDetail; children?: R
               : "Turning this on allows SSH connections from this node and lets it provide keys to other nodes through Subshell. It doesn't enable incoming SSH access to this machine."}
           </p>
         ) : (
-          <p className="text-detail text-muted-foreground">
+          <p className="text-detail text-warning">
             {node.kind === "local"
               ? "An admin can change this setting."
               : "Only this node’s owner can change this setting."}

@@ -55,6 +55,11 @@ try {
   expect((await api.patch("/api/setup/progress", { data: { step: null } })).ok()).toBe(true);
   expect((await api.patch("/api/settings", { data: { instanceName: "Northstar Studio" } })).ok()).toBe(true);
   expect((await api.put("/api/nodes/local/views-enabled", { data: { on: true } })).ok()).toBe(true);
+  if (!securityOnly) {
+    expect((await api.put("/api/nodes/local/views-enabled", { data: { on: true, feature: "display" } })).ok()).toBe(
+      true,
+    );
+  }
   const shellPreset = await post("/api/presets", {
     harnessId: "terminal",
     name: "Website development",
@@ -265,6 +270,9 @@ try {
     await page.getByRole("button", { name: "View screen" }).click();
     await expect(page.getByRole("button", { name: "Connected", exact: true })).toBeVisible();
     await hold(3);
+    await page.getByRole("button", { name: "More view actions" }).click();
+    await page.getByRole("menuitem", { name: "Maximize pane" }).click();
+    await hold(1);
     dimensions["preview-display"] = await captureScreenshot(
       page,
       path.join(shots, "preview-display.png"),
