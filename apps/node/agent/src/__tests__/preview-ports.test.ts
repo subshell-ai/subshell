@@ -187,14 +187,15 @@ describe.skipIf(process.platform !== "linux")("scanPanePorts over fixture /proc 
   it("a tree of hang-prone listeners does not starve the real website", async () => {
     // The shape this pins: a port the scan never reached reads exactly like a
     // port that is not a website, so the probe budget has to grow with the
-    // number of listeners. Sixteen sockets that accept and never answer (a
-    // language server, a leftover bind), each costing the worst-case probe
-    // time, with the dev server LAST in the row order: too small a budget
+    // number of listeners, and the two probes have to share a port's window
+    // rather than queue behind each other. Forty sockets that accept and never
+    // answer (a language server, a leftover bind), each costing the worst-case
+    // probe time, with the dev server LAST in the row order: too small a budget
     // leaves the picker saying this pane serves no website at all.
     const crowdRoot = join(base, "crowd-proc");
     mkdirSync(join(crowdRoot, "net"), { recursive: true });
     const WEBSITE_PORT = 4500;
-    const rows = [...Array.from({ length: 16 }, (_, i) => 4001 + i), WEBSITE_PORT].map((port, i) => ({
+    const rows = [...Array.from({ length: 40 }, (_, i) => 4001 + i), WEBSITE_PORT].map((port, i) => ({
       addr: "0100007F",
       port,
       inode: 700_001 + i,

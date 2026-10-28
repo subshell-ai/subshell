@@ -79,6 +79,37 @@ it("discovers HTML and same-port redirects, excluding APIs, downloads, and off-p
   }
 });
 
+it("reaches an IPv6-only website when the IPv4 dial stalls", async () => {
+  // The refused-socket case is covered by the test below; this is the meaner
+  // one. A firewall DROP or a listener that accepts and never answers would,
+  // under one shared per-port budget, spend all of it on the family that cannot
+  // reply and leave a real IPv6-only site out of the picker. Stubbing fetch is
+  // how the stall becomes deterministic without a firewall.
+  const real = globalThis.fetch;
+  const asked: string[] = [];
+  globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
+    const url = String(input);
+    asked.push(url);
+    if (!url.includes("127.0.0.1"))
+      return new Response("<title>V6 only</title>", { headers: { "content-type": "text/html" } });
+    await new Promise<void>((_resolve, reject) => {
+      const signal = init?.signal;
+      if (!signal) return;
+      if (signal.aborted) return reject(signal.reason);
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+    throw new Error("unreachable: a stalled dial never answers");
+  }) as typeof fetch;
+  try {
+    // The outer budget is generous on purpose: it is the PER-FAMILY slice that
+    // has to fire here, and a shared budget would ride this whole window out.
+    expect(await probeWebsite(4199, AbortSignal.timeout(3_000))).toEqual({ title: "V6 only" });
+    expect(asked).toEqual(["http://127.0.0.1:4199/", "http://[::1]:4199/"]);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
 it("discovers an IPv6-only website using the forwarding loopback fallback", async () => {
   const server = Bun.serve({
     hostname: "::1",

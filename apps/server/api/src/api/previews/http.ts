@@ -1,9 +1,4 @@
-import {
-  acceptsPreviewDocument,
-  isPreviewAttachmentDisposition,
-  isPreviewDocumentContentType,
-  serviceAuthority,
-} from "@internal/subshell-protocol";
+import { acceptsPreviewDocument, isPreviewPaintableNavigation, serviceAuthority } from "@internal/subshell-protocol";
 import { Elysia } from "elysia";
 import { LaneDuplex } from "@/modules/previews/lane-duplex.js";
 import { LaneClosedError, LaneProtocolError, sendLaneRequest } from "@/modules/previews/lane-http.js";
@@ -313,7 +308,7 @@ async function proxyRequest(request: Request, sessionRef: string, rest: string):
       !(res.status >= 300 && res.status < 400) &&
       res.status !== 204 &&
       res.status !== 205 &&
-      (!isPreviewDocumentContentType(contentType) || isPreviewAttachmentDisposition(disposition))
+      !isPreviewPaintableNavigation(contentType, disposition)
     ) {
       // The navigation is refused, but the answer is still the app's: cookies
       // it set (a CSRF or session token its later pages expect) belong to this
@@ -324,6 +319,10 @@ async function proxyRequest(request: Request, sessionRef: string, rest: string):
       await res.body?.cancel();
       duplex.destroy();
       releaseLane();
+      // 502, the same status the lane-failure paths below raise: which of them
+      // happened is the page's own words, not the number. Both are "the preview
+      // target answered and this is not something to paint", and nothing retries
+      // a /pv read on 502, so the two need no separate code.
       return new Response(
         '<!doctype html><html><head><meta name=viewport content="width=device-width, initial-scale=1"><title>Preview unavailable</title></head><body><h1>This isn\'t a web page</h1><p>This address returned a download or another type of response. Close this preview and choose a website port.</p></body></html>',
         {

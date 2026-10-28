@@ -55,14 +55,13 @@ const MAX_TREE_PIDS = 512;
 /** The CDP probe's budget, spec §4. */
 const CDP_PROBE_TIMEOUT_MS = 400;
 
-/** The website probe's budget, per port. */
-const WEBSITE_PROBE_TIMEOUT_MS = 1_000;
-
 /**
  * Ports probed at once. Loopback probes are cheap and mostly wait on a peer,
- * so a queue is what makes a scan slow rather than what it costs the host.
+ * so a queue is what makes a scan slow rather than what it costs the host, and
+ * this is the number that decides how many stalled listeners a pane can hold
+ * before the scan's ceiling starts dropping ports.
  */
-const SCAN_PROBE_WORKERS = 8;
+const SCAN_PROBE_WORKERS = 16;
 
 /** The scan's wall-clock floor, what each candidate may add, and its ceiling. */
 const SCAN_DEADLINE_BASE_MS = 2_500;
@@ -112,14 +111,19 @@ export async function scanPanePorts(opts: ScanPanePortsOptions): Promise<PanePor
   const candidates = [...new Set(ports.map((row) => row.port))];
   const websites = new Map<number, WebsiteInfo>();
   const cdpPorts = new Set<number>();
-  // Bound the whole scan as well as each probe: a pane can hold many idle
-  // sockets, and none should make discovery wait for every individual timeout.
-  // The budget has to GROW with the candidate count, though. A tree full of
-  // listeners that accept a connection and never answer (a language server, a
-  // leftover socket) costs the worst-case 1.4 s per port, and an untried port
-  // reads exactly like a port that is not a website: it is left out. So a
-  // fixed budget sized for a couple of ports can drop the one holding the real
-  // dev server, and the picker says there is nothing to preview.
+  // Two probes per port, asked at the SAME time. In series a listener that
+  // accepts and never answers costs the devtools window plus the document
+  // window, and a pane holding dozens of them outruns any budget; in parallel
+  // a port costs whichever window is longer, which is what makes the ceiling
+  // below reachable. CDP wins when both answer, so a devtools endpoint that
+  // serves its JSON listing as HTML never becomes a website row.
+  //
+  // The budget grows with the candidate count and is capped on purpose: past
+  // the cap the plane's command times out and discovery answers NOTHING, which
+  // is worse than dropping the tail of a crowded pane. An untried port reads
+  // exactly like a port that is not a website, so a pane with more stalled
+  // listeners than this covers loses rows only until the next poll, seconds
+  // later, reaches further into the list.
   const deadline = AbortSignal.timeout(
     Math.min(SCAN_DEADLINE_MAX_MS, SCAN_DEADLINE_BASE_MS + SCAN_DEADLINE_PER_PORT_MS * candidates.length),
   );
@@ -129,11 +133,9 @@ export async function scanPanePorts(opts: ScanPanePortsOptions): Promise<PanePor
       while (next < candidates.length && !deadline.aborted) {
         const port = candidates[next++];
         if (port === screen?.viewer.port) continue;
-        if (await probe(port)) cdpPorts.add(port);
-        else {
-          const info = await website(port, AbortSignal.any([deadline, AbortSignal.timeout(WEBSITE_PROBE_TIMEOUT_MS)]));
-          if (info) websites.set(port, info);
-        }
+        const [isCdp, info] = await Promise.all([probe(port), website(port, deadline)]);
+        if (isCdp) cdpPorts.add(port);
+        else if (info) websites.set(port, info);
       }
     }),
   );

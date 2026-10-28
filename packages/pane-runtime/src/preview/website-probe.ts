@@ -71,15 +71,32 @@ async function pageTitle(response: Response): Promise<string | undefined> {
   }
 }
 
-/** Check for HTML without following redirects off this port or downloading an unbounded body. */
+/** What one loopback family gets before the probe moves on from it. */
+const ATTEMPT_TIMEOUT_MS = 700;
+
+/**
+ * Check for HTML without following redirects off this port or downloading an
+ * unbounded body, on both spellings of loopback.
+ *
+ * Each family gets its OWN slice of the window. Usually the family nobody
+ * listened on answers with a refused socket, which costs nothing; when it stalls
+ * instead (a firewall DROP, or a listener holding 127.0.0.1 while the app bound
+ * `::1`) one shared budget would spend the whole window on the side that never
+ * replies and leave a real IPv6-only website out of the picker. The caller's
+ * signal stays the outer bound: once the scan is over, the scan is over.
+ */
 export async function probeWebsite(port: number, signal: AbortSignal): Promise<WebsiteInfo | null> {
-  try {
-    return await probeWebsiteOrigin(`http://127.0.0.1:${port}`, signal);
-  } catch {
-    if (signal.aborted) return null;
-    // Match forwarding's loopback fallback for IPv6-only listeners.
-    return probeWebsiteOrigin(`http://[::1]:${port}`, signal).catch(() => null);
+  for (const host of ["127.0.0.1", "[::1]"]) {
+    try {
+      const attempt = AbortSignal.any([signal, AbortSignal.timeout(ATTEMPT_TIMEOUT_MS)]);
+      // One family answering is an answer. A second family on the same port
+      // would be a different server, and the wire lists one row per socket.
+      return await probeWebsiteOrigin(`http://${host}:${port}`, attempt);
+    } catch {
+      if (signal.aborted) return null;
+    }
   }
+  return null;
 }
 
 async function probeWebsiteOrigin(origin: string, signal: AbortSignal): Promise<WebsiteInfo | null> {

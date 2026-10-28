@@ -6,12 +6,14 @@
  * and a type the proxy will not navigate to turns a working site into an error
  * page. The rule lives here rather than beside either caller because a third
  * reader (another client, a future check) should ask the same question of the
- * same answer. Two things each caller keeps for itself, on purpose. The status
- * code: discovery lists a port only when its document answers with a 2xx, since
- * an error page is no site to advertise, while the proxy guards a navigation the
- * person already chose and lets them read what came back, 401 or not. And the
- * rewriter stays on `text/html` alone, because the shim it injects is HTML
- * markup that a document parsed as strict XML would reject outright.
+ * same answer. Each caller then asks its own second question, and the answers
+ * differ on purpose: discovery lists a port only when its document answers with
+ * a 2xx, since an error page is no site to advertise, while the proxy guards a
+ * navigation the person already chose, so a 401 or a crash page is theirs to
+ * read and only a response that names a non-document type is refused with a
+ * page they can close. And the rewriter stays on `text/html` alone, because the
+ * shim it injects is HTML markup that a document parsed as strict XML would
+ * reject outright.
  *
  * XHTML is in the set because a browser renders `application/xhtml+xml` as
  * HTML: older Java app servers and XML pipelines still serve documents that
@@ -58,4 +60,21 @@ const ATTACHMENT_DISPOSITION = /^attachment(?:\s*;|\s*$)/i;
  */
 export function isPreviewAttachmentDisposition(disposition: string | null | undefined): boolean {
   return typeof disposition === "string" && ATTACHMENT_DISPOSITION.test(disposition);
+}
+
+/**
+ * May the proxy paint this navigation? An `attachment` never may, whatever its
+ * type says, and a type that names itself as something else (an image, a PDF,
+ * a blob) is exactly what a phone hands to a system viewer with no way back.
+ * A response that names NO type is left to the browser, which renders it as
+ * text rather than handing it off, and a dev server that forgets the header
+ * still serves a page someone deliberately opened.
+ */
+export function isPreviewPaintableNavigation(
+  contentType: string | null | undefined,
+  disposition: string | null | undefined,
+): boolean {
+  if (isPreviewAttachmentDisposition(disposition)) return false;
+  if (typeof contentType !== "string" || contentType.trim() === "") return true;
+  return isPreviewDocumentContentType(contentType);
 }

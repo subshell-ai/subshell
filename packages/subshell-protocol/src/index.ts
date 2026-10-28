@@ -273,6 +273,7 @@ export {
   acceptsPreviewDocument,
   isPreviewAttachmentDisposition,
   isPreviewDocumentContentType,
+  isPreviewPaintableNavigation,
   PREVIEW_DOCUMENT_ACCEPT,
   PREVIEW_DOCUMENT_TYPES,
 } from "./preview-document.js";
