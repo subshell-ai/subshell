@@ -110,6 +110,27 @@ it("reaches an IPv6-only website when the IPv4 dial stalls", async () => {
   }
 });
 
+it("offers a port whose server accepted and is still thinking", async () => {
+  // The scenario the feature exists for: an agent has just typed `next dev`, the
+  // first request compiles the route, and a port that answers late is not a port
+  // to hide. It comes back as an untitled row, and opening it warms the server.
+  const real = globalThis.fetch;
+  globalThis.fetch = (async (_input: string | URL, init?: RequestInit) => {
+    await new Promise<void>((_resolve, reject) => {
+      const signal = init?.signal;
+      if (!signal) return;
+      if (signal.aborted) return reject(signal.reason);
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+    throw new Error("unreachable");
+  }) as unknown as typeof fetch;
+  try {
+    expect(await probeWebsite(4196, AbortSignal.timeout(4_000))).toEqual({});
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
 it("asks both families before dropping a port, since two sockets share the number", async () => {
   // A tool bound to 127.0.0.1 while the dev server holds ::1 is a real
   // arrangement. The first family's "not a website" describes its own socket, so

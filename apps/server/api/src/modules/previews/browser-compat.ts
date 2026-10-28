@@ -9,19 +9,14 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
       ? mapUrl(text, base, target, proxy) : text;
   } });
   let stylesheetRevision = 0;
-  const mapAttribute = (element, name, value) => {
-    const mapped = map(String(value));
-    // Chromium can reuse an active stylesheet inside the opaque-origin frame,
-    // even with no-store. Turbopack already uses ts for this on Safari/Firefox.
-    // rel is compared as the app wrote it, so a stylesheet declared "Stylesheet"
-    // gets the same treatment; and when an app sets href before rel, the observer
-    // below re-runs this for the finished element.
-    if (name !== "href" || !(element instanceof HTMLLinkElement) || String(element.rel).toLowerCase() !== "stylesheet"
-      || typeof globalThis.TURBOPACK_CHUNK_BASE_PATH !== "string"
+  // Chromium can reuse an active stylesheet inside the opaque-origin frame, even
+  // with no-store. Turbopack already uses ts for this on Safari/Firefox, so the
+  // revision only applies to its own chunks: the base is a page-owned global, an
+  // app that blanks it would make the prefix test pass for anything, and a URL
+  // that will not parse is left exactly as the app asked for it.
+  const stylesheetBump = (element, mapped) => {
+    if (typeof globalThis.TURBOPACK_CHUNK_BASE_PATH !== "string"
       || !mapped.startsWith(globalThis.TURBOPACK_CHUNK_BASE_PATH)) return mapped;
-    // The base is a page-owned global, so an app that blanks it makes the
-    // prefix test above pass for anything. A URL that will not parse is not
-    // our business: leave the href exactly as the app asked for it.
     let url;
     try {
       url = new URL(mapped);
@@ -30,8 +25,11 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
     }
     if (!url.pathname.endsWith(".css")) return mapped;
     url.searchParams.delete("ts");
-    for (const previous of document.querySelectorAll('link[rel="stylesheet"][href]')) {
-      if (previous === element || !previous.href.startsWith(globalThis.TURBOPACK_CHUNK_BASE_PATH)) continue;
+    for (const previous of document.querySelectorAll("link[rel][href]")) {
+      // The attribute selector is case-sensitive and rel is whatever the app
+      // wrote, so compare the value rather than trusting the selector.
+      if (previous === element || String(previous.getAttribute("rel")).toLowerCase() !== "stylesheet") continue;
+      if (!previous.href.startsWith(globalThis.TURBOPACK_CHUNK_BASE_PATH)) continue;
       const existing = new URL(previous.href);
       existing.searchParams.delete("ts");
       if (existing.href !== url.href) continue;
@@ -40,7 +38,26 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
     }
     return mapped;
   };
-  const attributes = new Set(["src", "href", "action", "formaction", "poster", "data"]);
+  const mapAttribute = (element, name, value) => {
+    // A link built as createElement, then href, then rel is the ordinary order,
+    // and the reuse problem is keyed on that pair: an href set while rel was still
+    // empty got no revision, so the rel that arrives later re-runs the bump for the
+    // href the element already holds. The observer below only sees nodes entering
+    // the document, so it cannot cover this on its own.
+    if (name === "rel" && element instanceof HTMLLinkElement && String(value).toLowerCase() === "stylesheet") {
+      const held = element.getAttribute("href");
+      if (held !== null) {
+        const bumped = stylesheetBump(element, map(held));
+        if (bumped !== held) attribute.call(element, "href", bumped);
+      }
+      return String(value);
+    }
+    const mapped = map(String(value));
+    if (name !== "href" || !(element instanceof HTMLLinkElement) || String(element.rel).toLowerCase() !== "stylesheet")
+      return mapped;
+    return stylesheetBump(element, mapped);
+  };
+  const attributes = new Set(["src", "href", "rel", "action", "formaction", "poster", "data"]);
   const attribute = Element.prototype.setAttribute;
   Element.prototype.setAttribute = function(name, value) {
     const key = name.toLowerCase();
@@ -49,7 +66,7 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
   for (const [constructor, properties] of [
     [HTMLScriptElement, ["src"]],
     [HTMLImageElement, ["src", "srcset"]],
-    [HTMLLinkElement, ["href"]],
+    [HTMLLinkElement, ["href", "rel"]],
     [HTMLAnchorElement, ["href"]],
     [HTMLFormElement, ["action"]],
     [HTMLInputElement, ["src", "formAction"]],
@@ -83,13 +100,21 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
     args[1] = map(String(args[1]));
     return Reflect.apply(open, this, args);
   };
+  // A socket URL always wants the ws spelling of the proxy path. map() answers
+  // with http(s), and a runtime that reduced its own HMR URL to a pathname
+  // carries no scheme for us to read, so the conversion happens here, where the
+  // call itself says what it is. Handing new WebSocket an http: URL throws.
+  const mapSocket = (value) => {
+    const mapped = map(value);
+    return mapped.replace(/^http/i, "ws");
+  };
   for (const name of ["WebSocket", "EventSource"]) {
     const Original = window[name];
     if (!Original)
       continue;
     Object.defineProperty(window, name, { configurable: true, writable: true, value: new Proxy(Original, {
       construct(ctor, args, newTarget) {
-        args[0] = map(String(args[0]));
+        args[0] = mapSocket(String(args[0]));
         return Reflect.construct(ctor, args, newTarget);
       }
     }) });
@@ -100,10 +125,12 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
         const old = element.getAttribute(name);
         if (old === null)
           continue;
-        // href goes through mapAttribute, not just map, so a link built as
-        // createElement + href + rel (the order most code writes it in) still gets
-        // the cache-busting revision: by the time it is in the document, rel is set.
-        const next = name === "srcset" ? mapSrcset(old, map) : name === "href" ? mapAttribute(element, name, old) : map(old);
+        // href and rel go through mapAttribute, not just map: a link built as
+        // createElement + href + rel and appended afterwards (the order most code
+        // writes it in) still needs its cache-busting revision, and rel is a value,
+        // not a URL, so it must never reach the plain mapper.
+        const next =
+          name === "srcset" ? mapSrcset(old, map) : name === "href" || name === "rel" ? mapAttribute(element, name, old) : map(old);
         if (old !== next)
           attribute.call(element, name, next);
       }
@@ -119,21 +146,24 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
   }).observe(document, { childList: true, subtree: true });
 }`;
 
-export function previewCompatScript(target: string, proxy: string, xml = false): string {
-  const code =
-    `(${browserCompatSource})(${JSON.stringify(target)},${JSON.stringify(proxy)},${previewUrl.toString()},${previewSrcset.toString()});`.replace(
-      /<\/script/gi,
-      "<\\/script",
-    );
-  // A document the browser parses as strict XML reads inline script as markup,
-  // so the raw `<` and `&&` the shim contains are a fatal error there rather
-  // than JavaScript. Wrapping in CDATA is what XHTML authors do for exactly this
-  // reason, and the `//` on each marker keeps it an ordinary comment for the HTML
-  // parsers that never see the wrapper.
-  if (!xml) return code;
-  // The one sequence that would end the section early, split the way CDATA
-  // prescribes. Nothing in the shim contains it today; this keeps a future edit
-  // from quietly producing a page the browser refuses to parse.
-  const body = code.includes("]]>") ? code.replace(/\]\]>/g, "]]]]><![CDATA[>") : code;
-  return `//<![CDATA[\n${body}\n//]]>`;
+export function previewCompatScript(target: string, proxy: string): string {
+  return `(${browserCompatSource})(${JSON.stringify(target)},${JSON.stringify(proxy)},${previewUrl.toString()},${previewSrcset.toString()});`;
+}
+
+/**
+ * One inline script, as markup the document's own parser will accept.
+ *
+ * A page served as `application/xhtml+xml` is parsed as strict XML, where inline
+ * script content is markup rather than text: the raw `<` and `&&` every runtime
+ * emits there are a fatal error, not JavaScript. CDATA is what XHTML authors use
+ * for exactly this reason, and the `//` on each marker keeps it an ordinary
+ * comment for the HTML parsers that never see the wrapper. `]]>` would close the
+ * section early, so the sequence is split the way CDATA prescribes; the app-
+ * controlled chunk base can carry it, and an ampersand is inert inside.
+ */
+export function previewInlineScript(code: string, xml: boolean): string {
+  const safe = code.replace(/<\/script/gi, "<\\/script");
+  if (!xml) return `<script>${safe}</script>`;
+  const body = safe.includes("]]>") ? safe.replace(/\]\]>/g, "]]]]><![CDATA[>") : safe;
+  return `<script>//<![CDATA[\n${body}\n//]]></script>`;
 }

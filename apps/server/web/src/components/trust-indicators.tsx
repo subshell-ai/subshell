@@ -1,6 +1,6 @@
 import { cn } from "@internal/node-admin";
 import { Eye, ServerCog, Users } from "lucide-react";
-import { type JSX, useState } from "react";
+import { type JSX, useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { TrustNotice, TrustNoticeKind } from "@/lib/trust-notices";
@@ -40,6 +40,14 @@ export interface TrustIndicatorsProps {
 export function TrustIndicators({ notices, className }: TrustIndicatorsProps): JSX.Element | null {
   const [selected, setSelected] = useState<TrustNotice | null>(null);
   const shown = selected ? (notices.find((notice) => notice.kind === selected.kind) ?? null) : null;
+  // The row unmounts the dialog when the last notice goes away, and an unmount
+  // never calls onOpenChange, so the click that opened it would still be held:
+  // the next share to arrive would reopen the person's dialog by itself. Clearing
+  // the selection when it no longer resolves is what keeps an opened-by-tap dialog
+  // closed until the next tap.
+  useEffect(() => {
+    if (selected && !notices.some((notice) => notice.kind === selected.kind)) setSelected(null);
+  }, [notices, selected]);
   if (notices.length === 0) return null;
   return (
     // One Provider for the row: Base UI batches open/close across the

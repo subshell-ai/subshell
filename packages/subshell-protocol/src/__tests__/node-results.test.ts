@@ -352,9 +352,15 @@ describe("preview results (protocol 23)", () => {
       screen: null,
     };
     expect(parseNodePreviewPortsResult(titled)).toEqual(titled);
-    expect(
-      parseNodePreviewPortsResult({ ...titled, ports: [{ ...titled.ports[0], title: "x".repeat(201) }] }),
-    ).toBeNull();
+    // A title over the cap is the one field where refusing the whole answer would
+    // cost the person every well-formed row in the pane: the probe already caps
+    // what it sends, so length is a defect to recover from, not a shape violation.
+    const overLong = parseNodePreviewPortsResult({
+      ...titled,
+      ports: [{ ...titled.ports[0], title: "x".repeat(201) }],
+    });
+    expect(overLong?.ports[0]?.title).toBe("x".repeat(200));
+    expect(parseNodePreviewPortsResult({ ...titled, ports: [{ ...titled.ports[0], title: 7 }] })).toBeNull();
     // A page authors its own title, and it renders for every viewer, so the
     // boundary takes the NAME path: combining marks compose, invisible format
     // characters and lone surrogates go, a control becomes a space. And a title

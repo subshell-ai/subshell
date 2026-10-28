@@ -900,8 +900,12 @@ export function parseNodePreviewPortsResult(data: unknown): NodePreviewPortsResu
     if (!isRecord(p) || (p.proto !== "tcp" && p.proto !== "tcp6")) return null;
     if (!isInt(p.port) || (p.port as number) < 1 || (p.port as number) > 65_535) return null;
     if (!isInt(p.pid) || (p.pid as number) < 0) return null;
-    if (p.title !== undefined && (typeof p.title !== "string" || p.title.length > PREVIEW_PAGE_TITLE_MAX_LENGTH))
-      return null;
+    // A title of the wrong type is a malformed answer, so the whole result is
+    // refused like any other shape violation. An over-long one is not: the probe
+    // caps what it sends, so length is the only field where a strict refusal would
+    // cost the person every well-formed row in the pane for one bad string. Cap it
+    // and keep the answer.
+    if (p.title !== undefined && typeof p.title !== "string") return null;
     // The probe sanitizes what it reads out of a document, but this is the
     // boundary every answer crosses and the only gate that always runs: a page
     // title renders for every viewer, in the picker row and the tab, so it

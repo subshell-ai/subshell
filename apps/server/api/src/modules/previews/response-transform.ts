@@ -4,7 +4,7 @@ import { isPreviewDocumentContentType, isPreviewXmlDocumentContentType } from "@
 import { init, parse } from "es-module-lexer";
 import valueParser from "postcss-value-parser";
 import { HttpError } from "@/shared/errors.js";
-import { previewCompatScript } from "./browser-compat.js";
+import { previewCompatScript, previewInlineScript } from "./browser-compat.js";
 import { previewSrcset, previewUrl } from "./preview-url.js";
 
 const MAX_TRANSFORM_BYTES = 16 * 1024 * 1024;
@@ -214,7 +214,7 @@ export async function transformPreviewResponse(
     if (css) output = rewriteCss(source, map);
     else if (js) output = await rewriteModule(source, map, base);
     else {
-      const script = `<script>${previewCompatScript(target, proxy, xml)}</script>`;
+      const script = previewInlineScript(previewCompatScript(target, proxy), xml);
       let injected = false;
       let nextChunkBaseInjected = false;
       let baseSeen = false;
@@ -257,9 +257,10 @@ export async function transformPreviewResponse(
               const nextStatic = mapped.indexOf("/_next/static/");
               if (mapped.startsWith(proxy) && nextStatic >= 0) {
                 const chunkBase = `${mapped.slice(0, nextStatic)}/_next/`;
-                el.before(`<script>globalThis.TURBOPACK_CHUNK_BASE_PATH=${scriptString(chunkBase)};</script>`, {
-                  html: true,
-                });
+                el.before(
+                  previewInlineScript(`globalThis.TURBOPACK_CHUNK_BASE_PATH=${scriptString(chunkBase)};`, xml),
+                  { html: true },
+                );
                 nextChunkBaseInjected = true;
               }
             }
@@ -322,7 +323,12 @@ export async function transformPreviewResponse(
         });
       }
       output = await rewriter.transform(new Response(source)).text();
-      if (!injected) output = script + output;
+      // The last resort for a document with neither head nor script is to put the
+      // shim in front of everything. An XML-parsed page cannot survive that:
+      // markup before the prolog or doctype is precisely what "Content is not
+      // allowed in prolog" means, and the person gets a blank page. So that shape
+      // keeps its rewritten attributes and loses only the dynamic-URL patch.
+      if (!injected && !xml) output = script + output;
     }
     const headers = new Headers(response.headers);
     for (const name of [
