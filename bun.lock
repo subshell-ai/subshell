@@ -686,6 +686,7 @@
     "node-forge@1.4.0": "patches/node-forge@1.4.0.patch",
     "@novnc/novnc@1.7.0": "patches/@novnc%2Fnovnc@1.7.0.patch",
     "metro@0.87.0": "patches/metro@0.87.0.patch",
+    "deepmerge@4.3.1": "patches/deepmerge@4.3.1.patch",
   },
   "overrides": {
     "@expo/cli": {
