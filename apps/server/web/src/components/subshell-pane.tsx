@@ -87,6 +87,11 @@ export function SubshellPane({
   const copyOn = coarse && (copyMode ?? paneCopyMode.on);
   const handlesRef = useRef<SubshellTerminalHandles | null>(null);
   const [connected, setConnected] = useState(false);
+  // Whether a full-screen app owns THIS pane's screen (the terminal's
+  // alternate buffer). The history buttons drive that app by keys, so the
+  // bar needs the mode to explain them when input is not on offer; the
+  // terminal publishes every switch and drops this back to false on dispose.
+  const [altScreen, setAltScreen] = useState(false);
   const [injectTarget, setInjectTarget] = useState<string | null>(null);
   useEffect(() => setInjectTarget((target) => (target === pane.subshellId ? target : null)), [pane.subshellId]);
   const [viewers, setViewers] = useState<ViewersState | null>(null);
@@ -117,6 +122,7 @@ export function SubshellPane({
   const handleDispose = useCallback(() => {
     handlesRef.current = null;
     setConnected(false);
+    setAltScreen(false);
     setViewers(null);
     onDispose?.();
   }, [onDispose]);
@@ -192,6 +198,7 @@ export function SubshellPane({
       onDispose={handleDispose}
       onStatusChange={(status) => setConnected(status.connected)}
       onViewers={setViewers}
+      onAltScreenChange={setAltScreen}
       diagnosticsOverlay={diagOn ? { nodeLabel } : null}
       copyMode={copyOn}
     />
@@ -207,7 +214,10 @@ export function SubshellPane({
   // The active pane's touch chrome: the terminal keeps the space the bar
   // takes (its ResizeObserver refits), and the bar sits under THIS pane —
   // the one the user is typing into. Byte keys gray out until the socket
-  // attaches; the scroll jumps drive the local scrollback and never do.
+  // attaches; the scroll jumps drive the local scrollback and so stay live
+  // longer, except while a full-screen app owns the screen, where their only
+  // path is keys this connection may not be able to send (the bar explains
+  // that at the buttons themselves).
   return (
     <div className="flex h-full w-full flex-col bg-terminal-strip">
       <div className="relative min-h-0 flex-1">{terminal}</div>
@@ -221,6 +231,7 @@ export function SubshellPane({
         }
         suppressInput={copyOn}
         readOnly={subshellRow?.access === "view"}
+        altScreen={altScreen}
         copyMode={copyMode === undefined ? paneCopyMode : undefined}
         onPickImage={() => handlesRef.current?.openImagePicker()}
         onScrollTop={() => handlesRef.current?.scrollToTop()}

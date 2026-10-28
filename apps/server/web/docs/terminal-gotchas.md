@@ -89,7 +89,12 @@ The history controls are grouped between dividers: top, Page Up, Page Down,
 and bottom. In the normal buffer they scroll local terminal history. In the
 alternate screen, the program owns its history, so the controls send Home,
 Page Up, Page Down, and End through the regular input path. That requires
-input access and input mode; copy mode and view-only access never send keys.
+input access and input mode; when the screen belongs to a full-screen app and
+the connection cannot send keys (copy mode, view-only access, or no socket
+yet), the four buttons gray out and name the reason at the control, on the
+same disabled-reason tooltip as the rest of the bar, rather than swallowing
+taps. The terminal publishes the buffer mode through `onAltScreenChange`, and
+the callers that draw the bar reset it to the normal buffer on dispose.
 
 Insert prompt opens the same picker and confirmation as the action menu. It
 types the selected text without submitting it; the operator presses Enter when

@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { SubshellPane } from "@/components/subshell-pane";
+import type { SubshellTerminalHandles } from "@/components/subshell-terminal";
 import { resetPaneDiagnosticsPrefForTests, setPaneDiagnosticsIds } from "@/lib/pane-diagnostics-pref";
 import type { WorkspacePaneRow } from "@/types/workspace";
 
@@ -102,6 +103,57 @@ describe("SubshellPane touch key bar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Scroll to bottom" }));
     fireEvent.click(screen.getByRole("button", { name: "Send Enter" }));
     spy.mockRestore();
+  });
+
+  it("explains the history buttons once a full-screen app takes the screen this pane cannot send keys to", async () => {
+    // The reviewed defect at the pane boundary: the alternate buffer has no
+    // local scrollback, so a press is only ever a key, and this unit
+    // environment has no socket to carry it. The terminal's buffer switch
+    // must reach the bar through `onAltScreenChange` and gray out all four
+    // buttons with their reason. Before the switch they stay live, because
+    // local scrolling works offline (the sibling test pins that half).
+    const spy = stubCoarsePointer(true);
+    // A holder object, not a let: the assignment lands in the onReady
+    // callback, and a re-read of the property keeps the full declared type.
+    const termHolder: { current: SubshellTerminalHandles["term"] | null } = { current: null };
+    try {
+      renderPane(
+        <SubshellPane
+          pane={paneRow()}
+          active
+          showKeyBar
+          onRestart={() => {}}
+          onRemovePane={() => {}}
+          onReady={(handles) => {
+            termHolder.current = handles.term;
+          }}
+        />,
+      );
+      const top = screen.getByRole("button", { name: "Scroll to top" }) as HTMLButtonElement;
+      expect(top.matches(":disabled, [aria-disabled=true]")).toBe(false);
+      // A real app enters the alternate buffer the way this pane's program
+      // would: DECSET 1049 through the parser. The buffer switch lands as a
+      // React state update on the pane, so the write runs inside act.
+      await act(async () => {
+        await new Promise<void>((done) => {
+          if (!termHolder.current) throw new Error("terminal never published handles");
+          termHolder.current.write("\x1b[?1049h", done);
+        });
+      });
+      expect(termHolder.current?.buffer.active.type).toBe("alternate");
+      for (const name of ["Scroll to top", "Scroll page up", "Scroll page down", "Scroll to bottom"]) {
+        const button = screen.getByRole("button", { name }) as HTMLButtonElement;
+        // The publish is an xterm event, not a React one: poll for it.
+        await waitFor(() => expect(button.matches(":disabled, [aria-disabled=true]")).toBe(true));
+        expect(button.getAttribute("aria-description")).toMatch(/full-screen app owns this screen/);
+        // And the press is inert, not silently swallowed by the handle.
+        fireEvent.pointerDown(button, { pointerType: "touch", button: 0, isPrimary: true });
+        expect(button.getAttribute("data-pressed")).toBe("false");
+      }
+    } finally {
+      cleanup();
+      spy.mockRestore();
+    }
   });
 
   it("an exited pane keeps the log-tail panel — no bar, no terminal", () => {
