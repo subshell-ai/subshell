@@ -314,7 +314,7 @@ export function PreviewSection({
       {/* The switch's remedy line: the info answer is always the full shape,
           so a switched-off node says so in words rather than showing a blank
           list that reads as "nothing is listening". */}
-      {info && (!info.nodeEnabled || info.reason) && <NodeUnavailableNote info={info} className="p-3" />}
+      {info && <NodeUnavailableNote info={info} className="p-3" />}
 
       {isSwitchOff(info?.reason) && subshell && (
         <Link

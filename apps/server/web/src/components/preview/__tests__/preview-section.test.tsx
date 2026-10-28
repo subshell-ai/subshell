@@ -162,6 +162,26 @@ describe("gated controls explain themselves", () => {
     expect(showScreen.getAttribute("aria-description")).toBe(SCREEN_VIEW_REASON);
   });
 
+  it.each([
+    { webPreviewsEnabled: false, virtualDisplayEnabled: true, reason: "Web previews are disabled" },
+    { webPreviewsEnabled: true, virtualDisplayEnabled: false, reason: "Virtual displays are disabled" },
+  ])("links the enablement guide for an individually disabled feature even with no discovered views: %j", (state) => {
+    mount({
+      info: info({
+        ports: [],
+        cdpPort: null,
+        screen: null,
+        nodeEnabled: true,
+        webPreviewsEnabled: state.webPreviewsEnabled,
+        virtualDisplayEnabled: state.virtualDisplayEnabled,
+      }),
+    });
+    expect(screen.getByText(new RegExp(state.reason)).matches(".text-warning")).toBe(true);
+    expect(screen.getByRole("link", { name: "How to enable web previews and screens" }).getAttribute("href")).toBe(
+      "https://docs.subshell.sh/guides/preview#enable-web-previews-and-displays-on-the-machine",
+    );
+  });
+
   it("a node with the switch off answers with the switch's remedy, not a silent empty list", () => {
     mount({ info: info({ ports: [], cdpPort: null, nodeEnabled: false, reason: "preview-disabled" }) });
     expect(screen.getByText(SWITCH_OFF_REASON)).toBeTruthy();

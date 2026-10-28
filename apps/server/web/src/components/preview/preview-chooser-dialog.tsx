@@ -57,7 +57,7 @@ export function PreviewChooserDialog({ subshellId, onClose }: { subshellId: stri
             {preview.error}
           </p>
         )}
-        {info && (!info.nodeEnabled || info.reason) && <NodeUnavailableNote info={info} />}
+        {info && <NodeUnavailableNote info={info} />}
         {info && subshell && (
           <PortList
             info={info}
