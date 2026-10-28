@@ -33,6 +33,16 @@ import type { WorkspaceTable } from "@/db/types/workspaces.db-types.js";
  * them separately.)
  */
 export interface Database {
+  previewProxySettings: {
+    userId: string;
+    nodeId: string;
+    host: string;
+    protocol: string;
+    port: number;
+    rewriteUrls: number;
+    passHost: number;
+    rewriteRedirects: number;
+  };
   subshellServices: import("./subshell-services.db-types.js").SubshellServiceTable;
   presetShares: PresetShareTable;
   sshPresetShares: PresetShareTable;

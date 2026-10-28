@@ -4203,7 +4203,35 @@ The sandbox deliberately prevents same-origin storage and service-worker use.
 Sites requiring those browser capabilities, JavaScript-managed cookies, or a
 full browser login should run in the node's browser and be checked through a
 virtual display. Target CSP remains effective apart from its framing directive;
-a strict target policy can still prevent an embedded app from working.
+a strict target policy can still prevent an embedded app from working, including
+blocking the injected URL compatibility script.
+
+URL rewriting is enabled by default for supported HTML attributes, CSS URLs and
+imports, import-map addresses, and module imports. Computed imports use the
+document shim while bare specifiers retain import-map resolution. The injected script rewrites
+common fetch, XMLHttpRequest, WebSocket, EventSource, and DOM URL assignments
+under the capability path. Redirect rewriting is independently enabled by
+default, and preview-host forwarding is off by default. Rewriting does not relax
+CSP, sandbox, credential stripping, destination authorization, or TLS checks;
+it does not promise compatibility with arbitrary applications.
+
+Personal proxy settings persist by authenticated user, node, normalized host,
+protocol, and port, capped at 256 saved targets per user. Read/save/reset use the
+preview execute/edit and enabled-node gates; stored preferences cannot grant
+target access. The table contains no capability paths or references. New forward
+sessions snapshot their settings so a preference change does not alter another
+active capability. Supported text rewrites buffer at most 16 MiB after decoding;
+other response bodies retain streaming behavior. Each rewrite also caps URL
+expansion at 16 MiB, with at most eight active transformations. Compressed-stream
+errors and cancellation tear down both the decoder and the source. Module edits
+are assembled once rather than repeatedly copying attacker-controlled source.
+
+Browser fetch metadata, referrers, and opaque/current-proxy Origin headers belong
+to the browser-to-proxy hop and are removed before the capability-authorized
+backend request. Unrelated Origin values are not converted into trusted ones.
+Integrity attributes on rewritten local script/style references are removed
+because transformed bytes no longer match the original digest; unrelated
+external resource integrity checks remain intact.
 
 ### Transport and network reach
 

@@ -3,6 +3,9 @@ import { Elysia } from "elysia";
 import { LaneDuplex } from "@/modules/previews/lane-duplex.js";
 import { LaneClosedError, LaneProtocolError, sendLaneRequest } from "@/modules/previews/lane-http.js";
 import { getPreviewBroker, PreviewRefusal } from "@/modules/previews/preview-broker.js";
+import { previewUrl } from "@/modules/previews/preview-url.js";
+import { DEFAULT_PREVIEW_PROXY_SETTINGS } from "@/modules/previews/proxy-settings.js";
+import { transformPreviewResponse } from "@/modules/previews/response-transform.js";
 import { HttpError } from "@/shared/errors.js";
 
 /**
@@ -56,6 +59,11 @@ const INBOUND_DROP = new Set([
   "host",
   "content-length",
   "authorization",
+  "referer",
+  "sec-fetch-site",
+  "sec-fetch-mode",
+  "sec-fetch-dest",
+  "sec-fetch-user",
   "x-api-key",
   "forwarded",
   "remote-user",
@@ -248,6 +256,23 @@ async function proxyRequest(request: Request, sessionRef: string, rest: string):
   const jarCookie = jarCookieHeader(session.cookieJar);
   if (jarCookie) headers.push(["cookie", jarCookie]);
 
+  const settings = session.proxySettings ?? DEFAULT_PREVIEW_PROXY_SETTINGS;
+  const targetOrigin = `${session.service?.protocol ?? "http"}://${serviceAuthority(session.service?.host ?? "127.0.0.1", session.port)}`;
+  const proxyBase = `${url.origin}/pv/${sessionRef}/`;
+  if (settings.passHost) headers[0] = ["host", url.host];
+  // These are capability-authorized server-to-server requests. The sandbox's
+  // opaque origin describes the browser→proxy hop, not the backend request.
+  // Leave unrelated Origin values intact; never translate them into trusted ones.
+  for (let i = headers.length - 1; i >= 0; i--) {
+    const [name, value] = headers[i];
+    if (name === "origin" && (value === "null" || value === url.origin)) headers.splice(i, 1);
+  }
+  if (settings.rewriteUrls) {
+    for (let i = headers.length - 1; i >= 0; i--)
+      if (["accept-encoding", "range", "if-range", "if-none-match", "if-modified-since"].includes(headers[i][0]))
+        headers.splice(i, 1);
+    headers.push(["accept-encoding", "identity"]);
+  }
   const isHead = request.method === "HEAD";
   try {
     const res = await sendLaneRequest(
@@ -268,15 +293,25 @@ async function proxyRequest(request: Request, sessionRef: string, rest: string):
       },
     );
     const headersOut = outHeadersToWeb(res.headers, session.cookieJar, sessionRef);
+    const location = res.headers.find(([name]) => name === "location")?.[1];
+    if (location) {
+      const mapped = settings.rewriteRedirects
+        ? previewUrl(location, `${targetOrigin}/${rest}${url.search}`, targetOrigin, proxyBase)
+        : location;
+      headersOut.set("location", mapped.startsWith(proxyBase) ? mapped.slice(url.origin.length) : mapped);
+    }
     if (res.body === null) {
       duplex.destroy();
       releaseLane();
     }
-    return new Response(res.body, {
+    const response = new Response(res.body, {
       status: res.status,
       statusText: res.statusText,
       headers: headersOut,
     });
+    return settings.rewriteUrls && !isHead
+      ? await transformPreviewResponse(response, targetOrigin, proxyBase, `/${rest}${url.search}`)
+      : response;
   } catch (err) {
     duplex.destroy();
     releaseLane();

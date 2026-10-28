@@ -4,6 +4,7 @@ import { type JSX, useEffect, useMemo, useRef, useState } from "react";
 import { isSwitchOff, NodeUnavailableNote } from "@/components/preview/node-unavailable-note";
 import { OpenPanel } from "@/components/preview/open-panel";
 import { PortList } from "@/components/preview/port-list";
+import { PreviewSettingsDialog } from "@/components/preview/preview-settings-dialog";
 import {
   type PreviewConnection,
   PreviewToolbar,
@@ -95,7 +96,8 @@ export function PreviewSection({
   initialView,
   onClose,
 }: PreviewSectionProps): JSX.Element {
-  const [open, setOpen] = useState<{ port: number; proxyBase: string } | null>(null);
+  const [open, setOpen] = useState<{ port: number; proxyBase: string; serviceId?: string } | null>(null);
+  const [configuring, setConfiguring] = useState(false);
   const [busy, setBusy] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [connection, setConnection] = useState<PreviewConnection>("connecting");
@@ -138,6 +140,7 @@ export function PreviewSection({
   useEffect(() => {
     generation.current += 1;
     setScreenSession(null);
+    setConfiguring(false);
     setOpen(null);
     setOpenError(null);
     setBusy(false);
@@ -158,7 +161,7 @@ export function PreviewSection({
       setScreenSession(null);
       if (preview.watching) await preview.stopWatch();
       if (generation.current !== gen) return;
-      setOpen({ port, proxyBase });
+      setOpen({ port, proxyBase, serviceId });
     } catch (err) {
       // The named refusal (the caps, the stale node answer) renders as asked.
       if (generation.current !== gen) return;
@@ -275,9 +278,19 @@ export function PreviewSection({
           fullscreen={fullscreen}
           fullscreenSupported={Boolean(sectionRef.current?.requestFullscreen)}
           appUrl={open?.proxyBase}
+          onConfigure={open && access !== "view" ? () => setConfiguring(true) : undefined}
         />
       )}
 
+      {configuring && open && (
+        <PreviewSettingsDialog
+          paneId={paneId}
+          port={open.port}
+          serviceId={open.serviceId}
+          onClose={() => setConfiguring(false)}
+          onOpen={() => handleOpen(open.port, open.serviceId)}
+        />
+      )}
       {!selected && (busy || !info) && (
         <p role="status" className="p-3 text-detail text-muted-foreground">
           {busy ? "Opening view…" : "Checking available views…"}

@@ -20,6 +20,7 @@ import { resetInputHoldsForTests } from "@/api/ws/input-hold.js";
 import { resetInputWindowsForTests } from "@/api/ws/input-window.js";
 import { handleSubshellMessage } from "@/api/ws/subshell-ws.js";
 import { subscribeLive } from "@/app/live-bus.js";
+import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { type NodeReadyReport, NodesRepository } from "@/db/repositories/nodes.repository.js";
@@ -443,6 +444,7 @@ describe("forced-eviction projection", () => {
   // migrations run here, and rows are created and dropped per case.
   beforeAll(async () => {
     await runMigrations();
+    await runAuthMigrations();
   });
   beforeEach(() => {
     resetNodeRegistryForTests();

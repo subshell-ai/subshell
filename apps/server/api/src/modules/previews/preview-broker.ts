@@ -28,6 +28,7 @@ import { type AuditEventInput, audit } from "@/modules/audit.js";
 import { NodeRpcError, sendCommand } from "@/modules/nodes/node-rpc.js";
 import { sendPreviewFrameOverNodeSocket } from "@/modules/nodes/preview-frames.js";
 import { getLocalPreviewRuntime, sweepLocalPreviewDisplays } from "@/modules/previews/local-preview.js";
+import type { PreviewProxySettings } from "@/modules/previews/proxy-settings.js";
 import { type Access, accessAtLeast, loadSubshellAccess } from "@/modules/subshells/access.js";
 import { getLogger } from "@/shared/logger.js";
 
@@ -143,6 +144,7 @@ export interface PreviewLane {
  * the pane's one screencast bridge (`kind: "screencast"`).
  */
 export interface PreviewSession {
+  proxySettings?: PreviewProxySettings;
   service?: ServiceTarget;
   serviceId?: string;
   /** The 32-hex session ref (for forward, the PROBE ref: minted from the CSPRNG, this is the credential). */
@@ -186,6 +188,7 @@ export interface PreviewSession {
 
 /** The verbs the routes, the ws feed, and the sweeps call (Tasks 9-11). */
 interface PreviewOpenInput {
+  proxySettings?: PreviewProxySettings;
   service?: ServiceTarget;
   serviceId?: string;
   viewerUserId: string;
@@ -886,6 +889,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
           port,
           service: input.service,
           serviceId: input.serviceId,
+          proxySettings: input.proxySettings ? { ...input.proxySettings } : undefined,
           createdBy: viewerUserId,
           createdAt: deps.nowMs(),
           lanes: new Map(),

@@ -61,6 +61,7 @@ interface PvTunnel {
   laneRef: string;
   mode: "http" | "raw";
   port: number;
+  hostHeader?: string;
   /** Suffix + query the browser dialed (http-mode redial path; raw ignores it). */
   rest: string;
   search: string;
@@ -162,7 +163,8 @@ export function previewWsRoute(options: { preAckMaxBytes?: number } = {}) {
       // own negotiation already completed with Bun.
       const forward: [string, string][] = [];
       const originHeader = request.headers.get("origin");
-      if (originHeader) forward.push(["origin", originHeader]);
+      if (originHeader && originHeader !== "null" && originHeader !== url.origin)
+        forward.push(["origin", originHeader]);
       const protocols = request.headers.get("sec-websocket-protocol");
       if (protocols) forward.push(["sec-websocket-protocol", protocols]);
       Object.assign(context as Record<string, unknown>, {
@@ -171,6 +173,7 @@ export function previewWsRoute(options: { preAckMaxBytes?: number } = {}) {
           laneRef,
           mode: session.mode,
           port: session.port,
+          hostHeader: session.proxySettings?.passHost ? url.host : undefined,
           rest: params["*"] ?? "",
           search: url.search,
           forward,
@@ -242,6 +245,7 @@ export function previewWsRoute(options: { preAckMaxBytes?: number } = {}) {
       const jarCookie = jarCookieHeader(t.session.cookieJar);
       const redial = openLaneWebSocket(duplex, {
         host: t.session.service?.host,
+        hostHeader: t.hostHeader,
         port: t.port,
         path: `/${t.rest}${t.search}`,
         headers: jarCookie ? [...t.forward, ["cookie", jarCookie]] : t.forward,

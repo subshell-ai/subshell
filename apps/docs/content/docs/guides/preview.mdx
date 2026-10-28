@@ -128,6 +128,38 @@ remove button beside a saved row to delete the connection and disconnect its ope
 views. Removing a connection doesn't stop the service. You need edit access to
 add, open, or remove connections; people with view access can see the list.
 
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/preview-website-mobile.png" alt="Subshell's marketing website with its styles and images loaded in a maximized mobile web preview." width="430" height="932" loading="lazy" decoding="async" unoptimized />
+  <figcaption>A website running on the node, viewed from your phone.</figcaption>
+</figure>
+
+## Configure an app preview
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/preview-settings-mobile.png" alt="Configure preview dialog on mobile, with Rewrite app URLs and Rewrite redirects enabled, Pass the preview host disabled, and reset, cancel, and save controls." width="430" height="932" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Personal settings remembered for this app on this node.</figcaption>
+</figure>
+
+You need edit access to configure a preview. In the subshell header's **Open web
+preview or screen** dialog, select **Configure preview before opening**, then
+choose a discovered port or saved service. For an app that's already open, use
+**More view actions** → **Configure preview** in its toolbar.
+
+| Setting | Default | What it changes |
+| --- | --- | --- |
+| **Rewrite app URLs** | On | Routes supported HTML, CSS, module imports, and common app requests through the private preview path. |
+| **Pass the preview host** | Off | Sends your browser's preview host to the app instead of the target host. Use it only when the app expects that host. |
+| **Rewrite redirects** | On | Keeps redirects to this app under the preview path. |
+
+Choose **Save and open** to save your choices and open a fresh preview.
+**Reset to defaults** removes the saved choices and opens a fresh preview with
+the defaults above. **Cancel** keeps the current preview.
+
+These settings belong to your account and follow you across devices and
+subshells for the same node, host, protocol, and port. They don't change anyone
+else's preview or grant access to a target. A saved service and a discovered
+port share settings when they identify the same target.
+
 ## Arrange and refresh views
 
 Drag preview tabs to keep several apps or screens visible together. Closing a
@@ -293,10 +325,13 @@ cookies stay in the preview's server-side cookie jar. Sites that need browser
 storage, service workers, JavaScript-managed cookies, or full browser login
 flows should be checked in the node's browser through **Virtual display**.
 
-The proxy preserves your app's paths rather than rewriting HTML or JavaScript.
-If a dev server assumes it's hosted at `/`, configure relative asset URLs or a
-matching base path. A target's strict content policy can also prevent embedding;
-the virtual display gives you the browser's normal website context.
+With **Rewrite app URLs** enabled, Subshell rewrites supported HTML attributes,
+CSS URLs, and module imports. It also adds a browser compatibility script for
+common requests such as fetch, XMLHttpRequest, WebSocket, and EventSource.
+This helps apps that assume they're hosted at `/`, but it doesn't make every
+app compatible. A target's strict Content Security Policy can block the
+compatibility script or other resources. Use a virtual display when the app
+needs a normal browser context; preview settings don't relax its sandbox.
 
 If the app rejects the preview's host or origin, check the app's allowed-host
 and origin settings. Subshell doesn't bypass the app's access checks.

@@ -5,6 +5,7 @@ import { apiModels } from "@/api/schemas/index.js";
 import { gatePreview, previewNodeState, recheckPreviewOpen } from "@/api/subshells/preview-gate.js";
 import { NodeRpcError } from "@/modules/nodes/node-rpc.js";
 import { getPreviewBroker, PreviewRefusal } from "@/modules/previews/preview-broker.js";
+import { readPreviewProxySettings, savePreviewProxySettings } from "@/modules/previews/proxy-settings.js";
 import { detailIsNodeOff, PREVIEW_PANE_GONE } from "@/modules/previews/refusals.js";
 import { getService } from "@/modules/subshells/saved-services.js";
 import { HttpError } from "@/shared/errors.js";
@@ -75,6 +76,13 @@ export const viewsOpenRoute = new Elysia()
           port,
           service: service ? { host: service.host, protocol: service.protocol } : undefined,
           serviceId: service?.id,
+          proxySettings: await readPreviewProxySettings({
+            userId: user.id,
+            nodeId: row.nodeId,
+            host: service?.host ?? "localhost",
+            protocol: service?.protocol ?? "http",
+            port,
+          }),
           authorize: async () => {
             if (service) await getService(params.id, service.id);
             await recheckPreviewOpen(user.id, params.id, row.nodeId, "edit", actor, feature);
@@ -126,6 +134,37 @@ export const viewsOpenRoute = new Elysia()
         description:
           "Open a loopback port or saved serviceId and return its private proxy path. Requires edit access. Saved services use their stored host and HTTP/HTTPS protocol.",
       },
+    },
+  )
+  .post(
+    "/:id/views/settings",
+    async ({ params, body, user, actor, apiKeyPermissions }) => {
+      requirePerm({ actor, apiKeyPermissions }, "subshells", "write");
+      const { row } = await gatePreview(user.id, params.id, "edit", actor);
+      await recheckPreviewOpen(user.id, params.id, row.nodeId, "edit", actor);
+      const service = "serviceId" in body.target ? await getService(params.id, body.target.serviceId) : undefined;
+      const target = {
+        userId: user.id,
+        nodeId: row.nodeId,
+        host: service?.host ?? "localhost",
+        protocol: service?.protocol ?? "http",
+        port: service?.port ?? ("port" in body.target ? body.target.port : 0),
+      };
+      if (body.action === "read") return readPreviewProxySettings(target);
+      if (body.action === "reset") return savePreviewProxySettings(target, null);
+      if (!body.settings) throw new HttpError(400, "Choose the preview settings to save.");
+      return savePreviewProxySettings(target, body.settings);
+    },
+    {
+      body: t.Object({
+        target: PreviewOpenBodySchema,
+        action: t.Union([t.Literal("read"), t.Literal("save"), t.Literal("reset")]),
+        settings: t.Optional(
+          t.Object({ rewriteUrls: t.Boolean(), passHost: t.Boolean(), rewriteRedirects: t.Boolean() }),
+        ),
+      }),
+      systemPermission: "subshells:execute",
+      detail: { operationId: "previewProxySettings", tags: ["subshells"] },
     },
   );
 

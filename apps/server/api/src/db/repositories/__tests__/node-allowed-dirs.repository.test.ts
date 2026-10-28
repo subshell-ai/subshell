@@ -1,4 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { NodeAllowedDirsRepository } from "@/db/repositories/node-allowed-dirs.repository.js";
@@ -25,6 +26,7 @@ async function seedNode(id: string): Promise<void> {
 describe("NodeAllowedDirsRepository", () => {
   beforeAll(async () => {
     await runMigrations();
+    await runAuthMigrations();
     await seedNode(NODE);
     await seedNode(OTHER);
   });

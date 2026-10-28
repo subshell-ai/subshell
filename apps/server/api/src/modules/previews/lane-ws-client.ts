@@ -83,6 +83,8 @@ export interface LaneWsHandle {
 }
 
 export interface LaneWsInit {
+  /** Browser-facing authority only when explicitly selected in preview settings. */
+  hostHeader?: string;
   /** The port the node dials; it rides the `Host` header only. */
   port: number;
   host?: string;
@@ -130,7 +132,7 @@ export async function openLaneWebSocket(duplex: Duplex, init: LaneWsInit): Promi
   const key = randomBytes(16).toString("base64");
   const lines = [
     `GET ${init.path} HTTP/1.1`,
-    `host: ${serviceAuthority(init.host ?? "127.0.0.1", init.port)}`,
+    `host: ${init.hostHeader ?? serviceAuthority(init.host ?? "127.0.0.1", init.port)}`,
     "connection: upgrade",
     "upgrade: websocket",
   ];

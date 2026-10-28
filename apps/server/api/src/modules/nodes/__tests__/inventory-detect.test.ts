@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, setSystemTime } from "bun:test";
 import { allHarnesses, getHarness, type HarnessPlugin } from "@internal/pane-runtime";
 import type { DetectSpecWire, NodeCommandBody } from "@internal/subshell-protocol";
+import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
@@ -119,7 +120,8 @@ describe("detectEnvNames: the plane names what it asks for (spec §5 as amended)
   });
 
   it("the driver sends the union on the wire (seam catalog; claude-code's real declaration pinned below)", async () => {
-    await runMigrations(); // this describe sits outside the detectOnNode one (suite idiom)
+    await runMigrations();
+    await runAuthMigrations(); // this describe sits outside the detectOnNode one (suite idiom)
     const node = await mkNode();
     const sent: Sent[] = [];
     await detectOnNode(node.id, {
@@ -154,7 +156,8 @@ describe("detectEnvNames: the plane names what it asks for (spec §5 as amended)
 
 describe("detectOnNode", () => {
   beforeAll(async () => {
-    await runMigrations(); // no-op when already applied (inventory suite idiom)
+    await runMigrations();
+    await runAuthMigrations(); // no-op when already applied (inventory suite idiom)
   });
 
   afterAll(async () => {

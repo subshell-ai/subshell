@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from "bun:test";
+import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js"; // no-op when already applied
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
@@ -13,6 +14,7 @@ const unique = (p: string) => `${p}-${process.pid}-${salt}-${seq++}`;
 
 beforeAll(async () => {
   await runMigrations();
+  await runAuthMigrations();
 });
 
 describe("NodeSetupKeysRepository", () => {

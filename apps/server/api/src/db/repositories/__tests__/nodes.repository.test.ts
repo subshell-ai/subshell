@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js"; // no-op when already applied
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
@@ -25,6 +26,7 @@ async function mkNode(repo: NodesRepository, ownerUserId: string, name = unique(
 
 beforeAll(async () => {
   await runMigrations();
+  await runAuthMigrations();
 });
 
 // This file re-owns `local` to a fixture user and revokes its Everyone

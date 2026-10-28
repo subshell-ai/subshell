@@ -21,8 +21,10 @@ application security template or a replacement for Subshell's preview gates.
 
 Create an empty directory on the development node and save these files there.
 The page uses relative paths so its HTTP and WebSocket requests stay under the
-preview capability prefix. A root-relative `/api/message` URL would instead
-point at the Subshell server's API namespace.
+preview capability prefix even when **Rewrite app URLs** is off. With that
+setting on by default, Subshell also rewrites supported root-relative URLs and
+common browser requests. Keep explicit relative paths in this example so its
+behavior doesn't depend on the compatibility script running.
 
 ```ts title="server.ts"
 const page = `<!doctype html>

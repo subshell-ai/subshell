@@ -109,6 +109,12 @@ const jsonBody = async (res: Response) => (await res.json()) as Record<string, u
 
 /** The four preview doors, so the actor table reads as a table. */
 const DOORS = [
+  {
+    label: "settings",
+    method: "POST",
+    path: (id: string) => `/${id}/views/settings`,
+    body: { target: { port: 3000 }, action: "read" },
+  },
   { label: "info", method: "GET", path: (id: string) => `/${id}/views` },
   { label: "open", method: "POST", path: (id: string) => `/${id}/views/open`, body: { port: 3000 } },
   { label: "watch", method: "POST", path: (id: string) => `/${id}/views/browser/watch`, body: { port: 9222 } },
@@ -308,6 +314,129 @@ describe("preview REST surface (Task 9)", () => {
     expect(((await saved.json()) as { host: string }).host).toBe("localhost");
   });
 
+  it("saves personal target settings across subshells, snapshots opens, and resets", async () => {
+    attachLive();
+    const pane = await directRow();
+    const other = await directRow();
+    await grantPane(pane, editorId, "edit");
+    const settings = { rewriteUrls: false, passHost: true, rewriteRedirects: false };
+    const settingsCall = (id: string, action: string, cookie = ownerCookie, target: unknown = { port: 3000 }) =>
+      call("POST", `/${id}/views/settings`, { cookie, body: { target, action, settings } });
+    expect((await settingsCall(pane, "save")).status).toBe(200);
+    expect(await (await settingsCall(other, "read")).json()).toEqual(settings);
+    expect(await (await settingsCall(pane, "read", editorCookie)).json()).toEqual({
+      rewriteUrls: true,
+      passHost: false,
+      rewriteRedirects: true,
+    });
+    expect(await (await settingsCall(other, "read", ownerCookie, { port: 3001 })).json()).toEqual({
+      rewriteUrls: true,
+      passHost: false,
+      rewriteRedirects: true,
+    });
+    const opened = await call("POST", `/${other}/views/open`, { cookie: ownerCookie, body: { port: 3000 } });
+    const { proxyBase } = (await opened.json()) as { proxyBase: string };
+    expect(getPreviewBroker().sessionFor(proxyBase.split("/")[2] ?? "")?.proxySettings).toEqual(settings);
+    expect((await settingsCall(other, "reset")).status).toBe(200);
+    expect(await (await settingsCall(pane, "read")).json()).toEqual({
+      rewriteUrls: true,
+      passHost: false,
+      rewriteRedirects: true,
+    });
+    expect(getPreviewBroker().sessionFor(proxyBase.split("/")[2] ?? "")?.proxySettings).toEqual(settings);
+  });
+
+  it("uses saved service targets without granting access or crossing protocols", async () => {
+    attachLive();
+    const pane = await directRow();
+    const saveService = async (protocol: "http" | "https", host: string) => {
+      const response = await call("POST", `/${pane}/services`, {
+        cookie: ownerCookie,
+        body: { name: protocol, port: 4443, host, protocol },
+      });
+      expect(response.status).toBe(200);
+      return (await response.json()) as { id: string };
+    };
+    const first = await saveService("http", "LOCALHOST");
+    const second = await saveService("https", "localhost");
+    const settings = { rewriteUrls: false, passHost: true, rewriteRedirects: false };
+    const save = await call("POST", `/${pane}/views/settings`, {
+      cookie: ownerCookie,
+      body: { target: { serviceId: first.id }, action: "save", settings },
+    });
+    expect(save.status).toBe(200);
+    const read = await call("POST", `/${pane}/views/settings`, {
+      cookie: ownerCookie,
+      body: { target: { serviceId: second.id }, action: "read" },
+    });
+    expect(await read.json()).toEqual({ rewriteUrls: true, passHost: false, rewriteRedirects: true });
+    expect(
+      (
+        await call("POST", `/${pane}/views/settings`, {
+          cookie: foreignCookie,
+          body: { target: { serviceId: first.id }, action: "read" },
+        })
+      ).status,
+    ).toBe(404);
+    await call("POST", `/${pane}/views/settings`, {
+      cookie: ownerCookie,
+      body: { target: { serviceId: first.id }, action: "reset" },
+    });
+  });
+
+  it("caps saved targets per user while allowing updates and resets", async () => {
+    attachLive();
+    const pane = await directRow();
+    await db.deleteFrom("previewProxySettings").where("userId", "=", ownerId).execute();
+    await db
+      .insertInto("previewProxySettings")
+      .values(
+        Array.from({ length: 256 }, (_, i) => ({
+          userId: ownerId,
+          nodeId,
+          host: "localhost",
+          protocol: "http",
+          port: 10000 + i,
+          rewriteUrls: 1,
+          passHost: 0,
+          rewriteRedirects: 1,
+        })),
+      )
+      .execute();
+    const settings = { rewriteUrls: false, passHost: true, rewriteRedirects: false };
+    const change = (port: number, action: string) =>
+      call("POST", `/${pane}/views/settings`, { cookie: ownerCookie, body: { target: { port }, action, settings } });
+    expect((await change(3000, "save")).status).toBe(409);
+    expect((await change(10000, "save")).status).toBe(200);
+    expect((await change(10000, "reset")).status).toBe(200);
+    expect((await change(3000, "save")).status).toBe(200);
+    await db.deleteFrom("previewProxySettings").where("userId", "=", ownerId).execute();
+  });
+
+  it("settings cannot bypass edit access or the node preview switch", async () => {
+    attachLive();
+    const pane = await directRow();
+    await grantPane(pane, viewerId, "view");
+    for (const action of ["read", "save", "reset"]) {
+      const body = {
+        target: { port: 3000 },
+        action,
+        settings: { rewriteUrls: true, passHost: false, rewriteRedirects: true },
+      };
+      expect((await call("POST", `/${pane}/views/settings`, { cookie: viewerCookie, body })).status).toBe(403);
+      expect((await call("POST", `/${pane}/views/settings`, { cookie: foreignCookie, body })).status).toBe(404);
+    }
+    await nodes.setPreviewEnabled(nodeId, { on: false, changedAt: new Date().toISOString() });
+    expect(
+      (
+        await call("POST", `/${pane}/views/settings`, {
+          cookie: ownerCookie,
+          body: { target: { port: 3000 }, action: "read" },
+        })
+      ).status,
+    ).toBe(409);
+  });
+
   it("the owner reaches all four doors", async () => {
     attachLive();
     const pane = await directRow();
@@ -343,7 +472,7 @@ describe("preview REST surface (Task 9)", () => {
         ...("body" in door ? { body: door.body } : {}),
       });
       // Forwarding a raw lane is `edit`; info and the watch doors are reads.
-      expect(res.status).toBe(door.label === "open" ? 403 : 200);
+      expect(res.status).toBe(door.label === "open" || door.label === "settings" ? 403 : 200);
     }
   });
 

@@ -86,7 +86,11 @@ opened in a separate browser tab. Their scripts can't read the dashboard DOM,
 storage, or authenticated API responses. Target cookies stay in a per-preview
 server-side jar rather than being installed on the dashboard origin. Browser
 storage, service workers, and some website login flows need the node's normal
-browser context; use **Virtual display** for those checks.
+browser context; use **Virtual display** for those checks. URL rewriting helps
+with common app requests while preserving this isolation. It doesn't make every
+app compatible, and a target's Content Security Policy can block the injected
+compatibility script. Personal preview settings don't relax the sandbox or
+grant target access.
 
 #### Link lifetime and revocation
 
