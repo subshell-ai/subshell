@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { inlineInto } from "../../inline";
+import { inlineInto, panelSingleFile } from "../../inline";
 
 /**
  * The white panel this exists to prevent: a `file://` document has an opaque
@@ -74,4 +74,28 @@ describe("inlineInto", () => {
     const withFont = VITE_HTML.replace("</head>", '<link rel="stylesheet" href="./assets/fonts-abc.css"></head>');
     expect(() => inlineInto(withFont, "void 0;", "body{}")).toThrow("still fetches");
   });
+});
+
+test("the build plugin folds the emitted chunk and CSS into the document and removes both assets", () => {
+  const plugin = panelSingleFile();
+  const bundle = {
+    "assets/main.js": { type: "chunk", fileName: "assets/main.js", code: "window.ready = true;" },
+    "assets/main.css": { type: "asset", fileName: "assets/main.css", source: "body{}" },
+    "index.html": { type: "asset", fileName: "index.html", source: VITE_HTML },
+  };
+  const generate = plugin.generateBundle;
+  if (typeof generate !== "function") throw new Error("No bundle hook");
+  generate.call(
+    {
+      error: (message: string) => {
+        throw new Error(message);
+      },
+    } as never,
+    {} as never,
+    bundle as never,
+    false,
+  );
+  expect(Object.keys(bundle)).toEqual(["index.html"]);
+  expect(bundle["index.html"].source).toContain("window.ready = true;");
+  expect(bundle["index.html"].source).toContain("<style>body{}</style>");
 });

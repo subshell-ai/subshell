@@ -18,6 +18,7 @@ interface PanelBridge {
 }
 declare global {
   interface Window {
+    subshellPanelShown?: () => void;
     subshellSetState?: (state: PanelState) => void;
     webkit?: { messageHandlers?: { subshell?: PanelBridge } };
   }
@@ -213,6 +214,8 @@ window.addEventListener("keydown", (event) => {
 function render(state: PanelState): void {
   const root = document.getElementById("panel");
   if (!root) return;
+  const existingDialog = confirmingQuit ? root.querySelector<HTMLElement>(".scrim") : null;
+  const focused = existingDialog?.contains(document.activeElement) ? (document.activeElement as HTMLElement) : null;
   root.replaceChildren();
 
   const card = element("section", "card");
@@ -330,12 +333,22 @@ function render(state: PanelState): void {
   card.append(bar);
 
   root.append(card);
-  if (confirmingQuit) root.append(quitDialog(state));
+  if (confirmingQuit) {
+    const dialog = existingDialog ?? quitDialog(state);
+    const body = dialog.querySelector("#quit-body");
+    if (body) body.textContent = quitBody(state.loginItem, state.enabled);
+    root.append(dialog);
+    focused?.focus();
+  }
 
   // The Swift window sizes to the document, so the page reports both of its
   // own dimensions rather than the window guessing and the content scrolling.
   const box = root.getBoundingClientRect();
-  bridge()?.postMessage({ action: "resize", width: Math.ceil(box.width), height: Math.ceil(box.height) });
+  bridge()?.postMessage({
+    action: "resize",
+    width: Math.ceil(Number.isFinite(box.width) ? box.width : 0),
+    height: Math.ceil(Number.isFinite(box.height) ? box.height : 0),
+  });
 }
 
 let current: PanelState = EMPTY_STATE;
@@ -349,3 +362,14 @@ window.subshellSetState = (state: PanelState) => {
 };
 
 render(current);
+
+// AppKit keeps the document alive when the settings window closes.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && confirmingQuit) closeQuitDialog();
+});
+
+// AppKit explicitly signals reopening; WebKit visibility events alone aren't
+// reliable when a retained native window is hidden rather than unloaded.
+window.subshellPanelShown = () => {
+  if (confirmingQuit) closeQuitDialog();
+};

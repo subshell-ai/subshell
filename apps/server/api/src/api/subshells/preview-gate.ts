@@ -87,7 +87,7 @@ export async function recheckPreviewOpen(
   nodeId: string,
   min: "view" | "edit",
   actor: GuardActor,
-  feature: "web-previews" | "display" = "web-previews",
+  feature: "web-previews" | "display" | "any" = "web-previews",
 ): Promise<Access> {
   if (await accountDisabled(db, viewerId)) throw new HttpError(401, "Your account is no longer available.");
   const { row, access } = await gatePreview(viewerId, paneId, min, actor);

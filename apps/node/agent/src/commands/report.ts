@@ -458,7 +458,7 @@ export async function runExitWatchTick(ctx: CommandContext): Promise<void> {
  * One look at a live pane's capture child: compare its screen with its log.
  * Both unchanged → nothing (a quiet pane is not a dead writer). Log moved →
  * healthy, reset. Screen moved while the log stood still → strike; enough
- * consecutive strikes re-arm the pipe (without `-o`, which replaces the
+ * strikes without log progress re-arm the pipe (without `-o`, which replaces the
  * child — with it tmux would call the dead writer "already on").
  *
  * Every call runs inside the tick's per-pane flow but cannot wound it: any
@@ -481,20 +481,18 @@ async function guardPipeChild(
     g.ticks = 0;
     const screen = await ctx.tmux.capturePane(socket, subshellId);
     const size = Bun.file(ctx.meta.logPath(subshellId)).size;
-    if (screen === g.lastScreen) {
-      g.missed = 0; // quiet pane (or quiet 20 s): the writer is not proven dead
-    } else if (size !== g.lastSize) {
+    if (size !== g.lastSize) {
       g.missed = 0; // the log moved with the screen: healthy
-    } else {
-      g.missed += 1; // screen moved, log did not
+    } else if (screen !== g.lastScreen) {
+      g.missed += 1; // Quiet intervals neither prove health nor add strikes.
     }
     g.lastScreen = screen;
     g.lastSize = size;
     if (g.missed < PIPE_GUARD_MISSED_LIMIT) return;
     g.missed = 0;
     const logFile = ctx.meta.logPath(subshellId);
-    log(`exit watcher: pane ${subshellId} printed while its replay log stood still; re-arming the capture child`);
     ctx.tmux.pipePane(socket, subshellId, logFile, selfInvocation("pane-log"), { replace: true });
+    log(`exit watcher: pane ${subshellId} printed while its replay log stood still; re-armed the capture child`);
   } catch {
     // The guard must never cost the tick its death watch (or a test suite its
     // unstubbed fakes).

@@ -4222,7 +4222,7 @@ target access. The table contains no capability paths or references. New forward
 sessions snapshot their settings so a preference change does not alter another
 active capability. Supported text rewrites buffer at most 16 MiB after decoding;
 other response bodies retain streaming behavior. Each rewrite also caps URL
-expansion at 16 MiB, with at most eight active transformations. Compressed-stream
+expansion at 16 MiB, with a process-wide 128 MiB decoded-input budget across in-flight rewrites. Compressed-stream
 errors and cancellation tear down both the decoder and the source. Module edits
 are assembled once rather than repeatedly copying attacker-controlled source.
 
@@ -4241,7 +4241,7 @@ is not end-to-end encryption between the viewer and the website. Each dial uses
 loopback literals and a bounded port by default. Saved services deliberately extend
 this to a hostname or IP and HTTP/HTTPS, chosen by an edit-authorized user and
 stored under the subshell. This grants network reach from that node, including
-private networks, at the same shell-equivalent authority as terminal input. Hosts
+private and link-local networks, at the same shell-equivalent authority as terminal input. Hosts
 cannot contain credentials, paths, or header text. TLS remains certificate-verified;
 the proxy never follows redirects server-side. Deleting a saved entry cancels
 pending opens and revokes its capabilities without stopping the service. Saves

@@ -168,6 +168,26 @@ async function renderDialog(onOpenChange: (open: boolean) => void = () => {}, se
 afterEach(cleanup);
 
 describe("NewWorkspaceDialog", () => {
+  it("Cancel clears the retained dialog's previous selection", async () => {
+    const { restore } = mockFetch();
+    let closed = false;
+    try {
+      // Keep the instance mounted and its open prop fixed, so the result
+      // demonstrates its own reset rather than a parent's unmount.
+      await renderDialog((open) => {
+        closed = !open;
+      });
+      const checkbox = await screen.findByRole("checkbox", { name: /One/ });
+      fireEvent.click(checkbox);
+      expect(checkbox.getAttribute("aria-checked")).toBe("true");
+      fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+      expect(closed).toBe(true);
+      expect(screen.getByRole("checkbox", { name: /One/ }).getAttribute("aria-checked")).toBe("false");
+    } finally {
+      restore();
+    }
+  });
+
   it("excludes agent-created helpers from existing subshells", async () => {
     const rows = [subshell("human", "Human pane"), { ...subshell("helper", "Agent helper"), crossAgent: true }];
     const { restore } = mockFetch({ subshells: rows });

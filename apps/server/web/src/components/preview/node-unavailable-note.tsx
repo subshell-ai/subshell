@@ -13,13 +13,23 @@ export function isSwitchOff(reason: string | undefined): boolean {
 
 const ENABLE_GUIDE = "https://docs.subshell.sh/previews/setup";
 
-export function NodeUnavailableNote({ info, className = "" }: { info: PreviewInfo; className?: string }) {
+function unavailableReasons(info: PreviewInfo): Set<string> {
   const reasons = new Set<string>();
   if (info.reason) reasons.add(info.reason);
   if (info.nodeEnabled && !isSwitchOff(info.reason)) {
     if (info.webPreviewsEnabled === false) reasons.add("web-previews-disabled");
     if (info.virtualDisplayEnabled === false) reasons.add("virtual-display-disabled");
   }
+  return reasons;
+}
+
+/** Match the enablement note's full verdict, including per-feature switches. */
+export function hasDisabledPreviewFeature(info: PreviewInfo | undefined): boolean {
+  return !!info && [...unavailableReasons(info)].some(isSwitchOff);
+}
+
+export function NodeUnavailableNote({ info, className = "" }: { info: PreviewInfo; className?: string }) {
+  const reasons = unavailableReasons(info);
   if (info.nodeEnabled && reasons.size === 0) return null;
   const switchOff = [...reasons].some(isSwitchOff);
   return (

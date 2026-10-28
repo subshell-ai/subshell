@@ -252,7 +252,7 @@ try {
     const poster = frame - 1;
     dimensions["preview-workspace"] = await captureScreenshot(
       page,
-      path.join(shots, "preview-workspace.png"),
+      path.join("/tmp", "subshell-preview-workspace.png"),
       page.locator("main"),
       page.locator("main"),
     );

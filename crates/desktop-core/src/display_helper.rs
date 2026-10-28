@@ -5,7 +5,7 @@
 use std::fs::{self, File, OpenOptions};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::io::AsRawFd;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const BUNDLE: &str = "Subshell Display Helper.app";
@@ -213,9 +213,7 @@ pub fn open_settings(resource_dir: &Path, home: &Path) -> Result<(), String> {
             return open_verified_settings(&installed);
         }
         fs::create_dir_all(&applications).map_err(|e| e.to_string())?;
-        let staging = applications.join(format!(".subshell-display-helper-{}", std::process::id()));
-        // Never overwrite an unknown staging directory left by another run.
-        fs::create_dir(&staging).map_err(|e| e.to_string())?;
+        let staging = create_staging(&applications)?;
         let next = staging.join(BUNDLE);
         let previous = staging.join("previous.app");
         let result = staged_swap(&SwapSteps {
@@ -238,6 +236,31 @@ pub fn open_settings(resource_dir: &Path, home: &Path) -> Result<(), String> {
         result?;
     }
     open_verified_settings(&installed)
+}
+
+/// Reserve a new staging directory without touching a previous failed rollback.
+fn create_staging(applications: &Path) -> Result<PathBuf, String> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_nanos();
+    for attempt in 0..1024 {
+        let staging = applications.join(format!(
+            ".subshell-display-helper-{}-{stamp}-{attempt}",
+            std::process::id()
+        ));
+        match fs::create_dir(&staging) {
+            Ok(()) => return Ok(staging),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(format!(
+                    "Couldn't prepare the display helper in {}: {error}",
+                    applications.display()
+                ))
+            }
+        }
+    }
+    Err(format!("Couldn't reserve display helper staging space in {}. Keep any previous.app recovery copies before clearing old .subshell-display-helper directories.", applications.display()))
 }
 
 /// The steps of the staged swap, injected so a test can fail each one and watch what
@@ -274,6 +297,20 @@ fn staged_swap(steps: &SwapSteps) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_old_staging_directory_does_not_block_another_attempt() {
+        let root = std::env::temp_dir().join(format!("subshell-helper-stage-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let old = root.join(format!(".subshell-display-helper-{}", std::process::id()));
+        fs::create_dir_all(&old).unwrap();
+        fs::write(old.join("previous.app"), b"recovery").unwrap();
+        let first = create_staging(&root).unwrap();
+        let second = create_staging(&root).unwrap();
+        assert_ne!(first, second);
+        assert_eq!(fs::read(old.join("previous.app")).unwrap(), b"recovery");
+        fs::remove_dir_all(root).unwrap();
+    }
+
     use super::*;
     use std::cell::RefCell;
     use std::os::unix::fs::symlink;

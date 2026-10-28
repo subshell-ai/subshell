@@ -23,16 +23,32 @@ const PreviewOpenBodySchema = t.Union([
     port: t.Integer({
       minimum: 1,
       maximum: 65_535,
-      description: "Loopback port inside the pane's machine to forward (the node dials loopback only)",
+      description:
+        "Loopback port on the subshell's node to forward. Saved serviceId targets use their stored host instead.",
     }),
   }),
-  t.Object({ serviceId: t.String({ format: "uuid" }) }),
+  t.Object({
+    serviceId: t.String({ format: "uuid", description: "Saved service whose host and protocol the node will use" }),
+  }),
 ]);
 
 const PreviewOpenResponseSchema = t.Object({
   proxyBase: t.String({
     description: "Path prefix the SPA proxies the forwarded lane through, ending in a slash",
   }),
+});
+
+const PreviewSettingsSchema = t.Object({
+  rewriteUrls: t.Boolean({ description: "Rewrite app resource URLs through the preview" }),
+  passHost: t.Boolean({ description: "Forward the preview host header to the app" }),
+  rewriteRedirects: t.Boolean({ description: "Rewrite app redirects through the preview" }),
+});
+const PreviewSettingsBodySchema = t.Object({
+  target: PreviewOpenBodySchema,
+  action: t.Union([t.Literal("read"), t.Literal("save"), t.Literal("reset")], {
+    description: "Read, save, or reset your target preferences",
+  }),
+  settings: t.Optional(PreviewSettingsSchema),
 });
 
 export const viewsOpenRoute = new Elysia()
@@ -141,7 +157,7 @@ export const viewsOpenRoute = new Elysia()
     async ({ params, body, user, actor, apiKeyPermissions }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "write");
       const { row } = await gatePreview(user.id, params.id, "edit", actor);
-      await recheckPreviewOpen(user.id, params.id, row.nodeId, "edit", actor);
+      await recheckPreviewOpen(user.id, params.id, row.nodeId, "edit", actor, "any");
       const service = "serviceId" in body.target ? await getService(params.id, body.target.serviceId) : undefined;
       const target = {
         userId: user.id,
@@ -156,13 +172,15 @@ export const viewsOpenRoute = new Elysia()
       return savePreviewProxySettings(target, body.settings);
     },
     {
-      body: t.Object({
-        target: PreviewOpenBodySchema,
-        action: t.Union([t.Literal("read"), t.Literal("save"), t.Literal("reset")]),
-        settings: t.Optional(
-          t.Object({ rewriteUrls: t.Boolean(), passHost: t.Boolean(), rewriteRedirects: t.Boolean() }),
-        ),
-      }),
+      body: PreviewSettingsBodySchema,
+      response: {
+        200: PreviewSettingsSchema,
+        400: "ApiErrorResponse",
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+        404: "ApiErrorResponse",
+        409: "ApiErrorResponse",
+      },
       systemPermission: "subshells:execute",
       detail: { operationId: "previewProxySettings", tags: ["subshells"] },
     },

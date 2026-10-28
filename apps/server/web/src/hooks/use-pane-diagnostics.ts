@@ -24,7 +24,7 @@ import {
  * @returns `[on, toggle]` — whether the HUD is open, and the menu's act
  */
 export function usePaneDiagnostics(id: string | undefined): [boolean, () => void] {
-  const [on, setOn] = useState(false);
+  const [on, setOn] = useState(() => !!id && paneDiagnosticsIds().includes(id));
   useEffect(() => {
     if (!id) {
       setOn(false);

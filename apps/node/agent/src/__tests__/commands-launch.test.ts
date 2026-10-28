@@ -1071,10 +1071,42 @@ describe("exit watcher — the capture-child guard", () => {
   async function aliveCtx(spec: Spec) {
     const dataDir = await freshDataDir("pipe-guard");
     const events: NodeEvent[] = [];
-    const built = makeCtx(dataDir, { listSubshellNames: () => [S1], ...spec }, events);
+    const built = makeCtx(dataDir, { listSubshellNames: () => [S1], pipePane: () => {}, ...spec }, events);
     startExitWatcher(built.ctx, S1, "sock-a", 10_000);
     return { ...built, dataDir };
   }
+
+  it("retains strikes through quiet intervals between output bursts", async () => {
+    let screen = "baseline";
+    const { ctx, calls } = await aliveCtx({ capturePane: () => screen });
+    const check = async () => {
+      for (let tick = 0; tick < PIPE_GUARD_CHECK_TICKS; tick++) await runExitWatchTick(ctx);
+    };
+    await check();
+    for (let burst = 0; burst < PIPE_GUARD_MISSED_LIMIT; burst++) {
+      screen = `burst-${burst}`;
+      await check();
+      await check();
+    }
+    expect(calls.filter((call) => call.method === "pipePane")).toHaveLength(1);
+  });
+
+  it("doesn't report a re-arm when tmux refuses it", async () => {
+    let frame = 0;
+    const { ctx } = await aliveCtx({
+      capturePane: () => `screen-${++frame}`,
+      pipePane: () => {
+        throw new Error("pane gone");
+      },
+    });
+    const { lines, restore } = captureLogs();
+    try {
+      for (let i = 0; i < ticksToArm; i++) await runExitWatchTick(ctx);
+    } finally {
+      restore();
+    }
+    expect(lines.some((line) => line.includes("re-armed the capture child"))).toBe(false);
+  });
 
   it("a pane printing into a dead writer gets the child re-armed, once per drift storm", async () => {
     let frame = 0;
@@ -1089,7 +1121,7 @@ describe("exit watcher — the capture-child guard", () => {
     expect(rearms).toHaveLength(1); // not once per strike: the counter resets
     // The agent log is the only field trace of a re-arm (there is no wire
     // event for it); deleting the log line must not stay green.
-    expect(lines.some((l) => l.includes("re-arming the capture child") && l.includes(S1))).toBe(true);
+    expect(lines.some((l) => l.includes("re-armed the capture child") && l.includes(S1))).toBe(true);
     const rearms0 = rearms[0];
     expect(rearms0).toBeDefined();
     const [socket, id, out, child, opts] = (rearms0 as { args: unknown[] }).args as [

@@ -145,7 +145,8 @@ export function SavedServices({
                 <FieldLabel htmlFor={`${id}-host`}>Host</FieldLabel>
                 <Input id={`${id}-host`} maxLength={253} value={host} onChange={(e) => setHost(e.target.value)} />
                 <p className="text-detail text-muted-foreground">
-                  localhost means the subshell's node. Use another host for a service that node can reach.
+                  localhost means the subshell's node. Another host can reach private or link-local services from that
+                  node. Only save destinations you trust people with edit access to use.
                 </p>
               </Field>
             </details>

@@ -162,3 +162,78 @@ describe("preview resource compatibility", () => {
     ).rejects.toThrow("too large");
   });
 });
+
+it("preserves malformed JavaScript for the browser to diagnose", async () => {
+  const source = 'import "\\u{invalid}";';
+  expect(await rewriteModule(source, map)).toBe(source);
+});
+it("quotes injected import literals for both JavaScript and HTML", async () => {
+  const source = 'import "/app.js";';
+  const output = await rewriteModule(source, () => '</script><script>alert("x")</script>');
+  expect(output).not.toContain("</script>");
+  expect(output).toContain("\\u003c/script\\u003e");
+});
+it("lets a cold-start burst wait on small upstream bodies without refusing imports", async () => {
+  const streams = Array.from({ length: 20 }, () => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>({
+      start(value) {
+        controller = value;
+      },
+    });
+    const result = transformPreviewResponse(
+      new Response(body, { headers: { "content-type": "text/javascript" } }),
+      target,
+      proxy,
+      "/app.js",
+    );
+    return { controller, result };
+  });
+  for (const { controller } of streams) {
+    controller.enqueue(new TextEncoder().encode('import "/app.js";'));
+    controller.close();
+  }
+  const responses = await Promise.all(streams.map(({ result }) => result));
+  for (const response of responses) expect(await response.text()).toContain(proxy);
+});
+
+it("bounds aggregate decoded input and releases its budget after cancellation", async () => {
+  const pending: Array<Promise<Response>> = [];
+  const controllers: ReadableStreamDefaultController<Uint8Array>[] = [];
+  for (let i = 0; i < 8; i++) {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controllers.push(controller);
+      },
+    });
+    pending.push(
+      transformPreviewResponse(
+        new Response(body, { headers: { "content-type": "text/javascript" } }),
+        target,
+        proxy,
+        "/app.js",
+      ),
+    );
+  }
+  // Keep each stream just below the per-resource cap; none has finished, so
+  // their decoded bytes remain charged while a ninth resource arrives.
+  const chunk = new Uint8Array(16 * 1024 * 1024).fill(32);
+  for (const controller of controllers) controller.enqueue(chunk);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const excess = transformPreviewResponse(
+    new Response("x", { headers: { "content-type": "text/javascript" } }),
+    target,
+    proxy,
+    "/app.js",
+  );
+  await expect(excess).rejects.toThrow("Too much app content");
+  for (const controller of controllers) controller.error(new Error("cancel fixture"));
+  await Promise.allSettled(pending);
+  const recovered = await transformPreviewResponse(
+    new Response('import "/app.js";', { headers: { "content-type": "text/javascript" } }),
+    target,
+    proxy,
+    "/app.js",
+  );
+  expect(await recovered.text()).toContain(proxy);
+});

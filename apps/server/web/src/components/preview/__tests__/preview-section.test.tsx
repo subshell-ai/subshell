@@ -238,6 +238,11 @@ describe("gated controls explain themselves", () => {
     });
     expect(screen.getByRole("link", { name: "Open node settings" })).toBeTruthy();
     cleanup();
+    for (const reason of [undefined, "preview-ports-unsupported"]) {
+      await mountRouted({ info: info({ nodeEnabled: true, reason, webPreviewsEnabled: false }), subshell: row() });
+      expect(screen.getByRole("link", { name: "Open node settings" })).toBeTruthy();
+      cleanup();
+    }
     // And not for a node that is merely unreachable: there is no switch to find.
     await mountRouted({ info: info({ nodeEnabled: false, reason: "node-offline" }), subshell: row() });
     expect(screen.queryByRole("link", { name: "Open node settings" })).toBeNull();

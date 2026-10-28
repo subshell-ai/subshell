@@ -101,7 +101,9 @@ export function consentControl(state: PanelState): { label: string; action: Pane
 /** The one-line answer to "is this machine exposing itself right now". */
 export function stateLine(state: PanelState): string {
   if (!state.enabled) return "Disabled. Nothing is captured and no input is accepted.";
-  return "Enabled. Capture and input still require both macOS permissions below.";
+  return state.screenRecording && state.accessibility
+    ? "Enabled. Capture and input are allowed by macOS."
+    : "Enabled. Capture and input still require both macOS permissions below.";
 }
 
 /** Gold while a viewer holds a screen, muted when nobody does. */

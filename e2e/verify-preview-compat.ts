@@ -79,13 +79,13 @@ try {
   console.log("Browser errors", errors);
   console.log("Website styled; image loaded");
   mkdirSync("apps/docs/public/screenshots", { recursive: true });
-  await page.screenshot({ path: "apps/docs/public/screenshots/preview-website-mobile.png" });
+  await page.screenshot({ path: "/tmp/subshell-preview-website-mobile.png" });
   await page.getByRole("button", { name: "More view actions" }).click();
   await page.getByRole("menuitem", { name: "Configure preview" }).click();
   await expect(page.getByRole("dialog", { name: "Configure preview" })).toBeVisible();
   await expect(page.getByRole("checkbox", { name: "Rewrite app URLs" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Save and open" })).toBeEnabled();
-  await page.screenshot({ path: "apps/docs/public/screenshots/preview-settings-mobile.png" });
+  await page.screenshot({ path: "/tmp/subshell-preview-settings-mobile.png" });
   await page.getByRole("button", { name: "Save and open" }).click();
   await expect(frame.getByRole("heading", { name: "Manage multiple agents away from your desk" })).toBeVisible();
   console.log("Saved and reopened preview");

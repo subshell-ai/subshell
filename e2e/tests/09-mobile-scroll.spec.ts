@@ -87,8 +87,9 @@ async function exerciseScrollKeys(page: Page, id: string): Promise<void> {
     const res = await page.request.post(`/api/subshells/${id}/input`, { data: { text, submit: true } });
     expect(res.ok(), text).toBe(true);
   };
-  await send("seq 1 100");
-  await send("SCROLL_TEST_DONE");
+  // The separate output line proves execution finished, rather than matching
+  // the tty's echo of a second command while its output is still arriving.
+  await send("seq 1 100; printf '\\nSCROLL_TEST_DONE\\n'");
 
   // Server-side truth that the text reached the pane — the same log tail
   // the byte-key specs read. Not proof of an idle prompt: the tty echo of
@@ -98,7 +99,9 @@ async function exerciseScrollKeys(page: Page, id: string): Promise<void> {
     return res.ok() ? ((await res.json()) as { lines: string[] }).lines.join("\n") : "";
   };
   await expect.poll(async () => (await logText()).includes("100"), { timeout: SPAWN_TIMEOUT }).toBe(true);
-  await expect.poll(async () => (await logText()).includes("SCROLL_TEST_DONE"), { timeout: SPAWN_TIMEOUT }).toBe(true);
+  await expect
+    .poll(async () => /(?:^|[\r\n])SCROLL_TEST_DONE(?:[\r\n]|$)/.test(await logText()), { timeout: SPAWN_TIMEOUT })
+    .toBe(true);
 
   const bar = page.getByRole("toolbar", { name: "Terminal special keys" });
   await expect(bar).toBeVisible();

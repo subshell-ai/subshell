@@ -153,6 +153,24 @@ describe("useSubshellWs grid resync", () => {
     expect(instances.length).toBe(2);
   });
 
+  it("a reconnect cannot resync against the previous socket's replay", async () => {
+    setAttachRetryDelaysForTests(1, 1);
+    const term = fakeTerminal();
+    renderHook(() => useSubshellWs({ current: term as unknown as Terminal }, "s-reconnect-base", {}));
+    await waitFor(() => expect(instances.length).toBe(1));
+    establish(instances[0], term);
+    instances[0].readyState = 3;
+    instances[0].onclose?.({ code: 4004, reason: "node offline" });
+    await waitFor(() => expect(instances.length).toBe(2));
+    instances[1].onopen?.();
+    term.cols = 90;
+    term.rows = 30;
+    for (const resize of term.resizeHandlers) resize({ cols: 90, rows: 30 });
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    expect(instances).toHaveLength(2);
+    expect(instances[1].readyState).toBe(FakeWebSocket.OPEN);
+  });
+
   it("a LATE adoption still resyncs, not just one that beats the settle check", async () => {
     // The announced grid is adopted asynchronously (container → letterbox →
     // fit). If that settles AFTER the debounced check ran, nothing else would

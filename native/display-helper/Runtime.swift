@@ -143,6 +143,7 @@ final class HelperRuntime {
                 allowed: allowed, frame: { [weak connection] jpeg in
                     connection?.send(["type": "frame", "jpeg": jpeg.base64EncodedString(), "width": width, "height": height])
                 }, lost: { [weak connection] message in
+                    restoreStrandedCursor()
                     connection?.send(["type": "error", "message": message]); connection?.close()
                 })
             captures[connection.id] = capture

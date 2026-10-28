@@ -170,10 +170,8 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
             // The proven form, not the no-argument `activate()`. A re-press has
             // to drag the pending alert over whatever app the person is in now,
             // which is exactly the insistence the plain call does not make.
-            // Nothing here checks a WARNING (test.sh excludes main.swift, and the
-            // desktop build passes no -warnings-as-errors), but a type error in
-            // this file does gate a release: build_support.rs globs every .swift
-            // in this directory, main.swift included.
+            // test.sh typechecks main.swift with warnings as errors; the desktop
+            // build also compiles every Swift source through build_support.rs.
             NSApp.activate(ignoringOtherApps: true)
             return
         }
@@ -192,17 +190,8 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
         // was in: the menu is still clickable through an app-modal session, so an
         // alert left behind another window reads as a menu that does nothing.
         //
-        // Apple marks this form deprecated as of macOS 14, and it is still the
-        // right call here. `Settings.swift` carries the same call inside the lane
-        // that treats warnings as errors, and that lane is green, so on the CI
-        // toolchain this deprecation is not a warning at all. This file sits
-        // outside that lane (`test.sh` excludes `main.swift`) and the desktop build
-        // passes no `-warnings-as-errors`, so a warning here would go unheard
-        // either way. What nothing can silence is a hard error: the desktop build
-        // compiles every `.swift` in this directory, so a call naming something the
-        // compiler does not know fails the release. That is the whole reason to
-        // keep the form that has been built, and not the no-argument
-        // `activate()`, which no lane here has ever compiled.
+        // Keep the activation form exercised by Settings.swift and this file's
+        // warnings-as-errors typecheck in test.sh.
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertFirstButtonReturn { return }
         NSApp.terminate(nil)

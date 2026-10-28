@@ -8,17 +8,8 @@
    arrive through its alias. */
 @source "../../../../../packages/assistant/src";
 
-/*
- * Dreamframe (Castorice) — the SPA's palette, VALUE for value, under the
- * shadcn names every surface uses. `lint:design` pins both: the names across
- * all three CSS surfaces, and every colour value against the SPA's. Six of
- * these — card, border, primary-foreground, success, warning, destructive —
- * were this page's own "near-Dreamframe tuning" until 2026-09-14, which is
- * exactly the drift the check now refuses: a shared vocabulary with private
- * values is drift wearing its uniform. Tailwind supplies this page's spacing
- * and type utilities; it generates NO palette utilities — these tokens are
- * plain custom properties, and `.muted-text` is the one colour class.
- */
+/* The product palette is imported from packages/assistant/tokens.css.
+   Local declarations below supply the assistant's layout and Tailwind mappings. */
 :root {
   /* Dreamframe (spec 2026-09-03), under the shadcn names every surface uses
      (spec 2026-09-14 § 3.2) — so a rule here reads the same as one in the

@@ -297,7 +297,7 @@ async function proxyRequest(request: Request, sessionRef: string, rest: string):
     if (location) {
       const mapped = settings.rewriteRedirects
         ? previewUrl(location, `${targetOrigin}/${rest}${url.search}`, targetOrigin, proxyBase)
-        : location;
+        : rewriteLocation(location, sessionRef);
       headersOut.set("location", mapped.startsWith(proxyBase) ? mapped.slice(url.origin.length) : mapped);
     }
     if (res.body === null) {

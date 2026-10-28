@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   agreementProblems,
+  allAgreement,
   COLOR_ROLES,
   CSS_SURFACES,
   contrastProblems,
@@ -19,6 +20,7 @@ import {
   SCAN_ROOTS,
   SHARED_TOKENS,
   SURFACE_GLOBS,
+  sharedImportProblems,
   sharedRedeclarationProblems,
   TYPE_ROLES,
   WEB_SCALE,
@@ -473,4 +475,43 @@ describe("a package page that joins a surface", () => {
     expect(existsSync(join(REPO_ROOT, "packages/helper-panel/src/styles.css"))).toBe(true);
     expect(SURFACE_GLOBS.assistant.include.test("styles.css")).toBe(true);
   });
+});
+
+test("every shipped CSS surface imports the shared palette and the agreement pipeline checks it", async () => {
+  for (const surface of Object.keys(CSS_SURFACES) as (keyof typeof CSS_SURFACES)[]) {
+    const css = readFileSync(join(REPO_ROOT, CSS_SURFACES[surface]), "utf8");
+    expect(sharedImportProblems(surface, css)).toEqual([]);
+    expect(sharedImportProblems(surface, css.replace(/^@import[^;]*tokens\.css[^;]*;/m, ""))).toHaveLength(1);
+  }
+  const panel = readFileSync(join(REPO_ROOT, "packages/helper-panel/src/styles.css"), "utf8");
+  expect(panel).toContain('@import "../../assistant/tokens.css";');
+  expect(await allAgreement()).toEqual([]);
+});
+
+test("the agreement pipeline rejects missing imports and local palette overrides", async () => {
+  const fixture = mkdtempSync("/tmp/subshell-tokens-");
+  const files = [...Object.values(CSS_SURFACES), SHARED_TOKENS, "packages/helper-panel/src/styles.css"];
+  try {
+    for (const file of files) {
+      const destination = join(fixture, file);
+      mkdirSync(destination.slice(0, destination.lastIndexOf("/")), { recursive: true });
+      writeFileSync(destination, readFileSync(join(REPO_ROOT, file), "utf8"));
+    }
+    const assistant = join(fixture, CSS_SURFACES.assistant);
+    const original = readFileSync(assistant, "utf8");
+    writeFileSync(assistant, original.replace(/^@import[^;]*tokens\.css[^;]*;/m, ""));
+    expect(await allAgreement("assistant", fixture)).toContain(
+      `assistant: import ${SHARED_TOKENS} before declaring local tokens`,
+    );
+    writeFileSync(assistant, `${original}\n:root {\n  --primary: red;\n}\n`);
+    expect((await allAgreement("assistant", fixture)).some((line) => line.includes("--primary is red"))).toBe(true);
+    writeFileSync(assistant, original);
+    const panel = join(fixture, "packages/helper-panel/src/styles.css");
+    writeFileSync(panel, readFileSync(panel, "utf8").replace(/^@import[^;]*tokens\.css[^;]*;/m, ""));
+    expect(await allAgreement("assistant", fixture)).toContain(
+      `helper-panel: import ${SHARED_TOKENS} before declaring local tokens`,
+    );
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
 });

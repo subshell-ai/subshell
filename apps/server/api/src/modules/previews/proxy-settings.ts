@@ -17,7 +17,7 @@ export interface PreviewSettingsTarget {
   userId: string;
   nodeId: string;
   host: string;
-  protocol: string;
+  protocol: "http" | "https";
   port: number;
 }
 function key(target: PreviewSettingsTarget): PreviewSettingsTarget {

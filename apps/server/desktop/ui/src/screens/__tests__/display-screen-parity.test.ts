@@ -67,6 +67,27 @@ describe("the two assistants' Virtual Displays screens", () => {
     }
   });
 
+  test("both explain the same initial consent and warn about the same control", () => {
+    for (const pattern of [
+      /The helper starts disabled[\s\S]*?macOS permissions\./,
+      /Requires macOS 14[\s\S]*?people you trust\./,
+    ]) {
+      const expected = pattern.exec(server)?.[0];
+      expect(expected).toBeDefined();
+      expect(pattern.exec(client)?.[0]?.replace(/\s+/g, " ")).toBe(expected?.replace(/\s+/g, " "));
+    }
+  });
+  test("the host and client introduce a virtual display with the same sentence", () => {
+    const host = readFileSync(join(HERE, "../../host.tsx"), "utf8");
+    const subtitles = readFileSync(
+      join(HERE, "../../../../../../client/desktop/ui/src/components/assistant/subtitles.ts"),
+      "utf8",
+    );
+    const sentence = /A virtual display gives a subshell[^"\n]+/;
+    expect(sentence.exec(host)?.[0]).toBeDefined();
+    expect(sentence.exec(subtitles)?.[0]).toBe(sentence.exec(host)?.[0]);
+  });
+
   test("neither promises a sign-in registration that enabling no longer does", () => {
     // The defect this pins is the one the split introduced: a step that told
     // people Enable helper also adds the login item, after the button stopped

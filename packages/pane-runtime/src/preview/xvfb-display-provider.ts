@@ -842,9 +842,9 @@ function readTail(path: string): string {
     const size = fstatSync(handle).size;
     const start = Math.max(0, size - REFUSAL_TAIL_BYTES);
     const buffer = new Uint8Array(size - start);
-    readSync(handle, buffer, 0, buffer.length, start);
+    const bytesRead = readSync(handle, buffer, 0, buffer.length, start);
     const lines = new TextDecoder()
-      .decode(buffer)
+      .decode(buffer.subarray(0, bytesRead))
       .split("\n")
       .filter((line) => line.trim().length > 0);
     return lines.slice(-REFUSAL_TAIL_LINES).join("\n");

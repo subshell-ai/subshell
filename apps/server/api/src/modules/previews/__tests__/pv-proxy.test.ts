@@ -409,6 +409,7 @@ describe("pv-http: the same-origin rewrite", () => {
     expect(headers.referer).toBeUndefined();
     expect(headers["sec-fetch-site"]).toBeUndefined();
     expect(await (await proxyFetch(`/pv/${ref}/page`)).text()).toContain('href="/style.css"');
+    expect((await proxyFetch(`/pv/${ref}/redirect`)).headers.get("location")).toBe(`/pv/${ref}/foo?x=1`);
     const redirect = await proxyFetch(`/pv/${ref}/absolute-redirect`);
     expect(redirect.headers.get("location")).toBe(`http://127.0.0.1:${targetPort}/page`);
     const defaultRef = await openSession(targetPort);

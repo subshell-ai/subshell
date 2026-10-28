@@ -275,6 +275,7 @@ test.afterAll(async () => {
 
 /** Sign in through the REAL login form on this instance (spec 11's pattern, absolute origin: the page fixture's baseURL is the shared stack). */
 async function login(page: Page, email: string, password: string): Promise<void> {
+  await page.context().clearCookies();
   await page.goto(`${ORIGIN}/login`);
   await page.fill("#email", email);
   await page.fill("#password", password);

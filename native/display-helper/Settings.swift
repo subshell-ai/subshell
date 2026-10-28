@@ -123,6 +123,7 @@ final class HelperSettings: NSObject, WKScriptMessageHandler, WKNavigationDelega
         // source EXCEPT `main.swift`, and the release build in `build_support.rs`
         // passes no `-warnings-as-errors` at all, so this file is guarded and the
         // app delegate is not.
+        web?.evaluateJavaScript("window.subshellPanelShown?.()", completionHandler: nil)
         window?.makeKeyAndOrderFront(nil)
         window?.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)

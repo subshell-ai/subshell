@@ -7,7 +7,15 @@ import { previewCompatScript } from "./browser-compat.js";
 import { previewSrcset, previewUrl } from "./preview-url.js";
 
 const MAX_TRANSFORM_BYTES = 16 * 1024 * 1024;
-let transformations = 0;
+// Charge decoded bytes as they arrive, rather than refusing a cold-start burst
+// of tiny modules merely because their upstream streams are still open.
+const MAX_BUFFERED_BYTES = 128 * 1024 * 1024;
+let bufferedBytes = 0;
+
+/** Quote a JS literal that can also safely appear inside an HTML script. */
+function scriptString(value: string): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
+}
 function cssUnescape(value: string): string {
   return value.replace(/\\([\da-f]{1,6}\s?|\r\n|[\s\S])/gi, (_, escaped: string) => {
     if (/^[\da-f]/i.test(escaped)) {
@@ -45,7 +53,14 @@ export function rewriteCss(source: string, map: (url: string) => string): string
 }
 export async function rewriteModule(source: string, map: (url: string) => string, base?: string): Promise<string> {
   await init;
-  const [imports] = parse(source);
+  let imports: ReturnType<typeof parse>[0];
+  try {
+    [imports] = parse(source);
+  } catch {
+    // The browser owns syntax errors in the app's code; don't turn them into
+    // proxy failures, or rewrite only part of an invalid module.
+    return source;
+  }
   const edits: { start: number; end: number; text: string }[] = [];
   let expansion = 0;
   const add = (start: number, end: number, text: string) => {
@@ -66,7 +81,7 @@ export async function rewriteModule(source: string, map: (url: string) => string
         add(
           item.start,
           item.start,
-          `((v)=>globalThis.__subshellPreviewMap?globalThis.__subshellPreviewMap(v,${JSON.stringify(base)}):v)(`,
+          `((v)=>globalThis.__subshellPreviewMap?globalThis.__subshellPreviewMap(v,${scriptString(base)}):v)(`,
         );
         add(item.end, item.end, ")");
       }
@@ -78,7 +93,7 @@ export async function rewriteModule(source: string, map: (url: string) => string
     add(
       item.type === "dynamic" ? item.start : item.start - 1,
       item.type === "dynamic" ? item.end : item.end + 1,
-      JSON.stringify(mapped),
+      scriptString(mapped),
     );
   }
   // A single assembly keeps attacker-controlled import counts from making
@@ -93,7 +108,7 @@ export async function rewriteModule(source: string, map: (url: string) => string
   parts.push(source.slice(offset));
   return parts.join("");
 }
-async function boundedText(body: ReadableStream<Uint8Array>): Promise<string> {
+async function boundedText(body: ReadableStream<Uint8Array>, charge: (bytes: number) => void): Promise<string> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   const chunks: string[] = [];
@@ -102,6 +117,7 @@ async function boundedText(body: ReadableStream<Uint8Array>): Promise<string> {
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
+      charge(value.length);
       bytes += value.length;
       if (bytes > MAX_TRANSFORM_BYTES)
         throw new HttpError(
@@ -136,11 +152,13 @@ export async function transformPreviewResponse(
       "This app returned a partial resource that cannot be rewritten. Turn off Rewrite app URLs in Configure preview.",
     );
   }
-  if (transformations >= 8) {
-    await response.body.cancel();
-    throw new HttpError(503, "Too many app responses are being rewritten. Refresh the preview shortly.");
-  }
-  transformations++;
+  let retainedBytes = 0;
+  const charge = (bytes: number) => {
+    if (bufferedBytes + bytes > MAX_BUFFERED_BYTES)
+      throw new HttpError(503, "Too much app content is being rewritten. Refresh the preview shortly.");
+    bufferedBytes += bytes;
+    retainedBytes += bytes;
+  };
   try {
     const charset = /charset\s*=\s*["']?([^;"'\s]+)/i.exec(type)?.[1]?.toLowerCase();
     if (charset && charset !== "utf-8" && charset !== "utf8" && charset !== "us-ascii") {
@@ -174,7 +192,7 @@ export async function transformPreviewResponse(
       });
       body = Readable.toWeb(decoder) as ReadableStream<Uint8Array>;
     }
-    const source = await boundedText(body);
+    const source = await boundedText(body, charge);
     const base = new URL(path, target).href;
     let effectiveBase = base;
     let expansion = 0;
@@ -297,6 +315,6 @@ export async function transformPreviewResponse(
     headers.set("content-type", `${html ? "text/html" : css ? "text/css" : "text/javascript"}; charset=utf-8`);
     return new Response(output, { status: response.status, statusText: response.statusText, headers });
   } finally {
-    transformations--;
+    bufferedBytes -= retainedBytes;
   }
 }

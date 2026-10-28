@@ -129,7 +129,7 @@ async function pageCode(dir: URL = new URL("../../", import.meta.url), prefix = 
     // nothing and the alternative is a rule about which files count, which is the
     // judgement this sweep has already been caught making twice.
     if (!entry.isFile()) continue;
-    if (!/\.(ts|tsx|js|jsx|mjs|cjs|css|html|json|svg|txt|md)$/i.test(entry.name)) continue;
+    if (!/\.(ts|tsx|js|jsx|mjs|cjs|css|html|json|svg|txt|md|toml)$/i.test(entry.name)) continue;
     if (entry.name.endsWith(".d.ts")) continue;
     if (`${prefix}${entry.name}` === COPY_FILE) continue;
     // `dir` already names the directory it was recursed into, so the file URL is
@@ -280,6 +280,12 @@ describe("the consent warning", () => {
 });
 
 describe("stateLine", () => {
+  test("acknowledges both permissions once macOS allows them", () => {
+    expect(stateLine(stateWith({ enabled: true, screenRecording: true, accessibility: true }))).toBe(
+      "Enabled. Capture and input are allowed by macOS.",
+    );
+  });
+
   test("denies both capture and input while disabled", () => {
     const line = stateLine(stateWith({ enabled: false, screenRecording: true, accessibility: true }));
     expect(line).toContain("Disabled");
@@ -600,7 +606,8 @@ describe("the panel's own copy stays in one file", () => {
     for (const { file, code } of await pageCode()) {
       // Plugs the one exemption this check's own reach depends on: a helper under a
       // test directory is not swept, so page code must not be importing from one.
-      if (IMPORTS_TEST_DIR.test(code)) offenders.push(`${file} imports shipped copy from a test directory`);
+      if (file !== "bunfig.toml" && IMPORTS_TEST_DIR.test(code))
+        offenders.push(`${file} imports shipped copy from a test directory`);
       const flat = squash(code);
       for (const copy of COPY_THE_PAGE_MAY_NOT_HOLD) {
         if (flat.includes(squash(copy))) offenders.push(`${file} holds "${copy.slice(0, 32)}..." as its own copy`);

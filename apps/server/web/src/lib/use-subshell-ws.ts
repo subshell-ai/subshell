@@ -397,6 +397,9 @@ export function useSubshellWs(
     };
 
     const connect = async () => {
+      // Only this connection's replay can establish a grid baseline.
+      establishedGrid = null;
+      outputSince = 0;
       // Counted attempts, not successes: a reconnect that fails and retries
       // again is still 1, 2, 3… from the HUD's reader's point of view.
       connections++;

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { COLOR_ROLES } from "../../../../../../scripts/design-tokens";
 
 /**
  * Until 2026-10-27 this stylesheet's palette was "COPIED VERBATIM from
@@ -23,20 +24,6 @@ const CLIENT = join(HERE, "../styles.css");
 const SPA = join(HERE, "../../../../../server/web/src/styles.css");
 // HERE is ui/src/__tests__: five levels up is apps/, six is the repo root.
 const SHARED = join(HERE, "../../../../../../packages/assistant/tokens.css");
-
-/** The ten colour roles the design system requires of every surface. */
-const ROLES = [
-  "background",
-  "card",
-  "border",
-  "foreground",
-  "muted-foreground",
-  "primary",
-  "primary-foreground",
-  "success",
-  "warning",
-  "destructive",
-] as const;
 
 /** The declarations of one named block, normalised to `--name: value`. */
 function declarations(css: string, opener: RegExp): string[] {
@@ -62,7 +49,7 @@ describe("the client's tokens are the SPA's", () => {
 
   test("the shared file declares every colour role the system requires", () => {
     const declared = declarations(shared, /^:root \{/m);
-    for (const role of ROLES) {
+    for (const role of COLOR_ROLES) {
       expect(
         declared.some((d) => d.startsWith(`--${role}:`)),
         `--${role} missing from ${SHARED}`,
@@ -81,7 +68,7 @@ describe("the client's tokens are the SPA's", () => {
       for (const decl of declarations(css, /^:root,\n\.dark \{/m)) {
         if (decl.includes("var(")) continue;
         const role = decl.slice(2, decl.indexOf(":")).trim();
-        if (ROLES.includes(role as (typeof ROLES)[number])) {
+        if (COLOR_ROLES.includes(role as (typeof COLOR_ROLES)[number])) {
           expect(sharedDecls.has(decl), `${name} re-declares --${role} locally`).toBe(true);
         }
       }
@@ -102,6 +89,6 @@ describe("the client's tokens are the SPA's", () => {
     // floor is the surface's own extras (button gradients, tints, aliases).
     expect(declarations(spa, /^:root,\n\.dark \{/m).length).toBeGreaterThan(10);
     expect(declarations(spa, /^@theme inline \{/m).length).toBeGreaterThan(20);
-    expect(declarations(shared, /^:root \{/m).length).toBeGreaterThan(ROLES.length - 1);
+    expect(declarations(shared, /^:root \{/m).length).toBeGreaterThan(COLOR_ROLES.length - 1);
   });
 });

@@ -427,6 +427,16 @@ describe("preview REST surface (Task 9)", () => {
       expect((await call("POST", `/${pane}/views/settings`, { cookie: foreignCookie, body })).status).toBe(404);
     }
     await nodes.setPreviewEnabled(nodeId, { on: false, changedAt: new Date().toISOString() });
+    // Display-only nodes still own preview preferences for their screen port.
+    expect(
+      (
+        await call("POST", `/${pane}/views/settings`, {
+          cookie: ownerCookie,
+          body: { target: { port: 5900 }, action: "read" },
+        })
+      ).status,
+    ).toBe(200);
+    await nodes.setPreviewEnabled(nodeId, { feature: "display", on: false, changedAt: new Date().toISOString() });
     expect(
       (
         await call("POST", `/${pane}/views/settings`, {

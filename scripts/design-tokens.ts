@@ -20,7 +20,7 @@
  * Spec: docs/superpowers/specs/2026-09-14-design-system-design.md § 6.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 export const TYPE_ROLES = ["display", "heading", "label", "body", "detail"] as const;
 export type TypeRole = (typeof TYPE_ROLES)[number];
@@ -215,7 +215,7 @@ export function contrastRatio(a: [number, number, number], b: [number, number, n
 }
 
 /** Mobile's camelCase keys → the CSS roles they must equal. The terminal trio is not compared (mobile's termFg has no CSS token). */
-export const MOBILE_COLOR_MAP: Record<string, ColorRole> = {
+export const MOBILE_COLOR_MAP: Record<string, ColorRole | (typeof OPTIONAL_COLOR_ROLES)[number]> = {
   bg: "background",
   card: "card",
   border: "border",
@@ -509,9 +509,18 @@ export const MOBILE_TOKENS = "apps/client/mobile/src/lib/tokens.ts";
  */
 export const SHARED_TOKENS = "packages/assistant/tokens.css";
 
-/** One surface's tokens: the shared file plus its own declarations. */
-export function readSurfaceCss(repoRoot: string, surface: Exclude<Surface, "mobile">, sharedCss: string): string {
-  return `${sharedCss}\n${readFileSync(join(repoRoot, CSS_SURFACES[surface]), "utf8")}`;
+/** Refuse a missing shared import before crediting that file's tokens. */
+export function sharedImportProblems(
+  surface: string,
+  ownCss: string,
+  repoRoot = REPO_ROOT,
+  sourcePath = CSS_SURFACES[surface as Exclude<Surface, "mobile">],
+): string[] {
+  const surfacePath = join(repoRoot, sourcePath);
+  const imports = [...ownCss.matchAll(/^\s*@import\s+["']([^"']+)["']\s*;/gm)];
+  return imports.some((match) => resolve(dirname(surfacePath), match[1]) === join(repoRoot, SHARED_TOKENS))
+    ? []
+    : [`${surface}: import ${SHARED_TOKENS} before declaring local tokens`];
 }
 
 /**
@@ -587,13 +596,13 @@ export function cssColorAgreement(spaCss: string, others: Record<string, string>
   return problems;
 }
 
-export async function allAgreement(only?: Surface): Promise<string[]> {
+export async function allAgreement(only?: Surface, repoRoot = REPO_ROOT): Promise<string[]> {
   const problems: string[] = [];
-  const sharedCss = readFileSync(join(REPO_ROOT, SHARED_TOKENS), "utf8");
+  const sharedCss = readFileSync(join(repoRoot, SHARED_TOKENS), "utf8");
   const own = Object.fromEntries(
     (Object.keys(CSS_SURFACES) as Exclude<Surface, "mobile">[]).map((surface) => [
       surface,
-      readFileSync(join(REPO_ROOT, CSS_SURFACES[surface]), "utf8"),
+      readFileSync(join(repoRoot, CSS_SURFACES[surface]), "utf8"),
     ]),
   ) as Record<Exclude<Surface, "mobile">, string>;
   // Every surface is read as the shared file plus its own: a role declared
@@ -603,11 +612,18 @@ export async function allAgreement(only?: Surface): Promise<string[]> {
   ) as Record<Exclude<Surface, "mobile">, string>;
   for (const surface of Object.keys(css) as Exclude<Surface, "mobile">[]) {
     if (only && only !== surface) continue;
+    problems.push(...sharedImportProblems(surface, own[surface], repoRoot));
     problems.push(...agreementProblems(surface, parseCssTokens(css[surface]), WEB_SCALE));
     // A surface that re-declares a shared role with a different value wins on
     // cascade order and quietly changes what that screen looks like; that must
     // be a red run, not a design review finding.
     problems.push(...sharedRedeclarationProblems(surface, sharedCss, own[surface]));
+  }
+  if (!only || only === "assistant") {
+    const panelPath = "packages/helper-panel/src/styles.css";
+    const panel = readFileSync(join(repoRoot, panelPath), "utf8");
+    problems.push(...sharedImportProblems("helper-panel", panel, repoRoot, panelPath));
+    problems.push(...sharedRedeclarationProblems("helper-panel", sharedCss, panel));
   }
   // Values, not just names: the SPA is the source and the other two must
   // match it. Scoped by --only so a single-surface run reports only its own.
@@ -620,7 +636,7 @@ export async function allAgreement(only?: Surface): Promise<string[]> {
     // The repo's no-dynamic-imports rule does not bind here: this is a dev
     // tool under scripts/, never compiled into a binary, and the path is a
     // fixed constant rather than a runtime-discovered module.
-    const mod = (await import(join(REPO_ROOT, MOBILE_TOKENS))) as {
+    const mod = (await import(join(repoRoot, MOBILE_TOKENS))) as {
       colors: Record<string, string>;
       type: Record<string, { size: number; weight: string }>;
     };

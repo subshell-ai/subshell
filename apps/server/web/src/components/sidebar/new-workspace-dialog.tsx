@@ -260,7 +260,10 @@ export function NewWorkspaceDialog({
                   draft={sshDraft}
                   onDraftChange={setSshDraft}
                   onPendingChange={setLaunching}
-                  onLeave={() => onOpenChange(false)}
+                  onLeave={() => {
+                    reset();
+                    onOpenChange(false);
+                  }}
                   onCreated={(id) => {
                     setSelected((prev) => [...prev, id]);
                     setMode("existing");
@@ -270,7 +273,10 @@ export function NewWorkspaceDialog({
                 <NewSubshellForm
                   value={form}
                   onChange={setForm}
-                  onLeave={() => onOpenChange(false)}
+                  onLeave={() => {
+                    reset();
+                    onOpenChange(false);
+                  }}
                   launchError={displayLaunchError}
                 />
               )}
@@ -290,7 +296,10 @@ export function NewWorkspaceDialog({
             <>
               <Button
                 variant="outline"
-                onClick={() => onOpenChange(false)}
+                onClick={() => {
+                  reset();
+                  onOpenChange(false);
+                }}
                 disabled={creating || launching}
                 disabledReason={"Wait for the workspace action to finish."}
               >

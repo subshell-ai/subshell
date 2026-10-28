@@ -1,0 +1,9 @@
+---
+"@internal/server": patch
+"@internal/node": patch
+"@internal/desktop-server": patch
+"@internal/desktop-client": patch
+"@internal/docs": patch
+---
+
+Keep preview redirects inside their proxy, preserve malformed app scripts for browser diagnostics, and bound concurrent rewriting by decoded bytes. Fix preview preferences on display-only nodes, reconnect grid tracking, launch-dialog cleanup, and node-settings links. Recover stalled capture writers between output bursts and rescue the Mac pointer after capture loss. Keep helper confirmations stable across state updates and clear them when settings reopen. Verify shared palette imports and refresh the preview documentation screenshots.
