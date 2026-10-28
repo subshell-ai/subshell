@@ -2,6 +2,7 @@
 import { mkdirSync } from "node:fs";
 import { chromium, expect, request } from "@playwright/test";
 import { BASE_URL } from "./ports";
+import { captureScreenshot } from "./screenshot";
 import { startStack, stopStack } from "./stack";
 
 const cleanup: (() => unknown | Promise<unknown>)[] = [stopStack];
@@ -46,8 +47,10 @@ try {
   const context = await browser.newContext({
     baseURL: BASE_URL,
     storageState: await api.storageState(),
-    viewport: { width: 1200, height: 850 },
-    deviceScaleFactor: 2,
+    // Match 200% browser zoom: half the CSS viewport at twice the pixel density.
+    // Keep the exported image at 2400 × 1700 while making text and controls twice as large.
+    viewport: { width: 600, height: 425 },
+    deviceScaleFactor: 4,
     colorScheme: "dark",
   });
   const page = await context.newPage();
@@ -59,6 +62,11 @@ try {
   });
   await page.goto(`/workspaces/${workspace.id}`);
   await page.getByRole("button", { name: /^Open web preview or screen/ }).click();
+  await captureScreenshot(
+    page,
+    "apps/docs/public/screenshots/preview-picker.png",
+    page.getByRole("dialog", { name: "Open web preview or screen" }),
+  );
   await page.getByRole("button", { name: /^Subshell website/ }).click();
   await page.getByRole("button", { name: "More view actions" }).click();
   await page.getByRole("menuitem", { name: "Maximize pane" }).click();
