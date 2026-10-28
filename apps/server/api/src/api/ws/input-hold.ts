@@ -133,6 +133,7 @@ export interface FailedInput {
  * @param failed - The failed write
  */
 export function holdFailedInput(failed: FailedInput): void {
+  if (failed.ws.data.accessRevoked) return;
   let subs = holds.get(failed.nodeId);
   if (!subs) {
     subs = new Map();
@@ -183,6 +184,10 @@ function drain(hold: SessionHold, sessionId: string): void {
         // a fresh write would make — never a stale copy of the launcher the
         // frame originally failed on.
         const data = entry.ws.data;
+        if (data.accessRevoked) {
+          hold.queue.shift();
+          continue;
+        }
         await data.launcher.sendInput(data.socket, data.subshellId, entry.payload);
         hold.queue.shift();
         inputWindowAdd(data.subshellId, sessionId, entry.id);

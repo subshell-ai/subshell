@@ -23,6 +23,8 @@ import {
   sendFrame,
   setSizingPolicy,
   sharedGridFor,
+  trackTerminalSocket,
+  untrackTerminalSocket,
   type WsData,
   type WsSocket,
 } from "@/api/ws/viewers.js";
@@ -76,6 +78,16 @@ const LOG_FILE_WAIT_MS = 1_500;
  * local attach handler for shared machinery.
  */
 export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
+  const paneId = url.searchParams.get("subshell");
+  if (paneId) trackTerminalSocket(ws, paneId, () => cleanupSubshellWs(ws));
+  try {
+    await attachSubshellWs(ws, url);
+  } finally {
+    if (!ws.data.viewerId || ws.data.detachedEarly) untrackTerminalSocket(ws);
+  }
+}
+
+async function attachSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // Who is asking, may they, and about which subshell — one decision, made
   // without touching the socket (see `attach-resolve.ts`). Refusals come back
   // rather than closing there, so every close code is owned here.
@@ -91,6 +103,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     ws.close(resolved.code, resolved.reason);
     return;
   }
+  if (ws.data.accessRevoked || ws.data.detachedEarly) return;
   const { row, access, canInput, params, attendsPush } = resolved;
   // Stash WHO authenticated onto the socket before either path continues —
   // the local `Object.assign` and the remote relay's both build their own
@@ -410,7 +423,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
  */
 export function handleSubshellMessage(ws: WsSocket, message: string | object): void {
   const data = ws.data;
-  if (!data?.launcher) return;
+  if (!data?.launcher || data.accessRevoked) return;
   const frame = parseClientFrame(message);
   if (!frame) {
     logger.warn("ws: dropped unrecognized client frame");
@@ -587,6 +600,7 @@ function sendToSocket(ws: WsSocket, frame: object): void {
 
 /** Stops streaming when the client disconnects. */
 export function cleanupSubshellWs(ws: WsSocket): void {
+  untrackTerminalSocket(ws);
   // The attach is fired unawaited from the plugin's `open` and reaches
   // `Object.assign(ws.data, data)` only after an access lookup and a tmux
   // probe. A close inside that window finds NOTHING to undo — no viewerId to

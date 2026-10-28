@@ -58,6 +58,7 @@ import {
   type SshLaunchPlumbing,
   SubshellManagerService,
 } from "@/modules/subshells/subshell-manager.service.js";
+import { invalidateSharedTerminalAccess } from "@/modules/subshells/terminal-access.js";
 import { extendSubshellToken, subshellTokenTtlSeconds } from "@/modules/subshells/tokens.js";
 import { HttpError } from "@/shared/errors.js";
 import { logger } from "@/shared/logger.js";
@@ -1305,6 +1306,9 @@ export class SubshellsService extends BaseService {
       if (unknown) throw new HttpError(400, "Cannot share with an unknown user");
     }
     await this.repos.subshellShares.replaceForSubshell(id, entries, viewerId);
+    // Existing sockets cache their input grant. Cut them, including pending
+    // attaches, before answering; a client notification isn't authorization.
+    invalidateSharedTerminalAccess(id, row.userId);
     // The BEFORE access rides the event: recipients computed after the write
     // reach everyone EXCEPT whoever just lost the row, so this is the only
     // thing that can tell a revoked grantee (spec §4.2). Deriving which topics

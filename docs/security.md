@@ -980,6 +980,14 @@ re-normalized server-side (`normalizeDeviceLabel`), so a name cannot carry
 control characters into another user's screen or a log line.
 
 Revoke by clearing the grant: the sharing dialog, or an empty `PUT`.
+Every successful share update cuts existing grantee terminal connections and
+pending attaches before the request returns. The owner's resolved connections
+stay open. Reconnecting resolves the current grants, so a removed grantee can't
+read more output and an editor downgraded to view can't keep typing through an
+old socket. The cutoff blocks input and output immediately, disposes streams,
+and drops queued input without waiting for a browser close event. A command
+already dispatched to the node may finish; changing shares doesn't undo it.
+Preview access is recomputed separately for each holder.
 
 ### Notifications do not follow shares
 

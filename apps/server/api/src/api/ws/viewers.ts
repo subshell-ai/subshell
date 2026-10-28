@@ -22,6 +22,7 @@ import { createPaneStreamRegistry } from "@/api/ws/pane-stream.js";
 import { getRequestlessContext } from "@/app/context.js";
 import { publishLive } from "@/app/live-bus.js";
 import type { NodeLauncher } from "@/modules/nodes/node-launcher.js";
+import { resetTerminalAccessForTests, trackTerminalAccess } from "@/modules/subshells/terminal-access.js";
 import { logger } from "@/shared/logger.js";
 
 /**
@@ -58,6 +59,10 @@ export interface WsData {
 
   /** True when the caller may send terminal input (`edit`/`owner`); a `view` grantee is read-only. */
   canInput: boolean;
+  /** Revoked sockets cannot send or receive, even before their close callback runs. */
+  accessRevoked?: boolean;
+  /** Releases the access lease even when attach has not registered a viewer yet. */
+  releaseTerminalAccess?: () => void;
   /**
    * True when this socket belongs to the human the row's pushes go to (a
    * cookie identity on their own row) — stashed on `ws.data` by the open
@@ -161,6 +166,7 @@ function wsBinaryPayload(bytes: Uint8Array): Buffer {
  * @param frame - The server frame
  */
 export function sendFrame(ws: WsSocket, frame: object): void {
+  if (ws.data?.accessRevoked) return;
   try {
     const payload = encodeForSocket(ws, frame);
     ws.send(typeof payload === "string" ? payload : wsBinaryPayload(payload));
@@ -240,6 +246,37 @@ export function persistOutputFor(subshellId: string): void {
  */
 const liveViewers = new Map<string, Map<string, WsSocket>>();
 
+/** Track pending and established sockets without coupling the share service to WebSockets. */
+export function trackTerminalSocket(ws: WsSocket, paneId: string, cleanup: () => void): void {
+  ws.data.releaseTerminalAccess = trackTerminalAccess(
+    paneId,
+    () => ws.data.attachUserId,
+    () => {
+      // Mark first: a late probe can assign canInput again, and a close event
+      // need not arrive before another input or output callback.
+      ws.data.accessRevoked = true;
+      ws.data.detachedEarly = true;
+      ws.data.canInput = false;
+      untrackTerminalSocket(ws);
+      try {
+        cleanup();
+      } catch {
+        // The guards still deny traffic if a transport disposer fails.
+      }
+      try {
+        ws.close(1012, "subshell sharing changed");
+      } catch {
+        // Already closed; access is revoked independently of the transport.
+      }
+    },
+  );
+}
+
+export function untrackTerminalSocket(ws: WsSocket): void {
+  ws.data?.releaseTerminalAccess?.();
+  if (ws.data) delete ws.data.releaseTerminalAccess;
+}
+
 /**
  * Drops every scrap of per-subshell state this module holds, WITHOUT closing
  * any socket. Only for tests.
@@ -261,6 +298,7 @@ const liveViewers = new Map<string, Map<string, WsSocket>>();
  */
 export function resetLiveViewersForTests(): void {
   liveViewers.clear();
+  resetTerminalAccessForTests();
   sizingPolicies.clear();
   lastOutputWrites.clear();
   paneStreams.resetForTests();
